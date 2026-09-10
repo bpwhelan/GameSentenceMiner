@@ -1,6 +1,7 @@
 import ctypes
 import PyQt6.QtGui as QTGui
 import copy
+from dataclasses import replace
 import os
 import requests
 import subprocess
@@ -104,7 +105,6 @@ from GameSentenceMiner.util.config.configuration import (
     OBS,
     Hotkeys,
     VAD,
-    Overlay,
     Ai,
     Advanced,
     OverlayEngine,
@@ -701,6 +701,8 @@ class ConfigWindow(QWidget):
                 [
                     int(previous_config.general.single_port) != int(new_config.general.single_port),
                     int(previous_config.general.texthooker_port) != int(new_config.general.texthooker_port),
+                    int(previous_config.advanced.direct_websocket_port)
+                    != int(new_config.advanced.direct_websocket_port),
                 ]
             )
         except Exception:
@@ -890,6 +892,27 @@ class ConfigWindow(QWidget):
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
                     confirmation_gamepad_enabled=self.anki_confirmation_gamepad_enabled_check.isChecked(),
+                    confirmation_gamepad_focus_up=str(
+                        self.anki_confirmation_gamepad_focus_up_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_focus_down=str(
+                        self.anki_confirmation_gamepad_focus_down_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_focus_left=str(
+                        self.anki_confirmation_gamepad_focus_left_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_focus_right=str(
+                        self.anki_confirmation_gamepad_focus_right_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_activate=str(
+                        self.anki_confirmation_gamepad_activate_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_confirm_with_audio=str(
+                        self.anki_confirmation_gamepad_confirm_with_audio_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_confirm_without_audio=str(
+                        self.anki_confirmation_gamepad_confirm_without_audio_combo.currentData() or ""
+                    ),
                     replay_audio_on_tts_generation=self.anki_confirmation_replay_audio_on_tts_generation_check.isChecked(),
                     reuse_audio_for_same_selected_lines_different_mined_line=(
                         self.anki_same_selection_different_line_reuse_audio_check.isChecked()
@@ -1006,6 +1029,7 @@ class ConfigWindow(QWidget):
                     multi_line_line_break=self.multi_line_line_break_edit.text(),
                     texthooker_communication_websocket_port=self.settings.advanced.texthooker_communication_websocket_port,
                     plaintext_websocket_port=self.settings.advanced.plaintext_websocket_port,
+                    direct_websocket_port=int(self.direct_websocket_port_edit.text() or 0),
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
                     longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
                     screenshot_capture_backend_v2=self.screenshot_capture_backend_combo.currentText(),
@@ -1071,8 +1095,10 @@ class ConfigWindow(QWidget):
                     custom_texthooker_prompt=self.custom_texthooker_prompt_textedit.toPlainText(),
                     custom_full_prompt=self.custom_full_prompt_textedit.toPlainText(),
                 ),
-                overlay=Overlay(
-                    websocket_port=self.settings.overlay.websocket_port,
+                # Preserve fields managed only by the overlay UI, including edits
+                # made after this settings window loaded its own config snapshot.
+                overlay=replace(
+                    configuration.get_overlay_config(),
                     monitor_to_capture=selected_monitor_index,
                     monitor_to_capture_id=str(selected_monitor_descriptor.get("id", "")),
                     monitor_to_capture_bounds=dict(selected_monitor_descriptor.get("bounds", {})),
@@ -1096,9 +1122,6 @@ class ConfigWindow(QWidget):
                         OverlayManualBackgroundMode.ON_DEMAND.value
                         if self.manual_mode_desktop_background_check.isChecked()
                         else OverlayManualBackgroundMode.OFF.value
-                    ),
-                    check_previous_lines_for_recycled_indicator=bool(
-                        getattr(self.settings.overlay, "check_previous_lines_for_recycled_indicator", False)
                     ),
                     ocr_full_screen_instead_of_obs=bool(
                         getattr(self, "ocr_full_screen_instead_of_obs_checkbox", None)
@@ -1430,6 +1453,7 @@ class ConfigWindow(QWidget):
         self.clipboard_enabled_check = QCheckBox()
         self.use_both_clipboard_and_websocket_check = QCheckBox()
         self.merge_matching_sequential_text_check = QCheckBox()
+        self.remove_matching_prefix_on_subsequent_lines_check = QCheckBox()
         self.websocket_uri_edit = QLineEdit()
         self.open_config_on_startup_check = QCheckBox()
         self.open_multimine_on_startup_check = QCheckBox()
@@ -1463,6 +1487,13 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_always_on_top_check = QCheckBox()
         self.anki_confirmation_focus_on_show_check = QCheckBox()
         self.anki_confirmation_gamepad_enabled_check = QCheckBox()
+        self.anki_confirmation_gamepad_focus_up_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_focus_down_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_focus_left_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_focus_right_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_activate_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_confirm_with_audio_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_confirm_without_audio_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_autoplay_audio_check = QCheckBox()
         self.anki_confirmation_replay_audio_on_tts_generation_check = QCheckBox()
         self.anki_same_selection_different_line_reuse_audio_check = QCheckBox()
@@ -1723,6 +1754,8 @@ class ConfigWindow(QWidget):
         self.multi_line_line_break_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
         self.plaintext_websocket_export_port_edit = QLineEdit()
+        self.direct_websocket_port_edit = QLineEdit()
+        self.direct_websocket_port_edit.setValidator(QTGui.QIntValidator(0, 65535))
         self.polling_rate_edit = QLineEdit()
         self.localhost_bind_address_edit = QLineEdit()
         self.longest_sleep_time_edit = QLineEdit()
@@ -3041,6 +3074,34 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_gamepad_enabled_check.setChecked(
             bool(getattr(s.anki, "confirmation_gamepad_enabled", False))
         )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_focus_up_combo,
+            getattr(s.anki, "confirmation_gamepad_focus_up", "12"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_focus_down_combo,
+            getattr(s.anki, "confirmation_gamepad_focus_down", "13"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_focus_left_combo,
+            getattr(s.anki, "confirmation_gamepad_focus_left", "14"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_focus_right_combo,
+            getattr(s.anki, "confirmation_gamepad_focus_right", "15"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_activate_combo,
+            getattr(s.anki, "confirmation_gamepad_activate", "0"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_confirm_with_audio_combo,
+            getattr(s.anki, "confirmation_gamepad_confirm_with_audio", "2"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_confirm_without_audio_combo,
+            getattr(s.anki, "confirmation_gamepad_confirm_without_audio", "1"),
+        )
         self.anki_confirmation_autoplay_audio_check.setChecked(bool(s.anki.autoplay_audio))
         self.anki_confirmation_replay_audio_on_tts_generation_check.setChecked(
             bool(getattr(s.anki, "replay_audio_on_tts_generation", True))
@@ -3427,6 +3488,7 @@ class ConfigWindow(QWidget):
             str(s.advanced.texthooker_communication_websocket_port)
         )
         self.plaintext_websocket_export_port_edit.setText(str(s.advanced.plaintext_websocket_port))
+        self.direct_websocket_port_edit.setText(str(getattr(s.advanced, "direct_websocket_port", 0)))
         self.polling_rate_edit.setText(str(s.anki.polling_rate_v2))
         self._set_text_value(self.localhost_bind_address_edit, s.advanced.localhost_bind_address)
         self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))

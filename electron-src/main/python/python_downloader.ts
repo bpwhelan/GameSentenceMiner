@@ -29,7 +29,7 @@ const UV_DIR = path.join(BASE_DIR, 'uv');
 // python_ops.syncLockedEnvironment), which means dropped deps linger in the venv.
 // Flipping this forces a one-time full venv rebuild so orphans are dropped. The
 // last-applied value is stamped inside the venv; a mismatch triggers the rebuild.
-const VENV_GENERATION = 1;
+const VENV_GENERATION = 2;
 const VENV_GENERATION_FILE = path.join(VENV_DIR, '.gsm_venv_generation');
 const VENV_CREATION_ATTEMPTS = 4;
 const VENV_CREATION_RETRY_DELAY_MS = 1_500;
@@ -251,28 +251,30 @@ export function hasManagedPythonInstall(): boolean {
 }
 
 /**
- * Read the dependency-generation value stamped into the current venv. Returns 0
- * when the marker is missing or unreadable (e.g. a venv built before this marker
- * existed), which forces a rebuild against the current {@link VENV_GENERATION}.
+ * Read the dependency-generation and Python-version stamp from the current venv.
+ * A missing or legacy marker forces a rebuild without launching Python merely to
+ * inspect its version on every startup.
  */
-function readVenvGeneration(): number {
+function readVenvGeneration(): string {
     try {
-        const raw = fs.readFileSync(VENV_GENERATION_FILE, 'utf8').trim();
-        const parsed = Number.parseInt(raw, 10);
-        return Number.isFinite(parsed) ? parsed : 0;
+        return fs.readFileSync(VENV_GENERATION_FILE, 'utf8').trim();
     } catch {
-        return 0;
+        return 'missing';
     }
 }
 
 function isVenvGenerationCurrent(): boolean {
-    return readVenvGeneration() >= VENV_GENERATION;
+    return readVenvGeneration() === `${VENV_GENERATION}:${PYTHON_VERSION}`;
 }
 
-/** Stamp the current generation into the venv after a successful (re)build. */
+/** Stamp the current generation and interpreter version after a successful rebuild. */
 function stampVenvGeneration(): void {
     try {
-        fs.writeFileSync(VENV_GENERATION_FILE, `${VENV_GENERATION}\n`, 'utf8');
+        fs.writeFileSync(
+            VENV_GENERATION_FILE,
+            `${VENV_GENERATION}:${PYTHON_VERSION}\n`,
+            'utf8'
+        );
     } catch (err) {
         console.warn(`Failed to stamp venv generation marker (non-fatal): ${toErrorMessage(err)}`);
     }
@@ -393,7 +395,16 @@ async function isUvExecutableUsable(): Promise<boolean> {
     }
 
     try {
-        await execFileAsync(uvPath, ['--version'], { windowsHide: true });
+        const { stdout } = await execFileAsync(uvPath, ['--version'], {
+            windowsHide: true,
+        });
+        const installedVersion = stdout.trim().match(/^uv\s+(\S+)/)?.[1] ?? null;
+        if (installedVersion !== UV_VERSION) {
+            console.warn(
+                `Managed uv version mismatch: found ${installedVersion ?? 'unknown'}, expected ${UV_VERSION}.`
+            );
+            return false;
+        }
         return true;
     } catch (error: any) {
         console.warn(`Managed uv executable is present but unusable: ${error.message || error}`);

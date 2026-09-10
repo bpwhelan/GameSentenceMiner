@@ -2,7 +2,31 @@ import argparse
 import configparser
 import os
 import textwrap
-import urllib.request
+
+_DEFAULT_CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".config", "owocr_config_gsm.ini")
+_DEFAULT_CONFIG = {
+    "read_from": "clipboard",
+    "read_from_secondary": "",
+    "write_to": "clipboard",
+    "engine": "",
+    "pause_at_startup": False,
+    "auto_pause": 0,
+    "ignore_flag": False,
+    "delete_images": False,
+    "engines": [],
+    "logger_format": "<green>{time:HH:mm:ss.SSS}</green> | <level>{message}</level>",
+    "engine_color": "cyan",
+    "delay_secs": 0.5,
+    "websocket_port": 7331,
+    "notifications": False,
+    "combo_pause": "",
+    "combo_engine_switch": "",
+    "screen_capture_area": "",
+    "screen_capture_delay_secs": 3,
+    "screen_capture_only_active_windows": True,
+    "screen_capture_combo": "",
+    "screen_capture_old_macos_api": False,
+}
 
 
 def str2bool(value):
@@ -131,34 +155,7 @@ parser.add_argument(
 
 
 class Config:
-    has_config = False
-    downloaded_config = False
-    config_path = os.path.join(os.path.expanduser("~"), ".config", "owocr_config_gsm.ini")
-    __general_config = {}
-    __engine_config = {}
-    __default_config = {
-        "read_from": "clipboard",
-        "read_from_secondary": "",
-        "write_to": "clipboard",
-        "engine": "",
-        "pause_at_startup": False,
-        "auto_pause": 0,
-        "ignore_flag": False,
-        "delete_images": False,
-        "engines": [],
-        "logger_format": "<green>{time:HH:mm:ss.SSS}</green> | <level>{message}</level>",
-        "engine_color": "cyan",
-        "delay_secs": 0.5,
-        "websocket_port": 7331,
-        "notifications": False,
-        "combo_pause": "",
-        "combo_engine_switch": "",
-        "screen_capture_area": "",
-        "screen_capture_delay_secs": 3,
-        "screen_capture_only_active_windows": True,
-        "screen_capture_combo": "",
-        "screen_capture_old_macos_api": False,
-    }
+    config_path = _DEFAULT_CONFIG_PATH
 
     def __parse(self, value):
         value = value.strip()
@@ -178,7 +175,12 @@ class Config:
             pass
         return value
 
-    def __init__(self, parse_args=True):
+    def __init__(self, parse_args=True, config_path=None):
+        self.has_config = False
+        self.__general_config = {}
+        self.__engine_config = {}
+        self.config_path = os.fspath(config_path) if config_path is not None else type(self).config_path
+
         if parse_args:
             args = parser.parse_args()
             self.__provided_cli_args = vars(args)
@@ -188,17 +190,11 @@ class Config:
         res = config.read(self.config_path, encoding="utf-8")
 
         if len(res) == 0:
-            try:
-                config_folder = os.path.join(os.path.expanduser("~"), ".config")
-                if not os.path.isdir(config_folder):
-                    os.makedirs(config_folder)
-                urllib.request.urlretrieve(
-                    "https://raw.githubusercontent.com/bpwhelan/gsm_owocr/master/owocr_config_gsm.ini",
-                    self.config_path,
-                )
-                self.downloaded_config = True
-            finally:
-                return
+            # The GSM-specific OWOCR config is a legacy compatibility file. It
+            # is intentionally optional: normal GSM OCR settings come from the
+            # GSM config, and the built-in defaults below cover this runtime
+            # when the legacy file is absent. Do not create it or fetch it.
+            return
 
         self.has_config = True
         for key in config:
@@ -216,10 +212,10 @@ class Config:
         try:
             return self.__general_config[value]
         except KeyError:
-            if default_value:
+            if default_value is not None:
                 return default_value
-            if value in self.__default_config:
-                return self.__default_config[value]
+            if value in _DEFAULT_CONFIG:
+                return _DEFAULT_CONFIG[value]
             else:
                 return None
 

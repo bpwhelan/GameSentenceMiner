@@ -1,7 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import * as path from 'node:path';
 
 const mockExecFileAsync = vi.fn();
 const mockResolvePreReleaseBackendWheelPath = vi.fn<() => string | null>();
+const mockSpawn = vi.fn();
+const mockMarkSynced = vi.fn();
+
+vi.mock('child_process', () => ({ spawn: mockSpawn }));
+vi.mock('./dev_environment_sync.js', () => ({
+    getDevPyprojectSyncState: () => ({ changed: true, fingerprint: 'locked-inputs' }),
+    markDevPyprojectSynced: mockMarkSynced,
+}));
 
 vi.mock('../util.js', () => ({
     execFileAsync: mockExecFileAsync,
@@ -79,5 +89,112 @@ describe('checkAndEnsurePip', () => {
         expect(mockExecFileAsync).toHaveBeenNthCalledWith(1, expect.any(String), ['-m', 'pip', '--version']);
         expect(mockExecFileAsync).toHaveBeenNthCalledWith(2, expect.any(String), ['-m', 'ensurepip', '--upgrade']);
         expect(mockExecFileAsync).toHaveBeenNthCalledWith(3, expect.any(String), ['-m', 'pip', '--version']);
+    });
+});
+
+describe('checkAndInstallUV', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+    });
+
+    it('keeps the exact lock-compatible uv version', async () => {
+        mockExecFileAsync.mockResolvedValueOnce({
+            stdout: 'Name: uv\nVersion: 0.12.4\n',
+            stderr: '',
+        });
+
+        const { checkAndInstallUV } = await import('./python_ops.js');
+        await checkAndInstallUV('C:\\managed\\python.exe');
+
+        expect(mockExecFileAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['0.9.22', '0.11.33'])(
+        'replaces incompatible uv %s with the exact lock-compatible version',
+        async (installedVersion) => {
+            mockExecFileAsync
+                .mockResolvedValueOnce({
+                    stdout: `Name: uv\nVersion: ${installedVersion}\n`,
+                    stderr: '',
+                })
+                .mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+            const { checkAndInstallUV } = await import('./python_ops.js');
+            await checkAndInstallUV('C:\\managed\\python.exe');
+
+            expect(mockExecFileAsync).toHaveBeenLastCalledWith(
+                'C:\\managed\\python.exe',
+                [
+                    '-m',
+                    'pip',
+                    'install',
+                    '--no-warn-script-location',
+                    'uv==0.12.4',
+                ]
+            );
+        }
+    );
+});
+
+describe('locked environment validation', () => {
+    const venvPath = path.resolve('managed');
+    const pythonPath = path.join(venvPath, 'Scripts', 'python.exe');
+    let backendReplaced: boolean;
+    let brokenDependency: boolean;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        backendReplaced = false;
+        brokenDependency = false;
+        mockSpawn.mockImplementation((_command: string, args: string[]) => {
+            const proc = Object.assign(new EventEmitter(), {
+                stdout: new EventEmitter(),
+                stderr: new EventEmitter(),
+            });
+            queueMicrotask(() => {
+                if (args.includes('install')) backendReplaced = true;
+                const failsCheck = args.join(' ') === '-m pip check' &&
+                    (!backendReplaced || brokenDependency);
+                if (failsCheck) {
+                    proc.stdout.emit('data', Buffer.from('GameSentenceMiner requires uv<0.12.0'));
+                }
+                proc.emit('close', failsCheck ? 1 : 0, null);
+            });
+            return proc;
+        });
+    });
+
+    it('validates and stamps upgrades only after replacing the old backend metadata', async () => {
+        const { syncLockedEnvironment, installPackageNoDeps } = await import('./python_ops.js');
+
+        await syncLockedEnvironment(pythonPath, ['gpu'], false, undefined, { deferValidation: true });
+        expect(mockMarkSynced).not.toHaveBeenCalled();
+        await installPackageNoDeps(pythonPath, 'GameSentenceMiner==2026.8.3', true, undefined, ['gpu']);
+
+        expect(mockSpawn.mock.calls.map((call) => call[1].slice(0, 4))).toEqual([
+            ['-m', 'uv', 'sync', '--active'],
+            ['-m', 'uv', 'pip', 'install'],
+            ['-m', 'pip', 'check'],
+        ]);
+        expect(mockMarkSynced).toHaveBeenCalledWith(venvPath, 'locked-inputs');
+    });
+
+    it('still rejects broken dependencies and leaves the environment unstamped after installation', async () => {
+        brokenDependency = true;
+        const { syncLockedEnvironment, installPackageNoDeps } = await import('./python_ops.js');
+
+        await syncLockedEnvironment(pythonPath, [], false, undefined, { deferValidation: true });
+        await expect(
+            installPackageNoDeps(pythonPath, 'GameSentenceMiner==2026.8.3', true, undefined, [])
+        ).rejects.toThrow('failed with exit code 1');
+        expect(mockMarkSynced).not.toHaveBeenCalled();
+    });
+
+    it('continues validating ordinary dependency-only syncs', async () => {
+        const { syncLockedEnvironment } = await import('./python_ops.js');
+
+        await expect(syncLockedEnvironment(pythonPath)).rejects.toThrow('failed with exit code 1');
+        expect(mockMarkSynced).not.toHaveBeenCalled();
     });
 });

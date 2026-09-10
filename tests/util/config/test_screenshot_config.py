@@ -65,3 +65,11 @@ def test_main_wgc_capture_fps_is_independent_and_clamped():
     assert Advanced(wgc_capture_fps=0).wgc_capture_fps == 1
     assert Advanced(wgc_capture_fps=500).wgc_capture_fps == 60
     assert Advanced(wgc_capture_fps="bad").wgc_capture_fps == 5
+
+
+def test_direct_websocket_port_is_optional_and_validated():
+    assert Advanced().direct_websocket_port == 0
+    assert Advanced(direct_websocket_port="8383").direct_websocket_port == 8383
+    assert Advanced(direct_websocket_port=-1).direct_websocket_port == 0
+    assert Advanced(direct_websocket_port=65536).direct_websocket_port == 0
+    assert Advanced(direct_websocket_port="not-a-port").direct_websocket_port == 0

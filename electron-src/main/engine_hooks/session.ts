@@ -123,6 +123,46 @@ function clearActiveSession(current: ActiveEngineHookSession): void {
     void current.wineConnection?.close();
 }
 
+function deliverText(
+    current: ActiveEngineHookSession,
+    text: string,
+    capturedAt: number,
+    sourceSequence: number,
+    textGeometry?: TextGeometryV1,
+): void {
+    current.preview = text;
+    current.options.onText({
+        text,
+        hookId: current.support.manifest.id,
+        hookFunction: current.support.manifest.name,
+        engine: 'mages',
+        exeName: current.exeName,
+        copyToClipboard: current.copyToClipboard,
+        capturedAt,
+        sourceSequence,
+        revisionWindowMs: current.flushDelayMs,
+        mergeFragments: false,
+        textGeometry,
+    });
+    current.options.onStateChanged();
+}
+
+function handleText(
+    current: ActiveEngineHookSession,
+    message: ReturnType<typeof sanitizeEngineHookMessage> & { type: 'text' },
+): void {
+    if (message.integrationId !== current.support.manifest.id) {
+        current.options.onLog(
+            `Ignored text from unexpected integration ${message.integrationId}.`,
+            'warn',
+        );
+        return;
+    }
+    const text = message.text.trim();
+    if (!text) return;
+    deliverText(current, text, message.capturedAt, message.sequence);
+}
+
 function handleTextLayout(
     current: ActiveEngineHookSession,
     message: ReturnType<typeof sanitizeEngineHookMessage> & { type: 'text-layout' },
@@ -174,21 +214,7 @@ function handleTextLayout(
                   } satisfies TextGeometryV1;
               })();
 
-        current.preview = decoded.text;
-        current.options.onText({
-            text: decoded.text,
-            hookId: current.support.manifest.id,
-            hookFunction: current.support.manifest.name,
-            engine: 'mages',
-            exeName: current.exeName,
-            copyToClipboard: current.copyToClipboard,
-            capturedAt: message.capturedAt,
-            sourceSequence: message.sequence,
-            revisionWindowMs: current.flushDelayMs,
-            mergeFragments: false,
-            textGeometry,
-        });
-        current.options.onStateChanged();
+        deliverText(current, decoded.text, message.capturedAt, message.sequence, textGeometry);
     } catch (error) {
         current.options.onLog(
             `Could not decode ${current.support.manifest.decoder} text layout: ${(error as Error).message}`,
@@ -276,6 +302,10 @@ export async function startEngineHookSession(
             }
             if (message.type === 'diagnostic') {
                 options.onLog(message.message, message.level);
+                return;
+            }
+            if (message.type === 'text') {
+                handleText(candidate, message);
                 return;
             }
             handleTextLayout(candidate, message);

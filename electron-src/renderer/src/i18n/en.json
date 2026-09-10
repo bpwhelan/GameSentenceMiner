@@ -455,10 +455,16 @@
     "loading": "Loading release notes...",
     "empty": "No release notes are available for this update.",
     "imageAlt": "Release note image",
+    "youtubeVideo": "YouTube video",
     "fallbackNote": "Showing bundled release notes because the latest online notes could not be loaded.",
     "continue": "Continue",
     "close": "Close",
     "syncing": "Syncing backend...",
+    "settingChoice": {
+      "enabled": "Enabled for this profile.",
+      "disabled": "Kept disabled for this profile.",
+      "error": "Could not save this setting choice. Please try again after the backend is ready."
+    },
     "source": {
       "loading": "Loading",
       "bundled": "Bundled notes",
@@ -1318,7 +1324,9 @@
       "searchPlaceholder": "Search scripts by game or file name",
       "pickerNoResults": "No matching scripts found.",
       "scriptCandidate": "Agent script",
-      "showScriptUi": "Show Script UI"
+      "showScriptUi": "Show Script UI",
+      "runDetached": "Keep Agent running when GSM closes",
+      "runDetachedHint": "GSM reconnects to the running Agent session the next time it opens."
     },
     "profile": {
       "title": "Saved Profile",
@@ -1381,6 +1389,7 @@
     },
     "errors": {
       "startFailed": "Failed to start the hook engine.",
+      "stopFailed": "Failed to stop the hook engine.",
       "manualFailed": "Failed to attach manual hook.",
       "profileSaveFailed": "Failed to save hook profile.",
       "maxBufferSizeSaveFailed": "Failed to save the maximum text length.",

@@ -28,6 +28,37 @@ vi.mock('./obs.js', () => ({
 }));
 
 describe('text hook flush delay helpers', () => {
+    it('defaults detached hosting on only for Agent profiles', async () => {
+        const { __test } = await import('./texthook.js');
+
+        expect(
+            __test.normalizeProfile({
+                exeName: 'game.exe',
+                engine: 'agent',
+                autoHook: true,
+                flushDelayMs: 100,
+            })?.agentDetached,
+        ).toBe(true);
+        expect(
+            __test.normalizeProfile({
+                exeName: 'game.exe',
+                engine: 'agent',
+                autoHook: true,
+                flushDelayMs: 100,
+                agentDetached: false,
+            })?.agentDetached,
+        ).toBe(false);
+        expect(
+            __test.normalizeProfile({
+                exeName: 'game.exe',
+                engine: 'luna',
+                autoHook: true,
+                flushDelayMs: 100,
+                agentDetached: true,
+            })?.agentDetached,
+        ).toBe(false);
+    });
+
     it('normalizes flush delay values to the supported range', async () => {
         const { __test } = await import('./texthook.js');
 

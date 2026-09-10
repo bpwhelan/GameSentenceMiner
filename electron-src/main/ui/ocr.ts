@@ -4,6 +4,7 @@ import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
     getOCRConfig,
+    getPythonExtras,
     getPythonPath,
     getStartConsoleMinimized,
     setAreaSelectOcrHotkey,
@@ -44,6 +45,10 @@ import {
 import path, { resolve } from 'path';
 import * as fs from 'node:fs';
 import * as os from 'os';
+import {
+    resolveRequestedExtras,
+    syncLockedEnvironment,
+} from '../services/python_ops.js';
 
 // OCR is now a bus-managed process: the ProcessManager owns its lifecycle and
 // the message bus carries events (ocr.event) and commands (ocr.command). See
@@ -787,65 +792,16 @@ export function registerOCRUtilsIPC() {
         const pythonPath = getPythonPath();
         await closeAllPythonProcesses();
         sendToMainWindowFrames('ocr-log', `Downloading OneOCR files...`);
-        const dependencies = [
-            'jaconv',
-            'loguru',
-            'numpy==2.2.6',
-            'Pillow>=10.0.0',
-            'pyperclipfix',
-            'pynput<=1.7.8',
-            'websockets>=14.0',
-            'desktop-notifier>=6.1.0',
-            'mss',
-            'pysbd',
-            'langid',
-            'psutil',
-            'requests',
-            "pywin32;platform_system=='Windows'",
-            "pyobjc;platform_system=='Darwin'",
-        ];
-        const promises: Promise<void>[] = [];
         if (isWindows()) {
             await runCommandAndLog([
                 pythonPath,
                 '-m',
                 'GameSentenceMiner.util.downloader.oneocr_dl',
             ]);
-            await runCommandAndLog([
-                pythonPath,
-                '-m',
-                'uv',
-                '--no-progress',
-                'pip',
-                'install',
-                '--upgrade',
-                'oneocr',
-            ]);
         }
-        await runCommandAndLog([
-            pythonPath,
-            '-m',
-            'uv',
-            '--no-progress',
-            'pip',
-            'install',
-            '--upgrade',
-            ...dependencies,
-        ]);
-        sendToMainWindowFrames('ocr-log', `Installing recommended dependencies...`);
-        await runCommandAndLog([
-            pythonPath,
-            '-m',
-            'uv',
-            '--no-progress',
-            'pip',
-            'install',
-            '--upgrade',
-            'protobuf>=6.33.2',
-        ]);
-
-        // Wait for all promises to settle before closing the console
-        await Promise.allSettled(promises);
+        sendToMainWindowFrames('ocr-log', `Restoring recommended dependencies from the lockfile...`);
+        const { selectedExtras } = resolveRequestedExtras(getPythonExtras());
+        await syncLockedEnvironment(pythonPath, selectedExtras);
         // Wrap the message in ASCII green text (using ANSI escape codes)
         sendToMainWindowFrames(
             'ocr-log',
@@ -875,6 +831,8 @@ export function registerOCRUtilsIPC() {
         }
         sendToMainWindowFrames('ocr-log', `Installing ${dependency} dependencies...`);
         await runCommandAndLog(command);
+        const { selectedExtras } = resolveRequestedExtras(getPythonExtras());
+        await syncLockedEnvironment(pythonPath, selectedExtras);
         sendToMainWindowFrames(
             'ocr-log',
             `\x1b[32mInstalled ${dependency} successfully.\x1b[0m`
@@ -907,6 +865,8 @@ export function registerOCRUtilsIPC() {
             ];
             sendToMainWindowFrames('ocr-log', `Uninstalling ${dependency} dependencies...`);
             await runCommandAndLog(command);
+            const { selectedExtras } = resolveRequestedExtras(getPythonExtras());
+            await syncLockedEnvironment(getPythonPath(), selectedExtras);
             sendToMainWindowFrames(
                 'ocr-log',
                 `\x1b[32mUninstalled ${dependency} successfully.\x1b[0m`

@@ -69,7 +69,7 @@ export class GsmJitenGrading {
     /** */
     _requestConfig() {
         const msg = {type: 'gsm-jiten-grading-config-request'};
-        for (const target of [window.top, window.parent]) {
+        for (const target of new Set([window.top, window.parent])) {
             try { if (target) { target.postMessage(msg, '*'); } } catch (e) { /* ignore */ }
         }
     }
@@ -299,7 +299,7 @@ export class GsmJitenGrading {
                 clearTimeout(timeout);
                 resolve(result);
             });
-            for (const target of [window.top, window.parent]) {
+            for (const target of new Set([window.top, window.parent])) {
                 try { if (target) { target.postMessage(message, '*'); } } catch (e) { /* ignore */ }
             }
         });

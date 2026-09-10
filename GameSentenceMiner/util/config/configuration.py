@@ -104,10 +104,6 @@ DEBUG = "DEBUG"
 
 DEFAULT_CONFIG = "Default"
 
-DEFAULT_CONFIG_CHANGE_ACCEPTED = "accepted"
-DEFAULT_CONFIG_CHANGE_DECLINED = "declined"
-SILERO_VAD_DEFAULT_CHANGE_ID = "2026.7.0:silero-vad-default"
-
 ANIMATED_SCREENSHOT_CODEC_DEFAULT = "libsvtav1"
 ANIMATED_SCREENSHOT_CODEC_LABELS = {
     "libsvtav1": "libsvtav1 (fast)",
@@ -597,6 +593,7 @@ class General:
     use_clipboard: bool = False
     use_both_clipboard_and_websocket: bool = False
     merge_matching_sequential_text: bool = False
+    remove_matching_prefix_on_subsequent_lines: bool = True
     websocket_uri: str = "localhost:6677,localhost:9001,localhost:2333"
     websocket_sources: List[WebsocketInputSource] = field(
         default_factory=lambda: [WebsocketInputSource(**s) for s in DEFAULT_WEBSOCKET_SOURCES]
@@ -801,7 +798,7 @@ class AnkiField:
 class Anki:
     _FIELD_DEFAULTS: ClassVar[Dict[str, AnkiField]] = {
         "sentence": AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True),
-        "sentence_audio": AnkiField(name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True),
+        "sentence_audio": AnkiField(name="SentenceAudio", enabled=True, overwrite=True, append=False, core=True),
         "picture": AnkiField(name="Picture", enabled=True, overwrite=True, append=False, core=True),
         "word": AnkiField(name="Expression", enabled=True, overwrite=True, append=False, core=True),
         "previous_sentence": AnkiField(name="", enabled=True, overwrite=False, append=False, core=False),
@@ -836,6 +833,13 @@ class Anki:
     confirmation_always_on_top: bool = True
     confirmation_focus_on_show: bool = True
     confirmation_gamepad_enabled: bool = False
+    confirmation_gamepad_focus_up: str = "12"
+    confirmation_gamepad_focus_down: str = "13"
+    confirmation_gamepad_focus_left: str = "14"
+    confirmation_gamepad_focus_right: str = "15"
+    confirmation_gamepad_activate: str = "0"
+    confirmation_gamepad_confirm_with_audio: str = "2"
+    confirmation_gamepad_confirm_without_audio: str = "1"
     url: str = "http://127.0.0.1:8765"
     note_type: str = ""
     available_fields: List[str] = field(default_factory=list)
@@ -843,7 +847,7 @@ class Anki:
         default_factory=lambda: AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True)
     )
     sentence_audio: AnkiField = field(
-        default_factory=lambda: AnkiField(name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True)
+        default_factory=lambda: AnkiField(name="SentenceAudio", enabled=True, overwrite=True, append=False, core=True)
     )
     picture: AnkiField = field(
         default_factory=lambda: AnkiField(name="Picture", enabled=True, overwrite=True, append=False, core=True)
@@ -869,7 +873,7 @@ class Anki:
     polling_rate: int = 500
     polling_rate_v2: int = 1000
     # Legacy flags kept for compatibility with older configs.
-    overwrite_audio: bool = False
+    overwrite_audio: bool = True
     overwrite_picture: bool = True
     overwrite_sentence: bool = True
     parent_tag: str = "Game"
@@ -1265,44 +1269,11 @@ class VAD:
     #     return self.selected_vad_model == GROQ or self.backup_vad_model == GROQ
 
 
-@dataclass(frozen=True)
-class DefaultConfigValueChange:
-    label: str
-    old_value: str
-    new_value: str
-    path: str
-
-
-@dataclass(frozen=True)
-class DefaultConfigChangeNotice:
-    change_id: str
-    version: str
-    changes: List[DefaultConfigValueChange]
-    reason: str
-
-
-SILERO_VAD_DEFAULT_CHANGE = DefaultConfigChangeNotice(
-    change_id=SILERO_VAD_DEFAULT_CHANGE_ID,
-    version="2026.7.0",
-    changes=[
-        DefaultConfigValueChange(
-            label="Voice Activation Detection Model",
-            old_value="Whisper",
-            new_value="Silero",
-            path="vad.selected_vad_model",
-        )
-    ],
-    reason=(
-        "Silero has improved a lot since GSM was created, and the Anki Confirmation Dialog can catch cases where "
-        "it is not on target. Silero is much lighter and faster than Whisper as well."
-    ),
-)
-
-
 @dataclass_json
 @dataclass
 class Advanced:
     plaintext_websocket_port: int = 0
+    direct_websocket_port: int = 0
     audio_player_path: str = ""
     video_player_path: str = ""
     show_screenshot_buttons: bool = False
@@ -1335,6 +1306,11 @@ class Advanced:
         # "communication_port + 1" while allowing new installs to keep this off.
         if self.plaintext_websocket_port == -1:
             self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
+        try:
+            direct_websocket_port = int(self.direct_websocket_port or 0)
+        except (TypeError, ValueError):
+            direct_websocket_port = 0
+        self.direct_websocket_port = direct_websocket_port if 0 <= direct_websocket_port <= 65535 else 0
         self.screenshot_capture_backend = normalize_screenshot_capture_backend(self.screenshot_capture_backend)
         self.screenshot_capture_backend_v2 = normalize_screenshot_capture_backend(self.screenshot_capture_backend_v2)
         self.wgc_capture_fps = normalize_wgc_capture_fps(
@@ -1548,6 +1524,9 @@ class Overlay:
     ocr_area_config_use_exclusion_zones: bool = True
     use_ocr_result_v2: bool = False
     supplement_ocr_result_with_overlay: bool = False
+    last_sent_ocr_presence_check: bool = False
+    last_sent_ocr_presence_remove_notation: bool = True
+    last_sent_ocr_presence_invalidate_lookups: bool = True
     check_previous_lines_for_recycled_indicator: bool = False
     ocr_full_screen_instead_of_obs: bool = False
     use_text_filtering: bool = True
@@ -1627,6 +1606,13 @@ GSM_OWNED_OVERLAY_FIELDS: Dict[str, GsmOwnedOverlayField] = {
     "use_ocr_result_v2": GsmOwnedOverlayField("use_ocr_result_v2", _coerce_overlay_bool),
     "supplement_ocr_result_with_overlay": GsmOwnedOverlayField(
         "supplement_ocr_result_with_overlay", _coerce_overlay_bool
+    ),
+    "last_sent_ocr_presence_check": GsmOwnedOverlayField("last_sent_ocr_presence_check", _coerce_overlay_bool),
+    "last_sent_ocr_presence_remove_notation": GsmOwnedOverlayField(
+        "last_sent_ocr_presence_remove_notation", _coerce_overlay_bool
+    ),
+    "last_sent_ocr_presence_invalidate_lookups": GsmOwnedOverlayField(
+        "last_sent_ocr_presence_invalidate_lookups", _coerce_overlay_bool
     ),
     "ocr_full_screen_instead_of_obs": GsmOwnedOverlayField("ocr_full_screen_instead_of_obs", _coerce_overlay_bool),
     "use_text_filtering": GsmOwnedOverlayField("use_text_filtering", _coerce_overlay_bool),
@@ -1781,6 +1767,7 @@ class ProfileConfig:
                 previous.obs.port != self.obs.port,
                 previous.general.single_port != self.general.single_port,
                 previous.general.texthooker_port != self.general.texthooker_port,
+                previous.advanced.direct_websocket_port != self.advanced.direct_websocket_port,
             ]
         ):
             logger.info("Restart Required for Some Settings that were Changed")
@@ -1854,7 +1841,6 @@ class Config:
     experimental: Experimental = field(default_factory=Experimental)
     discord: Discord = field(default_factory=Discord)
     version: str = ""
-    default_config_change_decisions: Dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def new(cls):
@@ -1883,7 +1869,7 @@ class Config:
                 "default_name": "SentenceAudio",
                 "core": True,
                 "legacy_overwrite": "overwrite_audio",
-                "default_overwrite": False,
+                "default_overwrite": True,
             },
             "picture": {
                 "legacy": "picture_field",
@@ -1997,6 +1983,9 @@ class Config:
             return data
 
         legacy_process_pausing = data.pop("process_pausing", None)
+        # The old Qt default-change dialog stored one-off acceptance decisions
+        # here. Release-note choices now set the real configuration directly.
+        data.pop("default_config_change_decisions", None)
 
         if not isinstance(data.get("overlay"), dict):
             current_profile = data.get("current_profile") or DEFAULT_CONFIG
@@ -2132,14 +2121,6 @@ class Config:
             return cls.new()
 
     def __post_init__(self):
-        if not isinstance(self.default_config_change_decisions, dict):
-            self.default_config_change_decisions = {}
-        if SILERO_VAD_DEFAULT_CHANGE_ID not in self.default_config_change_decisions and not any(
-            getattr(getattr(profile, "vad", None), "selected_vad_model", None) == WHISPER
-            for profile in self.configs.values()
-        ):
-            self.default_config_change_decisions[SILERO_VAD_DEFAULT_CHANGE_ID] = DEFAULT_CONFIG_CHANGE_ACCEPTED
-
         if self.current_profile in self.configs:
             self.configs[self.current_profile].overlay = self.overlay
 
@@ -2274,6 +2255,13 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_up")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_down")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_left")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_right")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_activate")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_confirm_with_audio")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_confirm_without_audio")
             self.sync_shared_field(config.anki, profile.anki, "replay_audio_on_tts_generation")
             self.sync_shared_field(
                 config.anki,
@@ -2313,6 +2301,7 @@ class Config:
                 "texthooker_communication_websocket_port",
             )
             self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
+            self.sync_shared_field(config.advanced, profile.advanced, "direct_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "localhost_bind_address")
             self.sync_shared_field(config.advanced, profile.advanced, "longest_sleep_time")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_enabled")
@@ -2370,42 +2359,22 @@ class Config:
             logger.error(f"An unexpected error occurred during sync of '{field_name}': {e}")
 
 
-def _profile_uses_old_silero_vad_default(profile: ProfileConfig) -> bool:
-    try:
-        return profile.vad.selected_vad_model == WHISPER
-    except AttributeError:
+def apply_changelog_setting_choice(config: Config, choice: str) -> bool:
+    """Apply an allowlisted setting choice selected from Markdown release notes."""
+    overlay = config.get_config().overlay
+    if choice == "overlay-presence-invalidation:enable":
+        # Invalidation relies on the lightweight presence monitor, so accepting
+        # the release-note option enables both required switches.
+        overlay.last_sent_ocr_presence_check = True
+        overlay.last_sent_ocr_presence_invalidate_lookups = True
+    elif choice == "overlay-presence-invalidation:disable":
+        # Leave the user's separate notation-removal preference alone.
+        overlay.last_sent_ocr_presence_invalidate_lookups = False
+    else:
         return False
 
-
-def get_pending_default_config_changes(config: Config) -> List[DefaultConfigChangeNotice]:
-    if not isinstance(config.default_config_change_decisions, dict):
-        config.default_config_change_decisions = {}
-
-    pending: List[DefaultConfigChangeNotice] = []
-    if SILERO_VAD_DEFAULT_CHANGE.change_id not in config.default_config_change_decisions and any(
-        _profile_uses_old_silero_vad_default(profile) for profile in config.configs.values()
-    ):
-        pending.append(SILERO_VAD_DEFAULT_CHANGE)
-    return pending
-
-
-def resolve_default_config_change(config: Config, change_id: str, accepted: bool) -> int:
-    if not isinstance(config.default_config_change_decisions, dict):
-        config.default_config_change_decisions = {}
-
-    applied_count = 0
-    if accepted and change_id == SILERO_VAD_DEFAULT_CHANGE_ID:
-        for profile in config.configs.values():
-            if _profile_uses_old_silero_vad_default(profile):
-                profile.vad.selected_vad_model = SILERO
-                if profile.vad.backup_vad_model == SILERO:
-                    profile.vad.backup_vad_model = OFF
-                applied_count += 1
-
-    config.default_config_change_decisions[change_id] = (
-        DEFAULT_CONFIG_CHANGE_ACCEPTED if accepted else DEFAULT_CONFIG_CHANGE_DECLINED
-    )
-    return applied_count
+    config.overlay = overlay
+    return True
 
 
 def get_default_anki_path():

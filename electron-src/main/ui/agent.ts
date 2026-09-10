@@ -4,15 +4,13 @@ import { BrowserWindow } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
-import { BASE_DIR, isWindows } from '../util.js';
-import { mainWindow, sendTextHookLine } from '../main.js';
-import {
-    sanitizeTextHookText,
-    type StartHookResult,
-    type TextHookArchitecture,
-    type TextHookStartSource,
-} from './texthook.js';
+import { getBaseDir } from '../data_dir.js';
+import { sanitizeTextHookText, setRuntimeTextHookMaxBufferSize } from './text_hook_sanitize.js';
+import type { StartHookResult, TextHookArchitecture, TextHookStartSource } from './texthook.js';
 import type { WineProcessConnection } from './wine_frida.js';
+
+const BASE_DIR = getBaseDir();
+const isWindows = (): boolean => process.platform === 'win32';
 
 interface AgentHookEntry {
     id: string;
@@ -21,7 +19,7 @@ interface AgentHookEntry {
     samples: string[];
 }
 
-interface StartAgentHookOptions {
+export interface StartAgentHookOptions {
     pid: number;
     exeName: string;
     arch: TextHookArchitecture;
@@ -29,6 +27,7 @@ interface StartAgentHookOptions {
     flushDelayMs: number;
     copyToClipboard: boolean;
     source: TextHookStartSource;
+    maxBufferSize?: number;
     /** Remote Frida device when the target is a Windows process inside Wine. */
     wineConnection?: WineProcessConnection;
 }
@@ -70,6 +69,17 @@ interface AgentHookSession {
 }
 
 let agentSession: AgentHookSession | null = null;
+
+interface AgentHookCallbacks {
+    onEvent?: (channel: string, payload: unknown) => void;
+    onText?: (payload: AgentTextPayload) => void;
+}
+
+let agentCallbacks: AgentHookCallbacks = {};
+
+export function configureAgentHookCallbacks(callbacks: AgentHookCallbacks): void {
+    agentCallbacks = callbacks;
+}
 
 const DEFAULT_AGENT_LOADER = path.resolve(process.cwd(), '.agent_scripts', 'libLoader.js');
 const STORAGE_DIR = path.join(BASE_DIR, 'texthook', 'agent-storage');
@@ -120,13 +130,10 @@ const FRIDA_COMPAT_SHIM = `
 `;
 
 function emitToRenderer(channel: string, payload: unknown): void {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-        return;
-    }
     try {
-        mainWindow.webContents.send(channel, payload);
+        agentCallbacks.onEvent?.(channel, payload);
     } catch (err) {
-        console.warn(`[AgentHook] Failed to send "${channel}" to renderer:`, err);
+        console.warn(`[AgentHook] Failed to emit "${channel}":`, err);
     }
 }
 
@@ -443,7 +450,7 @@ function updateAgentHookPreview(text: string): void {
 }
 
 function sendAgentText(payload: AgentTextPayload): void {
-    sendTextHookLine(payload);
+    agentCallbacks.onText?.(payload);
     emitToRenderer('texthook.text', {
         hookId: payload.hookId,
         text: payload.text,
@@ -662,6 +669,7 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
         await options.wineConnection?.close();
         return { success: false, error: 'Agent loader missing. Expected libLoader.js next to the script.' };
     }
+    setRuntimeTextHookMaxBufferSize(options.maxBufferSize);
     try {
         const fridaSession = options.wineConnection
             ? await options.wineConnection.device.attach(options.wineConnection.windowsPid)
@@ -766,6 +774,7 @@ export function getAgentHookRuntimeStatus() {
         copyToClipboard: agentSession.copyToClipboard,
         agentScriptPath: agentSession.scriptPath,
         agentHasUi: agentSession.uiHtml !== null,
+        agentDetached: false,
     };
 }
 

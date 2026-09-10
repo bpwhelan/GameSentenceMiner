@@ -12,6 +12,8 @@ class BackendConnector {
     this.mainWindowGetter = mainWindowGetter;
     this.WebSocket = options.WebSocket || WebSocket;
     this.onMessage = typeof options.onMessage === 'function' ? options.onMessage : null;
+    this.resolveFallbackUrl = typeof options.resolveFallbackUrl === 'function' ? options.resolveFallbackUrl : null;
+    this.fallbackLookup = null;
     this.destroyed = false;
   }
 
@@ -38,15 +40,18 @@ class BackendConnector {
     try {
       console.log('BackendConnector: Connecting to', url);
       this.ws = new this.WebSocket(url);
+      const socket = this.ws;
       
-      this.ws.on('open', () => {
+      socket.on('open', () => {
+        if (this.ws !== socket) return;
         console.log('BackendConnector: Connected');
         this.connected = true;
         this.flushQueue();
         this.flushReliableOutbox();
       });
 
-      this.ws.on('message', (data) => {
+      socket.on('message', (data) => {
+        if (this.ws !== socket) return;
         try {
           const dataStr = data.toString();
           // console.log('BackendConnector: Message received:', dataStr);
@@ -88,16 +93,18 @@ class BackendConnector {
         }
       });
 
-      this.ws.on('close', () => {
+      socket.on('close', () => {
+        if (this.ws !== socket) return;
         console.log('BackendConnector: Disconnected');
         this.connected = false;
-        this.scheduleReconnect();
+        this.tryFallbackOrReconnect(socket);
       });
 
-      this.ws.on('error', (err) => {
+      socket.on('error', (err) => {
+        if (this.ws !== socket) return;
         console.error('BackendConnector: Error', err.message);
         this.connected = false;
-        this.scheduleReconnect();
+        this.tryFallbackOrReconnect(socket);
       });
 
     } catch (e) {
@@ -114,6 +121,36 @@ class BackendConnector {
         this.connect(this.url);
       }
     }, 5000);
+  }
+
+  tryFallbackOrReconnect(socket) {
+    if (this.destroyed || this.fallbackLookup) return;
+    const failedUrl = this.url;
+    if (!failedUrl || !this.resolveFallbackUrl) {
+      this.scheduleReconnect();
+      return;
+    }
+
+    this.fallbackLookup = Promise.resolve()
+      .then(() => this.resolveFallbackUrl(failedUrl))
+      .then((fallbackUrl) => {
+        if (this.destroyed || this.ws !== socket || this.url !== failedUrl) return;
+        if (typeof fallbackUrl === 'string' && fallbackUrl && fallbackUrl !== failedUrl) {
+          console.warn(`BackendConnector: Failing over to ${fallbackUrl}`);
+          this.connect(fallbackUrl);
+          return;
+        }
+        this.scheduleReconnect();
+      })
+      .catch((error) => {
+        if (!this.destroyed && this.ws === socket && this.url === failedUrl) {
+          console.warn('BackendConnector: Websocket fallback lookup failed', error);
+          this.scheduleReconnect();
+        }
+      })
+      .finally(() => {
+        this.fallbackLookup = null;
+      });
   }
 
   send(data, delay = 0) {

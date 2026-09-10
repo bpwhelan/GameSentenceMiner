@@ -41,8 +41,8 @@ vi.mock('@xterm/xterm', () => ({
     },
 }));
 
-vi.mock('./components/tabs/LauncherTab', () => ({
-    LauncherTab: ({ active }: { active: boolean }) => (active ? <div>Launcher Tab</div> : null),
+vi.mock('./components/tabs/GameAutomationTab', () => ({
+    GameAutomationTab: ({ active }: { active: boolean }) => (active ? <div>Game Automation Tab</div> : null),
 }));
 
 vi.mock('./components/tabs/SettingsTab', () => ({
@@ -142,6 +142,12 @@ function createChangelogSnapshot(
             '# Heading from markdown',
             '',
             'A **bold** change with [a link](https://example.com).',
+            '',
+            '[Speech recognition demo](https://youtu.be/oqyFCUAVFag)',
+            '',
+            '[Enable disappearance invalidation](https://gsm-setting.invalid/overlay-presence-invalidation/enable)',
+            '',
+            '[Keep disappearance invalidation disabled](https://gsm-setting.invalid/overlay-presence-invalidation/disable)',
             '',
             '![Screenshot](1.0.1/shot.png)',
             '',
@@ -623,10 +629,18 @@ describe('App install-session integration', () => {
         expect(container.querySelector('video')?.getAttribute('src')).toBe(
             'gsm-changelog://images/1.0.1/demo.mp4'
         );
+        expect(container.querySelectorAll('iframe')).toHaveLength(1);
+        expect(container.querySelector('iframe')?.getAttribute('src')).toBe(
+            'https://www.youtube-nocookie.com/embed/oqyFCUAVFag?origin=https%3A%2F%2Fgithub.com&widget_referrer=https%3A%2F%2Fgithub.com%2Fbpwhelan%2FGameSentenceMiner%2F'
+        );
         const markdownLink = container.querySelector('.whats-changed-body a');
         expect(markdownLink?.getAttribute('href')).toBe('https://example.com');
         markdownLink?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         expect(invokeMock).toHaveBeenCalledWith('open-external', 'https://example.com');
+
+        expect(
+            container.querySelector('[data-changelog-setting="overlay-presence-invalidation"]')
+        ).not.toBeNull();
 
         const continueButton = Array.from(container.querySelectorAll('button')).find(
             (button) => button.textContent === 'Syncing backend...'
@@ -644,6 +658,9 @@ describe('App install-session integration', () => {
                 return createChangelogSnapshot();
             }
             if (channel === 'changelog.markDesktopUpdateSeen') {
+                return { success: true };
+            }
+            if (channel === 'changelog.applySettingChoice') {
                 return { success: true };
             }
             if (channel === 'settings.getSettings') {
@@ -686,6 +703,23 @@ describe('App install-session integration', () => {
         );
         expect(continueButton).toBeDefined();
         expect(continueButton?.hasAttribute('disabled')).toBe(false);
+
+        const enableSettingButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Enable disappearance invalidation'
+        );
+        expect(enableSettingButton).toBeDefined();
+        expect(enableSettingButton?.hasAttribute('disabled')).toBe(false);
+
+        await act(async () => {
+            enableSettingButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await Promise.resolve();
+        });
+
+        expect(invokeMock).toHaveBeenCalledWith(
+            'changelog.applySettingChoice',
+            'overlay-presence-invalidation:enable'
+        );
+        expect(container.textContent).toContain('Enabled for this profile.');
 
         await act(async () => {
             continueButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));

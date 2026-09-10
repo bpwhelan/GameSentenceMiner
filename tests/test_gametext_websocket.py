@@ -491,6 +491,7 @@ def test_add_line_to_text_log_enqueues_immediately_without_running_subscribers_i
             text_processing=SimpleNamespace(),
             overlay=SimpleNamespace(check_previous_lines_for_recycled_indicator=True),
             advanced=SimpleNamespace(dont_collect_stats=False),
+            general=SimpleNamespace(remove_matching_prefix_on_subsequent_lines=False),
         ),
     )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: line)
@@ -504,3 +505,4 @@ def test_add_line_to_text_log_enqueues_immediately_without_running_subscribers_i
     assert len(observations) == 1
     assert observations[0].raw_text == "Hello, World!"
     assert observations[0].revision_window_ms == 100
+    assert observations[0].remove_matching_prefix is False

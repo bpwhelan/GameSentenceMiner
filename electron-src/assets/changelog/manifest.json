@@ -1,9 +1,19 @@
 {
   "releases": [
     {
-      "version": "2026.8.3",
-      "title": "What's Changed in 2026.8.3",
-      "file": "releases/2026.8.3.md"
+      "version": "2026.9.2",
+      "title": "What's Changed in 2026.9.2",
+      "file": "releases/2026.9.2.md"
+    },
+    {
+      "version": "2026.9.1",
+      "title": "What's Changed in 2026.9.1",
+      "file": "releases/2026.9.1.md"
+    },
+    {
+      "version": "2026.9.0",
+      "title": "What's Changed in 2026.9.0",
+      "file": "releases/2026.9.0.md"
     },
     {
       "version": "2026.8.2",

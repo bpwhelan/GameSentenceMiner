@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2026.8.3",
+  "version": "2026.9.2",
   "description": "GameSentenceMiner",
   "main": "dist/main/bootstrap.js",
   "desktopName": "com.beangate.gamesentenceminer.desktop",
@@ -28,6 +28,7 @@
     "changelog:export": "node scripts/export-changelog-release-asset.mjs",
     "stage:overlay": "node scripts/stage-overlay-build.mjs",
     "verify:overlay-package": "node scripts/verify-overlay-package.mjs",
+    "verify:python-deps": "python scripts/verify_python_dependency_policy.py",
     "app:dist": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=never",
     "app:deploy": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=always"
   },
@@ -44,6 +45,7 @@
       "dist/preload/**/*",
       "dist/shared/**/*",
       "dist/renderer/**/*",
+      "!dist/renderer/legacy/changelog/**/*",
       "assets/*"
     ],
     "extraFiles": [
@@ -73,6 +75,10 @@
       {
         "from": "uv.lock",
         "to": "resources/uv.lock"
+      },
+      {
+        "from": ".python-version",
+        "to": "resources/.python-version"
       },
       {
         "from": "native",
@@ -127,7 +133,7 @@
     "concurrently": "^10.0.4",
     "cross-env": "^10.0.0",
     "daisyui": "^5.7.4",
-    "electron": "^43.2.0",
+    "electron": "^43.6.0",
     "electron-builder": "^26.15.3",
     "jsdom": "^30.0.0",
     "nodemon": "^3.1.14",

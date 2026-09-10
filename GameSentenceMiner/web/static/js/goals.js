@@ -1121,8 +1121,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const baseMetricType = goal.metricType.replace('_static', '');
         
         if (baseMetricType === 'hours') {
-            formattedProgress = formatHours(todayData.progress, globalUseRawHours);
-            formattedRequired = formatHours(todayData.required, globalUseRawHours);
+            // Dailies should retain minutes so a 39-minute goal does not display
+            // as a rounded "1h" value when the global raw-hours setting is enabled.
+            formattedProgress = formatHours(todayData.progress);
+            formattedRequired = formatHours(todayData.required);
         } else if (baseMetricType === 'characters') {
             formattedProgress = formatGoalNumber(todayData.progress);
             formattedRequired = formatGoalNumber(todayData.required);

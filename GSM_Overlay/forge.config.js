@@ -14,6 +14,7 @@ const ignoredPackagerEntries = new Set([
   'jiten.reader',
   'out',
   'scripts',
+  'tests',
   'yomitan',
 ]);
 

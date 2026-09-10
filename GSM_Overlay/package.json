@@ -9,7 +9,8 @@
     "dev:renderer": "vite --host 127.0.0.1 --port 5174 --strictPort",
     "dev:electron": "wait-on tcp:5174 && cross-env GSM_OVERLAY_DEV_SERVER_URL=http://127.0.0.1:5174 nodemon --exitcrash --watch main.js --watch preload.js --watch background.js --watch backend_connector.js --watch magpie.js --watch window.js --watch gamepad.js --ext js,cjs,mjs --exec \"node scripts/electron-dev-once.cjs\"",
     "start": "electron-forge start",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test tests/*.test.cjs",
+    "test:jiten-electron": "node tests/run-jiten-electron-smoke.cjs",
     "package": "electron-forge package",
     "make": "electron-forge make"
   },

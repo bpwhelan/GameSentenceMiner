@@ -12,6 +12,7 @@ const invokeExactChannels = new Set<string>([
   "changelog.getPendingDesktopUpdate",
   "changelog.markDesktopUpdateSeen",
   "changelog.clearManualDisplay",
+  "changelog.applySettingChoice",
   "openOBS",
   "open-external-link",
   "openTexthooker",

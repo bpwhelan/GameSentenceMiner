@@ -20,6 +20,7 @@ describe('Electron build configuration', () => {
             expect.arrayContaining(['electron-src/main/**/*.test.ts', 'electron-src/main/test/**/*']),
         );
         expect(packageJson.build?.files).toContain('dist/shared/**/*');
+        expect(packageJson.build?.files).toContain('!dist/renderer/legacy/changelog/**/*');
     });
 
     it('packages staged overlay resources so the nested app shares the outer Electron runtime', () => {
@@ -75,5 +76,19 @@ describe('Electron build configuration', () => {
 
         expect(buildScript).not.toContain('Visual Studio 17 2022');
         expect(buildScript).not.toContain("'-A', 'x64'");
+    });
+
+    it('recreates signed Windows update metadata with the installed Electron Builder library', () => {
+        const repoRoot = process.cwd();
+        const workflow = fs.readFileSync(
+            path.join(repoRoot, '.github', 'workflows', 'release_exe.yml'),
+            'utf8',
+        );
+
+        expect(workflow).toContain(
+            "require('app-builder-lib/out/targets/blockmap/blockmap')",
+        );
+        expect(workflow).toContain("buildBlockMap(input, 'gzip', output)");
+        expect(workflow).not.toContain("require('app-builder-bin')");
     });
 });

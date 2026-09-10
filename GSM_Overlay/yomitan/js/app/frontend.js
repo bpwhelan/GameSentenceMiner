@@ -34,6 +34,7 @@ const GSM_YOMITAN_CONTROL_EVENT_TYPE = 'gsm-yomitan-control';
 const GSM_YOMITAN_CONTROL_ACTION_HIDE_POPUP = 'hide-popup';
 const GSM_YOMITAN_CONTROL_ACTION_LOOKUP_POINT = 'lookup-point';
 const GSM_YOMITAN_LOOKUP_TARGET_ATTRIBUTE = 'data-gsm-yomitan-lookup-target';
+const GSM_YOMITAN_SCAN_DISABLE_SELECTOR = '[data-gsm-yomitan-scan-disable],[data-gsm-yomitan-scan-disable] *';
 
 /**
  * This is the main class responsible for scanning and handling webpage content.
@@ -735,8 +736,10 @@ export class Frontend {
         });
         this._updateTextScannerEnabled();
 
-        if (this._pageType !== 'web') {
-            const excludeSelectors = ['.scan-disable', '.scan-disable *'];
+        if (this._pageType === 'web') {
+            this._textScanner.excludeSelector = GSM_YOMITAN_SCAN_DISABLE_SELECTOR;
+        } else {
+            const excludeSelectors = [GSM_YOMITAN_SCAN_DISABLE_SELECTOR, '.scan-disable', '.scan-disable *'];
             if (!scanningOptions.enableOnPopupExpressions) {
                 excludeSelectors.push('.source-text', '.source-text *');
             }

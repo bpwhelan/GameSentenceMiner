@@ -12,6 +12,54 @@ from GameSentenceMiner.ui.config_gui_qt import ClearableKeySequenceEdit, ConfigW
 from GameSentenceMiner.util.config.configuration import Anki, Locale
 
 
+def test_settings_save_preserves_live_overlay_settings(monkeypatch) -> None:
+    from GameSentenceMiner.util.config import configuration
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", lambda: "test-version")
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_schedule_runtime_reload", lambda self: None)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
+
+    window = ConfigWindow()
+    try:
+        # The overlay UI can change these after the Python editor takes its snapshot.
+        live_overlay = configuration.Overlay(
+            last_sent_ocr_presence_check=True,
+            last_sent_ocr_presence_remove_notation=False,
+            last_sent_ocr_presence_invalidate_lookups=False,
+            scan_on_overlay_activation=True,
+            text_appears_instantly=True,
+            base_scale=1.0,
+            use_text_filtering=False,
+            check_previous_lines_for_recycled_indicator=True,
+        )
+        monkeypatch.setattr(configuration, "get_overlay_config", lambda: live_overlay)
+        window.periodic_interval_edit.setText("2.5")
+        assert window.save_settings(show_indicator=False)
+        saved = configuration.Config.load().overlay
+        for field in (
+            "last_sent_ocr_presence_check",
+            "last_sent_ocr_presence_remove_notation",
+            "last_sent_ocr_presence_invalidate_lookups",
+            "scan_on_overlay_activation",
+            "text_appears_instantly",
+            "base_scale",
+            "use_text_filtering",
+            "check_previous_lines_for_recycled_indicator",
+        ):
+            assert getattr(saved, field) == getattr(live_overlay, field), field
+        assert saved.periodic_interval == 2.5
+        assert live_overlay.periodic_interval == 1.0
+    finally:
+        window._auto_save_timer.stop()
+        window.close()
+        app.processEvents()
+
+
 class _FakeConfigWindow:
     def __init__(self, minimized: bool) -> None:
         self._minimized = minimized

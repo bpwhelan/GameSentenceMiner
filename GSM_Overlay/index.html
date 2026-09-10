@@ -1759,10 +1759,38 @@ background: rgba(202, 12, 12, 0.692);
   let immediateSentenceRecycled = false;
   let overlayRenderGeneration = 0;
   let lastOverlayTextRenderSignature = null;
+  let activeOcrPresenceId = null;
+  const invalidatedOcrPresenceIds = new Set();
+  const invalidatedOcrPresenceActions = new Map();
+
+  function rememberInvalidatedOcrPresenceId(presenceId, action) {
+    if (!presenceId) return;
+    invalidatedOcrPresenceIds.add(presenceId);
+    invalidatedOcrPresenceActions.set(presenceId, action);
+    while (invalidatedOcrPresenceIds.size > 32) {
+      const oldestId = invalidatedOcrPresenceIds.values().next().value;
+      invalidatedOcrPresenceIds.delete(oldestId);
+      invalidatedOcrPresenceActions.delete(oldestId);
+    }
+  }
   const FURIGANA_LINE_CACHE_TTL_MS = 2500;
   const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
   let lastFuriganaRenderSignature = null;
   const furiganaLineCache = new Map();
+  let jitenFuriganaFrameTimer = null;
+  let releaseJitenFuriganaFrame = null;
+  let jitenFuriganaFrameSignature = null;
+  let jitenFuriganaFrameReady = null;
+
+  function cancelPendingJitenFuriganaFrame() {
+    clearTimeout(jitenFuriganaFrameTimer);
+    jitenFuriganaFrameTimer = null;
+    if (releaseJitenFuriganaFrame) releaseJitenFuriganaFrame(false);
+    releaseJitenFuriganaFrame = null;
+    jitenFuriganaFrameSignature = null;
+    jitenFuriganaFrameReady = null;
+    ipcRenderer.send('gsm-jiten-cancel-frame');
+  }
   // Jiten SRS Highlighting state (mirror approach)
   let jitenHighlightingEnabled = true;
   // Most recent OCR lines, kept even while highlighting is off so toggling on can
@@ -2355,6 +2383,10 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   async function handleJitenGradeRequest(data, source) {
+    const trace = (stage) => {
+      try { ipcRenderer.sendSync('gsm-jiten-grade-stage', stage); } catch (_) { /* optional diagnostic bridge */ }
+    };
+    trace('received');
     const requestId = data.requestId;
     const reply = (payload) => {
       if (!source || typeof source.postMessage !== 'function') return;
@@ -2363,11 +2395,15 @@ background: rgba(202, 12, 12, 0.692);
     try {
       const apiKey = getJitenGradingApiKey();
       if (!apiKey) { reply({ ok: false, error: 'JitenAPI key is not set' }); return; }
+      trace('resolving');
       const ref = await resolveJitenWordRef(data.term, data.reading);
+      trace('resolved');
       if (!ref) { reply({ ok: false, error: 'Could not resolve word in Jiten' }); return; }
       const endpoint = JITEN_GRADING_PARSE_URL;
+      trace('writing');
       if (data.kind === 'review') {
         await ipcRenderer.invoke('gsm-jiten-review', {
+          requestId,
           wordId: ref.wordId, readingIndex: ref.readingIndex, rating: Number(data.rating),
           apiKey, endpoint, timeout: 5000,
         });
@@ -2376,17 +2412,24 @@ background: rgba(202, 12, 12, 0.692);
         const action = String(data.action || 'add');
         if (!deck) { reply({ ok: false, error: 'Missing deck' }); return; }
         await ipcRenderer.invoke('gsm-jiten-set-vocabulary-state', {
+          requestId,
           wordId: ref.wordId, readingIndex: ref.readingIndex, state: `${deck}-${action}`,
           apiKey, endpoint, timeout: 5000,
         });
       } else {
         reply({ ok: false, error: 'Unknown grade kind' }); return;
       }
+      trace('written');
+      trace('replying');
       reply({ ok: true, wordId: ref.wordId, readingIndex: ref.readingIndex });
+      trace('replied');
       // Optimistic highlight update — no extra API call needed. We know the target
       // state from the grade action itself.
+      trace('highlighting');
       applyOptimisticHighlightState(ref.wordId, ref.readingIndex, data.kind, Number(data.rating), data.deck);
+      trace('highlighted');
     } catch (e) {
+      trace('failed');
       reply({ ok: false, error: String((e && e.message) || e) });
     }
   }
@@ -2970,6 +3013,7 @@ background: rgba(202, 12, 12, 0.692);
       gamepadHandler.handleOverlayTextRenderComplete({
         snapshot,
         preserveSelection: options.preserveSelection !== false,
+        focusLatestLine: options.focusLatestLine === true,
       });
     } else if (typeof gamepadHandler.refreshTextBlocks === 'function') {
       gamepadHandler.refreshTextBlocks();
@@ -3075,8 +3119,46 @@ background: rgba(202, 12, 12, 0.692);
         }
 
         if (data.type === "overlay_clear") {
+          activeOcrPresenceId = null;
           clearTextBoxes();
           return;
+        }
+
+        if (data.type === "ocr_text_invalidated") {
+          const presenceId = String(data.presence_id || "").trim();
+          if (!presenceId) return;
+          const staleAction = {
+            removeNotation: data.remove_notation !== false,
+            invalidateLookups: data.invalidate_lookups !== false,
+          };
+          if (!staleAction.removeNotation && !staleAction.invalidateLookups) return;
+          rememberInvalidatedOcrPresenceId(presenceId, staleAction);
+          if (presenceId === activeOcrPresenceId) {
+            invalidateStaleOcrOverlayText(staleAction);
+            activeOcrPresenceId = null;
+          }
+          return;
+        }
+
+        if (data.type === "ocr_text_revalidated") {
+          const presenceId = String(data.presence_id || "").trim();
+          const restoredPayload = data.payload;
+          if (!presenceId || !invalidatedOcrPresenceActions.has(presenceId)) return;
+          if (activeOcrPresenceId && activeOcrPresenceId !== presenceId) return;
+          if (!restoredPayload || restoredPayload.type !== "word_coordinates" || !Array.isArray(restoredPayload.data)) return;
+
+          // Invalidation may have removed either the lookup boxes, the notation,
+          // or both. Re-render the saved authoritative payload to restore exactly
+          // what was on screen before the text disappeared.
+          invalidatedOcrPresenceIds.delete(presenceId);
+          invalidatedOcrPresenceActions.delete(presenceId);
+          activeOcrPresenceId = null;
+          clearTextBoxes();
+          data = {
+            ...restoredPayload,
+            type: "word_coordinates",
+            presence_id: presenceId,
+          };
         }
 
         // Clear existing text boxes
@@ -3088,8 +3170,15 @@ background: rgba(202, 12, 12, 0.692);
 
         // Check if data has words array (new word-level coordinate format)
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
-          renderedTextPayload = true;
           const isSupplemental = data.supplemental === true;
+          const incomingPresenceId = String(data.presence_id || "").trim() || null;
+          const stalePresenceAction = !isSupplemental && incomingPresenceId
+            ? invalidatedOcrPresenceActions.get(incomingPresenceId) || null
+            : null;
+          if (!isSupplemental) {
+            activeOcrPresenceId = incomingPresenceId;
+          }
+          renderedTextPayload = true;
           const isSentenceRecycled = resolvePendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
           if (!isSupplemental) {
             setImmediateSentenceRecycled(isSentenceRecycled);
@@ -3112,7 +3201,12 @@ background: rgba(202, 12, 12, 0.692);
             data.data,
             undefined,
             isSupplemental ? null : recentBlockHistory,
-            { resultKey: data.line_id != null ? String(data.line_id) : null }
+            {
+              resultKey: data.line_id != null ? String(data.line_id) : null,
+              latestText: !isSupplemental && typeof data.latest_text === 'string'
+                ? data.latest_text
+                : null,
+            }
           );
           const renderSignatureInfo = getOverlayTextRenderSignature(
             data.data,
@@ -3181,6 +3275,16 @@ background: rgba(202, 12, 12, 0.692);
               blockContainer.setAttribute('data-line-end', boundaries.end);
               const metadata = blockMetadata.get(blockId) || { role: 'text' };
               blockContainer.setAttribute('data-block-role', metadata.role);
+              if (metadata.isLatestLine === true) {
+                blockContainer.setAttribute('data-latest-line-block', 'true');
+              } else {
+                blockContainer.removeAttribute('data-latest-line-block');
+              }
+              if (Number.isInteger(metadata.nvlChainId)) {
+                blockContainer.setAttribute('data-nvl-chain-id', metadata.nvlChainId);
+              } else {
+                blockContainer.removeAttribute('data-nvl-chain-id');
+              }
               if (Number.isInteger(metadata.relatedBlockId)) {
                 blockContainer.setAttribute('data-related-block-id', metadata.relatedBlockId);
               } else {
@@ -3476,7 +3580,14 @@ background: rgba(202, 12, 12, 0.692);
           lastOverlayTextRenderSignature = isSupplemental
             ? null
             : renderSignatureInfo.signature;
-          completeGamepadOverlayTextRender(gamepadRenderSnapshot, { preserveSelection: true });
+          completeGamepadOverlayTextRender(gamepadRenderSnapshot, {
+            preserveSelection: true,
+            focusLatestLine: !isSupplemental,
+          });
+          if (stalePresenceAction) {
+            invalidateStaleOcrOverlayText(stalePresenceAction);
+            activeOcrPresenceId = null;
+          }
 
         } else {
           const line = data?.sentence ?? data;
@@ -3978,6 +4089,7 @@ background: rgba(202, 12, 12, 0.692);
     }
 
     if (!showFurigana) {
+      cancelPendingJitenFuriganaFrame();
       resetFuriganaRenderState();
       return;
     }
@@ -4005,13 +4117,49 @@ background: rgba(202, 12, 12, 0.692);
       }
     }
 
+    const usesJiten = !usesLocalReadings && gamepadHandler.isUsingJitenApi();
+    if (usesJiten) {
+      // Wait briefly for OCR to settle. Every newer frame replaces the pending
+      // timer, and the backend also drops obsolete work already in its queue.
+      const signature = JSON.stringify(lines.map((line) => line?.text || ''));
+      if (signature !== jitenFuriganaFrameSignature) {
+        clearTimeout(jitenFuriganaFrameTimer);
+        if (releaseJitenFuriganaFrame) releaseJitenFuriganaFrame(false);
+        jitenFuriganaFrameSignature = signature;
+        jitenFuriganaFrameReady = new Promise((resolve) => {
+          releaseJitenFuriganaFrame = resolve;
+          jitenFuriganaFrameTimer = setTimeout(() => {
+            releaseJitenFuriganaFrame = null;
+            jitenFuriganaFrameTimer = null;
+            resolve(true);
+          }, 250);
+        });
+      }
+      const ready = await jitenFuriganaFrameReady;
+      if (!ready || renderGeneration !== overlayRenderGeneration || !showFurigana) return;
+    } else {
+      cancelPendingJitenFuriganaFrame();
+    }
+
+    let jitenResults = null;
+    if (usesJiten) {
+      jitenResults = await gamepadHandler.requestJitenFuriganaFrame(
+        lines.map((line) => ({ text: line?.text || '' })),
+        () => renderGeneration === overlayRenderGeneration && showFurigana
+      );
+      if (renderGeneration !== overlayRenderGeneration || !showFurigana) return;
+    }
+
     const furiganaRequests = lines.map((line, lineIdx) => {
-      if (!line || !line.text || !/[^\u0000-\u007F]/.test(line.text)) {
+      if (!line || !line.text || (!usesLocalReadings && !window.GSMFuriganaUtils.textContainsJapanese(line.text))) {
         return Promise.resolve(null);
       }
       if (usesLocalReadings) {
         // Annotations are derived from line.text directly; segments unused.
         return Promise.resolve({ line, lineIdx, segments: [] });
+      }
+      if (jitenResults) {
+        return Promise.resolve({ line, lineIdx, segments: jitenResults[lineIdx]?.segments || [] });
       }
       const cachedLine = getCachedFuriganaLine(line.text);
       if (cachedLine) {
@@ -4156,6 +4304,7 @@ background: rgba(202, 12, 12, 0.692);
         }
     });
     if (!preserveFurigana) {
+      cancelPendingJitenFuriganaFrame();
       resetFuriganaRenderState();
     }
     
@@ -4167,6 +4316,33 @@ background: rgba(202, 12, 12, 0.692);
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.remove();
+  }
+
+  function invalidateStaleOcrOverlayText(options = {}) {
+    cancelPendingJitenFuriganaFrame();
+    const removeNotation = options.removeNotation === true;
+    const invalidateLookups = options.invalidateLookups === true;
+    overlayRenderGeneration += 1;
+    lastOverlayTextRenderSignature = null;
+
+    if (invalidateLookups) {
+      const lookupSelectors = ['.text-box', '.big-interactive-area', '.spacer', '.text-block-container', '.block-separator'];
+      lookupSelectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((element) => element.remove());
+      });
+      const plainText = document.getElementById('text');
+      if (plainText) plainText.textContent = '';
+    }
+
+    if (removeNotation) {
+      ['.line-box', '.recycled-indicator'].forEach((selector) => {
+        document.querySelectorAll(selector).forEach((element) => element.remove());
+      });
+      resetFuriganaRenderState();
+      if (window.GsmJitenHighlight) window.GsmJitenHighlight.clearJitenHighlighting();
+    }
+
+    completeGamepadOverlayTextRender(null, { preserveSelection: false, focusLatestLine: false });
   }
 
   function hideTextBoxes() {
@@ -4693,6 +4869,7 @@ background: rgba(202, 12, 12, 0.692);
         case "showFurigana":
           showFurigana = value;
           if (!showFurigana) {
+            cancelPendingJitenFuriganaFrame();
             clearFuriganaAutoHideTimer();
             furiganaAutoHidden = false;
           }

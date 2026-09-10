@@ -8,6 +8,11 @@
   }
 }(typeof window !== 'undefined' ? window : globalThis, function () {
   const KANA_REGEX = /[\u3040-\u30ff\u31f0-\u31ff\uff66-\uff9f]/u;
+  const JAPANESE_TEXT_REGEX = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+
+  function textContainsJapanese(text) {
+    return typeof text === 'string' && JAPANESE_TEXT_REGEX.test(text);
+  }
   const STRICT_READING_REPLACEMENTS = new Map([
     ['私\tわたくし', 'わたし'],
   ]);
@@ -443,6 +448,7 @@
   }
 
   return {
+    textContainsJapanese,
     isKanjiLikeCharacter,
     isKanaCharacter,
     textContainsKanji,

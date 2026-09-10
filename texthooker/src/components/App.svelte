@@ -162,6 +162,7 @@
 		filter(([value, lineType, _1, lineMeta]) => {
 			const isResetCheckboxes = lineType === LineType.RESETCHECKBOXES;
 			const isAuthoritativeV2 = Number.isFinite(Number(lineMeta?.streamSequence));
+			const isReplayBufferExpiry = lineMeta?.gsmStatus === 'timed_out' || lineMeta?.recordState === 'expired';
 			const isPaste = lineType === LineType.PASTE;
 			const hasNoUserInteraction = !isPaste || (!$notesOpen$ && !$dialogOpen$ && !$settingsOpen$ && !lineInEdit);
 			const skipExternalLine = blockNextExternalLine && lineType === LineType.EXTERNAL;
@@ -182,7 +183,8 @@
 					$isPaused$ &&
 					$autoStartTimerDuringPause$ &&
 					hasNoUserInteraction &&
-					!skipExternalLine
+					!skipExternalLine &&
+					!isReplayBufferExpiry
 				) {
 					$isPaused$ = false;
 				}

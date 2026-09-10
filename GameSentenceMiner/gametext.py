@@ -792,6 +792,7 @@ async def add_line_to_text_log(
     source_instance=None,
     revision_window_ms=None,
     merge_fragments=False,
+    remove_matching_prefix=None,
     source_sequence=None,
     metadata_extra=None,
 ):
@@ -809,6 +810,7 @@ async def add_line_to_text_log(
         source_instance=source_instance,
         revision_window_ms=revision_window_ms,
         merge_fragments=merge_fragments,
+        remove_matching_prefix=remove_matching_prefix,
         source_sequence=source_sequence,
         metadata_extra=metadata_extra,
     )
@@ -828,6 +830,7 @@ def _ingest_line_sync(
     source_instance=None,
     revision_window_ms=None,
     merge_fragments=False,
+    remove_matching_prefix=None,
     wait_projected=True,
     source_sequence=None,
     metadata_extra=None,
@@ -849,6 +852,12 @@ def _ingest_line_sync(
         return IngressAck(IngressStatus.REJECTED, observation_id, reason="skip spam detected")
 
     current_line_after_regex = apply_text_processing(guarded_line, get_config().text_processing)
+    general_config = getattr(get_config(), "general", None)
+    remove_matching_prefix = (
+        bool(getattr(general_config, "remove_matching_prefix_on_subsequent_lines", True))
+        if remove_matching_prefix is None
+        else bool(remove_matching_prefix)
+    )
     current_line_time = line_time if line_time else datetime.now()
     now_utc = normalize_utc(datetime.now())
     captured_at = normalize_utc(current_line_time)
@@ -877,6 +886,7 @@ def _ingest_line_sync(
         source_sequence=int(source_sequence) if source_sequence is not None else None,
         revision_window_ms=window_ms,
         merge_fragments=merge_fragments,
+        remove_matching_prefix=remove_matching_prefix,
         copy_to_clipboard=bool(copy_to_clipboard),
         excluded_from_stats=bool(exclude_from_stats or paused),
         relay_only=bool(paused),

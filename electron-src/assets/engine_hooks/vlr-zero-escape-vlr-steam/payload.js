@@ -79,12 +79,13 @@ function isDialogue(raw) {
     if (typeof raw !== 'string' || !/[\u3040-\u30ff\u3400-\u9fff]/u.test(raw)) return false;
     if (!/<(?:K|P)>$/u.test(raw.trim()) || /<N>/u.test(raw)) return false;
     const text = raw
-        .split('<N>')
-        .map((part) => part.trim())
-        .join('')
         .replace(/<[^>]+>/gu, '')
         .trim();
     return text.length > 0 && text !== 'はい' && text !== 'いいえ';
+}
+
+function cleanDisplayedText(raw) {
+    return raw.replace(/<[^>]+>/gu, '').trim();
 }
 
 function readFiniteFloat(pointer, label) {
@@ -266,6 +267,26 @@ function snapshotGlyphs(objectAddress) {
     return records;
 }
 
+function emitText(raw, callerOffset) {
+    if (!isDialogue(raw)) return;
+    const text = cleanDisplayedText(raw);
+    const now = Date.now();
+    const fingerprint = `text\u0000${text}`;
+    if (fingerprint === lastFingerprint && now - lastFingerprintAt < 250) return;
+    lastFingerprint = fingerprint;
+    lastFingerprintAt = now;
+    sequence += 1;
+    send({
+        schema: 'gsm_engine_hook_message_v1',
+        type: 'text',
+        integrationId,
+        sequence,
+        capturedAt: now,
+        callerOffset,
+        text,
+    });
+}
+
 function emitLayout(raw, objectAddress, callerOffset, capturedGlyphs = null) {
     if (!isDialogue(raw)) return;
     let coordinateSpace;
@@ -279,6 +300,7 @@ function emitLayout(raw, objectAddress, callerOffset, capturedGlyphs = null) {
         }
     } catch (error) {
         diagnostic('warn', `VLR layout rejected: ${error.message}`);
+        emitText(raw, callerOffset);
         return;
     }
     const fingerprint = `${raw}\u0000${JSON.stringify(positionedCodes)}\u0000${JSON.stringify(coordinateSpace)}`;
@@ -316,6 +338,7 @@ function attachLineLayout(address) {
             } catch (error) {
                 if (isDialogue(this._gsmRaw)) {
                     diagnostic('warn', `VLR layout rejected: ${error.message}`);
+                    emitText(this._gsmRaw, this._gsmCallerOffset);
                 }
                 return;
             }

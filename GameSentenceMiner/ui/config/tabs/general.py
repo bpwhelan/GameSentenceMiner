@@ -61,6 +61,14 @@ GENERAL_FIELDS = [
         color=LabelColor.ADVANCED,
         bold=True,
     ),
+    FieldSpec(
+        ("profile", "general", "remove_matching_prefix_on_subsequent_lines"),
+        "general",
+        "remove_matching_prefix_on_subsequent_lines",
+        "remove_matching_prefix_on_subsequent_lines_check",
+        color=LabelColor.ADVANCED,
+        bold=True,
+    ),
     # websocket_uri is now replaced by websocket_sources editor (added manually in build_general_tab)
     FieldSpec(
         ("profile", "general", "open_config_on_startup"),

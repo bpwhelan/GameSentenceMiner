@@ -44,6 +44,25 @@ from GameSentenceMiner.web.websocket_proxy import (
     get_websocket_close_args,
 )
 
+# aiohttp creates its process-wide default SSLContext objects while importing
+# ``aiohttp.connector``.  python-build-standalone has a known OpenSSL issue on
+# some Linux distributions when that import happens for the first time inside
+# a worker thread.  This module is imported by GSM's main thread before the
+# texthooker thread is started, so load the optional gateway dependency here.
+# If the runtime's OpenSSL configuration is incompatible, keep that failure
+# contained and let the normal Waitress listener continue below.
+try:
+    from aiohttp import ClientSession, ClientTimeout, TCPConnector, WSMsgType, web
+
+    _AIOHTTP_IMPORT_ERROR = None
+except Exception as error:  # pragma: no cover - depends on the host OpenSSL build  # noqa: BLE001
+    ClientSession = None
+    ClientTimeout = None
+    TCPConnector = None
+    WSMsgType = None
+    web = None
+    _AIOHTTP_IMPORT_ERROR = error
+
 server_start_time = datetime.datetime.now().timestamp()
 _legacy_notice_server = None
 _legacy_notice_thread = None
@@ -78,6 +97,31 @@ def _get_single_port() -> int:
     except Exception:
         port = 7275
     return 7275 if port <= 0 else port
+
+
+def _get_websocket_endpoint_payload(gateway_port: int | None = None) -> dict:
+    """Describe the preferred websocket endpoint and its direct fallback.
+
+    ``port`` retains the long-standing contract: use the gateway while it is
+    healthy, or the live ingress when GSM is running in its Waitress fallback.
+    An opt-in direct port overrides that preference and is stable across GSM
+    restarts. ``direct_port`` is always the currently bound multiplex ingress
+    so clients can fail over if the single-port proxy later drops a socket.
+    """
+    ingress_port = websocket_manager.get_ingress_port()
+    try:
+        configured_direct_port = int(getattr(get_config().advanced, "direct_websocket_port", 0) or 0)
+    except (AttributeError, TypeError, ValueError):
+        configured_direct_port = 0
+
+    direct_listener_enabled = configured_direct_port == ingress_port and configured_direct_port > 0
+    preferred_port = ingress_port if direct_listener_enabled or gateway_port is None else gateway_port
+    return {
+        "port": preferred_port,
+        "direct_port": ingress_port,
+        "gateway_port": gateway_port,
+        "gateway_active": gateway_port is not None,
+    }
 
 
 def _get_legacy_texthooker_port() -> int:
@@ -172,10 +216,11 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
       - Expose one public port that reverse-proxies HTTP + websocket paths.
     """
     global _single_port_gateway_active, _single_port_gateway_port, _single_port_gateway_future
-    try:
-        from aiohttp import ClientSession, ClientTimeout, TCPConnector, WSMsgType, web
-    except ImportError:
-        logger.warning("Single-port mode requested, but 'aiohttp' is not installed. Install with: pip install aiohttp")
+    if _AIOHTTP_IMPORT_ERROR is not None:
+        logger.warning(
+            "Single-port gateway unavailable because aiohttp could not initialize "
+            f"(falling back to Waitress): {_AIOHTTP_IMPORT_ERROR}"
+        )
         return False
 
     internal_http_port = _find_free_port(host)
@@ -257,7 +302,7 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
 
     async def proxy_http_request(client: ClientSession, incoming_request):
         if incoming_request.path == "/get_websocket_port":
-            return web.json_response({"port": external_port})
+            return web.json_response(_get_websocket_endpoint_payload(external_port))
 
         target = f"http://{upstream_host}:{internal_http_port}{incoming_request.rel_url}"
         payload = await incoming_request.read()
@@ -1460,9 +1505,8 @@ def game_stats_page(game_id):
 
 @app.route("/get_websocket_port", methods=["GET"])
 def get_websocket_port():
-    if _single_port_gateway_active and _single_port_gateway_port:
-        return jsonify({"port": _single_port_gateway_port}), 200
-    return jsonify({"port": websocket_manager.get_ingress_port()}), 200
+    gateway_port = _single_port_gateway_port if _single_port_gateway_active else None
+    return jsonify(_get_websocket_endpoint_payload(gateway_port)), 200
 
 
 def get_selected_lines():

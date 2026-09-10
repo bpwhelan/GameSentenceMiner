@@ -123,4 +123,24 @@ describe("BackendConnector reliable delivery", () => {
       { type: "gsm-overlay-config-updated", settings: { periodic: true } },
     ]);
   });
+
+  it("fails over to a discovered direct websocket before scheduling a reconnect", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const WebSocketFactory = class extends FakeWebSocket {
+      constructor() {
+        super();
+        sockets.push(this);
+      }
+    };
+    Object.assign(WebSocketFactory, { OPEN: FakeWebSocket.OPEN, CONNECTING: FakeWebSocket.CONNECTING });
+    const resolveFallbackUrl = vi.fn(async (url: string) => url.replace(":7275", ":8383"));
+    const connector = new BackendConnector(null, () => null, { WebSocket: WebSocketFactory, resolveFallbackUrl });
+
+    connector.connect("ws://127.0.0.1:7275/ws/overlay");
+    sockets[0].emit("close");
+    await vi.waitFor(() => expect(sockets).toHaveLength(2));
+
+    expect(resolveFallbackUrl).toHaveBeenCalledWith("ws://127.0.0.1:7275/ws/overlay");
+    expect(connector.url).toBe("ws://127.0.0.1:8383/ws/overlay");
+  });
 });

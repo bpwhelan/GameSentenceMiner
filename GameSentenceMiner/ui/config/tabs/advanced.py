@@ -37,6 +37,10 @@ def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "advanced", "localhost_bind_address"),
         window.localhost_bind_address_edit,
     )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "advanced", "direct_websocket_port", color=LabelColor.ADVANCED),
+        window.direct_websocket_port_edit,
+    )
     layout.addRow(QLabel("Longest Sleep Time (s)"), window.longest_sleep_time_edit)
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "screenshot", "capture_backend", color=LabelColor.ADVANCED),

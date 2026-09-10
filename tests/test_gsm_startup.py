@@ -217,7 +217,7 @@ def test_launch_obs_early_skips_python_launch_under_electron(monkeypatch):
     assert calls == []
 
 
-def test_run_schedules_default_config_dialog_after_backend_ready(monkeypatch):
+def test_run_does_not_schedule_default_config_dialog_after_backend_ready(monkeypatch):
     calls = []
 
     class _FakeFuture:
@@ -254,8 +254,6 @@ def test_run_schedules_default_config_dialog_after_backend_ready(monkeypatch):
     fake_qt_main = SimpleNamespace(
         get_qt_app=lambda: calls.append("qt-app"),
         get_config_window=lambda: calls.append("config-window") or fake_settings_window,
-        show_default_config_changes_if_needed=lambda **_kwargs: calls.append("blocking-default-dialog"),
-        schedule_default_config_changes_if_needed=lambda **_kwargs: calls.append("schedule-default-dialog"),
         start_qt_app=lambda **_kwargs: calls.append("qt-loop"),
     )
 
@@ -311,9 +309,8 @@ def test_run_schedules_default_config_dialog_after_backend_ready(monkeypatch):
 
     app.run()
 
-    assert "blocking-default-dialog" not in calls
     assert "config-window" not in calls
-    assert calls.index("send-initialized") < calls.index("schedule-default-dialog") < calls.index("qt-loop")
+    assert calls.index("send-initialized") < calls.index("qt-loop")
 
 
 def test_open_settings_creates_and_registers_config_window_lazily(monkeypatch):

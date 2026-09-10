@@ -41,7 +41,7 @@ Namespaces map to UI areas:
 | `wizard`    | `SetupWizard.tsx`           |
 | `install`   | `InstallSessionModal.tsx`   |
 | `settings`  | `SettingsTab.tsx`           |
-| `launcher`  | `LauncherTab.tsx`           |
+| `launcher`  | `GameAutomationTab.tsx`     |
 | `ocr`       | `OCRTab.tsx`                |
 
 ## Adding a New Locale

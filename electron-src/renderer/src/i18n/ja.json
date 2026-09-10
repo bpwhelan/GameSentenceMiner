@@ -449,10 +449,16 @@
     "loading": "リリースノートを読み込み中...",
     "empty": "このアップデートのリリースノートはありません。",
     "imageAlt": "リリースノート画像",
+    "youtubeVideo": "YouTube動画",
     "fallbackNote": "最新のオンラインノートを読み込めなかったため、同梱されたリリースノートを表示しています。",
     "continue": "続行",
     "close": "閉じる",
     "syncing": "バックエンドを同期中...",
+    "settingChoice": {
+      "enabled": "このプロファイルで有効にしました。",
+      "disabled": "このプロファイルでは無効のままにしました。",
+      "error": "この設定を保存できませんでした。バックエンドの準備ができてからもう一度お試しください。"
+    },
     "source": {
       "loading": "読み込み中",
       "bundled": "同梱ノート",
@@ -1395,7 +1401,9 @@
       "searchPlaceholder": "ゲーム名またはファイル名で検索",
       "pickerNoResults": "一致するスクリプトがありません。",
       "scriptCandidate": "Agentスクリプト",
-      "showScriptUi": "スクリプトUIを表示"
+      "showScriptUi": "スクリプトUIを表示",
+      "runDetached": "GSMを閉じてもAgentを実行し続ける",
+      "runDetachedHint": "次回GSMを開いたとき、実行中のAgentセッションに再接続します。"
     },
     "profile": {
       "title": "保存済みプロファイル",
@@ -1458,6 +1466,7 @@
     },
     "errors": {
       "startFailed": "フックエンジンの起動に失敗しました。",
+      "stopFailed": "フックエンジンの停止に失敗しました。",
       "manualFailed": "手動フックのアタッチに失敗しました。",
       "profileSaveFailed": "プロファイルの保存に失敗しました。",
       "maxBufferSizeSaveFailed": "最大テキスト長の保存に失敗しました。",

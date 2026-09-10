@@ -11,10 +11,14 @@ import {
     resolvePreReleaseBackendWheelPath,
 } from '../util.js';
 import { isBackendVersionCompatible } from './backend_version.js';
+import {
+    getDevPyprojectSyncState,
+    markDevPyprojectSynced,
+} from './dev_environment_sync.js';
 
 export { isBackendVersionCompatible } from './backend_version.js';
 
-const PINNED_UV_VERSION = '0.9.22';
+const PINNED_UV_VERSION = '0.12.4';
 
 // ---------------------------------------------------------------------------
 // General helpers
@@ -209,35 +213,6 @@ export async function runCommand(
 // Version helpers
 // ---------------------------------------------------------------------------
 
-function parseVersionSegments(version: string): number[] {
-    return version
-        .trim()
-        .split('.')
-        .map((segment) => {
-            const match = segment.match(/^(\d+)/);
-            return match ? Number.parseInt(match[1], 10) : 0;
-        });
-}
-
-function isVersionAtLeast(currentVersion: string, minimumVersion: string): boolean {
-    const current = parseVersionSegments(currentVersion);
-    const minimum = parseVersionSegments(minimumVersion);
-    const maxLength = Math.max(current.length, minimum.length);
-
-    for (let index = 0; index < maxLength; index++) {
-        const currentValue = current[index] ?? 0;
-        const minimumValue = minimum[index] ?? 0;
-        if (currentValue > minimumValue) {
-            return true;
-        }
-        if (currentValue < minimumValue) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 // ---------------------------------------------------------------------------
 // Venv path helpers
 // ---------------------------------------------------------------------------
@@ -284,16 +259,16 @@ export async function isPackageInstalled(
 
 export async function checkAndInstallUV(pythonPath: string): Promise<void> {
     const uvVersion = await getInstalledPackageVersion(pythonPath, 'uv');
-    if (uvVersion && isVersionAtLeast(uvVersion, PINNED_UV_VERSION)) {
+    if (uvVersion === PINNED_UV_VERSION) {
         return;
     }
 
     if (uvVersion) {
         console.log(
-            `uv ${uvVersion} found, updating to minimum supported ${PINNED_UV_VERSION}...`
+            `uv ${uvVersion} found, replacing it with lock-compatible ${PINNED_UV_VERSION}...`
         );
     } else {
-        console.log(`uv is not installed. Installing minimum supported ${PINNED_UV_VERSION}...`);
+        console.log(`uv is not installed. Installing lock-compatible ${PINNED_UV_VERSION}...`);
     }
 
     try {
@@ -548,12 +523,15 @@ export function resolveRequestedExtras(
  * release and syncs the venv to match it, including any requested extras.
  *
  * @param checkOnly  When true adds `--check` (dry-run, throws on mismatch).
+ * @param options.deferValidation  When replacing the backend next, validate and
+ * stamp only after installPackageNoDeps replaces its old dependency metadata.
  */
 export async function syncLockedEnvironment(
     pythonPath: string,
     extras: string[] = [],
     checkOnly: boolean = false,
-    onProgress?: (event: UvCommandProgressEvent) => void
+    onProgress?: (event: UvCommandProgressEvent) => void,
+    options: { deferValidation?: boolean } = {}
 ): Promise<void> {
     const projectPath = getProjectPath();
     const normalizedExtras = normalizeExtras(extras);
@@ -579,13 +557,43 @@ export async function syncLockedEnvironment(
         args.push('--extra', extra);
     }
 
-    await runCommand(pythonPath, args, true, true, 'Sync: ', {
+    const commandOptions = {
         env: {
             VIRTUAL_ENV: getVenvDirFromPythonPath(pythonPath),
         },
         suppressOutput: true,
         onProgress,
-    });
+    };
+    await runCommand(pythonPath, args, true, true, 'Sync: ', commandOptions);
+
+    if (!options.deferValidation) {
+        await validateLockedEnvironment(pythonPath, normalizedExtras, onProgress);
+    }
+}
+
+async function validateLockedEnvironment(
+    pythonPath: string,
+    extras: string[],
+    onProgress?: (event: UvCommandProgressEvent) => void
+): Promise<void> {
+    await runCommand(
+        pythonPath,
+        ['-m', 'pip', 'check'],
+        true,
+        true,
+        'Verify: ',
+        { suppressOutput: true, onProgress }
+    );
+
+    const syncState = getDevPyprojectSyncState(
+        getProjectPath(),
+        getVenvDirFromPythonPath(pythonPath),
+        extras
+    );
+    markDevPyprojectSynced(
+        getVenvDirFromPythonPath(pythonPath),
+        syncState.fingerprint
+    );
 }
 
 /**
@@ -596,7 +604,8 @@ export async function installPackageNoDeps(
     pythonPath: string,
     packageSpecifier: string,
     forceReinstall: boolean = false,
-    onProgress?: (event: UvCommandProgressEvent) => void
+    onProgress?: (event: UvCommandProgressEvent) => void,
+    extras: string[] = []
 ): Promise<void> {
     const args = ['-m', 'uv', 'pip', 'install', '--no-deps', '--upgrade'];
     if (forceReinstall) {
@@ -607,4 +616,5 @@ export async function installPackageNoDeps(
         suppressOutput: true,
         onProgress,
     });
+    await validateLockedEnvironment(pythonPath, extras, onProgress);
 }

@@ -41,7 +41,7 @@ import {
     setTextHookUserStartListener,
     setTextHookUserStopListener,
     startHookSession,
-    stopHookSession,
+    stopHookSessionAndWait,
 } from './ui/texthook.js';
 import { findLinuxGamePid } from './ui/linux_wine.js';
 
@@ -953,7 +953,13 @@ export class AutoLauncher {
             this.logInternal(
                 `AutoLauncher: Stopping active text hook for ${currentStatus.exeName} before attaching ${engine} to ${exeName}.`
             );
-            stopHookSession();
+            const stopResult = await stopHookSessionAndWait();
+            if (!stopResult.success) {
+                this.warnInternal(
+                    `AutoLauncher: Could not stop ${currentStatus.engine} for ${currentStatus.exeName}; skipping ${engine} attach: ${stopResult.error ?? "unknown error"}`
+                );
+                return;
+            }
         }
 
         if (launchDelaySeconds > 0) {

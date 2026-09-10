@@ -1774,6 +1774,24 @@
         <span class="label-text">Apply Text Filtering</span>
         <input type="checkbox" id="use_text_filtering" />
       </label>
+      <label>
+        <span class="label-text">
+          Check Whether the Last OCR Text Is Still Visible
+          <div class="hotkey-info">
+            Starts a background image check after each overlay result and compares only the tightly cropped
+            last-sent text area. No extra OCR request is made. Experimental and off by default.
+          </div>
+        </span>
+        <input type="checkbox" id="last_sent_ocr_presence_check" />
+      </label>
+      <label class="sub-option last-sent-ocr-presence-option">
+        <span class="label-text">Remove Notation (Jiten highlights, furigana, and indicators)</span>
+        <input type="checkbox" id="last_sent_ocr_presence_remove_notation" />
+      </label>
+      <label class="sub-option last-sent-ocr-presence-option">
+        <span class="label-text">Invalidate Text for Lookups</span>
+        <input type="checkbox" id="last_sent_ocr_presence_invalidate_lookups" />
+      </label>
     </div>
 
     <div class="setting-group" data-tab="capture">
@@ -3481,6 +3499,14 @@
       });
     }
 
+    function syncLastSentOcrPresenceUi() {
+      const enabled = document.getElementById("last_sent_ocr_presence_check")?.checked === true;
+      ["last_sent_ocr_presence_remove_notation", "last_sent_ocr_presence_invalidate_lookups"].forEach((id) => {
+        const control = document.getElementById(id);
+        if (control) control.disabled = !enabled;
+      });
+    }
+
     function syncGamepadSettingsEnabledUi() {
       const enabled = document.getElementById("gamepadEnabled")?.checked !== false;
       updateGamepadSettingsVisibility(enabled);
@@ -3734,6 +3760,11 @@
         },
       }),
       createCheckboxBinding("use_text_filtering", "#use_text_filtering"),
+      createCheckboxBinding("last_sent_ocr_presence_check", "#last_sent_ocr_presence_check", {
+        afterApply: () => syncLastSentOcrPresenceUi(),
+      }),
+      createCheckboxBinding("last_sent_ocr_presence_remove_notation", "#last_sent_ocr_presence_remove_notation"),
+      createCheckboxBinding("last_sent_ocr_presence_invalidate_lookups", "#last_sent_ocr_presence_invalidate_lookups"),
       // Legacy / advanced OCR-capture settings (collapsed in the Capture tab).
       createNumberBinding("periodic_ratio", "#periodic_ratio", {
         fallback: 0.9,

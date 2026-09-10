@@ -159,7 +159,6 @@ import {
 } from './services/python_ops.js';
 import {
     getDevPyprojectSyncState,
-    markDevPyprojectSynced,
     type DevPyprojectSyncState,
 } from './services/dev_environment_sync.js';
 import type {
@@ -191,7 +190,31 @@ export class FeatureFlags {
 }
 
 const APP_USER_MODEL_ID = 'com.beangate.gamesentenceminer';
+const YOUTUBE_EMBED_REFERER = 'https://github.com/bpwhelan/GameSentenceMiner/';
 let cachedPreReleaseBranch: string | null | undefined = undefined;
+
+function configureYouTubeEmbedHeaders(window: BrowserWindow): void {
+    window.webContents.session.webRequest.onBeforeSendHeaders(
+        {
+            urls: [
+                'https://youtube.com/*',
+                'https://*.youtube.com/*',
+                'https://www.youtube-nocookie.com/*',
+                'https://*.youtube-nocookie.com/*',
+            ],
+        },
+        (details, callback) => {
+            const requestHeaders = { ...details.requestHeaders };
+            for (const header of Object.keys(requestHeaders)) {
+                if (header.toLowerCase() === 'referer') {
+                    delete requestHeaders[header];
+                }
+            }
+            requestHeaders.Referer = YOUTUBE_EMBED_REFERER;
+            callback({ requestHeaders });
+        },
+    );
+}
 
 function getPreReleaseBranch(): string | null {
     if (cachedPreReleaseBranch !== undefined) {
@@ -753,6 +776,11 @@ desktopChangelogManager.setManualSnapshotListener((snapshot) => {
 const updateManager = new UpdateManager({
     getPythonPath: () => pythonPath,
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
+    closeAllForAppUpdate: async () => {
+        await closeAllPythonProcesses();
+        const { shutdownTextHookForUpdate } = await import('./ui/texthook.js');
+        await shutdownTextHookForUpdate();
+    },
     ensureAndRunGSM: async (pyPath: string) =>
         ensureAndRunGSM(pyPath, 1, { allowDuringUpdate: true, origin: 'backend_update' }),
     reinstallPython: async () => reinstallPython(),
@@ -1553,6 +1581,7 @@ async function createWindow() {
         }),
         title: windowTitle,
     });
+    configureYouTubeEmbedHeaders(mainWindow);
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -1610,6 +1639,7 @@ async function createWindow() {
         markDesktopUpdateChangelogSeen: async (toVersion?: string) =>
             desktopChangelogManager.markSeen(toVersion),
         clearManualDesktopChangelog: () => desktopChangelogManager.clearManualDisplay(),
+        applyChangelogSettingChoice,
     });
     registerDataRelocateIPC();
 
@@ -2124,19 +2154,19 @@ async function ensureAndRunGSM(
     }
 
     let devPyprojectSyncState: DevPyprojectSyncState | null = null;
-    if (isDev) {
-        try {
-            devPyprojectSyncState = getDevPyprojectSyncState(
-                getProjectPath(),
-                getVenvDirFromPythonPath(runtimePythonPath)
-            );
-        } catch (error) {
-            console.warn('Could not determine whether pyproject.toml changed:', error);
-        }
+    try {
+        devPyprojectSyncState = getDevPyprojectSyncState(
+            getProjectPath(),
+            getVenvDirFromPythonPath(runtimePythonPath),
+            selectedExtras
+        );
+    } catch (error) {
+        console.warn('Could not determine whether the locked Python environment changed:', error);
     }
     const shouldSyncChangedDevPyproject = devPyprojectSyncState?.changed === true;
     const requiresEnvironmentPreparation =
         requiresStartupPreparation || shouldSyncChangedDevPyproject;
+    const syncOptions = { deferValidation: requiresStartupPreparation };
 
     if (requiresEnvironmentPreparation) {
         try {
@@ -2190,7 +2220,7 @@ async function ensureAndRunGSM(
 
         if (shouldSyncChangedDevPyproject && devPyprojectSyncState) {
             console.log(
-                `pyproject.toml changed; syncing the development Python environment, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                `Locked Python environment inputs changed; syncing dependencies, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
                 }`
             );
             devFaultInjector.maybeFail('startup.sync_lock_apply');
@@ -2199,7 +2229,7 @@ async function ensureAndRunGSM(
                 'running',
                 'estimated',
                 0.15,
-                'pyproject.toml changed; syncing the development Python environment...'
+                'Lockfile, project dependencies, or selected extras changed; syncing...'
             );
             await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
                 updateInstallStage(
@@ -2209,17 +2239,13 @@ async function ensureAndRunGSM(
                     event.progress,
                     event.message
                 );
-            });
-            markDevPyprojectSynced(
-                getVenvDirFromPythonPath(runtimePythonPath),
-                devPyprojectSyncState.fingerprint
-            );
+            }, syncOptions);
             updateInstallStage(
                 'lock_sync',
                 'completed',
                 'estimated',
                 1,
-                'Development Python environment synced after pyproject.toml changed.'
+                'Python environment synced after its locked inputs changed.'
             );
         } else {
             // App-version and backend updates still verify the environment and
@@ -2233,7 +2259,7 @@ async function ensureAndRunGSM(
                     0.1,
                     'Checking whether the Python environment matches the lockfile...'
                 );
-                await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
+                await syncLockedEnvironment(runtimePythonPath, selectedExtras, true, undefined, syncOptions);
                 console.log('Python environment already matches lockfile.');
                 updateInstallStage(
                     'lock_sync',
@@ -2263,20 +2289,13 @@ async function ensureAndRunGSM(
                         event.progress,
                         event.message
                     );
-                });
+                }, syncOptions);
                 updateInstallStage(
                     'lock_sync',
                     'completed',
                     'estimated',
                     1,
                     'Python environment synced to the lockfile.'
-                );
-            }
-
-            if (isDev && devPyprojectSyncState) {
-                markDevPyprojectSynced(
-                    getVenvDirFromPythonPath(runtimePythonPath),
-                    devPyprojectSyncState.fingerprint
                 );
             }
         }
@@ -2332,7 +2351,8 @@ async function ensureAndRunGSM(
                     event.progress,
                     event.message
                 );
-            }
+            },
+            selectedExtras
         );
         installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
         console.log(
@@ -2428,7 +2448,7 @@ async function ensureAndRunGSM(
                         event.progress,
                         event.message
                     );
-                });
+                }, { deferValidation: true });
                 updateInstallStage(
                     'lock_sync',
                     'completed',
@@ -2454,7 +2474,7 @@ async function ensureAndRunGSM(
                         event.progress,
                         event.message
                     );
-                });
+                }, selectedExtras);
                 updateInstallStage(
                     'gsm_package',
                     'completed',
@@ -3120,6 +3140,17 @@ export function sendOpenSettings(data?: Record<string, unknown>) {
 }
 export function sendReloadSettings() {
     sendBackendCommand('reload_settings');
+}
+const CHANGELOG_SETTING_CHOICES = new Set([
+    'overlay-presence-invalidation:enable',
+    'overlay-presence-invalidation:disable',
+]);
+
+export function applyChangelogSettingChoice(choice: string): boolean {
+    if (!CHANGELOG_SETTING_CHOICES.has(choice)) {
+        return false;
+    }
+    return sendBackendCommand('apply_changelog_setting_choice', { choice });
 }
 export function sendWindowsSpeechStart(data: Record<string, unknown>) {
     return sendBackendCommand('windows_speech_start', data);

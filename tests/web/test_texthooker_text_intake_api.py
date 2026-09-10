@@ -1,5 +1,20 @@
+from types import SimpleNamespace
+
 from GameSentenceMiner import gametext
 from GameSentenceMiner.web import texthooking_page
+
+
+def test_single_port_gateway_falls_back_when_aiohttp_cannot_initialize(monkeypatch):
+    warnings = []
+    monkeypatch.setattr(
+        texthooking_page,
+        "_AIOHTTP_IMPORT_ERROR",
+        RuntimeError("SSLContext initialization failed"),
+    )
+    monkeypatch.setattr(texthooking_page.logger, "warning", warnings.append)
+
+    assert texthooking_page._try_start_single_port_gateway("127.0.0.1", 7275) is False
+    assert any("falling back to Waitress" in message for message in warnings)
 
 
 def test_root_redirects_to_texthooker():
@@ -35,6 +50,48 @@ def test_get_ids_disables_caching(monkeypatch):
     assert response.headers["Cache-Control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert response.headers["Pragma"] == "no-cache"
     assert response.headers["Expires"] == "0"
+
+
+def test_websocket_port_endpoint_prefers_an_enabled_direct_listener(monkeypatch):
+    config = SimpleNamespace(
+        general=SimpleNamespace(single_port=7275),
+        advanced=SimpleNamespace(direct_websocket_port=8383),
+    )
+    monkeypatch.setattr(texthooking_page, "get_config", lambda: config)
+    monkeypatch.setattr(texthooking_page.websocket_manager, "get_ingress_port", lambda: 8383)
+    monkeypatch.setattr(texthooking_page, "_single_port_gateway_active", True)
+    monkeypatch.setattr(texthooking_page, "_single_port_gateway_port", 7275)
+
+    response = texthooking_page.app.test_client().get("/get_websocket_port")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "port": 8383,
+        "direct_port": 8383,
+        "gateway_port": 7275,
+        "gateway_active": True,
+    }
+
+
+def test_websocket_port_endpoint_keeps_gateway_as_default_but_reports_direct_fallback(monkeypatch):
+    config = SimpleNamespace(
+        general=SimpleNamespace(single_port=7275),
+        advanced=SimpleNamespace(direct_websocket_port=0),
+    )
+    monkeypatch.setattr(texthooking_page, "get_config", lambda: config)
+    monkeypatch.setattr(texthooking_page.websocket_manager, "get_ingress_port", lambda: 49152)
+    monkeypatch.setattr(texthooking_page, "_single_port_gateway_active", True)
+    monkeypatch.setattr(texthooking_page, "_single_port_gateway_port", 7275)
+
+    response = texthooking_page.app.test_client().get("/get_websocket_port")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "port": 7275,
+        "direct_port": 49152,
+        "gateway_port": 7275,
+        "gateway_active": True,
+    }
 
 
 def test_set_text_intake_paused_requires_an_explicit_boolean(monkeypatch):

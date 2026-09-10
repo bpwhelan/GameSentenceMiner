@@ -1,5 +1,6 @@
 import { tick, unmount } from 'svelte';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { LineType } from '../src/types';
 
 beforeEach(() => {
 	vi.useFakeTimers();
@@ -54,4 +55,48 @@ test('an open WebSocket shows only the connected color', async () => {
 
 	await unmount(connector);
 	socketState$.next(-1);
+});
+
+test('replay-buffer expiry does not restart the TextFeed timer', async () => {
+	const { default: App } = await import('../src/components/App.svelte');
+	const { autoStartTimerDuringPause$, isPaused$, newLine$ } = await import('../src/stores/stores');
+
+	autoStartTimerDuringPause$.next(true);
+	isPaused$.next(true);
+	const app = (await import('svelte')).mount(App, { target: document.body });
+
+	await tick();
+	newLine$.next([
+		'expired line',
+		LineType.SOCKET,
+		'expired-line',
+		{
+			gsmSessionId: 'session',
+			gsmStatus: 'timed_out',
+			streamSequence: 1,
+			recordState: 'expired',
+		},
+	]);
+	await tick();
+
+	expect(isPaused$.getValue()).toBe(true);
+
+	newLine$.next([
+		'active line',
+		LineType.SOCKET,
+		'active-line',
+		{
+			gsmSessionId: 'session',
+			gsmStatus: 'active',
+			streamSequence: 2,
+			recordState: 'frozen',
+		},
+	]);
+	await tick();
+
+	expect(isPaused$.getValue()).toBe(false);
+
+	await unmount(app);
+	isPaused$.next(true);
+	autoStartTimerDuringPause$.next(false);
 });

@@ -38,7 +38,13 @@
   let parseContainer = null;
   let parseObserver = null;
   let currentLines = null;
-  let parseGeneration = 0;
+  let pendingParseTimer = null;
+  let pendingSignature = null;
+  let runningParseTimer = null;
+  let runningSignature = null;
+  let containerSignature = null;
+  let lastParseStartedAt = 0;
+  let lastParseFinishedAt = 0;
   let parseTimeoutId = null;
   let enabled = true;
   let lastParsedSignature = null;
@@ -116,8 +122,14 @@
   }
 
   function onParseComplete() {
+    clearTimeout(runningParseTimer);
+    runningParseTimer = null;
+    lastParsedSignature = containerSignature;
+    lastParseFinishedAt = Date.now();
+    runningSignature = null;
     restoreOverlayElements(); // defensive; requestParse normally restores synchronously
     mirrorHighlights();
+    schedulePendingParse();
   }
 
   // Temporarily hide overlay text elements so Jiten only parses our container.
@@ -146,25 +158,61 @@
     if (!parseContainer) init();
     if (!Array.isArray(lines) || lines.length === 0) return Promise.resolve();
 
-    const signature = lines.map(l => (l && l.text) || '').join('\n');
-    if (signature === lastParsedSignature) {
+    const signature = signatureForLines(lines);
+    currentLines = lines;
+    if (signature === lastParsedSignature && Date.now() - lastParseFinishedAt < 300_000) {
       // Text unchanged, just re-draw over the (possibly re-laid-out) boxes.
-      currentLines = lines;
       mirrorHighlights();
       return Promise.resolve();
     }
 
-    console.log('[JitenHighlight] Requesting parse for', lines.length, 'lines');
+    hideAllSegments();
+    // Only the newest frame waits behind an active Reader parse. Never replace
+    // its DOM while the extension is still writing results into that DOM.
+    schedulePendingParse();
+    return Promise.resolve();
+  }
 
-    currentLines = lines;
-    parseGeneration++;
-    const gen = parseGeneration;
+  function signatureForLines(lines) {
+    return JSON.stringify((lines || []).map((line) => line?.text || ''));
+  }
+
+  function schedulePendingParse() {
+    if (!enabled || !available || !currentLines || runningSignature) return;
+    const signature = signatureForLines(currentLines);
+    if (pendingParseTimer && pendingSignature === signature) return;
+    clearTimeout(pendingParseTimer);
+    pendingParseTimer = null;
+    if (signatureForLines(currentLines) === lastParsedSignature && Date.now() - lastParseFinishedAt < 300_000) return;
+    pendingSignature = signature;
+    pendingParseTimer = setTimeout(() => {
+      pendingParseTimer = null;
+      startParse();
+    }, Math.max(250, lastParseStartedAt + 2000 - Date.now()));
+  }
+
+  function startParse() {
+    if (!enabled || !available || !currentLines) return;
+    const lines = currentLines;
+    containerSignature = signatureForLines(lines);
+    lastParseStartedAt = Date.now();
+    // Japanese script detection also excludes English with wide punctuation.
+    const containsJapanese = (text) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text);
+    if (!lines.some((line) => containsJapanese(line?.text || ''))) {
+      lastParsedSignature = containerSignature;
+      lastParseFinishedAt = Date.now();
+      return;
+    }
+    runningSignature = containerSignature;
+    // Empty parses and extension failures may produce no word mutations. This
+    // timeout releases the next frame without repeatedly retrying the same one.
+    runningParseTimer = setTimeout(onParseComplete, 30_000);
 
     // Clear old content and insert fresh text
     parseContainer.innerHTML = '';
     for (let i = 0; i < lines.length; i++) {
       const text = (lines[i] && lines[i].text) || '';
-      if (!text) continue;
+      if (!containsJapanese(text)) continue;
       const p = document.createElement('p');
       p.dataset.lineIndex = String(i);
       p.textContent = text;
@@ -187,7 +235,6 @@
     }
 
     // Highlights are drawn later by the mutation observer (onParseComplete).
-    return Promise.resolve();
   }
 
   function resetParseContainerPosition() {
@@ -218,7 +265,7 @@
   // Read Jiten-parsed spans and draw one overlay box per token over the union
   // rect of its .text-box glyphs.
   function mirrorHighlights() {
-    if (!parseContainer || !currentLines) {
+    if (!enabled || !available || !parseContainer || !currentLines || containerSignature !== signatureForLines(currentLines)) {
       hideAllSegments();
       return;
     }
@@ -231,8 +278,6 @@
       hideAllSegments();
       return;
     }
-
-    lastParsedSignature = currentLines.map(l => (l && l.text) || '').join('\n');
 
     // Collect a flat list of { rect, classes } highlight segments. A token may
     // produce more than one rect if its glyph boxes wrap across visual lines.
@@ -511,12 +556,15 @@
 
   function clearAllHighlights() {
     hideAllSegments();
+    clearTimeout(pendingParseTimer);
+    pendingParseTimer = null;
+    currentLines = null;
   }
 
   function setEnabled(value) {
     enabled = !!value;
     if (!enabled) {
-      hideAllSegments();
+      clearAllHighlights();
       lastParsedSignature = null;
     }
   }
@@ -526,7 +574,10 @@
   function setAvailable(value) {
     available = !!value;
     // Drop the dedup signature so resuming forces a fresh parse, not stale spans.
-    if (!available) lastParsedSignature = null;
+    if (!available) {
+      clearAllHighlights();
+      lastParsedSignature = null;
+    }
   }
 
   function refresh(lines) {
@@ -562,7 +613,6 @@
     }
 
     // Force a redraw even though the underlying text is unchanged.
-    lastParsedSignature = null;
     mirrorHighlights();
   }
 

@@ -38,6 +38,7 @@ interface MainIPCDependencies {
     getPendingDesktopUpdateChangelog: () => DesktopUpdateChangelogSnapshot | null;
     markDesktopUpdateChangelogSeen: (toVersion?: string) => Promise<boolean> | boolean;
     clearManualDesktopChangelog: () => void;
+    applyChangelogSettingChoice: (choice: string) => boolean;
 }
 
 let ipcRegistered = false;
@@ -220,6 +221,13 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     ipcMain.handle('changelog.clearManualDisplay', async () => {
         deps.clearManualDesktopChangelog();
         return { success: true };
+    });
+
+    ipcMain.handle('changelog.applySettingChoice', async (_event, choice: unknown) => {
+        if (typeof choice !== 'string') {
+            return { success: false };
+        }
+        return { success: deps.applyChangelogSettingChoice(choice) };
     });
 
     ipcMain.on('settings.iconStyleChanged', (_event, iconStyle) => {

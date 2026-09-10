@@ -131,7 +131,7 @@
             : '';
 
         card.innerHTML = `
-            <div class="game-card-image-container">
+            <div class="game-card-image-container" data-gsm-yomitan-scan-disable>
                 ${imageHTML}
                 <div class="game-card-status-badge ${statusClass}">${statusLabel}</div>
                 ${linkedBadge}

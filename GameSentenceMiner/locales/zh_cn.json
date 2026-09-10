@@ -71,6 +71,10 @@
             "label": "合并连续匹配文本:",
             "tooltip": "将连续匹配的文本合并为单个条目。这是一个非常特殊的功能。"
           },
+          "remove_matching_prefix_on_subsequent_lines": {
+            "label": "移除后续行中重复的前缀:",
+            "tooltip": "当输入源发送的行以前一完整行为开头时，移除重复的前缀。适用于累积文本钩子；不会合并行。"
+          },
           "websocket_uri": {
             "label": "输入 WebSocket URI:",
             "tooltip": "输入源的 WebSocket URI（Agent、Textractor、LunaTranslator 等）。允许使用逗号分隔多个源。请勿包含 GSM 的输出端口（文本评送、OCR 覆盖层）。"
@@ -200,7 +204,38 @@
           },
           "confirmation_gamepad_enabled": {
             "label": "手柄控制:",
-            "tooltip": "使用方向键移动焦点，按 A 激活当前焦点组件，按 X 确认并保留音频，按 B 确认但不保留音频。对话框打开时，其他 GSM 手柄控制会暂停。"
+            "tooltip": "启用 Anki 确认对话框的可配置手柄按键。对话框打开时，其他 GSM 手柄控制会暂停。"
+          },
+          "confirmation_gamepad_bindings": {
+            "label": "手柄按键:"
+          },
+          "confirmation_gamepad_focus_up": {
+            "label": "向上移动焦点:",
+            "tooltip": "将焦点移至上一项的按键。"
+          },
+          "confirmation_gamepad_focus_down": {
+            "label": "向下移动焦点:",
+            "tooltip": "将焦点移至下一项的按键。"
+          },
+          "confirmation_gamepad_focus_left": {
+            "label": "向左移动焦点:",
+            "tooltip": "将焦点移至上一项的按键。"
+          },
+          "confirmation_gamepad_focus_right": {
+            "label": "向右移动焦点:",
+            "tooltip": "将焦点移至下一项的按键。"
+          },
+          "confirmation_gamepad_activate": {
+            "label": "激活当前焦点组件:",
+            "tooltip": "激活当前焦点组件并接受音频选择警告的按键。"
+          },
+          "confirmation_gamepad_confirm_with_audio": {
+            "label": "保留音频确认:",
+            "tooltip": "确认卡片并保留音频的按键。"
+          },
+          "confirmation_gamepad_confirm_without_audio": {
+            "label": "不含音频确认:",
+            "tooltip": "确认不含音频的卡片并取消音频选择警告的按键。"
           },
           "url": {
             "label": "Anki URL:",
@@ -632,6 +667,10 @@
           "polling_rate": {
             "label": "轮询率:",
             "tooltip": "Anki 检查更新的速率（毫秒）。"
+          },
+          "direct_websocket_port": {
+            "label": "直连 WebSocket 端口（备用）：",
+            "tooltip": "用于直接连接 /ws/texthooker、/ws/overlay 和 /ws/plaintext 的可选固定端口。设置为 0 时使用自动备用发现。必须不同于主端口和输入服务器端口（7276）。保存后 GSM 会重启。"
           },
           "mute_game_on_minimize": {
             "label": "最小化时静音游戏:",

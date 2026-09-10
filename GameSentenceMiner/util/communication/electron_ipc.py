@@ -49,6 +49,7 @@ class FunctionName(Enum):
     START_OBS = "start_obs"
     OPEN_SETTINGS = "open_settings"
     RELOAD_SETTINGS = "reload_settings"
+    APPLY_CHANGELOG_SETTING_CHOICE = "apply_changelog_setting_choice"
     OPEN_OVERLAY_SETTINGS = "open_overlay_settings"
     OPEN_TEXTHOOKER = "open_texthooker"
     SWITCH_PROFILE = "switch_profile"

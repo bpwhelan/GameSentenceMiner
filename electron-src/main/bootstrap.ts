@@ -9,6 +9,7 @@ const { app, dialog } = electron;
 const OVERLAY_CHILD_ARG = '--gsm-overlay-child';
 const OVERLAY_RESOURCES_ARG = '--gsm-overlay-resources';
 const OVERLAY_RESOURCES_ENV = 'GSM_OVERLAY_RESOURCES_PATH';
+const AGENT_HOST_ARG = '--gsm-agent-host';
 
 // Portals identify an unpackaged Linux process by its installed .desktop file.
 // Resolve that identity before Electron is ready and pass the matching app ID to
@@ -78,7 +79,7 @@ function failOverlayBootstrap(message: string, error?: unknown): never {
     throw new Error(detail);
 }
 
-if (!isOverlayChildProcess() && USE_IN_PROCESS_OVERLAY) {
+if (!isOverlayChildProcess() && !process.argv.includes(AGENT_HOST_ARG) && USE_IN_PROCESS_OVERLAY) {
     electron.protocol.registerSchemesAsPrivileged([
         {
             scheme: 'chrome-extension',
@@ -93,7 +94,15 @@ if (!isOverlayChildProcess() && USE_IN_PROCESS_OVERLAY) {
     ]);
 }
 
-if (isOverlayChildProcess()) {
+if (process.argv.includes(AGENT_HOST_ARG)) {
+    app.setPath('userData', path.join(app.getPath('userData'), 'agent-host'));
+    void import('./ui/agent_host.js')
+        .then(({ runDetachedAgentHost }) => runDetachedAgentHost())
+        .catch((error) => {
+            console.error('Detached Agent host failed:', error);
+            app.exit(1);
+        });
+} else if (isOverlayChildProcess()) {
     traceOverlayBootstrap('child mode detected');
     const overlayResourcesPath = resolveOverlayResourcesPath();
     const overlayAppAsarPath = path.join(overlayResourcesPath, 'app.asar');

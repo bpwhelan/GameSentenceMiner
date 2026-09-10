@@ -34,6 +34,7 @@ type ReinstallPythonFn = () => Promise<void>;
 interface UpdateManagerDependencies {
     getPythonPath: PythonPathGetter;
     closeAllPythonProcesses: CloseAllFn;
+    closeAllForAppUpdate: CloseAllFn;
     ensureAndRunGSM: EnsureAndRunFn;
     reinstallPython: ReinstallPythonFn;
 }
@@ -419,7 +420,7 @@ export class UpdateManager {
                                 event.progress,
                                 event.message
                             );
-                        });
+                        }, { deferValidation: true });
                         updateInstallStage(
                             'lock_sync',
                             'completed',
@@ -443,7 +444,7 @@ export class UpdateManager {
                                 event.progress,
                                 event.message
                             );
-                        });
+                        }, selectedExtras);
                         updateInstallStage(
                             'gsm_package',
                             'completed',
@@ -472,7 +473,7 @@ export class UpdateManager {
                                 event.progress,
                                 event.message
                             );
-                        });
+                        }, { deferValidation: true });
                         updateInstallStage(
                             'lock_sync',
                             'completed',
@@ -496,7 +497,7 @@ export class UpdateManager {
                                 event.progress,
                                 event.message
                             );
-                        });
+                        }, selectedExtras);
                         updateInstallStage(
                             'gsm_package',
                             'completed',
@@ -702,7 +703,7 @@ export class UpdateManager {
             }
 
             log.info('Python process is stable. Proceeding with application restart.');
-            await this.deps.closeAllPythonProcesses();
+            await this.deps.closeAllForAppUpdate();
             const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
             try {
                 devFaultInjector.maybeFail(

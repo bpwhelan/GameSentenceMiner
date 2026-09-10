@@ -944,6 +944,8 @@ const requestByUrl = async (baseUrl = 'https://api.jiten.moe', action, params, o
         throw new Error(API_KEY_REJECTED_MESSAGE);
     }
     const usedUrl = new URL(`${baseUrl}/${action}`);
+    // GSM consumes this ID locally; all retries of one operation share it.
+    const requestId = crypto.randomUUID();
     let lastError;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         let response;
@@ -954,6 +956,7 @@ const requestByUrl = async (baseUrl = 'https://api.jiten.moe', action, params, o
                     'Content-Type': 'application/json',
                     Authorization: `ApiKey ${apiToken}`,
                     Accept: 'application/json',
+                    'X-GSM-Request-Id': requestId,
                 },
                 body: params ? JSON.stringify(params) : undefined,
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

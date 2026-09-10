@@ -15,7 +15,8 @@ const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
 const { createMagpieState } = require('./magpie');
-const { JitenParseCache, postJitenSrs, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
+const { JitenParseCache, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
+const { installJitenSessionBroker, JitenFrameRequests } = require('./jiten_session');
 const { forceForegroundWindow } = require('./win_foreground');
 const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
@@ -213,6 +214,23 @@ let dataPath = process.env.GSM_OVERLAY_DATA_PATH || (process.env.APPDATA
   : path.join(os.homedir(), '.config', "gsm_overlay")); // macOS/Linux
 
 fs.mkdirSync(dataPath, { recursive: true });
+const recordOverlayDiagnostic = require('./diagnostics').createOverlayDiagnostics(dataPath);
+recordOverlayDiagnostic('module-loaded');
+if (!IN_PROCESS_OVERLAY) {
+  app.commandLine.appendSwitch('enable-logging', 'file');
+  app.commandLine.appendSwitch('log-file', path.join(dataPath, 'overlay-chromium.log'));
+  app.commandLine.appendSwitch('log-level', '2');
+}
+registerOverlayEmitterListener(process, 'uncaughtExceptionMonitor', (err) => {
+  recordOverlayDiagnostic('uncaught-exception', {
+    // Omit the message: upstream errors can contain request data.
+    frames: String(err?.stack || '').split('\n').filter(line => /^\s+at /.test(line)).slice(0, 12),
+  });
+});
+registerOverlayEmitterListener(process, 'exit', (code) => recordOverlayDiagnostic('process-exit', { code }));
+registerOverlayEmitterListener(app, 'child-process-gone', (_event, details) => {
+  recordOverlayDiagnostic('child-process-gone', { type: details.type, reason: details.reason, exitCode: details.exitCode });
+});
 if (!IN_PROCESS_OVERLAY) {
   app.setPath('userData', dataPath);
 }
@@ -297,6 +315,9 @@ const GSM_OWNED_OVERLAY_FIELD_MAP = {
   minimum_character_size: "minimum_character_size",
   use_ocr_result_v2: "use_ocr_result_v2",
   supplement_ocr_result_with_overlay: "supplement_ocr_result_with_overlay",
+  last_sent_ocr_presence_check: "last_sent_ocr_presence_check",
+  last_sent_ocr_presence_remove_notation: "last_sent_ocr_presence_remove_notation",
+  last_sent_ocr_presence_invalidate_lookups: "last_sent_ocr_presence_invalidate_lookups",
   ocr_full_screen_instead_of_obs: "ocr_full_screen_instead_of_obs",
   use_text_filtering: "use_text_filtering",
   manual_mode_desktop_background: "manual_mode_desktop_background",
@@ -347,6 +368,7 @@ function relaunchOverlayApp() {
 }
 
 function requestOverlayShutdown() {
+  recordOverlayDiagnostic('shutdown-requested');
   if (!IN_PROCESS_OVERLAY) {
     app.quit();
     return;
@@ -507,13 +529,98 @@ function getGSMTransportBasePort(gsmSettings = getGSMSettings()) {
   return DEFAULT_GSM_SINGLE_PORT;
 }
 
+function getValidNetworkPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+function getGSMDirectWebSocketPort(gsmSettings = getGSMSettings()) {
+  const profileSettings = getCurrentGSMProfileSettings(gsmSettings);
+  const advancedSettings = profileSettings && typeof profileSettings.advanced === "object"
+    ? profileSettings.advanced
+    : {};
+  const directPort = getValidNetworkPort(advancedSettings.direct_websocket_port);
+  if (!directPort) return null;
+
+  const gatewayPort = getGSMTransportBasePort(gsmSettings);
+  const inputPort = getValidNetworkPort(advancedSettings.texthooker_communication_websocket_port) || 7276;
+  return directPort === gatewayPort || directPort === inputPort ? null : directPort;
+}
+
 function getEnforcedOverlayTransportUrls(gsmSettings = getGSMSettings()) {
-  const port = getGSMTransportBasePort(gsmSettings);
+  const gatewayPort = getGSMTransportBasePort(gsmSettings);
+  const directWebSocketPort = getGSMDirectWebSocketPort(gsmSettings);
+  const webSocketPort = directWebSocketPort || gatewayPort;
   return {
-    weburl1: `ws://127.0.0.1:${port}/ws/plaintext`,
-    weburl2: `ws://127.0.0.1:${port}/ws/overlay`,
-    texthookerUrl: `http://127.0.0.1:${port}/texthooker`,
+    weburl1: `ws://127.0.0.1:${webSocketPort}/ws/plaintext`,
+    weburl2: `ws://127.0.0.1:${webSocketPort}/ws/overlay`,
+    texthookerUrl: `http://127.0.0.1:${gatewayPort}/texthooker`,
   };
+}
+
+const GSM_MULTIPLEX_WEBSOCKET_PATHS = new Set(["/ws/texthooker", "/ws/overlay", "/ws/plaintext"]);
+
+function getGSMGatewayWebSocketUrl(websocketUrl) {
+  try {
+    const url = new URL(websocketUrl);
+    if (!['ws:', 'wss:'].includes(url.protocol) || !GSM_MULTIPLEX_WEBSOCKET_PATHS.has(url.pathname)) {
+      return null;
+    }
+    const gatewayPort = String(getGSMTransportBasePort());
+    if (url.port === gatewayPort) return null;
+    url.port = gatewayPort;
+    return url.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildGSMDirectWebSocketUrl(websocketUrl, payload) {
+  const directPort = getValidNetworkPort(payload && payload.direct_port);
+  if (!directPort) return null;
+
+  try {
+    const url = new URL(websocketUrl);
+    if (!['ws:', 'wss:'].includes(url.protocol) || url.port === String(directPort)) {
+      return null;
+    }
+    url.port = String(directPort);
+    return url.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
+async function resolveGSMWebSocketFallbackUrl(websocketUrl) {
+  const configuredGatewayUrl = getGSMGatewayWebSocketUrl(websocketUrl);
+  if (configuredGatewayUrl) return configuredGatewayUrl;
+  if (typeof fetch !== "function") return null;
+
+  let endpoint;
+  try {
+    endpoint = new URL(websocketUrl);
+    if (!['ws:', 'wss:'].includes(endpoint.protocol) || !GSM_MULTIPLEX_WEBSOCKET_PATHS.has(endpoint.pathname)) {
+      return null;
+    }
+    endpoint.protocol = endpoint.protocol === 'wss:' ? 'https:' : 'http:';
+    endpoint.pathname = "/get_websocket_port";
+    endpoint.search = "";
+    endpoint.hash = "";
+  } catch (_) {
+    return null;
+  }
+
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), 1500) : null;
+  try {
+    const response = await fetch(endpoint.toString(), controller ? { signal: controller.signal } : undefined);
+    if (!response.ok) return null;
+    return buildGSMDirectWebSocketUrl(websocketUrl, await response.json());
+  } catch (_) {
+    return null;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function getGSMRecycledIndicatorSetting(gsmSettings = getGSMSettings()) {
@@ -637,38 +744,133 @@ let isDev = false;
 let yomitanExt;
 let jitenReaderExt;
 
-// Jiten parse cache (initialized on app ready). See jiten_cache.js.
-// Only used for the overlay's own IPC calls — the extension talks to the
-// API directly without any interception or proxy.
-const jitenParseCache = new JitenParseCache({ ttlMs: 10_000, maxEntries: 100 });
+// Chromium's session.fetch can terminate the standalone Electron process on
+// this machine while opening api.jiten.moe's HTTPS connection. Keep the
+// broker's single upstream lane on a bounded Node transport instead. Reader
+// requests still arrive through the session interceptor and share this broker;
+// this transport choice does not change batching, caching, or rate limits.
+const jitenHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+const jitenHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 1 });
+function fetchJitenUpstream(input, init = {}) {
+  const target = new URL(String(input));
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    return Promise.reject(new Error('Invalid Jiten transport URL'));
+  }
+  const client = target.protocol === 'https:' ? https : http;
+  const agent = target.protocol === 'https:' ? jitenHttpsAgent : jitenHttpAgent;
+  const headers = {};
+  const headerEntries = typeof init.headers?.entries === 'function'
+    ? init.headers.entries()
+    : Object.entries(init.headers || {});
+  for (const [name, value] of headerEntries) headers[name] = String(value);
+  const body = init.body === undefined || init.body === null ? null : Buffer.from(String(init.body));
+  if (body && headers['Content-Length'] === undefined && headers['content-length'] === undefined) {
+    headers['Content-Length'] = String(body.length);
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finishError = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const request = client.request(target, {
+      method: String(init.method || 'GET').toUpperCase(),
+      headers,
+      agent,
+      timeout: 30_000,
+    }, (response) => {
+      const chunks = [];
+      let bytes = 0;
+      response.on('data', (chunk) => {
+        bytes += chunk.length;
+        if (bytes > 8 * 1024 * 1024) {
+          response.destroy();
+          finishError(new Error('Jiten response too large'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on('end', () => {
+        if (settled) return;
+        const responseHeaders = new Headers();
+        for (const [name, value] of Object.entries(response.headers)) {
+          if (value !== undefined) responseHeaders.set(name, Array.isArray(value) ? value.join(', ') : String(value));
+        }
+        settled = true;
+        resolve(new Response(Buffer.concat(chunks), {
+          status: response.statusCode || 0,
+          statusText: response.statusMessage || '',
+          headers: responseHeaders,
+        }));
+      });
+      response.on('error', finishError);
+    });
+    request.on('timeout', () => request.destroy(new Error('Jiten request timed out')));
+    request.on('error', finishError);
+    const abort = () => request.destroy(Object.assign(new Error('Jiten request aborted'), { name: 'AbortError' }));
+    if (init.signal) {
+      if (init.signal.aborted) {
+        abort();
+        return;
+      }
+      init.signal.addEventListener('abort', abort, { once: true });
+      request.once('close', () => init.signal.removeEventListener('abort', abort));
+    }
+    if (body) request.write(body);
+    request.end();
+  });
+}
+
+// IPC and Reader extension requests share batching, cache, and backpressure.
+const jitenParseCache = new JitenParseCache({
+  fetch: async (input, init) => {
+    recordOverlayDiagnostic('jiten-transport-start');
+    const response = await fetchJitenUpstream(input, init);
+    recordOverlayDiagnostic('jiten-transport-response', { status: response.status });
+    return response;
+  },
+});
+const jitenFrameRequests = new JitenFrameRequests(jitenParseCache);
+let uninstallJitenSessionBroker = null;
 
 // Renderer-process bridge to the cache. The overlay's gamepad/furigana
 // pipeline calls this instead of fetching directly, so cache hits skip
 // the HTTP round-trip entirely.
 ipcMain.handle('gsm-jiten-parse', async (_event, args = {}) => {
+  recordOverlayDiagnostic('parse-ipc-start');
   const { text, apiKey, endpoint, timeout } = args || {};
   if (!text) throw new Error('gsm-jiten-parse: text is required');
-  return jitenParseCache.parse({
+  const result = await jitenParseCache.parse({
     text: String(text),
     apiKey: String(apiKey || ''),
     endpoint: String(endpoint || JITEN_DEFAULT_PARSE_URL),
     timeout: Number(timeout) || 4000,
   });
+  recordOverlayDiagnostic('parse-ipc-complete');
+  return result;
 });
 
-ipcMain.handle('gsm-jiten-parse-cached', (_event, text) => {
-  if (!text) return null;
-  return jitenParseCache.getCached(String(text));
+ipcMain.handle('gsm-jiten-parse-frame', (event, args = {}) => {
+  return jitenFrameRequests.parse(event.sender.id, args);
+});
+ipcMain.on('gsm-jiten-cancel-frame', (event) => jitenFrameRequests.cancel(event.sender.id));
+ipcMain.handle('gsm-jiten-request-stats', () => jitenParseCache.getStats());
+const gradingDiagnosticStages = new Set(['received', 'resolving', 'resolved', 'writing', 'written', 'replying', 'replied', 'highlighting', 'highlighted', 'failed']);
+ipcMain.on('gsm-jiten-grade-stage', (event, stage) => {
+  if (gradingDiagnosticStages.has(stage)) recordOverlayDiagnostic(`grade-${stage}`);
+  event.returnValue = true;
 });
 
 // Jiten SRS grading bridges (used by the Yomitan popup's grading bar, proxied
 // through the overlay so the API key never leaves the main/renderer process and
 // no extra host permission is needed in the Yomitan extension).
 ipcMain.handle('gsm-jiten-review', async (_event, args = {}) => {
-  const { wordId, readingIndex, rating, apiKey, endpoint, timeout } = args || {};
+  const { wordId, readingIndex, rating, apiKey, endpoint, timeout, requestId } = args || {};
   if (!Number.isFinite(Number(wordId))) throw new Error('gsm-jiten-review: wordId is required');
-  return postJitenSrs({
+  return jitenParseCache.request({
     action: 'srs/review',
+    requestId,
     body: {
       wordId: Number(wordId),
       readingIndex: Number(readingIndex) || 0,
@@ -681,11 +883,12 @@ ipcMain.handle('gsm-jiten-review', async (_event, args = {}) => {
 });
 
 ipcMain.handle('gsm-jiten-set-vocabulary-state', async (_event, args = {}) => {
-  const { wordId, readingIndex, state, apiKey, endpoint, timeout } = args || {};
+  const { wordId, readingIndex, state, apiKey, endpoint, timeout, requestId } = args || {};
   if (!Number.isFinite(Number(wordId))) throw new Error('gsm-jiten-set-vocabulary-state: wordId is required');
   if (!state) throw new Error('gsm-jiten-set-vocabulary-state: state is required');
-  return postJitenSrs({
+  return jitenParseCache.request({
     action: 'srs/set-vocabulary-state',
+    requestId,
     body: {
       wordId: Number(wordId),
       readingIndex: Number(readingIndex) || 0,
@@ -701,7 +904,7 @@ ipcMain.handle('gsm-jiten-set-vocabulary-state', async (_event, args = {}) => {
 // grade so it reflects the word's new state (mirrors the Jiten Reader widget).
 ipcMain.handle('gsm-jiten-lookup-vocabulary', async (_event, args = {}) => {
   const { words, apiKey, endpoint, timeout } = args || {};
-  return postJitenSrs({
+  return jitenParseCache.request({
     action: 'reader/lookup-vocabulary',
     body: { words: Array.isArray(words) ? words : [] },
     apiKey: String(apiKey || ''),
@@ -1960,8 +2163,8 @@ let gamepadInputTestActive = false;
 let yomitanManifestWatcher = null;
 const findInPageStateByWebContentsId = new Map();
 const overlayWebSockets = {
-  ws1: { socket: null, url: null, reconnectTimer: null },
-  ws2: { socket: null, url: null, reconnectTimer: null },
+  ws1: { socket: null, url: null, reconnectTimer: null, fallbackInFlight: false },
+  ws2: { socket: null, url: null, reconnectTimer: null, fallbackInFlight: false },
 };
 
 function publishOverlaySocketState(type, isOpen) {
@@ -2183,6 +2386,36 @@ function scheduleOverlayWebSocketReconnect(type) {
   }, OVERLAY_WS_RECONNECT_DELAY_MS);
 }
 
+function tryOverlayWebSocketFallback(type, socket) {
+  const state = overlayWebSockets[type];
+  if (!state || state.fallbackInFlight || (state.socket && state.socket !== socket) || !state.url) {
+    return;
+  }
+
+  const failedUrl = state.url;
+  state.fallbackInFlight = true;
+  void resolveGSMWebSocketFallbackUrl(failedUrl)
+    .then((fallbackUrl) => {
+      if (state.socket !== null || state.url !== failedUrl) return;
+      if (fallbackUrl && fallbackUrl !== failedUrl) {
+        console.warn(`[OverlayWS] Failing over ${type} to ${fallbackUrl}`);
+        connectOverlayWebSocket(type, fallbackUrl);
+        if (type === "ws2" && backend) {
+          backend.connect(fallbackUrl);
+        }
+        return;
+      }
+      scheduleOverlayWebSocketReconnect(type);
+    })
+    .catch((error) => {
+      console.warn(`[OverlayWS] Fallback lookup failed for ${type}:`, error);
+      scheduleOverlayWebSocketReconnect(type);
+    })
+    .finally(() => {
+      state.fallbackInFlight = false;
+    });
+}
+
 function closeOverlayWebSocket(type, options = {}) {
   const state = overlayWebSockets[type];
   if (!state) {
@@ -2267,7 +2500,7 @@ function connectOverlayWebSocket(type, url) {
     publishOverlaySocketState(type, false);
     const reasonText = Buffer.isBuffer(reason) ? reason.toString("utf8") : String(reason || "");
     console.log(`[OverlayWS] Closed ${type} (code=${code}${reasonText ? `, reason=${reasonText}` : ""})`);
-    scheduleOverlayWebSocketReconnect(type);
+    tryOverlayWebSocketFallback(type, socket);
   });
 
   socket.on("error", (err) => {
@@ -6217,6 +6450,9 @@ function updateTrayMenu() {
 
 
 async function startOverlayAppImpl() {
+  // Install before loading either extension or any overlay renderer. This
+  // preserves the Reader's own rendering/settings while governing its traffic.
+  uninstallJitenSessionBroker = installJitenSessionBroker(getOverlaySession(), jitenParseCache);
   liveGoalsAvailable = false;
   ipcMain.on("live-goals-availability-changed", (_event, payload = {}) => {
     liveGoalsAvailable = payload.available === true;
@@ -6754,6 +6990,7 @@ async function startOverlayAppImpl() {
     // Processing it here removes the old dependency on a second websocket being
     // healthy before the settings UI can observe backend acceptance.
     onMessage: (message) => handleOverlayWebSocketControlMessage("backend-connector", message),
+    resolveFallbackUrl: resolveGSMWebSocketFallbackUrl,
   });
   backend.connect(userSettings.weburl2);
   if (shouldMigrateLegacyOverlayActivationScan) {
@@ -6830,6 +7067,13 @@ async function startOverlayAppImpl() {
     show: false,
   });
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    recordOverlayDiagnostic('renderer-gone', { reason: details.reason, exitCode: details.exitCode });
+  });
+  mainWindow.on('close', () => recordOverlayDiagnostic('window-close'));
+  mainWindow.on('closed', () => recordOverlayDiagnostic('window-closed'));
+  mainWindow.on('hide', () => recordOverlayDiagnostic('window-hidden'));
+  mainWindow.on('unresponsive', () => recordOverlayDiagnostic('window-unresponsive'));
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const child = new BrowserWindow({
@@ -8087,6 +8331,12 @@ async function stopOverlayApp() {
       });
 
       runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());
+      runOverlayCleanupStep('Jiten requests', () => {
+        jitenFrameRequests.dispose();
+        jitenParseCache.dispose();
+        uninstallJitenSessionBroker?.();
+        uninstallJitenSessionBroker = null;
+      });
       runOverlayCleanupStep('manual hotkey state', () => manualHotkeyController.reset('overlay-unload'));
       runOverlayCleanupStep('overlay websockets', () => stopOverlayWebSockets());
       runOverlayCleanupStep('manual hotkey socket', () => closeManualHotkeyInputServerConnection());

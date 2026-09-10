@@ -576,27 +576,39 @@ describe("legacy gamepad button bindings", () => {
 
 describe("legacy gamepad start block selection", () => {
   function createStartSelectionHandler(
-    blocks: Array<{ area: number; text: string; role?: string }>
+    blocks: Array<{ area: number; text: string; role?: string; nvlChainId?: string; top?: number }>
   ) {
     const handler = Object.create(GamepadHandler.prototype) as {
       textBlocks: Array<{
         __area: number;
+        __top: number;
         textContent: string;
-        dataset: { blockRole?: string };
+        dataset: { blockRole?: string; nvlChainId?: string };
       }>;
       blockHasSelectableCharacters: (block: { textContent: string }) => boolean;
-      getBlockBoundingRect: (block: { __area: number }) => { width: number; height: number };
+      getBlockBoundingRect: (block: { __area: number; __top: number }) => {
+        width: number;
+        height: number;
+        top: number;
+        bottom: number;
+      };
       getBlockSelectionMetrics: (block: { __area: number; textContent: string }) => { area: number; textLength: number };
       findFirstSelectableBlockIndex: () => number;
     };
 
-    handler.textBlocks = blocks.map((block) => ({
+    handler.textBlocks = blocks.map((block, index) => ({
       __area: block.area,
+      __top: block.top ?? index * 20,
       textContent: block.text,
-      dataset: { blockRole: block.role }
+      dataset: { blockRole: block.role, nvlChainId: block.nvlChainId }
     }));
     handler.blockHasSelectableCharacters = (block) => block.textContent.trim().length > 0;
-    handler.getBlockBoundingRect = (block) => ({ width: block.__area, height: 1 });
+    handler.getBlockBoundingRect = (block) => ({
+      width: block.__area,
+      height: 1,
+      top: block.__top,
+      bottom: block.__top + 1
+    });
 
     return handler;
   }
@@ -637,6 +649,17 @@ describe("legacy gamepad start block selection", () => {
     ]);
 
     expect(handler.findFirstSelectableBlockIndex()).toBe(0);
+  });
+
+  it("starts on the bottom block of an NVL chain", () => {
+    const handler = createStartSelectionHandler([
+      { area: 90, text: "unrelated large UI block", top: 5 },
+      { area: 40, text: "old NVL line", nvlChainId: "0", top: 20 },
+      { area: 40, text: "middle NVL line", nvlChainId: "0", top: 40 },
+      { area: 40, text: "new NVL line", nvlChainId: "0", top: 60 }
+    ]);
+
+    expect(handler.findFirstSelectableBlockIndex()).toBe(3);
   });
 });
 
@@ -832,6 +855,53 @@ describe("legacy gamepad block redraw recovery", () => {
     expect(handler.currentBlockIndex).toBe(1);
     expect(handler.currentCursorIndex).toBe(3);
     expect(calls).toEqual(["virtual", "refresh", "restore", "prefetch", "visuals"]);
+  });
+
+  it("focuses the latest-line block instead of restoring the previous selection", () => {
+    const calls: string[] = [];
+    const previousSnapshot = {
+      rect: { left: 20, top: 20, right: 140, bottom: 50, width: 120, height: 30 },
+      relativeX: 0.6,
+      relativeY: 0.5
+    };
+    const blocks = [
+      { textContent: "old line", dataset: {}, querySelectorAll: () => [] },
+      { textContent: "latest line", dataset: { latestLineBlock: "true" }, querySelectorAll: () => [] }
+    ];
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.lastSelectionSnapshot = previousSnapshot;
+    handler.skipNextTextRefresh = false;
+    handler.preserveSelectionOnNextTextRefresh = false;
+    handler.virtualMouse = { movedByAnalog: true, lastMoveTime: 123 };
+    handler.textBlocks = blocks;
+    handler.currentBlockIndex = 0;
+    handler.currentCursorIndex = 5;
+    handler.currentLineIndex = 1;
+    handler.lineNavPrefersCharacters = true;
+    handler.isNavigationActive = () => true;
+    handler.updateVirtualMouseCursor = () => calls.push("virtual");
+    handler.refreshTextBlocks = () => calls.push("refresh");
+    handler.blockHasSelectableCharacters = () => true;
+    handler.refreshCharacters = () => calls.push("characters");
+    handler.restoreSelectionFromSnapshot = () => {
+      calls.push("restore");
+      return true;
+    };
+    handler.prefetchTokenizationForAllBlocks = () => calls.push("prefetch");
+    handler.syncVirtualMouseToCurrentSelection = () => calls.push("sync");
+    handler.updateVisuals = () => calls.push("visuals");
+    handler.focusLatestLineBlock = GamepadHandler.prototype.focusLatestLineBlock;
+
+    GamepadHandler.prototype.handleOverlayTextRenderComplete.call(handler, {
+      snapshot: previousSnapshot,
+      preserveSelection: true,
+      focusLatestLine: true
+    });
+
+    expect(handler.currentBlockIndex).toBe(1);
+    expect(handler.currentCursorIndex).toBe(0);
+    expect(handler.currentLineIndex).toBe(0);
+    expect(calls).not.toContain("restore");
   });
 
   it("clamps virtual mouse points to the only selectable block", () => {
