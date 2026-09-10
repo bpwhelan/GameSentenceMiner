@@ -2560,8 +2560,8 @@ export class Backend {
             if (screenshotDetails !== null) {
                 screenshotFileName = await this._injectAnkiNoteScreenshot(ankiConnect, timestamp, screenshotDetails);
             }
-        } catch (e) {
-            errors.push(ExtensionError.serialize(e));
+        } catch {
+            // Screenshots are optional and cannot be captured by the GSM overlay.
         }
 
         try {
