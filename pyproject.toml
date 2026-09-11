@@ -63,6 +63,15 @@ dependencies = [
   "desktop-notifier>=6.1.0",
   "mss>=10.2.0,<10.3",
   "pyobjc>=12.2.1,<12.3.0 ; sys_platform == 'darwin'",
+  # uv 0.12.4 skips these PyObjC dependencies behind platform_release >= '9.0'
+  # on modern Darwin releases, while pip check requires them. Keep them explicit
+  # until the marker evaluation agrees so CI and managed runtime syncs are complete.
+  "pyobjc-framework-CalendarStore>=12.2.1,<12.3.0 ; sys_platform == 'darwin'",
+  "pyobjc-framework-Collaboration>=12.2.1,<12.3.0 ; sys_platform == 'darwin'",
+  "pyobjc-framework-DictionaryServices>=12.2.1,<12.3.0 ; sys_platform == 'darwin'",
+  "pyobjc-framework-InputMethodKit>=12.2.1,<12.3.0 ; sys_platform == 'darwin'",
+  "pyobjc-framework-InstantMessage>=12.2.1,<12.3.0 ; sys_platform == 'darwin'",
+  "pyobjc-framework-ScriptingBridge>=12.2.1,<12.3.0 ; sys_platform == 'darwin'",
   "pyqt6>=6.11.0,<6.12",
   "pyqtdarktheme~=2.1.0",
   "langid~=1.1.6",
