@@ -6,6 +6,90 @@ from GameSentenceMiner.util.config.configuration import Overlay
 from GameSentenceMiner.web import overlay_handler as overlay_handler_module
 
 
+def _setup_block_translation(monkeypatch, translate):
+    sent = []
+
+    async def send(server_id, message):
+        sent.append(message)
+
+    monkeypatch.setattr(
+        overlay_handler_module,
+        "get_config",
+        lambda: SimpleNamespace(ai=SimpleNamespace(is_configured=lambda: True, provider="Gemini")),
+    )
+    monkeypatch.setattr(overlay_handler_module, "get_current_game", lambda **kwargs: "Game")
+    monkeypatch.setattr(overlay_handler_module, "get_all_lines", list)
+    monkeypatch.setattr(overlay_handler_module, "translate_overlay_blocks", translate)
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    return sent
+
+
+def test_block_translation_uses_renderer_text_and_echoes_request_id(monkeypatch):
+    calls = []
+
+    def translate(lines, blocks, game):
+        calls.append((lines, blocks, game))
+        return [{"id": "dialogue", "translation": "Hello"}]
+
+    sent = _setup_block_translation(monkeypatch, translate)
+    message = {
+        "type": "translate-request",
+        "request_id": "frame-1",
+        "blocks": [{"id": "dialogue", "text": "こんにちは"}],
+    }
+    handler = overlay_handler_module.OverlayRequestHandler()
+    asyncio.run(handler.handle_message(json.dumps(message)))
+    assert calls == [([], message["blocks"], "Game")]
+    assert sent == [
+        {
+            "type": "translation-result",
+            "data": {"request_id": "frame-1", "blocks": [{"id": "dialogue", "translation": "Hello"}]},
+        }
+    ]
+    assert handler.processing is False
+
+
+def test_block_translation_error_is_correlated_and_does_not_retry(monkeypatch):
+    calls = []
+
+    def translate(*args):
+        calls.append(args)
+        raise ValueError("Missing block")
+
+    sent = _setup_block_translation(monkeypatch, translate)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    asyncio.run(handler.handle_translation_request({"request_id": "bad", "blocks": [{"id": "0", "text": "test"}]}))
+    assert len(calls) == 1
+    assert sent == [{"type": "translation-error", "request_id": "bad", "error": "Translation failed: Missing block"}]
+    assert handler.processing is False
+
+
+def test_busy_block_translation_keeps_only_newest_waiting_frame(monkeypatch):
+    async def scenario():
+        handler = overlay_handler_module.OverlayRequestHandler()
+        started = asyncio.Event()
+        finish = asyncio.Event()
+        calls = []
+
+        async def perform(message):
+            calls.append(message["request_id"])
+            if message["request_id"] == "first":
+                started.set()
+                await finish.wait()
+
+        monkeypatch.setattr(handler, "_perform_translation_request", perform)
+        first = asyncio.create_task(handler.handle_translation_request({"request_id": "first", "blocks": []}))
+        await started.wait()
+        second = asyncio.create_task(handler.handle_translation_request({"request_id": "second", "blocks": []}))
+        third = asyncio.create_task(handler.handle_translation_request({"request_id": "third", "blocks": []}))
+        await asyncio.sleep(0)
+        finish.set()
+        await asyncio.gather(first, second, third)
+        assert calls == ["first", "third"]
+
+    asyncio.run(scenario())
+
+
 def _build_master_config():
     current_config = SimpleNamespace(overlay=Overlay())
     master_config = SimpleNamespace(
