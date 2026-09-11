@@ -1557,6 +1557,7 @@ background: rgba(202, 12, 12, 0.692);
 </script>
 
 <script src="block_detection.js"></script>
+<script src="block_translation.js"></script>
 <script src="live_stats_widget.js"></script>
 <script>
   const { ipcRenderer } = require("electron");
@@ -3258,6 +3259,9 @@ background: rgba(202, 12, 12, 0.692);
               }
               blockContainer.className = 'text-block-container';
               blockContainer.setAttribute('data-block-id', blockId);
+              blockContainer.dataset.translationSource = data.data
+                .filter((_, index) => lineBlocks.get(index) === blockId)
+                .map(item => item.text).join('\n');
               blockContainer.setAttribute('data-line-start', boundaries.start);
               blockContainer.setAttribute('data-line-end', boundaries.end);
               const metadata = blockMetadata.get(blockId) || { role: 'text' };
@@ -4323,6 +4327,7 @@ background: rgba(202, 12, 12, 0.692);
     const invalidateLookups = options.invalidateLookups === true;
     overlayRenderGeneration += 1;
     lastOverlayTextRenderSignature = null;
+    document.getElementById('translation-display')?.remove();
 
     if (invalidateLookups) {
       const lookupSelectors = ['.text-box', '.big-interactive-area', '.spacer', '.text-block-container', '.block-separator'];
@@ -5137,6 +5142,8 @@ background: rgba(202, 12, 12, 0.692);
     if (translationDiv) {
       const isVisible = translationDiv.style.display !== 'none';
       translationDiv.style.display = isVisible ? 'none' : 'block';
+    } else {
+      blockTranslation.request();
     }
   });
 
@@ -5193,14 +5200,25 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   // Handle translation results
+  const blockTranslation = window.GSMBlockTranslation.createBlockTranslationController({
+    document,
+    getRevision: () => overlayRenderGeneration,
+    send: payload => ipcRenderer.send('translate-blocks', payload),
+    showLegacy: showTranslation,
+    showError: error => {
+      ipcRenderer.send('translation-request-failed');
+      showTranslation('Translation failed: ' + error);
+    },
+  });
+  ipcRenderer.on('request-block-translation', () => blockTranslation.request());
   ipcRenderer.on('translation-received', (event, translation) => {
     console.log('Translation received:', translation);
-    showTranslation(translation);
+    blockTranslation.receive(translation);
   });
 
   ipcRenderer.on('translation-error', (event, error) => {
     console.error('Translation error:', error);
-    showTranslation('Translation failed: ' + error);
+    blockTranslation.error(error);
   });
 
   // Handle manual mode recommendation
