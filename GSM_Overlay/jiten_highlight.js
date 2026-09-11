@@ -43,7 +43,6 @@
   let runningParseTimer = null;
   let runningSignature = null;
   let containerSignature = null;
-  let lastParseStartedAt = 0;
   let lastParseFinishedAt = 0;
   let parseTimeoutId = null;
   let enabled = true;
@@ -110,7 +109,10 @@
 
   function onParseContainerMutation() {
     if (!parseContainer) return;
-    const jitenWords = parseContainer.querySelectorAll('.jiten-word:not(.unparsed)');
+    // An all-unparsed response is still a completed Reader parse. Waiting only
+    // for parsed words leaves the queue locked until the watchdog whenever Jiten
+    // cannot tokenize a line, delaying an otherwise valid newer frame.
+    const jitenWords = parseContainer.querySelectorAll('.jiten-word');
     if (jitenWords.length === 0) return;
 
     // Debounce: Jiten may parse in batches
@@ -185,17 +187,20 @@
     pendingParseTimer = null;
     if (signatureForLines(currentLines) === lastParsedSignature && Date.now() - lastParseFinishedAt < 300_000) return;
     pendingSignature = signature;
+    // Coalesce requests made in the same renderer turn, but do not duplicate the
+    // broker's upstream throttle here. The broker already owns request pacing,
+    // batching, caching, and duplicate suppression; delaying at this layer also
+    // delayed cache hits and made highlights feel arbitrarily slow.
     pendingParseTimer = setTimeout(() => {
       pendingParseTimer = null;
       startParse();
-    }, Math.max(250, lastParseStartedAt + 2000 - Date.now()));
+    }, 0);
   }
 
   function startParse() {
     if (!enabled || !available || !currentLines) return;
     const lines = currentLines;
     containerSignature = signatureForLines(lines);
-    lastParseStartedAt = Date.now();
     // Japanese script detection also excludes English with wide punctuation.
     const containsJapanese = (text) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text);
     if (!lines.some((line) => containsJapanese(line?.text || ''))) {

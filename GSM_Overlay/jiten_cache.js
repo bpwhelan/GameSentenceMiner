@@ -79,7 +79,8 @@ class JitenParseCache {
     this.stateTtlMs = options.stateTtlMs ?? 300_000;
     this.batchDelayMs = options.batchDelayMs ?? 120;
     this.minIntervalMs = options.minIntervalMs ?? 1000;
-    this.parseIntervalMs = options.parseIntervalMs ?? 2000;
+    this.parseIntervalMs = options.parseIntervalMs ?? 1000;
+    this.minimumParseCharge = options.minimumParseCharge ?? 1000;
     this.maxBatchCharacters = options.maxBatchCharacters ?? 16_000;
     this.maxBatchParagraphs = options.maxBatchParagraphs ?? 128;
     this.maxPending = options.maxPending ?? 512;
@@ -341,7 +342,7 @@ class JitenParseCache {
       if (first.kind === 'parse') characters += item.value.length;
     }
     this._charges = this._charges.filter((charge) => charge.at + this.budgetWindowMs > now);
-    const charge = Math.max(2000, characters);
+    const charge = Math.max(this.minimumParseCharge, characters);
     if (first.kind === 'parse') {
       let total = this._charges.reduce((sum, item) => sum + item.amount, charge);
       for (const item of this._charges) {
