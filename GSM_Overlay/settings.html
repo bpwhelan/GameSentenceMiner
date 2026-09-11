@@ -1524,6 +1524,13 @@
         </span>
         <input type="checkbox" id="hideCompletedGoals" checked />
       </label>
+      <label class="sub-option">
+        <span class="label-text">
+          Hide When Text Overlaps
+          <div class="hotkey-info">Temporarily hides the live stats widget when incoming overlay text covers it. It returns when a later text event does not overlap it.</div>
+        </span>
+        <input type="checkbox" id="hideLiveStatsOnTextOverlap" checked />
+      </label>
       <label>
         <span class="label-text">
           Toggle Stats/Goals Hotkey
@@ -3788,6 +3795,7 @@
       createCheckboxBinding("showLiveStats", "#showLiveStats"),
       createCheckboxBinding("showLiveGoals", "#showLiveGoals"),
       createCheckboxBinding("hideCompletedGoals", "#hideCompletedGoals"),
+      createCheckboxBinding("hideLiveStatsOnTextOverlap", "#hideLiveStatsOnTextOverlap"),
       createHotkeyBinding("liveStatsToggleHotkey", "#liveStatsToggleHotkey"),
       createSelectBinding("liveStatsDisplayModeV2", "#liveStatsDisplayModeV2", {
         normalize: normalizeLiveStatsDisplayModeValue,
@@ -4871,6 +4879,7 @@
         showLiveStats: userSettings.showLiveStats !== false,
         showLiveGoals: userSettings.showLiveGoals !== false,
         hideCompletedGoals: userSettings.hideCompletedGoals !== false,
+        hideLiveStatsOnTextOverlap: userSettings.hideLiveStatsOnTextOverlap !== false,
         liveStatsDisplayModeV2: normalizeLiveStatsDisplayModeValue(userSettings.liveStatsDisplayModeV2),
         liveStatsLayoutV2: normalizeLiveStatsLayoutValue(userSettings.liveStatsLayoutV2),
         liveStatsAutoHideSeconds: clampNumericValue(userSettings.liveStatsAutoHideSeconds, 5, 0, 60, true),

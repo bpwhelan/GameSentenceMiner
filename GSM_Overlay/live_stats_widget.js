@@ -11,6 +11,7 @@
     showLiveStats: true,
     showLiveGoals: true,
     hideCompletedGoals: true,
+    hideLiveStatsOnTextOverlap: true,
     liveStatsVisibilityMode: "all",
     liveStatsDisplayModeV2: "always",
     liveStatsLayoutV2: "one-line",
@@ -60,6 +61,7 @@
     hideTimer: null,
     tickTimer: null,
     temporarilyVisible: false,
+    hiddenForTextOverlap: false,
   };
 
   function normalizeBoolean(value, fallback = false) {
@@ -127,6 +129,10 @@
       showLiveStats: normalizeBoolean(settings.showLiveStats, state.settings.showLiveStats),
       showLiveGoals: normalizeBoolean(settings.showLiveGoals ?? state.settings.showLiveGoals, true),
       hideCompletedGoals: normalizeBoolean(settings.hideCompletedGoals ?? state.settings.hideCompletedGoals, true),
+      hideLiveStatsOnTextOverlap: normalizeBoolean(
+        settings.hideLiveStatsOnTextOverlap ?? state.settings.hideLiveStatsOnTextOverlap,
+        true
+      ),
       liveStatsVisibilityMode: normalizeVisibilityMode(settings.liveStatsVisibilityMode ?? state.settings.liveStatsVisibilityMode),
       overlayGoals: normalizeOverlayGoals(settings.overlayGoals ?? state.settings.overlayGoals),
       liveStatsDisplayModeV2: normalizeDisplayMode(settings.liveStatsDisplayModeV2 ?? state.settings.liveStatsDisplayModeV2),
@@ -694,7 +700,14 @@
     const pomodoroActive = statsVisible && !!(state.pomodoro && state.pomodoro.enabled);
     const goalsActive = getVisibleGoals().length > 0;
     const enabled = statsActive || pomodoroActive || goalsActive;
+    const hiddenForTextOverlap = state.settings.hideLiveStatsOnTextOverlap && state.hiddenForTextOverlap;
+    ensureRoot().classList.toggle("gsm-live-stats-text-overlap-hidden", hiddenForTextOverlap);
     if (!enabled) {
+      setVisible(false);
+      return;
+    }
+
+    if (hiddenForTextOverlap) {
       setVisible(false);
       return;
     }
@@ -707,6 +720,37 @@
     }
 
     setVisible(state.temporarilyVisible);
+  }
+
+  function rectanglesOverlap(a, b) {
+    return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom;
+  }
+
+  function handleTextBoundsUpdate(bounds) {
+    if (!Array.isArray(bounds)) {
+      return;
+    }
+
+    if (!state.settings.hideLiveStatsOnTextOverlap) {
+      state.hiddenForTextOverlap = false;
+      updateVisibility();
+      return;
+    }
+
+    const widgetRect = normalizeTargetWindowRect(ensureRoot().getBoundingClientRect());
+    if (!widgetRect) {
+      return;
+    }
+
+    const textRects = bounds
+      .map((rect) => normalizeTargetWindowRect(rect))
+      .filter(Boolean);
+    if (bounds.length > 0 && textRects.length === 0) {
+      return;
+    }
+
+    state.hiddenForTextOverlap = textRects.some((rect) => rectanglesOverlap(rect, widgetRect));
+    updateVisibility();
   }
 
   function revealForUpdate() {
@@ -754,6 +798,9 @@
 
   function applySettings(settings = {}) {
     state.settings = normalizeSettings(settings);
+    if (!state.settings.hideLiveStatsOnTextOverlap) {
+      state.hiddenForTextOverlap = false;
+    }
     updatePosition();
     render();
   }
@@ -777,6 +824,7 @@
     handleWindowState,
     handlePomodoroUpdate,
     handleGoalsUpdate,
+    handleTextBoundsUpdate,
     setDisplayInfo,
   };
 

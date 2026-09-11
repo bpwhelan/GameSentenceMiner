@@ -968,6 +968,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "showLiveStats": true,
   "showLiveGoals": true,
   "hideCompletedGoals": true,
+  "hideLiveStatsOnTextOverlap": true,
   "liveStatsToggleHotkey": "Alt+Shift+L",
   // Per-goal overlay selection chosen in the settings window:
   //   { [goalId]: { enabled: boolean, view: "today" | "overall" } }
@@ -1170,6 +1171,10 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
     }
     if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideCompletedGoals")) {
       cleanedSettings.hideCompletedGoals = DEFAULT_USER_SETTINGS.hideCompletedGoals;
+      changed = true;
+    }
+    if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideLiveStatsOnTextOverlap")) {
+      cleanedSettings.hideLiveStatsOnTextOverlap = DEFAULT_USER_SETTINGS.hideLiveStatsOnTextOverlap;
       changed = true;
     }
     profiles[normalizedName] = cleanedSettings;
@@ -1626,6 +1631,12 @@ function normalizeLiveStatsSettings(settings) {
   const normalizedHideCompletedGoals = settings.hideCompletedGoals !== false;
   if (settings.hideCompletedGoals !== normalizedHideCompletedGoals) {
     settings.hideCompletedGoals = normalizedHideCompletedGoals;
+    changed = true;
+  }
+
+  const normalizedHideOnTextOverlap = settings.hideLiveStatsOnTextOverlap !== false;
+  if (settings.hideLiveStatsOnTextOverlap !== normalizedHideOnTextOverlap) {
+    settings.hideLiveStatsOnTextOverlap = normalizedHideOnTextOverlap;
     changed = true;
   }
 
@@ -7726,7 +7737,12 @@ async function startOverlayAppImpl() {
       value = normalizeLiveStatsFields(value);
     } else if (key === "overlayGoals") {
       value = normalizeOverlayGoals(value);
-    } else if (key === "hideCompletedGoals" || key === "pomodoroEnabled" || key === "pomodoroAutoStart") {
+    } else if (
+      key === "hideCompletedGoals"
+      || key === "hideLiveStatsOnTextOverlap"
+      || key === "pomodoroEnabled"
+      || key === "pomodoroAutoStart"
+    ) {
       value = value === true;
     } else if (key === "pomodoroWorkMinutes") {
       value = normalizePomodoroMinutes(value, 25);

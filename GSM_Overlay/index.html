@@ -3237,6 +3237,7 @@ background: rgba(202, 12, 12, 0.692);
           // SECOND PASS: Process lines with block awareness
           const blockContainers = new Map(); // Map from block ID to container div
           const blockIndicatorBounds = new Map();
+          const renderedTextBounds = [];
           let reusableTextBoxIndex = 0;
           
           for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
@@ -3438,6 +3439,8 @@ background: rgba(202, 12, 12, 0.692);
                   lineWordBox.box.style.height = `${uniformExtentPercent}%`;
                 }
               }
+
+              renderedTextBounds.push(lineWordBox.box.getBoundingClientRect());
             }
 
             // Line indicator bounds use the rendered (possibly Magpie-scaled) coordinates
@@ -3476,6 +3479,15 @@ background: rgba(202, 12, 12, 0.692);
             }
 
             document.body.appendChild(bigInteractiveArea);
+          }
+
+          if (
+            !isSupplemental
+            && !stalePresenceAction
+            && window.GSMLiveStatsWidget
+            && typeof window.GSMLiveStatsWidget.handleTextBoundsUpdate === 'function'
+          ) {
+            window.GSMLiveStatsWidget.handleTextBoundsUpdate(renderedTextBounds);
           }
 
           if (isRecalibration) {
