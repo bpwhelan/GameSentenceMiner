@@ -16,6 +16,7 @@ from GameSentenceMiner.util.models.model import AnkiCard
 initial_time = datetime.now()
 MAX_IN_MEMORY_GAME_LINES = 10_000
 MAX_PREVIOUS_LINES = 10_000
+MIN_RECYCLED_LINE_CHARACTERS = 10
 
 
 def to_local_naive_datetime(value: datetime) -> datetime:
@@ -257,7 +258,7 @@ class GameText:
         self.replace_previous_lines(())
 
     def _remember_previous_line_locked(self, line: str) -> None:
-        if not line or line in self.previous_lines:
+        if len(line) < MIN_RECYCLED_LINE_CHARACTERS or line in self.previous_lines:
             return
         self.previous_lines.add(line)
         self._previous_line_order.append(line)
@@ -322,7 +323,7 @@ def is_recycled_line_detection_enabled() -> bool:
 
 def is_line_recycled(line_text: str) -> bool:
     normalized_line = normalize_text_for_comparison(line_text)
-    if not normalized_line:
+    if len(normalized_line) < MIN_RECYCLED_LINE_CHARACTERS:
         return False
     return normalized_line in game_log.previous_lines
 
