@@ -3535,8 +3535,10 @@
         "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
       let projectedPrimary = null;
       const noteControls = createNoteControls(() => ({
-        term: projectedPrimary?.term?.expression || "",
-        reading: projectedPrimary?.term?.reading || "",
+        // An exact selection adds what was highlighted, not the headword it matched.
+        term: candidate?.exactSelection === true ? candidate.query : projectedPrimary?.term?.expression || "",
+        reading: candidate?.exactSelection !== true || candidate.query === projectedPrimary?.term?.expression
+          ? projectedPrimary?.term?.reading || "" : "",
         definition: "",
         sentence: candidate?.sentence || "",
       }), renderContext);

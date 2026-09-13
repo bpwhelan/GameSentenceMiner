@@ -3024,11 +3024,19 @@
     if (disposed) {
       return;
     }
-    if (!isOurNode(event.target) && !pointInsidePopup(event.clientX, event.clientY)) {
-      hide();
-      selectionDragActive = event.button === 0 && options.hoverEnabled
-        && isScannableElement(selectionBoundaryElement(event.target), new Map());
+    if (isOurNode(event.target) || pointInsidePopup(event.clientX, event.clientY)) return;
+    if (event.button === 0 && options.hoverEnabled
+        && isScannableElement(selectionBoundaryElement(event.target), new Map())) {
+      // A press on text may start a selection, so the popup stays until release
+      // decides. Hiding here tells an overlay host such as GSM that no popup is
+      // open, and it turns click-through before the drag can select anything.
+      cancelCandidateScan();
+      clearHideTimer();
+      activeSelectionCandidate = null;
+      selectionDragActive = true;
+      return;
     }
+    hide();
   }
 
   function selectionIsUnchanged(candidate = activeSelectionCandidate) {
@@ -3071,7 +3079,10 @@
   function onMouseUp(event) {
     if (disposed || event.button !== 0 || !selectionDragActive) return;
     selectionDragActive = false;
+    const token = rootLevel.lookupToken;
     onSelectionChange();
+    // No selection lookup started: the press was a click, which dismisses.
+    if (rootLevel.lookupToken === token) hide();
   }
 
   function onPageFocusIn() {
