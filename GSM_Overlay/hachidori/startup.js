@@ -26,6 +26,9 @@ const WORKER_TARGET = "hoshidicts-worker";
 const SETUP_TARGET = "hachidori-setup";
 const SETUP_EVENTS_TARGET = "hachidori-setup-events";
 const ENGINE_TARGET = "hoshidicts-offscreen";
+const SHARING_TARGET = "hachidori-sharing";
+// How long the first render waits for the look around this computer.
+const SHARED_LOOKUP_MS = 1500;
 const ANKI_RESULT_DISPLAY_MS = 3000;
 const COUNTDOWN_TICK_MS = 250;
 const ANKI_PROGRESS_STEP_MS = 2000;
@@ -50,6 +53,8 @@ let optionsRevision = -1;
 let requestCounter = 0;
 let saving = false;
 let renderedStage;
+// A Hachidori sharing itself from another browser on this computer, when one answered.
+let sharedHost = null;
 // The installer run this page follows: the latest attach reply, then only
 // newer events carrying the same run identity.
 let run = null;
@@ -866,10 +871,61 @@ function practiceView() {
   };
 }
 
+// Nothing found, or no answer within the wait, leaves the plain welcome; a
+// late answer re-renders it with the offer.
+async function findSharedHachidori() {
+  try {
+    const reply = await send("hd_sharing_client_probe", { address: "" }, SHARING_TARGET);
+    if (!reply.ok) return;
+    sharedHost = { address: reply.address, host: reply.host };
+    if (!saving) render();
+  } catch {
+    // The plain welcome stays.
+  }
+}
+
+// Linking mirrors the shared library here, and setup then has nothing left to do.
+async function useSharedHachidori() {
+  if (saving || setupState === null || sharedHost === null) return;
+  saving = true;
+  for (const control of element("setup-actions").querySelectorAll("button")) control.disabled = true;
+  setStatus("Linking…");
+  try {
+    const reply = await send("hd_sharing_client_link", { address: sharedHost.address }, SHARING_TARGET);
+    if (!reply.ok) throw new Error(reply.error || "the link did not complete");
+  } catch (error) {
+    saving = false;
+    setStatus(`Could not use that Hachidori: ${describe(error)}`, "error");
+    render();
+    return;
+  }
+  saving = false;
+  await advance("complete");
+}
+
 function welcomeView() {
+  if (sharedHost !== null) {
+    const name = sharedHost.host.name || "another browser";
+    const count = sharedHost.host.dictionaryCount === 1 ? "1 dictionary" : `${sharedHost.host.dictionaryCount} dictionaries`;
+    return {
+      heading: "Welcome to Hachidori",
+      body: [
+        paragraph(`${name} on this computer already has Hachidori set up, with ${count}.`),
+        paragraph("Use it here instead of setting up again? Words are looked up there, and nothing is downloaded twice."),
+      ],
+      actions: [
+        button("setup-use-shared", `Use the Hachidori in ${name}`, () => { void useSharedHachidori(); }),
+        button("setup-start", "Set up separately", () => { void advance("dictionaries"); }, "ghost"),
+        button("setup-manual", "Set up manually", () => { void advance("practice"); }, "ghost"),
+      ],
+    };
+  }
   return {
     heading: "Welcome to Hachidori",
-    body: [paragraph("Click Start Setup to automatically set up Hachidori")],
+    body: [
+      paragraph("Click Start Setup to automatically set up Hachidori"),
+      settingsNote("Already using Hachidori in another browser, on this computer or another one? Link to it from ", "settings.html#sharing", " instead of setting up again."),
+    ],
     actions: [
       button("setup-start", "Start Setup", () => { void advance("dictionaries"); }),
       button("setup-manual", "Set up manually", () => { void advance("practice"); }, "ghost"),
@@ -1057,6 +1113,9 @@ async function start() {
   if (setupError === null && setupState?.stage === "dictionaries") {
     // Reconnect first: a run started by an earlier page may still be active.
     await requestInstall(untouchedEntries().map((entry) => entry.sourceId));
+  }
+  if (setupError === null && setupState?.stage === "welcome") {
+    await Promise.race([findSharedHachidori(), new Promise((resolveWait) => setTimeout(resolveWait, SHARED_LOOKUP_MS))]);
   }
   render();
 }

@@ -15,6 +15,7 @@
   "use strict";
 
   const TARGET = "hoshidicts-offscreen";
+  const PAGE_ZOOM_TARGET = "hachidori-page-zoom";
   const WORKER_TARGET = "hoshidicts-worker";
   const READER_TARGET = "hachidori-reader";
   const HIGHLIGHT_NAME = "gsm-hoshidicts-match";
@@ -154,6 +155,9 @@
   let uiPromise = null;
   let popupLayoutFrame = null;
   let popupLayouts = new Map();
+  let pageZoom = 1;
+  let pageZoomRatio = null;
+  let pageZoomRequest = 0;
 
   let styleGeneration = -1;
   let styleRequest = null;
@@ -985,6 +989,7 @@
     window.removeEventListener("blur", onWindowBlur);
     window.removeEventListener("pagehide", onPageHide);
     window.removeEventListener("pageshow", onPageShow);
+    window.removeEventListener("resize", refreshPageZoom);
     try {
       chrome.storage.onChanged.removeListener(onStorageChanged);
       chrome.runtime.onMessage?.removeListener(onReaderCommand);
@@ -1287,6 +1292,35 @@
     });
   }
 
+  // Browser zoom scales CSS pixels. The popup cancels it with CSS zoom to keep
+  // one on-screen size, so its lengths are unzoomed pixels and page geometry is
+  // converted into them before placement.
+  function popupRect(rect) {
+    return window.HDPopup.scaleRect(rect, pageZoom);
+  }
+
+  function popupViewport() {
+    return { width: window.innerWidth * pageZoom, height: window.innerHeight * pageZoom };
+  }
+
+  function applyPageZoom() {
+    host?.style.setProperty("--gsm-hoshidicts-page-zoom", String(1 / pageZoom));
+  }
+
+  function refreshPageZoom() {
+    // Resizing a window keeps its device pixel ratio; a zoom change does not.
+    if (disposed || window.devicePixelRatio === pageZoomRatio) return;
+    pageZoomRatio = window.devicePixelRatio;
+    const request = ++pageZoomRequest;
+    sendRequest("hd_page_zoom", {}, PAGE_ZOOM_TARGET).then((reply) => {
+      if (disposed || request !== pageZoomRequest || !(reply.zoomFactor > 0) || reply.zoomFactor === pageZoom) return;
+      pageZoom = reply.zoomFactor;
+      applyPageZoom();
+      for (const level of levels) level.view?.hideImagePreview();
+      positionPopup();
+    }, (error) => console.debug("hachidori: page zoom unavailable", error));
+  }
+
   function calculatePopupPosition(anchorRect, viewport, vertical) {
     return window.HDPopup.calculatePopupPosition(anchorRect, {
       width: options.popupWidthPx, height: options.popupHeightPx,
@@ -1378,8 +1412,8 @@
     highlighter?.refresh();
     if (fromLevel === rootLevel) {
       const position = calculatePopupPosition(
-        anchorRectFor(rootLevel.activeCandidate),
-        { height: window.innerHeight, width: window.innerWidth },
+        popupRect(anchorRectFor(rootLevel.activeCandidate)),
+        popupViewport(),
         rootLevel.activeCandidate.vertical
       );
       positionToolbar(rootLevel, position.placement, resetToolbar);
@@ -1389,14 +1423,15 @@
       rootLevel.popup.style.height = `${position.height}px`;
     }
     if (levels.length === 1) return;
-    if (window.innerWidth <= POPUP_PADDING_PX * 2 || window.innerHeight <= POPUP_PADDING_PX * 2) {
+    const viewport = popupViewport();
+    if (viewport.width <= POPUP_PADDING_PX * 2 || viewport.height <= POPUP_PADDING_PX * 2) {
       pruneLevels(1);
       // Finish this placement before a newly unprotected view can reproject.
       window.queueMicrotask(flushDictionaryPresentation);
       return;
     }
     const startDepth = Math.max(1, fromLevel.depth);
-    let parentRect = levels[startDepth - 1].popup.getBoundingClientRect();
+    let parentRect = popupRect(levels[startDepth - 1].popup.getBoundingClientRect());
     for (const level of levels.slice(startDepth)) {
       if (level.popup.hidden) break;
       if (!anchorConnected(level.activeCandidate)) {
@@ -1404,23 +1439,23 @@
         break;
       }
       positionToolbar(level, "beside", resetToolbar);
-      const anchorRect = anchorRectFor(level.activeCandidate);
-      const width = Math.min(options.popupWidthPx, window.innerWidth - POPUP_PADDING_PX * 2);
-      const height = Math.min(options.popupHeightPx, window.innerHeight - POPUP_PADDING_PX * 2);
-      const rightRoom = window.innerWidth - parentRect.right - POPUP_GAP_PX - POPUP_PADDING_PX;
+      const anchorRect = popupRect(anchorRectFor(level.activeCandidate));
+      const width = Math.min(options.popupWidthPx, viewport.width - POPUP_PADDING_PX * 2);
+      const height = Math.min(options.popupHeightPx, viewport.height - POPUP_PADDING_PX * 2);
+      const rightRoom = viewport.width - parentRect.right - POPUP_GAP_PX - POPUP_PADDING_PX;
       const leftRoom = parentRect.left - POPUP_GAP_PX - POPUP_PADDING_PX;
       const preferredLeft = rightRoom >= width || rightRoom >= leftRoom
         ? parentRect.right + POPUP_GAP_PX
         : parentRect.left - width - POPUP_GAP_PX;
-      const left = Math.max(POPUP_PADDING_PX, Math.min(preferredLeft, window.innerWidth - width - POPUP_PADDING_PX));
-      const top = Math.max(POPUP_PADDING_PX, Math.min(anchorRect.top, window.innerHeight - height - POPUP_PADDING_PX));
+      const left = Math.max(POPUP_PADDING_PX, Math.min(preferredLeft, viewport.width - width - POPUP_PADDING_PX));
+      const top = Math.max(POPUP_PADDING_PX, Math.min(anchorRect.top, viewport.height - height - POPUP_PADDING_PX));
       level.popup.style.left = `${left}px`;
       level.popup.style.top = `${top}px`;
       level.popup.style.width = `${width}px`;
       level.popup.style.height = `${height}px`;
       // Each parent box is read once, after its own placement, not once per
       // ancestor for every descendant. Narrow viewports may overlap panes.
-      parentRect = level.popup.getBoundingClientRect();
+      parentRect = popupRect(level.popup.getBoundingClientRect());
     }
   }
 
@@ -1526,6 +1561,7 @@
       "pointer-events: none !important",
       "z-index: 2147483647 !important",
     ].join("; ");
+    applyPageZoom();
     shadow = host.attachShadow({ mode: "closed" });
     if (styles.sheet) {
       shadow.adoptedStyleSheets = [styles.sheet];
@@ -1580,6 +1616,7 @@
       const child = levels[level.depth + 1];
       if (child) positionPopup(child);
     }, { capture: true, passive: true });
+    popup.addEventListener("wheel", onPopupWheel, { passive: false });
     popup.addEventListener("mouseenter", () => onPopupEnter(level));
     popup.addEventListener(
       "mousemove",
@@ -1601,6 +1638,7 @@
       appendTextOnlyGlossary: window.HDGlossary.appendTextOnlyGlossary,
       appendStructuredImage: window.HDGlossary.appendStructuredImage,
       document,
+      getPageZoom: () => pageZoom,
       getPopupColumns: () => options.popupColumns,
       customLinks: options.customLinks,
       highlightName: HIGHLIGHT_NAME,
@@ -2078,6 +2116,29 @@
     return false;
   }
 
+  // The popup's wheel belongs to the popup. Readers such as ttu turn pages from
+  // wheel events on their body, and a pane that cannot scroll further (or has
+  // nothing to scroll) would otherwise chain the gesture into the page.
+  function onPopupWheel(event) {
+    event.stopPropagation();
+    if (event.defaultPrevented || event.ctrlKey) return;
+    const popup = event.currentTarget;
+    for (let node = event.target; node instanceof Element; node = node === popup ? null : node.parentElement) {
+      if (canScrollBy(node, event.deltaX, event.deltaY)) return;
+    }
+    event.preventDefault();
+  }
+
+  function canScrollBy(element, deltaX, deltaY) {
+    const room = (delta, offset, size, viewport) => delta > 0 ? offset + viewport < size - 1 : delta < 0 && offset > 0;
+    const vertical = room(deltaY, element.scrollTop, element.scrollHeight, element.clientHeight);
+    const horizontal = room(deltaX, element.scrollLeft, element.scrollWidth, element.clientWidth);
+    if (!vertical && !horizontal) return false;
+    const style = window.getComputedStyle(element);
+    const scrolls = overflow => overflow === "auto" || overflow === "scroll";
+    return (vertical && scrolls(style.overflowY)) || (horizontal && scrolls(style.overflowX));
+  }
+
   function onPopupFocusOut(event) {
     const target = event.target;
     window.queueMicrotask(() => {
@@ -2395,8 +2456,8 @@
       !anchorConnected(candidate) ||
       !level.popup.contains(candidate.anchor) ||
       level.depth >= options.popupNestingMaxDepth ||
-      window.innerWidth <= POPUP_PADDING_PX * 2 ||
-      window.innerHeight <= POPUP_PADDING_PX * 2
+      popupViewport().width <= POPUP_PADDING_PX * 2 ||
+      popupViewport().height <= POPUP_PADDING_PX * 2
     ) {
       return;
     }
@@ -2699,6 +2760,12 @@
     return options.lookupMode === "hover" || activationPressed;
   }
 
+  // Yomitan's default: once shown, the popup outlives the activation key and
+  // the pointer's wanderings; only an explicit dismissal or a new lookup ends it.
+  function schedulePointerHide() {
+    if (options.lookupMode !== "activationSticky") scheduleHide();
+  }
+
   function updateModifierState(event) {
     const property = MODIFIER_PROPERTIES.get(options.activationKey);
     if (property) activationPressed = event[property] === true;
@@ -2810,13 +2877,13 @@
     }
     if (!activationAllowed()) {
       cancelCandidateScan();
-      scheduleHide();
+      schedulePointerHide();
       return;
     }
     const candidate = resolveCandidate(pointer.clientX, pointer.clientY);
     if (!candidate) {
       cancelCandidateScan();
-      scheduleHide();
+      schedulePointerHide();
       return;
     }
     const signature = candidateSignature(candidate);
@@ -2918,7 +2985,7 @@
     }
     if (!activationAllowed() && window.getSelection()?.isCollapsed !== false) {
       cancelCandidateScan();
-      scheduleHide();
+      schedulePointerHide();
       return;
     }
     scheduleScan();
@@ -3136,7 +3203,7 @@
       activationCode = event.code;
     }
     const popupLevel = activePointerLevel(lastPointer);
-    if (!wasPressed && activationPressed && options.lookupMode === "activation"
+    if (!wasPressed && activationPressed && options.lookupMode !== "hover"
         && lastPointer && !hasProtectedNote() && !popupHasFocus()
         && (!pointerInPopup || popupLevel)
         && !selectionDragActive
@@ -3168,7 +3235,7 @@
       lastPointer = null;
       pointerInPopup = false;
       cancelCandidateScan();
-      scheduleHide();
+      schedulePointerHide();
     }
   }
 
@@ -3431,7 +3498,7 @@
       if (!hasProtectedNote() && !popupHasFocus() && (!pointerInPopup || popupLevel)) {
         if (!activationAllowed()) {
           if (popupLevel) cancelPendingHover(popupLevel);
-          else scheduleHide();
+          else schedulePointerHide();
         }
         else if (lastPointer) scheduleScan();
       }
@@ -3477,6 +3544,8 @@
     window.addEventListener("blur", onWindowBlur);
     window.addEventListener("pagehide", onPageHide);
     window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("resize", refreshPageZoom);
+    refreshPageZoom();
   }
 
   start();

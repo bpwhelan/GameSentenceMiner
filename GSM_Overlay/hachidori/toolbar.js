@@ -4,6 +4,7 @@ import "./reader-options.js";
 const { normaliseOptions } = globalThis.HDReaderOptions;
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map(node => [node.id, node]));
 let options = null;
+let linkedAddress = null;
 let revision = -1;
 let pending = false;
 let requestCounter = 0;
@@ -22,7 +23,7 @@ function render() {
   if (!options) return;
   elements["lookup-toggle"].setAttribute("aria-checked", String(options.hoverEnabled));
   elements["lookup-state"].textContent = options.hoverEnabled ? "On" : "Off";
-  const activeHint = options.lookupMode === "activation"
+  const activeHint = options.lookupMode !== "hover"
     ? `Hold ${options.activationKey} to scan` : "Hover over Japanese text to scan";
   elements["activation-hint"].textContent = options.hoverEnabled ? activeHint : "Lookups paused";
 }
@@ -60,6 +61,22 @@ function renderCapture(recording) {
   elements["record-label"].textContent = recording ? "Recording" : "Record screen";
 }
 
+// A linked install shows where its lookups go and whether that host answers.
+function adoptSharing(stored) {
+  linkedAddress = typeof stored?.client?.address === "string" ? stored.client.address : null;
+  elements["toolbar-sharing"].hidden = linkedAddress === null;
+  if (linkedAddress === null) elements["toolbar-sharing"].textContent = "";
+}
+
+async function refreshSharing() {
+  if (linkedAddress === null) return;
+  try {
+    const status = await send("hd_sharing_status", {}, "hachidori-sharing");
+    elements["toolbar-sharing"].textContent = status.sharing?.client?.connected
+      ? "Linked to another Hachidori" : "Linked Hachidori not reachable";
+  } catch (error) { showError(error); }
+}
+
 async function refreshCapture() {
   if (!options?.mediaCapture.enabled) {
     renderCapture(false);
@@ -89,16 +106,22 @@ elements["open-settings"].addEventListener("click", () => {
   void run(async () => { await chrome.runtime.openOptionsPage(); window.close(); });
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.options) {
+  if (area !== "local") return;
+  if (changes.options) {
     adoptOptions(changes.options.newValue);
     void refreshCapture();
+  }
+  if (changes.sharing) {
+    adoptSharing(changes.sharing.newValue);
+    void refreshSharing();
   }
 });
 
 try {
-  const stored = await chrome.storage.local.get("options");
+  const stored = await chrome.storage.local.get(["options", "sharing"]);
   adoptOptions(stored.options);
-  await refreshCapture();
+  adoptSharing(stored.sharing);
+  await Promise.all([refreshCapture(), refreshSharing()]);
 } catch (error) { showError(error); }
-const capturePoll = setInterval(() => { void refreshCapture(); }, 1000);
+const capturePoll = setInterval(() => { void refreshCapture(); void refreshSharing(); }, 1000);
 window.addEventListener("pagehide", () => clearInterval(capturePoll), { once: true });

@@ -38,6 +38,7 @@
             <option value="media">Media capture</option>
             <option value="anki">Anki</option>
             <option value="keybinds">Keybinds</option>
+            <option value="sharing">Sharing</option>
             <option value="backup">Backup &amp; restore</option>
           </select>
         </label>
@@ -70,6 +71,10 @@
           <div class="nav-item">
             <a href="#keybinds" aria-describedby="nav-status-keybinds">Keybinds</a>
             <output class="nav-status" id="nav-status-keybinds" aria-live="polite"></output>
+          </div>
+          <div class="nav-item">
+            <a href="#sharing" aria-describedby="nav-status-sharing">Sharing</a>
+            <output class="nav-status" id="nav-status-sharing" aria-live="polite"></output>
           </div>
           <div class="nav-item">
             <a href="#backup" aria-describedby="nav-status-backup">Backup &amp; restore</a>
@@ -184,6 +189,7 @@
             <h1 id="import-heading" tabindex="-1">Import dictionaries</h1>
             <p class="hint">Yomitan ZIP files, stored on this device.</p>
           </div>
+          <p class="field-hint sharing-linked-notice" id="sharing-import-notice" hidden>Dictionaries live on the linked Hachidori: import ZIP files there. Recommended dictionaries can still be installed from here, and <a href="#sharing">Sharing</a> lets you unlink to use this browser’s own dictionaries again.</p>
           <div
             class="import-drop-zone"
             id="import-drop-zone"
@@ -412,15 +418,16 @@
               <label class="field">
                 <span class="field-label">Lookup mode</span>
                 <select id="opt-lookup-mode">
+                  <option value="activationSticky">Activation key + hover, popup stays open</option>
+                  <option value="activation">Activation key + hover, popup closes on release</option>
                   <option value="hover">Hover</option>
-                  <option value="activation">Activation key + hover</option>
                 </select>
-                <span class="field-hint">Automatically, or while holding a key.</span>
+                <span class="field-hint">Hold a key to look up a word, or look up automatically on hover.</span>
               </label>
               <label class="field">
                 <span class="field-label">Activation key</span>
                 <select id="opt-activation-key"></select>
-                <span class="field-hint">Used in Activation key + hover mode. Some keys are reserved by your browser or operating system.</span>
+                <span class="field-hint">Used by the activation key modes. Some keys are reserved by your browser or operating system.</span>
               </label>
             </div>
           </fieldset>
@@ -978,11 +985,59 @@
             <button id="browser-shortcuts-open" type="button" class="ghost">Change in Chrome</button>
           </fieldset>
         </section>
+        <section class="card" id="sharing" aria-labelledby="sharing-heading" hidden>
+          <div class="card-head">
+            <h1 id="sharing-heading" tabindex="-1" data-search-keywords="share link other browser computer Tailscale network relay Anki add-on addon port address">Sharing</h1>
+            <p class="hint">Use one Hachidori from all your browsers, on this computer and on your other computers. Anki carries the connection.</p>
+          </div>
+          <output id="sharing-status" class="anki-status" aria-live="polite"></output>
+          <fieldset class="lookup-group" id="sharing-host">
+            <legend>Share this Hachidori</legend>
+            <p class="field-hint">Your other browsers then use this Hachidori’s dictionaries, personal entries, lookup counts and settings instead of their own. Anki carries the connection: install the Hachidori Relay add-on once and keep Anki open.</p>
+            <div class="sharing-actions" id="sharing-addon">
+              <button id="sharing-addon-download" type="button" class="ghost">Download the Anki add-on</button>
+              <span class="field-hint">Then double-click the file to install it and restart Anki.</span>
+            </div>
+            <label class="lookup-enable"><span>Share this Hachidori</span><input id="sharing-host-enabled" type="checkbox" disabled></label>
+            <output id="sharing-host-clients" class="field-hint" aria-live="polite"></output>
+            <label class="lookup-enable"><span>Also with my other computers</span><input id="sharing-host-network" type="checkbox" disabled></label>
+            <p class="field-hint">Over Tailscale or your home network. Anyone on that network could reach it, so leave it off on public Wi-Fi.</p>
+            <div id="sharing-host-addresses" hidden>
+              <p class="field-hint" id="sharing-host-addresses-note"></p>
+              <ul id="sharing-host-address-list" class="sharing-addresses"></ul>
+            </div>
+            <details class="settings-disclosure">
+              <summary>Advanced</summary>
+              <div class="fields">
+                <label class="field"><span class="field-label">Port</span><input id="sharing-host-port" type="number" min="1" max="65535" step="1" value="8771"><span class="field-hint">Change it only if you changed the add-on’s port in Anki (Tools → Add-ons → Hachidori Relay → Config).</span></label>
+              </div>
+            </details>
+          </fieldset>
+          <fieldset class="lookup-group" id="sharing-client">
+            <legend>Use another Hachidori</legend>
+            <p class="field-hint">This browser then uses that Hachidori’s dictionaries, personal entries, lookup counts and settings. Nothing is copied, and unlinking brings this browser’s own state back.</p>
+            <div id="sharing-client-nearby">
+              <output id="sharing-client-found" class="field-hint" aria-live="polite"></output>
+              <div class="sharing-actions">
+                <button id="sharing-client-use" type="button" class="primary-button" hidden>Use it</button>
+                <button id="sharing-client-find" type="button" class="ghost">Look again</button>
+              </div>
+            </div>
+            <div class="fields" id="sharing-client-remote">
+              <label class="field"><span class="field-label">On another computer</span><input id="sharing-client-address" type="text" spellcheck="false" autocomplete="off" placeholder="100.101.102.103"><span class="field-hint">The address shown under Sharing on that computer.</span></label>
+            </div>
+            <div class="sharing-actions">
+              <button id="sharing-client-link" type="button" class="ghost">Link</button>
+              <button id="sharing-client-unlink" type="button" class="ghost" hidden>Unlink</button>
+            </div>
+          </fieldset>
+        </section>
         <section class="card" id="backup" aria-labelledby="backup-heading" hidden>
           <div class="card-head">
             <h1 id="backup-heading" tabindex="-1">Backup &amp; restore</h1>
             <p class="hint">A complete copy of this browser’s Hachidori data.</p>
           </div>
+          <p class="field-hint sharing-linked-notice" id="sharing-backup-notice" hidden>Backups are made and restored on the linked Hachidori. Open <a href="#sharing">Sharing</a> to unlink and use this browser’s own data again.</p>
           <div class="backup-action">
             <div>
               <h2>Save a backup</h2>

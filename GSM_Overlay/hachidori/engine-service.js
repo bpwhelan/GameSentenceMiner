@@ -95,6 +95,8 @@ let ready = false;
 let busy = 0;
 let generation = 0;
 let dictionaryCount = 0;
+// Committed packages the engine could not load into its current set.
+let loadFailures = [];
 let hostRequest = null;
 let started = false;
 let createHoshidicts = null;
@@ -762,7 +764,7 @@ async function commitDictionaryCandidate(buildCandidate) {
   for (let attempt = 0; ; attempt += 1) {
     const snapshot = await readDictionaryStorage();
     const next = await buildCandidate(snapshot);
-    const loadedCount = loadDictionaries(next, { strict: true });
+    const loadedCount = loadDictionaries(next, { committed: snapshot.state?.dictionaries ?? [] });
     if (snapshot.state !== null && sameDictionaries(next, snapshot.state.dictionaries)) {
       return { state: snapshot.state, loadedCount };
     }
@@ -809,7 +811,15 @@ async function refreshReferencedPackages(stored) {
     if (dictionaryRoot(storedPackage) === null) {
       throw new Error(`the committed dictionary state contains an invalid path: ${path}`);
     }
-    const generated = await packageFromIndex(path);
+    let generated;
+    try {
+      generated = await packageFromIndex(path);
+    } catch (error) {
+      // Keep the committed row; loading reports the package if it cannot load.
+      console.warn(`hoshidicts: could not refresh ${path}: ${describe(error)}`);
+      entries.push(storedPackage);
+      continue;
+    }
     if (generated.title !== storedPackage?.title) {
       throw new Error(`${path}/index.json does not match its committed dictionary title`);
     }
@@ -875,7 +885,15 @@ function kindsForPackage(dictionary) {
   return kinds.length === 0 ? ["term"] : kinds;
 }
 
-function addDictionaries(dictionaries, includeDisabled, strict) {
+class DictionaryLoadError extends Error {
+  constructor(dictionary, kindName) {
+    super(`could not load ${dictionary.path} as ${kindName}: ${lastError()}`);
+    this.name = "DictionaryLoadError";
+    this.dictionary = dictionary;
+  }
+}
+
+function addDictionaries(dictionaries, includeDisabled) {
   let loadedCount = 0;
   for (const dictionary of dictionaries) {
     if (!includeDisabled && dictionary.enabled === false) {
@@ -883,37 +901,65 @@ function addDictionaries(dictionaries, includeDisabled, strict) {
     }
     for (const kindName of kindsForPackage(dictionary)) {
       const kind = KINDS.indexOf(kindName);
-      if (engine.ccall("hdw_add_dict", "number", ["string", "number"], [dictionary.path, kind])) {
-        loadedCount += 1;
-      } else {
-        const error = `could not load ${dictionary.path} as ${kindName}: ${lastError()}`;
-        if (strict) {
-          throw new Error(error);
-        }
-        console.warn(`hoshidicts: ${error}`);
+      if (!engine.ccall("hdw_add_dict", "number", ["string", "number"], [dictionary.path, kind])) {
+        throw new DictionaryLoadError(dictionary, kindName);
       }
+      loadedCount += 1;
     }
   }
   return loadedCount;
 }
 
-function loadDictionaries(dictionaries, { strict = false } = {}) {
+// Every package, enabled or not, must load. A package a mutation introduces is
+// never published unless it does, but one already at a `committed` path that
+// stops loading is left out and reported in `loadFailures`: otherwise a single
+// broken package would stop lookups in every other dictionary.
+function loadDictionaries(dictionaries, { committed = [] } = {}) {
   for (const dictionary of dictionaries) {
     if (dictionaryRoot(dictionary) === null) {
       throw new Error(`refusing to load an invalid dictionary path: ${text(dictionary?.path)}`);
     }
   }
-  if (strict) {
-    for (const dictionary of dictionaries) {
-      if (dictionary.enabled !== false) {
-        continue;
-      }
-      engine.ccall("hdw_reset", null, [], []);
-      addDictionaries([dictionary], true, true);
+  const tolerated = new Set(committed.map((dictionary) => text(dictionary?.path)));
+  const failed = [];
+  const skipped = new Set();
+  const recordFailure = (error) => {
+    if (!(error instanceof DictionaryLoadError) || !tolerated.has(error.dictionary.path)) {
+      throw error;
+    }
+    skipped.add(error.dictionary.path);
+    failed.push({
+      id: optionalText(error.dictionary.id),
+      title: text(error.dictionary.title),
+      error: error.message,
+    });
+  };
+  for (const dictionary of dictionaries) {
+    if (dictionary.enabled !== false) {
+      continue;
+    }
+    engine.ccall("hdw_reset", null, [], []);
+    try {
+      addDictionaries([dictionary], true);
+    } catch (error) {
+      recordFailure(error);
     }
   }
-  engine.ccall("hdw_reset", null, [], []);
-  return addDictionaries(dictionaries, false, strict);
+  // An enabled package can fail after some of its kinds were added, so reload
+  // without it rather than keep part of it.
+  for (;;) {
+    engine.ccall("hdw_reset", null, [], []);
+    try {
+      const loadedCount = addDictionaries(
+        dictionaries.filter((dictionary) => !skipped.has(dictionary.path)),
+        false,
+      );
+      loadFailures = failed;
+      return loadedCount;
+    } catch (error) {
+      recordFailure(error);
+    }
+  }
 }
 
 function publishLoadedDictionaries(loadedCount) {
@@ -926,7 +972,7 @@ async function restoreCommittedDictionaries(state = null, { publish = true } = {
   if (committed === null) {
     throw new Error("the committed dictionary state is unavailable");
   }
-  const loadedCount = loadDictionaries(committed.dictionaries, { strict: true });
+  const loadedCount = loadDictionaries(committed.dictionaries, { committed: committed.dictionaries });
   if (publish) publishLoadedDictionaries(loadedCount);
   else dictionaryCount = loadedCount;
   reloadError = null;
@@ -1098,7 +1144,9 @@ async function customPackageSatisfies(state, semanticRevision, entryCount) {
         )) {
       return false;
     }
-    loadDictionaries(state.dictionaries, { strict: true });
+    loadDictionaries(state.dictionaries, {
+      committed: state.dictionaries.filter((dictionary) => dictionary?.id !== CUSTOM_DICTIONARY_ID),
+    });
     return true;
   } catch {
     return false;
@@ -1562,7 +1610,7 @@ async function rethrowCustomRemovalFailure(error, removesPackage) {
 
 function customRemovalLoadedCount(dictionaries, removesPackage) {
   if (!removesPackage) return dictionaryCount;
-  return loadDictionaries(dictionaries, { strict: true });
+  return loadDictionaries(dictionaries, { committed: dictionaries });
 }
 
 async function commitCustomRemoval(initial, source, semanticRevision) {
@@ -1626,7 +1674,7 @@ async function commitCustomGeneration(
       throw new CustomCommitRejectedError(customStaleReply(snapshot));
     }
     const dictionaries = withCustomDictionary(snapshot.state.dictionaries, generated);
-    const loadedCount = loadDictionaries(dictionaries, { strict: true });
+    const loadedCount = loadDictionaries(dictionaries, { committed: snapshot.state.dictionaries });
     const reply = await commitCustomStorage(snapshot, source, semanticRevision, dictionaries);
     if (reply.ok === true) {
       publishLoadedDictionaries(loadedCount);
@@ -1827,7 +1875,7 @@ async function restoreBackup(message) {
     if (!sameJsonValue(current, prepared.current)) {
       throw new Error("Hachidori changed since this backup was prepared. Prepare it again before restoring.");
     }
-    const loadedCount = loadDictionaries(prepared.dictionaries, { strict: true });
+    const loadedCount = loadDictionaries(prepared.dictionaries);
     const snapshot = restoredBackupSnapshot(current, prepared.snapshot, prepared.dictionaries);
     const reply = await commitBackupSnapshot(current, snapshot, prepared.lookupStatsRows);
     if (!reply.ok) throw new Error(reply.error || "Could not commit the backup restore.");
@@ -1915,10 +1963,14 @@ const HANDLERS = {
     const roots = [];
     try {
       const dictionaries = await stageBackupFiles(prepared, roots);
-      loadDictionaries(dictionaries, { strict: true });
+      loadDictionaries(dictionaries);
       let warning = null;
-      try { await restoreCommittedDictionaries(null, { publish: false }); }
-      catch (error) {
+      try {
+        await restoreCommittedDictionaries(null, { publish: false });
+        if (loadFailures.length > 0) {
+          warning = "Some current dictionaries cannot be loaded. This validated backup can replace them.";
+        }
+      } catch (error) {
         reloadError = asError(error);
         warning = "The current dictionaries cannot be loaded. This validated backup can replace them.";
       }
@@ -2091,7 +2143,9 @@ const HANDLERS = {
 
     let restorationAttempted = false;
     try {
-      const loadedCount = loadDictionaries(message.dictionaries, { strict: true });
+      const loadedCount = loadDictionaries(message.dictionaries, {
+        committed: await readStoredDictionaries(),
+      });
       const reply = await commitDictionaryState(message.baseRevision, message.dictionaries);
       if (reply.ok === true) {
         publishLoadedDictionaries(loadedCount);
@@ -2157,7 +2211,7 @@ const HANDLERS = {
     let loadedCount;
     let reply;
     try {
-      loadedCount = loadDictionaries(remaining, { strict: true });
+      loadedCount = loadDictionaries(remaining, { committed: remaining });
       reply = await commitDictionaryState(snapshot.state.revision, remaining);
     } catch (error) {
       if (error instanceof UnknownDictionaryStateCommitError) {
@@ -2224,6 +2278,7 @@ const HANDLERS = {
       ready,
       loading: busy > 0,
       dictionaryCount,
+      failedDictionaries: loadFailures,
       generation,
       storageBackend,
       threaded: storageBackend === "opfs",

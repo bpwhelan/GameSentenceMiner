@@ -79,7 +79,7 @@
     maxResults: 32,
     hoverEnabled: true,
     onlyScanJapaneseText: true,
-    lookupMode: "hover",
+    lookupMode: "activationSticky",
     activationKey: "Shift",
     hoverDelayMs: 50,
     popupHideDelayMs: 160,
@@ -157,7 +157,7 @@
     "showPitchAccentFurigana", "pitchAccentFuriganaDictionary", "showPitchAccentBadge", "hidePopupGrammarTags",
   ];
   const LEGACY_MODIFIERS = new Map([["none", "Shift"], ["shift", "Shift"], ["ctrl", "Control"], ["alt", "Alt"]]);
-  const LOOKUP_MODES = ["hover", "activation"];
+  const LOOKUP_MODES = ["hover", "activation", "activationSticky"];
   const POPUP_TOOLBAR_POSITIONS = new Set(["auto", "top", "bottom"]);
   // Browser KeyboardEvent names, adapting the source's desktop hotkey names.
   const ACTIVATION_KEYS = [

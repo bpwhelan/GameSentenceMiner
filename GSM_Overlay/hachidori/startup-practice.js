@@ -36,13 +36,13 @@ export function practiceReadiness(options, dictionaries, outcome = null, readerF
 function practiceInstruction(options, enabled, probing, unavailable, shortcut) {
   if (enabled) {
     const ending = shortcut ? ", or use the lookup button." : ".";
-    return options.lookupMode === "activation"
-      ? `Try looking up a word below. Hold ${options.activationKey} and hover over Japanese text${ending}`
+    return options.lookupMode !== "hover"
+      ? `Try looking up a word below. Hold ${options.activationKey} and hover over a word${ending}`
       : `Try looking up a word below. Hover over Japanese text${ending}`;
   }
   if (probing) return "Checking what the installed dictionaries can answer…";
   if (unavailable) {
-    return options.lookupMode === "activation"
+    return options.lookupMode !== "hover"
       ? `Hold ${options.activationKey} and hover over Japanese text on any webpage to look it up.`
       : "Hover over Japanese text on any webpage to look it up.";
   }

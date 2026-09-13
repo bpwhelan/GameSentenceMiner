@@ -1,0 +1,3 @@
+Hachidori Relay lets the Hachidori browser extensions on this computer share one set of dictionaries, personal entries, lookup counts and settings while Anki is open. It needs no setup: the Hachidori that shares itself and the browsers that link to it find the relay on the port below. The relay listens on this computer only; **Also with my other computers** under Settings → Sharing in Hachidori opens it to the network this computer is on, and needs no change here.
+
+- `port`: the port Hachidori's Sharing uses, 8771 unless you changed it under **Settings → Sharing → Advanced** in Hachidori. Change it here only if you changed it there too, then restart Anki.

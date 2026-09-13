@@ -1774,6 +1774,13 @@
     return null;
   }
 
+  // A popup that cancels browser zoom measures its own lengths in unzoomed
+  // pixels; page geometry (client rects, the viewport) converts into them.
+  function scaleRect(rect, factor) {
+    return { left: rect.left * factor, top: rect.top * factor, right: rect.right * factor,
+      bottom: rect.bottom * factor, width: rect.width * factor, height: rect.height * factor };
+  }
+
   function calculatePopupPosition(anchorRect, popupSize, viewport, { gap = 4, padding = 6, vertical = false } = {}) {
     const width = Math.min(popupSize.width, Math.max(1, viewport.width - padding * 2));
     const height = Math.min(popupSize.height, Math.max(1, viewport.height - padding * 2));
@@ -1810,6 +1817,7 @@
     const documentRef = options.document;
     const windowRef = options.window;
     const popup = options.popup;
+    const getPageZoom = options.getPageZoom ?? (() => 1);
     const contentScroll = documentRef.createElement("div");
     contentScroll.className = "gsm-hoshidicts-content-scroll";
     const appendExpressionRuby = options.appendExpressionRuby;
@@ -1892,8 +1900,9 @@
 
     function positionImagePreview(anchorRect = imagePreview.image.getBoundingClientRect()) {
       const preview = imagePreview.element;
-      const position = calculatePopupPosition(anchorRect, preview.getBoundingClientRect(), {
-        width: windowRef.innerWidth, height: windowRef.innerHeight,
+      const zoom = getPageZoom();
+      const position = calculatePopupPosition(scaleRect(anchorRect, zoom), scaleRect(preview.getBoundingClientRect(), zoom), {
+        width: windowRef.innerWidth * zoom, height: windowRef.innerHeight * zoom,
       }, { gap: 8, padding: 8, vertical: true });
       preview.style.left = `${position.left}px`;
       preview.style.top = `${position.top}px`;
@@ -1977,7 +1986,8 @@
     function scrollToEntry(nodes, index, target = nodes[index]) {
       currentEntry = nodes[index];
       const top = index === 0 && target === currentEntry ? 0
-        : target.getBoundingClientRect().top - contentScroll.getBoundingClientRect().top + contentScroll.scrollTop;
+        : (target.getBoundingClientRect().top - contentScroll.getBoundingClientRect().top) * getPageZoom()
+          + contentScroll.scrollTop;
       contentScroll.scrollTo({ top, behavior: "smooth" });
       return true;
     }
@@ -3833,6 +3843,7 @@
     createCustomPopupStyle,
     resolveToolbarPosition,
     calculatePopupPosition,
+    scaleRect,
     createDictionaryDisplayNames,
     createFrequencyTags,
     createPitchTag,

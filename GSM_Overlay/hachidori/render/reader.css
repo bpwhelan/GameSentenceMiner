@@ -1093,6 +1093,7 @@ html[data-hoshidicts-theme="girlypop"],
   --tag-part-of-speech-background-color: var(--hoshidicts-palette-accent);
   position: fixed;
   z-index: 2147483646;
+  zoom: var(--gsm-hoshidicts-page-zoom, 1);
   width: var(--gsm-hoshidicts-popup-width, 560px);
   height: var(--gsm-hoshidicts-popup-height, 420px);
   max-width: none;
@@ -2432,6 +2433,7 @@ html[data-hoshidicts-theme="girlypop"],
 .gsm-hoshidicts-image-hover-preview {
   position: fixed;
   z-index: 2147483647;
+  zoom: var(--gsm-hoshidicts-page-zoom, 1);
   display: inline-block;
   line-height: 0;
   pointer-events: none;

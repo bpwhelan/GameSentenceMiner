@@ -9,6 +9,8 @@ import { createAudioSettingsController } from "./audio-settings.js";
 import { createKeybindSettingsController } from "./keybind-settings.js";
 import { createAnkiSettingsController } from "./anki-settings.js";
 import { createBackupSettingsController } from "./backup-settings.js";
+import { createSharingSettingsController } from "./sharing-settings.js";
+import { ANKI_ADDON_FILE_NAME, buildAnkiAddon } from "./anki-addon.js";
 import { createLocalFileAccessController } from "./local-file-access.js";
 import { createSettingsSearch } from "./settings-search.js";
 import { createCustomLinkSettings } from "./custom-link-settings.js";
@@ -42,6 +44,7 @@ const WORKER_TARGET = "hoshidicts-worker";
 const UPDATE_TARGET = "hachidori-updates";
 const AUDIO_TARGET = "hachidori-audio";
 const CAPTURE_TARGET = "hachidori-capture";
+const SHARING_TARGET = "hachidori-sharing";
 const OPTION_SECTIONS = { lookup: "Reading", design: "Design", audio: "Audio", media: "Media capture", anki: "Anki", keybinds: "Keybinds" };
 const LIBRARY_SECTIONS = new Set(["dictionaries", "add-dictionaries", "updates", "dictionary-groups", "custom-dictionary"]);
 const {
@@ -132,6 +135,9 @@ let requestCounter = 0;
 let audioController;
 let keybindController;
 let ankiController;
+let sharingController;
+// The address of the Hachidori this install is linked to, or null.
+let sharingLinkedAddress = null;
 let backupController;
 let customLinkController;
 let backingUp = false;
@@ -148,6 +154,7 @@ const SECTION_STATUSES = {
   "options-status": { section: "lookup", label: "Reading" },
   "dict-group-error": { section: "dictionary-groups", label: "Groups" },
   "backup-status": { section: "backup", label: "Backup" },
+  "sharing-status": { section: "sharing", label: "Sharing" },
 };
 let activeSection = "dictionaries";
 const unseenSectionCompletions = new Set();
@@ -247,6 +254,7 @@ function showSettingsSection(focus = false) {
   updateAnkiSettings();
   updateKeybindSettings();
   updateBackupSettings();
+  updateSharingSettings();
   if (activeSection === "design") {
     customLinkController ??= createCustomLinkSettings({ document,
       readLinks: () => options.customLinks,
@@ -292,6 +300,42 @@ function updateAnkiSettings() {
     send: (type, fields) => send(type, fields, WORKER_TARGET),
   });
   ankiController.render();
+}
+
+// While linked, archives and backups belong to the host; the notices say so.
+function renderSharingLink(value) {
+  sharingLinkedAddress = typeof value?.client?.address === "string" ? value.client.address : null;
+  const linked = sharingLinkedAddress !== null;
+  element("sharing-import-notice").hidden = !linked;
+  element("sharing-backup-notice").hidden = !linked;
+  element("import-drop-zone").hidden = linked;
+  for (const node of document.querySelectorAll("#backup > .backup-action, #backup > .section-note")) node.hidden = linked;
+}
+
+// The add-on is built from the files shipped with this extension and saved
+// like any other download, so Anki installs the version that matches.
+async function downloadAnkiAddon() {
+  const archive = await buildAnkiAddon(async (name) => {
+    const response = await fetch(chrome.runtime.getURL(`anki-relay/${name}`));
+    if (!response.ok) throw new Error(`could not read ${name}`);
+    return response.text();
+  }, { version: chrome.runtime.getManifest().version });
+  const url = URL.createObjectURL(archive);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = ANKI_ADDON_FILE_NAME;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function updateSharingSettings() {
+  if (activeSection !== "sharing") { sharingController?.stop(); return; }
+  sharingController ??= createSharingSettingsController({ document,
+    send: (type, fields) => send(type, fields, SHARING_TARGET),
+    setStatus: (message, tone) => setSectionStatus("sharing-status", message, tone),
+    downloadAddon: downloadAnkiAddon,
+  });
+  sharingController.start();
 }
 
 function renderMediaSettings() {
@@ -1086,6 +1130,13 @@ async function refreshStatus() {
 function renderEngineStatus() {
   if (lastEngineStatus === null) return;
   const count = dictionaries.filter((entry) => entry.enabled !== false).length;
+  const failed = Array.isArray(lastEngineStatus.failedDictionaries) ? lastEngineStatus.failedDictionaries : [];
+  if (lastEngineStatus.ready && failed.length > 0) {
+    const subject = failed.length === 1 ? "1 dictionary" : `${numberFormat.format(failed.length)} dictionaries`;
+    const detail = failed.map(({ title, error }) => `${title} (${error})`).join("; ");
+    setStatus(`Could not load ${subject}: ${detail}. Re-import or remove it; the other dictionaries still work.`, "error");
+    return;
+  }
   if (lastEngineStatus.ready) {
     if (count === 0 && !lastEngineStatus.loading) {
       setStatus(dictionaries.length === 0
@@ -2141,6 +2192,16 @@ function summariseReport(report) {
 
 async function importFile(file, index, total, request = {}, label = file.name, started = Date.now()) {
   const blobUrl = URL.createObjectURL(file);
+  try {
+    return await importArchive({ blobUrl, fileName: file.name, ...request }, index, total, label, started);
+  } finally {
+    // The offscreen document has read the bytes by now; holding the URL any
+    // longer just pins the file.
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+async function importArchive(request, index, total, label, started) {
   const tick = () => {
     const elapsed = elapsedSince(started);
     setImportState(
@@ -2153,7 +2214,7 @@ async function importFile(file, index, total, request = {}, label = file.name, s
   const ticker = setInterval(tick, 1000);
 
   try {
-    const reply = await send("hd_import", { blobUrl, fileName: file.name, ...request });
+    const reply = await send("hd_import", request);
     const report = reply.report ?? {};
     if (reply.ok && report.success) {
       updateImportResult(index, {
@@ -2174,9 +2235,6 @@ async function importFile(file, index, total, request = {}, label = file.name, s
     });
   } finally {
     clearInterval(ticker);
-    // The offscreen document has read the bytes by now; holding the URL any
-    // longer just pins the file.
-    URL.revokeObjectURL(blobUrl);
   }
   return false;
 }
@@ -2193,6 +2251,10 @@ async function importRecommendedDictionary(entry, index, total) {
   };
   tick();
   const ticker = setInterval(tick, 1000);
+  if (sharingLinkedAddress !== null) {
+    clearInterval(ticker);
+    return importArchive({ sourceId: entry.sourceId, archiveUrl: entry.downloadUrl, fileName: entry.archiveName }, index, total, entry.name, started);
+  }
   try {
     const response = await fetch(entry.downloadUrl, { credentials: "omit" });
     if (!response.ok) {
@@ -2849,6 +2911,9 @@ function handleStorageChange(changes, area) {
   if (changes[SETUP_STATE_KEY]) {
     renderSetupResume(changes[SETUP_STATE_KEY].newValue);
   }
+  if (changes.sharing) {
+    renderSharingLink(changes.sharing.newValue);
+  }
   if (changes[CUSTOM_DICTIONARY_SOURCE_KEY]) {
     handleCustomDictionarySourceChange(changes[CUSTOM_DICTIONARY_SOURCE_KEY]);
   }
@@ -2942,10 +3007,11 @@ async function start() {
   attachSettingsNavigation();
   renderRecommendedCatalogue();
   attachHandlers();
-  const stored = await chrome.storage.local.get(["options", "dictionaryUpdates", SETUP_STATE_KEY]);
+  const stored = await chrome.storage.local.get(["options", "dictionaryUpdates", SETUP_STATE_KEY, "sharing"]);
   adoptOptions(stored.options);
   adoptUpdateSettings(stored.dictionaryUpdates);
   renderSetupResume(stored[SETUP_STATE_KEY]);
+  renderSharingLink(stored.sharing);
   renderCustomDictionaryControls();
   if (await reloadDictionaries()) {
     writeOptions();

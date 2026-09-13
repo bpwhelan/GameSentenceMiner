@@ -76,6 +76,7 @@ let lastEngineStatus = {
   ready: false,
   loading: true,
   dictionaryCount: 0,
+  failedDictionaries: [],
   generation: 0,
 };
 const pending = new Map();
@@ -106,6 +107,7 @@ function finishRequest(id, response) {
       ready: response.ready === true,
       loading: response.loading === true,
       dictionaryCount: Number(response.dictionaryCount) || 0,
+      failedDictionaries: Array.isArray(response.failedDictionaries) ? response.failedDictionaries : [],
       generation: Number(response.generation) || 0,
     };
   }
