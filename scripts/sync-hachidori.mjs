@@ -7,6 +7,8 @@ import { promisify } from 'node:util';
 const execFile = promisify(execFileCallback);
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const targetDir = path.join(repoRoot, 'GSM_Overlay', 'hachidori');
+const overlayModeOff = 'export const OVERLAY_MODE = false;';
+const overlayModeOn = 'export const OVERLAY_MODE = true;';
 const stableManifestKey = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3EBnBqP0Ma73KIk9Nx2ye+WFabltPVObI7QWPgYhdupw89RJ7J7xRUddIGszPDhpQNYnm37eLQupFXjqlSt0B1ltnltpzGynkRflAmRbtlqPWf19TWy6EowMm1SegxRR/YPxP5M93oQ/ojzfUPDQ4bhTE23vic/xY7sZttqcewAJou/TyCJTEjcoZgqDTD4PDnXyu1rB+bMJpu+uF/geKkkAOU4IRXHOEuE1JhJorvzmlZT07H01eqXGpmjR7ySbXryhN2gWb1arY+lCWd/qXWWUcIuyjak8D/6WgIaJwsBwoL/B/60gMoXDnDCRWi5kMWH68scx2QzF6g+FDykntwIDAQAB';
 
 async function git(sourceRoot, ...args) {
@@ -42,6 +44,14 @@ async function main() {
   manifest.key = stableManifestKey;
   await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
+  // The overlay hosts Hachidori in its own window, so it runs in Hachidori's overlay mode.
+  const overlayModePath = path.join(targetDir, 'overlay-mode.js');
+  const overlayMode = await fs.readFile(overlayModePath, 'utf8');
+  if (!overlayMode.includes(overlayModeOff)) {
+    throw new Error(`overlay-mode.js no longer contains "${overlayModeOff}"; update this script for the new switch.`);
+  }
+  await fs.writeFile(overlayModePath, overlayMode.replace(overlayModeOff, overlayModeOn));
+
   await fs.copyFile(sourceLicensePath, path.join(targetDir, 'LICENSE.hachidori'));
   await fs.writeFile(
     path.join(targetDir, 'SOURCE.json'),
@@ -53,6 +63,7 @@ async function main() {
       license: 'GPL-3.0-or-later',
       modifications: [
         'manifest.json includes a fixed public key so the GSM-hosted extension keeps one stable ID.',
+        'overlay-mode.js enables overlay mode: hover lookups, no word highlight, and no first-run setup page.',
       ],
     }, null, 2)}\n`,
   );

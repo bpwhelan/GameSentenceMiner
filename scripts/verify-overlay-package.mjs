@@ -71,6 +71,7 @@ async function main() {
     path.join(overlayResourcesDir, 'hachidori', 'manifest.json'),
     path.join(overlayResourcesDir, 'hachidori', 'background.js'),
     path.join(overlayResourcesDir, 'hachidori', 'offscreen.js'),
+    path.join(overlayResourcesDir, 'hachidori', 'overlay-mode.js'),
     path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts.wasm'),
     path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts-threaded.wasm'),
     path.join(overlayResourcesDir, 'hachidori', 'LICENSE.hachidori'),
@@ -93,6 +94,11 @@ async function main() {
   );
   if (typeof hachidoriManifest.key !== 'string' || hachidoriManifest.key.length === 0) {
     throw new Error('Packaged Hachidori manifest does not contain its stable extension key.');
+  }
+
+  const hachidoriOverlayMode = await fs.readFile(path.join(overlayResourcesDir, 'hachidori', 'overlay-mode.js'), 'utf8');
+  if (!hachidoriOverlayMode.includes('export const OVERLAY_MODE = true;')) {
+    throw new Error('Packaged Hachidori does not run in overlay mode.');
   }
 
   const hachidoriSource = JSON.parse(
