@@ -21,9 +21,11 @@ export const FIRST_INSTALL_OPTIONS = Object.freeze({
 });
 
 // Initial preferences an overlay host seeds on top of the first-install ones.
+// A viewport screenshot of a see-through overlay window has no game in it.
 export const OVERLAY_MODE_OPTIONS = Object.freeze({
   lookupMode: "hover",
   sourceHighlightEnabled: false,
+  anki: Object.freeze({ captureScreenshot: false }),
 });
 
 // How each first-install option's value is built from a committed title.

@@ -2378,7 +2378,8 @@ async function seedOverlayModeOptions() {
   await serialiseStorage(async () => {
     const stored = await chrome.storage.local.get(OPTIONS_KEY);
     if (stored[OPTIONS_KEY] !== undefined) return;
-    const options = validateOptionsPatch({ ...FIRST_INSTALL_OPTIONS, ...OVERLAY_MODE_OPTIONS });
+    const options = validateOptionsPatch({ ...FIRST_INSTALL_OPTIONS, ...OVERLAY_MODE_OPTIONS,
+      anki: { ...DEFAULT_OPTIONS.anki, ...OVERLAY_MODE_OPTIONS.anki } });
     await writeLocalState({ [OPTIONS_KEY]: { ...options, revision: 1 } });
   });
 }
