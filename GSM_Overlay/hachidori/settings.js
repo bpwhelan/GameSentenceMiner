@@ -1431,6 +1431,7 @@ function renderOptions() {
   element("opt-hover-enabled").checked = options.hoverEnabled;
   element("opt-japanese-only").checked = options.onlyScanJapaneseText;
   element("opt-source-highlight").checked = options.sourceHighlightEnabled;
+  element("opt-popup-audio-button").checked = options.showPopupAudioButton;
   element("opt-audio-autoplay").checked = options.audioAutoplay;
   renderThemeChoices();
   renderCustomCss();
@@ -2629,6 +2630,10 @@ function attachHandlers() {
   });
   element("opt-source-highlight").addEventListener("change", (event) => {
     options.sourceHighlightEnabled = event.target.checked;
+    writeOptions();
+  });
+  element("opt-popup-audio-button").addEventListener("change", (event) => {
+    options.showPopupAudioButton = event.target.checked;
     writeOptions();
   });
   element("reset-design").addEventListener("click", () => {

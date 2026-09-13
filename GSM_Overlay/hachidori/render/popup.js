@@ -82,6 +82,9 @@
       update(options) {
         const themeChanged = current.popupTheme !== options.popupTheme;
         if (themeChanged) host.dataset.hoshidictsTheme = options.popupTheme;
+        // Only CSS hides the button: it stays bound, so autoplay and keybinds still play.
+        if (options.showPopupAudioButton === false) host.dataset.hoshidictsAudioButton = "hidden";
+        else delete host.dataset.hoshidictsAudioButton;
         for (const [key, variable, unit] of [
           ["popupOpacityPercent", "opacity", "%"], ["popupWidthPx", "width", "px"], ["popupHeightPx", "height", "px"],
         ]) {
@@ -1435,6 +1438,7 @@
     const marker = getCompactDefinitionMarker(value);
     return marker && marker !== "glossary" && (
       marker.startsWith("part-of-speech") ||
+      marker === "redirect-glossary" ||
       marker === "source" || marker.startsWith("source-") ||
       marker === "attribution" || marker.startsWith("attribution-") ||
       marker === "example" || marker === "examples" ||

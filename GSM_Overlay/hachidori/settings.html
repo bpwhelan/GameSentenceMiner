@@ -637,6 +637,11 @@
                   <span>Highlight the word on the page</span>
                   <input id="opt-source-highlight" type="checkbox" />
                 </label>
+                <label class="lookup-enable">
+                  <span>Show the audio button</span>
+                  <input id="opt-popup-audio-button" type="checkbox" aria-describedby="popup-audio-button-help" />
+                </label>
+                <p class="field-hint" id="popup-audio-button-help">Autoplay and audio keybinds still work when it's hidden.</p>
               </fieldset>
               <fieldset class="lookup-group">
                 <legend>Definitions</legend>
@@ -730,18 +735,28 @@
               </fieldset>
               <fieldset class="lookup-group">
                 <legend>Custom toolbar links</legend>
-                <label class="field">
-                  <span class="field-label">Names and URL templates</span>
-                  <textarea id="opt-custom-links" rows="4" spellcheck="false"
-                    aria-describedby="custom-links-help custom-links-status"
-                    placeholder="Jisho, https://jisho.org/search/%w&#10;Search sentence, https://www.google.com/search?q=%s"></textarea>
-                  <span id="custom-links-help" class="field-hint">One link per line: name, URL. Use %w for the word, %r for its reading, and %s for the sentence. Change line order to reorder buttons; remove a line to remove a link.</span>
-                </label>
-                <div class="custom-dictionary-actions">
-                  <button id="save-custom-links" type="button" class="ghost">Save links</button>
-                  <button id="discard-custom-links" type="button" class="ghost">Discard changes</button>
-                </div>
-                <output id="custom-links-status" class="is-error" aria-live="polite"></output>
+                <p class="field-hint">Use %w for the word, %r for its reading and %s for the sentence.</p>
+                <ol id="custom-link-list" class="custom-link-list"></ol>
+                <p id="custom-link-empty" class="field-hint">No custom links yet.</p>
+                <form id="custom-link-form" class="custom-link-form" novalidate>
+                  <div class="fields">
+                    <label class="field">
+                      <span class="field-label">Link name</span>
+                      <input id="opt-custom-link-name" type="text" autocomplete="off" placeholder="Jisho"
+                        aria-describedby="custom-links-status" />
+                    </label>
+                    <label class="field">
+                      <span class="field-label">URL template</span>
+                      <input id="opt-custom-link-url" type="text" spellcheck="false" autocomplete="off"
+                        placeholder="https://jisho.org/search/%w" aria-describedby="custom-links-status" />
+                    </label>
+                  </div>
+                  <div class="custom-dictionary-actions">
+                    <button id="custom-link-submit" type="submit" class="ghost">Add link</button>
+                    <button id="custom-link-cancel" type="button" class="ghost" hidden>Cancel</button>
+                  </div>
+                  <output id="custom-links-status" class="is-error" aria-live="polite"></output>
+                </form>
               </fieldset>
               <details class="settings-disclosure custom-css-disclosure">
                 <summary>Custom CSS</summary>
@@ -779,21 +794,19 @@
         <section class="card" id="audio" aria-labelledby="audio-heading" hidden>
           <div class="card-head">
             <h1 id="audio-heading" tabindex="-1" data-search-keywords="voice pronunciation text to speech TTS source provider URL">Audio</h1>
-            <p class="hint">Choose where pronunciations come from, in priority order.</p>
+            <p class="hint">Pronunciation sources, tried from top to bottom.</p>
           </div>
           <div class="options-feedback-slot"></div>
-          <p class="section-note">Choose a voice for text-to-speech, or add an audio provider. Hachidori tries enabled sources from top to bottom.</p>
-          <p class="field-hint">Automatic Japanese chooses an available Japanese voice. To attach browser speech to Anki, start Media capture with shared audio; Hachidori records that exact voice when you add the note. Downloadable sources work without capture.</p>
           <label class="lookup-enable"><span>Automatically play the first lookup result</span><input id="opt-audio-autoplay" type="checkbox"></label>
-          <p class="field-hint">Off by default. You can always use Audio in the popup; Shift-click or right-click it to choose a pronunciation.</p>
-          <p class="field-hint">Pronunciation sends the selected word and reading to your configured audio providers. Use HTTPS for remote sources; HTTP localhost services on this computer are supported.</p>
           <ol id="audio-source-list" class="audio-source-list"></ol>
           <p id="audio-source-empty" class="hint" hidden>No audio sources. Add one to configure pronunciation.</p>
           <button id="audio-source-add" type="button" class="ghost">Add source</button>
           <details class="settings-disclosure">
-            <summary>Audio URLs and testing</summary>
-            <p class="field-hint">URL templates accept <code>{term}</code>, <code>{expression}</code>, <code>{reading}</code> and <code>{language}</code> (ja). Substitutions are URL-encoded. Yomitan JSON sources return an <code>audioSourceList</code>.</p>
-            <p class="field-hint">Test plays 聞く / きく using that source, even if it is disabled. URL sources contact the configured provider; some system voices use an online service.</p>
+            <summary>Help</summary>
+            <p class="field-hint">URL templates accept <code>{term}</code>, <code>{expression}</code>, <code>{reading}</code> and <code>{language}</code>, URL-encoded. Yomitan JSON sources return an <code>audioSourceList</code>.</p>
+            <p class="field-hint">Shift-click or right-click the popup's audio button to choose a pronunciation.</p>
+            <p class="field-hint">To add browser speech to Anki, start Media capture with shared audio.</p>
+            <p class="field-hint">Sources receive the word and reading. Remote URLs need HTTPS; localhost may use HTTP. Some system voices are online.</p>
           </details>
         </section>
         <section class="card" id="media" aria-labelledby="media-heading" hidden>

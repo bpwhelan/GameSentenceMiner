@@ -96,6 +96,7 @@
     popupHeightPx: 420,
     popupOpacityPercent: 85,
     sourceHighlightEnabled: true,
+    showPopupAudioButton: true,
     popupColumns: 1,
     showLookupCounts: true,
     definitionBlurEnabled: false,
@@ -151,7 +152,7 @@
   })) }));
   const POPUP_THEME_IDS = new Set(POPUP_THEME_GROUPS.flatMap(group => group.themes.map(theme => theme.id)));
   const DESIGN_OPTION_KEYS = [
-    "popupTheme", "popupToolbarPosition", "customPopupCss", "customLinks", "popupWidthPx", "popupHeightPx", "popupOpacityPercent", "sourceHighlightEnabled", "popupColumns",
+    "popupTheme", "popupToolbarPosition", "customPopupCss", "customLinks", "popupWidthPx", "popupHeightPx", "popupOpacityPercent", "sourceHighlightEnabled", "showPopupAudioButton", "popupColumns",
     "showCompactDefinitionSummary", "compactDefinitionSummaryCount", "compactDefinitionSummaryDictionary",
     "kanjiClickDictionary", "popupImageSource", "averageFrequency", "showFrequencyDictionaryNames",
     "showPitchAccentFurigana", "pitchAccentFuriganaDictionary", "showPitchAccentBadge", "hidePopupGrammarTags",
