@@ -3513,7 +3513,13 @@ function readExtensionPackageVersion(dirPath) {
   try {
     const data = fs.readFileSync(pkgPath, 'utf-8');
     const pkg = JSON.parse(data);
-    return pkg && pkg.version ? String(pkg.version) : null;
+    if (!pkg || !pkg.version) {
+      return null;
+    }
+    // Vendored Hachidori keeps one manifest version; its SOURCE.json commit tells syncs apart.
+    const sourcePath = path.join(dirPath, 'SOURCE.json');
+    const commit = fs.existsSync(sourcePath) ? JSON.parse(fs.readFileSync(sourcePath, 'utf-8')).commit : null;
+    return commit ? `${pkg.version}+${commit}` : String(pkg.version);
   } catch (e) {
     console.warn(`Failed to read manifest.json at ${pkgPath}`, e);
     return null;
@@ -6746,7 +6752,26 @@ async function startOverlayAppImpl() {
       fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
     } catch {}
   } else {
+    // Electron keeps running the first background.js it registered, whatever the manifest version,
+    // so a Hachidori sync would pair new pages with an old worker. SOURCE.json names the vendored commit.
+    const hachidoriExtDir = isDev ? path.join(__dirname, 'hachidori') : path.join(getPackagedResourcesPath(), 'hachidori');
+    const hachidoriCommitPath = path.join(dataPath, 'hachidori_last_commit.json');
+    let currentCommit = null;
+    try { currentCommit = JSON.parse(fs.readFileSync(path.join(hachidoriExtDir, 'SOURCE.json'), 'utf-8')).commit; } catch {}
+    let storedCommit = null;
+    try { storedCommit = JSON.parse(fs.readFileSync(hachidoriCommitPath, 'utf-8')).commit; } catch {}
+
+    if (currentCommit !== storedCommit) {
+      console.log(`[HachidoriStartup] Extension changed (stored=${storedCommit}, current=${currentCommit}). Clearing service worker cache...`);
+      try {
+        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
+      } catch (e) {
+        console.warn('[HachidoriStartup] Failed to clear service worker cache:', e);
+      }
+    }
+
     hachidoriExt = await loadExtension('hachidori');
+    try { fs.writeFileSync(hachidoriCommitPath, JSON.stringify({ commit: currentCommit })); } catch {}
     if (hachidoriExt) {
       await createHachidoriEngineWindow();
     }

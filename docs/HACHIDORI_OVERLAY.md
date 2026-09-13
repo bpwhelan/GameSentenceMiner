@@ -45,5 +45,10 @@ node scripts/sync-hachidori.mjs /tmp/hachidori-sync
 If upstream renames the overlay switch, the script fails instead of silently vendoring
 a copy with overlay mode off.
 
+Hachidori's manifest version stays the same across syncs, so the overlay uses the `SOURCE.json`
+commit to tell them apart. When it changes, the overlay clears Electron's cached service worker,
+which would otherwise keep running the old `background.js` next to the new pages, and on Linux
+copies the extension again.
+
 `scripts/verify-overlay-package.mjs` checks the packaged overlay. It confirms the extension,
 its wasm engines, the stable key, an exact source commit, and that overlay mode is on.
