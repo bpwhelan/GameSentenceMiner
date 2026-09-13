@@ -35,6 +35,7 @@
       ready: "Mine to Anki",
       "add-duplicate": "Add duplicate to Anki",
       overwrite: "Overwrite note in Anki",
+      "view-existing": "View existing notes in Anki",
       mining: "Adding note",
       success: "Note added",
       error: "Could not add note",
@@ -47,7 +48,7 @@
       ready: "big-circle",
       "add-duplicate": "add-duplicate-big-circle",
       overwrite: "overwrite-big-circle",
-      duplicate: "add-duplicate-big-circle",
+      "view-existing": "view-note",
     }[state];
     const icon = button.ownerDocument.createElement(iconName ? "img" : "span");
     icon.className = "gsm-hoshidicts-mine-icon";
@@ -67,23 +68,27 @@
     }[state] || "-";
     button.replaceChildren(icon);
   }
+  function viewsExisting(record) {
+    return record.decision?.state === "duplicate" && record.decision.canAdd === false;
+  }
   function disabled(record) {
     if (!record.add) return;
-    record.add.disabled = record.busy || record.terminal || record.group.checking || !record.decision?.canAdd;
+    record.add.disabled = record.busy || record.terminal || record.group.checking
+      || (!record.decision?.canAdd && !viewsExisting(record));
   }
   function payload(record) {
     return { ...record.group.getRequest(record.result), configKey: record.group.configKey };
   }
   function decisionState(value) {
     if (value.action === "overwrite" && value.canAdd) return "overwrite";
-    if (value.state === "duplicate") return value.canAdd ? "add-duplicate" : "duplicate";
+    if (value.state === "duplicate") return value.canAdd ? "add-duplicate" : "view-existing";
     if (value.state === "invalid" || value.state === "error") return "error";
     return "ready";
   }
   function showControls(record, value) {
     record.hidden = !value;
     if (record.add) record.add.hidden = !value;
-    if (record.view) record.view.hidden = !value;
+    if (record.view) record.view.hidden = !value || viewsExisting(record);
     syncFeedback(record);
   }
   function removeControls(record) {
@@ -108,9 +113,11 @@
   function decision(record, value) {
     record.decision = value;
     if (!record.terminal && !record.busy) {
-      setMiningButtonState(record, decisionState(value), value.error || "");
+      const state = decisionState(value);
+      setMiningButtonState(record, state, state === "view-existing" ? "" : value.error || "");
       setStatus(record, value.error || "", value.error ? "error" : "info");
     }
+    if (record.view) record.view.hidden = record.hidden || viewsExisting(record);
     captureBadge(record);
     disabled(record);
   }
@@ -309,12 +316,24 @@
         if (current(record)) { disabled(record); onChange(record.group.owner); refresh(record.group); }
       }
     }
-    async function browse(record) {
-      if (!current(record) || record.view.disabled) return;
-      record.view.disabled = true;
-      try { await send("hd_anki_browse", { expression: record.result.term.expression }); }
+    async function browse(record, exact = false) {
+      const button = exact ? record.add : record.view;
+      if (!current(record) || button.disabled) return;
+      button.disabled = true;
+      try {
+        await send("hd_anki_browse", { request: {
+          noteIds: exact && Array.isArray(record.decision?.noteIds) ? record.decision.noteIds : [],
+          expression: record.result.term.expression,
+        } });
+      }
       catch (error) { if (current(record)) setStatus(record, `Could not open Anki: ${error.message}`, "error"); }
-      finally { if (current(record)) { record.view.disabled = false; onChange(record.group.owner); } }
+      finally {
+        if (current(record)) {
+          if (exact) disabled(record);
+          else record.view.disabled = false;
+          onChange(record.group.owner);
+        }
+      }
     }
     function controls(record) {
       if (record.control) return;
@@ -357,8 +376,13 @@
       actionAnchor.after(view);
       Object.assign(record, { feedback, control, add, view, badge, output, hidden: false });
       setMiningButtonState(record, "checking");
-      add.addEventListener("mousedown", event => { if (event.button === 0 && current(record)) record.pointerRequest = payload(record); });
-      add.addEventListener("click", event => { void submit(record, event.detail > 0); });
+      add.addEventListener("mousedown", event => {
+        if (event.button === 0 && current(record) && !viewsExisting(record)) record.pointerRequest = payload(record);
+      });
+      add.addEventListener("click", event => {
+        if (viewsExisting(record)) void browse(record, true);
+        else void submit(record, event.detail > 0);
+      });
       view.addEventListener("click", () => { void browse(record); });
       disabled(record);
     }

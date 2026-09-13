@@ -1959,6 +1959,75 @@
     };
     popup.addEventListener("scroll", onPopupScroll, true);
 
+    // Keybind navigation after Yomitan's Display: the current entry changes
+    // only when a keybind focuses an entry or the reader clicks one.
+    let currentEntry = null;
+    const entryNodes = () => [...contentScroll.querySelectorAll(
+      ":scope > .gsm-hoshidicts-tab-panel > .gsm-hoshidicts-entry, :scope > .gsm-hoshidicts-kanji-entry")];
+    contentScroll.addEventListener("click", event => {
+      const entry = event.button === 0 && event.target instanceof windowRef.Element
+        ? event.target.closest(".gsm-hoshidicts-entry, .gsm-hoshidicts-kanji-entry") : null;
+      if (entry && entryNodes().includes(entry)) currentEntry = entry;
+    });
+
+    function currentEntryIndex(nodes = entryNodes()) {
+      return Math.max(0, nodes.indexOf(currentEntry));
+    }
+
+    function scrollToEntry(nodes, index, target = nodes[index]) {
+      currentEntry = nodes[index];
+      const top = index === 0 && target === currentEntry ? 0
+        : target.getBoundingClientRect().top - contentScroll.getBoundingClientRect().top + contentScroll.scrollTop;
+      contentScroll.scrollTo({ top, behavior: "smooth" });
+      return true;
+    }
+
+    // Yomitan renders every entry; later entries here wait behind Show more.
+    function expandEntries() {
+      const showMore = contentScroll.querySelector(":scope > .gsm-hoshidicts-tab-panel > .gsm-hoshidicts-show-more");
+      showMore?.click();
+      return Boolean(showMore);
+    }
+
+    // Yomitan starts from the current entry's most visible definition and moves
+    // to the nearest definition from another dictionary; here each dictionary
+    // is one glossary card. Kanji views have no such definitions.
+    function focusEntryWithDifferentDictionary(nodes, index, sign) {
+      const cardsOf = node => node.classList.contains("gsm-hoshidicts-entry")
+        ? [...node.querySelectorAll(".gsm-hoshidicts-glossary-grid > .gsm-hoshidicts-glossary-card")] : [];
+      const dictionaryOf = card => card.querySelector(":scope > .gsm-hoshidicts-glossary-card-title")?.title ?? "";
+      const cards = cardsOf(nodes[index]);
+      const view = contentScroll.getBoundingClientRect();
+      let visible = null, coverage = 0;
+      for (const card of sign > 0 ? cards : [...cards].reverse()) {
+        const { top, bottom } = card.getBoundingClientRect();
+        const shown = Math.min(bottom, view.bottom) - Math.max(top, view.top);
+        if (shown > coverage) { visible = card; coverage = shown; }
+      }
+      if (!visible) return false;
+      const dictionary = dictionaryOf(visible);
+      const search = entries => {
+        for (let i = index; i >= 0 && i < entries.length; i += sign) {
+          const ordered = sign > 0 ? cardsOf(entries[i]) : cardsOf(entries[i]).reverse();
+          const start = i === index ? ordered.indexOf(visible) + 1 : 0;
+          const target = ordered.slice(start).find(card => dictionaryOf(card) !== dictionary);
+          if (target) return scrollToEntry(entries, i, target);
+        }
+        return false;
+      };
+      return search(nodes) || (sign > 0 && expandEntries() && search(entryNodes()));
+    }
+
+    function focusEntry(target) {
+      let nodes = entryNodes();
+      if (nodes.length === 0) return false;
+      const index = currentEntryIndex(nodes);
+      if (target.dictionary) return focusEntryWithDifferentDictionary(nodes, index, Math.sign(target.dictionary));
+      const next = target === "first" ? 0 : target === "last" ? Infinity : index + target.offset;
+      if (next >= nodes.length && expandEntries()) nodes = entryNodes();
+      return scrollToEntry(nodes, Math.max(0, Math.min(nodes.length - 1, next)));
+    }
+
     function resetMasonry(grid) {
       grid.classList.remove("gsm-hoshidicts-glossary-grid-masonry");
       grid.style.height = "";
@@ -2097,6 +2166,7 @@
       currentResultPanel = null;
       captureTermView = null;
       pendingScrollRestoration = null;
+      currentEntry = null;
       if (!preserveViewControls) {
         currentNoteControls?.close(false);
         currentNoteControls = null;
@@ -3006,15 +3076,15 @@
         const glossaryGrid = documentRef.createElement("div");
         glossaryGrid.className = "gsm-hoshidicts-glossary-grid";
         for (const [dictionary, glossaries] of groupedGlossaries) {
-          const details = documentRef.createElement("details");
-          details.className = "gsm-hoshidicts-glossary-card";
-          details.open = true;
-          details.addEventListener("toggle", scheduleMasonry);
-          const summary = documentRef.createElement("summary");
-          summary.textContent = dictionaryDisplayNames?.get(dictionary) || dictionary;
-          summary.title = dictionary;
-          summary.setAttribute("aria-label", dictionary);
-          details.appendChild(summary);
+          // Always open, as in Yomitan: only disclosures a dictionary authors
+          // inside its own content collapse.
+          const card = documentRef.createElement("div");
+          card.className = "gsm-hoshidicts-glossary-card";
+          const title = documentRef.createElement("div");
+          title.className = "gsm-hoshidicts-glossary-card-title";
+          title.textContent = dictionaryDisplayNames?.get(dictionary) || dictionary;
+          title.title = dictionary;
+          card.appendChild(title);
           const definitions = documentRef.createElement("ol");
           definitions.className = "gsm-hoshidicts-definitions";
           if (glossaries.length === 1) {
@@ -3067,8 +3137,8 @@
             definition.appendChild(content);
             definitions.appendChild(definition);
           }
-          details.appendChild(definitions);
-          glossaryGrid.appendChild(details);
+          card.appendChild(definitions);
+          glossaryGrid.appendChild(card);
         }
         entry.appendChild(glossaryGrid);
         // Fixed-width masonry cards cannot signal a change to their container.
@@ -3220,8 +3290,8 @@
                 results[index], renderContext, summaryMedia) || changed;
             }
             if (labelsChanged) {
-              for (const summary of entry.querySelectorAll(":scope > .gsm-hoshidicts-glossary-grid > details > summary")) {
-                changed = updateLabel(summary, names.get(summary.title) || summary.title) || changed;
+              for (const title of entry.querySelectorAll(":scope > .gsm-hoshidicts-glossary-grid > .gsm-hoshidicts-glossary-card > .gsm-hoshidicts-glossary-card-title")) {
+                changed = updateLabel(title, names.get(title.title) || title.title) || changed;
               }
             }
           });
@@ -3713,6 +3783,8 @@
       renderResults,
       renderKanji,
       captureTermView: () => captureTermView?.(),
+      currentEntryIndex: () => currentEntryIndex(),
+      focusEntry,
       setDefinitionBlurState,
       setLookupStats,
       setSourceHighlightEnabled,

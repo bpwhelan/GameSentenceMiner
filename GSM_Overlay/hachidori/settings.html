@@ -37,6 +37,7 @@
             <option value="audio">Audio</option>
             <option value="media">Media capture</option>
             <option value="anki">Anki</option>
+            <option value="keybinds">Keybinds</option>
             <option value="backup">Backup &amp; restore</option>
           </select>
         </label>
@@ -65,6 +66,10 @@
           <div class="nav-item">
             <a href="#anki" aria-describedby="nav-status-anki">Anki</a>
             <output class="nav-status" id="nav-status-anki" aria-live="polite"></output>
+          </div>
+          <div class="nav-item">
+            <a href="#keybinds" aria-describedby="nav-status-keybinds">Keybinds</a>
+            <output class="nav-status" id="nav-status-keybinds" aria-live="polite"></output>
           </div>
           <div class="nav-item">
             <a href="#backup" aria-describedby="nav-status-backup">Backup &amp; restore</a>
@@ -219,9 +224,7 @@
               <h2 id="recommended-dictionaries-heading">
                 Recommended dictionaries
               </h2>
-              <p class="hint">
-                Four trusted sources for words, names, kanji and frequency. Already installed sources are skipped.
-              </p>
+              <p class="hint" id="recommended-dictionaries-hint"></p>
             </div>
             <button
               class="primary-button"
@@ -485,7 +488,7 @@
               <label class="field">
                 <span class="field-label">Maximum child popups</span>
                 <input id="opt-popup-nesting-depth" type="number" min="0" max="9007199254740991" step="1" />
-                <span class="field-hint">Keep definitions open while following links. 0 disables child popups.</span>
+                <span class="field-hint">Keep definitions open while looking up definition text or following links. 0 disables child popups.</span>
               </label>
 
             </div>
@@ -773,7 +776,7 @@
           </div>
           <div class="options-feedback-slot"></div>
           <p class="section-note">Choose a voice for text-to-speech, or add an audio provider. Hachidori tries enabled sources from top to bottom.</p>
-          <p class="field-hint">Automatic Japanese chooses an available Japanese voice. You can try Google 日本語 if Chrome offers it, or choose another voice installed on your computer. For recorded pronunciation, add an audio provider.</p>
+          <p class="field-hint">Automatic Japanese chooses an available Japanese voice. To attach browser speech to Anki, start Media capture with shared audio; Hachidori records that exact voice when you add the note. Downloadable sources work without capture.</p>
           <label class="lookup-enable"><span>Automatically play the first lookup result</span><input id="opt-audio-autoplay" type="checkbox"></label>
           <p class="field-hint">Off by default. You can always use Audio in the popup; Shift-click or right-click it to choose a pronunciation.</p>
           <p class="field-hint">Pronunciation sends the selected word and reading to your configured audio providers. Use HTTPS for remote sources; HTTP localhost services on this computer are supported.</p>
@@ -954,6 +957,26 @@
             <output id="anki-url-error" class="field-hint is-error" aria-live="polite"></output>
             <label class="field"><span class="field-label">API key</span><input id="opt-anki-api-key" type="password" autocomplete="off"><span class="field-hint">Leave blank unless you configured an API key in AnkiConnect. Stored locally in this browser.</span></label>
           </details>
+        </section>
+        <section class="card" id="keybinds" aria-labelledby="keybinds-heading" hidden>
+          <div class="card-head">
+            <h1 id="keybinds-heading" tabindex="-1" data-search-keywords="keyboard shortcuts hotkeys keys Yomitan">Keybinds</h1>
+            <p class="hint">Keyboard shortcuts for the lookup popup and page. Changes save automatically.</p>
+          </div>
+          <div class="options-feedback-slot"></div>
+          <p class="section-note">Select a Keys field and press the combination to use. Popup keybinds act on the current entry: the first one, or the last one you moved to or clicked.</p>
+          <ol id="keybind-list" class="keybind-list"></ol>
+          <p id="keybind-empty" class="hint" hidden>No keybinds. Add one or reset to the defaults.</p>
+          <div class="keybind-list-actions">
+            <button id="keybind-add" type="button" class="ghost">Add keybind</button>
+            <button id="keybind-reset-all" type="button" class="ghost">Reset keybinds to defaults</button>
+          </div>
+          <fieldset class="lookup-group" id="browser-shortcuts">
+            <legend>Browser shortcuts</legend>
+            <p class="field-hint">Chrome runs these on any page. Popup actions need an open popup. Change them in Chrome's extension shortcuts.</p>
+            <ul id="browser-shortcut-list" class="browser-shortcut-list"></ul>
+            <button id="browser-shortcuts-open" type="button" class="ghost">Change in Chrome</button>
+          </fieldset>
         </section>
         <section class="card" id="backup" aria-labelledby="backup-heading" hidden>
           <div class="card-head">

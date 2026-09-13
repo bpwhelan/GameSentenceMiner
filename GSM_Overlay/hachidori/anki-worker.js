@@ -72,8 +72,8 @@ export function createAnkiWorkerService({
       throw new Error("The dictionary generation changed or is being updated. Look up this result again before adding it.");
     }
   }
-  const audio = (request, config) => offscreen({ type: "hd_anki_audio", term: request.term,
-    selection: request.audioSelection, sources: config.audioSources });
+  const audio = (request, config, { recordSpeech = true } = {}) => offscreen({ type: "hd_anki_audio", term: request.term,
+    selection: request.audioSelection, sources: config.audioSources, recordSpeech });
   const render = (request, templates, audio, resources) => offscreen({ type: "hd_anki_fields", request, templates, audio,
     dictionaryPaths: resources.dictionaryPaths });
 
@@ -231,22 +231,34 @@ export function createAnkiWorkerService({
         mediaCapture: options.mediaCapture,
       };
     },
-    buildFields: async (request, current) => {
+    buildFields: async (request, current, { preflight = false } = {}) => {
       if (!Number.isSafeInteger(request?.generation) || request.generation < 0
           || typeof request.term?.expression !== "string" || !request.term.expression
           || typeof request.term.reading !== "string") throw new Error("Mining requires a current dictionary result.");
       await currentGeneration(request);
       const dictionaries = await readDictionaries();
       const resources = { dictionaryPaths: Object.fromEntries(dictionaries.filter(item => item.enabled !== false)
-        .map(item => [item.title, item.path])), audioPrepared: false, audio: null };
+        .map(item => [item.title, item.path])), audioPrepared: false, audio: null, deferDuplicateCheck: false };
       const first = current.resolved.templates[current.discovery.fields[0]];
       if (ankiTemplateMarkerNames(first.value).includes("audio")) {
-        resources.audioPrepared = true;
         // Audio in the first field is part of Anki's duplicate identity. A
         // failed/stale selection must not turn that identity into text-only.
-        resources.audio = await audio(request, current.config);
+        // Browser speech is audible work, so preflight verifies only that the
+        // active capture can record it and defers the exact duplicate identity
+        // until the user submits.
+        const prepared = await audio(request, current.config, { recordSpeech: !preflight });
+        if (prepared?.recordingRequired === true) {
+          if (!preflight) throw new Error("Browser text-to-speech was not recorded for this note.");
+          resources.deferDuplicateCheck = true;
+        }
+        else {
+          resources.audioPrepared = true;
+          resources.audio = prepared;
+        }
       }
-      const built = await render(request, current.resolved.templates, resources.audio ? `[sound:${resources.audio.filename}]` : "", resources);
+      const pronunciation = resources.audio ? `[sound:${resources.audio.filename}]`
+        : resources.deferDuplicateCheck ? "[sound:hachidori_pending_speech.wav]" : "";
+      const built = await render(request, current.resolved.templates, pronunciation, resources);
       return { ...resources, ...built };
     },
     validateCapture,

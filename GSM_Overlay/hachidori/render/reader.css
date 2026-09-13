@@ -23,10 +23,11 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
 }
 
 /*
- * Theme palette sources mirror GSM's renderer catalogue. The built-in values
- * are the exact daisyUI 5 palette colors. Extension pages can select them on
- * html, while the page-isolated popup selects them on its shadow host.
- * Hoshidicts semantics below are derived once so every consumer stays in sync.
+ * Theme palette sources mirror GSM's renderer catalogue. Catalogue values use
+ * the daisyUI 5 palettes, while Hachidori's branded default is tuned for its
+ * own reader. Extension pages can select them on html, while the page-isolated
+ * popup selects them on its shadow host. Hoshidicts semantics below are
+ * derived once so every consumer stays in sync.
  */
 html,
 /*
@@ -36,23 +37,23 @@ html,
 :host,
 :host([data-hoshidicts-theme="default"]) {
   --hoshidicts-palette-color-scheme: dark;
-  --hoshidicts-palette-base-100: #1a1a1a;
-  --hoshidicts-palette-base-200: #2a2a2a;
-  --hoshidicts-palette-base-300: #383838;
-  --hoshidicts-palette-base-content: #ececef;
-  --hoshidicts-palette-primary: #7aa2ff;
-  --hoshidicts-palette-primary-content: #111827;
-  --hoshidicts-palette-secondary: #5f88cc;
-  --hoshidicts-palette-secondary-content: #f4f8ff;
-  --hoshidicts-palette-accent: #6cc28b;
-  --hoshidicts-palette-accent-content: #0f1a13;
-  --hoshidicts-palette-neutral: #2a2a2a;
-  --hoshidicts-palette-neutral-content: #ececef;
-  --hoshidicts-palette-info: #6eaef9;
-  --hoshidicts-palette-info-content: #08121c;
-  --hoshidicts-palette-success: #4caf72;
-  --hoshidicts-palette-warning: #d6a02e;
-  --hoshidicts-palette-error: #d9645f;
+  --hoshidicts-palette-base-100: #272630;
+  --hoshidicts-palette-base-200: #302f3b;
+  --hoshidicts-palette-base-300: #3b3b49;
+  --hoshidicts-palette-base-content: #e8e5eb;
+  --hoshidicts-palette-primary: #a89ce4;
+  --hoshidicts-palette-primary-content: #211d30;
+  --hoshidicts-palette-secondary: #af8fa7;
+  --hoshidicts-palette-secondary-content: #271d25;
+  --hoshidicts-palette-accent: #84a99e;
+  --hoshidicts-palette-accent-content: #14231f;
+  --hoshidicts-palette-neutral: #3a3946;
+  --hoshidicts-palette-neutral-content: #dfdbe4;
+  --hoshidicts-palette-info: #86a6be;
+  --hoshidicts-palette-info-content: #14202a;
+  --hoshidicts-palette-success: #7fa58d;
+  --hoshidicts-palette-warning: #c29a65;
+  --hoshidicts-palette-error: #c67d80;
 }
 
 html[data-hoshidicts-theme="miku"],
@@ -1914,16 +1915,6 @@ html[data-hoshidicts-theme="girlypop"],
   animation: gsm-hoshidicts-spin 0.8s linear infinite;
 }
 
-.gsm-hoshidicts-mine-button[data-state="duplicate"] {
-  border-color: var(--hoshidicts-text-muted);
-  color: var(--hoshidicts-text-muted);
-}
-
-.gsm-hoshidicts-mine-button[data-state="duplicate"] .gsm-hoshidicts-mine-icon {
-  filter: grayscale(100%);
-  opacity: 0.55;
-}
-
 .gsm-hoshidicts-note-button {
   border: 1px solid var(--hoshidicts-border-strong);
   color: var(--text-color);
@@ -2333,27 +2324,10 @@ html[data-hoshidicts-theme="girlypop"],
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
 }
 
-.gsm-hoshidicts-glossary-card > summary {
+.gsm-hoshidicts-glossary-card-title {
   color: var(--text-color-light1);
   font-size: 13px;
-  cursor: pointer;
-  list-style: none;
   user-select: none;
-}
-
-.gsm-hoshidicts-glossary-card > summary::-webkit-details-marker {
-  display: none;
-}
-
-.gsm-hoshidicts-glossary-card > summary::before {
-  content: "▸";
-  display: inline-block;
-  width: 12px;
-  opacity: 0.65;
-}
-
-.gsm-hoshidicts-glossary-card[open] > summary::before {
-  content: "▾";
 }
 
 .gsm-hoshidicts-definitions {
@@ -2400,12 +2374,16 @@ html[data-hoshidicts-theme="girlypop"],
   padding-left: 20px;
 }
 
+/* Dictionary-authored disclosures, styled as Yomitan does: the native marker
+ * hangs in the left gutter. A dictionary's own scoped styles still win. */
 .gsm-hoshidicts-glossary-content details {
   margin: 3px 0;
+  padding-left: 1.4em;
 }
 
 .gsm-hoshidicts-glossary-content summary {
   cursor: pointer;
+  list-style-position: outside;
 }
 
 .gsm-hoshidicts-structured-link {

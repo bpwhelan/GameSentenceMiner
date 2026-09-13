@@ -4,7 +4,7 @@
   "short_name": "Hachidori",
   "version": "0.1.0",
   "description": "Private Japanese hover lookups from your Yomitan dictionaries, entirely in Chrome.",
-  "minimum_chrome_version": "118",
+  "minimum_chrome_version": "128",
   "icons": {
     "16": "icons/hachidori-16.png",
     "32": "icons/hachidori-32.png",
@@ -22,6 +22,56 @@
     "<all_urls>"
   ],
   "options_page": "settings.html",
+  "commands": {
+    "toggleTextScanning": {
+      "suggested_key": {
+        "default": "Alt+Delete"
+      },
+      "description": "Turn Japanese lookups on or off"
+    },
+    "openSettingsPage": {
+      "description": "Open Hachidori settings"
+    },
+    "close": {
+      "description": "Close the popup"
+    },
+    "addNote": {
+      "description": "Add the current popup entry to Anki"
+    },
+    "viewNotes": {
+      "description": "View the current popup entry in Anki"
+    },
+    "playAudio": {
+      "description": "Play the current popup entry's audio"
+    },
+    "nextEntry": {
+      "description": "Go to the next popup entry"
+    },
+    "previousEntry": {
+      "description": "Go to the previous popup entry"
+    },
+    "firstEntry": {
+      "description": "Go to the first popup entry"
+    },
+    "lastEntry": {
+      "description": "Go to the last popup entry"
+    },
+    "nextEntryDifferentDictionary": {
+      "description": "Go to the next dictionary in the popup"
+    },
+    "previousEntryDifferentDictionary": {
+      "description": "Go to the previous dictionary in the popup"
+    },
+    "historyBackward": {
+      "description": "Go back in the popup's history"
+    },
+    "scanSelectedText": {
+      "description": "Look up the selected text"
+    },
+    "scanTextAtSelection": {
+      "description": "Look up the text at the selection"
+    }
+  },
   "action": {
     "default_title": "Hachidori",
     "default_popup": "toolbar.html"

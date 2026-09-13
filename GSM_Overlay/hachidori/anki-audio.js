@@ -4,7 +4,6 @@ import { ankiMediaFilename } from "./anki-resources.js";
 
 const MIME_EXTENSIONS = { "audio/aac": "aac", "audio/flac": "flac", "audio/mp4": "m4a", "audio/mpeg": "mp3",
   "audio/ogg": "ogg", "audio/wav": "wav", "audio/webm": "webm", "audio/x-wav": "wav", "application/ogg": "ogg" };
-const TTS_WARNING = "Browser text-to-speech cannot be attached to Anki. Add a downloadable URL source in Audio Settings.";
 
 async function base64(window, blob, signal) {
   signal.throwIfAborted();
@@ -62,13 +61,42 @@ async function candidateFile(window, repository, candidate, signal) {
   }
 }
 
+async function speechFile(window, recording, signal) {
+  signal.throwIfAborted();
+  if (!(recording?.data instanceof Uint8Array) || recording.data.length === 0) {
+    throw new Error("Browser text-to-speech produced no captured WAV data.");
+  }
+  const filename = await ankiMediaFilename(recording.data, "wav");
+  const data = await base64(window, new Blob([recording.data], { type: "audio/wav" }), signal);
+  signal.throwIfAborted();
+  return { filename, data, candidate: recording.candidate };
+}
+
 // Read-only discovery/decoding, separate from the playback owner. The returned
 // exact bytes and digest stay paired through duplicate check and later upload.
-export async function exportAnkiAudio(window, repository, { sources, term, selection }, signal) {
+export async function exportAnkiAudio(window, repository, {
+  sources,
+  term,
+  selection,
+  recordSpeech = true,
+}, signal, { recordSpeechAudio } = {}) {
   const plan = selection ? await selectedAudioPlan(repository, sources, term, selection, signal) : { sources };
   let failure;
   for (const source of plan.sources) {
-    if (source.type.startsWith("text-to-speech")) { failure = new Error(TTS_WARNING); continue; }
+    if (source.type.startsWith("text-to-speech")) {
+      try {
+        if (typeof recordSpeechAudio !== "function") {
+          throw new Error("Browser text-to-speech recording is unavailable.");
+        }
+        const recorded = await recordSpeechAudio(source, term, signal, { record: recordSpeech });
+        if (recorded?.recordingRequired === true) return { recordingRequired: true };
+        return { ...await speechFile(window, recorded, signal), sourceId: source.id };
+      } catch (error) {
+        signal.throwIfAborted();
+        failure = error;
+      }
+      continue;
+    }
     try {
       const candidates = plan.candidate ? [plan.candidate] : await repository.candidates(source, term, signal);
       for (const [index, candidate] of candidates.entries()) {

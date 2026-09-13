@@ -2,12 +2,12 @@
 (function () {
   "use strict";
   const backgrounds = [
-    { file: "preview-background.png" },
-    { file: "preview-background-2.png" },
-    { file: "preview-background-3.png" },
-    { file: "preview-background-4.png", dark: true },
-    { file: "preview-background-5.png" },
-    { file: "preview-background-6.png", dark: true },
+    { file: "preview-background.webp" },
+    { file: "preview-background-2.webp" },
+    { file: "preview-background-3.webp" },
+    { file: "preview-background-4.webp", dark: true },
+    { file: "preview-background-5.webp" },
+    { file: "preview-background-6.webp", dark: true },
   ];
 
   function initialize(scene) {

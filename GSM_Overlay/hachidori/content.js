@@ -15,6 +15,8 @@
   "use strict";
 
   const TARGET = "hoshidicts-offscreen";
+  const WORKER_TARGET = "hoshidicts-worker";
+  const READER_TARGET = "hachidori-reader";
   const HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const READER_STYLESHEET = "render/reader.css";
   const HOST_TAG = "hachidori-host";
@@ -23,6 +25,8 @@
 
   const {
     DEFAULT_OPTIONS,
+    KEYBIND_MODIFIERS,
+    KEYBIND_MODIFIER_CODES,
     clampOption,
     definitionBlurQualifies,
     normaliseActivationKey,
@@ -135,7 +139,7 @@
       activeCandidate: null, activeSignature: null, activeHighlightText: "",
       activeTermRender: null, currentViewRequest: null, noteEditing: false,
       pendingCustomAppends: 0, deferredDictionaryInvalidationRevision: -1,
-      deferredRefresh: null, lookupToken: 0, pendingLink: null,
+      deferredRefresh: null, lookupToken: 0, pendingHover: null, pendingLink: null,
       retainedView: false,
       pendingViewReplay: null,
       blurTimer: null,
@@ -363,24 +367,47 @@
     return range;
   }
 
-  function caretRangeAt(clientX, clientY) {
+  function rangeFromCaretPosition(position, clientX, clientY) {
+    if (!position) {
+      return null;
+    }
+    const range = document.createRange();
+    try {
+      range.setStart(position.offsetNode, position.offset);
+      range.setEnd(position.offsetNode, position.offset);
+    } catch {
+      return null;
+    }
+    return alignToCharacter(range, clientX, clientY);
+  }
+
+  function caretRangeAt(clientX, clientY, shadowRoot = null) {
+    if (shadowRoot) {
+      if (typeof document.caretPositionFromPoint !== "function") {
+        return null;
+      }
+      try {
+        return rangeFromCaretPosition(
+          document.caretPositionFromPoint(clientX, clientY, {
+            shadowRoots: [shadowRoot],
+          }),
+          clientX,
+          clientY
+        );
+      } catch {
+        return null;
+      }
+    }
     if (typeof document.caretRangeFromPoint === "function") {
       const range = document.caretRangeFromPoint(clientX, clientY);
       return range === null ? null : alignToCharacter(range, clientX, clientY);
     }
     if (typeof document.caretPositionFromPoint === "function") {
-      const position = document.caretPositionFromPoint(clientX, clientY);
-      if (!position) {
-        return null;
-      }
-      const range = document.createRange();
-      try {
-        range.setStart(position.offsetNode, position.offset);
-        range.setEnd(position.offsetNode, position.offset);
-      } catch {
-        return null;
-      }
-      return alignToCharacter(range, clientX, clientY);
+      return rangeFromCaretPosition(
+        document.caretPositionFromPoint(clientX, clientY),
+        clientX,
+        clientY
+      );
     }
     return null;
   }
@@ -587,12 +614,15 @@
    * is nothing Japanese to look up there.
    */
   function resolveCandidate(clientX, clientY) {
-    const styleCache = new Map();
     const caretRange = caretRangeAt(clientX, clientY);
     if (!caretRange) {
       return null;
     }
-    const startNode = caretRange.startContainer;
+    return resolveCandidateAt(caretRange.startContainer, caretRange.startOffset);
+  }
+
+  function resolveCandidateAt(startNode, startOffset) {
+    const styleCache = new Map();
     if (!isScannableTextNode(startNode, styleCache)) {
       return null;
     }
@@ -602,7 +632,7 @@
     }
     const entries = collectScanEntries(
       startNode,
-      Math.min(caretRange.startOffset, (startNode.nodeValue || "").length),
+      Math.min(startOffset, (startNode.nodeValue || "").length),
       container,
       options.scanLength,
       styleCache
@@ -642,6 +672,108 @@
       sourceDepth: -1,
       sourceElements: [container],
       vertical: computedStyleFor(container, styleCache)
+        .writingMode.startsWith("vertical"),
+    };
+  }
+
+  function resolveDefinitionCandidate(clientX, clientY, level) {
+    if (
+      !shadow ||
+      !level ||
+      level.retired ||
+      levels[level.depth] !== level ||
+      !level.popup ||
+      level.popup.hidden
+    ) {
+      return null;
+    }
+    const styleCache = new Map();
+    const caretRange = caretRangeAt(clientX, clientY, shadow);
+    if (!caretRange) {
+      return null;
+    }
+    const startNode = caretRange.startContainer;
+    if (startNode.nodeType !== Node.TEXT_NODE) {
+      return null;
+    }
+    const glossary = startNode.parentElement?.closest(
+      ".gsm-hoshidicts-glossary-content"
+    );
+    if (
+      !glossary ||
+      !level.popup.contains(glossary) ||
+      !glossary.contains(startNode)
+    ) {
+      return null;
+    }
+    for (
+      let current = startNode.parentElement;
+      current;
+      current = current.parentElement
+    ) {
+      if (
+        isHiddenElement(current, styleCache) ||
+        isEditingElement(current) ||
+        current.localName === "a" ||
+        OPAQUE_TAGS.has(current.localName) ||
+        computedStyleFor(current, styleCache).display === "none"
+      ) {
+        return null;
+      }
+      if (current === glossary) {
+        break;
+      }
+      if (current === level.popup) {
+        return null;
+      }
+    }
+    let entries = collectScanEntries(
+      startNode,
+      Math.min(caretRange.startOffset, (startNode.nodeValue || "").length),
+      glossary,
+      options.scanLength,
+      styleCache
+    );
+    const linkBoundary = entries.findIndex((entry) =>
+      entry.node.parentElement?.closest("a")
+    );
+    if (linkBoundary >= 0) {
+      entries = entries.slice(0, linkBoundary);
+    }
+    if (entries.length === 0) {
+      return null;
+    }
+    const query = entries.map((entry) => entry.text).join("");
+    if (options.onlyScanJapaneseText && !isJapaneseToken(query)) {
+      return null;
+    }
+    const first = entries[0];
+    let matchOffset;
+    let anchorRange;
+    try {
+      matchOffset = rangeOffsetWithin(glossary, first.node, first.offset);
+      anchorRange = document.createRange();
+      anchorRange.setStart(first.node, first.offset);
+      anchorRange.setEnd(
+        first.node,
+        Math.min(
+          (first.node.nodeValue || "").length,
+          first.offset + first.sourceLength
+        )
+      );
+    } catch {
+      return null;
+    }
+    return {
+      anchor: glossary,
+      anchorRange,
+      matchOffset,
+      query,
+      scanEntries: entries,
+      sentence: glossary.textContent || "",
+      sourceDepth: level.depth,
+      sourceElements: [glossary],
+      vertical: computedStyleFor(glossary, styleCache)
         .writingMode.startsWith("vertical"),
     };
   }
@@ -694,6 +826,21 @@
       sourceElements: [anchor],
       vertical: computedStyleFor(anchor, styleCache).writingMode.startsWith("vertical"),
     };
+  }
+
+  // Yomitan's Scan text at selection: an ordinary scan from the selection's
+  // first text. The live selection, not the scanned word, keeps it retained.
+  function resolveSelectionScanCandidate(selection = window.getSelection()) {
+    if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    let node = range.startContainer, offset = range.startOffset;
+    if (node.nodeType !== Node.TEXT_NODE) {
+      const walker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_TEXT);
+      do node = walker.nextNode(); while (node && !range.intersectsNode(node));
+      offset = 0;
+    }
+    const candidate = node ? resolveCandidateAt(node, offset) : null;
+    return candidate && { ...candidate, selectionRange: range.cloneRange(), selectionText: selection.toString() };
   }
 
   function candidateStart(candidate) {
@@ -840,6 +987,7 @@
     window.removeEventListener("pageshow", onPageShow);
     try {
       chrome.storage.onChanged.removeListener(onStorageChanged);
+      chrome.runtime.onMessage?.removeListener(onReaderCommand);
     } catch {
       // The context is already gone; the listener died with it.
     }
@@ -1433,6 +1581,11 @@
       if (child) positionPopup(child);
     }, { capture: true, passive: true });
     popup.addEventListener("mouseenter", () => onPopupEnter(level));
+    popup.addEventListener(
+      "mousemove",
+      (event) => onPopupMouseMove(event, level),
+      { capture: true, passive: true }
+    );
     popup.addEventListener("mouseover", (event) => {
       const request = level.currentViewRequest;
       if (request?.blur && request.blur.state !== "revealed" && event.target instanceof Element
@@ -1489,8 +1642,11 @@
 
   function bindResultActions(rendered, level) {
     const token = level.lookupToken, request = level.currentViewRequest;
-    // Show more rebinds only the newly revealed controls; the count element
+    // Keybinds index these like the view's entries; Show more grows the same
+    // arrays and rebinds only the newly revealed controls. The count element
     // belongs to the initial render and stays until the next one.
+    level.entryAudio = rendered.audioButtons;
+    level.entryMining = rendered.miningActions;
     if ("lookupStats" in rendered) {
       level.lookupStatsElement = rendered.lookupStats;
       paintLookupStatistics(request, level);
@@ -1891,6 +2047,10 @@
     pointerInPopup = true;
     clearTransferTimer();
     clearHideTimer();
+    scheduleDescendantPrune(level);
+  }
+
+  function scheduleDescendantPrune(level) {
     clearDescendantTimer();
     const depth = level.depth + 1;
     if (depth >= levels.length) return;
@@ -2217,25 +2377,52 @@
     }, level);
   }
 
-  function onInternalLink({ anchor, focusChild = false, primaryReading = "", query }, level = rootLevel) {
-    if (level.retired || !level.activeCandidate || !anchor?.isConnected
-        || !level.popup.contains(anchor) || !query || level.depth >= options.popupNestingMaxDepth
-        || window.innerWidth <= POPUP_PADDING_PX * 2 || window.innerHeight <= POPUP_PADDING_PX * 2) {
+  function sameChildLookup(existing, candidate, primaryReading) {
+    return Boolean(existing?.activeCandidate) &&
+      existing.primaryReading === primaryReading &&
+      existing.activeSignature === candidateSignature(candidate) &&
+      sameAnchorNode(candidate, existing.activeCandidate);
+  }
+
+  function openChildLookup(candidate, level, {
+    focusChild = false,
+    primaryReading = "",
+    source = "hover",
+  } = {}) {
+    if (
+      level.retired ||
+      !level.activeCandidate ||
+      !anchorConnected(candidate) ||
+      !level.popup.contains(candidate.anchor) ||
+      level.depth >= options.popupNestingMaxDepth ||
+      window.innerWidth <= POPUP_PADDING_PX * 2 ||
+      window.innerHeight <= POPUP_PADDING_PX * 2
+    ) {
       return;
     }
     clearHideTimer();
     clearTransferTimer();
     clearDescendantTimer();
     const existing = levels[level.depth + 1];
-    if (existing?.activeCandidate?.anchor === anchor && existing.activeCandidate.query === query
-        && existing.primaryReading === primaryReading
-        && (existing.pendingLink?.token === existing.lookupToken || (existing.currentViewRequest?.kind === "term"
-          && existing.activeTermRender?.token === existing.lookupToken))) {
+    const pendingKey = source === "link" ? "pendingLink" : "pendingHover";
+    const pending = existing?.[pendingKey];
+    if (
+      sameChildLookup(existing, candidate, primaryReading) &&
+      (
+        pending?.token === existing.lookupToken ||
+        (
+          existing.currentViewRequest?.kind === "term" &&
+          existing.activeTermRender?.token === existing.lookupToken
+        )
+      )
+    ) {
       if (focusChild) {
         existing.focusLinkedBack = true;
-        if (!existing.popup.hidden) focusPopupControl(".gsm-hoshidicts-kanji-back", existing);
+        if (!existing.popup.hidden) {
+          focusPopupControl(".gsm-hoshidicts-kanji-back", existing);
+        }
       }
-      return existing.pendingLink?.promise;
+      return pending?.promise;
     }
     pruneLevels(level.depth + 1, false);
     const child = createLevelState(level.depth + 1);
@@ -2243,19 +2430,37 @@
     buildLevelUi(child);
     child.primaryReading = primaryReading;
     child.focusLinkedBack = focusChild;
+    child.activeCandidate = candidate;
+    child.activeSignature = candidateSignature(candidate);
+    const promise = runLookup(candidate, {
+      primaryReading,
+      selectedDictionaryTab: level.currentViewRequest?.selectedDictionaryTab,
+    }, child);
+    const record = { promise, token: child.lookupToken };
+    child[pendingKey] = record;
+    void promise.finally(() => {
+      if (child[pendingKey] === record) {
+        child[pendingKey] = null;
+      }
+    });
+    return promise;
+  }
+
+  function onInternalLink({ anchor, focusChild = false, primaryReading = "", query }, level = rootLevel) {
+    if (!anchor?.isConnected || !query) {
+      return;
+    }
     // Link text is an anchor/highlight, never the query's page-scan offsets.
-    child.activeCandidate = {
+    const candidate = {
       anchor, linkAnchor: true, query, matchOffset: 0,
       sentence: anchor.textContent || "", sourceElements: [anchor], sourceDepth: level.depth,
       vertical: false,
     };
-    const promise = runLookup(child.activeCandidate, {
+    return openChildLookup(candidate, level, {
+      focusChild,
       primaryReading,
-      selectedDictionaryTab: level.currentViewRequest?.selectedDictionaryTab,
-    }, child);
-    child.pendingLink = { promise, token: child.lookupToken };
-    void promise.finally(() => { child.pendingLink = null; });
-    return promise;
+      source: "link",
+    });
   }
 
   async function executeKanjiRequest(request, level = rootLevel, replayOptions = null) {
@@ -2467,6 +2672,18 @@
     discardPendingCandidate();
   }
 
+  function cancelPendingHover(level) {
+    const child = levels[level.depth + 1];
+    if (
+      !child ||
+      child.pendingHover?.token !== child.lookupToken ||
+      !child.popup?.hidden
+    ) {
+      return;
+    }
+    pruneLevels(child.depth, false);
+  }
+
   function lookupCandidate(candidate, signature = candidateSignature(candidate)) {
     rootLevel.capturePin = null;
     rootLevel.capturePinPromise = Promise.resolve(window.HDCapture?.rootLookup(candidate) ?? null);
@@ -2507,6 +2724,54 @@
     return false;
   }
 
+  function activePointerLevel(pointer) {
+    const level = pointer?.level;
+    return level &&
+      !level.retired &&
+      levels[level.depth] === level &&
+      level.popup?.contains(pointer.target)
+      ? level
+      : null;
+  }
+
+  function popupLinkAt(target, level) {
+    const element = target?.nodeType === Node.ELEMENT_NODE
+      ? target
+      : target?.parentElement;
+    const link = element?.closest?.("a");
+    return link && level.popup.contains(link) ? link : null;
+  }
+
+  function scanDefinitionPointer(pointer, level) {
+    pointerInPopup = true;
+    pointerLevel = level;
+    clearHideTimer();
+    const link = popupLinkAt(pointer.target, level);
+    if (link) {
+      cancelPendingHover(level);
+      if (link.hasAttribute("data-hoshidicts-query")) clearDescendantTimer();
+      else scheduleDescendantPrune(level);
+      return;
+    }
+    if (!activationAllowed() || level.depth >= options.popupNestingMaxDepth) {
+      cancelPendingHover(level);
+      scheduleDescendantPrune(level);
+      return;
+    }
+    const candidate = resolveDefinitionCandidate(
+      pointer.clientX,
+      pointer.clientY,
+      level
+    );
+    if (!candidate) {
+      cancelPendingHover(level);
+      scheduleDescendantPrune(level);
+      return;
+    }
+    clearDescendantTimer();
+    openChildLookup(candidate, level);
+  }
+
   function scanPointer(pointer) {
     if (disposed || !extensionAlive()) {
       teardown("context-invalidated");
@@ -2514,9 +2779,15 @@
     }
     if (!options.hoverEnabled) return;
     if (transferTimer !== null) return;
+    const popupLevel = activePointerLevel(pointer);
     if (hasProtectedNote() || popupHasFocus()) {
       cancelCandidateScan();
+      if (popupLevel) cancelPendingHover(popupLevel);
       clearHideTimer();
+      return;
+    }
+    if (popupLevel) {
+      scanDefinitionPointer(pointer, popupLevel);
       return;
     }
     if (selectionDragActive || retainSelectedLookup()) return;
@@ -2568,6 +2839,42 @@
     // rather than leave its expired glossary/media and Note controls usable.
     if (rootLevel.popup && !rootLevel.popup.hidden) hide();
     lookupCandidate(candidate, signature);
+  }
+
+  function onPopupMouseMove(event, level) {
+    if (disposed || !options.hoverEnabled || level.retired) {
+      return;
+    }
+    lastPointer = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      level,
+      target: event.target,
+    };
+    updateModifierState(event);
+    pointerInPopup = true;
+    pointerLevel = level;
+    clearTransferTimer();
+    clearHideTimer();
+    const link = popupLinkAt(event.target, level);
+    if (link) {
+      cancelPendingHover(level);
+      clearScanTimer();
+      if (link.hasAttribute("data-hoshidicts-query")) clearDescendantTimer();
+      else scheduleDescendantPrune(level);
+      return;
+    }
+    if (hasProtectedNote() || popupHasFocus()) {
+      cancelPendingHover(level);
+      clearScanTimer();
+      return;
+    }
+    if (selectionDragActive || !activationAllowed()) {
+      cancelPendingHover(level);
+      clearScanTimer();
+      return;
+    }
+    scheduleScan();
   }
 
   function onMouseMove(event) {
@@ -2647,10 +2954,10 @@
     const selection = window.getSelection();
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return false;
     const range = selection.getRangeAt(0);
-    const previous = candidate.anchorRange;
+    const previous = candidate.selectionRange ?? candidate.anchorRange;
     return range.startContainer === previous.startContainer && range.startOffset === previous.startOffset
       && range.endContainer === previous.endContainer && range.endOffset === previous.endOffset
-      && selection.toString() === candidate.query;
+      && selection.toString() === (candidate.selectionText ?? candidate.query);
   }
 
   function startSelectionLookup(candidate) {
@@ -2693,31 +3000,127 @@
     }
   }
 
-  function onKeyDown(event) {
-    if (disposed || event.repeat) {
-      return;
+  // Close keeps the reader's Escape order: an audio menu, then a Note form,
+  // then the focused or deepest popup, then a pending lookup. Nothing closed
+  // leaves the key to activation.
+  function closeFromKeybind(event) {
+    if (audio?.closeMenu()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
     }
-    if (event.key === "Escape") {
-      if (audio?.closeMenu()) {
+    if (rootLevel.popup && !rootLevel.popup.hidden) {
+      const focused = levels.find((level) => level.popup.contains(shadow.activeElement));
+      const editing = focused?.noteEditing ? focused : levels.findLast((level) => level.noteEditing);
+      if ((editing || focused || levels.at(-1)).view?.closeNoteForm?.() === true) {
         event.preventDefault();
         event.stopPropagation();
-        return;
+        return true;
       }
-      if (rootLevel.popup && !rootLevel.popup.hidden) {
-        const focused = levels.find((level) => level.popup.contains(shadow.activeElement));
-        const editing = focused?.noteEditing ? focused : levels.findLast((level) => level.noteEditing);
-        if ((editing || focused || levels.at(-1)).view?.closeNoteForm?.() === true) {
-          event.preventDefault();
-          event.stopPropagation();
-          return;
-        }
-        event.stopPropagation();
-        hide(focused || levels.at(-1));
-        return;
+      event.stopPropagation();
+      hide(focused || levels.at(-1));
+      return true;
+    }
+    const dismissedCandidate = pendingCandidateLookup !== null || activeSelectionCandidate !== null;
+    hide();
+    return dismissedCandidate;
+  }
+
+  // Yomitan leaves unmodified character keys to a focused text field.
+  function textFieldFocused() {
+    let focused = document.activeElement;
+    while (focused) {
+      if (focused.isContentEditable || ["input", "select", "textarea"].includes(focused.localName)) return true;
+      focused = focused === host ? shadow.activeElement : focused.shadowRoot?.activeElement;
+    }
+    return false;
+  }
+
+  function clickKeybindControl(control) {
+    if (!control?.isConnected || control.hidden || control.disabled) return false;
+    control.click();
+    return true;
+  }
+
+  function runKeybindAction({ action, argument }, event) {
+    if (action === "close") return closeFromKeybind(event);
+    if (action === "scanSelectedText" || action === "scanTextAtSelection") {
+      if (!options.hoverEnabled) return false;
+      const candidate = action === "scanSelectedText" ? resolveSelectedLookupCandidate() : resolveSelectionScanCandidate();
+      if (!candidate) return false;
+      startSelectionLookup(candidate);
+      return true;
+    }
+    if (action === "toggleOption") {
+      if (!argument || optionsStorageRevision < 0) return false;
+      // A conflicting write changes nothing; the storage event carries the result.
+      void sendRequest("hd_options_write", { baseRevision: optionsStorageRevision,
+        options: { [argument]: !options[argument] } }, WORKER_TARGET).catch(() => {});
+      return true;
+    }
+    const level = levels.findLast((item) => item.popup && !item.popup.hidden);
+    if (!level?.view) return false;
+    const entry = level.view.currentEntryIndex();
+    switch (action) {
+      case "nextEntry":
+      case "previousEntry":
+        return level.view.focusEntry({ offset: (action === "nextEntry" ? 1 : -1) * Number(argument) });
+      case "firstEntry":
+      case "lastEntry":
+        return level.view.focusEntry(action === "firstEntry" ? "first" : "last");
+      case "nextEntryDifferentDictionary":
+      case "previousEntryDifferentDictionary":
+        return level.view.focusEntry({ dictionary: action === "nextEntryDifferentDictionary" ? 1 : -1 });
+      case "historyBackward":
+        return clickKeybindControl(level.popup.querySelector(".gsm-hoshidicts-kanji-back"));
+      case "addNote":
+      case "viewNotes":
+        return clickKeybindControl(level.entryMining?.[entry]?.actions.querySelector(action === "addNote"
+          ? ".gsm-hoshidicts-mine-button" : ".gsm-hoshidicts-anki-view"));
+      case "playAudio":
+      case "playAudioFromSource": {
+        const button = level.entryAudio?.[entry]?.button;
+        if (!button || (action === "playAudioFromSource" && !argument)) return false;
+        return audio.playButton(button, action === "playAudioFromSource" ? argument : "");
       }
-      const dismissedCandidate = pendingCandidateLookup !== null || activeSelectionCandidate !== null;
-      hide();
-      if (dismissedCandidate || options.activationKey !== "Escape") return;
+      default:
+        return false;
+    }
+  }
+
+  // A browser shortcut runs its keybind action here; entry moves go one entry.
+  function onReaderCommand(message) {
+    if (disposed || message?.target !== READER_TARGET || message.type !== "hd_reader_command") return false;
+    runKeybindAction({ action: message.action, argument: ["nextEntry", "previousEntry"].includes(message.action) ? "1" : "" },
+      { preventDefault() {}, stopPropagation() {} });
+    return false;
+  }
+
+  // After Yomitan's HotkeyHandler: the physical key and the exact modifier set
+  // select enabled keybinds whose scope applies; the first handled one wins.
+  function runKeybinds(event) {
+    const key = KEYBIND_MODIFIER_CODES.has(event.code) ? null : event.code;
+    const modifiers = KEYBIND_MODIFIERS.filter(modifier => event[`${modifier}Key`] === true);
+    // A pending lookup counts as its popup: Escape has always cancelled one.
+    const popupScope = Boolean(rootLevel.popup && !rootLevel.popup.hidden)
+      || pendingCandidateLookup !== null || activeSelectionCandidate !== null;
+    const characterInput = (modifiers.length === 0 || modifiers.join() === "shift")
+      && (event.key?.length === 1 || event.key === "Process");
+    for (const bind of options.keybinds) {
+      if (!bind.enabled || bind.action === "" || (bind.key === null && bind.modifiers.length === 0)
+          || bind.key !== key || bind.modifiers.join() !== modifiers.join()
+          || !(bind.scopes.includes("web") || (popupScope && bind.scopes.includes("popup")))
+          || (characterInput && textFieldFocused())) continue;
+      if (runKeybindAction(bind, event) === false) continue;
+      if (bind.action !== "close") event.preventDefault();
+      return true;
+    }
+    return false;
+  }
+
+  function onKeyDown(event) {
+    if (disposed || event.repeat || runKeybinds(event)) {
+      return;
     }
     if (!options.hoverEnabled) return;
     // Autofocused search fields (such as Jisho's) must not disable lookups on
@@ -2732,9 +3135,12 @@
       activationPressed = true;
       activationCode = event.code;
     }
+    const popupLevel = activePointerLevel(lastPointer);
     if (!wasPressed && activationPressed && options.lookupMode === "activation"
-        && lastPointer && !hasProtectedNote() && !popupHasFocus() && !pointerInPopup
-        && !selectionDragActive && !retainSelectedLookup()) {
+        && lastPointer && !hasProtectedNote() && !popupHasFocus()
+        && (!pointerInPopup || popupLevel)
+        && !selectionDragActive
+        && (popupLevel || !retainSelectedLookup())) {
       scheduleScan();
     }
   }
@@ -3021,8 +3427,12 @@
       }
       cancelCandidateScan();
       clearHideTimer();
-      if (!hasProtectedNote() && !popupHasFocus() && !pointerInPopup) {
-        if (!activationAllowed()) scheduleHide();
+      const popupLevel = activePointerLevel(lastPointer);
+      if (!hasProtectedNote() && !popupHasFocus() && (!pointerInPopup || popupLevel)) {
+        if (!activationAllowed()) {
+          if (popupLevel) cancelPendingHover(popupLevel);
+          else scheduleHide();
+        }
         else if (lastPointer) scheduleScan();
       }
     } else if (hideDelayChanged) {
@@ -3035,6 +3445,8 @@
   function start() {
     try {
       chrome.storage.onChanged.addListener(onStorageChanged);
+      // Optional like the worker's commands API: reader smoke hosts have no runtime messages.
+      chrome.runtime.onMessage?.addListener(onReaderCommand);
       chrome.storage.local.get({ dictionaryState: null, options: DEFAULT_OPTIONS, lookupStats: null }, (stored) => {
         if (disposed || chrome.runtime.lastError) {
           return;

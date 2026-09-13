@@ -29,6 +29,51 @@
     texthooker: { enabled: false, url: "", format: "plain" },
     page: { nativeCues: true, domText: true, autoLearnArea: true },
   };
+  // yomitan-gsm hotkey actions that map onto existing Hachidori behaviour, in
+  // Yomitan's menu order and with its labels. `argument` names the editor kind;
+  // `scopes` are where Settings offers the action, as in Yomitan's controller.
+  const KEYBIND_ACTIONS = [
+    { id: "", label: "None", scopes: [] },
+    { id: "close", label: "Close" },
+    { id: "nextEntry", label: "Go to next entry", argument: "count" },
+    { id: "previousEntry", label: "Go to previous entry", argument: "count" },
+    { id: "lastEntry", label: "Go to last entry" },
+    { id: "firstEntry", label: "Go to first entry" },
+    { id: "nextEntryDifferentDictionary", label: "Go to next dictionary" },
+    { id: "previousEntryDifferentDictionary", label: "Go to previous dictionary" },
+    { id: "historyBackward", label: "Navigate backward in history" },
+    { id: "addNote", label: "Add note" },
+    { id: "viewNotes", label: "View notes" },
+    { id: "playAudio", label: "Play audio" },
+    { id: "playAudioFromSource", label: "Play audio from source", argument: "audioSource" },
+    { id: "scanSelectedText", label: "Scan selected text", scopes: ["web"] },
+    { id: "scanTextAtSelection", label: "Scan text at selection", scopes: ["web"] },
+    // Yomitan offers this only inside its popup. Hachidori's popup cannot
+    // exist while lookups are off, so the page scope can turn them back on.
+    { id: "toggleOption", label: "Toggle option", argument: "option", scopes: ["popup", "web"] },
+  ].map(action => ({ scopes: ["popup"], ...action }));
+  const KEYBIND_ARGUMENT_DEFAULTS = { count: "1", audioSource: "", option: "" };
+  // Yomitan's popup scope, adapted: Hachidori's hover popup never takes focus,
+  // so it means "while a popup is open or opening". Web is anywhere on the page.
+  const KEYBIND_SCOPES = ["popup", "web"];
+  const KEYBIND_MODIFIERS = ["meta", "ctrl", "alt", "shift"];
+  // Pressing only these codes records or matches a keybind with a null key.
+  const KEYBIND_MODIFIER_CODES = new Set(["AltLeft", "AltRight", "ControlLeft", "ControlRight",
+    "MetaLeft", "MetaRight", "ShiftLeft", "ShiftRight", "OSLeft", "OSRight"]);
+  // Yomitan's default hotkeys without the actions Hachidori has no feature for.
+  const DEFAULT_KEYBINDS = [
+    ["close", "", "Escape", []],
+    ["previousEntry", "3", "PageUp", ["alt"]],
+    ["nextEntry", "3", "PageDown", ["alt"]],
+    ["lastEntry", "", "End", ["alt"]],
+    ["firstEntry", "", "Home", ["alt"]],
+    ["previousEntry", "1", "ArrowUp", ["alt"]],
+    ["nextEntry", "1", "ArrowDown", ["alt"]],
+    ["historyBackward", "", "KeyB", ["alt"]],
+    ["addNote", "", "KeyE", ["alt"]],
+    ["playAudio", "", "KeyP", ["alt"]],
+    ["viewNotes", "", "KeyV", ["alt"]],
+  ].map(([action, argument, key, modifiers]) => ({ action, argument, key, modifiers, scopes: ["popup"], enabled: true }));
   const DEFAULT_OPTIONS = {
     scanLength: 16,
     maxResults: 32,
@@ -72,7 +117,9 @@
     kanjiClickDictionary: "",
     frequencyDictionary: "",
     frequencyOrder: "auto",
+    keybinds: DEFAULT_KEYBINDS,
   };
+  const KEYBIND_TOGGLE_OPTIONS = Object.keys(DEFAULT_OPTIONS).filter(key => typeof DEFAULT_OPTIONS[key] === "boolean");
   const NUMBER_RANGES = {
     scanLength: [1, 64],
     maxResults: [1, 256],
@@ -220,6 +267,30 @@
     });
   }
 
+  function keybindArgument(action, value) {
+    const kind = KEYBIND_ACTIONS.find(entry => entry.id === action)?.argument;
+    if (!kind) return "";
+    if (typeof value !== "string") return KEYBIND_ARGUMENT_DEFAULTS[kind];
+    if (kind === "count") return /^[1-9]\d*$/u.test(value) ? value : KEYBIND_ARGUMENT_DEFAULTS.count;
+    if (kind === "option") return value === "" || KEYBIND_TOGGLE_OPTIONS.includes(value) ? value : "";
+    return value;
+  }
+
+  function orderedSubset(value, allowed) {
+    return Array.isArray(value) ? allowed.filter(item => value.includes(item)) : [];
+  }
+
+  function normaliseKeybinds(value) {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap(bind => {
+      if (!bind || typeof bind !== "object" || !KEYBIND_ACTIONS.some(entry => entry.id === bind.action)) return [];
+      return [{ action: bind.action, argument: keybindArgument(bind.action, bind.argument),
+        key: typeof bind.key === "string" && bind.key !== "" ? bind.key : null,
+        modifiers: orderedSubset(bind.modifiers, KEYBIND_MODIFIERS), scopes: orderedSubset(bind.scopes, KEYBIND_SCOPES),
+        enabled: typeof bind.enabled === "boolean" ? bind.enabled : true }];
+    });
+  }
+
   function normaliseCustomLinks(value) {
     if (!Array.isArray(value)) return [];
     return value.filter(link => link && typeof link.label === "string" && link.label.trim()
@@ -339,6 +410,7 @@
       case "popupImageSource": return normalisePopupImageSource(value);
       case "audioSources": return normaliseAudioSources(value);
       case "customLinks": return normaliseCustomLinks(value);
+      case "keybinds": return normaliseKeybinds(value);
       case "anki": return normaliseAnki(value);
       case "mediaCapture": return normaliseMediaCapture(value);
       default: return typeof value === "string" ? value : "";
@@ -414,6 +486,9 @@
     if (key === "mediaCapture") return validMediaCapture(raw, normalized);
     if (key === "kanjiClickDictionary") return typeof raw === "string" || typeof normalized === "object";
     if (key === "popupImageSource") return raw === null || normalized !== null;
+    if (key === "keybinds") return Array.isArray(raw) && raw.length === normalized.length
+      && normalized.every((bind, index) => raw[index] && typeof raw[index] === "object" && JSON.stringify(bind)
+        === JSON.stringify(Object.fromEntries(Object.keys(bind).map(field => [field, raw[index][field]]))));
     if (key === "audioSources" || key === "customLinks") return Array.isArray(raw) && raw.length === normalized.length
       && normalized.every((source, index) => Object.entries(source).every(([field, value]) => raw[index][field] === value));
     return typeof raw === typeof DEFAULT_OPTIONS[key] && raw === normalized;
@@ -454,6 +529,7 @@
     ANKI_FIELDS, ANKI_DUPLICATE_SCOPES, ANKI_DUPLICATE_BEHAVIORS, ANKI_OVERWRITE_MODES,
     DEFAULT_OPTIONS, DEFAULT_MEDIA_CAPTURE, NUMBER_RANGES, LOOKUP_MODES, ACTIVATION_KEYS, FREQUENCY_ORDERS,
     POPUP_THEME_GROUPS, DESIGN_OPTION_KEYS,
+    KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_SCOPES, KEYBIND_MODIFIERS, KEYBIND_MODIFIER_CODES, KEYBIND_TOGGLE_OPTIONS,
     AUDIO_SOURCE_TYPES, AUDIO_SOURCE_LABELS,
     MEDIA_TIMING_MODES, MEDIA_HISTORY_SECONDS, MEDIA_CLIP_SECONDS, MEDIA_VIDEO_PRESETS, MEDIA_TEXTHOOKER_FORMATS,
     clampOption, normaliseActivationKey, normaliseKanjiSelection, normaliseOptions,

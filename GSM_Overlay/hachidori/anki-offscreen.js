@@ -17,11 +17,18 @@ async function refreshMatureWords(window, source) {
   }
 }
 
-export function createAnkiOffscreenService(window, getAudioRepository) {
+async function recordSpeechAudio(...args) {
+  const capture = await import("./capture-host.js");
+  return capture.recordSpeechAudio(...args);
+}
+
+export function createAnkiOffscreenService(window, getAudioRepository, captureSpeech = recordSpeechAudio) {
   return async message => {
     if (message.type === "hd_anki_maturity_refresh") return refreshMatureWords(window, message.source);
     if (message.type === "hd_anki_audio") {
-      return exportAnkiAudio(window, await getAudioRepository(), message, window.AbortSignal.timeout(30_000));
+      return exportAnkiAudio(window, await getAudioRepository(), message, window.AbortSignal.timeout(30_000), {
+        recordSpeechAudio: captureSpeech,
+      });
     }
     if (message.type !== "hd_anki_fields") throw new Error("Unknown Anki rendering request.");
     return buildAnkiResourceFields(message.request, message.templates, {

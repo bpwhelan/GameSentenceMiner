@@ -38,8 +38,9 @@ import { sameJsonValue } from "./json-value.js";
 import {
   boundResponseFailure, responseFits, responseLimitError, validResponseRequestId,
 } from "./response-limits.js";
+import { OVERLAY_MODE } from "./overlay-mode.js";
 import {
-  FIRST_INSTALL_OPTIONS, FIRST_INSTALL_SELECTIONS, SETUP_STATE_KEY, STARTUP_PAGE,
+  FIRST_INSTALL_OPTIONS, FIRST_INSTALL_SELECTIONS, OVERLAY_MODE_OPTIONS, SETUP_STATE_KEY, STARTUP_PAGE,
   advanceSetupState, initialSetupState, normaliseSetupState, recordSetupAnki, recordSetupDictionaries,
 } from "./setup-state.js";
 
@@ -1835,7 +1836,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Only the screenshot needs to know which page asked, and it is given the
     // capture rather than the sender, so nothing else can capture a tab.
     if (message.type === "hd_anki_screenshot") return ankiMining.screenshot(() => captureSenderViewport(sender));
-    return ankiMining[ANKI_METHODS[message.type]](message.type === "hd_anki_browse" ? message.expression : message.request);
+    return ankiMining[ANKI_METHODS[message.type]](message.type === "hd_anki_browse"
+      ? message.request ?? message.expression : message.request);
   }).then(result => sendResponse(workerReply(message, result)), error => sendResponse(failureReply(message, error)));
   return true;
 });
@@ -2073,17 +2075,61 @@ async function beginFirstRunSetup() {
   if (created) await chrome.tabs.create({ url: chrome.runtime.getURL(STARTUP_PAGE) });
 }
 
+// An overlay host has no tab to show setup in, so its first launch only seeds
+// the initial preferences. It runs on worker start because a host may never
+// report onInstalled.
+async function seedOverlayModeOptions() {
+  await serialiseStorage(async () => {
+    const stored = await chrome.storage.local.get(OPTIONS_KEY);
+    if (stored[OPTIONS_KEY] !== undefined) return;
+    const options = validateOptionsPatch({ ...FIRST_INSTALL_OPTIONS, ...OVERLAY_MODE_OPTIONS });
+    await writeLocalState({ [OPTIONS_KEY]: { ...options, revision: 1 } });
+  });
+}
+
 // Load the dictionaries before the first hover asks for them. Extension updates,
 // browser starts and service-worker restarts never reach the first-run path, so
 // they cannot reopen setup or reset preferences.
 chrome.runtime.onInstalled.addListener((details) => {
   warmUp();
-  if (details.reason !== "install") return;
+  if (details.reason !== "install" || OVERLAY_MODE) return;
   beginFirstRunSetup().catch((error) => {
     console.error("hoshidicts: could not start first-run setup:", describe(error));
   });
 });
 chrome.runtime.onStartup.addListener(warmUp);
+
+// Yomitan's native browser shortcuts for the features Hachidori has. The toggle
+// makes the toolbar switch's revisioned write inside the storage queue.
+async function toggleLookupsFromCommand() {
+  const { options } = await readDictionaryStorage();
+  await WORKER_HANDLERS.hd_options_write({ type: "hd_options_write", requestId: null,
+    baseRevision: optionsRevision(options), options: { hoverEnabled: !normaliseOptions(options).hoverEnabled } });
+}
+
+// Popup-action shortcuts run their in-page keybind action in the active tab.
+// Every frame's reader receives the command; one without an open popup, or
+// without a selection for the scans, does nothing.
+const READER_CONTENT_TARGET = "hachidori-reader";
+const READER_COMMANDS = new Set(["close", "addNote", "viewNotes", "playAudio", "nextEntry", "previousEntry",
+  "firstEntry", "lastEntry", "nextEntryDifferentDictionary", "previousEntryDifferentDictionary", "historyBackward",
+  "scanSelectedText", "scanTextAtSelection"]);
+
+chrome.commands?.onCommand?.addListener((command, tab) => {
+  if (command === "openSettingsPage") {
+    chrome.runtime.openOptionsPage().catch((error) => {
+      console.error("hachidori: could not open settings:", describe(error));
+    });
+  } else if (command === "toggleTextScanning") {
+    serialiseStorage(toggleLookupsFromCommand).catch((error) => {
+      console.error("hachidori: could not toggle lookups:", describe(error));
+    });
+  } else if (READER_COMMANDS.has(command) && tab?.id !== undefined) {
+    // Pages Chrome keeps content scripts out of, such as chrome://, have no reader.
+    chrome.tabs.sendMessage(tab.id, { target: READER_CONTENT_TARGET, type: "hd_reader_command", action: command })
+      .catch(() => {});
+  }
+});
 
 // Alarms may be cleared across browser restarts. Module evaluation is the one
 // startup path every MV3 worker takes, including starts not caused by either
@@ -2097,4 +2143,10 @@ async function initialiseUpdateAlarm() {
 }
 
 void initialiseUpdateAlarm(); // NOSONAR -- top-level await prevents this MV3 worker from activating.
+
+if (OVERLAY_MODE) {
+  seedOverlayModeOptions().catch((error) => {
+    console.error("hoshidicts: could not seed overlay mode options:", describe(error));
+  });
+}
 void getAnkiMaturityCache().reconcile(); // NOSONAR -- initialize without delaying worker activation.

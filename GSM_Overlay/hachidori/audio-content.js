@@ -246,6 +246,28 @@
       autoplay(bound.get(first.button));
     }
 
+    // Keybinds play the entry's pronunciation even while it is already playing,
+    // which a click would stop. A source ID plays that source's first choice.
+    function playButton(button, sourceId = "") {
+      const record = bound.get(button);
+      if (!record || !current(record) || !audioAvailable()) return false;
+      if (!sourceId) {
+        void play(record);
+        return true;
+      }
+      void request(record, "hd_audio_candidates", {}, reply => {
+        const group = reply.groups.find(item => item.sourceId === sourceId);
+        const candidate = group?.candidates?.[0];
+        if (!candidate) {
+          setStatus(record, "No pronunciation was returned. Check Audio Settings.");
+          return;
+        }
+        void play(record, { sourceId: group.sourceId, sourceKey: group.sourceKey, ...record.term,
+          index: 0, url: candidate.url ?? null, name: candidate.name });
+      });
+      return true;
+    }
+
     const listener = message => {
       if (!active || message?.target !== "hachidori-audio-content" || message.type !== "hd_audio_playing"
           || message.requestId !== active?.requestId || !current(active.record)) return;
@@ -253,7 +275,7 @@
     };
     window.chrome.runtime.onMessage.addListener(listener);
     return {
-      bind, retire, closeMenu,
+      bind, retire, closeMenu, playButton,
       hasMenu: owner => Boolean(menu && (owner === undefined || menu.record.owner === owner)),
       selectionFor: result => selections.get(result) ?? null,
       // Releases the owner's waiting first result for exactly this request: it

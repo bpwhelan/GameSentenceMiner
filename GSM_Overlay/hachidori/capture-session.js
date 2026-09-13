@@ -172,6 +172,24 @@ export function createCaptureSession({
     return added;
   }
 
+  function assertAudioCapture() {
+    if (state !== "recording" || !captureSessionId) {
+      throw new Error("Start media capture with shared audio before attaching browser text-to-speech to Anki.");
+    }
+    if (!config.includeCapturedAudio || !capturedAudioAvailable) {
+      throw new Error("The active media capture has no shared audio. Start capture again and enable audio in Chrome's share picker.");
+    }
+  }
+
+  function selectAudio(startMs, endMs) {
+    assertAudioCapture();
+    const selected = audioRing.select(startMs, endMs);
+    if (selected.partial) {
+      throw new Error("The active media capture did not record all browser text-to-speech samples. Try adding the note again after shared audio resumes.");
+    }
+    return selected;
+  }
+
   function setLinkedPage(page) {
     const previous = linkedPage;
     if (previous && (previous.tabId !== page?.tabId || previous.documentId !== page?.documentId)
@@ -523,6 +541,8 @@ export function createCaptureSession({
     addFrame,
     videoDelivered,
     addAudio,
+    assertAudioCapture,
+    selectAudio,
     setLinkedPage,
     textBegin,
     textClose,

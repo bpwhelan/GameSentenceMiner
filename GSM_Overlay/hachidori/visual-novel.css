@@ -9,14 +9,13 @@
   background: #614657;
   color: #f6f5ef;
 }
-/* Every supplied frame starts below 74% of its image. A 140%-high cover layer
-   exposes at most the top 71.4%, at any aspect ratio, so only the live panel
-   is visible in both the wide practice scene and the tall Design preview. */
+/* Each packaged frame is cropped to the live panel the scene shows: the
+   supplied artwork's own dialogue box below it is not in the file, so the
+   cover layer is the scene itself at any aspect ratio. */
 .vn-scene::before {
   content: "";
   position: absolute;
-  inset: 0 0 auto;
-  height: 140%;
+  inset: 0;
   z-index: -1;
   background: var(--vn-background) center top / cover no-repeat;
   pointer-events: none;

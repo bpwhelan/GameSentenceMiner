@@ -87,6 +87,27 @@
   );
 }
 
+/*
+ * The branded default keeps the popup palette while lowering Settings' border
+ * glare and separating supporting text from primary content.
+ */
+:root[data-hoshidicts-theme="default"] {
+  --bg: #22232c;
+  --surface: #2b2b36;
+  --surface-sunken: #252630;
+  --border: #454653;
+  --border-strong: #747586;
+  --text: #e8e5eb;
+  --text-dim: #aaa8b2;
+  --accent: #b1a5ee;
+  --accent-fill: #a89ce4;
+  --accent-soft: #353247;
+  --accent-contrast: #211d30;
+  --ok: #8bb79b;
+  --error: #d28a8c;
+  --favorite: #d1aa71;
+}
+
 :root[data-hoshidicts-theme="high-contrast"] {
   --border: #777777;
   --border-strong: #ffffff;
@@ -1445,6 +1466,60 @@ textarea {
 .audio-test-line { align-items: baseline; }
 #audio > p { margin: 0; }
 #audio-source-add { align-self: flex-start; }
+
+.keybind-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.keybind-row {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-block: 1px solid var(--border);
+}
+.keybind-row + .keybind-row { border-top: 0; }
+.keybind-heading,
+.keybind-enabled,
+.keybind-buttons,
+.keybind-scopes,
+.keybind-scope,
+.keybind-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.keybind-heading,
+.keybind-scopes,
+.keybind-list-actions { justify-content: space-between; flex-wrap: wrap; }
+.keybind-scopes { justify-content: flex-start; }
+.keybind-enabled { font-weight: 600; }
+.keybind-buttons { gap: 6px; }
+.keybind-scope { gap: 6px; }
+.keybind-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+}
+.keybind-row .field { display: grid; gap: 6px; }
+.keybind-row .field[hidden],
+.keybind-scope[hidden] { display: none; }
+.keybind-row :is(input[type="text"], input[type="number"], select) { width: 100%; }
+.keybind-list-actions { justify-content: flex-start; }
+.browser-shortcut-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.browser-shortcut-list li {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.browser-shortcut-list kbd { font: inherit; font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) {
   .track-fill {
