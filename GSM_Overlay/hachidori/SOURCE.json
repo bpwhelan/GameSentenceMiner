@@ -1,7 +1,7 @@
 {
   "name": "Hachidori",
   "repository": "https://github.com/bee-san/hachidori",
-  "commit": "77744439c41defc9e7dd56bb11f65d09ec7c3ac6",
+  "commit": "dbaddaf06feae7720fa03774c396ec99fda5faca",
   "sourceDirectory": "extension",
   "license": "GPL-3.0-or-later",
   "modifications": [

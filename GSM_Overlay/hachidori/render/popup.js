@@ -1099,6 +1099,12 @@
       publishedHighlight = null;
     }
 
+    // Each source's text when its candidate was first painted. A pointer scan's
+    // sources are the sentence's text nodes, so the match is located through
+    // this snapshot and only the sources it covers have to be unchanged; text
+    // edited elsewhere in the sentence leaves the highlight in place.
+    const sourceSnapshots = new WeakMap();
+
     function createMatchRanges(candidate, matchedText) {
       const matchLength = typeof matchedText === "string" ? matchedText.length : 0;
       if (matchLength <= 0 || !Array.isArray(candidate.sourceElements)) {
@@ -1110,31 +1116,41 @@
         return null;
       }
 
+      // Sources are elements or, for a pointer scan, the sentence's own text nodes.
       const sourceElements = candidate.sourceElements;
-      if (
-        sourceElements.some(
-          (element) => !(element instanceof windowRef.Element) || !element.isConnected
-        ) ||
-        sourceElements.map((element) => element.textContent || "").join("") !==
-          candidate.sentence
-      ) {
+      if (sourceElements.some((element) => !(element instanceof windowRef.Node))) {
         return null;
+      }
+      let snapshot = sourceSnapshots.get(candidate);
+      if (!snapshot) {
+        snapshot = sourceElements.map((element) => element.textContent || "");
+        if (snapshot.join("") !== candidate.sentence) {
+          return null;
+        }
+        sourceSnapshots.set(candidate, snapshot);
       }
       const showText = windowRef.NodeFilter ? windowRef.NodeFilter.SHOW_TEXT : 4;
       const ranges = [];
       let elementStart = 0;
-      for (const element of sourceElements) {
-        const elementEnd = elementStart + (element.textContent || "").length;
+      for (const [index, element] of sourceElements.entries()) {
+        const elementEnd = elementStart + snapshot[index].length;
         if (elementEnd <= startOffset || elementStart >= endOffset) {
           elementStart = elementEnd;
           continue;
         }
+        if (!element.isConnected || (element.textContent || "") !== snapshot[index]) {
+          return null;
+        }
         const textNodes = [];
-        const walker = documentRef.createTreeWalker(element, showText);
-        let node = walker.nextNode();
-        while (node) {
-          textNodes.push(node);
-          node = walker.nextNode();
+        if (element.nodeType === 3) {
+          textNodes.push(element);
+        } else {
+          const walker = documentRef.createTreeWalker(element, showText);
+          let node = walker.nextNode();
+          while (node) {
+            textNodes.push(node);
+            node = walker.nextNode();
+          }
         }
 
         function findBoundary(offset, preferFollowingNode) {
