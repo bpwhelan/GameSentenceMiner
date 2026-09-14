@@ -6024,9 +6024,12 @@ function openYomitanSettings() {
     dialog.showErrorBox('Error', 'The selected dictionary reader is not loaded. Restart the overlay and try again.');
     return;
   }
+  // Hachidori's Design section shows its controls beside the live preview only
+  // in windows wider than 1100px, so open as wide as its layout when the screen allows.
+  const workArea = screen.getPrimaryDisplay().workAreaSize;
   yomitanSettingsWindow = new BrowserWindow({
-    width: 1100,
-    height: 800,
+    width: hachidoriExt ? Math.min(1440, workArea.width) : 1100,
+    height: hachidoriExt ? Math.min(900, workArea.height) : 800,
     icon: getOverlayAppIconPath(),
     webPreferences: {
       preload: FIND_IN_PAGE_PRELOAD_PATH,
