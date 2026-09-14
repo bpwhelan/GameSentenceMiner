@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 export function createBackupSettingsController({
   document, send, download, checkReady, setBusy, status, refresh, exportAvailable = true,
+  trackPreparation = () => {}, cancelPreparation = () => {},
 }) {
   const element = id => document.getElementById(id);
   const window = document.defaultView;
@@ -41,6 +42,7 @@ export function createBackupSettingsController({
     const token = prepared.token;
     const reply = await send("hd_backup_cancel", { token });
     if (!reply.ok) throw new Error(reply.error || "Could not discard the prepared restore.");
+    trackPreparation(token, false);
     prepared = null;
     element("backup-confirm").checked = false;
     render();
@@ -64,20 +66,27 @@ export function createBackupSettingsController({
       await cancelPrepared();
       if (epoch !== pageEpoch) return;
       const token = window.crypto.randomUUID();
-      preparingToken = token;
       const blobUrl = window.URL.createObjectURL(file);
+      preparingToken = token;
+      trackPreparation(token, true);
       let reply;
       try { reply = await send("hd_backup_prepare", { blobUrl, token }); }
       catch (error) {
         // The engine may have prepared successfully before its reply was lost.
-        try { await send("hd_backup_cancel", { token }); } catch { /* Keep the original failure. */ }
+        try {
+          const cancelled = await send("hd_backup_cancel", { token });
+          if (cancelled.ok) trackPreparation(token, false);
+        } catch { /* Keep the original failure. */ }
         throw error;
       }
       finally {
         preparingToken = null;
         window.URL.revokeObjectURL(blobUrl);
       }
-      if (!reply.ok) throw new Error(reply.error || "This backup could not be prepared.");
+      if (!reply.ok) {
+        trackPreparation(token, false);
+        throw new Error(reply.error || "This backup could not be prepared.");
+      }
       if (epoch !== pageEpoch) return;
       prepared = reply;
       element("backup-confirm").checked = false;
@@ -109,6 +118,7 @@ export function createBackupSettingsController({
       const token = prepared.token;
       // A restore attempt consumes its token, including an uncertain reply.
       prepared = null;
+      trackPreparation(token, false);
       element("backup-confirm").checked = false;
       const reply = await send("hd_backup_restore", { token });
       if (!reply.ok) throw new Error(reply.error || "The restore could not be confirmed. Check the current library before trying again.");
@@ -126,7 +136,14 @@ export function createBackupSettingsController({
     element("backup-confirm").checked = false;
     render();
     if (token) status("Restore cancelled. Choose the backup again to prepare it.", "");
-    if (token) void send("hd_backup_cancel", { token }).catch(() => {});
+    if (token) {
+      // Port delivery is synchronous and its disconnect is a second cleanup
+      // signal when an older Chrome drops this page's final runtime message.
+      cancelPreparation(token);
+      void send("hd_backup_cancel", { token })
+        .then(reply => { if (reply.ok) trackPreparation(token, false); })
+        .catch(() => {});
+    }
   });
   render();
   return { render };

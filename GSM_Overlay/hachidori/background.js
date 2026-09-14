@@ -85,6 +85,7 @@ const CAPTURE_CONTENT_TARGET = "hachidori-capture-content";
 const CAPTURE_DOCUMENT = "capture.html";
 const SETUP_TARGET = "hachidori-setup";
 const PAGE_ZOOM_TARGET = "hachidori-page-zoom";
+const BACKUP_LIFECYCLE_PORT = "hachidori-backup-settings";
 
 // Requests the worker answers itself. A second target is what keeps them out of
 // the relay below: a message from the offscreen document carrying TARGET is
@@ -2252,21 +2253,80 @@ async function relayEngineRequest(message) {
   if (message.type === "hd_backup_cancel") {
     const preparation = backupPreparations.get(message.token);
     if (preparation) preparation.cancelled = true;
-    // Retire startup/retries now, but admit only one cleanup request at a time.
-    // Cancel followed by pagehide must not consume the download-release slot.
-    const cancelled = backupCancelTail.then(() => relay(message), () => relay(message));
+    // Retire startup/retries now, then let an already-dispatched prepare finish
+    // before cancellation reaches the engine. Otherwise Chrome 128 can deliver
+    // pagehide while prepare is awaiting a storage reply: the early cancel sees
+    // no prepared token, then prepare publishes fresh roots with nobody left to
+    // discard them. Admit only one cleanup request at a time.
+    const cancel = async () => {
+      if (preparation) await preparation.settled;
+      return relay(message);
+    };
+    const cancelled = backupCancelTail.then(cancel, cancel);
     backupCancelTail = cancelled.catch(() => {});
     return cancelled;
   }
   if (message.type !== "hd_backup_prepare") return relay(message);
-  const preparation = { cancelled: false };
+  let settlePreparation;
+  const preparation = {
+    cancelled: false,
+    settled: new Promise(resolve => { settlePreparation = resolve; }),
+  };
   backupPreparations.set(message.token, preparation);
   try {
     return await relay(message, () => !preparation.cancelled);
   } finally {
+    settlePreparation();
     if (backupPreparations.get(message.token) === preparation) backupPreparations.delete(message.token);
   }
 }
+
+function validBackupPreparationToken(token) {
+  return typeof token === "string" && token.length > 0 && token.length <= 128;
+}
+
+async function cancelOwnedBackupPreparation(token) {
+  const reply = await relayEngineRequest({
+    target: TARGET,
+    type: "hd_backup_cancel",
+    token,
+    requestId: `backup-lifecycle-${crypto.randomUUID()}`,
+  });
+  if (!reply?.ok) throw new Error(reply?.error || "The abandoned backup preparation could not be discarded.");
+  return reply;
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== BACKUP_LIFECYCLE_PORT) return;
+  if (!ankiSettingsSender(port.sender)) {
+    port.disconnect();
+    return;
+  }
+  const owned = new Set();
+  port.onMessage.addListener((message) => {
+    if (!validBackupPreparationToken(message?.token)) return;
+    if (message.type === "track" && typeof message.active === "boolean") {
+      if (message.active) owned.add(message.token);
+      else owned.delete(message.token);
+      return;
+    }
+    if (message.type === "cancel" && owned.has(message.token)) {
+      void cancelOwnedBackupPreparation(message.token).then(
+        () => owned.delete(message.token),
+        error => console.warn("hachidori: could not discard an abandoned backup preparation:", describe(error)),
+      );
+    }
+  });
+  port.onDisconnect.addListener(() => {
+    const abandoned = [...owned];
+    owned.clear();
+    for (const token of abandoned) {
+      void cancelOwnedBackupPreparation(token).catch(
+        error => console.warn("hachidori: could not discard an abandoned backup preparation:", describe(error)),
+      );
+    }
+  });
+});
 
 // The reader's popup cancels browser zoom, which only extension APIs report.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

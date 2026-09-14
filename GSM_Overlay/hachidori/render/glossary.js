@@ -858,12 +858,13 @@
       image.addEventListener("load", onLoad);
       image.addEventListener("error", onError);
       if (refresh) {
+        const retainedFocus = link.getRootNode().activeElement === link;
         state.onImageStart?.();
         image.hidden = true;
         image.removeAttribute("src");
         // Keep a deliberately focused control keyboard-focusable while its
         // old URL is unavailable. The successful href restores native focus.
-        if (link.getRootNode().activeElement === link) link.tabIndex = 0;
+        if (retainedFocus) link.tabIndex = 0;
         link.removeAttribute("href");
         link.removeAttribute("role");
         link.removeAttribute("aria-label");
@@ -873,6 +874,13 @@
         supplier = null;
         updateSourceLabel();
         state.refreshImagePreview?.(link, image);
+        // Chrome 128 can drop focus when href is removed even though tabindex
+        // was installed first. Restore it synchronously so the popup's
+        // focusout microtask sees the refreshed control, not a false departure.
+        if (retainedFocus && link.getRootNode().activeElement !== link) {
+          link.tabIndex = 0;
+          link.focus({ preventScroll: true });
+        }
       }
       let resolvedSupplier = state.dictionary;
       let mediaPromise;

@@ -49,6 +49,7 @@ const UPDATE_TARGET = "hachidori-updates";
 const AUDIO_TARGET = "hachidori-audio";
 const CAPTURE_TARGET = "hachidori-capture";
 const SHARING_TARGET = "hachidori-sharing";
+const BACKUP_LIFECYCLE_PORT = "hachidori-backup-settings";
 const OPTION_SECTIONS = { lookup: "Reading", design: "Design", audio: "Audio", media: "Media capture", anki: "Anki", keybinds: "Keybinds" };
 const LIBRARY_SECTIONS = new Set(["dictionaries", "add-dictionaries", "updates", "dictionary-groups", "custom-dictionary"]);
 const {
@@ -151,6 +152,9 @@ let sharingController;
 // The address of the Hachidori this install is linked to, or null.
 let sharingLinkedAddress = null;
 let backupController;
+let backupLifecyclePort = null;
+let backupLifecycleReconnectTimer = null;
+const backupLifecycleTokens = new Set();
 let customLinkController;
 let backingUp = false;
 let mediaStatusEpoch = 0;
@@ -461,6 +465,10 @@ function updateBackupSettings() {
     document, send,
     download: () => send("hd_backup_download", {}, WORKER_TARGET),
     exportAvailable: HOST_CAPABILITIES.backupExport,
+    trackPreparation: trackBackupPreparation,
+    cancelPreparation(token) {
+      if (backupLifecycleTokens.has(token)) postBackupLifecycle({ type: "cancel", token });
+    },
     checkReady() {
       if (importing || installingRecommended || updating || removing || committing || customLoading || customSaving || pendingDictionaryCommits > 0) {
         throw new Error("Wait for the current dictionary operation to finish, then try again.");
@@ -482,6 +490,60 @@ function updateBackupSettings() {
       await refreshStatus();
     },
   });
+}
+
+function connectBackupLifecycle() {
+  const port = chrome.runtime.connect({ name: BACKUP_LIFECYCLE_PORT });
+  backupLifecyclePort = port;
+  port.onDisconnect.addListener(() => {
+    if (backupLifecyclePort !== port) return;
+    backupLifecyclePort = null;
+    if (backupLifecycleTokens.size === 0 || backupLifecycleReconnectTimer !== null) return;
+    backupLifecycleReconnectTimer = window.setTimeout(() => {
+      backupLifecycleReconnectTimer = null;
+      if (backupLifecyclePort !== null || backupLifecycleTokens.size === 0) return;
+      try { connectBackupLifecycle(); } catch { /* A later ownership change retries. */ }
+    }, 250);
+  });
+  try {
+    for (const token of backupLifecycleTokens) {
+      port.postMessage({ type: "track", token, active: true });
+    }
+  } catch (error) {
+    if (backupLifecyclePort === port) backupLifecyclePort = null;
+    throw error;
+  }
+  return port;
+}
+
+function postBackupLifecycle(message) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let port = backupLifecyclePort;
+    try {
+      if (port === null) port = connectBackupLifecycle();
+      port.postMessage(message);
+      return true;
+    } catch {
+      if (backupLifecyclePort === port) backupLifecyclePort = null;
+    }
+  }
+  return false;
+}
+
+function trackBackupPreparation(token, active) {
+  if (active) {
+    backupLifecycleTokens.add(token);
+    postBackupLifecycle({ type: "track", token, active: true });
+    return;
+  }
+  backupLifecycleTokens.delete(token);
+  if (backupLifecycleReconnectTimer !== null && backupLifecycleTokens.size === 0) {
+    window.clearTimeout(backupLifecycleReconnectTimer);
+    backupLifecycleReconnectTimer = null;
+  }
+  if (backupLifecyclePort !== null) {
+    postBackupLifecycle({ type: "track", token, active: false });
+  }
 }
 
 function updateDesignPreview() {
