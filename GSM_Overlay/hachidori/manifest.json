@@ -115,6 +115,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "overlay-mode.js",
         "render/reader.css",
         "render/icons/big-circle.svg",
         "render/icons/add-duplicate-big-circle.svg",

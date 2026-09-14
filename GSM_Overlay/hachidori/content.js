@@ -182,6 +182,11 @@
   let pendingCandidateLookup = null;
   let selectionDragActive = false;
   let activeSelectionCandidate = null;
+  // A drag the reader selects itself, glyph by glyph, in an overlay host.
+  let dragSelection = null;
+  let overlayMode = false;
+  let hostAttentionPublished = false;
+  let hostAttentionHold = 0;
 
   let optionsStorageRevision = -1;
   let ankiMaturityEpoch = 0;
@@ -198,8 +203,36 @@
     }
   }
 
-  function publishPopupVisibility(visible) {
-    window.dispatchEvent(new CustomEvent(visible ? POPUP_SHOWN_EVENT : POPUP_HIDDEN_EVENT));
+  // An overlay host such as GSM passes clicks through to the game unless the
+  // reader says it needs the window. A popup needs it, and so does a drag that
+  // is selecting text: the host answers a mousedown by turning click-through on,
+  // which would lose the drag before release could look anything up. The claim
+  // carries over to the selection's pending lookup, so the host never sees a
+  // gap between the drag and the popup it produces.
+  function syncHostAttention() {
+    const wanted = Boolean(rootLevel.popup && !rootLevel.popup.hidden) || selectionDragActive
+      || hostAttentionHold > 0 || pendingCandidateLookup?.candidate?.exactSelection === true;
+    if (wanted === hostAttentionPublished) return;
+    hostAttentionPublished = wanted;
+    window.dispatchEvent(new CustomEvent(wanted ? POPUP_SHOWN_EVENT : POPUP_HIDDEN_EVENT));
+  }
+
+  function setSelectionDrag(active) {
+    selectionDragActive = active;
+    if (!active) dragSelection = null;
+    syncHostAttention();
+  }
+
+  // Overlay hosts (docs/overlay-mode.md) set the flag in overlay-mode.js. This
+  // classic script reads the module through its extension URL; a host without
+  // it, such as a test page, gets the browser behaviour.
+  async function loadOverlayMode() {
+    try {
+      const module = await import(chrome.runtime.getURL("overlay-mode.js"));
+      overlayMode = module.OVERLAY_MODE === true;
+    } catch {
+      overlayMode = false;
+    }
   }
 
   function nonnegativeCount(value) {
@@ -410,6 +443,28 @@
       );
     }
     return null;
+  }
+
+  /**
+   * The glyph under the pointer as a text range, for a drag the reader selects
+   * itself. An overlay boxes each glyph in a span wider than the glyph, and from
+   * the box's trailing margin the caret APIs report the boundary after its text;
+   * the box still belongs to its last glyph.
+   */
+  function glyphAtPoint(clientX, clientY) {
+    const range = caretRangeAt(clientX, clientY);
+    const node = range?.startContainer;
+    if (!node || !isScannableTextNode(node, new Map())) return null;
+    const text = node.nodeValue || "";
+    let offset = range.startOffset;
+    if (offset >= text.length) {
+      const box = node.parentElement.getBoundingClientRect();
+      if (text.length === 0 || clientX < box.left || clientX > box.right
+          || clientY < box.top || clientY > box.bottom) return null;
+      offset = text.length - 1;
+      if (offset > 0 && (text.charCodeAt(offset) & 0xfc00) === 0xdc00) offset -= 1;
+    }
+    return { node, start: offset, end: offset + (text.codePointAt(offset) > 0xffff ? 2 : 1) };
   }
 
   function isEditingElement(element) {
@@ -979,11 +1034,12 @@
     if (disposed) {
       return;
     }
-    const popupWasVisible = rootLevel.popup && !rootLevel.popup.hidden;
     releaseRootCapture();
     audio?.dispose();
     mining?.retire();
     disposed = true;
+    selectionDragActive = false;
+    dragSelection = null;
     cancelPopupLayout();
     clearDictionaryResources();
     window.clearTimeout(scanTimer);
@@ -1029,14 +1085,13 @@
     rootLevel.activeTermRender = null;
     rootLevel.currentViewRequest = null;
     rootLevel.noteEditing = false;
-    if (popupWasVisible) publishPopupVisibility(false);
+    syncHostAttention();
     if (reason) {
       console.debug(`hachidori: content script stopped (${reason})`);
     }
   }
 
   function discardUi() {
-    const popupWasVisible = rootLevel.popup && !rootLevel.popup.hidden;
     releaseRootCapture();
     audio?.retire();
     mining?.retire();
@@ -1059,7 +1114,7 @@
     rootLevel.activeTermRender = null;
     rootLevel.currentViewRequest = null;
     rootLevel.noteEditing = false;
-    if (popupWasVisible) publishPopupVisibility(false);
+    syncHostAttention();
   }
 
   function clearDictionaryResources() {
@@ -1981,7 +2036,6 @@
   }
 
   function show(candidate, level = rootLevel) {
-    const popupWasHidden = level === rootLevel && level.popup.hidden;
     level.activeCandidate = candidate;
     level.activeSignature = candidateSignature(candidate);
     if (!host.isConnected && document.body) {
@@ -1990,7 +2044,7 @@
     }
     level.popup.hidden = false;
     level.view.scrollElement.scrollTop = 0;
-    if (popupWasHidden) publishPopupVisibility(true);
+    syncHostAttention();
   }
 
   function pruneLevels(depth, restoreFocus = true) {
@@ -2031,10 +2085,10 @@
       }
       return;
     }
-    const popupWasVisible = rootLevel.popup && !rootLevel.popup.hidden;
     cancelPopupLayout();
     clearScanTimer();
     selectionDragActive = false;
+    dragSelection = null;
     activeSelectionCandidate = null;
     pendingCandidateLookup = null;
     clearHideTimer();
@@ -2052,13 +2106,12 @@
     rootLevel.deferredRefresh = null;
     rootLevel.retainedView = false;
     rootLevel.lookupToken += 1;
-    if (!rootLevel.popup) {
-      return;
+    if (rootLevel.popup) {
+      rootLevel.popup.hidden = true;
+      rootLevel.view.clear();
+      highlighter.clearAll();
     }
-    rootLevel.popup.hidden = true;
-    rootLevel.view.clear();
-    highlighter.clearAll();
-    if (popupWasVisible) publishPopupVisibility(false);
+    syncHostAttention();
   }
 
   function clearHideTimer() {
@@ -2765,6 +2818,7 @@
     pendingCandidateLookup = pending;
     void lookup.finally(() => {
       if (pendingCandidateLookup === pending) pendingCandidateLookup = null;
+      syncHostAttention();
     });
   }
 
@@ -2966,9 +3020,12 @@
       target: event.target,
     };
     updateModifierState(event);
-    if (selectionDragActive && (event.buttons & 1) === 0) {
-      selectionDragActive = false;
-      onSelectionChange();
+    // A release the page never saw, such as one outside the window, ends the
+    // drag on the next move.
+    if (selectionDragActive && (event.buttons & 1) === 0) finishSelectionDrag({ dismissClick: false });
+    if (dragSelection) {
+      extendGlyphDrag(event);
+      return;
     }
     // Cancel a pending dismissal here rather than waiting for the throttled
     // scan, so the popup stays reachable even with hoverDelayMs turned up. The
@@ -3017,6 +3074,42 @@
     }, options.hoverDelayMs);
   }
 
+  const GLYPH_DRAG_START_PX = 3;
+
+  // In an overlay the browser's own drag cannot be trusted: Chromium loses the
+  // anchor when the press lands after a boxed glyph, and the selection ends as
+  // the glyph under the pointer or nothing. The reader selects whole glyphs from
+  // the pressed one to the pointer's instead, and the prevented mousedown keeps
+  // the browser's selection out of it.
+  function startGlyphDrag(event) {
+    const anchor = glyphAtPoint(event.clientX, event.clientY);
+    if (!anchor) return null;
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    return { anchor, focus: null, x: event.clientX, y: event.clientY };
+  }
+
+  function extendGlyphDrag(event) {
+    // A press that does not travel is a click, not a one-glyph selection.
+    if (!dragSelection.focus
+        && Math.hypot(event.clientX - dragSelection.x, event.clientY - dragSelection.y) < GLYPH_DRAG_START_PX) return;
+    // A gap between boxes keeps the last glyph, as does the popup itself.
+    const focus = glyphAtPoint(event.clientX, event.clientY) ?? dragSelection.focus;
+    if (!focus) return;
+    dragSelection.focus = focus;
+    const { anchor } = dragSelection;
+    const forward = anchor.node === focus.node
+      ? anchor.start <= focus.start
+      : Boolean(anchor.node.compareDocumentPosition(focus.node) & Node.DOCUMENT_POSITION_FOLLOWING);
+    try {
+      const selection = window.getSelection();
+      if (forward) selection.setBaseAndExtent(anchor.node, anchor.start, focus.node, focus.end);
+      else selection.setBaseAndExtent(anchor.node, anchor.end, focus.node, focus.start);
+    } catch {
+      // The page replaced a glyph mid-drag; the next move selects afresh.
+    }
+  }
+
   function onMouseDown(event) {
     if (disposed) {
       return;
@@ -3025,15 +3118,31 @@
     if (event.button === 0 && options.hoverEnabled
         && isScannableElement(selectionBoundaryElement(event.target), new Map())) {
       // A press on text may start a selection, so the popup stays until release
-      // decides. Hiding here tells an overlay host such as GSM that no popup is
-      // open, and it turns click-through before the drag can select anything.
+      // decides, and the host hears now that the reader needs the window.
       cancelCandidateScan();
       clearHideTimer();
       activeSelectionCandidate = null;
-      selectionDragActive = true;
+      setSelectionDrag(true);
+      if (overlayMode) dragSelection = startGlyphDrag(event);
       return;
     }
     hide();
+  }
+
+  // Release decides what the press was: a selection looks up that text, a
+  // plain click dismisses. The drag's claim on the host window carries over to
+  // the lookup it starts.
+  function finishSelectionDrag({ dismissClick }) {
+    hostAttentionHold += 1;
+    try {
+      setSelectionDrag(false);
+      const token = rootLevel.lookupToken;
+      onSelectionChange();
+      if (dismissClick && rootLevel.lookupToken === token) hide();
+    } finally {
+      hostAttentionHold -= 1;
+      syncHostAttention();
+    }
   }
 
   function selectionIsUnchanged(candidate = activeSelectionCandidate) {
@@ -3048,9 +3157,15 @@
   }
 
   function startSelectionLookup(candidate) {
-    hide();
-    activeSelectionCandidate = candidate;
-    lookupCandidate(candidate);
+    hostAttentionHold += 1;
+    try {
+      hide();
+      activeSelectionCandidate = candidate;
+      lookupCandidate(candidate);
+    } finally {
+      hostAttentionHold -= 1;
+      syncHostAttention();
+    }
   }
 
   function retainSelectedLookup() {
@@ -3075,11 +3190,7 @@
 
   function onMouseUp(event) {
     if (disposed || event.button !== 0 || !selectionDragActive) return;
-    selectionDragActive = false;
-    const token = rootLevel.lookupToken;
-    onSelectionChange();
-    // No selection lookup started: the press was a click, which dismisses.
-    if (rootLevel.lookupToken === token) hide();
+    finishSelectionDrag({ dismissClick: true });
   }
 
   function onPageFocusIn() {
@@ -3264,7 +3375,7 @@
 
   function onWindowBlur() {
     if (!disposed) {
-      selectionDragActive = false;
+      setSelectionDrag(false);
       lastPointer = null;
       activationPressed = false;
       activationCode = null;
@@ -3502,7 +3613,7 @@
       }
     }
     if (!options.hoverEnabled) {
-      selectionDragActive = false;
+      setSelectionDrag(false);
       lastPointer = null;
       activationPressed = false;
       activationCode = null;
@@ -3532,6 +3643,7 @@
   }
 
   function start() {
+    void loadOverlayMode();
     try {
       chrome.storage.onChanged.addListener(onStorageChanged);
       // Optional like the worker's commands API: reader smoke hosts have no runtime messages.
@@ -3552,10 +3664,11 @@
     }
     // Capture so a page that stops propagation on its own text still gets
     // scanned; passive so the hot pointer and scroll paths can never delay the
-    // page's own scrolling.
+    // page's own scrolling. A press stays cancelable: an overlay drag is the
+    // reader's, not the browser's.
     const observe = { capture: true, passive: true };
     document.addEventListener("mousemove", onMouseMove, observe);
-    document.addEventListener("mousedown", onMouseDown, observe);
+    document.addEventListener("mousedown", onMouseDown, { capture: true });
     document.addEventListener("mouseup", onMouseUp, observe);
     document.addEventListener("selectionchange", onSelectionChange);
     document.addEventListener("focusin", onPageFocusIn, observe);

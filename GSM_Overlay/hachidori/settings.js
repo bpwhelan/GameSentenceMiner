@@ -10,7 +10,7 @@ import { createKeybindSettingsController } from "./keybind-settings.js";
 import { createAnkiSettingsController } from "./anki-settings.js";
 import { createBackupSettingsController } from "./backup-settings.js";
 import { createSharingSettingsController } from "./sharing-settings.js";
-import { ANKI_ADDON_FILE_NAME, buildAnkiAddon } from "./anki-addon.js";
+import { ANKI_ADDON_FILE_NAME, fetchAnkiAddon } from "./anki-addon.js";
 import { createLocalFileAccessController } from "./local-file-access.js";
 import { createSettingsSearch } from "./settings-search.js";
 import { createCustomLinkSettings } from "./custom-link-settings.js";
@@ -312,14 +312,9 @@ function renderSharingLink(value) {
   for (const node of document.querySelectorAll("#backup > .backup-action, #backup > .section-note")) node.hidden = linked;
 }
 
-// The add-on is built from the files shipped with this extension and saved
-// like any other download, so Anki installs the version that matches.
+// Save the pinned release through a blob download, including in Electron hosts.
 async function downloadAnkiAddon() {
-  const archive = await buildAnkiAddon(async (name) => {
-    const response = await fetch(chrome.runtime.getURL(`anki-relay/${name}`));
-    if (!response.ok) throw new Error(`could not read ${name}`);
-    return response.text();
-  }, { version: chrome.runtime.getManifest().version });
+  const archive = await fetchAnkiAddon();
   const url = URL.createObjectURL(archive);
   const anchor = document.createElement("a");
   anchor.href = url;

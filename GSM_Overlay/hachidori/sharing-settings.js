@@ -141,6 +141,7 @@ export function createSharingSettingsController({
     if (network.checked !== wantsNetwork) network.checked = wantsNetwork;
     network.disabled = pending || !enabled || isLinked;
     element("sharing-addon").hidden = hosting() || isLinked;
+    element("sharing-addon-download").disabled = pending;
     const port = element("sharing-host-port");
     if (portDraft === null && sharing !== null && port.value !== String(sharing.port)) port.value = String(sharing.port);
     port.disabled = pending || enabled;
@@ -242,12 +243,13 @@ export function createSharingSettingsController({
 
   async function download() {
     pending = true;
+    notice = { message: "Downloading the Anki add-on from GitHub…", until: Infinity };
     render();
     try {
       await downloadAddon();
       show("Saved hachidori-relay.ankiaddon to your downloads. Double-click it to install it in Anki, then restart Anki.", "ready");
     } catch (error) {
-      show(`Could not build the add-on: ${describe(error)}`, "error");
+      show(`Could not download the add-on: ${describe(error)}`, "error");
     } finally {
       pending = false;
       render();

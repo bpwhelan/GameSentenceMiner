@@ -1,5 +1,5 @@
 // Wire contract shared by the service worker and the relay the Anki add-on
-// runs (extension/anki-relay/server.py).
+// runs (https://github.com/bee-san/hachidori-anki, addon/server.py).
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 export const PROTOCOL_VERSION = 1;
