@@ -37,11 +37,12 @@ function loadHighlighter() {
   const events = [];
   const createElement = (tag) => {
     const element = {
-      tag, style: {}, dataset: {}, children: [], isConnected: true, words: false,
+      tag, style: {}, dataset: {}, children: [], isConnected: true, words: false, unparsedWords: false,
       appendChild(child) { this.children.push(child); },
-      set innerHTML(_value) { this.children = []; this.words = false; },
+      set innerHTML(_value) { this.children = []; this.words = false; this.unparsedWords = false; },
       querySelectorAll(selector) {
         if (selector === '.jiten-word:not(.unparsed)') return this.words ? [{}] : [];
+        if (selector === '.jiten-word') return (this.words || this.unparsedWords) ? [{}] : [];
         if (selector === 'p[data-line-index]') return this.children;
         return [];
       },
@@ -78,17 +79,16 @@ function loadHighlighter() {
     parses: () => events.filter(event => event.type === 'keydown').length,
     paragraphs: () => document.getElementById('jiten-parse-container').children,
     complete: () => { document.getElementById('jiten-parse-container').words = true; observer(); tick(200); },
+    completeUnparsed: () => { document.getElementById('jiten-parse-container').unparsedWords = true; observer(); tick(200); },
   };
 }
 
-test('highlight debounce emits only the newest frame and keeps original line indices', () => {
+test('highlight coalescing emits the newest frame on the next task and keeps original line indices', () => {
   const { api, tick, parses, paragraphs } = loadHighlighter();
   api.requestParse([{ text: '古い' }]);
-  tick(200);
   api.requestParse([{ text: 'English — café' }, { text: '新しい' }]);
-  tick(249);
   assert.equal(parses(), 0);
-  tick(1);
+  tick(0);
   assert.equal(parses(), 1);
   assert.equal(paragraphs().length, 1);
   assert.equal(paragraphs()[0].textContent, '新しい');
@@ -106,13 +106,25 @@ test('identical pending and active highlight frames do not retrigger the Reader'
 
 test('slow Reader parsing retains just the latest waiting frame', () => {
   const { api, tick, parses, complete, paragraphs } = loadHighlighter();
-  api.requestParse([{ text: '猫' }]); tick(250);
+  api.requestParse([{ text: '猫' }]); tick(0);
   for (let i = 0; i < 10; i++) { api.requestParse([{ text: `犬${i}` }]); tick(30); }
   assert.equal(parses(), 1);
   assert.equal(paragraphs()[0].textContent, '猫');
-  complete(); tick(2000);
+  complete();
   assert.equal(parses(), 2);
   assert.equal(paragraphs()[0].textContent, '犬9');
+});
+
+test('an all-unparsed Reader result releases the newest waiting frame', () => {
+  const { api, tick, parses, completeUnparsed, paragraphs } = loadHighlighter();
+  api.requestParse([{ text: '猫' }]); tick(0);
+  api.requestParse([{ text: '犬' }]);
+  assert.equal(parses(), 1);
+
+  completeUnparsed();
+
+  assert.equal(parses(), 2);
+  assert.equal(paragraphs()[0].textContent, '犬');
 });
 
 test('disabling highlighting or clearing text cancels a pending parse', () => {
@@ -193,6 +205,69 @@ test('missing IPC cannot bypass the broker with a direct fetch', async () => {
   context.window.ipcRenderer = null;
   context.fetch = () => assert.fail('direct Jiten fetch');
   await assert.rejects(handler.requestJitenParse('猫'), /broker is unavailable/);
+});
+
+test('OCR highlighting reserves Jiten parsing for the authoritative final payload', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.match(html, /const JITEN_SETTINGS_RESYNC_THROTTLE_MS = 1000;/);
+  const start = html.indexOf('function applyJitenHighlightingForLines');
+  const end = html.indexOf('// Initialize highlight module', start);
+  const calls = [];
+  const context = vm.createContext({
+    jitenHighlightingEnabled: true,
+    jitenReaderEnabled: true,
+    jitenHighlightAvailable: true,
+    lastJitenSettingsSyncAt: Date.now(),
+    JITEN_SETTINGS_RESYNC_THROTTLE_MS: 1000,
+    jitenHighlightParsedLineId: false,
+    syncJitenSettings() {},
+    Date,
+    console,
+    window: {
+      GsmJitenHighlight: {
+        requestParse: (lines) => { calls.push(lines); return Promise.resolve(); },
+        reposition() {},
+      },
+    },
+  });
+  vm.runInContext(`${html.slice(start, end)}\nglobalThis.applyHighlight = applyJitenHighlightingForLines;`, context);
+
+  context.applyHighlight([{ text: '途中' }], { lineId: 'line-1', isFinal: false });
+  assert.equal(calls.length, 0);
+  context.applyHighlight([{ text: '確定' }], { lineId: 'line-1', isFinal: true });
+  assert.equal(calls.length, 1);
+  context.applyHighlight([{ text: '単発' }], { lineId: null, isFinal: false });
+  assert.equal(calls.length, 2);
+});
+
+test('Jiten availability recovery preserves authoritative OCR metadata', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const start = html.indexOf('function applyVerifiedJitenAvailability');
+  const end = html.indexOf('function jitenSettingTruthy', start);
+  const calls = [];
+  const context = vm.createContext({
+    jitenHighlightAvailable: false,
+    jitenReaderEnabled: true,
+    jitenHighlightingEnabled: true,
+    lastJitenHighlightLines: [{ text: '途中' }],
+    lastJitenHighlightMeta: { lineId: 'line-1', isFinal: false },
+    applyJitenHighlightingForLines: (lines, meta) => calls.push({ lines, meta }),
+    console,
+    window: {
+      GsmJitenHighlight: {
+        setAvailable() {},
+        refresh: () => calls.push({ bypassedGate: true }),
+      },
+    },
+  });
+  vm.runInContext(`${html.slice(start, end)}\nglobalThis.applyAvailability = applyVerifiedJitenAvailability;`, context);
+
+  context.applyAvailability(true, false);
+
+  assert.deepEqual(calls, [{
+    lines: context.lastJitenHighlightLines,
+    meta: context.lastJitenHighlightMeta,
+  }]);
 });
 
 test('all overlay inline scripts remain syntactically valid', () => {

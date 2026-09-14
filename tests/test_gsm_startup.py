@@ -719,7 +719,7 @@ def test_post_init_async_registers_scene_callbacks_and_refreshes_previous_lines_
     assert "get_previous_lines_for_game" in calls
 
 
-def test_get_previous_lines_for_game_normalizes_lines(monkeypatch):
+def test_get_previous_lines_for_game_normalizes_and_filters_short_lines(monkeypatch):
     app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
     monkeypatch.setattr(
         gsm_module,
@@ -745,7 +745,7 @@ def test_get_previous_lines_for_game_normalizes_lines(monkeypatch):
 
     app.get_previous_lines_for_game()
 
-    assert text_log.game_log.previous_lines == {"HelloWorld", "テスト"}
+    assert text_log.game_log.previous_lines == {"HelloWorld"}
 
 
 def test_get_previous_lines_for_game_clears_cache_when_disabled(monkeypatch):

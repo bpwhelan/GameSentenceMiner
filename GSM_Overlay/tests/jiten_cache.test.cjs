@@ -9,6 +9,15 @@ const { JitenParseCache } = require('../jiten_cache');
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const auth = { apiKey: 'test-key' };
+
+test('default parse pacing permits 60 short batches per minute', (t) => {
+  const cache = new JitenParseCache({ fetch: async () => Response.json({}) });
+  t.after(() => cache.dispose());
+  assert.equal(cache.parseIntervalMs, 1000);
+  assert.equal(cache.minimumParseCharge, 1000);
+  assert.equal(cache.characterBudget / cache.minimumParseCharge, 60);
+});
+
 test('Reader write IDs coalesce retries but preserve separate intentional grades', async (t) => {
   const { cache, calls } = setup(t, {}, () => Response.json({ ok: true }));
   const args = { ...auth, action: 'srs/review', body: { wordId: 1, readingIndex: 0, rating: 3 }, requestId: 'operation-1' };
@@ -207,7 +216,12 @@ test('replaying 300 OCR frames with 20 repeated lines sends one parse batch', as
 });
 
 test('rolling character budget delays batches independently of request spacing', async (t) => {
-  const { cache, calls } = setup(t, { characterBudget: 2000, budgetWindowMs: 60, maxBatchParagraphs: 1 });
+  const { cache, calls } = setup(t, {
+    characterBudget: 2000,
+    minimumParseCharge: 2000,
+    budgetWindowMs: 60,
+    maxBatchParagraphs: 1,
+  });
   await cache.parseMany({ ...auth, texts: ['猫', '犬'] });
   assert.ok(calls[1].at - calls[0].at >= 58);
 });
@@ -293,7 +307,11 @@ test('errors never replay a potentially successful SRS write', async (t) => {
 });
 
 test('parse budget waiting does not block newly arrived explicit actions', async (t) => {
-  const { cache, calls } = setup(t, { characterBudget: 2000, budgetWindowMs: 120 }, (url, body) => Response.json(url.endsWith('reader/parse') ? fixture(body.text) : { ok: true }));
+  const { cache, calls } = setup(t, {
+    characterBudget: 2000,
+    minimumParseCharge: 2000,
+    budgetWindowMs: 120,
+  }, (url, body) => Response.json(url.endsWith('reader/parse') ? fixture(body.text) : { ok: true }));
   await cache.parse({ ...auth, text: '猫' });
   const next = cache.parse({ ...auth, text: '犬' });
   await pause(15);

@@ -975,6 +975,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "showLiveStats": true,
   "showLiveGoals": true,
   "hideCompletedGoals": true,
+  "hideLiveStatsOnTextOverlap": true,
   "liveStatsToggleHotkey": "Alt+Shift+L",
   // Per-goal overlay selection chosen in the settings window:
   //   { [goalId]: { enabled: boolean, view: "today" | "overall" } }
@@ -1177,6 +1178,10 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
     }
     if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideCompletedGoals")) {
       cleanedSettings.hideCompletedGoals = DEFAULT_USER_SETTINGS.hideCompletedGoals;
+      changed = true;
+    }
+    if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideLiveStatsOnTextOverlap")) {
+      cleanedSettings.hideLiveStatsOnTextOverlap = DEFAULT_USER_SETTINGS.hideLiveStatsOnTextOverlap;
       changed = true;
     }
     profiles[normalizedName] = cleanedSettings;
@@ -1633,6 +1638,12 @@ function normalizeLiveStatsSettings(settings) {
   const normalizedHideCompletedGoals = settings.hideCompletedGoals !== false;
   if (settings.hideCompletedGoals !== normalizedHideCompletedGoals) {
     settings.hideCompletedGoals = normalizedHideCompletedGoals;
+    changed = true;
+  }
+
+  const normalizedHideOnTextOverlap = settings.hideLiveStatsOnTextOverlap !== false;
+  if (settings.hideLiveStatsOnTextOverlap !== normalizedHideOnTextOverlap) {
+    settings.hideLiveStatsOnTextOverlap = normalizedHideOnTextOverlap;
     changed = true;
   }
 
@@ -6920,7 +6931,7 @@ async function startOverlayAppImpl() {
       } else {
         // First press - request translation from backend
         if (backend && backend.connected) {
-          backend.send({ type: "translate-request" });
+          mainWindow?.webContents.send('request-block-translation');
           translationRequested = true;
         } else {
           console.error("Backend not connected. Cannot translate.");
@@ -7501,13 +7512,26 @@ async function startOverlayAppImpl() {
     console.log("Action: Translate requested from overlay");
     if (backend && backend.connected) {
       translationRequested = true;
-      backend.send({ type: "translate-request" });
+      mainWindow?.webContents.send('request-block-translation');
     } else {
       console.error("Backend not connected. Cannot translate.");
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('translation-error', 'Backend not connected');
       }
     }
+  });
+
+  ipcMain.on("translate-blocks", (event, payload) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
+    if (backend && backend.connected) {
+      backend.send({ ...payload, type: "translate-request" });
+    } else {
+      mainWindow.webContents.send('translation-error', { request_id: payload.request_id, error: 'Backend not connected' });
+    }
+  });
+
+  ipcMain.on("translation-request-failed", (event) => {
+    if (mainWindow && event.sender === mainWindow.webContents) translationRequested = false;
   });
 
   ipcMain.on("action-tts", () => {
@@ -7842,7 +7866,12 @@ async function startOverlayAppImpl() {
       value = normalizeLiveStatsFields(value);
     } else if (key === "overlayGoals") {
       value = normalizeOverlayGoals(value);
-    } else if (key === "hideCompletedGoals" || key === "pomodoroEnabled" || key === "pomodoroAutoStart") {
+    } else if (
+      key === "hideCompletedGoals"
+      || key === "hideLiveStatsOnTextOverlap"
+      || key === "pomodoroEnabled"
+      || key === "pomodoroAutoStart"
+    ) {
       value = value === true;
     } else if (key === "pomodoroWorkMinutes") {
       value = normalizePomodoroMinutes(value, 25);
@@ -8202,7 +8231,7 @@ async function startOverlayAppImpl() {
       }
       if (shouldTranslate) {
         translationRequested = true;
-        backend.send({ type: "translate-request" });
+        mainWindow?.webContents.send('request-block-translation');
       }
     }
 

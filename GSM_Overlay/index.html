@@ -1567,6 +1567,7 @@ background: rgba(202, 12, 12, 0.692);
 </script>
 
 <script src="block_detection.js"></script>
+<script src="block_translation.js"></script>
 <script src="live_stats_widget.js"></script>
 <script>
   const { ipcRenderer } = require("electron");
@@ -1806,17 +1807,20 @@ background: rgba(202, 12, 12, 0.692);
   // Most recent OCR lines, kept even while highlighting is off so toggling on can
   // re-parse current text instead of waiting for new OCR.
   let lastJitenHighlightLines = null;
+  let lastJitenHighlightMeta = null;
   // Whether Jiten can parse right now (extension enabled + API key + not paused),
   // verified via the settings bridge. Optimistic until first verification; self-heals
   // on toggles, bridge-ready, and throttled re-checks, so no restart is needed.
   let jitenHighlightAvailable = true;
   let jitenSettingsSyncPending = false;
   let lastJitenSettingsSyncAt = 0;
-  const JITEN_SETTINGS_RESYNC_THROTTLE_MS = 8000;
-  // The line_id we last parsed for. OCR sends several payloads per line as it
-  // stabilizes; to stay API-friendly we parse at most twice (first payload + final),
-  // and just reposition for intermediate jitter. null = single-shot scans (final).
-  let jitenHighlightParsedLineId = false; // sentinel distinct from any real id (incl. null)
+  // This is a local chrome.storage bridge check, not a Jiten API request. Retry
+  // promptly so a startup/load race cannot suppress highlighting for ~10 seconds.
+  const JITEN_SETTINGS_RESYNC_THROTTLE_MS = 1000;
+  // OCR can send several provisional payloads before its authoritative result.
+  // Highlight only that final result so stale work cannot occupy the Reader and
+  // broker while the text the user actually sees is waiting behind it. Payloads
+  // without a line ID are single-shot/manual renders and parse immediately.
 
   function setJitenHighlightOpacity(value) {
     const n = Number(value);
@@ -2055,26 +2059,12 @@ background: rgba(202, 12, 12, 0.692);
     const lineId = (meta && meta.lineId != null) ? String(meta.lineId) : null;
     const isFinal = !!(meta && meta.isFinal);
 
-    let shouldParse;
-    if (forced || isFinal) {
-      // Final pass: parse (requestParse dedups identical text, so it's free if unchanged).
-      shouldParse = true;
-      jitenHighlightParsedLineId = lineId;
-    } else if (lineId !== jitenHighlightParsedLineId) {
-      // First payload for a new line: parse once for a fast highlight.
-      shouldParse = true;
-      jitenHighlightParsedLineId = lineId;
-    } else {
-      // Intermediate jitter for the same line: just reposition existing highlights.
-      shouldParse = false;
-    }
+    const shouldParse = forced || isFinal || lineId === null;
 
     if (shouldParse) {
       api.requestParse(lines).catch((err) => {
         console.warn('[JitenHighlight] Parse request failed:', err);
       });
-    } else if (typeof api.reposition === 'function') {
-      api.reposition();
     }
   }
 
@@ -2148,12 +2138,9 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (nowAvailable && !wasAvailable) {
       // Became usable — highlight what's already on screen instead of waiting
-      // for the next OCR update.
-      if (window.GsmJitenHighlight && typeof window.GsmJitenHighlight.refresh === 'function') {
-        window.GsmJitenHighlight.refresh(lastJitenHighlightLines);
-      } else {
-        applyJitenHighlightingForLines(lastJitenHighlightLines);
-      }
+      // for the next OCR update. Preserve its OCR metadata so recovery cannot
+      // bypass the authoritative-final gate and enqueue stale provisional text.
+      applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta);
     }
     if (!nowAvailable) {
       const reason = !jitenReaderEnabled ? 'Jiten Reader disabled'
@@ -3261,6 +3248,7 @@ background: rgba(202, 12, 12, 0.692);
           // SECOND PASS: Process lines with block awareness
           const blockContainers = new Map(); // Map from block ID to container div
           const blockIndicatorBounds = new Map();
+          const renderedTextBounds = [];
           let reusableTextBoxIndex = 0;
           
           for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
@@ -3281,6 +3269,9 @@ background: rgba(202, 12, 12, 0.692);
               }
               blockContainer.className = 'text-block-container';
               blockContainer.setAttribute('data-block-id', blockId);
+              blockContainer.dataset.translationSource = data.data
+                .filter((_, index) => lineBlocks.get(index) === blockId)
+                .map(item => item.text).join('\n');
               blockContainer.setAttribute('data-line-start', boundaries.start);
               blockContainer.setAttribute('data-line-end', boundaries.end);
               const metadata = blockMetadata.get(blockId) || { role: 'text' };
@@ -3462,6 +3453,8 @@ background: rgba(202, 12, 12, 0.692);
                   lineWordBox.box.style.height = `${uniformExtentPercent}%`;
                 }
               }
+
+              renderedTextBounds.push(lineWordBox.box.getBoundingClientRect());
             }
 
             // Line indicator bounds use the rendered (possibly Magpie-scaled) coordinates
@@ -3500,6 +3493,15 @@ background: rgba(202, 12, 12, 0.692);
             }
 
             document.body.appendChild(bigInteractiveArea);
+          }
+
+          if (
+            !isSupplemental
+            && !stalePresenceAction
+            && window.GSMLiveStatsWidget
+            && typeof window.GSMLiveStatsWidget.handleTextBoundsUpdate === 'function'
+          ) {
+            window.GSMLiveStatsWidget.handleTextBoundsUpdate(renderedTextBounds);
           }
 
           if (isRecalibration) {
@@ -4089,6 +4091,7 @@ background: rgba(202, 12, 12, 0.692);
     // Remember the current lines even when highlighting is off, so flipping the
     // toggle on can immediately highlight what's already on screen.
     lastJitenHighlightLines = lines;
+    lastJitenHighlightMeta = jitenMeta;
     // Jiten highlighting works independently via the extension's content script.
     // Trigger it regardless of furigana readiness.
     if (jitenHighlightingEnabled) {
@@ -4334,6 +4337,7 @@ background: rgba(202, 12, 12, 0.692);
     const invalidateLookups = options.invalidateLookups === true;
     overlayRenderGeneration += 1;
     lastOverlayTextRenderSignature = null;
+    document.getElementById('translation-display')?.remove();
 
     if (invalidateLookups) {
       const lookupSelectors = ['.text-box', '.big-interactive-area', '.spacer', '.text-block-container', '.block-separator'];
@@ -5149,6 +5153,8 @@ background: rgba(202, 12, 12, 0.692);
     if (translationDiv) {
       const isVisible = translationDiv.style.display !== 'none';
       translationDiv.style.display = isVisible ? 'none' : 'block';
+    } else {
+      blockTranslation.request();
     }
   });
 
@@ -5205,14 +5211,25 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   // Handle translation results
+  const blockTranslation = window.GSMBlockTranslation.createBlockTranslationController({
+    document,
+    getRevision: () => overlayRenderGeneration,
+    send: payload => ipcRenderer.send('translate-blocks', payload),
+    showLegacy: showTranslation,
+    showError: error => {
+      ipcRenderer.send('translation-request-failed');
+      showTranslation('Translation failed: ' + error);
+    },
+  });
+  ipcRenderer.on('request-block-translation', () => blockTranslation.request());
   ipcRenderer.on('translation-received', (event, translation) => {
     console.log('Translation received:', translation);
-    showTranslation(translation);
+    blockTranslation.receive(translation);
   });
 
   ipcRenderer.on('translation-error', (event, error) => {
     console.error('Translation error:', error);
-    showTranslation('Translation failed: ' + error);
+    blockTranslation.error(error);
   });
 
   // Handle manual mode recommendation

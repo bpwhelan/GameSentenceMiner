@@ -7,8 +7,10 @@ import json
 from typing import Optional
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
+from GameSentenceMiner.ai.overlay_translation import translate_overlay_blocks, validate_blocks
 from GameSentenceMiner.obs import get_current_game, get_current_scene
 from GameSentenceMiner.util.config.configuration import (
+    AI_DEEPL,
     coerce_gsm_owned_overlay_value,
     get_config,
     get_master_config,
@@ -39,6 +41,8 @@ class OverlayRequestHandler:
 
     def __init__(self):
         self.processing = False
+        self._block_translation_lock = asyncio.Lock()
+        self._latest_block_request = None
 
     async def handle_message(self, message_str: str):
         """
@@ -54,7 +58,7 @@ class OverlayRequestHandler:
             logger.background(f"Received overlay message of type: {message_type}")
 
             if message_type == "translate-request":
-                await self.handle_translation_request()
+                await self.handle_translation_request(message)
             elif message_type == "manual-overlay-scan-request":
                 await self.handle_manual_overlay_scan_request(message)
             elif message_type == "manual-mode-background-request":
@@ -85,21 +89,47 @@ class OverlayRequestHandler:
         except Exception as e:
             logger.exception(f"Error handling overlay message: {e}")
 
-    async def handle_translation_request(self):
+    async def handle_translation_request(self, message: dict | None = None):
+        if message is not None and "blocks" in message:
+            # Finish the active batch, then translate only the newest waiting frame.
+            # The renderer ignores the completed batch if its source has changed.
+            self._latest_block_request = message
+            async with self._block_translation_lock:
+                if self._latest_block_request is not message:
+                    return
+                await self._perform_translation_request(message)
+        else:
+            await self._perform_translation_request(message)
+
+    async def _perform_translation_request(self, message: dict | None = None):
         """
         Handle a translation request from the overlay.
-        Translates the last flattened OCR result from the overlay processor.
+        Translate renderer blocks in one batch, or legacy flattened OCR text.
         """
         if self.processing:
             logger.display("Translation already in progress, skipping request")
+            await self.send_error("Translation already in progress", (message or {}).get("request_id"))
             return
 
+        request_id = (message or {}).get("request_id")
         try:
             self.processing = True
 
             # Check if AI is enabled
             if not get_config().ai.is_configured():
-                await self.send_error("AI translation is not enabled in GSM settings")
+                await self.send_error("AI translation is not enabled in GSM settings", request_id)
+                return
+
+            if message is not None and "blocks" in message and get_config().ai.provider != AI_DEEPL:
+                blocks = validate_blocks(message["blocks"])
+                translation = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    translate_overlay_blocks,
+                    get_all_lines(),
+                    blocks,
+                    get_current_game(sanitize=False, update=False) or "Unknown Game",
+                )
+                await self.send_translation({"request_id": request_id, "blocks": translation})
                 return
 
             # Get the overlay processor instance
@@ -113,7 +143,7 @@ class OverlayRequestHandler:
             sentence = last_oneocr_result or last_lens_result
 
             if not sentence or not sentence.strip():
-                await self.send_error("No OCR text available to translate")
+                await self.send_error("No OCR text available to translate", request_id)
                 return
 
             logger.display(f"Translating: {sentence}")
@@ -148,13 +178,15 @@ class OverlayRequestHandler:
 
             if translation and translation.strip():
                 logger.display(f"Translation: {translation}")
-                await self.send_translation(translation)
+                await self.send_translation(
+                    {"request_id": request_id, "text": translation} if request_id else translation
+                )
             else:
-                await self.send_error("Translation returned empty result")
+                await self.send_error("Translation returned empty result", request_id)
 
         except Exception as e:
             logger.exception(f"Translation request failed: {e}")
-            await self.send_error(f"Translation failed: {str(e)}")
+            await self.send_error(f"Translation failed: {e!s}", request_id)
         finally:
             self.processing = False
 
@@ -533,14 +565,16 @@ class OverlayRequestHandler:
         except Exception as e:
             logger.exception(f"Failed to open GSM settings from overlay: {e}")
 
-    async def send_translation(self, translation: str):
+    async def send_translation(self, translation: str | dict):
         """Send translation result back to overlay."""
         message = {"type": "translation-result", "data": translation}
         await websocket_manager.send(ID_OVERLAY, message)
 
-    async def send_error(self, error_message: str):
+    async def send_error(self, error_message: str, request_id=None):
         """Send error message back to overlay."""
         message = {"type": "translation-error", "error": error_message}
+        if request_id is not None:
+            message["request_id"] = request_id
         await websocket_manager.send(ID_OVERLAY, message)
 
 

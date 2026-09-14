@@ -1466,6 +1466,7 @@ export class DisplayAnki {
             switch (type) {
                 case 'audio':
                 case 'clipboardImage':
+                case 'screenshot':
                     break;
                 default:
                     ++count;

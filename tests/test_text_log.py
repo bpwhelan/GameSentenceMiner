@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from GameSentenceMiner.util import text_log
 
 
@@ -13,6 +15,34 @@ def test_is_line_recycled_uses_normalized_text(monkeypatch):
 
     assert text_log.is_line_recycled("Hello, World!")
     assert not text_log.is_line_recycled("Goodbye")
+
+
+@pytest.mark.parametrize(
+    "line_text",
+    [
+        "うん。",
+        "あるよ。",
+        "ひとつだけ。",
+        "それは……？",
+        "あ…。",
+        "わかった。",
+        "１２３４５６７８９！",
+    ],
+)
+def test_is_line_recycled_ignores_lines_shorter_than_ten_normalized_characters(monkeypatch, line_text):
+    monkeypatch.setattr(
+        text_log.game_log,
+        "previous_lines",
+        {text_log.normalize_text_for_comparison(line_text)},
+    )
+
+    assert not text_log.is_line_recycled(line_text)
+
+
+def test_is_line_recycled_accepts_ten_normalized_characters(monkeypatch):
+    monkeypatch.setattr(text_log.game_log, "previous_lines", {"１２３４５６７８９０"})
+
+    assert text_log.is_line_recycled("１２３４５６７８９０！")
 
 
 def test_game_text_prunes_oldest_lines_and_unlinks_history(monkeypatch):
@@ -32,9 +62,17 @@ def test_previous_line_cache_is_bounded(monkeypatch):
     monkeypatch.setattr(text_log, "MAX_PREVIOUS_LINES", 2)
     game_text = text_log.GameText()
 
-    game_text.replace_previous_lines(["one", "two", "three"])
+    game_text.replace_previous_lines(["abcdefghij", "klmnopqrst", "uvwxyzabcd"])
 
-    assert game_text.previous_lines == {"two", "three"}
+    assert game_text.previous_lines == {"klmnopqrst", "uvwxyzabcd"}
+
+
+def test_previous_line_cache_excludes_short_lines():
+    game_text = text_log.GameText()
+
+    game_text.replace_previous_lines(["short", "１２３４５６７８９", "１２３４５６７８９０"])
+
+    assert game_text.previous_lines == {"１２３４５６７８９０"}
 
 
 def test_lines_match_rejects_punctuation_only_line_against_sentence():

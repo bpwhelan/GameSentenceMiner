@@ -78,7 +78,9 @@ class BackendConnector {
           } else if (message.type === 'translation-error') {
             const mainWindow = this.mainWindowGetter();
             if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('translation-error', message.error);
+              mainWindow.webContents.send('translation-error', message.request_id
+                ? { request_id: message.request_id, error: message.error }
+                : message.error);
             }
           }
           if (this.onMessage) {

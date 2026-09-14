@@ -8,10 +8,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 type LiveStatsWidget = {
   applySettings: (settings: Record<string, unknown>) => void;
   handleGoalsUpdate: (payload: { goals: unknown[] }) => void;
+  handleStatsUpdate: (payload: Record<string, unknown>) => void;
+  handleTextBoundsUpdate: (rects: Array<Record<string, number>>) => void;
 };
 
 const widgetSource = readFileSync(resolve(process.cwd(), 'GSM_Overlay/live_stats_widget.js'), 'utf8');
 const settingsHtml = readFileSync(resolve(process.cwd(), 'GSM_Overlay/settings.html'), 'utf8');
+const overlayHtml = readFileSync(resolve(process.cwd(), 'GSM_Overlay/index.html'), 'utf8');
 const mainSource = readFileSync(resolve(process.cwd(), 'GSM_Overlay/main.js'), 'utf8');
 
 function loadWidget(): { dom: JSDOM; ipcSend: ReturnType<typeof vi.fn>; widget: LiveStatsWidget } {
@@ -66,6 +69,17 @@ function configureGoals(widget: LiveStatsWidget, hideCompletedGoals?: boolean) {
 function renderedGoalLabels(dom: JSDOM): string[] {
   return Array.from(dom.window.document.querySelectorAll('.gsm-live-goal-label'))
     .map((element) => element.getAttribute('data-text') || '');
+}
+
+function rect(left: number, top: number, right: number, bottom: number) {
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top,
+  };
 }
 
 afterEach(() => {
@@ -172,5 +186,55 @@ describe('live stats hotkey visibility cycle', () => {
       'hidden',
       'all',
     ]);
+  });
+});
+
+describe('live stats text overlap avoidance', () => {
+  it('exposes a default-on setting and forwards authoritative rendered text bounds', () => {
+    const dom = new JSDOM(settingsHtml);
+    const checkbox = dom.window.document.querySelector<HTMLInputElement>('#hideLiveStatsOnTextOverlap');
+
+    expect(checkbox).not.toBeNull();
+    expect(checkbox?.checked).toBe(true);
+    expect(settingsHtml).toContain(
+      'createCheckboxBinding("hideLiveStatsOnTextOverlap", "#hideLiveStatsOnTextOverlap")',
+    );
+    expect(mainSource).toContain('"hideLiveStatsOnTextOverlap": true');
+    expect(overlayHtml).toContain('handleTextBoundsUpdate(renderedTextBounds)');
+  });
+
+  it('stays hidden after an overlap until a later non-overlapping text event', () => {
+    const { dom, widget } = loadWidget();
+    widget.handleStatsUpdate({ values: {}, session_active: true });
+
+    const root = dom.window.document.querySelector<HTMLElement>('#gsm-live-stats');
+    expect(root).not.toBeNull();
+    root!.getBoundingClientRect = vi.fn(() => rect(800, 10, 1000, 110) as DOMRect);
+
+    widget.handleTextBoundsUpdate([rect(850, 40, 900, 80)]);
+    expect(root?.classList.contains('gsm-live-stats-visible')).toBe(false);
+
+    widget.handleStatsUpdate({ values: { total_characters: 10 }, session_active: true });
+    expect(root?.classList.contains('gsm-live-stats-visible')).toBe(false);
+
+    widget.applySettings({ liveStatsLayoutV2: 'stacked' });
+    expect(root?.classList.contains('gsm-live-stats-visible')).toBe(false);
+
+    widget.handleTextBoundsUpdate([rect(100, 300, 300, 360)]);
+    expect(root?.classList.contains('gsm-live-stats-visible')).toBe(true);
+  });
+
+  it('does not hide for overlaps when the option is disabled', () => {
+    const { dom, widget } = loadWidget();
+    widget.handleStatsUpdate({ values: {}, session_active: true });
+
+    const root = dom.window.document.querySelector<HTMLElement>('#gsm-live-stats');
+    expect(root).not.toBeNull();
+    root!.getBoundingClientRect = vi.fn(() => rect(800, 10, 1000, 110) as DOMRect);
+
+    widget.applySettings({ hideLiveStatsOnTextOverlap: false });
+    widget.handleTextBoundsUpdate([rect(850, 40, 900, 80)]);
+
+    expect(root?.classList.contains('gsm-live-stats-visible')).toBe(true);
   });
 });

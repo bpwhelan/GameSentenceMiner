@@ -25,8 +25,8 @@ broker.
 | Backend batch collection | 120 ms |
 | Upstream concurrency | 1 across parsing, state lookups, metadata, and grading |
 | Minimum request spacing | 1 second |
-| Minimum parse spacing | 2 seconds (at most 30 parse requests/minute) |
-| Rolling parse budget | 60,000 charged characters/minute, minimum charge 2,000 per call |
+| Minimum parse spacing | 1 second (at most 60 parse requests/minute) |
+| Rolling parse budget | 60,000 charged characters/minute, minimum charge 1,000 per call |
 | One parse batch | At most 128 paragraphs and 16,000 UTF-16 code units |
 | Pending work | At most 512 items and 256,000 text code units |
 | Syntax cache | 24 hours, LRU, at most 2,000 paragraphs or 16 MiB |
@@ -35,9 +35,13 @@ broker.
 | Reader ping | 1 minute |
 | Network deadline | 30 seconds, starting when sent, excluding queue time |
 
-These are conservative GSM limits, not a claim about the service's quota. Short
-legacy renderer timeout arguments do not override the shared transport deadline.
-Frame cancellation removes unsent work without aborting a shared upstream parse.
+These are conservative GSM limits, not a claim about the service's quota. Jiten's
+[API guide](https://jiten.moe/guides/using-the-api) documents 300 requests/minute
+for ordinary endpoints and 10/minute or less for some heavy operations, but does
+not publish a specific limit for `reader/parse`. GSM's 60/minute cap leaves margin
+while still honoring any authoritative 429 and `Retry-After` response. Short legacy
+renderer timeout arguments do not override the shared transport deadline. Frame
+cancellation removes unsent work without aborting a shared upstream parse.
 
 Only uncached Japanese paragraphs are sent, as a real `text: string[]` batch.
 Repeated paragraphs, overlapping concurrent requests, and partial cache hits do
@@ -55,8 +59,16 @@ New furigana frames replace obsolete queued work, while shared paragraphs retain
 their existing request. Work already sent can finish and populate the cache even
 after a frame becomes obsolete. The renderer discards obsolete results, and an
 unchanged frame reuses pending/completed readings without additional IPC. Reader
-highlighting keeps one active parse and only the newest waiting frame. Visible
-OCR text remains immediate; enrichment can wait under load.
+highlighting skips provisional OCR payloads so stale text cannot block the
+authoritative final result. It keeps one active parse and only the newest waiting
+final frame. An all-unparsed Reader response counts as complete and releases that
+waiting frame instead of holding it until the failure watchdog. Visible OCR text
+remains immediate; enrichment can wait under load. Highlight dispatch only yields
+to the next renderer task to coalesce same-turn updates; the shared broker is the
+sole owner of network pacing, so cached highlights are not held behind a duplicate
+renderer-side delay. If the local Reader settings bridge misses its startup check,
+the overlay retries that local-only check after one second; it does not contact
+Jiten or consume the network request budget.
 
 ## Failures and account state
 
