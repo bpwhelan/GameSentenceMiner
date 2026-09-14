@@ -579,7 +579,7 @@
                   <input id="opt-blur-delay" type="number" min="1" max="3600" step="0.5" inputmode="decimal" />
                 </label>
               </div>
-              <p class="field-hint" id="definition-blur-help" hidden>Hovering a definition or the compact summary always reveals it. Pronunciation does not auto-play for blurred results.</p>
+              <p class="field-hint" id="definition-blur-help" hidden>Hovering a definition or the compact summary always reveals it. Automatic pronunciation waits until the definitions are revealed.</p>
             </details>
           </fieldset>
           <div id="settings-local-file-access" hidden></div>
@@ -774,9 +774,9 @@
               <button id="reset-design" type="button" class="ghost">Reset Design to defaults</button>
               <p class="field-hint">Resets appearance and content controls above. Reading and your library stay unchanged.</p>
             </div>
-            <details class="design-sample" id="design-preview-disclosure" open>
-              <summary>Live preview</summary>
+            <section class="design-sample" aria-labelledby="design-preview-heading">
               <div class="preview-heading">
+                <h2 id="design-preview-heading">Live preview</h2>
                 <label class="preview-size-label">View
                   <select id="preview-size">
                     <option value="fit">Scale to fit</option>
@@ -788,7 +788,7 @@
               <div class="preview-viewport" id="preview-viewport">
                 <div id="preview-canvas"></div>
               </div>
-            </details>
+            </section>
           </div>
         </section>
         <section class="card" id="audio" aria-labelledby="audio-heading" hidden>

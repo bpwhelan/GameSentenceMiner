@@ -484,7 +484,6 @@ function attachSettingsNavigation() {
     if (section && window.location.hash !== `#${section}`) window.history.pushState(null, "", `#${section}`);
     showSettingsSection();
   } });
-  element("design-preview-disclosure").open = window.innerWidth > 1100;
   const picker = element("settings-section");
   picker.addEventListener("change", (event) => {
     const fragment = `#${event.target.value}`;

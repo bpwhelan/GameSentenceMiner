@@ -1708,11 +1708,10 @@
       isCurrent: () => level.currentViewRequest === request && !level.retainedView
         && requestCanRender(token, level.activeCandidate, level),
     };
-    // The primary result's autoplay waits for the blur decision, and a lookup
-    // that qualified never auto-plays, whichever tab or expansion binds.
+    // The primary result's autoplay waits until its definitions are revealed,
+    // whichever tab or expansion binds.
     audio.bind(rendered.audioButtons, {
       ...context,
-      autoplaySuppressed: () => request?.blur?.autoplaySuppressed === true,
       ...("lookupStats" in rendered ? { autoplayHeld: () => request?.blur?.autoplayHeld === true } : {}),
     });
     mining.bind(rendered.miningActions, { ...context, getRequest: result => {
@@ -1879,6 +1878,7 @@
     blur.state = "revealed";
     if (level.currentViewRequest === request) clearDefinitionBlurTimer(level);
     applyDefinitionBlurState(request, level);
+    releaseDefinitionBlurAutoplay(request, level);
   }
 
   function armDefinitionBlurTimer(request, level) {
@@ -1906,7 +1906,7 @@
       const awaitingOptions = optionsStorageRevision < 0;
       const active = awaitingOptions || definitionBlurActive();
       request.blur = { state: active ? "pending" : "revealed", displayedAt: Date.now(), awaitingOptions,
-        lookupCount: undefined, ankiMature: undefined, decided: false, autoplayHeld: active, autoplaySuppressed: false };
+        lookupCount: undefined, ankiMature: undefined, autoplayHeld: active };
     }
     if (!request.blur.awaitingOptions) {
       discardStaleAnkiMaturity(request, level);
@@ -1922,16 +1922,18 @@
     settleDefinitionBlur(request, level);
   }
 
-  function releaseDefinitionBlurAutoplay(request, level, play) {
+  // Pending and blurred definitions hold the first result's autoplay; every
+  // reveal releases it once.
+  function releaseDefinitionBlurAutoplay(request, level) {
     if (!request.blur.autoplayHeld) return;
     request.blur.autoplayHeld = false;
-    audio?.settleAutoplay(level, request, play);
+    audio?.settleAutoplay(level, request);
   }
 
   // Either enabled signal can qualify immediately. A negative decision waits
   // for both; failures fail open. Retain the first count while Anki is pending
-  // so later row events cannot change this visit's autoplay decision. Hover and
-  // the absolute deadline can reveal before either reply, without reblurring.
+  // so later row events cannot change this visit's decision. Hover and the
+  // absolute deadline can reveal before either reply, without reblurring.
   function settleDefinitionBlur(request, level, lookupCount) {
     const blur = request.blur;
     if (!blur) return;
@@ -1941,11 +1943,6 @@
     const qualifies = definitionBlurQualifies(options, countEnabled ? blur.lookupCount : null, blur.ankiMature);
     if (!qualifies && ((countEnabled && blur.lookupCount === undefined)
         || (options.definitionBlurAnkiMature && blur.ankiMature === undefined))) return;
-    if (!blur.decided) {
-      blur.decided = true;
-      blur.autoplaySuppressed = qualifies;
-      releaseDefinitionBlurAutoplay(request, level, !qualifies);
-    }
     if (blur.state !== "pending") return;
     if (!qualifies) {
       revealDefinitions(request, level);
@@ -3474,7 +3471,6 @@
         // Disabling reveals at once; other edits apply to unrevealed views
         // from their original display time. Note drafts are untouched.
         if (!definitionBlurActive()) {
-          releaseDefinitionBlurAutoplay(request, level, true);
           revealDefinitions(request, level);
         } else if (blur.state === "blurred" && !definitionBlurQualifies(next,
           next.showLookupCounts ? currentLookupCount(request.lookupStats) : null, blur.ankiMature)) {

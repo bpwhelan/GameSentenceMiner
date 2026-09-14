@@ -23,8 +23,8 @@
     let sourceKey = JSON.stringify(options.audioSources);
     let active = null, menu = null;
     let optionsReady = false;
-    // One first result per owner may wait for options or for the owner's
-    // definition-blur decision; its first-visit key stays unconsumed meanwhile.
+    // One first result per owner may wait for options or until the owner's
+    // blurred definitions are revealed; its first-visit key stays unconsumed meanwhile.
     const pendingAutoplay = new Map();
 
     function audioAvailable() {
@@ -52,7 +52,7 @@
     }
 
     // A retired hold keeps its visit: the same request may bind again and its
-    // decision still settles it, while a request that is gone has no key to
+    // reveal still settles it, while a request that is gone has no key to
     // spend. A manual play consumes every waiting result.
     function cancelAutoplay(owner, consumeHeld = true) {
       for (const [key, record] of pendingAutoplay) {
@@ -64,12 +64,6 @@
 
     function autoplay(record) {
       if (!current(record)) return;
-      // A suppressed first result consumes its visit silently, so no later
-      // rebind can start it either.
-      if (record.autoplaySuppressed?.()) {
-        firstVisit(record);
-        return;
-      }
       if (!optionsReady || record.autoplayHeld?.()) {
         const previous = pendingAutoplay.get(record.owner);
         if (previous && previous.autoplayKey !== record.autoplayKey) firstVisit(previous);
@@ -278,15 +272,13 @@
       bind, retire, closeMenu, playButton,
       hasMenu: owner => Boolean(menu && (owner === undefined || menu.record.owner === owner)),
       selectionFor: result => selections.get(result) ?? null,
-      // Releases the owner's waiting first result for exactly this request: it
-      // plays when eligible, or its visit is consumed so a later rebind cannot
-      // start it. A stale request's late decision leaves a newer view alone.
-      settleAutoplay(owner, request, play) {
+      // Releases the owner's held first result for exactly this request once its
+      // definitions are revealed. A stale request's late reveal leaves a newer view alone.
+      settleAutoplay(owner, request) {
         const record = pendingAutoplay.get(owner);
         if (!record || record.request !== request) return;
         pendingAutoplay.delete(owner);
-        if (play) autoplay(record);
-        else firstVisit(record);
+        autoplay(record);
       },
       update(next, ready = true) {
         const waiting = !optionsReady && ready ? [...pendingAutoplay] : [];

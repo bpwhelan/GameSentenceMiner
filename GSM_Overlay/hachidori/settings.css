@@ -330,19 +330,12 @@ button,
   border-radius: 8px;
   background: var(--surface-sunken);
 }
-.design-sample > summary {
-  cursor: pointer;
-  font-size: 15px;
-  font-weight: 620;
-}
-.design-sample[open] > summary {
-  margin-bottom: 12px;
-}
 .preview-heading {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 12px;
+  margin-bottom: 12px;
 }
 .preview-size-label {
   display: flex;
