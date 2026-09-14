@@ -1971,22 +1971,6 @@ html[data-hoshidicts-theme="girlypop"],
   cursor: pointer;
 }
 
-.gsm-hoshidicts-view-in-anki-button {
-  flex: 0 0 36px;
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  min-height: 36px;
-  padding: 0;
-}
-
-.gsm-hoshidicts-view-in-anki-icon {
-  display: block;
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
-}
-
 .gsm-hoshidicts-text-action-button:hover:not(:disabled),
 .gsm-hoshidicts-text-action-button:focus-visible {
   border-color: var(--accent-color);

@@ -257,7 +257,7 @@ export function createAnkiMiningService({
       }
       // A lost acknowledgement may follow a completed write. Neither this
       // worker nor the reader retries it automatically, including append modes.
-      return { state: "uncertain", error: `The write could not be confirmed. Use View in Anki before trying again. ${error.message}` };
+      return { state: "uncertain", error: `The write could not be confirmed. Check Anki before trying again. ${error.message}` };
     }
     const warnings = [...(Array.isArray(writeResources?.warnings) ? writeResources.warnings : [])];
     let verified = false;

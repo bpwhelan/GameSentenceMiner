@@ -7,6 +7,8 @@ import { promisify } from 'node:util';
 const execFile = promisify(execFileCallback);
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const targetDir = path.join(repoRoot, 'GSM_Overlay', 'hachidori');
+// Hachidori's own folder guide, which the overlay has no use for.
+const excludedPaths = new Set(['README.md']);
 const overlayModeOff = 'export const OVERLAY_MODE = false;';
 const overlayModeOn = 'export const OVERLAY_MODE = true;';
 const stableManifestKey = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3EBnBqP0Ma73KIk9Nx2ye+WFabltPVObI7QWPgYhdupw89RJ7J7xRUddIGszPDhpQNYnm37eLQupFXjqlSt0B1ltnltpzGynkRflAmRbtlqPWf19TWy6EowMm1SegxRR/YPxP5M93oQ/ojzfUPDQ4bhTE23vic/xY7sZttqcewAJou/TyCJTEjcoZgqDTD4PDnXyu1rB+bMJpu+uF/geKkkAOU4IRXHOEuE1JhJorvzmlZT07H01eqXGpmjR7ySbXryhN2gWb1arY+lCWd/qXWWUcIuyjak8D/6WgIaJwsBwoL/B/60gMoXDnDCRWi5kMWH68scx2QzF6g+FDykntwIDAQAB';
@@ -37,7 +39,10 @@ async function main() {
   const commit = await git(sourceRoot, 'rev-parse', 'HEAD');
 
   await fs.rm(targetDir, { recursive: true, force: true });
-  await fs.cp(sourceExtensionDir, targetDir, { recursive: true });
+  await fs.cp(sourceExtensionDir, targetDir, {
+    recursive: true,
+    filter: (source) => !excludedPaths.has(path.relative(sourceExtensionDir, source)),
+  });
 
   const manifestPath = path.join(targetDir, 'manifest.json');
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
@@ -64,6 +69,7 @@ async function main() {
       modifications: [
         'manifest.json includes a fixed public key so the GSM-hosted extension keeps one stable ID.',
         'overlay-mode.js enables overlay mode: hover lookups, no word highlight, and no first-run setup page.',
+        'README.md is left out.',
       ],
     }, null, 2)}\n`,
   );

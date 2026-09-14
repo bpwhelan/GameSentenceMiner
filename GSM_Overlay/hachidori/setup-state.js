@@ -28,6 +28,17 @@ export const OVERLAY_MODE_OPTIONS = Object.freeze({
   anki: Object.freeze({ captureScreenshot: false }),
 });
 
+// What mining may use in an overlay host, whatever the stored options say.
+// Electron has no chrome.tabs.captureVisibleTab, and no capture host can record
+// browser text-to-speech, so only downloadable pronunciations reach Anki.
+export function overlayAnkiOptions(options) {
+  return {
+    ...options,
+    anki: { ...options.anki, captureScreenshot: false },
+    audioSources: options.audioSources.filter(source => !source.type.startsWith("text-to-speech")),
+  };
+}
+
 // How each first-install option's value is built from a committed title.
 const FIRST_INSTALL_SELECTORS = Object.freeze({
   compactDefinitionSummaryDictionary: (title) => title,

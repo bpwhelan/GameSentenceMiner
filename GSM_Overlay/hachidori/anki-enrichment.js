@@ -34,7 +34,8 @@ export async function enrichAnkiNote(context, { audio, render, media }) {
     return !existingFields || (template.overwriteMode !== "skip"
       && !(template.overwriteMode === "coalesce" && existingFields[field]));
   }));
-  if (!Object.keys(templates).length) return warnings;
+  // No enabled audio source means no pronunciation, like a screenshot turned off.
+  if (!Object.keys(templates).length || (!resources.audioPrepared && !context.config.audioSources.length)) return warnings;
   try {
     const file = resources.audioPrepared ? resources.audio : await audio(request, context.config);
     await store(file);

@@ -240,7 +240,7 @@ export function createAnkiWorkerService({
       const resources = { dictionaryPaths: Object.fromEntries(dictionaries.filter(item => item.enabled !== false)
         .map(item => [item.title, item.path])), audioPrepared: false, audio: null, deferDuplicateCheck: false };
       const first = current.resolved.templates[current.discovery.fields[0]];
-      if (ankiTemplateMarkerNames(first.value).includes("audio")) {
+      if (ankiTemplateMarkerNames(first.value).includes("audio") && current.config.audioSources.length) {
         // Audio in the first field is part of Anki's duplicate identity. A
         // failed/stale selection must not turn that identity into text-only.
         // Browser speech is audible work, so preflight verifies only that the

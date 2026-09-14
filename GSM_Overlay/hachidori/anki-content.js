@@ -44,6 +44,7 @@
     }[state] || "Mine to Anki";
     button.title = title;
     button.setAttribute("aria-label", title);
+    button.dataset.action = views(record) ? "view" : "add";
     const iconName = {
       ready: "big-circle",
       "add-duplicate": "add-duplicate-big-circle",
@@ -68,13 +69,16 @@
     }[state] || "-";
     button.replaceChildren(icon);
   }
-  function viewsExisting(record) {
-    return record.decision?.state === "duplicate" && record.decision.canAdd === false;
+  // The one Anki button opens Anki instead of adding once there is a note to
+  // show: the note it wrote, the write it could not confirm, or the duplicates
+  // that block adding.
+  function views(record) {
+    return record.terminal || (record.decision?.state === "duplicate" && record.decision.canAdd === false);
   }
   function disabled(record) {
     if (!record.add) return;
-    record.add.disabled = record.busy || record.terminal || record.group.checking
-      || (!record.decision?.canAdd && !viewsExisting(record));
+    record.add.disabled = record.busy
+      || (!record.terminal && (record.group.checking || (!record.decision?.canAdd && !views(record))));
   }
   function payload(record) {
     return { ...record.group.getRequest(record.result), configKey: record.group.configKey };
@@ -88,12 +92,10 @@
   function showControls(record, value) {
     record.hidden = !value;
     if (record.add) record.add.hidden = !value;
-    if (record.view) record.view.hidden = !value || viewsExisting(record);
     syncFeedback(record);
   }
   function removeControls(record) {
     record?.add?.remove();
-    record?.view?.remove();
     record?.control?.remove();
     if (record?.feedback) syncFeedbackSurface(record.feedback);
   }
@@ -117,7 +119,6 @@
       setMiningButtonState(record, state, state === "view-existing" ? "" : value.error || "");
       setStatus(record, value.error || "", value.error ? "error" : "info");
     }
-    if (record.view) record.view.hidden = record.hidden || viewsExisting(record);
     captureBadge(record);
     disabled(record);
   }
@@ -250,9 +251,10 @@
       // A configuration epoch can change while Anki commits. The submitted
       // record still owns its outcome; never turn a known write into a retry.
       record.terminal = true;
+      record.noteIds = [result.noteId];
       const label = result.state === "added" ? "Added" : "Updated";
       const warnings = [record.screenshotWarning, ...(result.warnings ?? [])].filter(Boolean);
-      setMiningButtonState(record, "success", `${label} note`);
+      setMiningButtonState(record, "success", `${label} note. Open it in Anki`);
       setStatus(record, `${label} note ${result.noteId}. ${warnings.join(" ")}`.trim(),
         warnings.length > 0 ? "warning" : "success");
       refreshAll(); // Best-effort checks cannot turn a confirmed write into a retry.
@@ -306,7 +308,7 @@
       } catch (error) {
         // Nothing was sent, so the picture this submission took is nobody's.
         if (!writeSent) await discardScreenshot(record);
-        if (writeSent && !error.responseReceived) uncertain(record, `The write could not be confirmed. Use View in Anki before trying again. ${error.message}`);
+        if (writeSent && !error.responseReceived) uncertain(record, `The write could not be confirmed. Check Anki before trying again. ${error.message}`);
         else if (owns()) {
           setMiningButtonState(record, decisionState(record.decision));
           setStatus(record, `Could not add: ${error.message}`, "error");
@@ -316,23 +318,20 @@
         if (current(record)) { disabled(record); onChange(record.group.owner); refresh(record.group); }
       }
     }
-    async function browse(record, exact = false) {
-      const button = exact ? record.add : record.view;
-      if (!current(record) || button.disabled) return;
-      button.disabled = true;
+    // An unconfirmed write has no note ID, so Anki searches for the expression.
+    async function browse(record) {
+      if (!current(record) || record.add.disabled) return;
+      record.add.disabled = true;
+      const noteIds = record.terminal ? record.noteIds : record.decision?.noteIds;
       try {
         await send("hd_anki_browse", { request: {
-          noteIds: exact && Array.isArray(record.decision?.noteIds) ? record.decision.noteIds : [],
+          noteIds: Array.isArray(noteIds) ? noteIds : [],
           expression: record.result.term.expression,
         } });
       }
       catch (error) { if (current(record)) setStatus(record, `Could not open Anki: ${error.message}`, "error"); }
       finally {
-        if (current(record)) {
-          if (exact) disabled(record);
-          else record.view.disabled = false;
-          onChange(record.group.owner);
-        }
+        if (current(record)) { disabled(record); onChange(record.group.owner); }
       }
     }
     function controls(record) {
@@ -348,18 +347,9 @@
       }
       const control = document.createElement("div");
       control.className = "gsm-hoshidicts-anki-control";
-      const add = document.createElement("button"), view = document.createElement("button");
-      add.type = view.type = "button";
+      const add = document.createElement("button");
+      add.type = "button";
       add.className = "gsm-hoshidicts-mine-button";
-      view.className = "gsm-hoshidicts-anki-view gsm-hoshidicts-view-in-anki-button gsm-hoshidicts-text-action-button";
-      view.title = "Open note in Anki";
-      view.setAttribute("aria-label", view.title);
-      const viewIcon = document.createElement("img");
-      viewIcon.className = "gsm-hoshidicts-view-in-anki-icon";
-      viewIcon.src = extensionAsset("render/icons/view-note.svg");
-      viewIcon.alt = "";
-      viewIcon.draggable = false;
-      view.appendChild(viewIcon);
       const badge = document.createElement("span");
       badge.className = "gsm-hoshidicts-capture-badge";
       badge.hidden = true;
@@ -370,20 +360,15 @@
       control.hidden = true;
       feedback.append(control);
       record.actions.prepend(add);
-      const actionAnchor = record.actions.querySelector(".gsm-hoshidicts-note-button")
-        || record.actions.querySelector(".gsm-hoshidicts-audio-control")
-        || add;
-      actionAnchor.after(view);
-      Object.assign(record, { feedback, control, add, view, badge, output, hidden: false });
+      Object.assign(record, { feedback, control, add, badge, output, hidden: false });
       setMiningButtonState(record, "checking");
       add.addEventListener("mousedown", event => {
-        if (event.button === 0 && current(record) && !viewsExisting(record)) record.pointerRequest = payload(record);
+        if (event.button === 0 && current(record) && !views(record)) record.pointerRequest = payload(record);
       });
       add.addEventListener("click", event => {
-        if (viewsExisting(record)) void browse(record, true);
+        if (views(record)) void browse(record);
         else void submit(record, event.detail > 0);
       });
-      view.addEventListener("click", () => { void browse(record); });
       disabled(record);
     }
     function bind(items, context) {

@@ -3168,8 +3168,8 @@
         return clickKeybindControl(level.popup.querySelector(".gsm-hoshidicts-kanji-back"));
       case "addNote":
       case "viewNotes":
-        return clickKeybindControl(level.entryMining?.[entry]?.actions.querySelector(action === "addNote"
-          ? ".gsm-hoshidicts-mine-button" : ".gsm-hoshidicts-anki-view"));
+        return clickKeybindControl(level.entryMining?.[entry]?.actions.querySelector(
+          `.gsm-hoshidicts-mine-button[data-action="${action === "addNote" ? "add" : "view"}"]`));
       case "playAudio":
       case "playAudioFromSource": {
         const button = level.entryAudio?.[entry]?.button;
