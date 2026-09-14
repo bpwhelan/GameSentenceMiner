@@ -7,7 +7,9 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { PROTOCOL_VERSION, parseHostFrame } from "./sharing-protocol.js";
+import {
+  LINKED_ANKI_UNSUPPORTED, PROTOCOL_VERSION, SHARING_CAPABILITIES, assertLinkedAnkiFrame, parseHostFrame,
+} from "./sharing-protocol.js";
 
 export const SHARING_LOCAL_STATE_KEY = "sharingLocalState";
 export const NOT_REACHABLE = "The linked Hachidori is not reachable.";
@@ -17,9 +19,9 @@ function describe(error) {
   return error instanceof Error ? error.message || String(error) : String(error);
 }
 
-// `applyBatch(changes)` writes one host storage batch locally; `version` and
-// `name` introduce this install to the host.
-export function createSharingClient({ WebSocket, applyBatch, version, name }) {
+// `applyBatch(changes, isCurrent, snapshot)` writes one host storage batch locally, checking
+// isCurrent inside its storage queue; `version` and `name` introduce this install.
+export function createSharingClient({ WebSocket, applyBatch, version, name, capabilities = SHARING_CAPABILITIES }) {
   const pending = new Map();
   const waiting = new Set();
   let address = null;
@@ -36,7 +38,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name }) {
   }
 
   function sendHello(target) {
-    target.send(JSON.stringify({ kind: "hello", protocol: PROTOCOL_VERSION, version, name }));
+    target.send(JSON.stringify({ kind: "hello", protocol: PROTOCOL_VERSION, version, name, capabilities }));
   }
 
   function settleWaiting(failure = null) {
@@ -63,6 +65,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name }) {
   }
 
   async function handleFrame(current, text) {
+    if (socket !== current) return;
     let frame;
     try {
       frame = parseHostFrame(text);
@@ -72,8 +75,9 @@ export function createSharingClient({ WebSocket, applyBatch, version, name }) {
     }
     switch (frame.kind) {
       case "hello":
-        host = { version: frame.version, name: frame.name, dictionaryCount: frame.dictionaryCount };
-        await applyBatch(frame.snapshot);
+        host = { version: frame.version, name: frame.name, dictionaryCount: frame.dictionaryCount,
+          capabilities: frame.capabilities };
+        await applyBatch(frame.snapshot, () => socket === current, true);
         if (socket !== current) return;
         ready = true;
         error = null;
@@ -88,7 +92,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name }) {
         return;
       }
       case "storage":
-        await applyBatch(frame.changes);
+        await applyBatch(frame.changes, () => socket === current);
         return;
       case "ping":
         current.send(JSON.stringify({ kind: "pong" }));
@@ -132,12 +136,31 @@ export function createSharingClient({ WebSocket, applyBatch, version, name }) {
   // A request made while disconnected waits for one connection attempt; a
   // request in flight has no deadline, because a forwarded install can take
   // minutes and the socket closing rejects it anyway.
-  function forward(message) {
+  function forward(message, { capability = null, onSent = null } = {}) {
     return new Promise((resolve, reject) => {
       const id = ++nextId;
       const send = () => {
+        if (capability !== null && !host?.capabilities.includes(capability)) {
+          reject(new Error(LINKED_ANKI_UNSUPPORTED));
+          return;
+        }
+        const text = JSON.stringify({ kind: "request", id, message });
+        if (message?.target === "hachidori-anki" && message.type === "hd_anki_submit") {
+          try {
+            assertLinkedAnkiFrame(text);
+          } catch (error) {
+            reject(error);
+            return;
+          }
+        }
         pending.set(id, { resolve, reject });
-        socket.send(JSON.stringify({ kind: "request", id, message }));
+        try {
+          socket.send(text);
+          onSent?.();
+        } catch (error) {
+          pending.delete(id);
+          reject(error);
+        }
       };
       if (ready) {
         send();
@@ -188,7 +211,8 @@ export function createSharingClient({ WebSocket, applyBatch, version, name }) {
         try {
           const frame = parseHostFrame(String(event.data));
           if (frame.kind === "hello") {
-            finish(() => resolve({ version: frame.version, name: frame.name, dictionaryCount: frame.dictionaryCount, snapshot: frame.snapshot }));
+            finish(() => resolve({ version: frame.version, name: frame.name, dictionaryCount: frame.dictionaryCount,
+              capabilities: frame.capabilities, snapshot: frame.snapshot }));
           } else if (frame.kind === "bye") {
             finish(() => reject(new Error(frame.reason || "The shared Hachidori refused the connection.")));
           }
@@ -205,6 +229,9 @@ export function createSharingClient({ WebSocket, applyBatch, version, name }) {
     probe,
     forward,
     link(next) {
+      const failure = new Error(NOT_REACHABLE);
+      rejectPending(failure);
+      settleWaiting(failure);
       address = next;
       error = null;
       attempt = 0;

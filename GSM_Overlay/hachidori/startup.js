@@ -14,9 +14,12 @@ import "./reader-options.js";
 import "./visual-novel.js";
 import {
   createDictionaryProgressList,
-  formatBytes,
+  installEntryState,
   formatSeconds,
 } from "./dictionary-progress.js";
+import { createRecommendedInstallClient } from "./recommended-install-client.js";
+import { applyPageTheme } from "./settings-dom.js";
+import { canDiscoverSharingHost } from "./sharing-protocol.js";
 import { recommendedDictionaryInstalled } from "./managed-dictionary-source.js";
 import { RECOMMENDED_DICTIONARIES, describeRecommendedCatalogue } from "./recommended-dictionaries.js";
 import { SETUP_STATE_KEY, SETUP_STAGES, normaliseSetupState } from "./setup-state.js";
@@ -24,7 +27,6 @@ import { createPracticeView, practiceReadiness } from "./startup-practice.js";
 
 const WORKER_TARGET = "hoshidicts-worker";
 const SETUP_TARGET = "hachidori-setup";
-const SETUP_EVENTS_TARGET = "hachidori-setup-events";
 const ENGINE_TARGET = "hoshidicts-offscreen";
 const SHARING_TARGET = "hachidori-sharing";
 // How long the first render waits for the look around this computer.
@@ -33,9 +35,6 @@ const ANKI_RESULT_DISPLAY_MS = 3000;
 const COUNTDOWN_TICK_MS = 250;
 const ANKI_PROGRESS_STEP_MS = 2000;
 const ANKI_PROGRESS_STEPS = 3;
-// A run reports at every phase change and about ten times a second while a body
-// arrives, so a longer silence means the offscreen document that owned it is gone.
-const RUN_SILENCE_MS = 4000;
 // A dictionary mutation refuses lookups while it holds the engine, so the
 // practice probe waits for the engine to go idle and asks again rather than
 // calling the sentence unanswerable. Only an idle engine that still refuses is
@@ -55,17 +54,10 @@ let saving = false;
 let renderedStage;
 // A Hachidori sharing itself from another browser on this computer, when one answered.
 let sharedHost = null;
-// The installer run this page follows: the latest attach reply, then only
-// newer events carrying the same run identity.
-let run = null;
-let attaching = null;
 let countdown = null;
 let countdownPaused = false;
 let advanceFailed = false;
 let automaticAdvance = null;
-// A failed install request is shown once with Retry; the page never re-requests on its own.
-let installFailed = false;
-let runSilenceTimer = null;
 let readerLoading = null;
 // What a real lookup of the practice sentence found: unknown, "ready" (the
 // exact-selection shortcut answers), "passage" (another passage lookup answers),
@@ -86,6 +78,11 @@ let ankiProgressTimer = null;
 const announced = new Map();
 let dictionaryProgress;
 let practice;
+const installation = createRecommendedInstallClient({
+  send: sourceIds => send("hd_setup_install", { sourceIds }, SETUP_TARGET),
+  onChange() { if (!saving) render(); },
+  onError(error) { setStatus(`Could not start dictionary installation: ${describe(error)}`, "error"); },
+});
 
 function element(id) {
   return document.getElementById(id);
@@ -138,6 +135,7 @@ function adoptOptions(value) {
   if (revision <= optionsRevision) return false;
   optionsRevision = revision;
   options = normaliseOptions(value);
+  applyPageTheme(document, options);
   return true;
 }
 
@@ -198,32 +196,15 @@ function untouchedEntries() {
 }
 
 function runActive() {
-  return run !== null && run.finished === false;
+  return installation.run?.finished === false;
 }
 
 // A row's text follows the live run while one is active, and otherwise the
 // recorded outcome checked against the current inventory: a dictionary removed
 // after setup shows as not installed rather than keeping an old time.
 function rowState(entry) {
-  const live = runActive() ? run.entries.find((candidate) => candidate.sourceId === entry.sourceId) : undefined;
-  if (live !== undefined) {
-    switch (live.phase) {
-      case "downloading": {
-        const received = formatBytes(live.receivedBytes);
-        if (live.totalBytes === null) return { text: `Downloading… ${received}`, progress: { value: null } };
-        const fraction = Math.min(1, live.receivedBytes / live.totalBytes);
-        return {
-          text: `Downloading… ${received} of ${formatBytes(live.totalBytes)} (${Math.floor(fraction * 100)}%)`,
-          progress: { value: fraction },
-        };
-      }
-      case "installing": return { text: "Installing…", progress: { value: null } };
-      case "installed": return { text: `Installed in ${formatSeconds(live.seconds)}`, tone: "ok" };
-      case "already-installed": return { text: "Already installed", tone: "ok" };
-      case "failed": return { text: `Failed: ${live.error}`, tone: "error" };
-      default: return { text: "Waiting" };
-    }
-  }
+  const live = runActive() ? installation.run.entries.find((candidate) => candidate.sourceId === entry.sourceId) : undefined;
+  if (live !== undefined) return installEntryState(live);
   const outcome = setupState.dictionaries.outcomes[entry.sourceId];
   if (recommendedDictionaryInstalled(entry, dictionaries)) {
     return outcome?.status === "installed" && outcome.seconds !== null
@@ -263,6 +244,7 @@ function updateDictionaryRows() {
 // Announce outcomes, not bytes: one sentence when a dictionary settles.
 function announceOutcomes() {
   if (!runActive()) return;
+  const run = installation.run;
   for (const entry of run.entries) {
     if (!["installed", "already-installed", "failed"].includes(entry.phase) || announced.get(`${run.runId}:${entry.sourceId}`) === entry.phase) continue;
     announced.set(`${run.runId}:${entry.sourceId}`, entry.phase);
@@ -376,58 +358,9 @@ function countdownView() {
   return wrapper;
 }
 
-function adoptRun(snapshot) {
-  run = {
-    runId: snapshot.runId ?? null,
-    sequence: Number(snapshot.sequence) || 0,
-    finished: snapshot.finished !== false,
-    entries: Array.isArray(snapshot.entries) ? snapshot.entries : [],
-  };
-  watchRun();
-}
-
-// An offscreen document terminated mid-run stops reporting with this page still
-// holding an unfinished snapshot, which no event can ever complete. After a
-// silence longer than any phase change, the page observes the installer again
-// with an empty request: a live run answers with its own snapshot, and a
-// replacement installer answers with an empty, finished one, which lets the
-// sources that have no recorded outcome be requested once more.
-function watchRun() {
-  if (runSilenceTimer !== null) clearTimeout(runSilenceTimer);
-  runSilenceTimer = null;
-  if (!runActive()) return;
-  runSilenceTimer = setTimeout(() => {
-    runSilenceTimer = null;
-    if (!runActive() || attaching !== null) return;
-    void send("hd_setup_install", { sourceIds: [] }, SETUP_TARGET).then((reply) => {
-      // A live run keeps the progress this page already applied and is watched
-      // again; only a replaced or finished run changes the screen.
-      if (reply.ok !== true || (reply.runId === run?.runId && reply.finished !== true)) {
-        watchRun();
-        return;
-      }
-      adoptRun(reply);
-      render();
-    }).catch(() => { watchRun(); });
-  }, RUN_SILENCE_MS);
-}
-
 function requestInstall(sourceIds) {
-  if (attaching !== null) return attaching.promise;
-  installFailed = false;
-  const promise = send("hd_setup_install", { sourceIds }, SETUP_TARGET).then((reply) => {
-    if (!reply.ok) throw new Error(reply.error || "the dictionary installer did not start");
-    adoptRun(reply);
-    if (runActive() && sourceIds.length > 0) setStatus("Installing default dictionaries.");
-  }).catch((error) => {
-    installFailed = true;
-    setStatus(`Could not start dictionary installation: ${describe(error)}`, "error");
-  }).finally(() => {
-    attaching = null;
-    render();
-  });
-  attaching = { promise, installing: sourceIds.length > 0 };
-  return promise;
+  if (sourceIds.length > 0) setStatus("");
+  return installation.request(sourceIds);
 }
 
 // A complete inventory is announced with this setup's own install time only
@@ -450,7 +383,7 @@ function installedView(rows, importNote) {
 // A failed or later removed source waits for an explicit retry of the missing
 // ones, and setup can be continued without them.
 function incompleteView(rows, importNote, missing) {
-  const failed = installFailed || missing.some((entry) => setupState.dictionaries.outcomes[entry.sourceId]?.status === "failed");
+  const failed = installation.failed || missing.some((entry) => setupState.dictionaries.outcomes[entry.sourceId]?.status === "failed");
   return {
     heading: failed ? "Some dictionaries could not be installed" : "Some dictionaries are not installed",
     body: [paragraph("Retry the missing dictionaries, or continue and add them later in Settings."), rows, importNote],
@@ -464,6 +397,7 @@ function incompleteView(rows, importNote, missing) {
 // Every source without a recorded outcome is requested on its own; the run's
 // live rows and the recorded result follow.
 function dictionariesView() {
+  const attaching = installation.pending;
   const rows = dictionaryRows();
   const importNote = settingsNote("Import your own dictionary ZIPs in ", "settings.html#add-dictionaries");
   const installingView = () => ({
@@ -480,7 +414,7 @@ function dictionariesView() {
     return installingView();
   }
   const untouched = untouchedEntries();
-  if (untouched.length > 0 && !installFailed) {
+  if (untouched.length > 0 && !installation.failed) {
     void requestInstall(untouched.map((entry) => entry.sourceId));
     return installingView();
   }
@@ -734,7 +668,7 @@ function loadScript(src) {
 function loadReader() {
   readerLoading ??= readerScripts().reduce(
     (chain, src) => chain.then(() => loadScript(src)), Promise.resolve(),
-  ).catch((error) => {
+  ).then(() => globalThis.HDReaderReady).catch((error) => {
     // The persistent practice controller also exposes its recovery link.
     setStatus(`The lookup exercise could not start: ${describe(error)}`, "error");
     throw error;
@@ -875,8 +809,10 @@ function practiceView() {
 // late answer re-renders it with the offer.
 async function findSharedHachidori() {
   try {
+    const status = await send("hd_sharing_status", {}, SHARING_TARGET);
+    if (!status.ok || !canDiscoverSharingHost(status.sharing)) return;
     const reply = await send("hd_sharing_client_probe", { address: "" }, SHARING_TARGET);
-    if (!reply.ok) return;
+    if (!reply.ok || setupState?.stage !== "welcome") return;
     sharedHost = { address: reply.address, host: reply.host };
     if (!saving) render();
   } catch {
@@ -1086,17 +1022,6 @@ function handleStorageChange(changes, area) {
   if (changed && !saving) render();
 }
 
-// Progress from the installer, which also reaches any other startup tab. Only
-// events for the run this page attached to, in order, can change the screen.
-// Nothing is answered, so the listener never claims an asynchronous response.
-function handleRuntimeMessage(message) {
-  if (message?.target !== SETUP_EVENTS_TARGET || message.type !== "hd_setup_progress" || run === null) return;
-  const sequence = Number(message.sequence);
-  if (message.runId !== run.runId || !Number.isFinite(sequence) || sequence <= run.sequence) return;
-  adoptRun(message);
-  if (!saving) render();
-}
-
 async function start() {
   // Focus directly without a new history entry. The reader also permits the
   // native heading fragment if the link ran before this handler was attached.
@@ -1105,7 +1030,9 @@ async function start() {
     element("setup-heading").focus();
   });
   chrome.storage.onChanged.addListener(handleStorageChange);
-  chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+  chrome.runtime.onMessage.addListener(message => { if (setupState?.stage === "dictionaries") installation.receive(message); });
+  window.addEventListener("pagehide", installation.stop);
+  window.addEventListener("pageshow", event => { if (event.persisted && setupState?.stage === "dictionaries") void requestInstall([]); });
   const stored = await chrome.storage.local.get([SETUP_STATE_KEY, "dictionaryState", "options"]);
   adoptSetupState(stored[SETUP_STATE_KEY]);
   adoptDictionaryState(stored.dictionaryState);

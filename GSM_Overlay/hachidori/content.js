@@ -185,6 +185,7 @@
   // A drag the reader selects itself, glyph by glyph, in an overlay host.
   let dragSelection = null;
   let overlayMode = false;
+  let hostCapabilities = { customLinks: true, mediaCapture: true };
   let hostAttentionPublished = false;
   let hostAttentionHold = 0;
 
@@ -230,10 +231,29 @@
     try {
       const module = await import(chrome.runtime.getURL("overlay-mode.js"));
       overlayMode = module.OVERLAY_MODE === true;
+      hostCapabilities = { ...hostCapabilities, ...module.HOST_CAPABILITIES };
+      const next = applyHostCapabilities(options);
+      const customLinksChanged = JSON.stringify(next.customLinks) !== JSON.stringify(options.customLinks);
+      const miningChanged = JSON.stringify(next.mediaCapture) !== JSON.stringify(options.mediaCapture);
+      options = next;
+      if (customLinksChanged) {
+        for (const level of levels) level.view?.setCustomLinks(options.customLinks);
+      }
+      if (miningChanged) mining?.update(options, optionsStorageRevision >= 0);
     } catch {
       overlayMode = false;
     }
   }
+
+  function applyHostCapabilities(projected) {
+    if (!hostCapabilities.mediaCapture) {
+      projected = { ...projected, mediaCapture: { ...projected.mediaCapture, enabled: false } };
+    }
+    if (!hostCapabilities.customLinks) projected = { ...projected, customLinks: [] };
+    return projected;
+  }
+
+  const projectHostOptions = stored => applyHostCapabilities(projectContentOptions(stored));
 
   function nonnegativeCount(value) {
     const count = Math.trunc(Number(value));
@@ -3518,7 +3538,7 @@
   function adoptOptions(stored) {
     const revision = Number.isInteger(stored?.revision) && stored.revision >= 0 ? stored.revision : 0;
     if (revision <= optionsStorageRevision) return { lookupChanged: false, presentationChanged: false };
-    const next = projectContentOptions(stored);
+    const next = projectHostOptions(stored);
     const lookupChanged = next.scanLength !== options.scanLength || next.maxResults !== options.maxResults
       || next.frequencyDictionary !== options.frequencyDictionary || next.frequencyOrder !== options.frequencyOrder
       || JSON.stringify(next.kanjiClickDictionary) !== JSON.stringify(options.kanjiClickDictionary);
@@ -3644,23 +3664,29 @@
 
   function start() {
     void loadOverlayMode();
+    // Startup awaits this snapshot before demonstrating its first selection.
+    let storageReady;
+    globalThis.HDReaderReady = new Promise(resolve => { storageReady = resolve; });
     try {
       chrome.storage.onChanged.addListener(onStorageChanged);
       // Optional like the worker's commands API: reader smoke hosts have no runtime messages.
       chrome.runtime.onMessage?.addListener(onReaderCommand);
       chrome.storage.local.get({ dictionaryState: null, options: DEFAULT_OPTIONS, lookupStats: null }, (stored) => {
-        if (disposed || chrome.runtime.lastError) {
-          return;
+        try {
+          if (disposed || chrome.runtime.lastError) return;
+          const optionsAdoption = adoptOptions(stored && stored.options);
+          const adoption = adoptDictionaryState(stored && stored.dictionaryState);
+          adoptLookupStatsDescriptor(stored && stored.lookupStats);
+          if (optionsAdoption.lookupChanged || adoption.dictionaryChanged) {
+            invalidateStoredState(adoption.dictionaryChanged);
+          } else if (optionsAdoption.presentationChanged || adoption.presentationChanged) updateDictionaryPresentation();
+        } finally {
+          storageReady();
         }
-        const optionsAdoption = adoptOptions(stored && stored.options);
-        const adoption = adoptDictionaryState(stored && stored.dictionaryState);
-        adoptLookupStatsDescriptor(stored && stored.lookupStats);
-        if (optionsAdoption.lookupChanged || adoption.dictionaryChanged) {
-          invalidateStoredState(adoption.dictionaryChanged);
-        } else if (optionsAdoption.presentationChanged || adoption.presentationChanged) updateDictionaryPresentation();
       });
     } catch {
       // Without storage access the defaults are still usable.
+      storageReady();
     }
     // Capture so a page that stops propagation on its own text still gets
     // scanned; passive so the hot pointer and scroll paths can never delay the

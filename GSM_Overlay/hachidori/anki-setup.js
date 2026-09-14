@@ -3,7 +3,7 @@ import { ankiAvailability } from "./anki.js";
 import { ankiPresetCoreMapped, applyAnkiPreset, resolveAnkiTemplates } from "./anki-templates.js";
 
 /*
- * Read-only first-run Anki detection: recognise an installed Senren, Lapis or
+ * Read-only Anki detection shared by startup and Settings: recognise an installed Senren, Lapis or
  * Kiku note type, rank note types by distinct existing notes and decks by
  * distinct notes represented in them, and propose the preset mapping for the
  * winner. Nothing here writes to Anki; every call is one of the fixed

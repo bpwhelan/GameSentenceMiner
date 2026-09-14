@@ -2,17 +2,10 @@
 import { createAnkiMiningService } from "./anki-mining.js";
 import { enrichAnkiNote } from "./anki-enrichment.js";
 import { ankiTemplateMarkerNames } from "./anki-templates.js";
-import { MAX_ANIMATED_AVIF_BYTES } from "./avif-sequence.js";
-import { MAX_WAV_BYTES } from "./capture-buffer.js";
-
-const CAPTURE_FILENAMES = {
-  animation: /^hachidori-[a-z0-9]+\.avif$/u,
-  audio: /^hachidori-[a-z0-9]+\.wav$/u,
-};
-const CAPTURE_LIMITS = {
-  animation: MAX_ANIMATED_AVIF_BYTES,
-  audio: MAX_WAV_BYTES,
-};
+import {
+  CAPTURE_FILENAMES, CAPTURE_LIMITS, MAX_LINKED_SCREENSHOT_BYTES, decodedBase64Length,
+  validateLinkedAnkiClientMedia,
+} from "./anki-client-media.js";
 
 function assertCapturePin(pin) {
   if (!pin || typeof pin !== "object"
@@ -26,14 +19,6 @@ function assertCapturePin(pin) {
       || !CAPTURE_FILENAMES.audio.test(pin.audioFilename)) {
     throw new Error("The captured-media pin is invalid or expired. Look up the text again.");
   }
-}
-
-function decodedBase64Length(value) {
-  if (typeof value !== "string" || value.length === 0 || value.length % 4 !== 0
-      || !/^[A-Za-z0-9+/]*={0,2}$/u.test(value)) return null;
-  if (value.endsWith("==")) return value.length / 4 * 3 - 2;
-  const padding = Number(value.endsWith("="));
-  return value.length / 4 * 3 - padding;
 }
 
 // A note that was definitively not written leaves no picture of its own behind.
@@ -62,9 +47,15 @@ export function createAnkiWorkerService({
   engine,
   offscreen,
   capture = null,
-  maturityCache,
+  duplicateIndex,
 }) {
   const confirmedCaptureUploads = new Map();
+  const linkedClientMedia = new WeakMap();
+  const linkedClientPreflights = new WeakSet();
+
+  function isLinkedSubmission(request) {
+    return linkedClientMedia.has(request);
+  }
 
   async function currentGeneration(request) {
     const status = await engine({ type: "hd_status" });
@@ -72,8 +63,18 @@ export function createAnkiWorkerService({
       throw new Error("The dictionary generation changed or is being updated. Look up this result again before adding it.");
     }
   }
-  const audio = (request, config, { recordSpeech = true } = {}) => offscreen({ type: "hd_anki_audio", term: request.term,
-    selection: request.audioSelection, sources: config.audioSources, recordSpeech });
+  const audio = (request, config, { recordSpeech = true } = {}) => {
+    const clientSpeech = linkedClientMedia.get(request)?.speech;
+    return offscreen({
+      type: "hd_anki_audio",
+      term: request.term,
+      selection: request.audioSelection,
+      sources: config.audioSources,
+      recordSpeech,
+      ...(linkedClientPreflights.has(request) ? { clientSpeechProbe: true } : {}),
+      ...(clientSpeech ? { clientSpeech } : {}),
+    });
+  };
   const render = (request, templates, audio, resources) => offscreen({ type: "hd_anki_fields", request, templates, audio,
     dictionaryPaths: resources.dictionaryPaths });
 
@@ -93,7 +94,9 @@ export function createAnkiWorkerService({
     // An upload confirmed by one Anki endpoint says nothing about another.
     const uploadKey = `${request.captureJobId}:${configKey}:${kind}`;
     if (confirmedCaptureUploads.get(uploadKey) === expectedFilename) return;
-    const asset = await captureRequest("hd_capture_asset", { jobId: request.captureJobId, kind });
+    const asset = isLinkedSubmission(request)
+      ? metadata
+      : await captureRequest("hd_capture_asset", { jobId: request.captureJobId, kind });
     const byteLength = decodedBase64Length(asset.data);
     if (asset.filename !== expectedFilename || byteLength !== metadata.byteLength
         || byteLength > CAPTURE_LIMITS[kind]) {
@@ -129,7 +132,7 @@ export function createAnkiWorkerService({
     if (fields.length === 0) {
       // The fields this note actually applies keep their existing picture, so the
       // one that was captured for it is released rather than left held.
-      if (pendingScreenshot?.token === request.screenshot.token) pendingScreenshot = null;
+      if (!isLinkedSubmission(request) && pendingScreenshot?.token === request.screenshot.token) pendingScreenshot = null;
       return { warnings: [] };
     }
     const withoutPicture = reason => {
@@ -139,13 +142,15 @@ export function createAnkiWorkerService({
       for (const field of fields) appliedFields[field] = appliedFields[field].replaceAll(reference, "");
       return { warnings: [`Screenshot: ${reason}`] };
     };
-    const pending = pendingScreenshot;
+    const pending = isLinkedSubmission(request)
+      ? linkedClientMedia.get(request)?.screenshot
+      : pendingScreenshot;
     // Only this note's own picture is consumed: another Add's newer capture is
     // left where it is rather than taken away from it.
-    if (pending === null || pending.token !== request.screenshot.token || pending.filename !== filename) {
+    if (!pending || pending.token !== request.screenshot.token || pending.filename !== filename) {
       return withoutPicture("the captured picture was replaced before this note was saved.");
     }
-    pendingScreenshot = null;
+    if (!isLinkedSubmission(request)) pendingScreenshot = null;
     try {
       const stored = await invoke("storeMediaFile", { filename, data: pending.data, deleteExisting: false }, 30_000);
       if (stored !== filename) throw new Error("Anki stored it under a different filename.");
@@ -183,7 +188,10 @@ export function createAnkiWorkerService({
     if (typeof request.captureJobId !== "string" || !request.captureJobId || request.captureJobId.length > 256) {
       throw new Error("Encode the pinned clip before submitting this note.");
     }
-    const status = await captureRequest("hd_capture_job_status", { jobId: request.captureJobId });
+    const supplied = linkedClientMedia.get(request)?.capture;
+    const status = isLinkedSubmission(request)
+      ? { state: "ready", warnings: supplied?.warnings, assets: supplied?.assets }
+      : await captureRequest("hd_capture_job_status", { jobId: request.captureJobId });
     if (status.state === "finishing") throw new Error("The selected clip is still finishing.");
     if (status.state === "encoding") throw new Error("The selected clip is still encoding.");
     if (status.state !== "ready") throw new Error(status.error || "The selected clip could not be encoded.");
@@ -201,6 +209,7 @@ export function createAnkiWorkerService({
     }
     return {
       captureJobId: request.captureJobId,
+      linkedClient: isLinkedSubmission(request),
       warnings: Array.isArray(status.warnings)
         ? status.warnings.filter(value => typeof value === "string").map(value => value.slice(0, 500)) : [],
     };
@@ -209,7 +218,7 @@ export function createAnkiWorkerService({
   async function completeCapture({ writeResources }) {
     const jobId = writeResources?.captureJobId;
     if (!jobId) return;
-    await captureRequest("hd_capture_complete", { jobId });
+    if (!writeResources.linkedClient) await captureRequest("hd_capture_complete", { jobId });
     for (const key of confirmedCaptureUploads.keys()) {
       if (key.startsWith(`${jobId}:`)) confirmedCaptureUploads.delete(key);
     }
@@ -217,7 +226,7 @@ export function createAnkiWorkerService({
 
   async function beforeMutation({ request, writeResources }) {
     await currentGeneration(request);
-    if (!writeResources?.captureJobId) return;
+    if (!writeResources?.captureJobId || writeResources.linkedClient) return;
     const status = await captureRequest("hd_capture_job_status", { jobId: writeResources.captureJobId });
     if (status.state !== "ready") throw new Error(status.error || "The captured-media export was cancelled or expired.");
   }
@@ -249,6 +258,7 @@ export function createAnkiWorkerService({
         const prepared = await audio(request, current.config, { recordSpeech: !preflight });
         if (prepared?.recordingRequired === true) {
           if (!preflight) throw new Error("Browser text-to-speech was not recorded for this note.");
+          if (prepared.clientSpeech) resources.clientSpeech = prepared.clientSpeech;
           resources.deferDuplicateCheck = true;
         }
         else {
@@ -264,8 +274,27 @@ export function createAnkiWorkerService({
     validateCapture,
     beforeWrite: prepareCapture,
     beforeMutation,
+    preflightExtra: async ({ request, prepared, applied }) => {
+      if (!linkedClientPreflights.has(request)) return {};
+      if (prepared.resources.clientSpeech) return { clientSpeech: prepared.resources.clientSpeech };
+      if (prepared.resources.audioPrepared || !applied
+          || !Object.values(applied.templates).some(template =>
+            ankiTemplateMarkerNames(template.value).includes("audio"))
+          || prepared.config.audioSources.length === 0) return {};
+      try {
+        const planned = await audio(request, prepared.config, { recordSpeech: false });
+        return planned?.recordingRequired === true && planned.clientSpeech
+          ? { clientSpeech: planned.clientSpeech }
+          : {};
+      } catch {
+        // Non-first-field pronunciation remains best-effort. Submission will
+        // report the ordinary warning if no configured source is available.
+        return {};
+      }
+    },
     afterConfirmed: completeCapture,
     afterRejected: releaseScreenshot,
+    duplicateIndex,
     enrich: context => enrichAnkiNote(context, { audio, render, media: async (item, generation) => {
       const reply = await engine({ type: "hd_media", dictionary: item.dictionary, path: item.path, generation });
       if (!reply.dataUrl) throw new Error("The dictionary image is no longer available.");
@@ -287,9 +316,13 @@ export function createAnkiWorkerService({
     // Capture retries can complete out of order. Only the latest request may
     // publish its bytes, even if a newer picture has already been consumed.
     if (screenshotRequestToken !== token) throw new Error("A newer capture replaced this screenshot request.");
-    const data = typeof dataUrl === "string" && dataUrl.startsWith("data:image/")
-      ? dataUrl.slice(dataUrl.indexOf(",") + 1) : "";
-    if (decodedBase64Length(data) === null) throw new Error("This page produced no screenshot.");
+    const prefix = "data:image/jpeg;base64,";
+    const data = typeof dataUrl === "string" && dataUrl.startsWith(prefix)
+      ? dataUrl.slice(prefix.length) : "";
+    const byteLength = decodedBase64Length(data);
+    if (byteLength === null || byteLength > MAX_LINKED_SCREENSHOT_BYTES) {
+      throw new Error("This page produced no screenshot or exceeded the 6 MiB screenshot limit.");
+    }
     pendingScreenshot = { token, filename: `hachidori-screenshot-${crypto.randomUUID()}.jpg`, data };
     return { token: pendingScreenshot.token, filename: pendingScreenshot.filename };
   }
@@ -301,7 +334,7 @@ export function createAnkiWorkerService({
     return { discarded: true };
   }
 
-  async function submit(request) {
+  async function submitRequest(request) {
     try {
       const result = await mining.submit(request);
       if (["duplicate", "invalid"].includes(result.state)) discardScreenshot(request.screenshot);
@@ -314,11 +347,132 @@ export function createAnkiWorkerService({
     }
   }
 
-  return { ...mining, submit, screenshot, discardScreenshot, async maturity(request) {
+  async function submitClient(request, clientMedia) {
+    const validated = validateLinkedAnkiClientMedia(request, clientMedia);
+    linkedClientMedia.set(request, validated);
+    try {
+      return await submitRequest(request);
+    } finally {
+      linkedClientMedia.delete(request);
+    }
+  }
+
+  async function preflightClient(request) {
+    linkedClientPreflights.add(request);
+    try {
+      return await mining.preflight(request);
+    } finally {
+      linkedClientPreflights.delete(request);
+    }
+  }
+
+  async function resolveClientSpeech(request, recordSpeech) {
+    const plan = request?.clientSpeech;
+    if (!plan || typeof plan !== "object" || Array.isArray(plan)
+        || typeof request.term?.expression !== "string" || typeof request.term.reading !== "string"
+        || plan.expression !== request.term.expression || plan.reading !== request.term.reading) {
+      throw new Error("The linked browser-speech request is invalid or stale.");
+    }
+    const options = await readOptions();
+    const sources = options.audioSources.filter(source => source.enabled);
+    const source = sources.find(candidate => candidate.id === plan.sourceId
+      && JSON.stringify(candidate) === plan.sourceKey
+      && typeof candidate.type === "string" && candidate.type.startsWith("text-to-speech"));
+    if (!source) throw new Error("The browser-speech source changed. Check Audio Settings and try again.");
+    if (request.audioSelection !== undefined
+        && (request.audioSelection?.sourceId !== source.id || request.audioSelection.sourceKey !== plan.sourceKey)) {
+      throw new Error("The selected pronunciation changed before browser speech could be recorded.");
+    }
+    const file = await offscreen({
+      type: "hd_anki_audio",
+      term: request.term,
+      selection: request.audioSelection,
+      sources: [source],
+      recordSpeech,
+    });
+    if (!recordSpeech) {
+      if (file?.recordingRequired !== true) {
+        throw new Error("Browser text-to-speech preflight returned an unexpected result.");
+      }
+      return { available: true };
+    }
+    const byteLength = decodedBase64Length(file?.data);
+    if (file?.sourceId !== source.id || typeof file.filename !== "string"
+        || byteLength === null || byteLength < 1) {
+      throw new Error("Browser text-to-speech produced no transferable WAV data.");
+    }
+    return {
+      sourceId: plan.sourceId,
+      sourceKey: plan.sourceKey,
+      expression: plan.expression,
+      reading: plan.reading,
+      filename: file.filename,
+      byteLength,
+      data: file.data,
+    };
+  }
+
+  const clientSpeech = request => resolveClientSpeech(request, true);
+  const preflightClientSpeech = request => resolveClientSpeech(request, false);
+
+  // The reading browser owns these bytes. Export them only when submission is
+  // about to cross the sharing socket, without consulting its local engine or
+  // Anki endpoint.
+  async function clientMedia(request) {
+    const value = {};
+    if (request?.screenshot && !request.captureUnavailable?.includes("screenshot")) {
+      const screenshot = pendingScreenshot;
+      if (!screenshot || screenshot.token !== request.screenshot.token
+          || screenshot.filename !== request.screenshot.filename) {
+        throw new Error("The screenshot was replaced before it could be sent to the linked Hachidori.");
+      }
+      value.screenshot = { token: screenshot.token, filename: screenshot.filename, data: screenshot.data };
+    }
+    if (typeof request?.captureJobId === "string" && request.captureJobId !== "") {
+      assertCapturePin(request.capturePin);
+      const status = await captureRequest("hd_capture_job_status", { jobId: request.captureJobId });
+      if (status.state === "finishing") throw new Error("The selected clip is still finishing.");
+      if (status.state === "encoding") throw new Error("The selected clip is still encoding.");
+      if (status.state !== "ready") throw new Error(status.error || "The selected clip could not be encoded.");
+      const assets = {};
+      for (const kind of ["animation", "audio"]) {
+        const metadata = status.assets?.[kind];
+        if (!metadata) continue;
+        const asset = await captureRequest("hd_capture_asset", { jobId: request.captureJobId, kind });
+        assets[kind] = { filename: asset.filename, byteLength: metadata.byteLength, data: asset.data };
+      }
+      value.capture = {
+        jobId: request.captureJobId,
+        warnings: Array.isArray(status.warnings)
+          ? status.warnings.filter(warning => typeof warning === "string")
+            .map(warning => warning.slice(0, 500)).slice(0, 64)
+          : [],
+        assets,
+      };
+    }
+    if (request?.clientSpeech) value.speech = await clientSpeech(request);
+    return validateLinkedAnkiClientMedia(request, value);
+  }
+
+  async function settleClientMedia(request, state) {
+    discardScreenshot(request?.screenshot);
+    const jobId = request?.captureJobId;
+    if (typeof jobId !== "string" || jobId === "") return { settled: true };
+    if (["added", "updated"].includes(state)) {
+      await captureRequest("hd_capture_complete", { jobId });
+    } else if (["duplicate", "invalid"].includes(state)) {
+      await captureRequest("hd_capture_cancel", { jobId });
+    }
+    return { settled: true };
+  }
+
+  return { ...mining, preflightClient, preflightClientSpeech, submit: submitRequest, submitClient,
+    clientMedia, settleClientMedia,
+    screenshot, discardScreenshot, async maturity(request) {
     try {
       const options = await readOptions();
       return { mature: options.definitionBlurAnkiMature === true
-        && await maturityCache.has(options.anki, request?.term?.expression) };
+        && await duplicateIndex.has(options.anki, request?.term?.expression) };
     } catch {
       // Missing local evidence never prevents dictionary lookup.
       return { mature: false };

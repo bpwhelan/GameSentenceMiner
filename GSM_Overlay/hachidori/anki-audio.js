@@ -67,6 +67,9 @@ async function speechFile(window, recording, signal) {
     throw new Error("Browser text-to-speech produced no captured WAV data.");
   }
   const filename = await ankiMediaFilename(recording.data, "wav");
+  if (recording.filename !== undefined && recording.filename !== filename) {
+    throw new Error("The linked browser-speech filename does not match its WAV data.");
+  }
   const data = await base64(window, new Blob([recording.data], { type: "audio/wav" }), signal);
   signal.throwIfAborted();
   return { filename, data, candidate: recording.candidate };
@@ -89,7 +92,7 @@ export async function exportAnkiAudio(window, repository, {
           throw new Error("Browser text-to-speech recording is unavailable.");
         }
         const recorded = await recordSpeechAudio(source, term, signal, { record: recordSpeech });
-        if (recorded?.recordingRequired === true) return { recordingRequired: true };
+        if (recorded?.recordingRequired === true) return recorded;
         return { ...await speechFile(window, recorded, signal), sourceId: source.id };
       } catch (error) {
         signal.throwIfAborted();

@@ -3,7 +3,6 @@ import { isAnkiAudioOnlyTemplate } from "./anki-templates.js";
 
 // GSM PR #549 hoshidicts_anki.py and hoshidicts_markers.py. These policies
 // receive the gateway's private invoker, never a page-selected API action.
-const rootDeck = deck => deck.split("::", 1)[0];
 const escapeQuery = value => value.replace(/[\\"*_:]/gu, String.raw`\$&`);
 const positiveId = value => Number.isSafeInteger(value) && value > 0;
 export const isAnkiDuplicateError = error => /cannot create note because it is a duplicate/iu.test(error || "");
@@ -20,11 +19,19 @@ export function ankiNoteIdsQuery(noteIds) {
 }
 
 export function ankiNoteOptions(config) {
-  const root = config.duplicateScope === "deck-root";
-  return { allowDuplicate: !config.checkForDuplicates || config.duplicateBehavior === "new",
-    duplicateScope: root ? "deck" : config.duplicateScope,
-    duplicateScopeOptions: { deckName: root ? rootDeck(config.deck) : null,
-      checkChildren: root, checkAllModels: config.duplicateScopeCheckAllModels } };
+  const deck = config.duplicateScope === "deck";
+  return {
+    // The index applies the selected recognized-note-type scope. Native Anki
+    // remains a final race guard for the configured destination note type only:
+    // its all-model switch would also reject unrelated custom note types.
+    allowDuplicate: config.duplicateBehavior === "new",
+    duplicateScope: deck ? "deck" : "collection",
+    duplicateScopeOptions: {
+      deckName: deck ? config.deck : null,
+      checkChildren: deck,
+      checkAllModels: false,
+    },
+  };
 }
 
 function overwriteValue(existing, incoming, mode) {
@@ -62,7 +69,6 @@ function checkResult(result, detailed) {
 }
 
 export async function checkAnkiDuplicate(invoke, note, config) {
-  if (!config.checkForDuplicates) return { duplicate: false, addable: true, error: null };
   // Anki also validates clozes in non-first fields. Keep all rendered fields,
   // but omit media-upload objects: preflight must not write collection media.
   const checkNote = allowDuplicate => ({ deckName: note.deckName, modelName: note.modelName, fields: note.fields, tags: note.tags,
@@ -80,6 +86,25 @@ export async function checkAnkiDuplicate(invoke, note, config) {
   return { duplicate: isAnkiDuplicateError(error), addable: result.canAdd && !error, error };
 }
 
+export async function validateAnkiNote(invoke, note) {
+  const checkNote = {
+    deckName: note.deckName,
+    modelName: note.modelName,
+    fields: note.fields,
+    tags: note.tags,
+    options: { ...note.options, allowDuplicate: true },
+  };
+  try {
+    const result = checkResult(await invoke("canAddNotesWithErrorDetail", { notes: [checkNote] }), true);
+    const error = typeof result.error === "string" && result.error ? result.error : null;
+    return { addable: result.canAdd && error === null, error };
+  } catch (error) {
+    if (!/unsupported action/iu.test(error.message)) throw error;
+    const addable = checkResult(await invoke("canAddNotes", { notes: [checkNote] }), false);
+    return { addable, error: addable ? null : "Anki rejected this note." };
+  }
+}
+
 function duplicateQuery(note, firstField, modelId) {
   // Native Anki dupe search uses the same case-sensitive, HTML-stripped
   // comparison as duplicate validation. Ordinary field search does not.
@@ -89,21 +114,21 @@ function duplicateQuery(note, firstField, modelId) {
 }
 
 async function scopedNoteIds(invoke, infos, config) {
-  if (config.duplicateScope === "collection") return null;
+  if (config.duplicateScope !== "deck") return null;
   const ids = infos.flatMap(info => Array.isArray(info?.cards) ? info.cards.filter(positiveId) : []);
   if (!ids.length) return new Set();
   const cards = await invoke("cardsInfo", { cards: ids });
   if (!Array.isArray(cards)) throw new Error("AnkiConnect returned invalid duplicate card details.");
-  const exact = config.deck.toLowerCase(), root = rootDeck(exact);
+  const exact = config.deck.toLowerCase();
   return new Set(cards.filter(card => {
     if (typeof card?.deckName !== "string" || !positiveId(card.note)) return false;
     const deck = card.deckName.toLowerCase();
-    return config.duplicateScope === "deck" ? deck === exact : deck === root || deck.startsWith(`${root}::`);
+    return deck === exact || deck.startsWith(`${exact}::`);
   }).map(card => card.note));
 }
 
 export async function findAnkiDuplicateNotes(invoke, note, firstField, config, {
-  allModels = config.duplicateScopeCheckAllModels,
+  allModels = false,
 } = {}) {
   const models = await invoke("modelNamesAndIds");
   const modelId = models?.[config.model];

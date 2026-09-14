@@ -1,7 +1,7 @@
 // Settings → Sharing: share this Hachidori with the person's other browsers
 // through Anki, or use another Hachidori instead of this one.
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { DEFAULT_SHARING_PORT } from "./sharing-protocol.js";
+import { DEFAULT_SHARING_PORT, canDiscoverSharingHost } from "./sharing-protocol.js";
 
 const POLL_MS = 2000;
 // How long a copied address or a saved download outranks the derived status.
@@ -165,7 +165,7 @@ export function createSharingSettingsController({
 
   function renderClient() {
     const isLinked = linked();
-    element("sharing-client-nearby").hidden = isLinked || hosting();
+    element("sharing-client-nearby").hidden = !canDiscoverSharingHost(sharing);
     element("sharing-client-found").textContent = foundText();
     element("sharing-client-use").hidden = !found;
     element("sharing-client-use").disabled = pending;
@@ -187,7 +187,7 @@ export function createSharingSettingsController({
   // One look at this computer: on opening, when another host appears (the relay
   // refuses this one), and on Look again. Never while this install is the host.
   async function probe() {
-    if (probing || pending || sharing === null || linked() || hosting()) return;
+    if (probing || pending || !canDiscoverSharingHost(sharing)) return;
     probing = true;
     renderClient();
     try {

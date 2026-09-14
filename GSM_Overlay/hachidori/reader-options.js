@@ -7,15 +7,15 @@
 
   const ANKI_FIELDS = ["expression", "reading", "definition", "sentence", "frequency", "pitch", "audio",
     "captureAnimation", "captureAudio", "screenshot"];
-  const ANKI_DUPLICATE_SCOPES = ["collection", "deck", "deck-root"];
+  const ANKI_DUPLICATE_SCOPES = ["model", "deck", "all"];
   const ANKI_DUPLICATE_BEHAVIORS = ["prevent", "new", "overwrite"];
   const ANKI_OVERWRITE_MODES = ["coalesce", "coalesce-new", "skip", "append", "prepend", "overwrite"];
   // `captureScreenshot` only matters once a mapped field asks for {screenshot},
   // so it is on by default: a note type with a picture field gets the viewport
   // screenshot the mining request was made from, and nothing else changes.
   const DEFAULT_ANKI = { deck: "Default", model: "", url: "http://127.0.0.1:8765", apiKey: "", tags: ["hachidori"],
-    fields: Object.fromEntries(ANKI_FIELDS.map(key => [key, ""])), checkForDuplicates: true,
-    duplicateScope: "collection", duplicateScopeCheckAllModels: false, duplicateBehavior: "prevent",
+    fields: Object.fromEntries(ANKI_FIELDS.map(key => [key, ""])),
+    duplicateScope: "model", duplicateBehavior: "prevent",
     captureScreenshot: true, fieldTemplates: null };
   const DEFAULT_MEDIA_CAPTURE = {
     enabled: false,
@@ -312,7 +312,7 @@
   function normaliseAnki(value) {
     const source = value && typeof value === "object" ? value : {};
     const result = { ...DEFAULT_ANKI };
-    for (const key of ["deck", "model", "apiKey", "checkForDuplicates", "duplicateScopeCheckAllModels", "captureScreenshot"]) {
+    for (const key of ["deck", "model", "apiKey", "captureScreenshot"]) {
       if (typeof source[key] === typeof DEFAULT_ANKI[key]) result[key] = source[key];
     }
     // Missing legacy settings keep localhost; an explicitly invalid endpoint
@@ -321,8 +321,15 @@
     result.tags = Array.isArray(source.tags) ? source.tags.filter(tag => typeof tag === "string") : [...DEFAULT_ANKI.tags];
     result.fields = Object.fromEntries(ANKI_FIELDS.map(key => [key,
       typeof source.fields?.[key] === "string" ? source.fields[key] : ""]));
-    if (ANKI_DUPLICATE_SCOPES.includes(source.duplicateScope)) result.duplicateScope = source.duplicateScope;
+    if (ANKI_DUPLICATE_SCOPES.includes(source.duplicateScope)) {
+      result.duplicateScope = source.duplicateScope;
+    } else if (source.duplicateScope === "deck-root") {
+      result.duplicateScope = "deck";
+    } else if (source.duplicateScope === "collection") {
+      result.duplicateScope = source.duplicateScopeCheckAllModels === true ? "all" : "model";
+    }
     if (ANKI_DUPLICATE_BEHAVIORS.includes(source.duplicateBehavior)) result.duplicateBehavior = source.duplicateBehavior;
+    if (source.checkForDuplicates === false) result.duplicateBehavior = "new";
     result.fieldTemplates = validAnkiTemplates(source.fieldTemplates) ? source.fieldTemplates : null;
     return result;
   }

@@ -2,14 +2,14 @@
 import { buildAnkiResourceFields } from "./anki-resources.js";
 import { exportAnkiAudio } from "./anki-audio.js";
 
-// Parse the complete notesInfo response away from the background and engine
-// request threads; only compact words cross back to the serialized cache commit.
-async function refreshMatureWords(window, source) {
-  const worker = new window.Worker(new URL("./anki-maturity-worker.js", import.meta.url), { type: "module" });
+// Resolve and parse the complete scoped note set away from the background and
+// engine request threads; only compact index rows cross back to the commit.
+async function refreshAnkiIndex(window, source) {
+  const worker = new window.Worker(new URL("./anki-index-worker.js", import.meta.url), { type: "module" });
   try {
     return await new Promise((resolve, reject) => {
-      worker.onmessage = ({ data }) => data.error ? reject(new Error(data.error)) : resolve({ words: data.words });
-      worker.onerror = event => reject(new Error(event.message || "Anki maturity refresh worker failed."));
+      worker.onmessage = ({ data }) => data.error ? reject(new Error(data.error)) : resolve({ rows: data.rows });
+      worker.onerror = event => reject(new Error(event.message || "Anki index refresh worker failed."));
       worker.postMessage(source);
     });
   } finally {
@@ -22,12 +22,53 @@ async function recordSpeechAudio(...args) {
   return capture.recordSpeechAudio(...args);
 }
 
+function clientSpeechPlan(source, term) {
+  return {
+    sourceId: source.id,
+    sourceKey: JSON.stringify(source),
+    expression: term.expression,
+    reading: term.reading,
+  };
+}
+
+function sameClientSpeech(plan, source, term) {
+  const expected = clientSpeechPlan(source, term);
+  return plan && Object.entries(expected).every(([key, value]) => plan[key] === value);
+}
+
+function decodeClientSpeech(window, data) {
+  const binary = window.atob(data);
+  return Uint8Array.from(binary, character => character.codePointAt(0));
+}
+
+function linkedSpeechRecorder(window, message) {
+  if (message.clientSpeechProbe !== true && !message.clientSpeech) return recordSpeechAudio;
+  return async (source, term, signal, { record = true } = {}) => {
+    signal.throwIfAborted();
+    const plan = clientSpeechPlan(source, term);
+    if (!record || message.clientSpeechProbe === true) {
+      return { recordingRequired: true, clientSpeech: plan };
+    }
+    const supplied = message.clientSpeech;
+    if (!sameClientSpeech(supplied, source, term)) {
+      throw new Error("The linked browser did not supply the requested browser speech.");
+    }
+    return {
+      data: decodeClientSpeech(window, supplied.data),
+      filename: supplied.filename,
+      candidate: { name: "Linked browser speech", text: term.reading || term.expression, voice: "", index: 0 },
+    };
+  };
+}
+
 export function createAnkiOffscreenService(window, getAudioRepository, captureSpeech = recordSpeechAudio) {
   return async message => {
-    if (message.type === "hd_anki_maturity_refresh") return refreshMatureWords(window, message.source);
+    if (message.type === "hd_anki_index_refresh") return refreshAnkiIndex(window, message.source);
     if (message.type === "hd_anki_audio") {
       return exportAnkiAudio(window, await getAudioRepository(), message, window.AbortSignal.timeout(30_000), {
-        recordSpeechAudio: captureSpeech,
+        recordSpeechAudio: message.clientSpeechProbe === true || message.clientSpeech
+          ? linkedSpeechRecorder(window, message)
+          : captureSpeech,
       });
     }
     if (message.type !== "hd_anki_fields") throw new Error("Unknown Anki rendering request.");

@@ -13,10 +13,14 @@ import { createSharingSettingsController } from "./sharing-settings.js";
 import { ANKI_ADDON_FILE_NAME, fetchAnkiAddon } from "./anki-addon.js";
 import { createLocalFileAccessController } from "./local-file-access.js";
 import { createSettingsSearch } from "./settings-search.js";
+import { applyPageTheme, setStatusOutput } from "./settings-dom.js";
+import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
+import { createRecommendedInstallClient } from "./recommended-install-client.js";
 import { createCustomLinkSettings } from "./custom-link-settings.js";
 import { createDictionaryNameDrafts, renameWithBaseline } from "./dictionary-name-drafts.js";
 import {
   createDictionaryProgressList,
+  installEntryState,
   formatSeconds,
 } from "./dictionary-progress.js";
 import {
@@ -95,6 +99,7 @@ let optionsRevision = -1;
 let pendingOptions = {};
 let pendingOptionsRevision = 0;
 let savingOptions = null;
+let optionsSaveCompletion = Promise.resolve();
 let optionsTimer = null;
 let optionsSaveFailed = false;
 let optionsEditRevision = null;
@@ -116,6 +121,13 @@ let customSaving = false;
 let customDraftStale = false;
 let customDraftNewline = "\n";
 let importing = false;
+let installingRecommended = false;
+let renderedInstallRun = null;
+const recommendedInstallation = createRecommendedInstallClient({
+  send: sourceIds => send("hd_setup_install", { sourceIds }, "hachidori-setup"),
+  onChange: renderRecommendedInstallation,
+  onError(error) { setImportState(`Could not observe dictionary installation: ${describe(error)}`, "error"); },
+});
 let updating = false;
 let removing = false;
 let committing = false;
@@ -165,7 +177,7 @@ function element(id) {
 
 function sectionHasPendingWork(id) {
   switch (id) {
-    case "import-state": return importing;
+    case "import-state": return importing || installingRecommended;
     case "update-state": return updating || savingSchedule !== null || pendingSchedule !== null;
     case "custom-dictionary-status": return customLoading || customSaving || customDictionaryDirty();
     case "backup-status": return backingUp;
@@ -211,9 +223,7 @@ function syncNavigationStatus(id) {
 
 function setSectionStatus(id, message, tone, completed = false) {
   const output = element(id);
-  output.textContent = message;
-  output.classList.toggle("is-error", tone === "error");
-  output.classList.toggle("is-ready", tone === "ready");
+  setStatusOutput(output, message, tone);
   if (completed && SECTION_STATUSES[id].section !== activeSection) unseenSectionCompletions.add(id);
   syncNavigationStatus(id);
 }
@@ -255,7 +265,7 @@ function showSettingsSection(focus = false) {
   updateKeybindSettings();
   updateBackupSettings();
   updateSharingSettings();
-  if (activeSection === "design") {
+  if (activeSection === "design" && HOST_CAPABILITIES.customLinks) {
     customLinkController ??= createCustomLinkSettings({ document,
       readLinks: () => options.customLinks,
       saveLinks: links => { options.customLinks = links; writeOptions(); },
@@ -289,6 +299,7 @@ function updateKeybindSettings() {
     readAudioSources: () => options.audioSources,
     getBrowserCommands: () => chrome.commands.getAll(),
     openBrowserShortcuts: () => chrome.tabs.create({ url: "chrome://extensions/shortcuts" }),
+    browserShortcutsAvailable: HOST_CAPABILITIES.browserShortcuts,
   });
   keybindController.render();
 }
@@ -296,8 +307,16 @@ function updateKeybindSettings() {
 function updateAnkiSettings() {
   if (activeSection !== "anki" || optionsRevision < 0) return;
   ankiController ??= createAnkiSettingsController({ document, readConfig: () => options.anki,
+    capabilities: MINING_CAPABILITIES,
     editConfig: config => { options.anki = config; writeOptions(); },
-    send: (type, fields) => send(type, fields, WORKER_TARGET),
+    send: async (type, fields) => {
+      // Linked checks cannot forward draft endpoint credentials or mappings.
+      // Commit them to the host first, then let the host read its saved copy.
+      if (["hd_anki_discover", "hd_anki_setup"].includes(type) && sharingLinkedAddress !== null) {
+        await flushOptionsUntilIdle();
+      }
+      return send(type, fields, WORKER_TARGET);
+    },
   });
   ankiController.render();
 }
@@ -306,6 +325,7 @@ function updateAnkiSettings() {
 function renderSharingLink(value) {
   sharingLinkedAddress = typeof value?.client?.address === "string" ? value.client.address : null;
   const linked = sharingLinkedAddress !== null;
+  element("sharing-overlay-preferences").hidden = !linked || !OVERLAY_MODE;
   element("sharing-import-notice").hidden = !linked;
   element("sharing-backup-notice").hidden = !linked;
   element("import-drop-zone").hidden = linked;
@@ -335,8 +355,14 @@ function updateSharingSettings() {
 
 function renderMediaSettings() {
   const capture = options.mediaCapture;
+  element("media-overlay-help").hidden = HOST_CAPABILITIES.mediaCapture;
+  element("media-heading-help").textContent = HOST_CAPABILITIES.mediaCapture
+    ? "Optional local recording for Anki notes. Changes save automatically."
+    : "Saved Chrome recorder settings, inactive in this overlay.";
+  element("media-browser-help").hidden = !HOST_CAPABILITIES.mediaCapture;
+  element("media-template-help").hidden = !HOST_CAPABILITIES.mediaCapture;
   const values = {
-    "opt-media-enabled": capture.enabled,
+    "opt-media-enabled": HOST_CAPABILITIES.mediaCapture && capture.enabled,
     "opt-media-animation": capture.includeAnimation,
     "opt-media-audio": capture.includeCapturedAudio,
     "opt-media-native-cues": capture.page.nativeCues,
@@ -358,14 +384,25 @@ function renderMediaSettings() {
     const input = element(id);
     if (input !== document.activeElement) input.value = String(value);
   }
-  element("opt-media-auto-area").disabled = !capture.page.domText;
-  element("opt-media-texthooker-format").disabled = !capture.texthooker.enabled;
+  if (!HOST_CAPABILITIES.mediaCapture) {
+    for (const control of document.querySelectorAll("#media button, #media input, #media select")) {
+      control.disabled = true;
+    }
+  } else {
+    element("opt-media-auto-area").disabled = !capture.page.domText;
+    element("opt-media-texthooker-format").disabled = !capture.texthooker.enabled;
+  }
 }
 
 async function updateMediaSettings() {
   if (activeSection !== "media") return;
   renderMediaSettings();
   const epoch = ++mediaStatusEpoch;
+  if (!HOST_CAPABILITIES.mediaCapture) {
+    mediaRuntimeState = "unavailable";
+    setStatusOutput(element("media-runtime-status"), "Media capture is unavailable in this overlay.");
+    return;
+  }
   try {
     const reply = await send("hd_capture_status", {}, CAPTURE_TARGET);
     if (epoch !== mediaStatusEpoch) return;
@@ -374,16 +411,22 @@ async function updateMediaSettings() {
     mediaRuntimeState = reply.state;
     const source = reply.mediaSource?.name ? ` · ${reply.mediaSource.name}` : "";
     const linked = reply.linkedPage?.title ? ` · linked to ${reply.linkedPage.title}` : "";
-    element("media-runtime-status").textContent = `${state}${source}${linked}`;
+    setStatusOutput(element("media-runtime-status"), `${state}${source}${linked}`,
+      reply.state === "recording" ? "ready" : undefined);
   } catch {
     if (epoch === mediaStatusEpoch) {
       mediaRuntimeState = "unavailable";
-      element("media-runtime-status").textContent = "Capture page closed. Open it before starting a reading session.";
+      setStatusOutput(element("media-runtime-status"),
+        "Capture page closed. Open it before starting a reading session.");
     }
   }
 }
 
 async function editMediaCapture(mutator, { immediate = false } = {}) {
+  if (!HOST_CAPABILITIES.mediaCapture) {
+    renderMediaSettings();
+    return false;
+  }
   let recording = mediaRuntimeState === "recording";
   if (!immediate) {
     try {
@@ -417,8 +460,9 @@ function updateBackupSettings() {
   backupController ??= createBackupSettingsController({
     document, send,
     download: () => send("hd_backup_download", {}, WORKER_TARGET),
+    exportAvailable: HOST_CAPABILITIES.backupExport,
     checkReady() {
-      if (importing || updating || removing || committing || customLoading || customSaving || pendingDictionaryCommits > 0) {
+      if (importing || installingRecommended || updating || removing || committing || customLoading || customSaving || pendingDictionaryCommits > 0) {
         throw new Error("Wait for the current dictionary operation to finish, then try again.");
       }
       if (customDictionaryDirty() || customLinkController?.dirty() || savingOptions !== null || optionsEditRevision !== null
@@ -458,7 +502,8 @@ function updateDesignPreview() {
   }
   if (frame.style.width !== `${options.popupWidthPx + 96}px`
       || frame.style.height !== `${options.popupHeightPx + 216}px`) resizeDesignPreview();
-  frame.contentWindow.HDDesignPreview?.update(options, dictionaryState);
+  const previewOptions = HOST_CAPABILITIES.customLinks ? options : { ...options, customLinks: [] };
+  frame.contentWindow.HDDesignPreview?.update(previewOptions, dictionaryState);
 }
 
 function resizeDesignPreview() {
@@ -760,7 +805,7 @@ function customDictionaryDraftSource() {
 }
 
 function renderCustomDictionaryControls() {
-  const busy = importing || updating || removing || committing || customLoading || customSaving || backingUp;
+  const busy = importing || installingRecommended || updating || removing || committing || customLoading || customSaving || backingUp;
   const source = element("custom-dictionary-source");
   source.disabled = busy || !customEditorLoaded;
   element("custom-dictionary-save").disabled = busy
@@ -967,7 +1012,7 @@ function renderUpdateControls() {
   element("update-last-checked").textContent = checked !== null && !Number.isNaN(checked.getTime())
     ? `Last checked ${checked.toLocaleString()}.`
     : "Never checked.";
-  const busy = updating || importing || removing || committing || customSaving || backingUp;
+  const busy = updating || importing || installingRecommended || removing || committing || customSaving || backingUp;
   element("update-all").disabled = busy || availableUpdates().length === 0;
   element("update-check-now").disabled = busy;
   schedule.disabled = busy || updateSettings.revision < 0;
@@ -1041,7 +1086,7 @@ function renderRecommendedActions() {
 }
 
 function setControlsDisabled(disabled) {
-  const blocked = disabled || removing || updating || customSaving || backingUp;
+  const blocked = disabled || installingRecommended || removing || updating || customSaving || backingUp;
   const importBlocked = blocked || committing;
   element("import-file").disabled = importBlocked;
   element("import-drop-zone").setAttribute("aria-disabled", String(importBlocked));
@@ -1402,10 +1447,6 @@ function renderThemeChoices() {
   if (theme !== document.activeElement) theme.value = options.popupTheme;
 }
 
-function applySettingsTheme() {
-  document.documentElement.dataset.hoshidictsTheme = options.popupTheme;
-}
-
 function renderCustomCss(force = false) {
   const editor = element("opt-custom-popup-css");
   if ((force || editor !== document.activeElement) && editor.value !== options.customPopupCss) {
@@ -1415,7 +1456,7 @@ function renderCustomCss(force = false) {
 }
 
 function renderOptions() {
-  applySettingsTheme();
+  applyPageTheme(document, options);
   for (const field of NUMBER_FIELDS) {
     const input = element(field.id);
     if (input !== document.activeElement) {
@@ -2234,50 +2275,41 @@ async function importArchive(request, index, total, label, started) {
   return false;
 }
 
-async function importRecommendedDictionary(entry, index, total) {
-  const started = Date.now();
-  const tick = () => {
-    const elapsed = elapsedSince(started);
-    setImportState(
-      `Downloading ${entry.name} (${index + 1} of ${total}) — ${index} of ${total} complete — ${elapsed} elapsed`,
-      "busy",
-    );
-    updateImportResult(index, { text: `Downloading… ${elapsed} elapsed`, progress: { value: null } });
-  };
-  tick();
-  const ticker = setInterval(tick, 1000);
-  if (sharingLinkedAddress !== null) {
-    clearInterval(ticker);
-    return importArchive({ sourceId: entry.sourceId, archiveUrl: entry.downloadUrl, fileName: entry.archiveName }, index, total, entry.name, started);
+function renderRecommendedInstallation() {
+  const { run, failed, pending } = recommendedInstallation;
+  const wasInstalling = installingRecommended;
+  installingRecommended = !failed && (run?.finished === false || pending?.installing === true);
+  setControlsDisabled(importing);
+  if (failed || importing) return;
+  if (!run?.runId) {
+    if (wasInstalling) setImportState("Installation was interrupted. Retry missing dictionaries.", "error");
+    return;
   }
-  try {
-    const response = await fetch(entry.downloadUrl, { credentials: "omit" });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const file = new File([await response.blob()], entry.archiveName, { type: "application/zip" });
-    clearInterval(ticker);
-    return await importFile(
-      file,
-      index,
-      total,
-      { sourceId: entry.sourceId, finalUrl: response.url },
-      entry.name,
-      started,
-    );
-  } catch (error) {
-    updateImportResult(index, {
-      text: `Download failed after ${importDuration(started)}: ${describe(error)}`,
-      tone: "error",
-    });
-    return false;
-  } finally {
-    clearInterval(ticker);
+  if (renderedInstallRun !== run.runId) {
+    renderedInstallRun = run.runId;
+    clearImportResults();
+    setImportEntries(run.entries.map(entry => {
+      const source = RECOMMENDED_DICTIONARIES.find(source => source.sourceId === entry.sourceId);
+      return { id: entry.sourceId, name: source?.name ?? entry.sourceId, purpose: source?.description ?? "" };
+    }));
   }
+  for (const entry of run.entries) importProgressView().update(entry.sourceId, installEntryState(entry));
+  const failedCount = run.entries.filter(entry => entry.phase === "failed").length;
+  const complete = run.entries.filter(entry => ["installed", "already-installed", "failed"].includes(entry.phase)).length;
+  const total = run.entries.length;
+  const label = total === 1 ? "recommended dictionary" : "recommended dictionaries";
+  if (run.finished) {
+    setImportState(`Finished ${total} of ${total} ${label} — ${total - failedCount} imported, ${failedCount} failed.`,
+      failedCount ? "error" : "ready");
+    if (wasInstalling) void reloadDictionaries().then(refreshStatus);
+  } else {
+    setImportState(`Installing recommended dictionaries — ${complete} of ${total} complete. You can close this page.`, "busy");
+  }
+  renderRecommendedActions();
 }
 
 async function runImportBatch(items, importOne, singular, plural, describeItem) {
-  if (importing) {
+  if (importing || installingRecommended) {
     return;
   }
   importing = true;
@@ -2362,14 +2394,10 @@ function bindImportDropZone(file) {
 
 function installMissingRecommendedDictionaries() {
   const missing = missingRecommendedDictionaries();
-  if (missing.length > 0) {
-    void runImportBatch(
-      missing,
-      importRecommendedDictionary,
-      "recommended dictionary",
-      "recommended dictionaries",
-      (entry) => ({ name: entry.name, purpose: entry.description }),
-    );
+  if (missing.length > 0 && !importing && !installingRecommended) {
+    installingRecommended = true;
+    setControlsDisabled(importing);
+    void recommendedInstallation.request(missing.map(entry => entry.sourceId));
   }
 }
 
@@ -2714,12 +2742,14 @@ function attachHandlers() {
     writeOptions();
   });
   element("media-open-capture").addEventListener("click", async () => {
+    if (!HOST_CAPABILITIES.mediaCapture) return;
     try {
       const reply = await send("hd_capture_open", {}, CAPTURE_TARGET);
       if (!reply.ok) throw new Error(reply.error || "The capture page could not be opened.");
-      element("media-runtime-status").textContent = "Capture controls opened in a separate tab.";
+      setStatusOutput(element("media-runtime-status"), "Capture controls opened in a separate tab.");
     } catch (error) {
-      element("media-runtime-status").textContent = `Could not open capture controls: ${describe(error)}`;
+      setStatusOutput(element("media-runtime-status"),
+        `Could not open capture controls: ${describe(error)}`, "error");
     }
   });
   element("opt-media-enabled").addEventListener("change", event => {
@@ -2837,6 +2867,9 @@ function attachHandlers() {
   });
 
   chrome.storage.onChanged.addListener(handleStorageChange);
+  chrome.runtime.onMessage?.addListener(recommendedInstallation.receive);
+  window.addEventListener("pagehide", recommendedInstallation.stop);
+  window.addEventListener("pageshow", event => { if (event.persisted) void recommendedInstallation.request(); });
 }
 
 function dictionaryNameIsBeingEdited() {
@@ -2937,7 +2970,7 @@ function setOptionsStatus(message, completed = false) {
 // Keep only edited fields. A storage event can update the committed snapshot,
 // but cannot replace a local draft or authorize a stale draft's write.
 function writeOptions() {
-  applySettingsTheme();
+  applyPageTheme(document, options);
   updateDesignPreview();
   const previous = { ...savedOptions, ...savingOptions?.patch };
   const changes = Object.fromEntries(Object.entries(options).filter(([key, value]) =>
@@ -2956,11 +2989,14 @@ function writeOptions() {
 async function flushOptions() {
   window.clearTimeout(optionsTimer);
   optionsTimer = null;
-  if (savingOptions !== null || optionsSaveFailed) return;
+  if (savingOptions !== null) return optionsSaveCompletion;
+  if (optionsSaveFailed) return;
   if (Object.keys(pendingOptions).length === 0) {
     setOptionsStatus("Saved.");
     return;
   }
+  let finishSave;
+  optionsSaveCompletion = new Promise(resolve => { finishSave = resolve; });
   const sent = { patch: pendingOptions, baseRevision: pendingOptionsRevision };
   savingOptions = sent;
   pendingOptions = {};
@@ -2998,11 +3034,32 @@ async function flushOptions() {
     if (!optionsSaveFailed && optionsTimer === null && Object.keys(pendingOptions).length > 0) {
       void flushOptions();
     }
+    finishSave();
+  }
+}
+
+async function flushOptionsUntilIdle() {
+  window.clearTimeout(optionsTimer);
+  optionsTimer = null;
+  for (;;) {
+    if (optionsSaveFailed) {
+      throw new Error("Save the pending settings before checking AnkiConnect.");
+    }
+    if (savingOptions === null && Object.keys(pendingOptions).length === 0) return;
+    await flushOptions();
   }
 }
 
 async function start() {
-  createLocalFileAccessController({ document, container: element("settings-local-file-access") });
+  element("audio-mining-help").hidden = MINING_CAPABILITIES.browserSpeech;
+  element("audio-speech-capture-help").hidden = !MINING_CAPABILITIES.browserSpeech;
+  element("media-overlay-help").hidden = HOST_CAPABILITIES.mediaCapture;
+  element("custom-links-settings").disabled = !HOST_CAPABILITIES.customLinks;
+  element("custom-links-overlay-help").hidden = HOST_CAPABILITIES.customLinks;
+  element("backup-export-overlay-help").hidden = HOST_CAPABILITIES.backupExport;
+  if (HOST_CAPABILITIES.localFileAccessPrompt) {
+    createLocalFileAccessController({ document, container: element("settings-local-file-access") });
+  }
   attachSettingsNavigation();
   renderRecommendedCatalogue();
   attachHandlers();
@@ -3018,6 +3075,7 @@ async function start() {
   renderOptions();
   renderUpdateControls();
   await refreshStatus();
+  void recommendedInstallation.request();
 }
 
 start();

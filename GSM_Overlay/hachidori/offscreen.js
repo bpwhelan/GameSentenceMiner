@@ -294,7 +294,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// The startup page asks this document, not the engine, to install recommended
+// Startup and Settings ask this document, not the engine, to install recommended
 // dictionaries: the run must outlive the page and any service-worker restart.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== SETUP_TARGET || message.relayed !== true) return false;
@@ -306,7 +306,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }));
   setupInstaller.then((installer) => {
     if (message.type !== "hd_setup_install") throw new Error(`unknown setup request type ${JSON.stringify(message.type)}`);
-    return installer.attach(message.sourceIds);
+    return installer.attach(message.sourceIds, { recordSetup: message.recordSetup === true });
   }).then(
     (result) => sendResponse({ type: `${message.type}_result`, requestId: message.requestId ?? null, ok: true, error: null, ...result }),
     (error) => sendResponse(failedResponse(message, describe(error))),

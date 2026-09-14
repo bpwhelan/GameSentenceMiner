@@ -1,11 +1,12 @@
 /*
- * Sequential first-run dictionary installer owned by the offscreen document.
+ * Shared recommended dictionary installer owned by the offscreen document.
  *
  * One run at a time downloads and imports requested recommended sources through
  * the engine's ordinary import transaction. The run outlives the startup page
  * and the service worker, so a reconnecting page or a restarted worker attaches
  * to the same run instead of starting a duplicate batch. Outcomes are recorded
- * by the service worker, which owns the durable setup state.
+ * by the service worker, which applies initial source selections and updates
+ * onboarding progress when startup participates in the run.
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -85,7 +86,7 @@ export function createSetupInstaller({ dispatch, ask, notify, broadcast, now = (
   // backoff, until the worker answers. Records are idempotent per run, so a
   // write whose reply was lost is simply confirmed by the next attempt.
   async function record(patch) {
-    const message = { target: WORKER_TARGET, type: "hd_setup_record", runId: run.runId, ...patch };
+    const message = { target: WORKER_TARGET, type: "hd_setup_record", runId: run.runId, recordSetup: run.recordSetup, ...patch };
     for (let delay = RECORD_RETRY_MS; ; delay = Math.min(delay * 2, RECORD_RETRY_MAX_MS)) {
       try {
         const reply = await notify({ ...message, requestId: requestId("record") });
@@ -172,7 +173,7 @@ export function createSetupInstaller({ dispatch, ask, notify, broadcast, now = (
     // sources when none is active. An empty request only observes. A source
     // that is already installed settles as such, which also gives a package
     // whose commit outlived an earlier installer its durable outcome.
-    attach(sourceIds) {
+    attach(sourceIds, { recordSetup = true } = {}) {
       const sources = requestedSetupSources(sourceIds);
       if ((run === null || run.finished) && sources.length > 0) {
         run = {
@@ -180,6 +181,7 @@ export function createSetupInstaller({ dispatch, ask, notify, broadcast, now = (
           sequence: 0,
           finished: false,
           installSeconds: 0,
+          recordSetup,
           entries: sources.map((source) => ({
             sourceId: source.sourceId, phase: "waiting", receivedBytes: 0, totalBytes: null,
             seconds: null, error: null, installStartedAt: null,
@@ -189,6 +191,7 @@ export function createSetupInstaller({ dispatch, ask, notify, broadcast, now = (
           console.error(`hoshidicts: the setup dictionary run stopped: ${describe(error)}`);
         });
       }
+      if (run !== null && !run.finished && recordSetup) run.recordSetup = true;
       return snapshot();
     },
     // Download and installation phases reported by the engine for imports

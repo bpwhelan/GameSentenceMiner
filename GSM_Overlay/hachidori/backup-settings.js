@@ -1,6 +1,8 @@
 // Explicit complete backup/restore controls; the engine owns preparation tokens.
 // SPDX-License-Identifier: GPL-3.0-or-later
-export function createBackupSettingsController({ document, send, download, checkReady, setBusy, status, refresh }) {
+export function createBackupSettingsController({
+  document, send, download, checkReady, setBusy, status, refresh, exportAvailable = true,
+}) {
   const element = id => document.getElementById(id);
   const window = document.defaultView;
   let busy = false, prepared = null;
@@ -8,7 +10,7 @@ export function createBackupSettingsController({ document, send, download, check
   let pageEpoch = 0;
 
   function render() {
-    element("backup-export").disabled = busy;
+    element("backup-export").disabled = busy || !exportAvailable;
     element("backup-file").disabled = busy;
     element("backup-cancel").disabled = busy;
     element("backup-restore").disabled = busy || !prepared || !element("backup-confirm").checked;
@@ -44,11 +46,14 @@ export function createBackupSettingsController({ document, send, download, check
     render();
   }
 
-  element("backup-export").addEventListener("click", () => run("Creating the backup archive…", async () => {
-    const reply = await download();
-    if (!reply.ok) throw new Error(reply.error || "Could not create the backup.");
-    status(reply.warning || "Download started. Check Chrome’s downloads for progress.", reply.warning ? "" : "ready", true);
-  }));
+  element("backup-export").addEventListener("click", () => {
+    if (!exportAvailable) return;
+    void run("Creating the backup archive…", async () => {
+      const reply = await download();
+      if (!reply.ok) throw new Error(reply.error || "Could not create the backup.");
+      status(reply.warning || "Download started. Check Chrome’s downloads for progress.", reply.warning ? "" : "ready", true);
+    });
+  });
 
   element("backup-file").addEventListener("change", () => {
     const file = element("backup-file").files?.[0];

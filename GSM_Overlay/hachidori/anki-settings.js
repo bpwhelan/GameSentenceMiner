@@ -2,9 +2,9 @@
 import { ankiAvailability } from "./anki.js";
 import { ankiSetupFamily } from "./anki-setup.js";
 import { ANKI_TEMPLATE_MARKERS, ankiFieldNames, applyAnkiPreset, resolveAnkiTemplates } from "./anki-templates.js";
-import { reorderSettingsRows } from "./settings-dom.js";
+import { reorderSettingsRows, setStatusOutput } from "./settings-dom.js";
 
-export function createAnkiSettingsController({ document, readConfig, editConfig, send }) {
+export function createAnkiSettingsController({ document, readConfig, editConfig, send, capabilities = { screenshot: true } }) {
   const { ANKI_FIELDS, ANKI_OVERWRITE_MODES, normaliseAnkiConnectUrl } = document.defaultView.HDReaderOptions;
   const element = id => document.getElementById(id);
   const selects = new WeakMap();
@@ -15,9 +15,15 @@ export function createAnkiSettingsController({ document, readConfig, editConfig,
   let requestSequence = 0;
   let requestedKey = null;
   let loading = false;
+  let findingSetup = false;
+  let setupSnapshot = null;
   const templateRows = new Map();
   let nextTemplateId = 0;
   const connectionKey = config => JSON.stringify([config.model, config.apiKey, config.url]);
+  if (!capabilities.screenshot) {
+    element("opt-anki-screenshot").disabled = true;
+    element("anki-screenshot-help").textContent = "Page screenshots are unavailable in this overlay. Screenshot fields stay empty.";
+  }
 
   function change(patch) {
     if (Object.hasOwn(patch, "fields") || Object.hasOwn(patch, "fieldTemplates")) pendingPreset = null;
@@ -128,16 +134,73 @@ export function createAnkiSettingsController({ document, readConfig, editConfig,
     selects.set(select, key);
   }
 
+  function renderDuplicateScope(config) {
+    const select = element("opt-anki-duplicate-scope");
+    if (select === document.activeElement) return;
+    const choices = [
+      ["model", `Note type: ${config.model || "Choose a note type"}`],
+      ["deck", `Deck: ${config.deck || "Choose a deck"}`],
+      ["all", "All of Anki"],
+    ];
+    const key = JSON.stringify(choices);
+    if (selects.get(select) !== key) {
+      select.replaceChildren(...choices.map(([value, label]) => new document.defaultView.Option(label, value)));
+      selects.set(select, key);
+    }
+    select.value = config.duplicateScope;
+  }
+
   function renderStatus(config, resolved) {
     const status = element("anki-status");
-    const errors = ankiAvailability(config, discovery, resolved);
+    // A URL/API-key/model edit retires the old discovery immediately. Its
+    // fields no longer match `resolved`, and must not be rendered while the
+    // replacement request (or a linked host-side save) is still pending.
+    const currentDiscovery = discoveryKey === connectionKey(config) ? discovery : null;
+    const errors = ankiAvailability(config, currentDiscovery, resolved);
     let state = "Not connected";
-    if (discovery?.connected) state = errors.length ? "Connected · configuration needs attention" : "Connected · configuration ready";
+    if (currentDiscovery?.connected) state = errors.length ? "Connected · configuration needs attention" : "Connected · configuration ready";
     const message = loading ? "Checking AnkiConnect…" : [state, ...errors].join("\n");
-    if (status.textContent !== message) status.textContent = message;
     const invalid = !loading && errors.length > 0;
-    if (status.classList.contains("is-error") !== invalid) status.classList.toggle("is-error", invalid);
+    const tone = loading ? "working" : invalid ? "error" : currentDiscovery?.connected ? "ready" : undefined;
+    setStatusOutput(status, message, tone);
     if (element("anki-refresh").disabled !== loading) element("anki-refresh").disabled = loading;
+  }
+
+  function setupStatus(message, tone) {
+    const status = element("anki-setup-status");
+    status.hidden = message === "";
+    setStatusOutput(status, message, tone);
+  }
+
+  async function findSetup() {
+    if (findingSetup || commitConnectionUrl() === null) return;
+    const config = readConfig();
+    const snapshot = JSON.stringify(config);
+    findingSetup = true;
+    element("anki-find-setup").disabled = true;
+    setupStatus("Finding your Anki setup…", "working");
+    try {
+      const reply = await send("hd_anki_setup", { anki: config });
+      if (snapshot !== JSON.stringify(readConfig())) {
+        throw new Error("Anki settings changed while checking. Your changes were kept; retry to check them.");
+      }
+      if (!reply.ok) throw new Error(reply.error || "Anki setup discovery did not reply.");
+      const { proposal, outcome } = reply;
+      if (proposal?.status === "configured") {
+        change({ model: proposal.model, deck: proposal.deck, fieldTemplates: proposal.fieldTemplates });
+        setupStatus(`Found ${outcome.model} in deck ‘${outcome.deck}’. Changes save automatically.`, "ready");
+      } else if (outcome.status === "already-configured") {
+        setupStatus(`Your saved ${outcome.model} setup for deck ‘${outcome.deck}’ is ready.`, "ready");
+      } else {
+        setupStatus(outcome.detail, "error");
+      }
+    } catch (error) {
+      setupStatus(error.message, "error");
+    } finally {
+      findingSetup = false;
+      setupSnapshot = JSON.stringify(readConfig());
+      element("anki-find-setup").disabled = false;
+    }
   }
 
   async function refresh() {
@@ -178,7 +241,6 @@ export function createAnkiSettingsController({ document, readConfig, editConfig,
   const controls = [
     ["tags", "opt-anki-tags"], ["apiKey", "opt-anki-api-key"],
     ["duplicateScope", "opt-anki-duplicate-scope"], ["duplicateBehavior", "opt-anki-duplicate-behavior"],
-    ["checkForDuplicates", "opt-anki-check-duplicates"], ["duplicateScopeCheckAllModels", "opt-anki-check-all-models"],
     ["captureScreenshot", "opt-anki-screenshot"],
   ];
   function renderBasicMappings(config, fields) {
@@ -188,8 +250,22 @@ export function createAnkiSettingsController({ document, readConfig, editConfig,
       fieldNames.get(config.fields[key].toLowerCase()));
   }
 
+  function renderFormControls(config) {
+    const values = { ...config, captureScreenshot: capabilities.screenshot && config.captureScreenshot };
+    for (const [key, id] of controls) {
+      const control = element(id);
+      if (control === document.activeElement) continue;
+      if (control.type === "checkbox") control.checked = values[key];
+      else control.value = key === "tags" ? values.tags.join(" ") : values[key];
+    }
+  }
+
   function render() {
     const config = readConfig();
+    if (!findingSetup && setupSnapshot !== null && setupSnapshot !== JSON.stringify(config)) {
+      setupSnapshot = null;
+      setupStatus("");
+    }
     if (pendingPreset && pendingPreset.key !== connectionKey(config)) pendingPreset = null;
     if (presetModel !== config.model) {
       presetModel = config.model;
@@ -197,20 +273,12 @@ export function createAnkiSettingsController({ document, readConfig, editConfig,
     }
     selectChoices("opt-anki-deck", discovery?.decks || [], config.deck, "Choose a deck");
     selectChoices("opt-anki-model", discovery?.models || [], config.model, "Choose a note type");
+    renderDuplicateScope(config);
     const fields = currentFields();
     const url = element("opt-anki-url");
     if (url !== document.activeElement && !url.validity.customError && url.value !== config.url) url.value = config.url;
     renderBasicMappings(config, fields);
-    for (const [key, id] of controls) {
-      const control = element(id);
-      if (control === document.activeElement) continue;
-      if (control.type === "checkbox") control.checked = config[key];
-      else control.value = key === "tags" ? config.tags.join(" ") : config[key];
-    }
-    for (const id of ["opt-anki-duplicate-scope", "opt-anki-duplicate-behavior", "opt-anki-check-all-models"]) {
-      const control = element(id);
-      if (control.disabled === config.checkForDuplicates) control.disabled = !config.checkForDuplicates;
-    }
+    renderFormControls(config);
     const resolved = resolveAnkiTemplates(config, fields);
     renderStatus(config, resolved);
     renderTemplates(config, resolved);
@@ -268,6 +336,7 @@ export function createAnkiSettingsController({ document, readConfig, editConfig,
     // A changed URL starts discovery through render; don't start it twice.
     if (commitConnectionUrl() === false) void refresh();
   });
+  element("anki-find-setup").addEventListener("click", () => { void findSetup(); });
   element("anki-preset").addEventListener("change", () => { pendingPreset = null; });
   element("anki-apply-preset").addEventListener("click", () => {
     pendingPreset = null;

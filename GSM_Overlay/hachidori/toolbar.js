@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import "./reader-options.js";
+import { HOST_CAPABILITIES } from "./overlay-mode.js";
 
 const { normaliseOptions } = globalThis.HDReaderOptions;
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map(node => [node.id, node]));
@@ -19,7 +20,7 @@ function adoptOptions(stored) {
 
 function render() {
   elements["lookup-toggle"].disabled = pending || !options;
-  elements["record-screen"].disabled = pending || !options;
+  elements["record-screen"].disabled = pending || !options || !HOST_CAPABILITIES.mediaCapture;
   if (!options) return;
   elements["lookup-toggle"].setAttribute("aria-checked", String(options.hoverEnabled));
   elements["lookup-state"].textContent = options.hoverEnabled ? "On" : "Off";
@@ -55,6 +56,12 @@ async function run(action) {
 }
 
 function renderCapture(recording) {
+  if (!HOST_CAPABILITIES.mediaCapture) {
+    elements["record-screen"].classList.toggle("is-recording", false);
+    elements["record-screen"].title = "Screen recording is unavailable in this overlay";
+    elements["record-label"].textContent = "Recording unavailable";
+    return;
+  }
   elements["record-screen"].classList.toggle("is-recording", recording);
   elements["record-screen"].title = recording ? "Open recording controls"
     : "Choose a screen, window, or tab to record";
@@ -78,6 +85,10 @@ async function refreshSharing() {
 }
 
 async function refreshCapture() {
+  if (!HOST_CAPABILITIES.mediaCapture) {
+    renderCapture(false);
+    return;
+  }
   if (!options?.mediaCapture.enabled) {
     renderCapture(false);
     return;
@@ -92,6 +103,7 @@ elements["lookup-toggle"].addEventListener("click", () => {
   void run(() => writeOptions({ hoverEnabled: !options.hoverEnabled }));
 });
 elements["record-screen"].addEventListener("click", () => {
+  if (!HOST_CAPABILITIES.mediaCapture) return;
   void run(async () => {
     // The shortcut enables the existing capture controls. The recorder still
     // requires Start capture and an explicit source choice in Chrome's picker.

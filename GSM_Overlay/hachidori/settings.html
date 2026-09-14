@@ -231,6 +231,7 @@
                 Recommended dictionaries
               </h2>
               <p class="hint" id="recommended-dictionaries-hint"></p>
+              <p class="field-hint">Recommended installations continue if you close this window. Reopen Settings to follow their progress.</p>
             </div>
             <button
               class="primary-button"
@@ -565,7 +566,7 @@
                 </label>
               </div>
               <p class="field-hint" id="definition-blur-count-paused" hidden>Lookup count blur is paused. <label for="opt-lookup-counts">Turn on Record and show lookup counts above</label> to use this condition.</p>
-              <p class="field-hint" id="definition-blur-anki-help" hidden>Mature means a review card with an interval of at least 21 days. Uses your configured Anki note type and dedicated Expression field across all decks. Set the mapping in <a href="#anki">Anki settings</a>. Refreshes every 30 minutes; the last saved results still work when Anki is closed.</p>
+              <p class="field-hint" id="definition-blur-anki-help" hidden>Mature means a review card with an interval of at least 21 days. Uses the duplicate scope and dedicated Expression fields selected in <a href="#anki">Anki settings</a>. The shared index refreshes every 30 minutes; its last saved results still work when Anki is closed.</p>
               <div class="fields">
                 <label class="field">
                   <span class="field-label">Reveal</span>
@@ -733,8 +734,9 @@
                   </label>
                 </div>
               </fieldset>
-              <fieldset class="lookup-group">
+              <fieldset class="lookup-group" id="custom-links-settings">
                 <legend>Custom toolbar links</legend>
+                <p id="custom-links-overlay-help" class="section-note" hidden>Custom toolbar links are unavailable in this overlay because Electron cannot open browser tabs. Saved links are preserved for browser mode.</p>
                 <p class="field-hint">Use %w for the word, %r for its reading and %s for the sentence.</p>
                 <ol id="custom-link-list" class="custom-link-list"></ol>
                 <p id="custom-link-empty" class="field-hint">No custom links yet.</p>
@@ -798,6 +800,7 @@
           </div>
           <div class="options-feedback-slot"></div>
           <label class="lookup-enable"><span>Automatically play the first lookup result</span><input id="opt-audio-autoplay" type="checkbox"></label>
+          <p id="audio-mining-help" class="section-note" hidden>Browser speech can play in this overlay, but cannot be recorded into Anki. Add a downloadable pronunciation source to fill <code>{audio}</code> fields.</p>
           <ol id="audio-source-list" class="audio-source-list"></ol>
           <p id="audio-source-empty" class="hint" hidden>No audio sources. Add one to configure pronunciation.</p>
           <button id="audio-source-add" type="button" class="ghost">Add source</button>
@@ -805,7 +808,7 @@
             <summary>Help</summary>
             <p class="field-hint">URL templates accept <code>{term}</code>, <code>{expression}</code>, <code>{reading}</code> and <code>{language}</code>, URL-encoded. Yomitan JSON sources return an <code>audioSourceList</code>.</p>
             <p class="field-hint">Shift-click or right-click the popup's audio button to choose a pronunciation.</p>
-            <p class="field-hint">To add browser speech to Anki, start Media capture with shared audio.</p>
+            <p id="audio-speech-capture-help" class="field-hint">To add browser speech to Anki, start Media capture with shared audio.</p>
             <p class="field-hint">Sources receive the word and reading. Remote URLs need HTTPS; localhost may use HTTP. Some system voices are online.</p>
           </details>
         </section>
@@ -813,15 +816,16 @@
           <div class="section-heading">
             <div class="card-head">
               <h1 id="media-heading" tabindex="-1">Media capture</h1>
-              <p class="hint">Optional local recording for Anki notes. Changes save automatically.</p>
+              <p id="media-heading-help" class="hint">Optional local recording for Anki notes. Changes save automatically.</p>
             </div>
             <button id="media-open-capture" type="button" class="primary-button">Open capture controls</button>
           </div>
           <div class="options-feedback-slot"></div>
-          <output id="media-runtime-status" class="anki-status" aria-live="polite">
+          <p id="media-overlay-help" class="section-note" hidden>Hachidori recording is unavailable in this embedded overlay. GameSentenceMiner owns game screenshots, recordings and sentence audio; these saved browser settings are left unchanged.</p>
+          <output id="media-runtime-status" class="operational-status" aria-live="polite" aria-atomic="true">
             Capture is stopped.
           </output>
-          <p class="section-note">
+          <p id="media-browser-help" class="section-note">
             Open the capture controls to choose a tab, window, or entire screen. Capture keeps running when you close
             the controls. Hachidori never requests microphone access.
           </p>
@@ -921,7 +925,7 @@
               </label>
             </div>
           </fieldset>
-          <p class="section-note">
+          <p id="media-template-help" class="section-note">
             Anki templates use <code>{capture-animation}</code> and <code>{capture-audio}</code>.
             Captured media cannot be placed in the first Anki field.
           </p>
@@ -936,8 +940,13 @@
           </div>
           <div class="options-feedback-slot"></div>
           <div class="anki-connection-summary">
-            <output id="anki-status" class="anki-status" aria-live="polite">Open Anki to discover your decks and note types.</output>
+            <output id="anki-status" class="operational-status" aria-live="polite" aria-atomic="true">Open Anki to discover your decks and note types.</output>
             <p class="field-hint">Requires the <a href="https://ankiweb.net/shared/info/2055492159" target="_blank" rel="noopener noreferrer">AnkiConnect add-on</a> in Anki.</p>
+            <div class="sharing-actions">
+              <button id="anki-find-setup" type="button" class="ghost">Find existing setup</button>
+              <span class="field-hint">Find your most-used Kiku, Lapis or Senren setup, or check your saved mapping. Open Anki and retry if it was unavailable.</span>
+            </div>
+            <output id="anki-setup-status" class="operational-status" aria-live="polite" aria-atomic="true" hidden></output>
           </div>
           <fieldset class="lookup-group">
             <legend>Destination</legend>
@@ -955,8 +964,8 @@
               <button id="anki-apply-preset" class="ghost" type="button">Apply preset</button>
             </div>
             <div id="anki-fields" class="fields"></div>
-            <label class="lookup-enable"><span>Screenshot the page when mining</span><input id="opt-anki-screenshot" type="checkbox"></label>
-            <p class="field-hint">Adds the visible page to fields using <code>{screenshot}</code>.</p>
+            <label class="lookup-enable"><span>Screenshot the page when mining</span><input id="opt-anki-screenshot" type="checkbox" aria-describedby="anki-screenshot-help"></label>
+            <p id="anki-screenshot-help" class="field-hint">Adds the visible page to fields using <code>{screenshot}</code>.</p>
             <label class="lookup-enable"><span>Edit field templates directly</span><input id="opt-anki-advanced" type="checkbox"></label>
             <p class="field-hint">Combine text with markers such as <code>{expression}</code> and <code>{glossary}</code>.</p>
             <details class="anki-marker-reference"><summary>Available markers</summary><p id="anki-markers" class="anki-markers"></p><p class="field-hint">Dictionary-specific values also use <code>{single-glossary-DICTIONARY}</code>, <code>{single-frequency-DICTIONARY}</code> or <code>{single-frequency-number-DICTIONARY}</code>.</p></details>
@@ -964,12 +973,10 @@
           </fieldset>
           <details class="anki-details">
             <summary>Duplicate handling</summary>
-            <label class="lookup-enable"><span>Check for duplicates</span><input id="opt-anki-check-duplicates" type="checkbox"></label>
             <div class="fields lookup-group">
-              <label class="field"><span class="field-label">Check within</span><select id="opt-anki-duplicate-scope"><option value="collection">Entire collection</option><option value="deck">Selected deck</option><option value="deck-root">Deck root and its subdecks</option></select></label>
-              <label class="field"><span class="field-label">When a duplicate exists</span><select id="opt-anki-duplicate-behavior"><option value="prevent">Prevent duplicate</option><option value="new">Add new anyway</option><option value="overwrite">Overwrite existing</option></select></label>
+              <label class="field"><span class="field-label">Check within</span><select id="opt-anki-duplicate-scope"><option value="model">Configured note type</option><option value="deck">Configured deck and subdecks</option><option value="all">All of Anki</option></select></label>
+              <label class="field"><span class="field-label">When a duplicate exists</span><select id="opt-anki-duplicate-behavior"><option value="prevent">Prevent</option><option value="new">Add anyway</option><option value="overwrite">Overwrite</option></select></label>
             </div>
-            <label class="lookup-enable"><span>Check across all note types</span><input id="opt-anki-check-all-models" type="checkbox"></label>
           </details>
           <details class="anki-details">
             <summary>Connection settings</summary>
@@ -993,6 +1000,7 @@
           </div>
           <fieldset class="lookup-group" id="browser-shortcuts">
             <legend>Browser shortcuts</legend>
+            <p id="browser-shortcuts-overlay-help" class="section-note" hidden>Page and popup keybinds above still work. Electron does not expose Chrome’s browser shortcut manager.</p>
             <p class="field-hint">Chrome runs these on any page. Popup actions need an open popup. Change them in Chrome's extension shortcuts.</p>
             <ul id="browser-shortcut-list" class="browser-shortcut-list"></ul>
             <button id="browser-shortcuts-open" type="button" class="ghost">Change in Chrome</button>
@@ -1003,7 +1011,8 @@
             <h1 id="sharing-heading" tabindex="-1" data-search-keywords="share link other browser computer Tailscale network relay Anki add-on addon port address">Sharing</h1>
             <p class="hint">Use one Hachidori from all your browsers, on this computer and on your other computers. Anki carries the connection.</p>
           </div>
-          <output id="sharing-status" class="anki-status" aria-live="polite"></output>
+          <output id="sharing-status" class="operational-status" aria-live="polite" aria-atomic="true"></output>
+          <p id="sharing-overlay-preferences" class="section-note" hidden>Lookup activation, source highlighting and popup size/layout are saved locally for this overlay while linked. Other settings are saved on the shared Hachidori.</p>
           <fieldset class="lookup-group" id="sharing-host">
             <legend>Share this Hachidori</legend>
             <p class="field-hint">Your other browsers then use this Hachidori’s dictionaries, personal entries, lookup counts and settings instead of their own. Anki carries the connection: install the Hachidori Relay add-on once and keep Anki open.</p>
@@ -1055,6 +1064,7 @@
             <div>
               <h2>Save a backup</h2>
               <p>Includes every dictionary, media and styles, your personal source, groups, and all saved settings.</p>
+              <p id="backup-export-overlay-help" class="field-hint" hidden>Electron cannot start Chrome downloads here. Restore remains available; export from Hachidori in Chrome.</p>
             </div>
             <button id="backup-export" class="ghost" type="button">Export backup</button>
           </div>

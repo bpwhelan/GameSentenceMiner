@@ -289,7 +289,10 @@
       if (!current(record) || record.add.disabled || record.busy || record.terminal) return;
       const group = record.group, epoch = group.epoch;
       const owns = () => current(record) && record.group === group && group.epoch === epoch;
-      const request = (fromPointer && record.pointerRequest) || payload(record);
+      const baseRequest = (fromPointer && record.pointerRequest) || payload(record);
+      const request = record.decision?.clientSpeech
+        ? { ...baseRequest, clientSpeech: record.decision.clientSpeech }
+        : baseRequest;
       record.pointerRequest = null;
       record.busy = true;
       setMiningButtonState(record, "mining");
@@ -327,6 +330,7 @@
         await send("hd_anki_browse", { request: {
           noteIds: Array.isArray(noteIds) ? noteIds : [],
           expression: record.result.term.expression,
+          configKey: record.group.configKey,
         } });
       }
       catch (error) { if (current(record)) setStatus(record, `Could not open Anki: ${error.message}`, "error"); }

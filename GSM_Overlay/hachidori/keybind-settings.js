@@ -45,7 +45,7 @@ function renderScopes(row, action, bind) {
 }
 
 export function createKeybindSettingsController({ document, readKeybinds, editKeybinds, readAudioSources,
-  getBrowserCommands, openBrowserShortcuts }) {
+  getBrowserCommands, openBrowserShortcuts, browserShortcutsAvailable = true }) {
   const window = document.defaultView;
   const { KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_MODIFIERS, KEYBIND_MODIFIER_CODES, KEYBIND_SCOPES,
     KEYBIND_TOGGLE_OPTIONS, AUDIO_SOURCE_LABELS, DEFAULT_OPTIONS } = window.HDReaderOptions;
@@ -207,6 +207,7 @@ export function createKeybindSettingsController({ document, readKeybinds, editKe
 
   // Chrome owns its extension commands; Settings lists them and links there.
   async function renderBrowserCommands() {
+    if (!browserShortcutsAvailable) return;
     const commands = await getBrowserCommands();
     document.getElementById("browser-shortcut-list").replaceChildren(...commands.map(({ name, description, shortcut }) => {
       const item = document.createElement("li");
@@ -218,9 +219,13 @@ export function createKeybindSettingsController({ document, readKeybinds, editKe
       return item;
     }));
   }
-  document.getElementById("browser-shortcuts-open").addEventListener("click", () => { void openBrowserShortcuts(); });
-  // Returning from Chrome's shortcut page shows the shortcuts it saved.
-  window.addEventListener("focus", () => { void renderBrowserCommands(); });
-  void renderBrowserCommands();
+  document.getElementById("browser-shortcuts").disabled = !browserShortcutsAvailable;
+  document.getElementById("browser-shortcuts-overlay-help").hidden = browserShortcutsAvailable;
+  if (browserShortcutsAvailable) {
+    document.getElementById("browser-shortcuts-open").addEventListener("click", () => { void openBrowserShortcuts(); });
+    // Returning from Chrome's shortcut page shows the shortcuts it saved.
+    window.addEventListener("focus", () => { void renderBrowserCommands(); });
+    void renderBrowserCommands();
+  }
   return { render, renderBrowserCommands };
 }

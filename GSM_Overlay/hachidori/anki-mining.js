@@ -3,8 +3,9 @@ import { ankiAvailability } from "./anki.js";
 import { ankiCaptureRequirements, resolveAnkiTemplates } from "./anki-templates.js";
 import { ankiDigest } from "./anki-digest.js";
 import { ankiSetupFamily } from "./anki-setup.js";
+import { inspectAnkiNoteIds } from "./anki-index.js";
 import { ankiBrowseQuery, ankiNoteIdsQuery, ankiNoteOptions, canonicalAnkiFields, checkAnkiDuplicate, findAnkiDuplicateNotes,
-  isAnkiDuplicateError, overwriteAnkiFields } from "./anki-duplicates.js";
+  isAnkiDuplicateError, overwriteAnkiFields, validateAnkiNote } from "./anki-duplicates.js";
 
 const CONFIG_CHANGED = "Anki configuration changed. Refresh this result before adding a note.";
 const AUTOMATIC_CAPTURE_FIELDS = {
@@ -47,19 +48,65 @@ export async function verifyAnkiFields(invoke, noteId, expected) {
   }
 }
 
-async function decision(prepared) {
+async function addableDecision(prepared) {
+  const check = await validateAnkiNote(prepared.invoke, prepared.note);
+  return { state: check.addable ? "addable" : "invalid", canAdd: check.addable, error: check.error };
+}
+
+async function unindexedDecision(prepared) {
   const { invoke, note, config, firstField } = prepared;
-  const check = await checkAnkiDuplicate(invoke, note, config);
-  if (!check.duplicate) return { state: check.addable ? "addable" : "invalid", canAdd: check.addable, error: check.error };
+  const checked = await checkAnkiDuplicate(invoke, note, config);
+  if (!checked.duplicate) {
+    return { state: checked.addable ? "addable" : "invalid", canAdd: checked.addable, error: checked.error };
+  }
+  // A non-direct destination field cannot be keyed by the word index. Keep
+  // Anki's exact first-field identity as a compatibility path, restricted to
+  // the configured destination type so unrelated custom models never block.
   const matches = await findAnkiDuplicateNotes(invoke, note, firstField, config);
   const noteIds = matches.map(match => match.noteId);
   if (config.duplicateBehavior === "overwrite") {
-    const match = matches.find(value => value.fields !== null);
-    const target = match ? { noteId: match.noteId, fields: match.fields } : null;
-    return { state: "duplicate", canAdd: target !== null, action: "overwrite", target, noteIds,
-      error: target ? null : "A duplicate exists, but no matching note type is inside the selected deck scope." };
+    const target = matches.find(match => match.fields !== null) ?? null;
+    return { state: "duplicate", canAdd: target !== null, action: "overwrite", target, noteIds, mature: false,
+      error: target ? null : "A duplicate exists, but no matching configured note type is inside the selected scope." };
   }
-  return { state: "duplicate", canAdd: config.duplicateBehavior === "new", error: null, noteIds };
+  if (config.duplicateBehavior === "new") {
+    const addable = await addableDecision(prepared);
+    if (!addable.canAdd) return addable;
+  }
+  return {
+    state: "duplicate",
+    canAdd: config.duplicateBehavior === "new",
+    error: null,
+    noteIds,
+    mature: false,
+  };
+}
+
+async function decision(prepared, request, duplicateIndex) {
+  const { invoke, config } = prepared;
+  const expression = request.term?.expression ?? request.expression;
+  const source = await duplicateIndex.source(config);
+  if (source === null) return unindexedDecision(prepared);
+  let duplicate = await duplicateIndex.lookup(config, expression, invoke);
+  if (!duplicate.noteIds.length) return addableDecision(prepared);
+  if (config.duplicateBehavior === "overwrite") {
+    let inspected = await inspectAnkiNoteIds(invoke, source, expression, duplicate.noteIds);
+    if (inspected.stale) {
+      duplicate = await duplicateIndex.repair(config, expression, invoke);
+      if (!duplicate.noteIds.length) return addableDecision(prepared);
+      inspected = await inspectAnkiNoteIds(invoke, source, expression, duplicate.noteIds);
+    }
+    const target = inspected.target;
+    return { state: "duplicate", canAdd: target !== null, action: "overwrite", target, noteIds: duplicate.noteIds,
+      mature: duplicate.mature,
+      error: target ? null : "A duplicate exists, but no matching configured note type is inside the selected scope." };
+  }
+  if (config.duplicateBehavior === "new") {
+    const addable = await addableDecision(prepared);
+    if (!addable.canAdd) return addable;
+  }
+  return { state: "duplicate", canAdd: config.duplicateBehavior === "new", error: null,
+    noteIds: duplicate.noteIds, mature: duplicate.mature };
 }
 
 function omitUnchangedFields(fields, existing) {
@@ -125,8 +172,10 @@ export function createAnkiMiningService({
   beforeMutation = async () => {},
   afterConfirmed = async () => {},
   afterRejected = async () => {},
+  preflightExtra = async () => ({}),
   validateCapture = async () => {},
   enrich,
+  duplicateIndex,
   now = Date.now,
 }) {
   let cached = null;
@@ -176,6 +225,7 @@ export function createAnkiMiningService({
     if (prepared.resources.deferDuplicateCheck === true) {
       const capture = captureForApplication(request, prepared.resolved.templates);
       if (capture) await validateCapture({ request, prepared, capture });
+      const extra = await preflightExtra({ request, prepared, applied: null, deferred: true });
       return {
         state: "addable",
         canAdd: true,
@@ -184,12 +234,14 @@ export function createAnkiMiningService({
         capture,
         screenshot: prepared.config.captureScreenshot === true
           && ankiCaptureRequirements(prepared.resolved.templates).includeScreenshot,
+        ...(extra ?? {}),
       };
     }
-    const result = await decision(prepared);
+    const result = await decision(prepared, request, duplicateIndex);
     const applied = result.canAdd ? fieldsForDecision(prepared, result) : null;
     const capture = applied ? captureForApplication(request, applied.templates) : null;
     if (capture) await validateCapture({ request, prepared, capture });
+    const extra = await preflightExtra({ request, prepared, applied, deferred: false });
     return {
       state: result.state,
       canAdd: result.canAdd,
@@ -204,15 +256,16 @@ export function createAnkiMiningService({
       // write and may then apply a field this one would have kept.
       screenshot: prepared.config.captureScreenshot === true
         && ankiCaptureRequirements(prepared.resolved.templates).includeScreenshot,
+      ...(extra ?? {}),
     };
   }
 
   async function write(request) {
     const prepared = await prepare(request, true);
-    const checked = await decision(prepared);
+    const checked = await decision(prepared, request, duplicateIndex);
     if (!checked.canAdd) return { state: checked.state, error: checked.error,
       action: checked.action, noteIds: checked.noteIds };
-    const { configJson, note, invoke } = prepared;
+    const { config, configJson, firstField, note, invoke } = prepared;
     const { fields, target, templates } = fieldsForDecision(prepared, checked);
     const capture = captureForApplication(request, templates);
     if (capture) await validateCapture({ request, prepared, capture });
@@ -251,7 +304,10 @@ export function createAnkiMiningService({
         await releaseRejected();
         let noteIds = [];
         try {
-          noteIds = (await findAnkiDuplicateNotes(invoke, note, firstField, config)).map(match => match.noteId);
+          const expression = request.term?.expression ?? request.expression;
+          noteIds = await duplicateIndex.source(config) === null
+            ? (await findAnkiDuplicateNotes(invoke, note, firstField, config)).map(match => match.noteId)
+            : (await duplicateIndex.repair(config, expression, invoke)).noteIds;
         } catch { /* The duplicate result is definitive even if browse discovery fails. */ }
         return { state: "duplicate", error: "This note already exists in Anki.", noteIds };
       }
@@ -260,6 +316,12 @@ export function createAnkiMiningService({
       return { state: "uncertain", error: `The write could not be confirmed. Check Anki before trying again. ${error.message}` };
     }
     const warnings = [...(Array.isArray(writeResources?.warnings) ? writeResources.warnings : [])];
+    try {
+      await duplicateIndex.recordWrite(config, request.term?.expression ?? request.expression, noteId,
+        { mature: checked.mature === true });
+    } catch (error) {
+      warnings.push(`Duplicate index: ${error.message}`);
+    }
     let verified = false;
     try {
       await verifyAnkiFields(invoke, noteId, fields);
@@ -301,9 +363,21 @@ export function createAnkiMiningService({
   async function browse(request) {
     const config = await readConfig();
     const value = typeof request === "string" ? { expression: request } : request;
+    if (typeof value?.configKey === "string") {
+      const configKey = await ankiDigest(new TextEncoder().encode(JSON.stringify(config)));
+      if (value.configKey !== configKey) throw new Error(CONFIG_CHANGED);
+    }
     const query = Array.isArray(value?.noteIds) && value.noteIds.length
       ? ankiNoteIdsQuery(value.noteIds) : ankiBrowseQuery(value?.expression ?? "");
-    await invokeFor(config)("guiBrowse", { query });
+    const invoke = invokeFor(config);
+    const opened = await invoke("guiBrowse", { query });
+    if (Array.isArray(value?.noteIds) && value.noteIds.length && Array.isArray(opened)
+        && value.noteIds.some(noteId => !opened.includes(noteId))) {
+      const repaired = await duplicateIndex.repair(config, value.expression ?? "", invoke);
+      if (repaired.noteIds.length) {
+        await invoke("guiBrowse", { query: ankiNoteIdsQuery(repaired.noteIds) });
+      }
+    }
     return { opened: true };
   }
 

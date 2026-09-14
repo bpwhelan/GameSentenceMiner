@@ -10,6 +10,23 @@ export function formatSeconds(seconds) {
   return seconds < 10 ? `${seconds.toFixed(1)} seconds` : `${Math.round(seconds)} seconds`;
 }
 
+export function installEntryState(entry) {
+  switch (entry.phase) {
+    case "downloading": {
+      const received = formatBytes(entry.receivedBytes);
+      if (entry.totalBytes === null) return { text: `Downloading… ${received}`, progress: { value: null } };
+      const fraction = Math.min(1, entry.receivedBytes / entry.totalBytes);
+      return { text: `Downloading… ${received} of ${formatBytes(entry.totalBytes)} (${Math.floor(fraction * 100)}%)`,
+        progress: { value: fraction } };
+    }
+    case "installing": return { text: "Installing…", progress: { value: null } };
+    case "installed": return { text: `Installed in ${formatSeconds(entry.seconds)}`, tone: "ok" };
+    case "already-installed": return { text: "Already installed", tone: "ok" };
+    case "failed": return { text: `Failed: ${entry.error}`, tone: "error" };
+    default: return { text: "Waiting" };
+  }
+}
+
 export function createDictionaryProgressList({
   document,
   ariaLabel,
