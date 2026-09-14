@@ -41,6 +41,18 @@ export const FORWARDED_REQUESTS = {
   "hachidori-anki": LINKED_ANKI_REQUESTS,
 };
 
+const MUTATING_FORWARDED_REQUESTS = {
+  "hoshidicts-offscreen": new Set([
+    "hd_custom_append", "hd_custom_save", "hd_apply_state", "hd_reload", "hd_remove", "hd_import",
+  ]),
+  "hoshidicts-worker": new Set([
+    "hd_state_cas", "hd_custom_cas", "hd_options_write", "hd_lookup_stats_record",
+  ]),
+  "hachidori-updates": new Set(["hd_updates_schedule", "hd_updates_check", "hd_updates_install"]),
+  "hachidori-setup": new Set(["hd_setup_install"]),
+  "hachidori-anki": new Set(["hd_anki_submit"]),
+};
+
 export function forwardableRequest(message) {
   if (!message || typeof message !== "object") return false;
   const types = FORWARDED_REQUESTS[message.target];
@@ -49,6 +61,10 @@ export function forwardableRequest(message) {
   // download an archive itself.
   if (message.type === "hd_import") return typeof message.archiveUrl === "string" && message.blobUrl === undefined;
   return true;
+}
+
+export function mutatingForwardedRequest(message) {
+  return forwardableRequest(message) && MUTATING_FORWARDED_REQUESTS[message.target]?.has(message.type) === true;
 }
 
 export function formatLinkAddress({ host = "127.0.0.1", port = DEFAULT_SHARING_PORT } = {}) {

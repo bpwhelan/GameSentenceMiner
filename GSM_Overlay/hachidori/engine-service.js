@@ -74,9 +74,10 @@ const MEDIA_TYPES = {
   svg: "image/svg+xml",
 };
 
-// No engine call, so this must not queue behind a long import: the settings page
-// polls hd_status while one is running.
-const UNQUEUED = new Set(["hd_status", "hd_backup_release"]);
+// Status and release do not touch the loaded dictionaries. Imports stage their
+// network body outside the engine queue, then explicitly serialize only the
+// revalidation and native installation phase.
+const UNQUEUED = new Set(["hd_status", "hd_backup_release", "hd_import"]);
 
 // A storage read-modify-write spans two messages, so another context can write
 // in between; the worker refuses the write when that happens and the change is
@@ -93,6 +94,7 @@ let bootError = null;
 let reloadError = null;
 let ready = false;
 let busy = 0;
+let stagingImports = 0;
 let generation = 0;
 let dictionaryCount = 0;
 // Committed packages the engine could not load into its current set.
@@ -1320,7 +1322,7 @@ export function declaredResponseLength(response) {
   return Number.isSafeInteger(length) && length > 0 ? length : null;
 }
 
-export async function streamResponseToFile(FS, response, path, onProgress = null) {
+async function consumeResponse(response, consume, onProgress = null) {
   const reader = response.body?.getReader?.();
   const totalBytes = declaredResponseLength(response);
   const report = (receivedBytes) => {
@@ -1328,13 +1330,12 @@ export async function streamResponseToFile(FS, response, path, onProgress = null
   };
   if (reader === undefined) {
     const bytes = new Uint8Array(await response.arrayBuffer());
-    FS.writeFile(path, bytes);
+    consume(bytes);
     report(bytes.byteLength);
     return bytes.byteLength;
   }
 
-  const output = FS.open(path, "w");
-  let written = 0;
+  let received = 0;
   let reportedAt = -Infinity;
   try {
     for (;;) {
@@ -1342,30 +1343,63 @@ export async function streamResponseToFile(FS, response, path, onProgress = null
       if (done) break;
       const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
       if (bytes.byteLength === 0) continue;
-      FS.write(output, bytes, 0, bytes.byteLength);
-      written += bytes.byteLength;
+      consume(bytes);
+      received += bytes.byteLength;
       if (onProgress !== null && performance.now() - reportedAt >= PROGRESS_INTERVAL_MS) {
         reportedAt = performance.now();
-        report(written);
+        report(received);
       }
     }
   } finally {
-    FS.close(output);
     reader.releaseLock?.();
   }
-  report(written);
-  return written;
+  report(received);
+  return received;
 }
 
-async function importDictionaryArchive(response, archivePath, generationRoot, importLowRam, fileName, onProgress = null) {
+export async function streamResponseToFile(FS, response, path, onProgress = null) {
+  const output = FS.open(path, "w");
+  try {
+    return await consumeResponse(
+      response,
+      (bytes) => FS.write(output, bytes, 0, bytes.byteLength),
+      onProgress,
+    );
+  } finally {
+    FS.close(output);
+  }
+}
+
+export async function stageImportArchive(response, onProgress = null) {
+  const parts = [];
+  const byteLength = await consumeResponse(
+    response,
+    (bytes) => parts.push(bytes.slice()),
+    onProgress,
+  );
+  return {
+    blob: new Blob(parts, { type: "application/zip" }),
+    byteLength,
+  };
+}
+
+async function importDictionaryArchive(
+  response,
+  archivePath,
+  generationRoot,
+  importLowRam,
+  fileName,
+  expectedArchiveBytes = null,
+) {
   const FS = engine.FS;
   try {
-    const archiveBytes = await streamResponseToFile(FS, response, archivePath, onProgress);
+    const archiveBytes = await streamResponseToFile(FS, response, archivePath);
     if (archiveBytes === 0) {
       throw new Error(`${fileName} is empty`);
     }
-    // The native importer has no progress callback: installation is one call.
-    onProgress?.({ phase: "installing", receivedBytes: archiveBytes, totalBytes: archiveBytes });
+    if (expectedArchiveBytes !== null && archiveBytes !== expectedArchiveBytes) {
+      throw new Error(`${fileName} changed while it was staged`);
+    }
     return normaliseReport(
       parseJson(
         engine.ccall(
@@ -1471,6 +1505,18 @@ async function prepareImportRequest(message) {
   };
 }
 
+function samePreparedImport(left, right) {
+  return left.archiveUrl === right.archiveUrl
+    && left.expectedRevision === right.expectedRevision
+    && left.fileName === right.fileName
+    && left.importLowRam === right.importLowRam
+    && left.remote === right.remote
+    && left.recommendedSource?.sourceId === right.recommendedSource?.sourceId
+    && left.managedSource?.checkedAt === right.managedSource?.checkedAt
+    && JSON.stringify(left.managedSource?.fingerprint ?? null)
+      === JSON.stringify(right.managedSource?.fingerprint ?? null);
+}
+
 function remoteArchiveFinalUrlMatches(request, finalUrl) {
   return request.recommendedSource === null
     ? httpsUrl(finalUrl) !== null
@@ -1489,7 +1535,13 @@ async function fetchImportArchive(request) {
   return response;
 }
 
-async function runImportTransaction(response, fileName, importLowRam, commit, onProgress = null) {
+async function runImportTransaction(
+  response,
+  fileName,
+  importLowRam,
+  commit,
+  expectedArchiveBytes = null,
+) {
   const generationRoot = createGenerationRoot();
   // Unload before importing: the loaded dictionaries are mapped into the same
   // 32-bit address space the importer needs. Public count/generation state is
@@ -1506,7 +1558,7 @@ async function runImportTransaction(response, fileName, importLowRam, commit, on
       generationRoot,
       importLowRam,
       fileName,
-      onProgress,
+      expectedArchiveBytes,
     );
     if (report.success && report.title === "") {
       // hdw_import refuses a title it cannot use as a folder name, so this is
@@ -2100,36 +2152,73 @@ const HANDLERS = {
 
   async hd_import(message) {
     requireEngine();
-    const request = await prepareImportRequest(message);
-    const response = await fetchImportArchive(request);
-    const {
-      expectedRevision,
-      fileName,
-      importLowRam,
-      managedSource,
-      recommendedSource,
-    } = request;
-    const requestId = message.requestId ?? null;
-    const onProgress = reportProgress === null ? null : (event) => reportProgress({ requestId, ...event });
-    const report = await runImportTransaction(
-      response,
-      fileName,
-      importLowRam,
-      (generationRoot, importedReport) =>
-        commitImportedGeneration(
-          generationRoot,
-          importedReport,
-          recommendedSource,
-          managedSource,
-          expectedRevision,
-        ),
-      onProgress,
-    );
-
-    if (!report.success) {
-      return { ok: false, error: report.error || `${fileName} could not be imported`, report };
+    if (stagingImports > 0) {
+      throw new Error("another dictionary import is already in progress");
     }
-    return { report };
+    stagingImports += 1;
+    const requestId = message.requestId ?? null;
+    try {
+      const stagedRequest = await prepareImportRequest(message);
+      const response = await fetchImportArchive(stagedRequest);
+      const onDownload = reportProgress === null ? null : (event) => {
+        try {
+          Promise.resolve(reportProgress({ requestId, ...event })).catch((error) => {
+            console.warn(`hoshidicts: could not report import progress: ${describe(error)}`);
+          });
+        } catch (error) {
+          console.warn(`hoshidicts: could not report import progress: ${describe(error)}`);
+        }
+      };
+      const staged = await stageImportArchive(response, onDownload);
+      if (staged.byteLength === 0) {
+        throw new Error(`${stagedRequest.fileName} is empty`);
+      }
+
+      return await serialise(async () => {
+        requireEngine();
+        const request = await prepareImportRequest(message);
+        if (!samePreparedImport(stagedRequest, request)) {
+          throw new Error("the dictionary import request changed while its archive was downloading");
+        }
+        const {
+          expectedRevision,
+          fileName,
+          importLowRam,
+          managedSource,
+          recommendedSource,
+        } = request;
+        // The native importer has no progress callback. Awaiting this transition
+        // lets the offscreen bridge reject new reads before hdw_reset unloads
+        // the committed dictionaries.
+        await reportProgress?.({
+          requestId,
+          phase: "installing",
+          receivedBytes: staged.byteLength,
+          totalBytes: staged.byteLength,
+        });
+        const report = await runImportTransaction(
+          new Response(staged.blob),
+          fileName,
+          importLowRam,
+          (generationRoot, importedReport) =>
+            commitImportedGeneration(
+              generationRoot,
+              importedReport,
+              recommendedSource,
+              managedSource,
+              expectedRevision,
+            ),
+          staged.byteLength,
+        );
+
+        if (!report.success) {
+          return { ok: false, error: report.error || `${fileName} could not be imported`, report };
+        }
+        return { report };
+      });
+    } finally {
+      stagingImports -= 1;
+    }
   },
 
   async hd_apply_state(message) {
@@ -2276,7 +2365,7 @@ const HANDLERS = {
       ok: failure === null,
       error: failure === null ? null : describe(failure),
       ready,
-      loading: busy > 0,
+      loading: busy > 0 || stagingImports > 0,
       dictionaryCount,
       failedDictionaries: loadFailures,
       generation,
@@ -2309,8 +2398,14 @@ function failurePayload(type) {
 }
 
 function engineFailureReply(type, requestId, error) {
+  const description = describe(error);
+  let errorCode = error === bootError ? "engine-start-failed" : null;
+  if (errorCode === null && description === "the dictionary engine is still starting") {
+    errorCode = "engine-starting";
+  }
   return boundResponseFailure({
-    type: `${type}_result`, requestId, ok: false, error: describe(error),
+    type: `${type}_result`, requestId, ok: false, error: description,
+    ...(errorCode === null ? {} : { errorCode }),
     generation, ...failurePayload(type),
   });
 }

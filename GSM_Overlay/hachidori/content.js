@@ -1197,6 +1197,7 @@
           if (reply.ok !== true) {
             const error = new Error(reply.error || `${type} failed`);
             error.responseReceived = true;
+            if (typeof reply.errorCode === "string") error.code = reply.errorCode;
             reject(error);
             return;
           }
@@ -1466,11 +1467,79 @@
     return false;
   }
 
-  function handleLookupFailure(token, error, level = rootLevel) {
-    if (!disposed && !level.retired && token === level.lookupToken) {
-      console.debug("hachidori: lookup failed", error);
-      hide(level);
+  function lookupFailureState(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error?.code === "engine-mutating" || message === "the dictionary engine is busy mutating") {
+      return {
+        kind: "updating",
+        title: "Dictionary update in progress.",
+        detail: "Try the lookup again when the update finishes.",
+      };
     }
+    if (error?.code === "sharing-disconnected" || message === "The linked Hachidori is not reachable.") {
+      return {
+        kind: "disconnected",
+        title: "Shared Hachidori is disconnected.",
+        detail: "Reconnect it in Settings → Sharing, then try again.",
+      };
+    }
+    if (error?.code === "engine-starting" || message === "the dictionary engine is still starting") {
+      return {
+        kind: "starting",
+        title: "Dictionary engine is starting.",
+        detail: "Wait a moment, then try again.",
+      };
+    }
+    if (error?.code === "engine-start-failed") {
+      return {
+        kind: "engine",
+        title: "Dictionary engine could not start.",
+        detail: "Open Settings to check the engine status, then try again.",
+      };
+    }
+    return null;
+  }
+
+  function retainFailedView(request, token, level, replayOptions) {
+    if (!replayOptions?.preserveViewControls || disposed || level.retired
+        || token !== level.lookupToken || level.currentViewRequest !== request
+        || level.popup.hidden || !requestCanRender(token, request.candidate, level)) return false;
+    level.retainedView = true;
+    return true;
+  }
+
+  function handleRequestFailure(request, token, error, level, replayOptions) {
+    const preserveView = retainProtectedReplay(request, token, level, replayOptions)
+      || retainFailedView(request, token, level, replayOptions);
+    return handleLookupFailure(token, error, level, request, preserveView);
+  }
+
+  function handleLookupFailure(token, error, level = rootLevel, request = null, preserveView = false) {
+    if (disposed || level.retired || token !== level.lookupToken) return false;
+    console.debug("hachidori: lookup failed", error);
+    const state = lookupFailureState(error);
+    if (state === null) {
+      if (!preserveView) hide(level);
+      return false;
+    }
+    if (!preserveView) {
+      show(request?.candidate ?? level.activeCandidate, level);
+      level.currentViewRequest = request;
+      level.activeHighlightText = "";
+      level.activeTermRender = null;
+      clearDefinitionBlurTimer(level);
+      pruneLevels(level.depth + 1);
+    }
+    level.view.renderLookupFailure({
+      ...state,
+      actionLabel: "Try again",
+      onAction: () => executeViewRequest(
+        request,
+        level,
+        preserveView ? { preserveViewControls: true } : null,
+      ),
+    }, { preserveView });
+    positionPopup(level);
     return false;
   }
 
@@ -2461,8 +2530,7 @@
       ]);
     } catch (error) {
       releaseProvisionalCapture(capturePinPromise, level);
-      if (retainProtectedReplay(request, token, level, replayOptions)) return false;
-      return handleLookupFailure(token, error, level);
+      return handleRequestFailure(request, token, error, level, replayOptions);
     }
     request.capturePin = capturePin;
     // Hover fires far faster than lookups return; anything but the newest reply
@@ -2623,8 +2691,7 @@
         ? await sendRequest("hd_lookup_dictionary", request.termPayload)
         : await sendRequest("hd_kanji", request.kanjiPayload);
     } catch (error) {
-      if (retainProtectedReplay(request, token, level, replayOptions)) return false;
-      return handleLookupFailure(token, error, level);
+      return handleRequestFailure(request, token, error, level, replayOptions);
     }
     if (!requestCanRender(token, candidate, level) || level.popup.hidden) {
       return false;
@@ -2649,8 +2716,7 @@
       try {
         reply = await sendRequest("hd_kanji", request.kanjiPayload);
       } catch (error) {
-        if (retainProtectedReplay(request, token, level, replayOptions)) return false;
-        return handleLookupFailure(token, error, level);
+        return handleRequestFailure(request, token, error, level, replayOptions);
       }
       if (!requestCanRender(token, candidate, level) || level.popup.hidden) {
         return false;

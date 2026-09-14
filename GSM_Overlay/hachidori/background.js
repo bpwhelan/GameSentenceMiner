@@ -7,11 +7,11 @@ import { ANKI_INDEX_ALARM, ANKI_INDEX_KEY, ankiIndexConfigurationChange, createA
 import { createBackupDownloads } from "./backup-downloads.js";
 import { assertBackupSnapshot, backupRevisions } from "./backup-state.js";
 import { SHARING_HOST_ALARM, SHARING_KEY, createSharingHost } from "./sharing-host.js";
-import { SHARING_LOCAL_STATE_KEY, createSharingClient } from "./sharing-client.js";
+import { NOT_REACHABLE, SHARING_LOCAL_STATE_KEY, createSharingClient } from "./sharing-client.js";
 import {
   FORWARDED_REQUESTS, LINKED_ANKI_CAPABILITY, LINKED_ANKI_UNSUPPORTED,
   allowLinkedAnkiDiscoveryRequest, allowLinkedAnkiRequest, allowLinkedAnkiSetupRequest,
-  browserName, forwardableRequest, parseLinkAddress,
+  browserName, forwardableRequest, mutatingForwardedRequest, parseLinkAddress,
 } from "./sharing-protocol.js";
 import { LOOKUP_STATS_KEY, LOOKUP_STATS_ROW_PREFIX, assertLookupStatsDescriptor, assertLookupStatsRows, emptyLookupStats, incrementLookupStats, lookupStatsKey, lookupStatsPrefix, normaliseLookupTerm } from "./lookup-stats.js";
 import "./external-links.js";
@@ -271,7 +271,9 @@ function sharingStatus() {
 }
 
 function forwardToHost(message) {
-  return getSharingClient().forward(message).catch(error => failureReply(message, error));
+  return getSharingClient().forward(message, {
+    mutation: mutatingForwardedRequest(message),
+  }).catch(error => failureReply(message, error));
 }
 
 function forwardWorkerRequest(message) {
@@ -1652,12 +1654,19 @@ function checkedOptionsResult(message, result) {
 }
 
 function failureReply(message, error) {
+  const description = describe(error);
+  let errorCode = typeof error?.code === "string" ? error.code : null;
+  if (errorCode === null && description === NOT_REACHABLE) {
+    errorCode = "sharing-disconnected";
+  }
   return boundResponseFailure({
     type: `${message?.type ?? "hd_unknown"}_result`,
     requestId: message?.requestId ?? null,
     ok: false,
-    error: describe(error),
+    error: description,
     generation: 0,
+    ...(errorCode === null ? {} : { errorCode }),
+    ...(error?.outcomeUnknown === true ? { outcomeUnknown: true } : {}),
   });
 }
 
@@ -2174,6 +2183,7 @@ async function submitToLinkedAnki(message) {
   try {
     reply = await getSharingClient().forward({ ...message, clientMedia }, {
       capability: LINKED_ANKI_CAPABILITY,
+      mutation: true,
       onSent: () => { sent = true; },
     });
   } catch (error) {

@@ -17,8 +17,10 @@ import createHoshidicts from "./vendor/hoshidicts-threaded.mjs";
 import { boundResponseFailure } from "./response-limits.js";
 
 let nextHostRequestId = 0;
+let nextProgressId = 0;
 const HOST_REQUEST_TIMEOUT_MS = 30_000;
 const pendingHostRequests = new Map();
+const pendingProgressAcks = new Map();
 
 function describe(error) {
   return error instanceof Error ? error.message || String(error) : String(error);
@@ -37,12 +39,28 @@ function requestHost(message) {
   });
 }
 
+function reportEngineProgress(progress) {
+  if (progress?.phase !== "installing") {
+    globalThis.postMessage({ channel: "engine-progress", progress });
+    return undefined;
+  }
+  nextProgressId += 1;
+  const id = nextProgressId;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (!pendingProgressAcks.delete(id)) return;
+      reject(new Error("the extension host did not acknowledge the import lock"));
+    }, HOST_REQUEST_TIMEOUT_MS);
+    pendingProgressAcks.set(id, { resolve, reject, timer });
+    globalThis.postMessage({ channel: "engine-progress", id, progress });
+  });
+}
+
 configureEngineService(requestHost, {
   createHoshidicts,
   storageBackend: "opfs",
   lowRam: false,
-  // Fire-and-forget: import phases need no reply and must not wait on one.
-  reportProgress: (progress) => globalThis.postMessage({ channel: "engine-progress", progress }),
+  reportProgress: reportEngineProgress,
 });
 startEngine();
 
@@ -58,6 +76,15 @@ globalThis.onmessage = (event) => { // NOSONAR
     clearTimeout(pending.timer);
     if (data.ok === true) pending.resolve(data.response);
     else pending.reject(new Error(data.error || "host request failed"));
+    return;
+  }
+  if (data?.channel === "engine-progress-ack") {
+    const pending = pendingProgressAcks.get(data.id);
+    if (pending === undefined) return;
+    pendingProgressAcks.delete(data.id);
+    clearTimeout(pending.timer);
+    if (data.ok === true) pending.resolve();
+    else pending.reject(new Error(data.error || "the extension host refused the import lock"));
     return;
   }
   if (data?.channel !== "engine-request") return;

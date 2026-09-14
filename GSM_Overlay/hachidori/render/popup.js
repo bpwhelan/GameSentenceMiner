@@ -108,6 +108,8 @@
   const COMPACT_DEFINITION_MAX_CHARACTERS = 240;
   const COMPACT_DEFINITION_MAX_NODES = 512;
   const COMPACT_DEFINITION_MAX_DEPTH = 16;
+  const COMPACT_DEFINITION_LETTER = /[A-Za-zぁ-ゟァ-ヿ㐀-鿿Ａ-Ｚａ-ｚ]/u;
+  const COMPACT_DEFINITION_JAPANESE = /[ぁ-ゟァ-ヿ㐀-鿿]/u;
   const COMPACT_DEFINITION_BLOCK_TAGS = new Set([
     "article",
     "blockquote",
@@ -1434,7 +1436,15 @@
       : "";
   }
 
+  // Sanseido-style dictionaries (三省堂国語辞典, 新明解国語辞典 and their
+  // bilingual conversions) name sections with data.name instead of markers.
+  function getCompactDefinitionName(value) {
+    return isRecord(value?.data) && typeof value.data.name === "string" ? value.data.name : "";
+  }
+
   function isIgnoredCompactDefinitionSection(value) {
+    // ルビG is Sanseido furigana, left out like rt.
+    if (getCompactDefinitionName(value) === "ルビG") return true;
     const marker = getCompactDefinitionMarker(value);
     return marker && marker !== "glossary" && (
       marker.startsWith("part-of-speech") ||
@@ -1677,11 +1687,43 @@
       : compactDefinitionItemsFromNodes([node]);
   }
 
+  // Sanseido index entries list sub-headwords as bare links, not definitions.
+  function isCompactDefinitionLinkOnly(sense) {
+    const node = isRecord(sense) && sense.type === "structured-content" ? sense.content : sense;
+    // The raw tag test spares ordinary senses a tag normalization.
+    return isRecord(node) && /^a$/i.test(node.tag) && compactDefinitionTag(node) === "a";
+  }
+
+  function isCompactDefinitionSense(value) {
+    const name = getCompactDefinitionName(value);
+    return name === "語義" || name === "語釈";
+  }
+
+  // Bilingual Sanseido conversions write a 語釈 as English, a bare " " child,
+  // then the original Japanese. English-only and monolingual glosses have no
+  // such child, and a bare space between English nodes is followed by ASCII
+  // letters, so only a space that opens Japanese text ends the English half.
+  function compactDefinitionEnglishHalf(gloss) {
+    const parts = Array.isArray(gloss.content) ? gloss.content : [gloss.content];
+    const separator = parts.lastIndexOf(" ");
+    if (separator < 0) return parts;
+    let rest = "";
+    for (const text of collectCompactDefinitionText(parts.slice(separator + 1), { nodes: 0 })) {
+      rest += text;
+      if (rest.length > 64) break;
+    }
+    const lead = COMPACT_DEFINITION_LETTER.exec(rest)?.[0];
+    return lead && !/[A-Za-z]/.test(lead) && COMPACT_DEFINITION_JAPANESE.test(rest)
+      ? parts.slice(0, separator)
+      : parts;
+  }
+
   function* compactDefinitionFallbackNodes(parsed) {
     // Top-level glossary-array entries are separate senses, unlike inline
     // content arrays. Expand blocks within each sense without dropping siblings.
     const discovery = { nodes: 0 };
     for (const sense of Array.isArray(parsed) ? parsed : [parsed]) {
+      if (isCompactDefinitionLinkOnly(sense)) continue;
       const leafBlocks = findCompactDefinitionLeafBlocks(sense, discovery);
       if (leafBlocks.length > 0) yield* leafBlocks;
       else yield sense;
@@ -1691,13 +1733,31 @@
   function* extractCompactDefinitionItems(parsed) {
     if (parsed === null) return;
 
-    const glossaryNodes = findCompactDefinitionNodes(
+    // One discovery pass finds marked glossary sections and Sanseido senses.
+    const marked = findCompactDefinitionNodes(
       parsed,
-      (value) => getCompactDefinitionMarker(value) === "glossary",
+      (value) => getCompactDefinitionMarker(value) === "glossary" || isCompactDefinitionSense(value),
       { nodes: 0 }
     );
+    const glossaryNodes = marked.filter((node) => getCompactDefinitionMarker(node) === "glossary");
     if (glossaryNodes.length > 0) {
       for (const node of glossaryNodes) yield* compactDefinitionItemsFromMarkedNode(node);
+      return;
+    }
+
+    // A Sanseido 語義 sense holds its number, labels, 語釈 gloss and examples;
+    // 副義 sub-senses nest their own 語釈. A sense without one is a ⇨ reference.
+    if (marked.length > 0) {
+      for (const sense of marked) {
+        const glosses = getCompactDefinitionName(sense) === "語釈"
+          ? [sense]
+          : findCompactDefinitionNodes(
+            compactDefinitionContent(sense),
+            (value) => getCompactDefinitionName(value) === "語釈",
+            { nodes: 0 }
+          );
+        yield* compactDefinitionItemsFromNodes(glosses.map(compactDefinitionEnglishHalf));
+      }
       return;
     }
 
@@ -1896,6 +1956,7 @@
     let toolbarPosition = options.toolbarPosition === "bottom" ? "bottom" : "top";
     let currentToolbar = null;
     let currentFeedback = null;
+    let currentLookupFailure = null;
     let customLinks = options.customLinks || [];
     let currentNoteControls = null;
     let renderRevision = 0;
@@ -2121,15 +2182,16 @@
     windowRef.addEventListener("resize", onWindowResize);
 
     function applyToolbarLayout() {
-      if (!currentToolbar) return;
+      if (!currentToolbar && !currentLookupFailure) return;
       const noteForm = currentNoteControls?.form ?? null;
       const bottom = toolbarPosition === "bottom";
       const controls = (bottom
-        ? [noteForm, currentFeedback, currentToolbar]
-        : [currentToolbar, currentFeedback, noteForm]).filter(Boolean);
+        ? [currentLookupFailure, noteForm, currentFeedback, currentToolbar]
+        : [currentToolbar, currentFeedback, noteForm, currentLookupFailure]).filter(Boolean);
+      const edge = controls[bottom ? controls.length - 1 : 0];
       const atEdge = controls.every((node, index) => !controls[index + 1]
         || node.nextElementSibling === controls[index + 1])
-        && (bottom ? popup.lastElementChild === currentToolbar : popup.firstElementChild === currentToolbar);
+        && (bottom ? popup.lastElementChild === edge : popup.firstElementChild === edge);
       if (atEdge) return;
       const focused = popup.getRootNode().activeElement;
       const children = [...popup.children];
@@ -2205,6 +2267,7 @@
       currentSourceHighlight = null;
       currentToolbar = null;
       currentFeedback = null;
+      currentLookupFailure = null;
       masonryObserver?.disconnect();
       const retainedForm = currentNoteControls?.form;
       // Keep the scroller mounted so a retained repaint does not discard its
@@ -2560,6 +2623,43 @@
       mountResultChrome(createResultChrome(primaryHeader), notice);
     }
 
+    function renderLookupFailure(state, { preserveView = false } = {}) {
+      currentLookupFailure?.remove();
+      currentLookupFailure = null;
+      if (!preserveView) clear();
+      const failure = documentRef.createElement("div");
+      failure.className = "gsm-hoshidicts-lookup-failure";
+      failure.dataset.kind = state.kind;
+      failure.setAttribute("role", "alert");
+      const copy = documentRef.createElement("div");
+      copy.className = "gsm-hoshidicts-lookup-failure-copy";
+      const title = documentRef.createElement("strong");
+      title.className = "gsm-hoshidicts-lookup-failure-title";
+      title.textContent = state.title;
+      const detail = documentRef.createElement("span");
+      detail.className = "gsm-hoshidicts-lookup-failure-detail";
+      detail.textContent = state.detail;
+      copy.append(title, detail);
+      failure.appendChild(copy);
+      if (typeof state.onAction === "function" && typeof state.actionLabel === "string") {
+        const action = documentRef.createElement("button");
+        action.type = "button";
+        action.className = "gsm-hoshidicts-lookup-failure-action gsm-hoshidicts-text-action-button";
+        action.textContent = state.actionLabel;
+        action.addEventListener("click", () => {
+          action.disabled = true;
+          Promise.resolve(state.onAction()).catch(() => {
+            if (action.isConnected) action.disabled = false;
+          });
+        });
+        failure.appendChild(action);
+      }
+      currentLookupFailure = failure;
+      popup.appendChild(failure);
+      applyToolbarLayout();
+      return failure;
+    }
+
     function appendMetadata(
       entry,
       result,
@@ -2729,7 +2829,8 @@
             label.className = "gsm-hoshidicts-primary-frequency-label";
             label.textContent = "Freq:";
             label.setAttribute("aria-hidden", "true");
-            frequencies.append(label, " ");
+            // Inside the first tag, so a wrap never leaves the label alone.
+            frequencyTags[0].prepend(label, " ");
           }
           frequencies.append(...frequencyTags);
           capsule.prepend(frequencies);
@@ -3047,13 +3148,20 @@
           entry.appendChild(renderedHeader.element);
         }
 
+        // The lookup count and the frequency share one line.
+        const primaryMetadataRow = resultIndex === 0 ? documentRef.createElement("div") : null;
+        if (primaryMetadataRow) {
+          primaryMetadataRow.className = "gsm-hoshidicts-primary-metadata-row";
+          entry.appendChild(primaryMetadataRow);
+        }
+
         if (resultIndex === 0 && renderContext.lookupStatsSlot === true) {
           lookupStats = documentRef.createElement("div");
           lookupStats.className = "gsm-hoshidicts-lookup-stats";
           lookupStats.setAttribute("role", "status");
           lookupStats.setAttribute("aria-live", "polite");
           lookupStats.hidden = true;
-          entry.appendChild(lookupStats);
+          primaryMetadataRow.appendChild(lookupStats);
         }
 
         if (resultIndex === 0 && primaryMetadataCapsule) {
@@ -3067,7 +3175,7 @@
             renderContext.averageFrequency === true,
             renderContext.showFrequencyDictionaryNames === true
           );
-          entry.appendChild(primaryMetadataCapsule);
+          primaryMetadataRow.appendChild(primaryMetadataCapsule);
         }
 
         const metadata = appendMetadata(
@@ -3811,6 +3919,7 @@
       closeNoteForm() {
         return currentNoteControls?.close() === true;
       },
+      renderLookupFailure,
       renderNotice,
       renderResults,
       renderKanji,
@@ -3839,6 +3948,7 @@
         currentResultPanel = null;
         captureTermView = null;
         pendingScrollRestoration = null;
+        currentLookupFailure = null;
         options.cancelMasonry?.(layoutMasonry);
         if (masonryFrame !== null) {
           windowRef.cancelAnimationFrame(masonryFrame);

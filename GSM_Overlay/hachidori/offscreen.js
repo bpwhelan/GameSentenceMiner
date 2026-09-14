@@ -37,7 +37,6 @@ function getAudioRepository() {
 const MAX_PENDING_REQUESTS = 128;
 const PROBE_TIMEOUT_MS = 10_000;
 const MUTATION_TYPES = new Set([
-  "hd_import",
   "hd_apply_state",
   "hd_reload",
   "hd_remove",
@@ -47,6 +46,14 @@ const MUTATION_TYPES = new Set([
   "hd_backup_prepare",
   "hd_backup_restore",
   "hd_backup_cancel",
+]);
+const IMPORT_READ_TYPES = new Set([
+  "hd_lookup",
+  "hd_lookup_dictionary",
+  "hd_kanji",
+  "hd_styles",
+  "hd_media",
+  "hd_backup_release",
 ]);
 
 function supportsSharedWasmMemory() {
@@ -70,6 +77,7 @@ let localEngine = null;
 let nextRequestId = 0;
 let engineError = null;
 let activeMutationRequestId = null;
+let activeImportRequestId = null;
 let lastEngineStatus = {
   ok: true,
   error: null,
@@ -85,12 +93,13 @@ function describe(error) {
   return error instanceof Error ? error.message || String(error) : String(error);
 }
 
-function failedResponse(message, error) {
+function failedResponse(message, error, errorCode = null) {
   return boundResponseFailure({
     type: `${message?.type || "hd_unknown"}_result`,
     requestId: message?.requestId ?? null,
     ok: false,
     error,
+    ...(errorCode === null ? {} : { errorCode }),
   });
 }
 
@@ -99,6 +108,7 @@ function finishRequest(id, response) {
   if (request === undefined) return;
   pending.delete(id);
   if (id === activeMutationRequestId) activeMutationRequestId = null;
+  if (id === activeImportRequestId) activeImportRequestId = null;
   if (response?.type === "hd_status_result") {
     lastEngineStatus = {
       ...lastEngineStatus,
@@ -114,12 +124,26 @@ function finishRequest(id, response) {
   request.sendResponse(response);
 }
 
+function adoptEngineProgress(progress) {
+  const id = activeImportRequestId;
+  const request = pending.get(id);
+  if (request === undefined || request.message.requestId !== progress?.requestId) {
+    return false;
+  }
+  if (progress.phase === "installing") {
+    activeImportRequestId = null;
+    activeMutationRequestId = id;
+  }
+  setupInstaller?.then((installer) => installer.progress(progress));
+  return true;
+}
+
 function failEngine(error) {
   if (engineError !== null) return;
   engineError = describe(error) || "the Hoshidicts engine stopped";
   console.error(`hoshidicts: engine failed: ${engineError}`);
   for (const [id, request] of pending) {
-    finishRequest(id, failedResponse(request.message, engineError));
+    finishRequest(id, failedResponse(request.message, engineError, "engine-start-failed"));
   }
 }
 
@@ -183,7 +207,15 @@ function startWorkerEngine() {
       return;
     }
     if (data?.channel === "engine-progress") {
-      setupInstaller?.then((installer) => installer.progress(data.progress));
+      const adopted = adoptEngineProgress(data.progress);
+      if (data.id !== undefined) {
+        worker.postMessage({
+          channel: "engine-progress-ack",
+          id: data.id,
+          ok: adopted,
+          error: adopted ? null : "the import request is no longer active",
+        });
+      }
       return;
     }
     if (data?.channel !== "engine-response") return;
@@ -192,7 +224,10 @@ function startWorkerEngine() {
 }
 
 function reportEngineProgress(progress) {
-  setupInstaller?.then((installer) => installer.progress(progress));
+  const adopted = adoptEngineProgress(progress);
+  if (!adopted && progress?.phase === "installing") {
+    throw new Error("the import request is no longer active");
+  }
 }
 
 function startLocalEngine() {
@@ -242,23 +277,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // first-run installer, so both see one engine queue.
 function dispatchEngine(message, sendResponse) {
   if (engineError !== null) {
-    sendResponse(failedResponse(message, engineError));
+    sendResponse(failedResponse(message, engineError, "engine-start-failed"));
     return;
   }
   if (message.type === "hd_status"
-      && (activeMutationRequestId !== null || pending.size >= MAX_PENDING_REQUESTS)) {
+      && (activeMutationRequestId !== null
+        || activeImportRequestId !== null
+        || pending.size >= MAX_PENDING_REQUESTS)) {
     sendResponse({
       type: "hd_status_result",
       requestId: message.requestId ?? null,
       ...lastEngineStatus,
-      loading: activeMutationRequestId !== null || lastEngineStatus.loading,
+      loading: activeMutationRequestId !== null
+        || activeImportRequestId !== null
+        || lastEngineStatus.loading,
     });
     return;
   }
   const activeMutation = pending.get(activeMutationRequestId)?.message;
   const cancelsBackup = message.type === "hd_backup_cancel" && typeof message.token === "string" && message.token !== "";
   if (activeMutationRequestId !== null && message.type !== "hd_backup_release" && !cancelsBackup) {
-    sendResponse(failedResponse(message, "the dictionary engine is busy mutating"));
+    sendResponse(failedResponse(message, "the dictionary engine is busy mutating", "engine-mutating"));
+    return;
+  }
+  if (activeImportRequestId !== null && !IMPORT_READ_TYPES.has(message.type)) {
+    sendResponse(failedResponse(message, "the dictionary engine is busy mutating", "engine-mutating"));
     return;
   }
   // One serialized download release and one token-scoped backup cancellation
@@ -275,7 +318,8 @@ function dispatchEngine(message, sendResponse) {
   // Reserve before engine selection or module loading can retain the payload.
   const id = ++nextRequestId;
   pending.set(id, { message, sendResponse });
-  if (MUTATION_TYPES.has(message.type)) activeMutationRequestId = id;
+  if (message.type === "hd_import") activeImportRequestId = id;
+  else if (MUTATION_TYPES.has(message.type)) activeMutationRequestId = id;
   engineSelection.then(() => {
     if (!pending.has(id)) return undefined;
     if (worker === null) {
@@ -283,7 +327,7 @@ function dispatchEngine(message, sendResponse) {
     }
     worker.postMessage({ channel: "engine-request", id, message });
     return undefined;
-  }).catch((error) => finishRequest(id, failedResponse(message, describe(error))));
+  }).catch((error) => finishRequest(id, failedResponse(message, describe(error), "engine-start-failed")));
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

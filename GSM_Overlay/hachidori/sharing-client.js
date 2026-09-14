@@ -13,10 +13,18 @@ import {
 
 export const SHARING_LOCAL_STATE_KEY = "sharingLocalState";
 export const NOT_REACHABLE = "The linked Hachidori is not reachable.";
+export const OUTCOME_UNKNOWN = "The linked Hachidori may have completed this change. Check its state before trying again.";
 const CONNECT_WAIT_MS = 5000;
 
 function describe(error) {
   return error instanceof Error ? error.message || String(error) : String(error);
+}
+
+function requestFailure(failure, entry) {
+  if (!entry.sent || !entry.mutation) return failure;
+  const unknown = new Error(OUTCOME_UNKNOWN);
+  unknown.outcomeUnknown = true;
+  return unknown;
 }
 
 // `applyBatch(changes, isCurrent, snapshot)` writes one host storage batch locally, checking
@@ -32,6 +40,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
   let attempt = 0;
   let retryTimer = null;
   let nextId = 0;
+  let linkGeneration = 0;
 
   function status() {
     return { linked: address !== null, address, connected: ready, host, error };
@@ -43,29 +52,31 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
 
   function settleWaiting(failure = null) {
     for (const waiter of waiting) {
-      if (failure === null) waiter.ready();
-      else waiter.fail(failure);
+      if (failure === null && waiter.generation === linkGeneration) waiter.ready();
+      else waiter.fail(failure ?? new Error(NOT_REACHABLE));
     }
     waiting.clear();
   }
 
   function rejectPending(failure) {
-    for (const entry of pending.values()) entry.reject(failure);
+    for (const entry of pending.values()) entry.reject(requestFailure(failure, entry));
     pending.clear();
   }
 
   function scheduleRetry() {
     if (address === null || retryTimer !== null) return;
+    const retryGeneration = linkGeneration;
     const delay = Math.min(10_000, 500 * 2 ** Math.min(attempt, 5));
     attempt += 1;
     retryTimer = setTimeout(() => {
       retryTimer = null;
+      if (retryGeneration !== linkGeneration) return;
       connect();
     }, delay);
   }
 
-  async function handleFrame(current, text) {
-    if (socket !== current) return;
+  async function handleFrame(current, currentGeneration, text) {
+    if (socket !== current || linkGeneration !== currentGeneration) return;
     let frame;
     try {
       frame = parseHostFrame(text);
@@ -77,8 +88,9 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
       case "hello":
         host = { version: frame.version, name: frame.name, dictionaryCount: frame.dictionaryCount,
           capabilities: frame.capabilities };
-        await applyBatch(frame.snapshot, () => socket === current, true);
-        if (socket !== current) return;
+        await applyBatch(frame.snapshot,
+          () => socket === current && linkGeneration === currentGeneration, true);
+        if (socket !== current || linkGeneration !== currentGeneration) return;
         ready = true;
         error = null;
         attempt = 0;
@@ -86,13 +98,14 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
         return;
       case "reply": {
         const entry = pending.get(frame.id);
-        if (entry === undefined) return;
+        if (entry === undefined || entry.generation !== currentGeneration) return;
         pending.delete(frame.id);
         entry.resolve(frame.response);
         return;
       }
       case "storage":
-        await applyBatch(frame.changes, () => socket === current);
+        await applyBatch(frame.changes,
+          () => socket === current && linkGeneration === currentGeneration);
         return;
       case "ping":
         current.send(JSON.stringify({ kind: "pong" }));
@@ -107,6 +120,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
 
   function connect() {
     if (address === null || socket !== null) return;
+    const currentGeneration = linkGeneration;
     let next;
     try {
       next = new WebSocket(address);
@@ -118,9 +132,9 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
     }
     socket = next;
     next.onopen = () => sendHello(next);
-    next.onmessage = (event) => { void handleFrame(next, String(event.data)); };
+    next.onmessage = (event) => { void handleFrame(next, currentGeneration, String(event.data)); };
     next.onclose = () => {
-      if (socket !== next) return;
+      if (socket !== next || linkGeneration !== currentGeneration) return;
       socket = null;
       ready = false;
       host = null;
@@ -136,10 +150,15 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
   // A request made while disconnected waits for one connection attempt; a
   // request in flight has no deadline, because a forwarded install can take
   // minutes and the socket closing rejects it anyway.
-  function forward(message, { capability = null, onSent = null } = {}) {
+  function forward(message, { capability = null, mutation = false, onSent = null } = {}) {
     return new Promise((resolve, reject) => {
       const id = ++nextId;
+      const requestGeneration = linkGeneration;
       const send = () => {
+        if (requestGeneration !== linkGeneration || !ready || socket === null) {
+          reject(new Error(NOT_REACHABLE));
+          return;
+        }
         if (capability !== null && !host?.capabilities.includes(capability)) {
           reject(new Error(LINKED_ANKI_UNSUPPORTED));
           return;
@@ -153,13 +172,17 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
             return;
           }
         }
-        pending.set(id, { resolve, reject });
+        const entry = {
+          generation: requestGeneration, mutation, resolve, reject, sent: false,
+        };
+        pending.set(id, entry);
         try {
           socket.send(text);
+          entry.sent = true;
           onSent?.();
         } catch (error) {
           pending.delete(id);
-          reject(error);
+          reject(requestFailure(error, entry));
         }
       };
       if (ready) {
@@ -171,6 +194,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
         return;
       }
       const waiter = {
+        generation: requestGeneration,
         ready: () => { clearTimeout(timer); send(); },
         fail: (failure) => { clearTimeout(timer); reject(failure); },
       };
@@ -229,6 +253,9 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
     probe,
     forward,
     link(next) {
+      linkGeneration += 1;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      retryTimer = null;
       const failure = new Error(NOT_REACHABLE);
       rejectPending(failure);
       settleWaiting(failure);
@@ -243,6 +270,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
       connect();
     },
     unlink() {
+      linkGeneration += 1;
       address = null;
       if (retryTimer !== null) clearTimeout(retryTimer);
       retryTimer = null;
