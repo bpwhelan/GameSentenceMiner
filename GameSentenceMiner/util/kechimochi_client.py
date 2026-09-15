@@ -13,6 +13,10 @@ class KechimochiSyncError(RuntimeError):
     pass
 
 
+class KechimochiConnectionError(KechimochiSyncError):
+    """Kechimochi's HTTP API is unreachable or timed out."""
+
+
 class KechimochiHTTPError(KechimochiSyncError):
     def __init__(self, message: str, status_code: int):
         super().__init__(message)
@@ -65,7 +69,12 @@ class KechimochiClient:
             )
         except requests.RequestException as exc:
             # Never automatically repeat a POST: the server may already have committed it.
-            raise KechimochiSyncError(
+            error_type = (
+                KechimochiConnectionError
+                if isinstance(exc, (requests.ConnectionError, requests.Timeout))
+                else KechimochiSyncError
+            )
+            raise error_type(
                 "Could not reach Kechimochi. Open it and enable its HTTP API; the next sync will retry safely."
             ) from exc
         if not 200 <= response.status_code < 300:

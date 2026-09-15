@@ -9,6 +9,7 @@ import time
 from GameSentenceMiner.util.config.configuration import get_stats_config, logger
 from GameSentenceMiner.util.database.db import CronTable
 from GameSentenceMiner.util.database.kechimochi_sync_state import KechimochiSyncState
+from GameSentenceMiner.util.kechimochi_client import KechimochiConnectionError
 from GameSentenceMiner.util.kechimochi_sync import run_kechimochi_sync, run_state_key
 
 KECHIMOCHI_CRON_NAME = "kechimochi_sync"
@@ -72,6 +73,9 @@ def run_scheduled_kechimochi_sync():
         return {"success": True, "skipped": True, "reason": "Automatic Kechimochi sync is disabled"}
     try:
         return run_kechimochi_sync(config=config)
+    except KechimochiConnectionError as exc:
+        # The sync worker already recorded the failure and logged it at debug level.
+        return {"success": False, "error": str(exc), "unavailable": True}
     except Exception as exc:  # noqa: BLE001 - cron failures must reschedule instead of killing the worker
         logger.exception("Scheduled Kechimochi sync failed: {}", exc)
         # CronTable schedules a bounded retry, including for daily schedules.

@@ -173,8 +173,12 @@ _TASK_REGISTRY: dict[str, _TaskDef] = {
     Crons.KECHIMOCHI_SYNC.value: _TaskDef(
         runner=_run_kechimochi_sync,
         success=lambda r: bool(r.get("success", False)),
-        summary=lambda r: _skip_or(r, f"synced {r.get('activity_count', 0)} activities"),
-        warn=lambda r: f"Kechimochi sync failed: {r['error']}" if r.get("error") else None,
+        summary=lambda r: (
+            "Kechimochi unavailable; will retry"
+            if r.get("unavailable")
+            else _skip_or(r, f"synced {r.get('activity_count', 0)} activities")
+        ),
+        warn=lambda r: f"Kechimochi sync failed: {r['error']}" if r.get("error") and not r.get("unavailable") else None,
     ),
     Crons.DATABASE_MAINTENANCE.value: _TaskDef(
         runner=_run_database_maintenance,

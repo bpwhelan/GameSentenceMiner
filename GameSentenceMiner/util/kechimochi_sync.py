@@ -27,6 +27,7 @@ from GameSentenceMiner.util.database.kechimochi_sync_state import KechimochiSync
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
 from GameSentenceMiner.util.kechimochi_client import (
     KechimochiClient,
+    KechimochiConnectionError,
     KechimochiHTTPError,
     KechimochiSyncError,
     normalize_kechimochi_url,
@@ -559,7 +560,10 @@ def run_kechimochi_sync(*, config=None, client=None, progress_cb=None):
             return result
         except Exception as exc:
             status.update(status="failed", error=str(exc), phase="Sync failed")
-            logger.error("Kechimochi sync failed: {}", exc)
+            if isinstance(exc, KechimochiConnectionError):
+                logger.debug("Kechimochi sync deferred: {}", exc)
+            else:
+                logger.error("Kechimochi sync failed: {}", exc)
             raise
         finally:
             status["updated_at"] = time.time()

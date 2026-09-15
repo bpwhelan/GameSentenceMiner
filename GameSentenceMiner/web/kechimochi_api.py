@@ -15,7 +15,12 @@ from GameSentenceMiner.util.cron.kechimochi_sync import (
 )
 from GameSentenceMiner.util.database.db import CronTable
 from GameSentenceMiner.util.database.kechimochi_sync_state import KechimochiSyncState
-from GameSentenceMiner.util.kechimochi_client import KechimochiClient, KechimochiSyncError, normalize_kechimochi_url
+from GameSentenceMiner.util.kechimochi_client import (
+    KechimochiClient,
+    KechimochiConnectionError,
+    KechimochiSyncError,
+    normalize_kechimochi_url,
+)
 from GameSentenceMiner.util.kechimochi_sync import build_kechimochi_snapshot, run_kechimochi_sync, run_state_key
 
 SETTING_FIELDS = {
@@ -88,7 +93,8 @@ class KechimochiSyncJobManager:
         try:
             run_kechimochi_sync()
         except Exception as exc:  # noqa: BLE001 - report all worker failures in the job status
-            logger.exception("Manual Kechimochi sync failed: {}", exc)
+            if not isinstance(exc, KechimochiConnectionError):
+                logger.exception("Manual Kechimochi sync failed: {}", exc)
             with self._lock:
                 self._job.update(status="failed", error=str(exc))
         else:

@@ -9,9 +9,11 @@ import json
 import os
 import subprocess
 import sys
+import time
 import uuid
 import zlib
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import flask
 import pytest
@@ -485,22 +487,103 @@ def test_disabled_scheduled_sync_does_not_contact_kechimochi(monkeypatch):
     assert cron_module.run_scheduled_kechimochi_sync()["skipped"] is True
 
 
-def test_manual_failure_with_daily_schedule_queues_early_retry(api_client, monkeypatch):
-    import time
+@pytest.fixture
+def sync_logger(monkeypatch):
+    logger = Mock()
+    for module in (
+        "GameSentenceMiner.util.kechimochi_sync",
+        "GameSentenceMiner.util.cron.kechimochi_sync",
+        "GameSentenceMiner.util.cron.run_crons",
+        "GameSentenceMiner.web.kechimochi_api",
+    ):
+        monkeypatch.setattr(f"{module}.logger", logger)
+    return logger
 
+
+@pytest.mark.parametrize("failure", [requests.ConnectionError, requests.Timeout])
+def test_scheduled_connection_failure_is_quiet_and_retries(monkeypatch, sync_logger, failure):
+    from GameSentenceMiner.util import kechimochi_sync as sync_module
+    from GameSentenceMiner.util.cron import kechimochi_sync as cron_module
+    from GameSentenceMiner.util.cron import run_crons
+
+    saved = config(kechimochi_sync_enabled=True, kechimochi_sync_schedule="daily", kechimochi_sync_time="04:30")
+    monkeypatch.setattr(cron_module, "get_stats_config", lambda: saved)
+    remote = KechimochiClient(session=Session([failure("Offline")]))
+    monkeypatch.setattr(sync_module, "KechimochiClient", lambda url: remote)
+    snapshot = Mock(side_effect=AssertionError("Offline sync must not scan local history"))
+    monkeypatch.setattr(sync_module, "build_kechimochi_snapshot", snapshot)
+    state = KechimochiSyncState()
+    key = run_state_key(saved.kechimochi_url)
+    state.put(key, {"status": "completed", "last_success_at": 123})
+    cron = cron_module.configure_kechimochi_cron(config=saved)
+
+    result = run_crons.run_due_crons(due_crons=[cron])
+
+    detail = result["details"][0]
+    assert detail["success"] is False
+    assert "Could not reach Kechimochi" in detail["result"]["error"]
+    assert state.get(key)["status"] == "failed"
+    assert state.get(key)["error"] == detail["result"]["error"]
+    assert state.get(key)["last_success_at"] == 123
+    assert time.time() < cron.next_run <= time.time() + 900
+    snapshot.assert_not_called()
+    sync_logger.error.assert_not_called()
+    sync_logger.exception.assert_not_called()
+    sync_logger.warning.assert_not_called()
+    assert not any("synced 0 activities" in call.args[0] for call in sync_logger.background.call_args_list)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        response(None, 403),
+        response({"invalid": "version"}),
+        requests.RequestException("Bad request"),
+        RuntimeError("Bug"),
+    ],
+    ids=["http-error", "invalid-response", "other-request-error", "unexpected-error"],
+)
+def test_scheduled_other_failures_remain_logged(monkeypatch, sync_logger, reply):
+    from GameSentenceMiner.util import kechimochi_sync as sync_module
+    from GameSentenceMiner.util.cron import kechimochi_sync as cron_module
+    from GameSentenceMiner.util.cron import run_crons
+
+    saved = config(kechimochi_sync_enabled=True)
+    monkeypatch.setattr(cron_module, "get_stats_config", lambda: saved)
+    remote = KechimochiClient(session=Session([reply]))
+    monkeypatch.setattr(sync_module, "KechimochiClient", lambda url: remote)
+    cron = cron_module.configure_kechimochi_cron(config=saved)
+
+    result = run_crons.run_due_crons(due_crons=[cron])
+
+    assert result["details"][0]["success"] is False
+    assert KechimochiSyncState().get(run_state_key(saved.kechimochi_url))["status"] == "failed"
+    sync_logger.error.assert_called_once()
+    sync_logger.exception.assert_called_once()
+    sync_logger.warning.assert_called_once()
+
+
+@pytest.mark.parametrize("failure", [requests.ConnectionError, requests.Timeout])
+def test_manual_connection_failure_is_quiet_and_queues_early_retry(api_client, monkeypatch, sync_logger, failure):
+    from GameSentenceMiner.util import kechimochi_sync as sync_module
     from GameSentenceMiner.web import kechimochi_api
 
     client, holder = api_client
-
-    def offline():
-        KechimochiSyncState().put(run_state_key(holder["config"].kechimochi_url), {"status": "failed"})
-        raise KechimochiSyncError("Offline")
-
-    monkeypatch.setattr(kechimochi_api, "run_kechimochi_sync", offline)
+    remote = KechimochiClient(session=Session([failure("Offline")]))
+    monkeypatch.setattr(sync_module, "KechimochiClient", lambda url: remote)
+    monkeypatch.setattr(sync_module, "get_stats_config", lambda: holder["config"])
+    monkeypatch.setattr(kechimochi_api, "run_kechimochi_sync", run_kechimochi_sync)
     result = client.post("/api/kechimochi/settings", json={"enabled": True, "schedule": "daily"})
     assert result.status_code == 200
     next_run = CronTable.get_by_name("kechimochi_sync").next_run
     assert time.time() < next_run <= time.time() + 900
+    status = client.get("/api/kechimochi/status").get_json()
+    assert status["status"] == "failed"
+    assert "Could not reach Kechimochi" in status["error"]
+    assert kechimochi_api.kechimochi_sync_job_manager.active() is None
+    sync_logger.error.assert_not_called()
+    sync_logger.exception.assert_not_called()
+    sync_logger.warning.assert_not_called()
 
 
 def test_cover_sync_is_idempotent_and_restricted_scope_does_not_block_stats():
