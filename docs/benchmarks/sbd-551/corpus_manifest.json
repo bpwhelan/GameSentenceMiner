@@ -1,0 +1,113 @@
+{
+  "created_utc": "2026-09-14T18:55:09.293454+00:00",
+  "seed": 551,
+  "groups_per_language": 150,
+  "gsm_fixture_sha256": "ddf10c51400be5325ccf139d34e36574ae335dfabee8135639e3f7a7f9ae2183",
+  "corpus_sha256": "0ff5320c0b11ad0a6aa7e5997ffb0f2f20cf3e73fd5e8ec860103fb496fbfb27",
+  "sources": [
+    {
+      "language": "ja",
+      "repo": "UD_Japanese-GSD",
+      "revision": "8e5794fae6d25796437a64a08c497a5c870b7b09",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_Japanese-GSD/8e5794fae6d25796437a64a08c497a5c870b7b09/ja_gsd-ud-test.conllu",
+      "sha256": "980d24fb9b245880454c088938b8417c13066b169b4f9246a060e2ef8be0c2ac",
+      "available_sentences": 543,
+      "selected_triples": 150
+    },
+    {
+      "language": "zh",
+      "repo": "UD_Chinese-GSD",
+      "revision": "a7cb4270c8ea437d7f2cd7978b0dcc0941cb7266",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_Chinese-GSD/a7cb4270c8ea437d7f2cd7978b0dcc0941cb7266/zh_gsd-ud-test.conllu",
+      "sha256": "b4984c1d8434c866c3b4e32906c941db274942ed0cde6af783939cfbeca68c99",
+      "available_sentences": 500,
+      "selected_triples": 150
+    },
+    {
+      "language": "en",
+      "repo": "UD_English-EWT",
+      "revision": "4c89b5833a70aa5ed3a00bad2f23f57992cc7df8",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_English-EWT/4c89b5833a70aa5ed3a00bad2f23f57992cc7df8/en_ewt-ud-test.conllu",
+      "sha256": "e266e515a0a7547657ed3d90d9ba46487d6bd251f27ad4269d4e8a427c8555cd",
+      "available_sentences": 2077,
+      "selected_triples": 150
+    },
+    {
+      "language": "ko",
+      "repo": "UD_Korean-GSD",
+      "revision": "60ffc4f2f0cbf0bf816f0d44a7339512f5ce9c25",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_Korean-GSD/60ffc4f2f0cbf0bf816f0d44a7339512f5ce9c25/ko_gsd-ud-test.conllu",
+      "sha256": "3d1df99bda4800235e14bcfd915baf706eafa1a3935a75ffd32420a51e57f5aa",
+      "available_sentences": 989,
+      "selected_triples": 150
+    },
+    {
+      "language": "fr",
+      "repo": "UD_French-GSD",
+      "revision": "42fdb4fc842d060c9f8af663c6ba5db229354e8c",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_French-GSD/42fdb4fc842d060c9f8af663c6ba5db229354e8c/fr_gsd-ud-test.conllu",
+      "sha256": "5d1743c7a9ce2908943d4a430ed9a77755e2a8d7e32d42ee0f1d6a0b528f0be8",
+      "available_sentences": 416,
+      "selected_triples": 138
+    },
+    {
+      "language": "de",
+      "repo": "UD_German-GSD",
+      "revision": "0726bb0c7e7328d5ef1a5d65c70d184882eacd95",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_German-GSD/0726bb0c7e7328d5ef1a5d65c70d184882eacd95/de_gsd-ud-test.conllu",
+      "sha256": "bceb8e867ba3ee7f1449d44fb31538d63a514f07e6763e7d9a5ffe794407bed4",
+      "available_sentences": 977,
+      "selected_triples": 150
+    },
+    {
+      "language": "es",
+      "repo": "UD_Spanish-GSD",
+      "revision": "85cc9ba98d7e91b536e5c3da2956e8c2f818ad1f",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_Spanish-GSD/85cc9ba98d7e91b536e5c3da2956e8c2f818ad1f/es_gsd-ud-test.conllu",
+      "sha256": "37612cb7cc13eab62e6f95b06504a31f252ecc56acb52a06d142bf872318b872",
+      "available_sentences": 427,
+      "selected_triples": 142
+    },
+    {
+      "language": "ru",
+      "repo": "UD_Russian-Taiga",
+      "revision": "23bc6ded75cb717aaf233b8568003fa0897e56a6",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-Taiga/23bc6ded75cb717aaf233b8568003fa0897e56a6/ru_taiga-ud-test.conllu",
+      "sha256": "dec224e1e892153a8a4c83a905d7613c4a318e3e726d96551001eecea4aba3df",
+      "available_sentences": 1217,
+      "selected_triples": 150
+    },
+    {
+      "language": "pt",
+      "repo": "UD_Portuguese-Bosque",
+      "revision": "4f136acb02344e4f2f5e3d3e9ecc70aab61db62d",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_Portuguese-Bosque/4f136acb02344e4f2f5e3d3e9ecc70aab61db62d/pt_bosque-ud-test.conllu",
+      "sha256": "9a824650b7a02cf411f6e09b39e8fb423c85e1a5fb3a55b87e7f4c0c2ea5b3bb",
+      "available_sentences": 1167,
+      "selected_triples": 150
+    },
+    {
+      "language": "uk",
+      "repo": "UD_Ukrainian-IU",
+      "revision": "dd951f6f474583289a09e93f1a0e7bf95f93f350",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_Ukrainian-IU/dd951f6f474583289a09e93f1a0e7bf95f93f350/uk_iu-ud-test.conllu",
+      "sha256": "5538dec31c89b0cd0e5141d8a9c6bdc0099103eab3c5c6b9078ab95e67be1286",
+      "available_sentences": 898,
+      "selected_triples": 150
+    },
+    {
+      "suite": "yasbd_golden",
+      "revision": "eedfe1b2bfc049151fd349a0de3364a4dccd29ac",
+      "file": "benchmarks\\EN_GOLDEN_DATA.py",
+      "sha256": "65b809441aacb7d985a0dbf66d831f4abe6feeb0b580243a094aa5655c9e5aca",
+      "cases": 92
+    },
+    {
+      "suite": "pysbd_golden",
+      "revision": "5905f13be4fc95f407b98392e0ec303617a33d86",
+      "file": "tests\\lang\\test_english.py",
+      "sha256": "dc7e6894ae8df11459d8eaf12dc295f09395165211fa4e9aa53e8cd2cb820d1d",
+      "cases": 48
+    }
+  ]
+}

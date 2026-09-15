@@ -1,0 +1,2224 @@
+{
+  "source_sha256": "f40e6055a58e21fae17f019efbb7973a9258b6ab3df5ae97898a15138cc97177",
+  "native_available": true,
+  "native_import_error": "None",
+  "classification": "fixed to requested language",
+  "cases": [
+    {
+      "scenario": "ja-punctuation",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "expected": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "outputs": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "blocks": [
+        [
+          "「返しなさいよーーーっ！！」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-punctuation",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "expected": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "outputs": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "blocks": [
+        [
+          "「返しなさいよーーーっ！！」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-punctuation",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "expected": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "outputs": [
+        "「返しなさいよーーーっ!!」"
+      ],
+      "blocks": [
+        [
+          "「返しなさいよーーーっ!!」"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-punctuation",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "expected": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "outputs": [
+        "「返しなさいよーーーっ!!」"
+      ],
+      "blocks": [
+        [
+          "「返しなさいよーーーっ!!」"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-punctuation",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "expected": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "outputs": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "blocks": [
+        [
+          "「返しなさいよーーーっ！！」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-punctuation",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "expected": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "outputs": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "blocks": [
+        [
+          "「返しなさいよーーーっ！！」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-punctuation",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "expected": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "outputs": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "blocks": [
+        [
+          "「返しなさいよーーーっ！！」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-punctuation",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "expected": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "outputs": [
+        "「返しなさいよーーーっ！！」"
+      ],
+      "blocks": [
+        [
+          "「返しなさいよーーーっ！！」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-fullwidth",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "expected": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "outputs": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "blocks": [
+        [
+          "ＨＰが１００回復した！",
+          "次へ進もう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-fullwidth",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "expected": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "outputs": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "blocks": [
+        [
+          "ＨＰが１００回復した！",
+          "次へ進もう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-fullwidth",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "expected": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "outputs": [
+        "HPが100回復した!\n次へ進もう。"
+      ],
+      "blocks": [
+        [
+          "HPが100回復した!",
+          "次へ進もう。"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-fullwidth",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "expected": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "outputs": [
+        "HPが100回復した!\n次へ進もう。"
+      ],
+      "blocks": [
+        [
+          "HPが100回復した!",
+          "次へ進もう。"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-fullwidth",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "expected": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "outputs": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "blocks": [
+        [
+          "ＨＰが１００回復した！",
+          "次へ進もう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-fullwidth",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "expected": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "outputs": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "blocks": [
+        [
+          "ＨＰが１００回復した！",
+          "次へ進もう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-fullwidth",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "expected": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "outputs": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "blocks": [
+        [
+          "ＨＰが１００回復した！",
+          "次へ進もう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-fullwidth",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "expected": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "outputs": [
+        "ＨＰが１００回復した！次へ進もう。"
+      ],
+      "blocks": [
+        [
+          "ＨＰが１００回復した！",
+          "次へ進もう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-wrap",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "expected": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "outputs": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "blocks": [
+        [
+          "今日はとても",
+          "いい天気だ。",
+          "外へ出よう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-wrap",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "expected": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "outputs": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "blocks": [
+        [
+          "今日はとても",
+          "いい天気だ。",
+          "外へ出よう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-wrap",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "expected": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "outputs": [
+        "今日はとても いい天気だ。\n外へ出よう。"
+      ],
+      "blocks": [
+        [
+          "今日はとても いい天気だ。",
+          "外へ出よう。"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-wrap",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "expected": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "outputs": [
+        "今日はとても いい天気だ。\n外へ出よう。"
+      ],
+      "blocks": [
+        [
+          "今日はとても いい天気だ。",
+          "外へ出よう。"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-wrap",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "expected": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "outputs": [
+        "今日はとてもいい天気だ。外へ出よう。"
+      ],
+      "blocks": [
+        [
+          "今日はとても",
+          "いい天気だ。",
+          "外へ出よう。"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-wrap",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "expected": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "outputs": [
+        "今日はとてもいい天気だ。外へ出よう。"
+      ],
+      "blocks": [
+        [
+          "今日はとても",
+          "いい天気だ。",
+          "外へ出よう。"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-wrap",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "expected": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "outputs": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "blocks": [
+        [
+          "今日はとても",
+          "いい天気だ。",
+          "外へ出よう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-wrap",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "expected": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "outputs": [
+        "今日はとても\nいい天気だ。外へ出よう。"
+      ],
+      "blocks": [
+        [
+          "今日はとても",
+          "いい天気だ。",
+          "外へ出よう。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-menu-growth",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "武器を選ぶ\n防具を選ぶ",
+        "武器を選ぶ\n防具を選ぶ\n戻る"
+      ],
+      "expected": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "outputs": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "blocks": [
+        [
+          "武器を選ぶ",
+          "防具を選ぶ"
+        ],
+        [
+          "武器を選ぶ",
+          "防具を選ぶ",
+          "戻る"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-menu-growth",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "武器を選ぶ\n防具を選ぶ",
+        "武器を選ぶ\n防具を選ぶ\n戻る"
+      ],
+      "expected": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "outputs": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "blocks": [
+        [
+          "武器を選ぶ",
+          "防具を選ぶ"
+        ],
+        [
+          "武器を選ぶ",
+          "防具を選ぶ",
+          "戻る"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-menu-growth",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "武器を選ぶ\n防具を選ぶ",
+        "武器を選ぶ\n防具を選ぶ\n戻る"
+      ],
+      "expected": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "outputs": [
+        "武器を選ぶ 防具を選ぶ",
+        "武器を選ぶ 防具を選ぶ 戻る"
+      ],
+      "blocks": [
+        [
+          "武器を選ぶ 防具を選ぶ"
+        ],
+        [
+          "武器を選ぶ 防具を選ぶ 戻る"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-menu-growth",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "武器を選ぶ\n防具を選ぶ",
+        "武器を選ぶ\n防具を選ぶ\n戻る"
+      ],
+      "expected": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "outputs": [
+        "武器を選ぶ 防具を選ぶ",
+        "武器を選ぶ 防具を選ぶ 戻る"
+      ],
+      "blocks": [
+        [
+          "武器を選ぶ 防具を選ぶ"
+        ],
+        [
+          "武器を選ぶ 防具を選ぶ 戻る"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-menu-growth",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "武器を選ぶ\n防具を選ぶ",
+        "武器を選ぶ\n防具を選ぶ\n戻る"
+      ],
+      "expected": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "outputs": [
+        "武器を選ぶ防具を選ぶ",
+        "戻る"
+      ],
+      "blocks": [
+        [
+          "武器を選ぶ",
+          "防具を選ぶ"
+        ],
+        [
+          "武器を選ぶ",
+          "防具を選ぶ",
+          "戻る"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-menu-growth",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "武器を選ぶ\n防具を選ぶ",
+        "武器を選ぶ\n防具を選ぶ\n戻る"
+      ],
+      "expected": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "outputs": [
+        "武器を選ぶ防具を選ぶ",
+        "戻る"
+      ],
+      "blocks": [
+        [
+          "武器を選ぶ",
+          "防具を選ぶ"
+        ],
+        [
+          "武器を選ぶ",
+          "防具を選ぶ",
+          "戻る"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-menu-growth",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "武器を選ぶ\n防具を選ぶ",
+        "武器を選ぶ\n防具を選ぶ\n戻る"
+      ],
+      "expected": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "outputs": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "blocks": [
+        [
+          "武器を選ぶ",
+          "防具を選ぶ"
+        ],
+        [
+          "武器を選ぶ",
+          "防具を選ぶ",
+          "戻る"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-menu-growth",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "武器を選ぶ\n防具を選ぶ",
+        "武器を選ぶ\n防具を選ぶ\n戻る"
+      ],
+      "expected": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "outputs": [
+        "武器を選ぶ\n防具を選ぶ",
+        "戻る"
+      ],
+      "blocks": [
+        [
+          "武器を選ぶ",
+          "防具を選ぶ"
+        ],
+        [
+          "武器を選ぶ",
+          "防具を選ぶ",
+          "戻る"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-plain-growth",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "今日は晴れ。",
+        "今日は晴れ。明日も晴れ。"
+      ],
+      "expected": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "outputs": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "blocks": [
+        [
+          "今日は晴れ。"
+        ],
+        [
+          "今日は晴れ。",
+          "明日も晴れ。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-plain-growth",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "今日は晴れ。",
+        "今日は晴れ。明日も晴れ。"
+      ],
+      "expected": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "outputs": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "blocks": [
+        [
+          "今日は晴れ。"
+        ],
+        [
+          "今日は晴れ。",
+          "明日も晴れ。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-plain-growth",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "今日は晴れ。",
+        "今日は晴れ。明日も晴れ。"
+      ],
+      "expected": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "outputs": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "blocks": [
+        [
+          "今日は晴れ。"
+        ],
+        [
+          "今日は晴れ。",
+          "明日も晴れ。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-plain-growth",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "今日は晴れ。",
+        "今日は晴れ。明日も晴れ。"
+      ],
+      "expected": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "outputs": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "blocks": [
+        [
+          "今日は晴れ。"
+        ],
+        [
+          "今日は晴れ。",
+          "明日も晴れ。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-plain-growth",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "今日は晴れ。",
+        "今日は晴れ。明日も晴れ。"
+      ],
+      "expected": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "outputs": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "blocks": [
+        [
+          "今日は晴れ。"
+        ],
+        [
+          "今日は晴れ。",
+          "明日も晴れ。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-plain-growth",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "今日は晴れ。",
+        "今日は晴れ。明日も晴れ。"
+      ],
+      "expected": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "outputs": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "blocks": [
+        [
+          "今日は晴れ。"
+        ],
+        [
+          "今日は晴れ。",
+          "明日も晴れ。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-plain-growth",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "今日は晴れ。",
+        "今日は晴れ。明日も晴れ。"
+      ],
+      "expected": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "outputs": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "blocks": [
+        [
+          "今日は晴れ。"
+        ],
+        [
+          "今日は晴れ。",
+          "明日も晴れ。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-plain-growth",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "今日は晴れ。",
+        "今日は晴れ。明日も晴れ。"
+      ],
+      "expected": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "outputs": [
+        "今日は晴れ。",
+        "明日も晴れ。"
+      ],
+      "blocks": [
+        [
+          "今日は晴れ。"
+        ],
+        [
+          "今日は晴れ。",
+          "明日も晴れ。"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-quote-growth",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "expected": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "outputs": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "blocks": [
+        [
+          "「行こう。」"
+        ],
+        [
+          "「行こう。」「うん。」"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-quote-growth",
+      "lang": "ja",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "expected": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "outputs": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "blocks": [
+        [
+          "「行こう。」"
+        ],
+        [
+          "「行こう。」「うん。」"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ja-quote-growth",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "expected": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "outputs": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "blocks": [
+        [
+          "「行こう。」"
+        ],
+        [
+          "「行こう。」",
+          "「うん。」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-quote-growth",
+      "lang": "ja",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "expected": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "outputs": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "blocks": [
+        [
+          "「行こう。」"
+        ],
+        [
+          "「行こう。」",
+          "「うん。」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-quote-growth",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "expected": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "outputs": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "blocks": [
+        [
+          "「行こう。」"
+        ],
+        [
+          "「行こう。」",
+          "「うん。」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-quote-growth",
+      "lang": "ja",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "expected": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "outputs": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "blocks": [
+        [
+          "「行こう。」"
+        ],
+        [
+          "「行こう。」",
+          "「うん。」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-quote-growth",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "expected": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "outputs": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "blocks": [
+        [
+          "「行こう。」"
+        ],
+        [
+          "「行こう。」",
+          "「うん。」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ja-quote-growth",
+      "lang": "ja",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "「行こう。」",
+        "「行こう。」「うん。」"
+      ],
+      "expected": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "outputs": [
+        "「行こう。」",
+        "「うん。」"
+      ],
+      "blocks": [
+        [
+          "「行こう。」"
+        ],
+        [
+          "「行こう。」",
+          "「うん。」"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-lowercase-growth",
+      "lang": "en",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "expected": [
+        "are you there?",
+        "please answer."
+      ],
+      "outputs": [
+        "are you there?",
+        "please answer."
+      ],
+      "blocks": [
+        [
+          "are you there?"
+        ],
+        [
+          "are you there?",
+          "please answer."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-lowercase-growth",
+      "lang": "en",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "expected": [
+        "are you there?",
+        "please answer."
+      ],
+      "outputs": [
+        "are you there?",
+        "please answer."
+      ],
+      "blocks": [
+        [
+          "are you there?"
+        ],
+        [
+          "are you there?",
+          "please answer."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-lowercase-growth",
+      "lang": "en",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "expected": [
+        "are you there?",
+        "please answer."
+      ],
+      "outputs": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "blocks": [
+        [
+          "are you there?"
+        ],
+        [
+          "are you there? please answer."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "en-lowercase-growth",
+      "lang": "en",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "expected": [
+        "are you there?",
+        "please answer."
+      ],
+      "outputs": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "blocks": [
+        [
+          "are you there?"
+        ],
+        [
+          "are you there? please answer."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "en-lowercase-growth",
+      "lang": "en",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "expected": [
+        "are you there?",
+        "please answer."
+      ],
+      "outputs": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "blocks": [
+        [
+          "are you there?"
+        ],
+        [
+          "are you there? please answer."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "en-lowercase-growth",
+      "lang": "en",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "expected": [
+        "are you there?",
+        "please answer."
+      ],
+      "outputs": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "blocks": [
+        [
+          "are you there?"
+        ],
+        [
+          "are you there? please answer."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "en-lowercase-growth",
+      "lang": "en",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "expected": [
+        "are you there?",
+        "please answer."
+      ],
+      "outputs": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "blocks": [
+        [
+          "are you there?"
+        ],
+        [
+          "are you there? please answer."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "en-lowercase-growth",
+      "lang": "en",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "expected": [
+        "are you there?",
+        "please answer."
+      ],
+      "outputs": [
+        "are you there?",
+        "are you there? please answer."
+      ],
+      "blocks": [
+        [
+          "are you there?"
+        ],
+        [
+          "are you there? please answer."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "en-plain-growth",
+      "lang": "en",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "The door is open.",
+        "The door is open. We should leave."
+      ],
+      "expected": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "outputs": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open."
+        ],
+        [
+          "The door is open.",
+          "We should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-plain-growth",
+      "lang": "en",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "The door is open.",
+        "The door is open. We should leave."
+      ],
+      "expected": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "outputs": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open."
+        ],
+        [
+          "The door is open.",
+          "We should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-plain-growth",
+      "lang": "en",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "The door is open.",
+        "The door is open. We should leave."
+      ],
+      "expected": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "outputs": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open."
+        ],
+        [
+          "The door is open.",
+          "We should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-plain-growth",
+      "lang": "en",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "The door is open.",
+        "The door is open. We should leave."
+      ],
+      "expected": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "outputs": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open."
+        ],
+        [
+          "The door is open.",
+          "We should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-plain-growth",
+      "lang": "en",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "The door is open.",
+        "The door is open. We should leave."
+      ],
+      "expected": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "outputs": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open."
+        ],
+        [
+          "The door is open.",
+          "We should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-plain-growth",
+      "lang": "en",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "The door is open.",
+        "The door is open. We should leave."
+      ],
+      "expected": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "outputs": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open."
+        ],
+        [
+          "The door is open.",
+          "We should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-plain-growth",
+      "lang": "en",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "The door is open.",
+        "The door is open. We should leave."
+      ],
+      "expected": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "outputs": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open."
+        ],
+        [
+          "The door is open.",
+          "We should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-plain-growth",
+      "lang": "en",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "The door is open.",
+        "The door is open. We should leave."
+      ],
+      "expected": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "outputs": [
+        "The door is open.",
+        "We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open."
+        ],
+        [
+          "The door is open.",
+          "We should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-blank-line",
+      "lang": "en",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "The door is open.BLANK_LINEWe should leave."
+      ],
+      "expected": [
+        "The door is open.\nWe should leave."
+      ],
+      "outputs": [
+        "The door is open.We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open.",
+          "\nWe should leave."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "en-blank-line",
+      "lang": "en",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "The door is open.BLANK_LINEWe should leave."
+      ],
+      "expected": [
+        "The door is open.\nWe should leave."
+      ],
+      "outputs": [
+        "The door is open.We should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open.",
+          "\nWe should leave."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "en-blank-line",
+      "lang": "en",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "The door is open.BLANK_LINEWe should leave."
+      ],
+      "expected": [
+        "The door is open.\nWe should leave."
+      ],
+      "outputs": [
+        "The door is open.\nWe should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open.\nWe should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-blank-line",
+      "lang": "en",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "The door is open.BLANK_LINEWe should leave."
+      ],
+      "expected": [
+        "The door is open.\nWe should leave."
+      ],
+      "outputs": [
+        "The door is open.\nWe should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open.\nWe should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-blank-line",
+      "lang": "en",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "The door is open.BLANK_LINEWe should leave."
+      ],
+      "expected": [
+        "The door is open.\nWe should leave."
+      ],
+      "outputs": [
+        "The door is open.\nWe should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open.\nWe should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-blank-line",
+      "lang": "en",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "The door is open.BLANK_LINEWe should leave."
+      ],
+      "expected": [
+        "The door is open.\nWe should leave."
+      ],
+      "outputs": [
+        "The door is open.\nWe should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open.\nWe should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-blank-line",
+      "lang": "en",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "The door is open.BLANK_LINEWe should leave."
+      ],
+      "expected": [
+        "The door is open.\nWe should leave."
+      ],
+      "outputs": [
+        "The door is open.\nWe should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open.\nWe should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "en-blank-line",
+      "lang": "en",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "The door is open.BLANK_LINEWe should leave."
+      ],
+      "expected": [
+        "The door is open.\nWe should leave."
+      ],
+      "outputs": [
+        "The door is open.\nWe should leave."
+      ],
+      "blocks": [
+        [
+          "The door is open.\nWe should leave."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "zh-punctuation",
+      "lang": "zh",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "expected": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "outputs": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "blocks": [
+        [
+          "你准备好了吗？",
+          "我们出发吧！"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "zh-punctuation",
+      "lang": "zh",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "expected": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "outputs": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "blocks": [
+        [
+          "你准备好了吗？",
+          "我们出发吧！"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "zh-punctuation",
+      "lang": "zh",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "expected": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "outputs": [
+        "你准备好了吗?\n我们出发吧!"
+      ],
+      "blocks": [
+        [
+          "你准备好了吗?",
+          "我们出发吧!"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "zh-punctuation",
+      "lang": "zh",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "expected": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "outputs": [
+        "你准备好了吗?\n我们出发吧!"
+      ],
+      "blocks": [
+        [
+          "你准备好了吗?",
+          "我们出发吧!"
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "zh-punctuation",
+      "lang": "zh",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "expected": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "outputs": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "blocks": [
+        [
+          "你准备好了吗？",
+          "我们出发吧！"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "zh-punctuation",
+      "lang": "zh",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "expected": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "outputs": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "blocks": [
+        [
+          "你准备好了吗？",
+          "我们出发吧！"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "zh-punctuation",
+      "lang": "zh",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "expected": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "outputs": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "blocks": [
+        [
+          "你准备好了吗？",
+          "我们出发吧！"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "zh-punctuation",
+      "lang": "zh",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "expected": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "outputs": [
+        "你准备好了吗？我们出发吧！"
+      ],
+      "blocks": [
+        [
+          "你准备好了吗？",
+          "我们出发吧！"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ko-growth",
+      "lang": "ko",
+      "backend": "pysbd_clean",
+      "mode": "python",
+      "frames": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "expected": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "outputs": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "blocks": [
+        [
+          "문이 열렸습니다."
+        ],
+        [
+          "문이 열렸습니다. 이제 출발합시다."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ko-growth",
+      "lang": "ko",
+      "backend": "pysbd_clean",
+      "mode": "native",
+      "frames": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "expected": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "outputs": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "blocks": [
+        [
+          "문이 열렸습니다."
+        ],
+        [
+          "문이 열렸습니다. 이제 출발합시다."
+        ]
+      ],
+      "passed": false
+    },
+    {
+      "scenario": "ko-growth",
+      "lang": "ko",
+      "backend": "yasbd_clean",
+      "mode": "python",
+      "frames": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "expected": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "outputs": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "blocks": [
+        [
+          "문이 열렸습니다."
+        ],
+        [
+          "문이 열렸습니다.",
+          "이제 출발합시다."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ko-growth",
+      "lang": "ko",
+      "backend": "yasbd_clean",
+      "mode": "native",
+      "frames": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "expected": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "outputs": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "blocks": [
+        [
+          "문이 열렸습니다."
+        ],
+        [
+          "문이 열렸습니다.",
+          "이제 출발합시다."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ko-growth",
+      "lang": "ko",
+      "backend": "yasbd_raw",
+      "mode": "python",
+      "frames": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "expected": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "outputs": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "blocks": [
+        [
+          "문이 열렸습니다."
+        ],
+        [
+          "문이 열렸습니다.",
+          "이제 출발합시다."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ko-growth",
+      "lang": "ko",
+      "backend": "yasbd_raw",
+      "mode": "native",
+      "frames": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "expected": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "outputs": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "blocks": [
+        [
+          "문이 열렸습니다."
+        ],
+        [
+          "문이 열렸습니다.",
+          "이제 출발합시다."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ko-growth",
+      "lang": "ko",
+      "backend": "yasbd_core_list",
+      "mode": "python",
+      "frames": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "expected": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "outputs": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "blocks": [
+        [
+          "문이 열렸습니다."
+        ],
+        [
+          "문이 열렸습니다.",
+          "이제 출발합시다."
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "scenario": "ko-growth",
+      "lang": "ko",
+      "backend": "yasbd_core_list",
+      "mode": "native",
+      "frames": [
+        "문이 열렸습니다.",
+        "문이 열렸습니다. 이제 출발합시다."
+      ],
+      "expected": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "outputs": [
+        "문이 열렸습니다.",
+        "이제 출발합시다."
+      ],
+      "blocks": [
+        [
+          "문이 열렸습니다."
+        ],
+        [
+          "문이 열렸습니다.",
+          "이제 출발합시다."
+        ]
+      ],
+      "passed": true
+    }
+  ]
+}

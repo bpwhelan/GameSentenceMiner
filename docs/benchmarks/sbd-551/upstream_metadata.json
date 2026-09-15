@@ -1,0 +1,83 @@
+{
+  "retrieved_utc": "2026-09-14T19:09:07.014055+00:00",
+  "hardware": "AMD Ryzen 7 5800X, 8 cores / 16 logical processors",
+  "pysbd": {
+    "version": "0.3.4",
+    "requires_python": ">=3",
+    "requires_dist": null,
+    "license": "MIT",
+    "first_upload": "2019-10-09T17:27:52.426851Z",
+    "artifacts": [
+      {
+        "filename": "pysbd-0.3.4-py3-none-any.whl",
+        "size": 71082,
+        "upload_time_iso_8601": "2021-02-11T16:36:33.351877Z",
+        "digests": {
+          "blake2b_256": "480ac99fb7d7e176f8b176ef19704a32e6a9c6aafdf19ef75a187f701fc15801",
+          "md5": "2cdea56c0fb7e974370b8de3b69dd6f8",
+          "sha256": "cd838939b7b0b185fcf86b0baf6636667dfb6e474743beeff878e9f42e022953"
+        },
+        "url": "https://files.pythonhosted.org/packages/48/0a/c99fb7d7e176f8b176ef19704a32e6a9c6aafdf19ef75a187f701fc15801/pysbd-0.3.4-py3-none-any.whl"
+      }
+    ]
+  },
+  "yasbd-lib": {
+    "version": "0.16.3",
+    "requires_python": ">=3.10",
+    "requires_dist": [
+      "loguru<1.0,>=0.7.3",
+      "regex>=2024.11.6",
+      "ftfy<7.0,>=6.2.0",
+      "retrie<0.4,>=0.3.0",
+      "radicli<0.0.27,>=0.0.26",
+      "beartype<0.23,>=0.22",
+      "pytest>=8.3.5; extra == \"dev\"",
+      "pytest-cov>=6.2.1; extra == \"dev\"",
+      "pre-commit>=4.4.0; extra == \"dev\"",
+      "pydoc-markdown<5.0,>=4.8.0; extra == \"dev\"",
+      "ruff>=0.14.14; extra == \"dev\"",
+      "pysbd; extra == \"bench\"",
+      "sentencex; extra == \"bench\"",
+      "sentsplit; extra == \"bench\"",
+      "nupunkt; python_version >= \"3.11\" and extra == \"bench\"",
+      "blingfire; extra == \"bench\"",
+      "sentence-splitter; extra == \"bench\"",
+      "spacy; extra == \"bench\"",
+      "setuptools<81; extra == \"bench\"",
+      "matplotlib; extra == \"bench\"",
+      "rich; extra == \"bench\"",
+      "radicli; extra == \"bench\""
+    ],
+    "license": "MPL-2.0",
+    "first_upload": "2026-05-29T21:38:27.538879Z",
+    "artifacts": [
+      {
+        "filename": "yasbd_lib-0.16.3-py3-none-any.whl",
+        "size": 98440,
+        "upload_time_iso_8601": "2026-09-09T19:35:38.874246Z",
+        "digests": {
+          "blake2b_256": "569d4aa1d885ababfa01b8c8a8166cb24e1c76f7b8bcbab67ee2be2195e65c0d",
+          "md5": "b55aca669ca6912fad8015e7f4768a2b",
+          "sha256": "dde4236942cced48dae300e6005b1a032812ae80ea2787a526b06b4ed52ad34a"
+        },
+        "url": "https://files.pythonhosted.org/packages/56/9d/4aa1d885ababfa01b8c8a8166cb24e1c76f7b8bcbab67ee2be2195e65c0d/yasbd_lib-0.16.3-py3-none-any.whl"
+      },
+      {
+        "filename": "yasbd_lib-0.16.3.tar.gz",
+        "size": 96328,
+        "upload_time_iso_8601": "2026-09-09T19:35:40.426283Z",
+        "digests": {
+          "blake2b_256": "8dfda54728bb911955e83a9b44bdabb141c684c639f6f5635be8467985949ea6",
+          "md5": "f2043d1a4059fce2c781610433632c98",
+          "sha256": "bd877c0bf685c8c65cef470c05b0d74bc879830d83f56345b57f6efe2e6e29c7"
+        },
+        "url": "https://files.pythonhosted.org/packages/8d/fd/a54728bb911955e83a9b44bdabb141c684c639f6f5635be8467985949ea6/yasbd_lib-0.16.3.tar.gz"
+      }
+    ]
+  },
+  "native_extension": {
+    "filename": "_native.pyd",
+    "sha256": "06bba94bae48726b98d38231cb9791b11178162d5d9228a77477ec87afedec98",
+    "api_version": 1
+  }
+}
