@@ -846,11 +846,11 @@ class GSMApplication:
                 stop_authoritative_text_runtime()
             except Exception as e:
                 logger.error(f"Error stopping authoritative text runtime: {e}")
-            _get_websocket_manager().stop_all()
             try:
                 _get_texthooking_page_module().stop_web_server()
             except Exception as e:
                 logger.error(f"Error stopping TextFeed HTTP transport: {e}")
+            _get_websocket_manager().stop_all()
             try:
                 _get_anki_module().stop_anki_runtime()
             except Exception as e:
