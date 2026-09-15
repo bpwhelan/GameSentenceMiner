@@ -38,6 +38,10 @@
   let parseContainer = null;
   let parseObserver = null;
   let currentLines = null;
+  let currentLineBlocks = null;
+  let currentBlocks = [];
+  let currentSignature = null;
+  let containerBlocks = new Map();
   let pendingParseTimer = null;
   let pendingSignature = null;
   let runningParseTimer = null;
@@ -151,17 +155,22 @@
     });
   }
 
-  // Request Jiten to parse the current lines. Never hides/delays the visible OCR
+  // Request Jiten to parse the detected blocks. Never hides/delays the visible OCR
   // text — it only draws SRS highlights on top, asynchronously. The real text
   // boxes are hidden ONLY across the synchronous parse trigger (no paint happens
   // in between) so Jiten's whole-page Alt+P parse excludes them.
-  function requestParse(lines) {
+  function requestParse(lines, lineBlocks) {
     if (!enabled || !available) return Promise.resolve();
     if (!parseContainer) init();
     if (!Array.isArray(lines) || lines.length === 0) return Promise.resolve();
 
-    const signature = signatureForLines(lines);
+    // Keep the grouping when refreshing the same frame without new detection.
+    if (lineBlocks === undefined && lines === currentLines) lineBlocks = currentLineBlocks;
+    currentLineBlocks = lineBlocks ? new Map(lineBlocks) : null;
+    currentBlocks = buildParseBlocks(lines, currentLineBlocks);
+    const signature = signatureForBlocks(currentBlocks);
     currentLines = lines;
+    currentSignature = signature;
     if (signature === lastParsedSignature && Date.now() - lastParseFinishedAt < 300_000) {
       // Text unchanged, just re-draw over the (possibly re-laid-out) boxes.
       mirrorHighlights();
@@ -175,17 +184,39 @@
     return Promise.resolve();
   }
 
-  function signatureForLines(lines) {
-    return JSON.stringify((lines || []).map((line) => line?.text || ''));
+  function buildParseBlocks(lines, lineBlocks) {
+    const blocks = new Map();
+    lines.forEach((line, lineIndex) => {
+      // Unmapped lines remain independent, including callers without detection.
+      const key = lineBlocks?.get(lineIndex) ?? Symbol();
+      let block = blocks.get(key);
+      if (!block) {
+        block = { text: '', lineRanges: [] };
+        blocks.set(key, block);
+      }
+      const text = line?.text || '';
+      const start = block.text.length;
+      // Match block_detection.getBlockRawText: concatenate in OCR order without
+      // adding separators or normalizing text (the broker caches exact text).
+      block.text += text;
+      block.lineRanges.push({ lineIndex, start, end: block.text.length });
+    });
+    return Array.from(blocks.values());
+  }
+
+  function signatureForBlocks(blocks) {
+    // Include membership/offsets so regrouping unchanged lines cannot reuse the
+    // wrong paragraph ranges. Renumbering identical blocks needs no new parse.
+    return JSON.stringify(blocks);
   }
 
   function schedulePendingParse() {
     if (!enabled || !available || !currentLines || runningSignature) return;
-    const signature = signatureForLines(currentLines);
+    const signature = currentSignature;
     if (pendingParseTimer && pendingSignature === signature) return;
     clearTimeout(pendingParseTimer);
     pendingParseTimer = null;
-    if (signatureForLines(currentLines) === lastParsedSignature && Date.now() - lastParseFinishedAt < 300_000) return;
+    if (signature === lastParsedSignature && Date.now() - lastParseFinishedAt < 300_000) return;
     pendingSignature = signature;
     // Coalesce requests made in the same renderer turn, but do not duplicate the
     // broker's upstream throttle here. The broker already owns request pacing,
@@ -199,11 +230,12 @@
 
   function startParse() {
     if (!enabled || !available || !currentLines) return;
-    const lines = currentLines;
-    containerSignature = signatureForLines(lines);
+    containerSignature = currentSignature;
+    parseContainer.innerHTML = '';
+    containerBlocks = new Map();
     // Japanese script detection also excludes English with wide punctuation.
     const containsJapanese = (text) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text);
-    if (!lines.some((line) => containsJapanese(line?.text || ''))) {
+    if (!currentBlocks.some((block) => containsJapanese(block.text))) {
       lastParsedSignature = containerSignature;
       lastParseFinishedAt = Date.now();
       return;
@@ -213,14 +245,15 @@
     // timeout releases the next frame without repeatedly retrying the same one.
     runningParseTimer = setTimeout(onParseComplete, 30_000);
 
-    // Clear old content and insert fresh text
-    parseContainer.innerHTML = '';
-    for (let i = 0; i < lines.length; i++) {
-      const text = (lines[i] && lines[i].text) || '';
-      if (!containsJapanese(text)) continue;
+    // One Reader paragraph per detected block. Keep every line in a Japanese
+    // block, including punctuation/Latin-only lines that affect its cache key.
+    for (const block of currentBlocks) {
+      if (!containsJapanese(block.text)) continue;
       const p = document.createElement('p');
-      p.dataset.lineIndex = String(i);
-      p.textContent = text;
+      const firstLineIndex = block.lineRanges[0].lineIndex;
+      p.dataset.lineIndex = String(firstLineIndex);
+      p.textContent = block.text;
+      containerBlocks.set(firstLineIndex, block);
       parseContainer.appendChild(p);
     }
 
@@ -270,7 +303,7 @@
   // Read Jiten-parsed spans and draw one overlay box per token over the union
   // rect of its .text-box glyphs.
   function mirrorHighlights() {
-    if (!enabled || !available || !parseContainer || !currentLines || containerSignature !== signatureForLines(currentLines)) {
+    if (!enabled || !available || !parseContainer || !currentLines || containerSignature !== currentSignature) {
       hideAllSegments();
       return;
     }
@@ -288,10 +321,7 @@
     // produce more than one rect if its glyph boxes wrap across visual lines.
     const segments = [];
     for (const p of paragraphs) {
-      const lineIdx = parseInt(p.dataset.lineIndex, 10);
-      if (!Number.isFinite(lineIdx)) continue;
-
-      // Map each .jiten-word span to its char range within the line.
+      // Map each .jiten-word span from block offsets back to its source lines.
       const spanRanges = computeJitenSpanRanges(p);
       if (spanRanges.size === 0) continue;
 
@@ -299,12 +329,11 @@
         const classes = getSegmentClassesForSpan(span);
         if (!classes) continue;
 
-        const boxes = getTextBoxesForRange(lineIdx, range.start, range.start + range.len);
-        if (boxes.length === 0) continue;
-
-        const rects = getTokenRunRects(boxes);
-        for (const rect of rects) {
-          segments.push({ rect, classes });
+        for (const { lineIndex, start, end } of getLineRangesForSpan(p, range)) {
+          const boxes = getTextBoxesForRange(lineIndex, start, end);
+          for (const rect of getTokenRunRects(boxes)) {
+            segments.push({ rect, classes });
+          }
         }
       }
     }
@@ -360,6 +389,19 @@
     }
 
     return ranges;
+  }
+
+  function getLineRangesForSpan(p, range) {
+    const block = containerBlocks.get(Number(p.dataset.lineIndex));
+    if (!block) return [];
+    const end = range.start + range.len;
+    return block.lineRanges
+      .filter(line => range.start < line.end && end > line.start)
+      .map(line => ({
+        lineIndex: line.lineIndex,
+        start: Math.max(range.start, line.start) - line.start,
+        end: Math.min(end, line.end) - line.start,
+      }));
   }
 
   // Build the CSS class list for a token's overlay highlight, or null if the span
@@ -458,13 +500,25 @@
       boxes = document.querySelectorAll(`.text-box[data-line-index="${lineIndex}"]`);
     }
 
-    // Keep only visible-text boxes (skip \n separators/empties) so offsets align.
+    // The renderer has one box per visible code point; Reader offsets count
+    // UTF-16 code units, including whitespace that has no visible glyph box.
     const visibleBoxes = Array.from(boxes).filter(box => {
       const text = (box.textContent || '').replace(/\s/g, '');
       return text.length > 0;
     });
 
-    return visibleBoxes.slice(start, end);
+    const matched = [];
+    let offset = 0;
+    let boxIndex = 0;
+    for (const char of currentLines[lineIndex]?.text || '') {
+      const charStart = offset;
+      offset += char.length;
+      if (/\s/u.test(char)) continue;
+      const box = visibleBoxes[boxIndex++];
+      if (box && charStart < end && offset > start) matched.push(box);
+      if (offset >= end) break;
+    }
+    return matched;
   }
 
   // Group a token's character boxes into one union rect per visual run (row for
@@ -564,6 +618,9 @@
     clearTimeout(pendingParseTimer);
     pendingParseTimer = null;
     currentLines = null;
+    currentLineBlocks = null;
+    currentBlocks = [];
+    currentSignature = null;
   }
 
   function setEnabled(value) {
@@ -621,7 +678,30 @@
     mirrorHighlights();
   }
 
+  // Read the Reader's existing parse without issuing requests. Include hidden
+  // states too, so navigation can distinguish a known word from an unparsed one.
+  function getNavigationTokens() {
+    if (!enabled || !available || !parseContainer || !currentLines ||
+        containerSignature !== currentSignature) return [];
+    const tokens = [];
+    for (const p of parseContainer.querySelectorAll('p[data-line-index]')) {
+      for (const [span, range] of computeJitenSpanRanges(p)) {
+        if (span.classList.contains('unparsed') || span.classList.contains('misparsed')) continue;
+        const states = JITEN_STATE_CLASSES.filter(state => span.classList.contains(state));
+        if (!states.length) continue;
+        for (const { lineIndex, start, end } of getLineRangesForSpan(p, range)) {
+          tokens.push({
+            lineIndex, text: currentLines[lineIndex].text, start, end,
+            states, highlighted: getSegmentClassesForSpan(span) !== null,
+          });
+        }
+      }
+    }
+    return tokens;
+  }
+
   const api = {
+    getNavigationTokens,
     init,
     requestParse,
     mirrorHighlights,

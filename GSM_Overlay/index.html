@@ -1798,6 +1798,7 @@ background: rgba(202, 12, 12, 0.692);
   // re-parse current text instead of waiting for new OCR.
   let lastJitenHighlightLines = null;
   let lastJitenHighlightMeta = null;
+  let lastJitenHighlightLineBlocks = null;
   // Whether Jiten can parse right now (extension enabled + API key + not paused),
   // verified via the settings bridge. Optimistic until first verification; self-heals
   // on toggles, bridge-ready, and throttled re-checks, so no restart is needed.
@@ -2027,7 +2028,7 @@ background: rgba(202, 12, 12, 0.692);
 
   // Ask the Jiten Reader extension to parse the current lines and mirror SRS
   // highlights (the extension's content script does the parsing).
-  function applyJitenHighlightingForLines(lines, meta) {
+  function applyJitenHighlightingForLines(lines, meta, lineBlocks) {
     if (!jitenHighlightingEnabled || !jitenReaderEnabled) return;
     // Not verified parseable yet → kick a throttled re-check so a freshly-added
     // key / unpause resumes on its own, then bail.
@@ -2052,7 +2053,7 @@ background: rgba(202, 12, 12, 0.692);
     const shouldParse = forced || isFinal || lineId === null;
 
     if (shouldParse) {
-      api.requestParse(lines).catch((err) => {
+      api.requestParse(lines, lineBlocks).catch((err) => {
         console.warn('[JitenHighlight] Parse request failed:', err);
       });
     }
@@ -2130,7 +2131,7 @@ background: rgba(202, 12, 12, 0.692);
       // Became usable — highlight what's already on screen instead of waiting
       // for the next OCR update. Preserve its OCR metadata so recovery cannot
       // bypass the authoritative-final gate and enqueue stale provisional text.
-      applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta);
+      applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
     }
     if (!nowAvailable) {
       const reason = !jitenReaderEnabled ? 'Jiten Reader disabled'
@@ -3569,7 +3570,7 @@ background: rgba(202, 12, 12, 0.692);
               renderFuriganaForFrame(data.data, enrichmentGeneration, {
                 lineId: data.line_id != null ? data.line_id : null,
                 isFinal: data.is_final === true,
-              }).catch((err) => {
+              }, lineBlocks).catch((err) => {
                 console.warn('[Furigana] Async render failed:', err);
               });
             };
@@ -4077,17 +4078,18 @@ background: rgba(202, 12, 12, 0.692);
     return boxes;
   }
 
-  async function renderFuriganaForFrame(lines, renderGeneration, jitenMeta) {
+  async function renderFuriganaForFrame(lines, renderGeneration, jitenMeta, lineBlocks) {
     // Remember the current lines even when highlighting is off, so flipping the
     // toggle on can immediately highlight what's already on screen.
     lastJitenHighlightLines = lines;
     lastJitenHighlightMeta = jitenMeta;
+    lastJitenHighlightLineBlocks = lineBlocks;
     // Jiten highlighting works independently via the extension's content script.
     // Trigger it regardless of furigana readiness.
     if (jitenHighlightingEnabled) {
       Promise.resolve().then(() => {
         if (renderGeneration !== overlayRenderGeneration) return;
-        applyJitenHighlightingForLines(lines, jitenMeta);
+        applyJitenHighlightingForLines(lines, jitenMeta, lineBlocks);
       });
     }
 
@@ -4886,7 +4888,7 @@ background: rgba(202, 12, 12, 0.692);
           // Re-render readings for the text already on screen so the switch is instant.
           resetFuriganaRenderState();
           if (Array.isArray(lastJitenHighlightLines) && lastJitenHighlightLines.length > 0) {
-            renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration, null);
+            renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration, null, lastJitenHighlightLineBlocks);
           }
           break;
         }
@@ -4894,7 +4896,7 @@ background: rgba(202, 12, 12, 0.692);
           pinyinToneColorsEnabled = value !== false;
           resetFuriganaRenderState();
           if (Array.isArray(lastJitenHighlightLines) && lastJitenHighlightLines.length > 0) {
-            renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration, null);
+            renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration, null, lastJitenHighlightLineBlocks);
           }
           break;
         }

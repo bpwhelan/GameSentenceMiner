@@ -225,7 +225,7 @@ test('OCR highlighting reserves Jiten parsing for the authoritative final payloa
     console,
     window: {
       GsmJitenHighlight: {
-        requestParse: (lines) => { calls.push(lines); return Promise.resolve(); },
+        requestParse: (lines, lineBlocks) => { calls.push({ lines, lineBlocks }); return Promise.resolve(); },
         reposition() {},
       },
     },
@@ -234,8 +234,10 @@ test('OCR highlighting reserves Jiten parsing for the authoritative final payloa
 
   context.applyHighlight([{ text: '途中' }], { lineId: 'line-1', isFinal: false });
   assert.equal(calls.length, 0);
-  context.applyHighlight([{ text: '確定' }], { lineId: 'line-1', isFinal: true });
+  const lineBlocks = new Map([[0, 0], [1, 0]]);
+  context.applyHighlight([{ text: '確定' }, { text: 'しました' }], { lineId: 'line-1', isFinal: true }, lineBlocks);
   assert.equal(calls.length, 1);
+  assert.equal(calls[0].lineBlocks, lineBlocks);
   context.applyHighlight([{ text: '単発' }], { lineId: null, isFinal: false });
   assert.equal(calls.length, 2);
 });
@@ -251,7 +253,8 @@ test('Jiten availability recovery preserves authoritative OCR metadata', () => {
     jitenHighlightingEnabled: true,
     lastJitenHighlightLines: [{ text: '途中' }],
     lastJitenHighlightMeta: { lineId: 'line-1', isFinal: false },
-    applyJitenHighlightingForLines: (lines, meta) => calls.push({ lines, meta }),
+    lastJitenHighlightLineBlocks: new Map([[0, 0]]),
+    applyJitenHighlightingForLines: (lines, meta, lineBlocks) => calls.push({ lines, meta, lineBlocks }),
     console,
     window: {
       GsmJitenHighlight: {
@@ -267,6 +270,7 @@ test('Jiten availability recovery preserves authoritative OCR metadata', () => {
   assert.deepEqual(calls, [{
     lines: context.lastJitenHighlightLines,
     meta: context.lastJitenHighlightMeta,
+    lineBlocks: context.lastJitenHighlightLineBlocks,
   }]);
 });
 
