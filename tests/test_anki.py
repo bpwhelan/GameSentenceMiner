@@ -1471,6 +1471,169 @@ def _base_config():
     )
 
 
+def _previous_context_lines(history_texts, multi_line):
+    lines = []
+    for index, text in enumerate([*history_texts, "Current sentence", "Second selected sentence"]):
+        line = SimpleNamespace(
+            id=f"context-{index}",
+            text=text,
+            source="hooker",
+            prev=lines[-1] if lines else None,
+        )
+        lines.append(line)
+    return lines[-1] if multi_line else lines[-2], lines[-2:] if multi_line else []
+
+
+@pytest.fixture
+def previous_context_config(monkeypatch):
+    cfg = _base_config()
+    cfg.anki.previous_sentence_field = "PreviousSentence"
+    cfg.anki.sentence_furigana_field = ""
+    cfg.screenshot.enabled = False
+    cfg.advanced = SimpleNamespace(multi_line_line_break="<br>", multi_line_sentence_storage_field="")
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+    monkeypatch.setattr(anki, "anki_results", {})
+    return cfg
+
+
+@pytest.mark.parametrize("multi_line", [False, True], ids=["single-line", "selected-lines"])
+@pytest.mark.parametrize(
+    ("history_texts", "expected_text"),
+    [
+        (["Older sentence", "直前の台詞。", "[........」"], "直前の台詞。"),
+        (["直前の台詞。", "「……」", "！？", " \t\n　"], "直前の台詞。"),
+        (["直前の台詞。", "♪♡☆"], "直前の台詞。"),
+        (["直前の台詞。", "～～「........」"], "直前の台詞。"),
+        (["直前の台詞。", "太郎「........」"], "直前の台詞。"),
+        (["直前の台詞。", "太郎『……！？』"], "直前の台詞。"),
+        (["直前の台詞。", "太郎｢……｣"], "直前の台詞。"),
+        (["直前の台詞。", "太郎\n「……\n……」"], "直前の台詞。"),
+        (["直前の台詞。", "太郎「」", "花子「……」"], "直前の台詞。"),
+        (["直前の台詞。", "太郎「……"], "直前の台詞。"),
+        (["太郎「……」", "花子「……」"], None),
+        (["Older sentence", "「うん。」"], "「うん。」"),
+        (["Older sentence", "太郎「……うん。」"], "太郎「……うん。」"),
+        (["Older sentence", "太郎『はい。』"], "太郎『はい。』"),
+        (["Older sentence", "太郎｢はい。｣"], "太郎｢はい。｣"),
+        (["Older sentence", "太郎\n「……\nうん。」"], "太郎\n「……\nうん。」"),
+        (["Older sentence", "太郎は「……」と黙り込んだ。"], "太郎は「……」と黙り込んだ。"),
+        (["Older sentence", "Hello!"], "Hello!"),
+        (["Older sentence", "Так!"], "Так!"),
+        (["Older sentence", "１２３。"], "１２３。"),
+        (["Older sentence", "[actual text]"], "[actual text]"),
+        (["[........」", "…", ""], None),
+        ([], None),
+    ],
+)
+def test_previous_sentence_and_screenshot_use_latest_line_with_text(
+    monkeypatch, previous_context_config, history_texts, expected_text, multi_line
+):
+    game_line, selected_lines = _previous_context_lines(history_texts, multi_line)
+    last_note = SimpleNamespace(noteId=10, fields={}, get_field=lambda _field: "")
+    screenshot_lines = []
+    screenshots = []
+
+    def screenshot_time(_video_path, line):
+        screenshot_lines.append(line)
+        return 12.5
+
+    monkeypatch.setattr(anki.ffmpeg, "get_screenshot_time", screenshot_time, raising=False)
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "get_raw_screenshot",
+        lambda video_path, timestamp: screenshots.append((video_path, timestamp)) or "previous.png",
+    )
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+
+    note, _ = anki.get_initial_card_info(last_note, selected_lines, game_line, generate_furigana=False)
+    assets = anki._generate_media_files(False, game_line, "replay.mp4", 20.0, 0.0, None, selected_lines)
+
+    assert note["fields"].get("PreviousSentence") == expected_text
+    if expected_text is None:
+        assert screenshot_lines == []
+        assert screenshots == []
+        assert assets.prev_screenshot_path == ""
+        assert assets.prev_screenshot_in_anki == ""
+    else:
+        assert len(screenshot_lines) == 1
+        assert screenshot_lines[0].text == expected_text
+        assert screenshots == [("replay.mp4", 12.5)]
+        assert assets.prev_screenshot_path == "previous.png"
+        assert assets.prev_screenshot_timestamp == 12.5
+
+
+@pytest.mark.parametrize("multi_line", [False, True], ids=["single-line", "selected-lines"])
+@pytest.mark.parametrize("silent_line", ["[........」", "太郎「........」"])
+def test_previous_screenshot_reuses_cache_for_latest_line_with_text(
+    monkeypatch, previous_context_config, multi_line, silent_line
+):
+    game_line, selected_lines = _previous_context_lines(["Previous sentence", silent_line], multi_line)
+    previous = (selected_lines[0] if selected_lines else game_line).prev.prev
+    line = game_line.prev
+    while line:
+        anki.anki_results[line.id] = anki.AnkiUpdateResult(
+            success=True,
+            screenshot_in_anki="correct.webp" if line is previous else "wrong.webp",
+        )
+        line = line.prev
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "get_raw_screenshot",
+        lambda *_args: pytest.fail("The matching previous screenshot should be reused"),
+    )
+
+    assets = anki._generate_media_files(False, game_line, "replay.mp4", 20.0, 0.0, None, selected_lines)
+
+    assert assets.prev_screenshot_in_anki == "correct.webp"
+    assert assets.prev_screenshot_path == ""
+
+
+@pytest.mark.parametrize("multi_line", [False, True], ids=["single-line", "selected-lines"])
+@pytest.mark.parametrize("has_previous_text", [False, True])
+@pytest.mark.parametrize("silent_line", ["[........」", "太郎「........」"])
+def test_confirmation_previous_screenshot_uses_latest_line_with_text(
+    monkeypatch, previous_context_config, multi_line, has_previous_text, silent_line
+):
+    cfg = previous_context_config
+    cfg.anki.show_update_confirmation_dialog_v2 = True
+    history = ["Previous sentence", silent_line] if has_previous_text else [silent_line]
+    game_line, selected_lines = _previous_context_lines(history, multi_line)
+    expected_previous = (selected_lines[0] if selected_lines else game_line).prev.prev
+    screenshot_lines = []
+    confirmation_calls = []
+
+    def screenshot_time(_video_path, line):
+        screenshot_lines.append(line)
+        return 12.5
+
+    monkeypatch.setattr(anki.ffmpeg, "get_screenshot_time", screenshot_time, raising=False)
+    monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", list)
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+
+    def launch_confirmation(*args, **_kwargs):
+        confirmation_calls.append(args)
+
+    qt_main_stub.launch_anki_confirmation = launch_confirmation
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+
+    anki.update_anki_card(
+        last_note=SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note={"id": 10, "fields": {"Sentence": "sentence"}},
+        video_path="replay.mp4",
+        tango="word",
+        should_update_audio=False,
+        game_line=game_line,
+        selected_lines=selected_lines,
+        precomputed_assets=anki.MediaAssets(),
+    )
+
+    assert screenshot_lines == ([expected_previous] if has_previous_text else [])
+    assert confirmation_calls[0][7] == (12.5 if has_previous_text else 0)
+
+
 def test_update_anki_note_removes_overlay_tag_when_enabled(monkeypatch):
     config = _base_config()
     config.anki.remove_overlay_tag = True
