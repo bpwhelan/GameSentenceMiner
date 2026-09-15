@@ -1808,6 +1808,13 @@ class StatsConfig:
     tadoku_daily_sync_time: str = "00:01"
     tadoku_daily_sync_deduplicate: bool = True
     tadoku_daily_sync_game_ids: List[str] = field(default_factory=list)
+    kechimochi_url: str = "http://127.0.0.1:3031"
+    kechimochi_sync_enabled: bool = False
+    kechimochi_sync_schedule: str = "quarter_hourly"
+    kechimochi_sync_time: str = "00:05"
+    kechimochi_include_external_stats: bool = True
+    kechimochi_sync_covers: bool = True
+    kechimochi_adopt_matching_logs: bool = False
     easy_days_settings: Dict[str, int] = field(
         default_factory=lambda: {
             "monday": 100,

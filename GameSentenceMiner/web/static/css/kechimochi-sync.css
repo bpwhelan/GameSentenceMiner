@@ -1,0 +1,34 @@
+.kechimochi-sync .card-header { flex-wrap: wrap; }
+.kechimochi-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+.kechimochi-fields { border: 0; padding: 0; margin: 18px 0 0; min-width: 0; }
+.kechimochi-fields .form-input { width: 100%; box-sizing: border-box; }
+.kechimochi-help { color: var(--text-secondary); font-size: 12px; line-height: 1.6; margin: 7px 0 12px; }
+.kechimochi-toggle, .kechimochi-option { display: flex; gap: 9px; align-items: flex-start; line-height: 1.5; }
+.kechimochi-toggle { font-weight: 600; margin-top: 20px; }
+.kechimochi-option { font-size: 13px; margin-top: 12px; }
+.kechimochi-sync input[type="checkbox"] { flex-shrink: 0; margin-top: 4px; }
+.kechimochi-schedule { display: flex; flex-wrap: wrap; gap: 15px; margin: 15px 0; }
+.kechimochi-schedule > div { flex: 1; min-width: 130px; }
+.kechimochi-import-options { margin-top: 15px; font-size: 13px; }
+.kechimochi-import-options summary { cursor: pointer; color: var(--text-secondary); }
+.kechimochi-actions { display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.kechimochi-actions .action-btn { flex: 1; min-width: 140px; }
+.kechimochi-actions .action-btn:not(.primary) { background: var(--bg-tertiary); color: var(--text-primary); }
+.kechimochi-actions .action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.kechimochi-status { background: var(--bg-tertiary); padding: 15px; margin-top: 20px; border-radius: 8px; }
+.kechimochi-status p:last-child { margin-bottom: 0; }
+.kechimochi-status progress { width: 100%; margin: 10px 0; accent-color: var(--primary-color); }
+.kechimochi-message { font-size: 13px; line-height: 1.5; padding: 12px; border-radius: 6px; background: var(--bg-tertiary); overflow-wrap: anywhere; }
+.kechimochi-message[data-error="true"] { color: var(--danger-color, #dc5555); border-left: 3px solid currentColor; }
+.kechimochi-preview-scroll { overflow: auto; max-height: 280px; }
+.kechimochi-preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.kechimochi-preview-table th, .kechimochi-preview-table td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color); }
+.kechimochi-preview-table th { position: sticky; top: 0; background: var(--bg-secondary); }

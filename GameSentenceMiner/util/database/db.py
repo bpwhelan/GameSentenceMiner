@@ -2252,6 +2252,9 @@ def start_database_runtime() -> None:
     from GameSentenceMiner.util.database.maintenance import setup_database_maintenance
 
     setup_database_maintenance()
+    from GameSentenceMiner.util.cron.kechimochi_sync import configure_kechimochi_cron
+
+    configure_kechimochi_cron()
 
 
 # all_lines = GameLinesTable.all()

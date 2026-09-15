@@ -1,0 +1,77 @@
+<section class="management-card kechimochi-sync" id="kechimochiSyncCard" aria-labelledby="kechimochiTitle">
+    <div class="card-header">
+        <div class="card-icon" aria-hidden="true">🍡</div>
+        <h2 class="card-title" id="kechimochiTitle">Kechimochi Sync</h2>
+        <span class="kechimochi-badge">All history</span>
+    </div>
+    <p class="card-description">
+        Backfill from your first day in GSM, then keep your library, daily characters, and reading time up to date.
+        Changes to past GSM activity are synced automatically, including deletions.
+    </p>
+
+    <form id="kechimochiSettingsForm">
+        <fieldset id="kechimochiFields" class="kechimochi-fields">
+            <label class="form-label" for="kechimochiUrl">Kechimochi HTTP API URL</label>
+            <input class="form-input" id="kechimochiUrl" type="url" required value="http://127.0.0.1:3031"
+                autocomplete="off" spellcheck="false" aria-describedby="kechimochiConnectionHelp">
+            <p class="kechimochi-help" id="kechimochiConnectionHelp">
+                Open Kechimochi and turn on HTTP API in its profile tab. Both apps must be running to sync.
+            </p>
+            <label class="kechimochi-toggle">
+                <input id="kechimochiEnabled" type="checkbox">
+                <span>Automatically sync all GSM history</span>
+            </label>
+            <p class="kechimochi-help">Saving with automatic sync enabled starts a full sync immediately. Missed runs catch up when GSM starts; connection failures retry within 15 minutes.</p>
+
+            <div class="kechimochi-schedule">
+                <div>
+                    <label class="form-label" for="kechimochiSchedule">Sync frequency</label>
+                    <select class="form-input" id="kechimochiSchedule">
+                        <option value="quarter_hourly">Every 15 minutes</option>
+                        <option value="hourly">Every hour</option>
+                        <option value="daily">Every day</option>
+                    </select>
+                </div>
+                <div id="kechimochiTimeGroup" hidden>
+                    <label class="form-label" for="kechimochiTime">Time (local)</label>
+                    <input class="form-input" id="kechimochiTime" type="time" value="00:05" required>
+                </div>
+            </div>
+            <label class="kechimochi-option"><input id="kechimochiExternal" type="checkbox" checked> Include external stats (Mokuro, manual entries, etc.)</label>
+            <label class="kechimochi-option"><input id="kechimochiCovers" type="checkbox" checked> Sync cover images</label>
+            <p class="kechimochi-help">Cover images require Full scope in Kechimochi’s advanced HTTP API settings. Activity sync also works with Automation scope.</p>
+            <p class="kechimochi-help">GSM also syncs descriptions, genres, tags, and source links. Supported sources such as VNDB, AniList, and Jiten provide a Refresh Metadata button in Kechimochi. Metadata added there is preserved until its GSM value changes.</p>
+            <details class="kechimochi-import-options">
+                <summary>Already imported GSM CSV files?</summary>
+                <label class="kechimochi-option"><input id="kechimochiAdopt" type="checkbox"> Reuse exact matching activity logs</label>
+                <p class="kechimochi-help">Matches media, date, characters, and whole minutes on logs without notes. Matching logs become managed by GSM. Enable this before the first sync to reuse unchanged CSV imports.</p>
+            </details>
+            <div class="card-actions kechimochi-actions">
+                <button class="action-btn primary" id="kechimochiSave" type="submit">Save settings</button>
+                <button class="action-btn" id="kechimochiTest" type="button">Test connection</button>
+            </div>
+        </fieldset>
+    </form>
+
+    <div class="kechimochi-status" aria-live="polite" aria-atomic="true">
+        <strong id="kechimochiState">Loading sync settings…</strong>
+        <p id="kechimochiLastRun" class="kechimochi-help"></p>
+        <p id="kechimochiNextRun" class="kechimochi-help"></p>
+        <progress id="kechimochiProgress" max="100" value="0" hidden aria-label="Kechimochi sync progress"></progress>
+        <p id="kechimochiResult" class="kechimochi-help"></p>
+    </div>
+    <p id="kechimochiMessage" class="kechimochi-message" role="status" hidden></p>
+    <div class="card-actions kechimochi-actions">
+        <button class="action-btn primary" id="kechimochiSync" type="button" disabled>Sync now</button>
+        <button class="action-btn" id="kechimochiPreview" type="button" disabled>Preview history</button>
+    </div>
+    <div id="kechimochiPreviewPanel" hidden>
+        <p id="kechimochiPreviewSummary" class="kechimochi-help"></p>
+        <div class="kechimochi-preview-scroll">
+            <table class="kechimochi-preview-table">
+                <thead><tr><th scope="col">Date</th><th scope="col">Media</th><th scope="col">Characters</th><th scope="col">Minutes</th></tr></thead>
+                <tbody id="kechimochiPreviewRows"></tbody>
+            </table>
+        </div>
+    </div>
+</section>
