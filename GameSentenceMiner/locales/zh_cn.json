@@ -210,6 +210,22 @@
           "confirmation_gamepad_bindings": {
             "label": "手柄按键:"
           },
+          "confirmation_gamepad_add_previous_line": {
+            "label": "添加上一行：",
+            "tooltip": "将上一行对话添加到此卡片的按键。默认为左扳机（LT）。"
+          },
+          "confirmation_gamepad_add_next_line": {
+            "label": "添加下一行：",
+            "tooltip": "将下一行对话添加到此卡片的按键。默认为右扳机（RT）。"
+          },
+          "confirmation_gamepad_expand_audio_start": {
+            "label": "开头增加0.25秒：",
+            "tooltip": "将音频起点向前延长0.25秒的按键。默认为左肩键（LB）。"
+          },
+          "confirmation_gamepad_expand_audio_end": {
+            "label": "结尾增加0.25秒：",
+            "tooltip": "将音频终点向后延长0.25秒的按键。默认为右肩键（RB）。"
+          },
           "confirmation_gamepad_focus_up": {
             "label": "向上移动焦点:",
             "tooltip": "将焦点移至上一项的按键。"

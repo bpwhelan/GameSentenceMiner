@@ -214,6 +214,22 @@
           "confirmation_gamepad_bindings": {
             "label": "Прив'язки геймпада:"
           },
+          "confirmation_gamepad_add_previous_line": {
+            "label": "Додати попередній рядок:",
+            "tooltip": "Кнопка, що додає попередній рядок діалогу до цієї картки. Типово — лівий тригер (LT)."
+          },
+          "confirmation_gamepad_add_next_line": {
+            "label": "Додати наступний рядок:",
+            "tooltip": "Кнопка, що додає наступний рядок діалогу до цієї картки. Типово — правий тригер (RT)."
+          },
+          "confirmation_gamepad_expand_audio_start": {
+            "label": "Додати 0,25 секунди на початку:",
+            "tooltip": "Кнопка, що розширює початок аудіо на 0,25 секунди. Типово — лівий бампер (LB)."
+          },
+          "confirmation_gamepad_expand_audio_end": {
+            "label": "Додати 0,25 секунди в кінці:",
+            "tooltip": "Кнопка, що розширює кінець аудіо на 0,25 секунди. Типово — правий бампер (RB)."
+          },
           "confirmation_gamepad_focus_up": {
             "label": "Перемістити фокус угору:",
             "tooltip": "Кнопка для переміщення фокуса до попереднього елемента."

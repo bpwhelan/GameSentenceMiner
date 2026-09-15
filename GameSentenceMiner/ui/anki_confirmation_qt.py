@@ -25,6 +25,7 @@ from urllib.parse import quote
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.audio_waveform_widget import AUDIO_EXPAND_SECONDS, AudioWaveformWidget
+from GameSentenceMiner.ui.window_activation import activate_window
 from GameSentenceMiner.replay_handler import request_dialogue_replay_refresh
 from GameSentenceMiner.util.config.configuration import (
     get_config,
@@ -174,6 +175,9 @@ _anki_confirmation_dialog_instance = None
 AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS = 0.05
 AUTO_ADD_DIALOGUE_LINE_DEBOUNCE_MS = 175
 AUDIO_PLAYBACK_END_EPSILON_SECONDS = 0.03
+GAMEPAD_CONFIRMATION_DELAY_MS = 500
+FOCUS_ON_SHOW_RETRY_MS = 100
+FOCUS_ON_SHOW_MAX_ATTEMPTS = 5
 CONFIRMATION_CANCEL_ACTION_KEY = "cancel_action"
 CONFIRMATION_CANCEL_ACTION_DELETE_CARD = "delete_card"
 EXIT_CHOICE_DISCARD = "discard"
@@ -188,6 +192,10 @@ ANKI_CONFIRMATION_GAMEPAD_ACTIONS = (
     ("activate", "confirmation_gamepad_activate", "0"),
     ("confirm_with_audio", "confirmation_gamepad_confirm_with_audio", "2"),
     ("confirm_without_audio", "confirmation_gamepad_confirm_without_audio", "1"),
+    ("add_previous_line", "confirmation_gamepad_add_previous_line", "6"),
+    ("add_next_line", "confirmation_gamepad_add_next_line", "7"),
+    ("expand_audio_start", "confirmation_gamepad_expand_audio_start", "4"),
+    ("expand_audio_end", "confirmation_gamepad_expand_audio_end", "5"),
 )
 
 
@@ -249,9 +257,14 @@ class AnkiConfirmationDialog(QDialog):
         self._gamepad_dispatcher = None
         self._gamepad_client = None
         self._gamepad_capture_active = False
+        self._pending_gamepad_confirmation = None
         self._gamepad_audio_choice_message_box = None
         self._gamepad_audio_choice_confirm_button = None
         self._gamepad_audio_choice_cancel_button = None
+        self._focus_on_show_attempts = 0
+        self._focus_on_show_timer = QTimer(self)
+        self._focus_on_show_timer.setSingleShot(True)
+        self._focus_on_show_timer.timeout.connect(self._focus_on_show)
 
         # Auto-accept timer
         self._auto_accept_qtimer = None
@@ -263,6 +276,11 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_player = AudioPlayer(finished_callback=self._audio_finished)
         self.audio_finished_signal.connect(self._update_audio_buttons)
         self.gamepad_action_signal.connect(self._on_gamepad_action)
+        self._gamepad_confirmation_timer = QTimer(self)
+        self._gamepad_confirmation_timer.setSingleShot(True)
+        self._gamepad_confirmation_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._gamepad_confirmation_timer.setInterval(GAMEPAD_CONFIRMATION_DELAY_MS)
+        self._gamepad_confirmation_timer.timeout.connect(self._finish_gamepad_confirmation)
         self._translation_future = None
         self._translation_pending = False
         self._translation_poll_timer = QTimer(self)
@@ -861,9 +879,9 @@ class AnkiConfirmationDialog(QDialog):
             self._stop_gamepad_capture()
 
         if self._should_focus_on_show():
-            self.raise_()
-            self.activateWindow()
-            self.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._focus_on_show_attempts = 0
+            # showEvent runs before the native window has finished being shown.
+            self._focus_on_show_timer.start(0)
 
         if get_config().anki.auto_accept_timer > 0:
             self._cancel_auto_accept()
@@ -888,8 +906,30 @@ class AnkiConfirmationDialog(QDialog):
             QTimer.singleShot(100, self._play_range)
 
     def hideEvent(self, event):
+        self._focus_on_show_timer.stop()
         self._stop_gamepad_capture()
         super().hideEvent(event)
+
+    def _focus_on_show(self):
+        self._focus_on_show_timer.stop()
+        if (
+            not self.isVisible()
+            or self.isMinimized()
+            or not self._should_focus_on_show()
+            or self._pending_gamepad_confirmation is not None
+        ):
+            return
+        active_modal = QApplication.activeModalWidget()
+        if active_modal is not None and active_modal is not self:
+            return
+
+        self._focus_on_show_attempts += 1
+        if activate_window(self):
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
+        elif self._focus_on_show_attempts < FOCUS_ON_SHOW_MAX_ATTEMPTS:
+            self._focus_on_show_timer.start(FOCUS_ON_SHOW_RETRY_MS)
+        else:
+            logger.debug("Anki confirmation dialog could not acquire foreground focus.")
 
     def _start_gamepad_capture(self):
         if self._gamepad_client is not None:
@@ -917,6 +957,8 @@ class AnkiConfirmationDialog(QDialog):
         self._gamepad_client.start()
 
     def _stop_gamepad_capture(self):
+        self._gamepad_confirmation_timer.stop()
+        self._pending_gamepad_confirmation = None
         self._gamepad_capture_active = False
         client = self._gamepad_client
         self._gamepad_client = None
@@ -925,7 +967,7 @@ class AnkiConfirmationDialog(QDialog):
             client.stop()
 
     def _on_gamepad_action(self, action):
-        if not self._gamepad_capture_active or not self.isVisible():
+        if not self._gamepad_capture_active or not self.isVisible() or self._pending_gamepad_confirmation is not None:
             return
         active_modal = QApplication.activeModalWidget()
         gamepad_audio_choice_message_box = getattr(self, "_gamepad_audio_choice_message_box", None)
@@ -953,6 +995,15 @@ class AnkiConfirmationDialog(QDialog):
             self._apply_gamepad_confirmation_action(use_audio=False)
         elif action == "confirm_with_audio":
             self._apply_gamepad_confirmation_action(use_audio=True)
+        elif action in ("add_previous_line", "add_next_line", "expand_audio_start", "expand_audio_end"):
+            button = {
+                "add_previous_line": self.add_prev_line_button,
+                "add_next_line": self.add_next_line_button,
+                "expand_audio_start": self.waveform_widget.expand_start_button,
+                "expand_audio_end": self.waveform_widget.expand_end_button,
+            }[action]
+            if button.isVisible() and button.isEnabled():
+                button.click()
 
     def _click_active_component(self):
         active_widget = QApplication.focusWidget()
@@ -961,7 +1012,10 @@ class AnkiConfirmationDialog(QDialog):
 
         click = getattr(active_widget, "click", None)
         if callable(click):
-            click()
+            if active_widget in (self.voice_button, self.no_voice_button, self.confirm_button):
+                self._queue_gamepad_confirmation(click)
+            else:
+                click()
 
     def _apply_gamepad_confirmation_action(self, *, use_audio):
         self._cancel_auto_accept()
@@ -971,10 +1025,20 @@ class AnkiConfirmationDialog(QDialog):
         ) and not self._show_gamepad_audio_choice_confirmation(use_audio=use_audio):
             return
 
-        if use_audio:
-            self._on_voice()
-        else:
-            self._on_no_voice()
+        self._queue_gamepad_confirmation(self._on_voice if use_audio else self._on_no_voice)
+
+    def _queue_gamepad_confirmation(self, callback):
+        if self._pending_gamepad_confirmation is not None:
+            return
+        # Keep the dialog focused and controller capture active while the button is released.
+        self._pending_gamepad_confirmation = callback
+        self._gamepad_confirmation_timer.start()
+
+    def _finish_gamepad_confirmation(self):
+        callback = self._pending_gamepad_confirmation
+        self._pending_gamepad_confirmation = None
+        if callback is not None and self._gamepad_capture_active and self.isVisible():
+            callback()
 
     def _show_gamepad_audio_choice_confirmation(self, *, use_audio):
         message_box = QMessageBox(self)

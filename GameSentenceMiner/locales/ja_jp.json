@@ -209,6 +209,22 @@
           "confirmation_gamepad_bindings": {
             "label": "ゲームパッド割り当て:"
           },
+          "confirmation_gamepad_add_previous_line": {
+            "label": "前の行を追加:",
+            "tooltip": "前のセリフをこのカードに追加するボタン。初期設定は左トリガー（LT）です。"
+          },
+          "confirmation_gamepad_add_next_line": {
+            "label": "次の行を追加:",
+            "tooltip": "次のセリフをこのカードに追加するボタン。初期設定は右トリガー（RT）です。"
+          },
+          "confirmation_gamepad_expand_audio_start": {
+            "label": "開始位置を0.25秒前に延長:",
+            "tooltip": "音声の開始位置を0.25秒前に延長するボタン。初期設定は左バンパー（LB）です。"
+          },
+          "confirmation_gamepad_expand_audio_end": {
+            "label": "終了位置を0.25秒後に延長:",
+            "tooltip": "音声の終了位置を0.25秒後に延長するボタン。初期設定は右バンパー（RB）です。"
+          },
           "confirmation_gamepad_focus_up": {
             "label": "フォーカスを上へ移動:",
             "tooltip": "フォーカスを前の項目へ移動するボタン。"

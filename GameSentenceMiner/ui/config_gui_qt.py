@@ -913,6 +913,18 @@ class ConfigWindow(QWidget):
                     confirmation_gamepad_confirm_without_audio=str(
                         self.anki_confirmation_gamepad_confirm_without_audio_combo.currentData() or ""
                     ),
+                    confirmation_gamepad_add_previous_line=str(
+                        self.anki_confirmation_gamepad_add_previous_line_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_add_next_line=str(
+                        self.anki_confirmation_gamepad_add_next_line_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_expand_audio_start=str(
+                        self.anki_confirmation_gamepad_expand_audio_start_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_expand_audio_end=str(
+                        self.anki_confirmation_gamepad_expand_audio_end_combo.currentData() or ""
+                    ),
                     replay_audio_on_tts_generation=self.anki_confirmation_replay_audio_on_tts_generation_check.isChecked(),
                     reuse_audio_for_same_selected_lines_different_mined_line=(
                         self.anki_same_selection_different_line_reuse_audio_check.isChecked()
@@ -1494,6 +1506,10 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_gamepad_activate_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_gamepad_confirm_with_audio_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_gamepad_confirm_without_audio_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_add_previous_line_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_add_next_line_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_expand_audio_start_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_expand_audio_end_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_autoplay_audio_check = QCheckBox()
         self.anki_confirmation_replay_audio_on_tts_generation_check = QCheckBox()
         self.anki_same_selection_different_line_reuse_audio_check = QCheckBox()
@@ -3101,6 +3117,22 @@ class ConfigWindow(QWidget):
         self._set_gamepad_hotkey_combo(
             self.anki_confirmation_gamepad_confirm_without_audio_combo,
             getattr(s.anki, "confirmation_gamepad_confirm_without_audio", "1"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_add_previous_line_combo,
+            getattr(s.anki, "confirmation_gamepad_add_previous_line", "6"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_add_next_line_combo,
+            getattr(s.anki, "confirmation_gamepad_add_next_line", "7"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_expand_audio_start_combo,
+            getattr(s.anki, "confirmation_gamepad_expand_audio_start", "4"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_expand_audio_end_combo,
+            getattr(s.anki, "confirmation_gamepad_expand_audio_end", "5"),
         )
         self.anki_confirmation_autoplay_audio_check.setChecked(bool(s.anki.autoplay_audio))
         self.anki_confirmation_replay_audio_on_tts_generation_check.setChecked(

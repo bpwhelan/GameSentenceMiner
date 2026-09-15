@@ -214,6 +214,22 @@
           "confirmation_gamepad_bindings": {
             "label": "게임패드 바인딩:"
           },
+          "confirmation_gamepad_add_previous_line": {
+            "label": "이전 줄 추가:",
+            "tooltip": "이전 대사를 이 카드에 추가하는 버튼입니다. 기본값은 왼쪽 트리거(LT)입니다."
+          },
+          "confirmation_gamepad_add_next_line": {
+            "label": "다음 줄 추가:",
+            "tooltip": "다음 대사를 이 카드에 추가하는 버튼입니다. 기본값은 오른쪽 트리거(RT)입니다."
+          },
+          "confirmation_gamepad_expand_audio_start": {
+            "label": "시작 부분에 0.25초 추가:",
+            "tooltip": "오디오 시작 지점을 0.25초 앞당기는 버튼입니다. 기본값은 왼쪽 범퍼(LB)입니다."
+          },
+          "confirmation_gamepad_expand_audio_end": {
+            "label": "끝부분에 0.25초 추가:",
+            "tooltip": "오디오 끝 지점을 0.25초 늘리는 버튼입니다. 기본값은 오른쪽 범퍼(RB)입니다."
+          },
           "confirmation_gamepad_focus_up": {
             "label": "포커스를 위로 이동:",
             "tooltip": "포커스를 이전 항목으로 이동하는 버튼입니다."

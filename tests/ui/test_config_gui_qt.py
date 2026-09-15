@@ -4,7 +4,7 @@ import os
 import sys
 from types import SimpleNamespace
 
-from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtCore import QEvent, QSignalBlocker, Qt
 from PyQt6.QtGui import QKeyEvent, QKeySequence
 from PyQt6.QtWidgets import QApplication, QCheckBox, QMessageBox
 
@@ -128,6 +128,49 @@ class _FakeDeleteButton:
 
 def test_anki_confirmation_gamepad_support_is_opt_in() -> None:
     assert Anki().confirmation_gamepad_enabled is False
+
+
+def test_confirmation_edit_gamepad_bindings_can_be_saved_and_reloaded(monkeypatch) -> None:
+    from GameSentenceMiner.util.config import configuration
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", lambda: "test-version")
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_schedule_runtime_reload", lambda self: None)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
+    window = ConfigWindow()
+    bindings = {
+        "confirmation_gamepad_add_previous_line": "8",
+        "confirmation_gamepad_add_next_line": "9",
+        "confirmation_gamepad_expand_audio_start": "",
+        "confirmation_gamepad_expand_audio_end": "3",
+    }
+    try:
+        for name, value in bindings.items():
+            combo = getattr(window, f"anki_{name}_combo")
+            assert combo.parentWidget() is not None
+            window._set_gamepad_hotkey_combo(combo, value)
+
+        assert window.save_settings(show_indicator=False)
+        saved = configuration.Config.load().get_config().anki
+        window._auto_save_timer.stop()
+        for name, value in bindings.items():
+            assert getattr(saved, name) == value
+            # Change only the widget state so reload does not auto-save these placeholders.
+            combo = getattr(window, f"anki_{name}_combo")
+            with QSignalBlocker(combo):
+                combo.setCurrentIndex(1)
+
+        window.reload_settings(force_refresh=True)
+        for name, value in bindings.items():
+            assert getattr(window, f"anki_{name}_combo").currentData() == value
+    finally:
+        window._auto_save_timer.stop()
+        window.close()
+        app.processEvents()
 
 
 def test_show_window_impl_restores_minimized_window(monkeypatch) -> None:

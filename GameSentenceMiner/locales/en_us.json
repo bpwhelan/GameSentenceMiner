@@ -220,6 +220,22 @@
           "confirmation_gamepad_bindings": {
             "label": "Gamepad Bindings:"
           },
+          "confirmation_gamepad_add_previous_line": {
+            "label": "Add Previous Line:",
+            "tooltip": "Button that adds the previous dialogue line to this card. Defaults to the left trigger (LT)."
+          },
+          "confirmation_gamepad_add_next_line": {
+            "label": "Add Next Line:",
+            "tooltip": "Button that adds the next dialogue line to this card. Defaults to the right trigger (RT)."
+          },
+          "confirmation_gamepad_expand_audio_start": {
+            "label": "Add -0.25 Seconds (Start):",
+            "tooltip": "Button that extends the audio start by 0.25 seconds. Defaults to the left bumper (LB)."
+          },
+          "confirmation_gamepad_expand_audio_end": {
+            "label": "Add +0.25 Seconds (End):",
+            "tooltip": "Button that extends the audio end by 0.25 seconds. Defaults to the right bumper (RB)."
+          },
           "confirmation_gamepad_focus_up": {
             "label": "Move Focus Up:",
             "tooltip": "Button that moves focus to the previous item."
