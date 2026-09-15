@@ -23,6 +23,7 @@ from GameSentenceMiner.util.config.configuration import (
     gsm_status,
     logger,
 )
+from GameSentenceMiner.util.elevation import is_windows_admin
 from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
 from GameSentenceMiner.util.text_log import get_all_lines, get_line_by_id
 
@@ -1702,9 +1703,17 @@ def start_web_server(debug=False):
     log.setLevel(logging.ERROR)  # Set to ERROR to suppress most logs
     _start_legacy_moved_page_server()
 
-    # Open the default browser
+    # A browser launched by an elevated process can inherit its admin context.
+    # Keep the saved preference so it applies again on a normal GSM launch.
     if get_config().general.open_multimine_on_startup:
-        open_texthooker()
+        if is_windows_admin():
+            logger.info(
+                "Automatic Text Feed opening is disabled because GSM is running as administrator. "
+                "Start GSM without administrator privileges to enable automatic opening, "
+                f"or open http://localhost:{_get_single_port()} in your browser."
+            )
+        else:
+            open_texthooker()
 
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS

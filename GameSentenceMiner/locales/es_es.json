@@ -89,7 +89,8 @@
           },
           "open_texthooker_on_startup": {
             "label": "Abrir GSM Text Feed al Iniciar:",
-            "tooltip": "Si abrir la página de Texthooking cuando el script inicia."
+            "tooltip": "Abrir la página del flujo de texto al iniciar GSM. Se desactiva mientras GSM se ejecuta como administrador para evitar iniciar el navegador con privilegios de administrador. Tu preferencia se conserva para los inicios normales.",
+            "disabled_admin": "Desactivado mientras GSM se ejecuta como administrador."
           },
           "texthooker_port": {
             "label": "Puerto de GSM Text Feed:",

@@ -89,7 +89,8 @@
           },
           "open_texthooker_on_startup": {
             "label": "启动时打开 GSM 文本评送:",
-            "tooltip": "脚本启动时是否打开文本评送页面。"
+            "tooltip": "是否在 GSM 启动时打开文本流页面。以管理员身份运行 GSM 时禁用此功能，以避免浏览器以管理员权限启动。此设置会保留，并在正常启动时生效。",
+            "disabled_admin": "以管理员身份运行 GSM 时禁用。"
           },
           "texthooker_port": {
             "label": "GSM 文本评送端口:",
