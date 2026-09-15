@@ -1,0 +1,69 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Shared game scene for first-run practice and the Design preview.
+   Background ownership and source: assets/ATTRIBUTION.md. */
+.vn-scene {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  container-type: inline-size;
+  background: #614657;
+  color: #f6f5ef;
+}
+/* Each packaged frame is cropped to the live panel the scene shows: the
+   supplied artwork's own dialogue box below it is not in the file, so the
+   cover layer is the scene itself at any aspect ratio. */
+.vn-scene::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--vn-background) center top / cover no-repeat;
+  pointer-events: none;
+}
+.vn-dialogue {
+  position: absolute;
+  inset: auto 4% 4%;
+  padding: clamp(14px, 2cqw, 24px) clamp(18px, 2.8cqw, 32px);
+  border: 1px solid rgb(255 255 255 / 75%);
+  border-radius: clamp(12px, 2cqw, 20px);
+  background: rgb(250 247 252 / 88%);
+  box-shadow: 0 8px 32px rgb(28 20 35 / 18%), inset 0 0 0 3px rgb(255 255 255 / 20%);
+  backdrop-filter: blur(12px);
+  color: #382d40;
+  font-family: "Noto Sans CJK JP", "Yu Gothic", Meiryo, sans-serif;
+}
+.vn-speaker {
+  margin: 0 0 8px;
+  color: #5a3a59;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.vn-line {
+  margin: 0;
+  font-size: clamp(18px, 2.6cqw, 26px);
+  line-height: 1.7;
+  line-break: strict;
+}
+.vn-dark-dialogue .vn-dialogue {
+  background: rgb(28 20 35 / 88%);
+  border-color: rgb(255 255 255 / 40%);
+  color: #f6f0f8;
+}
+.vn-dark-dialogue .vn-speaker { color: #e2cce8; }
+.vn-next {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 60%);
+  border-radius: 50%;
+  background: rgb(28 20 35 / 75%);
+  color: #fff;
+  font: 20px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.vn-next:hover { background: #382d40; }
+.vn-next:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }

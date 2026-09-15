@@ -177,6 +177,23 @@ def build_tokenization_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.experimental_features_enabled_check,
     )
 
+    hachidori_group = window._create_group_box("Hachidori (Experimental)")
+    hachidori_layout = QFormLayout(hachidori_group)
+    hachidori_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    hachidori_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "experimental",
+            "enable_hachidori",
+            default_tooltip=(
+                "Use Hachidori instead of Yomitan for overlay dictionary lookups. "
+                "The master experimental toggle must also be enabled, and the overlay must be restarted."
+            ),
+        ),
+        window.enable_hachidori_check,
+    )
+    layout.addRow(hachidori_group)
+
     tokenization_group = window._create_group_box("Tokenization")
     tokenization_layout = QFormLayout(tokenization_group)
     tokenization_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)

@@ -38,6 +38,10 @@ const {
   isWaylandSession,
 } = require('./hotkey_routing');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
+const {
+  DICTIONARY_READER_YOMITAN,
+  resolveDictionaryReaderFromConfigData,
+} = require('./dictionary_reader');
 const { URL } = require('url');
 
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
@@ -742,6 +746,9 @@ let lastManualActivity = Date.now();
 let activityTimer = null;
 let isDev = false;
 let yomitanExt;
+let hachidoriExt;
+let hachidoriEngineWindow = null;
+let hachidoriOwnedEngineWatcherInstalled = false;
 let jitenReaderExt;
 
 // Chromium's session.fetch can terminate the standalone Electron process on
@@ -3427,6 +3434,76 @@ async function loadExtension(name) {
   }
 }
 
+// hoshidicts keeps dictionaries in OPFS behind exclusive sync access handles, so a
+// second engine context on the same origin makes imports fail with "FS error". The
+// hosted window below is only for hosts without Chrome's offscreen-document lifecycle
+// API; once Hachidori creates its own offscreen document, ours is redundant.
+function watchForHachidoriOwnedEngine() {
+  if (!hachidoriExt || hachidoriOwnedEngineWatcherInstalled) {
+    return;
+  }
+  hachidoriOwnedEngineWatcherInstalled = true;
+  const engineUrl = `chrome-extension://${hachidoriExt.id}/offscreen.html`;
+  app.on('web-contents-created', (_event, contents) => {
+    const yieldHostedEngine = () => {
+      const hosted = hachidoriEngineWindow;
+      try {
+        if (contents.isDestroyed() || contents.getURL() !== engineUrl) return;
+        if (!hosted || hosted.isDestroyed() || hosted.webContents.id === contents.id) return;
+      } catch {
+        return;
+      }
+      console.log('[Hachidori] Extension owns its dictionary engine; releasing the redundant hosted one.');
+      hachidoriEngineWindow = null;
+      hosted.destroy();
+    };
+    contents.once('did-finish-load', yieldHostedEngine);
+    contents.once('did-navigate', yieldHostedEngine);
+  });
+}
+
+async function createHachidoriEngineWindow() {
+  if (!hachidoriExt) {
+    return false;
+  }
+  if (hachidoriEngineWindow && !hachidoriEngineWindow.isDestroyed()) {
+    return true;
+  }
+
+  watchForHachidoriOwnedEngine();
+
+  const engineWindow = new BrowserWindow({
+    show: false,
+    width: 1,
+    height: 1,
+    skipTaskbar: true,
+    webPreferences: {
+      session: getOverlaySession(),
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false,
+    },
+  });
+  hachidoriEngineWindow = engineWindow;
+  engineWindow.on('closed', () => {
+    if (hachidoriEngineWindow === engineWindow) {
+      hachidoriEngineWindow = null;
+    }
+  });
+
+  try {
+    await engineWindow.loadURL(`chrome-extension://${hachidoriExt.id}/offscreen.html`);
+    console.log(`[Hachidori] Hosted dictionary engine ready (${hachidoriExt.id}).`);
+    return true;
+  } catch (error) {
+    console.error('[Hachidori] Failed to host offscreen.html:', error);
+    if (!engineWindow.isDestroyed()) {
+      engineWindow.destroy();
+    }
+    return false;
+  }
+}
+
 function readExtensionVersions() {
   if (!fs.existsSync(extensionVersionsPath)) {
     return {};
@@ -3453,7 +3530,13 @@ function readExtensionPackageVersion(dirPath) {
   try {
     const data = fs.readFileSync(pkgPath, 'utf-8');
     const pkg = JSON.parse(data);
-    return pkg && pkg.version ? String(pkg.version) : null;
+    if (!pkg || !pkg.version) {
+      return null;
+    }
+    // Vendored Hachidori keeps one manifest version; its SOURCE.json commit tells syncs apart.
+    const sourcePath = path.join(dirPath, 'SOURCE.json');
+    const commit = fs.existsSync(sourcePath) ? JSON.parse(fs.readFileSync(sourcePath, 'utf-8')).commit : null;
+    return commit ? `${pkg.version}+${commit}` : String(pkg.version);
   } catch (e) {
     console.warn(`Failed to read manifest.json at ${pkgPath}`, e);
     return null;
@@ -5953,9 +6036,17 @@ function openYomitanSettings() {
     yomitanSettingsWindow.focus();
     return;
   }
+  const dictionaryExtension = hachidoriExt || yomitanExt;
+  if (!dictionaryExtension) {
+    dialog.showErrorBox('Error', 'The selected dictionary reader is not loaded. Restart the overlay and try again.');
+    return;
+  }
+  // Hachidori's Design section shows its controls beside the live preview only
+  // in windows wider than 1100px, so open as wide as its layout when the screen allows.
+  const workArea = screen.getPrimaryDisplay().workAreaSize;
   yomitanSettingsWindow = new BrowserWindow({
-    width: 1100,
-    height: 800,
+    width: hachidoriExt ? Math.min(1440, workArea.width) : 1100,
+    height: hachidoriExt ? Math.min(900, workArea.height) : 800,
     icon: getOverlayAppIconPath(),
     webPreferences: {
       preload: FIND_IN_PAGE_PRELOAD_PATH,
@@ -5971,7 +6062,7 @@ function openYomitanSettings() {
   });
 
   yomitanSettingsWindow.removeMenu()
-  yomitanSettingsWindow.loadURL(`chrome-extension://${yomitanExt.id}/settings.html`);
+  yomitanSettingsWindow.loadURL(`chrome-extension://${dictionaryExtension.id}/settings.html`);
   yomitanSettingsWindow.show();
   // Force a repaint to fix blank/transparent window issue
   setTimeout(() => {
@@ -6507,6 +6598,7 @@ async function startOverlayAppImpl() {
   // ===========================================================
 
   isDev = !app.isPackaged;
+  const dictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings());
   const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
 
   // 1. Define Paths
@@ -6522,7 +6614,7 @@ async function startOverlayAppImpl() {
   const skipMigrationConfirmationInLinux = true;
 
   // DO LINUX FIRST, and then windows later if we need it...
-  if (isLinux()) {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && isLinux()) {
     if (skipMigrationConfirmationInLinux) {
       try {
         if (!fs.existsSync(staticManifestPath)) {
@@ -6651,7 +6743,7 @@ async function startOverlayAppImpl() {
 
   // Detect if yomitan extension files changed since last overlay launch (e.g. GSM app update).
   // If so, clear Chromium's cached service workers to prevent stale compiled background scripts.
-  {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN) {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
     const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
@@ -6679,6 +6771,30 @@ async function startOverlayAppImpl() {
     try {
       fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
     } catch {}
+  } else {
+    // Electron keeps running the first background.js it registered, whatever the manifest version,
+    // so a Hachidori sync would pair new pages with an old worker. SOURCE.json names the vendored commit.
+    const hachidoriExtDir = isDev ? path.join(__dirname, 'hachidori') : path.join(getPackagedResourcesPath(), 'hachidori');
+    const hachidoriCommitPath = path.join(dataPath, 'hachidori_last_commit.json');
+    let currentCommit = null;
+    try { currentCommit = JSON.parse(fs.readFileSync(path.join(hachidoriExtDir, 'SOURCE.json'), 'utf-8')).commit; } catch {}
+    let storedCommit = null;
+    try { storedCommit = JSON.parse(fs.readFileSync(hachidoriCommitPath, 'utf-8')).commit; } catch {}
+
+    if (currentCommit !== storedCommit) {
+      console.log(`[HachidoriStartup] Extension changed (stored=${storedCommit}, current=${currentCommit}). Clearing service worker cache...`);
+      try {
+        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
+      } catch (e) {
+        console.warn('[HachidoriStartup] Failed to clear service worker cache:', e);
+      }
+    }
+
+    hachidoriExt = await loadExtension('hachidori');
+    try { fs.writeFileSync(hachidoriCommitPath, JSON.stringify({ commit: currentCommit })); } catch {}
+    if (hachidoriExt) {
+      await createHachidoriEngineWindow();
+    }
   }
 
   if (userSettings.enableJitenReader) {
@@ -6686,7 +6802,7 @@ async function startOverlayAppImpl() {
   }
 
   // If migration marker exists, update it with the actual ID for debugging
-  if (fs.existsSync(markerPath)) {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && fs.existsSync(markerPath)) {
     const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
     if (!markerData.id && yomitanExt) {
       markerData.id = yomitanExt.id;
@@ -6695,7 +6811,7 @@ async function startOverlayAppImpl() {
   }
 
   // Watch yomitan extension directory for rebuilds and hot-reload on change (dev workflow)
-  {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN) {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
     const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
@@ -8415,13 +8531,14 @@ async function stopOverlayApp() {
       fullscreenModeRecommendationWindow = null;
       settingsWindow = null;
       yomitanSettingsWindow = null;
+      hachidoriEngineWindow = null;
       jitenReaderSettingsWindow = null;
       offsetHelperWindow = null;
       texthookerWindow = null;
 
       runOverlayCleanupStep('extensions', () => {
         const extensionApi = getExtensionSessionApi();
-        for (const extension of [yomitanExt, jitenReaderExt]) {
+        for (const extension of [yomitanExt, hachidoriExt, jitenReaderExt]) {
           if (extension && extension.id) {
             try {
               extensionApi.removeExtension(extension.id);
@@ -8432,6 +8549,7 @@ async function stopOverlayApp() {
         }
       });
       yomitanExt = null;
+      hachidoriExt = null;
       jitenReaderExt = null;
 
       runOverlayCleanupStep('IPC registrations', () => removeOverlayIpcRegistrations());

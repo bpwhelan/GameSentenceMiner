@@ -1,0 +1,336 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Layout for the first-run startup page. Colours, typography, links, buttons,
+   focus rings and reduced-motion rules come from settings.css. */
+
+.startup-page {
+  min-height: 100vh;
+  padding: 48px 20px 64px;
+}
+.startup-main {
+  width: min(100%, 680px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.startup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.startup-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.startup-brand h1 { margin: 0; font-size: 24px; letter-spacing: -0.035em; }
+.startup-settings-link {
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.startup-tagline {
+  margin: 2px 0 0;
+  color: var(--text-dim);
+}
+.startup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.startup-footer p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+}
+.startup-footer a {
+  font-weight: 600;
+}
+.startup-star-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-decoration: none;
+}
+.startup-star-link:hover,
+.startup-star-link:focus-visible {
+  border-color: var(--accent);
+}
+
+.setup-steps {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.setup-step {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 500;
+}
+.setup-step small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.setup-step-number {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.setup-step.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.setup-step.is-current .setup-step-number {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.setup-step.is-done {
+  color: var(--ok);
+}
+.setup-step.is-done .setup-step-number {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 28px 32px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.setup-card > h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.4;
+  letter-spacing: -0.025em;
+}
+.setup-card p:not(.vn-speaker) { margin: 0; }
+.setup-card :is(p, a, h2, .setup-dictionary-status) { overflow-wrap: anywhere; }
+.setup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.setup-countdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.setup-countdown-label {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.setup-countdown .setup-track.is-determinate .track-fill {
+  width: 100%;
+  transform-origin: left;
+  transition: none;
+  animation: setup-countdown-fill var(--countdown-duration) linear var(--countdown-delay) both;
+}
+@keyframes setup-countdown-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.setup-anki-progress {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.setup-anki-progress-step {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-sunken);
+  color: var(--text-dim);
+}
+.setup-anki-progress-step.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.setup-anki-progress-step.is-done {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+  color: var(--text);
+}
+.setup-anki-progress-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 700;
+}
+.setup-anki-progress-step.is-current .setup-anki-progress-marker {
+  border: 3px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-top-color: var(--accent);
+  color: transparent;
+  animation: setup-anki-spin 800ms linear infinite;
+}
+.setup-anki-progress-step.is-done .setup-anki-progress-marker {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: var(--surface);
+}
+.setup-anki-progress-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.setup-anki-progress-copy strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+.setup-anki-progress-copy small {
+  color: var(--text-dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+@keyframes setup-anki-spin {
+  to { transform: rotate(360deg); }
+}
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+.setup-actions button { min-height: 40px; }
+.setup-actions .hint { flex: 1 1 220px; font-size: 12px; }
+.setup-practice-recovery { display: grid; justify-items: start; gap: 14px; }
+.setup-practice-recovery a { text-decoration: none; }
+.setup-actions:empty {
+  display: none;
+}
+.setup-status {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.setup-card .is-error {
+  color: var(--error);
+}
+.setup-status:not(.is-error) {
+  /* Outcomes are announced once without duplicating the visible heading/rows. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.startup-main:has(.vn-scene) {
+  width: min(100%, 1080px);
+}
+
+@media (max-width: 480px) {
+  .startup-page {
+    padding: 24px 12px 32px;
+  }
+  .startup-main { gap: 18px; }
+  .startup-header { gap: 12px; }
+  .startup-brand { gap: 10px; }
+  .startup-brand img { width: 40px; height: 40px; }
+  .startup-tagline { font-size: 12px; }
+  .setup-steps { gap: 4px; }
+  .setup-step {
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 2px;
+    font-size: 12px;
+    text-align: center;
+  }
+  .setup-step small { font-size: 10px; }
+  .setup-card {
+    padding: 20px 16px;
+  }
+  .setup-card > h2 { font-size: 22px; }
+}
+
+.setup-practice { display: grid; gap: 16px; min-width: 0; }
+.setup-practice-scene {
+  min-height: 520px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.setup-practice-tools { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
+.setup-practice-tools .hint { font-size: 12px; }
+.setup-anki-outcome {
+  padding: 10px 12px;
+  border-left: 3px solid var(--border-strong);
+  background: var(--surface-sunken);
+  font-size: 12px;
+}
+.setup-anki-outcome[data-status="configured"],
+.setup-anki-outcome[data-status="already-configured"] { border-color: var(--ok); }
+.setup-anki-outcome[data-status="needs-attention"] { border-color: var(--error); }
+.setup-practice [hidden], .setup-track[hidden] { display: none; }
+
+@media (max-width: 480px) {
+  .setup-actions { align-items: flex-start; flex-direction: column; }
+  .setup-actions .hint { flex-basis: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setup-countdown .setup-track.is-determinate .track-fill {
+    width: var(--progress, 0%);
+    animation: none;
+  }
+  .setup-anki-progress-step.is-current .setup-anki-progress-marker {
+    animation: none;
+  }
+}

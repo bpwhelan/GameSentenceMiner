@@ -1027,6 +1027,7 @@ class Features:
 @dataclass
 class Experimental:
     enable_experimental_features: bool = False
+    enable_hachidori: bool = False
     enable_tokenization: bool = False
     tokenization_backend: str = "sudachi"
     tokenization_sudachi_dictionary: str = "small"
