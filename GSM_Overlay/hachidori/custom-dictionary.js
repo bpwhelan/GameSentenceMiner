@@ -228,8 +228,10 @@ const crcTable = (() => {
 
 function crc32(bytes) {
   let crc = UINT32_MAX;
-  for (const byte of bytes) {
-    crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  let index = 0;
+  while (index < bytes.length) {
+    crc = crcTable[(crc ^ bytes[index]) & 0xff] ^ (crc >>> 8);
+    index += 1;
   }
   return (crc ^ UINT32_MAX) >>> 0;
 }

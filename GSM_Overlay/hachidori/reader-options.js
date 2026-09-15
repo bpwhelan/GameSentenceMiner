@@ -87,6 +87,7 @@
     popupTheme: "default",
     popupToolbarPosition: "auto",
     customPopupCss: "",
+    customPopupJavascript: "",
     customLinks: [],
     audioSources: [{ id: "default-tts", type: "text-to-speech-reading", enabled: true, url: "", voice: "" }],
     audioAutoplay: false,
@@ -101,6 +102,10 @@
     showLookupCounts: true,
     definitionBlurEnabled: false,
     definitionBlurAnkiMature: false,
+    definitionBlurFrequencyEnabled: false,
+    definitionBlurFrequencyDictionary: "",
+    definitionBlurFrequencyOrder: "auto",
+    definitionBlurFrequencyThreshold: 10000,
     definitionBlurDirection: "atLeast",
     definitionBlurThreshold: 5,
     definitionBlurReveal: "timed",
@@ -133,11 +138,13 @@
     popupColumns: [1, 4],
     compactDefinitionSummaryCount: [1, 6],
     definitionBlurThreshold: [1, 1000000],
+    definitionBlurFrequencyThreshold: [1, Number.MAX_SAFE_INTEGER],
     definitionBlurDelayMs: [1000, 3600000],
   };
   // GSM PR #549 blurs at or above the threshold; Below is the issue #9 adaptation.
   const DEFINITION_BLUR_DIRECTIONS = ["atLeast", "below"];
   const DEFINITION_BLUR_REVEALS = ["timed", "hover"];
+  const DEFINITION_BLUR_FREQUENCY_ORDERS = ["auto", "ascending", "descending"];
   // Audited Hoshidicts catalogue from GSM PR #549; palette values live in reader.css.
   const POPUP_THEME_GROUPS = [
     { label: "Dark", ids: ["default", "miku", "catppuccin-mocha", "solarized-dark", "dark", "synthwave",
@@ -152,7 +159,7 @@
   })) }));
   const POPUP_THEME_IDS = new Set(POPUP_THEME_GROUPS.flatMap(group => group.themes.map(theme => theme.id)));
   const DESIGN_OPTION_KEYS = [
-    "popupTheme", "popupToolbarPosition", "customPopupCss", "customLinks", "popupWidthPx", "popupHeightPx", "popupOpacityPercent", "sourceHighlightEnabled", "showPopupAudioButton", "popupColumns",
+    "popupTheme", "popupToolbarPosition", "customPopupCss", "customPopupJavascript", "customLinks", "popupWidthPx", "popupHeightPx", "popupOpacityPercent", "sourceHighlightEnabled", "showPopupAudioButton", "popupColumns",
     "showCompactDefinitionSummary", "compactDefinitionSummaryCount", "compactDefinitionSummaryDictionary",
     "kanjiClickDictionary", "popupImageSource", "averageFrequency", "showFrequencyDictionaryNames",
     "showPitchAccentFurigana", "pitchAccentFuriganaDictionary", "showPitchAccentBadge", "hidePopupGrammarTags",
@@ -386,9 +393,38 @@
     return typeof value === "string" ? value : "";
   }
 
-  // Shared by the reader and the Design preview. Either enabled rule can
-  // qualify; missing values fail open. Zero is a valid count for Below.
-  function definitionBlurQualifies(options, lookupCount, ankiMature = false) {
+  // Shared by the reader and the Design preview. Native numeric frequency
+  // values are the evidence; rendered labels are intentionally ignored.
+  function definitionBlurFrequencyEvidence(options, frequencyGroups, dictionaries) {
+    const unavailable = { qualified: false, value: null, order: null };
+    if (!options.definitionBlurFrequencyEnabled || !options.definitionBlurFrequencyDictionary
+        || !Array.isArray(frequencyGroups) || !Array.isArray(dictionaries)) return unavailable;
+    const source = dictionaries.find(dictionary => dictionary?.title === options.definitionBlurFrequencyDictionary);
+    if (!source || source.enabled === false || source.frequencyCount === 0) return unavailable;
+    const values = frequencyGroups
+      .filter(group => group?.dictionary === options.definitionBlurFrequencyDictionary
+        && Array.isArray(group.frequencies))
+      .flatMap(group => group.frequencies)
+      .map(frequency => frequency?.value)
+      .filter(value => typeof value === "number" && Number.isFinite(value) && value > 0);
+    if (values.length === 0) return unavailable;
+    const order = options.definitionBlurFrequencyOrder === "auto"
+      ? (source.frequencyMode === "rank-based" ? "ascending" : "descending")
+      : options.definitionBlurFrequencyOrder;
+    const value = order === "ascending" ? Math.min(...values) : Math.max(...values);
+    return {
+      qualified: order === "ascending"
+        ? value <= options.definitionBlurFrequencyThreshold
+        : value >= options.definitionBlurFrequencyThreshold,
+      value,
+      order,
+    };
+  }
+
+  // Shared by the reader and the Design preview. Any enabled rule can qualify;
+  // missing values fail open. Zero is a valid count for Below.
+  function definitionBlurQualifies(options, lookupCount, ankiMature = false, frequencyQualified = false) {
+    if (options.definitionBlurFrequencyEnabled && frequencyQualified === true) return true;
     if (options.definitionBlurAnkiMature && ankiMature === true) return true;
     if (!options.definitionBlurEnabled || !Number.isSafeInteger(lookupCount) || lookupCount < 0) return false;
     return options.definitionBlurDirection === "below"
@@ -402,6 +438,7 @@
     popupTheme: POPUP_THEME_IDS,
     popupToolbarPosition: POPUP_TOOLBAR_POSITIONS,
     frequencyOrder: new Set(FREQUENCY_ORDERS),
+    definitionBlurFrequencyOrder: new Set(DEFINITION_BLUR_FREQUENCY_ORDERS),
     definitionBlurDirection: new Set(DEFINITION_BLUR_DIRECTIONS),
     definitionBlurReveal: new Set(DEFINITION_BLUR_REVEALS),
   };
@@ -541,8 +578,9 @@
     AUDIO_SOURCE_TYPES, AUDIO_SOURCE_LABELS,
     MEDIA_TIMING_MODES, MEDIA_HISTORY_SECONDS, MEDIA_CLIP_SECONDS, MEDIA_VIDEO_PRESETS, MEDIA_TEXTHOOKER_FORMATS,
     clampOption, normaliseActivationKey, normaliseKanjiSelection, normaliseOptions,
-    normaliseTexthookerUrl, normaliseAnkiConnectUrl, normaliseMediaCapture, definitionBlurQualifies,
-    DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS,
+    normaliseTexthookerUrl, normaliseAnkiConnectUrl, normaliseMediaCapture,
+    definitionBlurFrequencyEvidence, definitionBlurQualifies,
+    DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS, DEFINITION_BLUR_FREQUENCY_ORDERS,
     projectStoredOptions, projectContentOptions, validateOptionsPatch,
     resolvePopupImageSources,
     resolveKanjiDictionary,

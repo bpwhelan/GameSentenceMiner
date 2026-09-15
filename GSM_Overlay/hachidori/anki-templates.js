@@ -25,28 +25,42 @@ const genericAliases = {
   captureAnimation: ["Capture Animation", "CaptureAnimation", "Sentence Animation", "SentenceAnimation"],
   captureAudio: ["Capture Audio", "CaptureAudio", "Sentence Audio", "SentenceAudio"],
 };
-// Kiku table from GSM PR #549. Lapis uses this same field shape, verified against
-// donkuri/lapis f4eb29bd build/anki_fields.yaml; non-mining fields stay blank.
+// Reviewed against the complete Kiku 2.1.0, Lapis 1.7.0 and Senren 5.1.0
+// package schemas. Every known unsupported field is explicit so the upstream
+// compatibility contract can distinguish an intentional blank from drift.
 const KIKU = {
   Expression: "{expression}", ExpressionFurigana: "{furigana-plain}", ExpressionReading: "{reading}", ExpressionAudio: "{audio}",
-  Picture: "{screenshot}",
-  SelectionText: "{popup-selection-text}", MainDefinition: "{main-definition}", Glossary: "{glossary}",
+  RelatedExpression: "", SelectionText: "{popup-selection-text}", MainDefinition: "{main-definition}", DefinitionPicture: "",
   Sentence: "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}", SentenceFurigana: "{sentence-furigana-plain}",
+  SentenceTranslation: "", SentenceAudio: "", Picture: "{screenshot}", Glossary: "{glossary}", Hint: "",
+  IsWordAndSentenceCard: "", IsClickCard: "", IsSentenceCard: "", IsAudioCard: "",
   PitchPosition: "{pitch-accent-positions}", PitchCategories: "{pitch-accent-categories}", Frequency: "{frequencies}",
   FreqSort: "{frequency-harmonic-rank}", MiscInfo: "{document-title}",
 };
-const KIKU_SLOTS = { ExpressionFurigana: "expression-furigana", ExpressionReading: "reading", ExpressionAudio: "audio",
+const LAPIS = {
+  Expression: "{expression}", ExpressionFurigana: "{furigana-plain}", ExpressionReading: "{reading}", ExpressionAudio: "{audio}",
+  SelectionText: "{popup-selection-text}", MainDefinition: "{main-definition}", DefinitionPicture: "",
+  Sentence: "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}", SentenceFurigana: "", SentenceAudio: "",
+  Picture: "{screenshot}", Glossary: "{glossary}", Hint: "",
+  IsWordAndSentenceCard: "", IsClickCard: "", IsSentenceCard: "", IsAudioCard: "",
+  PitchPosition: "{pitch-accent-positions}", PitchCategories: "{pitch-accent-categories}", Frequency: "{frequencies}",
+  FreqSort: "{frequency-harmonic-rank}", MiscInfo: "{document-title}",
+};
+const KIKU_LAPIS_SLOTS = { ExpressionFurigana: "expression-furigana", ExpressionReading: "reading", ExpressionAudio: "audio",
   SelectionText: "selection-text", MainDefinition: "main-definition", SentenceFurigana: "sentence-furigana",
   PitchPosition: "pitch", PitchCategories: "pitch-categories", FreqSort: "frequency-sort", MiscInfo: "document-title" };
-// BrenoAqua/Senren 21ede8fb docs/yomitan.md. Its timestamp-specific primary
-// dictionary example becomes the currently projected main definition, as in GSM.
 const SENREN = {
-  word: "{expression}", reading: "{reading}", sentence: KIKU.Sentence, sentenceFurigana: "{sentence-furigana-plain}",
-  selectionText: "{popup-selection-text}", definition: "{main-definition}", wordAudio: "{audio}", glossary: "{glossary}",
+  word: "{expression}", reading: "{reading}",
+  sentence: '<span class="group">{cloze-prefix}<span class="highlight">{cloze-body}</span>{cloze-suffix}</span>',
+  sentenceFurigana: '<span class="group">{sentence-furigana}</span>',
+  sentenceTranslation: "", sentenceCard: "", audioCard: "", notes: "", hint: "",
+  picture: "{screenshot}", wordAudio: "{audio}", sentenceAudio: "",
+  selectionText: "{popup-selection-text}", definition: "{main-definition}", glossary: "{glossary}",
   pitchAccents: "{pitch}", pitchPositions: "{pitch-accent-positions}", pitchCategories: "{pitch-accent-categories}",
   frequencies: "{frequencies}", freqSort: "{frequency-harmonic-rank}", miscInfo: "{document-title}",
-  picture: "{screenshot}",
+  dictionaryPreference: "",
 };
+const PRESETS = { kiku: KIKU, lapis: LAPIS, senren: SENREN };
 const fieldKey = value => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 const knownMarker = value => MARKERS.has(value) || DYNAMIC_PREFIXES.some(prefix => value.startsWith(prefix) && value.length > prefix.length);
 const blankTemplate = () => ({ value: "", overwriteMode: "coalesce" });
@@ -123,11 +137,17 @@ function basicTemplates(config, fields) {
 // The core a mined card needs: the expression, its reading, the sentence and a
 // definition body. A note type that only shares a family name maps fewer than
 // these, so first-run detection can tell a real setup from a namesake.
-export function ankiPresetCoreMapped(fieldTemplates) {
+export function ankiPresetCoreMapped(fieldTemplates, family) {
+  const table = PRESETS[family];
+  if (table === undefined) return false;
   const values = new Set(Object.values(fieldTemplates).map(template => template.value));
-  return values.has(KIKU.Expression) && values.has(KIKU.ExpressionReading)
-    && (values.has(KIKU.MainDefinition) || values.has(KIKU.Glossary))
-    && values.has(KIKU.Sentence);
+  const expression = table === SENREN ? table.word : table.Expression;
+  const reading = table === SENREN ? table.reading : table.ExpressionReading;
+  const definition = table === SENREN ? table.definition : table.MainDefinition;
+  const glossary = table === SENREN ? table.glossary : table.Glossary;
+  return values.has(expression) && values.has(reading)
+    && (values.has(definition) || values.has(glossary))
+    && values.has(table.sentence ?? table.Sentence);
 }
 
 export function resolveAnkiTemplates(config, fields) {
@@ -153,16 +173,19 @@ export function resolveAnkiTemplates(config, fields) {
 }
 
 export function applyAnkiPreset(config, fields, preset) {
-  const table = preset === "senren" ? SENREN : KIKU;
+  const table = PRESETS[preset] ?? KIKU;
   const suggestions = new Map();
   if (preset === "automatic") {
     for (const [semantic, aliases] of Object.entries(genericAliases)) {
       for (const alias of aliases) suggestions.set(fieldKey(alias), { slot: semantic, value: `{${semanticMarker(semantic)}}` });
     }
   }
-  for (const [field, value] of Object.entries(table)) suggestions.set(fieldKey(field), {
-    slot: table === KIKU ? KIKU_SLOTS[field] ?? field.toLowerCase() : fieldKey(field), value,
-  });
+  for (const [field, value] of Object.entries(table)) {
+    if (preset === "automatic" && value === "") continue;
+    suggestions.set(fieldKey(field), {
+      slot: table === SENREN ? fieldKey(field) : KIKU_LAPIS_SLOTS[field] ?? field.toLowerCase(), value,
+    });
+  }
   const used = new Set();
   const fieldTemplates = Object.fromEntries(fields.map(field => {
     const suggestion = suggestions.get(fieldKey(field));

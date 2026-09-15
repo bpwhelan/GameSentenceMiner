@@ -31,6 +31,7 @@
     KEYBIND_MODIFIERS,
     KEYBIND_MODIFIER_CODES,
     clampOption,
+    definitionBlurFrequencyEvidence,
     definitionBlurQualifies,
     normaliseActivationKey,
     projectContentOptions,
@@ -193,8 +194,11 @@
   let ankiMaturityEpoch = 0;
   let dictionaryStateRevision = -1;
   let lookupStatsDescriptor = { generation: null, revision: -1 };
-  const DEFINITION_BLUR_KEYS = ["definitionBlurEnabled", "definitionBlurAnkiMature", "definitionBlurDirection", "definitionBlurThreshold",
-    "definitionBlurReveal", "definitionBlurDelayMs"];
+  const DEFINITION_BLUR_KEYS = [
+    "definitionBlurEnabled", "definitionBlurAnkiMature", "definitionBlurFrequencyEnabled",
+    "definitionBlurFrequencyDictionary", "definitionBlurFrequencyOrder", "definitionBlurFrequencyThreshold",
+    "definitionBlurDirection", "definitionBlurThreshold", "definitionBlurReveal", "definitionBlurDelayMs",
+  ];
 
   function extensionAlive() {
     try {
@@ -793,13 +797,13 @@
     if (startNode.nodeType !== Node.TEXT_NODE) {
       return null;
     }
-    const glossary = startNode.parentElement?.closest(
-      ".gsm-hoshidicts-glossary-content"
+    const lookupText = startNode.parentElement?.closest(
+      ".gsm-hoshidicts-glossary-content, .gsm-hoshidicts-compact-definition-summary"
     );
     if (
-      !glossary ||
-      !level.popup.contains(glossary) ||
-      !glossary.contains(startNode)
+      !lookupText ||
+      !level.popup.contains(lookupText) ||
+      !lookupText.contains(startNode)
     ) {
       return null;
     }
@@ -817,7 +821,7 @@
       ) {
         return null;
       }
-      if (current === glossary) {
+      if (current === lookupText) {
         break;
       }
       if (current === level.popup) {
@@ -827,7 +831,7 @@
     let entries = collectScanEntries(
       startNode,
       Math.min(caretRange.startOffset, (startNode.nodeValue || "").length),
-      glossary,
+      lookupText,
       options.scanLength,
       styleCache
     );
@@ -848,7 +852,7 @@
     let matchOffset;
     let anchorRange;
     try {
-      matchOffset = rangeOffsetWithin(glossary, first.node, first.offset);
+      matchOffset = rangeOffsetWithin(lookupText, first.node, first.offset);
       anchorRange = document.createRange();
       anchorRange.setStart(first.node, first.offset);
       anchorRange.setEnd(
@@ -862,15 +866,15 @@
       return null;
     }
     return {
-      anchor: glossary,
+      anchor: lookupText,
       anchorRange,
       matchOffset,
       query,
       scanEntries: entries,
-      sentence: glossary.textContent || "",
+      sentence: lookupText.textContent || "",
       sourceDepth: level.depth,
-      sourceElements: [glossary],
-      vertical: computedStyleFor(glossary, styleCache)
+      sourceElements: [lookupText],
+      vertical: computedStyleFor(lookupText, styleCache)
         .writingMode.startsWith("vertical"),
     };
   }
@@ -1721,7 +1725,7 @@
       "z-index: 2147483647 !important",
     ].join("; ");
     applyPageZoom();
-    shadow = host.attachShadow({ mode: "closed" });
+    shadow = host.attachShadow({ mode: "open" });
     if (styles.sheet) {
       shadow.adoptedStyleSheets = [styles.sheet];
     } else {
@@ -1988,8 +1992,26 @@
       });
   }
 
-  function definitionBlurActive() {
-    return (options.definitionBlurEnabled && options.showLookupCounts) || options.definitionBlurAnkiMature;
+  function definitionBlurActive(candidate = options) {
+    return (candidate.definitionBlurEnabled && candidate.showLookupCounts)
+      || candidate.definitionBlurAnkiMature || candidate.definitionBlurFrequencyEnabled;
+  }
+
+  function snapshotDefinitionBlurFrequency(results) {
+    const groups = Array.isArray(results?.[0]?.term?.frequencies) ? results[0].term.frequencies : [];
+    return {
+      groups: groups.flatMap(group => typeof group?.dictionary === "string" && Array.isArray(group.frequencies)
+        ? [{ dictionary: group.dictionary,
+            frequencies: group.frequencies.map(frequency => ({ value: frequency?.value })) }]
+        : []),
+      dictionaries: dictionaries
+        .filter(dictionary => dictionary.enabled !== false && dictionary.frequencyCount > 0)
+        .map(({ title, frequencyMode, frequencyCount }) => ({ title, frequencyMode, frequencyCount })),
+    };
+  }
+
+  function currentDefinitionBlurFrequency(blur, candidate = options) {
+    return definitionBlurFrequencyEvidence(candidate, blur.frequency.groups, blur.frequency.dictionaries);
   }
 
   function discardStaleAnkiMaturity(request, level) {
@@ -1998,8 +2020,6 @@
     blur.ankiCheck = null;
     blur.ankiMature = false;
     settleDefinitionBlur(request, level);
-    if (blur.state === "blurred" && !definitionBlurQualifies(options,
-      options.showLookupCounts ? currentLookupCount(request.lookupStats) : null)) revealDefinitions(request, level);
   }
 
   // Definition blur (issue #9 L5). The decision lives on the request, so tabs,
@@ -2043,17 +2063,19 @@
   // Before the stored settings arrive the decision stays pending, like the
   // audio controller's own options hold, so a first lookup cannot reveal or
   // auto-play against defaults that the stored settings then contradict.
-  function beginDefinitionBlur(request, level) {
+  function beginDefinitionBlur(request, level, results) {
     clearDefinitionBlurTimer(level);
     if (!request) return;
     if (!request.blur) {
       const awaitingOptions = optionsStorageRevision < 0;
       const active = awaitingOptions || definitionBlurActive();
       request.blur = { state: active ? "pending" : "revealed", displayedAt: Date.now(), awaitingOptions,
-        lookupCount: undefined, ankiMature: undefined, autoplayHeld: active };
+        lookupCount: undefined, ankiMature: undefined, autoplayHeld: active,
+        frequency: snapshotDefinitionBlurFrequency(results) };
     }
     if (!request.blur.awaitingOptions) {
       discardStaleAnkiMaturity(request, level);
+      settleDefinitionBlur(request, level);
       armDefinitionBlurTimer(request, level);
     }
   }
@@ -2074,26 +2096,37 @@
     audio?.settleAutoplay(level, request);
   }
 
-  // Either enabled signal can qualify immediately. A negative decision waits
-  // for both; failures fail open. Retain the first count while Anki is pending
-  // so later row events cannot change this visit's decision. Hover and the
-  // absolute deadline can reveal before either reply, without reblurring.
+  // Any enabled signal can qualify immediately. Frequency is synchronous,
+  // while a negative decision waits for enabled count and Anki evidence.
+  // Retain the first count while Anki is pending so later row events cannot
+  // change this visit's decision. Hover and the absolute deadline can reveal
+  // before either reply, without reblurring.
   function settleDefinitionBlur(request, level, lookupCount) {
     const blur = request.blur;
     if (!blur) return;
     if (blur.lookupCount === undefined && lookupCount !== undefined) blur.lookupCount = lookupCount;
-    if (blur.awaitingOptions) return;
+    if (blur.awaitingOptions || blur.state === "revealed") return;
     const countEnabled = options.definitionBlurEnabled && options.showLookupCounts;
-    const qualifies = definitionBlurQualifies(options, countEnabled ? blur.lookupCount : null, blur.ankiMature);
-    if (!qualifies && ((countEnabled && blur.lookupCount === undefined)
-        || (options.definitionBlurAnkiMature && blur.ankiMature === undefined))) return;
-    if (blur.state !== "pending") return;
+    const frequency = currentDefinitionBlurFrequency(blur);
+    const qualifies = definitionBlurQualifies(options, countEnabled ? blur.lookupCount : null,
+      blur.ankiMature, frequency.qualified);
+    const pending = !qualifies && ((countEnabled && blur.lookupCount === undefined)
+      || (options.definitionBlurAnkiMature && blur.ankiMature === undefined));
+    if (pending) {
+      if (blur.state !== "pending") {
+        blur.state = "pending";
+        applyDefinitionBlurState(request, level);
+      }
+      return;
+    }
     if (!qualifies) {
       revealDefinitions(request, level);
       return;
     }
-    blur.state = "blurred";
-    applyDefinitionBlurState(request, level);
+    if (blur.state !== "blurred") {
+      blur.state = "blurred";
+      applyDefinitionBlurState(request, level);
+    }
   }
 
   function ensureUi() {
@@ -2260,7 +2293,7 @@
   }
 
   function popupHasFocus() {
-    return levels.some((level) => level.popup?.contains(shadow?.activeElement));
+    return levels.some((level) => level.popup && !level.popup.hidden && level.popup.contains(shadow?.activeElement));
   }
 
   function hasProtectedNote(fromDepth = 0) {
@@ -2429,7 +2462,7 @@
   function backRenderOptions(request, level = rootLevel) {
     return request?.previous
       ? { onBack: () => restoreTermRender(request.previous, request.returnFocus, level) }
-      : level === rootLevel ? {} : { onBack: () => hide(level) };
+      : level === rootLevel ? {} : { onClose: () => hide(level) };
   }
 
   function renderTerms(
@@ -2448,7 +2481,7 @@
     pruneLevels(level.depth + 1);
     const token = level.lookupToken;
     level.currentViewRequest = request ?? null;
-    beginDefinitionBlur(request, level);
+    beginDefinitionBlur(request, level, results);
     level.activeTermRender = {
       candidate,
       dictionaries,
@@ -2480,9 +2513,10 @@
     level.activeHighlightText = matchedText;
     ensureDictionaryStyles(currentGeneration);
     positionPopup(level);
-    if (!replayOptions?.preserveViewControls && typeof renderOptions.onBack === "function"
+    if (!replayOptions?.preserveViewControls
+        && (typeof renderOptions.onBack === "function" || typeof renderOptions.onClose === "function")
         && (level === rootLevel || request?.previous || level.focusLinkedBack)) {
-      focusPopupControl(".gsm-hoshidicts-kanji-back", level);
+      focusPopupControl(renderOptions.onClose ? ".gsm-hoshidicts-popup-close" : ".gsm-hoshidicts-kanji-back", level);
     }
     acceptLookupStatistics(results, request, level);
     return true;
@@ -2633,7 +2667,12 @@
       if (focusChild) {
         existing.focusLinkedBack = true;
         if (!existing.popup.hidden) {
-          focusPopupControl(".gsm-hoshidicts-kanji-back", existing);
+          focusPopupControl(
+            existing.currentViewRequest?.previous
+              ? ".gsm-hoshidicts-kanji-back"
+              : ".gsm-hoshidicts-popup-close",
+            existing
+          );
         }
       }
       return pending?.promise;
@@ -3075,17 +3114,17 @@
     pointerLevel = level;
     clearTransferTimer();
     clearHideTimer();
+    if (hasProtectedNote() || popupHasFocus()) {
+      cancelPendingHover(level);
+      clearScanTimer();
+      return;
+    }
     const link = popupLinkAt(event.target, level);
     if (link) {
       cancelPendingHover(level);
       clearScanTimer();
       if (link.hasAttribute("data-hoshidicts-query")) clearDescendantTimer();
       else scheduleDescendantPrune(level);
-      return;
-    }
-    if (hasProtectedNote() || popupHasFocus()) {
-      cancelPendingHover(level);
-      clearScanTimer();
       return;
     }
     if (selectionDragActive || !activationAllowed()) {
@@ -3663,14 +3702,11 @@
         const blur = request?.blur;
         if (!blur) continue;
         discardStaleAnkiMaturity(request, level);
-        if (blur.state === "pending") checkDefinitionBlurMaturity(request, level);
         settleDefinitionBlur(request, level);
+        if (blur.state === "pending") checkDefinitionBlurMaturity(request, level);
         // Disabling reveals at once; other edits apply to unrevealed views
         // from their original display time. Note drafts are untouched.
         if (!definitionBlurActive()) {
-          revealDefinitions(request, level);
-        } else if (blur.state === "blurred" && !definitionBlurQualifies(next,
-          next.showLookupCounts ? currentLookupCount(request.lookupStats) : null, blur.ankiMature)) {
           revealDefinitions(request, level);
         } else armDefinitionBlurTimer(request, level);
       }

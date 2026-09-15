@@ -1311,6 +1311,7 @@ textarea {
 .lookup-group input[type="number"] {
   width: 8ch;
 }
+#opt-blur-frequency-threshold { width: 12ch; }
 #opt-media-offset { width: 10ch; }
 #sharing-host-port { width: 12ch; }
 #definition-blur-count-paused label {

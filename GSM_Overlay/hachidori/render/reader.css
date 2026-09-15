@@ -2718,7 +2718,8 @@ html[data-hoshidicts-theme="girlypop"],
   margin: 0;
 }
 
-.gsm-hoshidicts-kanji-back {
+.gsm-hoshidicts-kanji-back,
+.gsm-hoshidicts-popup-close {
   padding: 4px 8px;
   border: 1px solid var(--hoshidicts-border);
   border-radius: 5px;

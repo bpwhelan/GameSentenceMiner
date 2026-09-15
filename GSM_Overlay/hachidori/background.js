@@ -52,6 +52,7 @@ import {
   RECOMMENDED_SELECTIONS_KEY, OVERLAY_LOCAL_OPTION_KEYS,
   advanceSetupState, initialSetupState, normaliseSetupState, overlayAnkiOptions, recordSetupAnki, recordSetupDictionaries,
 } from "./setup-state.js";
+import { applyCustomJavaScript } from "./custom-javascript.js";
 
 const {
   DEFAULT_OPTIONS, normaliseOptions, projectStoredOptions, validateOptionsPatch,
@@ -1604,6 +1605,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes[OPTIONS_KEY]) return;
   void reconcileAnkiIndex();
+  void applyCustomJavaScript(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).customPopupJavascript);
 });
 
 async function applyAnkiIndexRole() {
@@ -2889,6 +2891,8 @@ sharingReady = initialiseSharing().catch((error) => {
   console.error("hachidori: could not restore sharing:", describe(error));
 });
 void initialiseUpdateAlarm(); // NOSONAR -- top-level await prevents this MV3 worker from activating.
+void chrome.storage.local.get(OPTIONS_KEY).then(stored =>
+  applyCustomJavaScript(chrome, normaliseOptions(stored[OPTIONS_KEY]).customPopupJavascript));
 
 if (OVERLAY_MODE) {
   seedOverlayModeOptions().catch((error) => {

@@ -170,6 +170,33 @@
       summary: (matched, deinflected) => `Чому це збіглося: ${matched} перетворено на ${deinflected}`,
     }],
   ]);
+  const DEINFLECTION_TEXT_MAX_BYTES = 4096;
+  const DEINFLECTION_STEP_MAX_COUNT = 31;
+  const DEINFLECTION_OMITTED_MARKER = "…";
+
+  function utf8Length(value) {
+    return typeof TextEncoder === "function"
+      ? new TextEncoder().encode(value).length
+      : unescape(encodeURIComponent(value)).length;
+  }
+
+  function truncateUtf8(value, maxBytes = DEINFLECTION_TEXT_MAX_BYTES) {
+    if (utf8Length(value) <= maxBytes) return value;
+    let low = 0;
+    let high = value.length;
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      const end = value.charCodeAt(middle - 1) >= 0xD800 && value.charCodeAt(middle - 1) <= 0xDBFF
+        ? middle - 1
+        : middle;
+      if (utf8Length(value.slice(0, end)) <= maxBytes) low = middle;
+      else high = middle - 1;
+    }
+    const end = value.charCodeAt(low - 1) >= 0xD800 && value.charCodeAt(low - 1) <= 0xDBFF
+      ? low - 1
+      : low;
+    return value.slice(0, end);
+  }
 
   function deinflectionSteps(result) {
     return Array.isArray(result.trace)
@@ -181,7 +208,8 @@
     const { matched, deinflected } = result;
     if (typeof matched !== "string" || !matched
         || typeof deinflected !== "string" || !deinflected || matched === deinflected) return null;
-    const steps = deinflectionSteps(result);
+    const allSteps = deinflectionSteps(result);
+    const steps = allSteps.slice(0, DEINFLECTION_STEP_MAX_COUNT);
     if (steps.length === 0) return null;
 
     const strings = DEINFLECTION_STRINGS.get(locale.toLowerCase().split("-")[0])
@@ -189,7 +217,9 @@
     const details = documentRef.createElement("details");
     details.className = "gsm-hoshidicts-deinflection";
     const summary = documentRef.createElement("summary");
-    summary.setAttribute("aria-label", strings.summary(matched, deinflected));
+    summary.setAttribute("aria-label", strings.summary(
+      truncateUtf8(matched), truncateUtf8(deinflected),
+    ));
     const path = documentRef.createElement("span");
     path.className = "gsm-hoshidicts-deinflection-path";
     for (const [index, endpoint] of [matched, deinflected].entries()) {
@@ -201,7 +231,7 @@
       }
       const value = documentRef.createElement("span");
       value.className = "gsm-hoshidicts-deinflection-endpoint";
-      value.textContent = endpoint;
+      value.textContent = truncateUtf8(endpoint);
       path.appendChild(value);
     }
     summary.appendChild(path);
@@ -212,15 +242,20 @@
       const item = documentRef.createElement("li");
       const name = documentRef.createElement("span");
       name.className = "gsm-hoshidicts-deinflection-step-name";
-      name.textContent = step.name;
+      name.textContent = truncateUtf8(step.name);
       item.appendChild(name);
       if (typeof step.description === "string" && step.description) {
         const description = documentRef.createElement("span");
         description.className = "gsm-hoshidicts-deinflection-step-description";
-        description.textContent = step.description;
+        description.textContent = truncateUtf8(step.description);
         item.appendChild(description);
       }
       list.appendChild(item);
+    }
+    if (steps.length < allSteps.length) {
+      const omitted = documentRef.createElement("li");
+      omitted.textContent = DEINFLECTION_OMITTED_MARKER;
+      list.appendChild(omitted);
     }
     details.append(summary, list);
     return details;
@@ -2481,17 +2516,7 @@
       form.appendChild(formActions);
 
       let editing = false;
-      let pending = false;
-
-      function setPending(value) {
-        pending = value;
-        form.setAttribute("aria-busy", String(pending));
-        save.textContent = pending ? "Saving…" : "Save";
-        for (const control of [term, reading, definition, cancel, save]) {
-          control.disabled = pending;
-        }
-        button.disabled = pending;
-      }
+      let accepted = false;
 
       function close(restoreFocus = true) {
         if (form.hidden) return false;
@@ -2510,6 +2535,7 @@
       }
 
       function open() {
+        accepted = false;
         const prefill = readPrefill() || {};
         term.value = String(prefill.term || "");
         reading.value = String(prefill.reading || "");
@@ -2535,9 +2561,9 @@
           event.stopPropagation();
         }
       });
-      form.addEventListener("submit", async (event) => {
+      form.addEventListener("submit", (event) => {
         event.preventDefault();
-        if (pending) return;
+        if (accepted) return;
         const entry = {
           term: term.value,
           reading: reading.value,
@@ -2551,21 +2577,17 @@
         }
         error.hidden = true;
         error.textContent = "";
-        setPending(true);
-        let saved = false;
         try {
-          await onAddCustomEntry(entry);
-          saved = true;
+          onAddCustomEntry(entry);
+          accepted = true;
+          close();
         } catch (appendError) {
           error.textContent = typeof appendError?.message === "string"
             ? appendError.message
             : String(appendError);
           error.hidden = false;
           positionPopup();
-        } finally {
-          setPending(false);
         }
-        if (saved) close();
       });
 
       return { close, open, form };
@@ -2925,6 +2947,7 @@
         showPitchAccentFurigana = true,
         pitchAccentFuriganaDictionary = null,
         onBack = null,
+        onClose = null,
         noteControls = null,
         feedback = null,
         onDeinflectionToggle = null,
@@ -2974,15 +2997,22 @@
         deinflection.addEventListener("toggle", onDeinflectionToggle);
         headword.appendChild(deinflection);
       }
-      if (primary && typeof onBack === "function") {
+      if (primary && (typeof onBack === "function" || typeof onClose === "function")) {
         const navigation = documentRef.createElement("div");
         navigation.className = "gsm-hoshidicts-kanji-navigation";
         const back = documentRef.createElement("button");
         back.type = "button";
-        back.className = "gsm-hoshidicts-kanji-back";
-        back.textContent = "Back";
-        back.setAttribute("aria-label", "Back to previous results");
-        back.addEventListener("click", onBack);
+        if (typeof onClose === "function") {
+          back.className = "gsm-hoshidicts-popup-close";
+          back.textContent = "×";
+          back.setAttribute("aria-label", "Close lookup");
+          back.addEventListener("click", onClose);
+        } else {
+          back.className = "gsm-hoshidicts-kanji-back";
+          back.textContent = "Back";
+          back.setAttribute("aria-label", "Back to previous results");
+          back.addEventListener("click", onBack);
+        }
         navigation.append(back, headword);
         header.appendChild(navigation);
       } else {
@@ -3138,6 +3168,7 @@
               ? renderContext.pitchAccentFuriganaDictionary
               : null,
           onBack: resultIndex === 0 ? renderContext.onBack : null,
+          onClose: resultIndex === 0 ? renderContext.onClose : null,
           noteControls: resultIndex === 0 ? renderContext.noteControls : null,
           feedback,
           onDeinflectionToggle: positionIfCurrent,

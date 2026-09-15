@@ -37,7 +37,7 @@ function idList(value, what) {
 // field would otherwise pass on its first field alone.
 export function ankiSetupTemplates(family, model, deck, fields, baseConfig) {
   const config = applyAnkiPreset({ ...baseConfig, model, deck }, fields, family);
-  if (!ankiPresetCoreMapped(config.fieldTemplates)) return null;
+  if (!ankiPresetCoreMapped(config.fieldTemplates, family)) return null;
   const resolved = resolveAnkiTemplates(config, fields);
   const errors = ankiAvailability(config, { connected: true, model, decks: [deck], models: [model], fields, errors: [] }, resolved);
   return errors.length === 0 ? config.fieldTemplates : null;

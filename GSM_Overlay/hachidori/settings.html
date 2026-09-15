@@ -539,19 +539,22 @@
           </fieldset>
           <fieldset class="lookup-group" id="definition-blur-settings">
             <legend>Definition blur</legend>
-            <label class="field">
-              <span class="field-label">Blur definitions based on</span>
-              <select id="opt-blur-source" aria-describedby="definition-blur-help">
-                <option value="off">Off</option>
-                <option value="count">Lookup count</option>
-                <option value="anki">Mature Anki cards</option>
-                <option value="either">Either condition</option>
-              </select>
+            <label class="lookup-enable">
+              <span>Lookup count</span>
+              <input id="opt-blur-count" type="checkbox" />
             </label>
-            <p class="field-hint">Give yourself a moment to recall a word before showing its meaning.</p>
+            <label class="lookup-enable">
+              <span>Mature Anki card</span>
+              <input id="opt-blur-anki" type="checkbox" />
+            </label>
+            <label class="lookup-enable">
+              <span>Frequency threshold</span>
+              <input id="opt-blur-frequency" type="checkbox" />
+            </label>
+            <p class="field-hint">Any checked condition can give you a moment to recall a word before showing its meaning.</p>
             <details class="settings-disclosure" id="definition-blur-reveal-controls" hidden>
-              <summary>Threshold and reveal behaviour</summary>
-              <p class="field-hint" id="definition-blur-either-help" hidden>Either the lookup count or Anki maturity is enough to blur a definition.</p>
+              <summary>Thresholds and reveal behaviour</summary>
+              <p class="field-hint" id="definition-blur-any-help" hidden>Any one of the checked conditions is enough to blur a definition.</p>
               <div class="fields" id="definition-blur-count-controls" hidden>
                 <label class="field">
                   <span class="field-label">Blur when looked up</span>
@@ -567,6 +570,26 @@
               </div>
               <p class="field-hint" id="definition-blur-count-paused" hidden>Lookup count blur is paused. <label for="opt-lookup-counts">Turn on Record and show lookup counts above</label> to use this condition.</p>
               <p class="field-hint" id="definition-blur-anki-help" hidden>Mature means a review card with an interval of at least 21 days. Uses the duplicate scope and dedicated Expression fields selected in <a href="#anki">Anki settings</a>. The shared index refreshes every 30 minutes; its last saved results still work when Anki is closed.</p>
+              <div class="fields" id="definition-blur-frequency-controls" hidden>
+                <label class="field">
+                  <span class="field-label">Frequency dictionary</span>
+                  <select id="opt-blur-frequency-dictionary"></select>
+                </label>
+                <label class="field">
+                  <span class="field-label">Frequency order</span>
+                  <select id="opt-blur-frequency-order">
+                    <option value="auto">Automatic from dictionary</option>
+                    <option value="ascending">Ascending — lower values qualify</option>
+                    <option value="descending">Descending — higher values qualify</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">Frequency threshold</span>
+                  <input id="opt-blur-frequency-threshold" type="number" min="1" max="9007199254740991"
+                    step="1" inputmode="numeric" />
+                </label>
+              </div>
+              <p class="field-hint" id="definition-blur-frequency-help" hidden></p>
               <div class="fields">
                 <label class="field">
                   <span class="field-label">Reveal</span>
@@ -772,6 +795,15 @@
                   <button id="reset-custom-css" type="button" class="ghost">Reset custom CSS</button>
                 </div>
                 <p class="field-hint">Invalid rules are ignored by the browser. Styles using URLs can request external resources.</p>
+                <label class="field-label" for="opt-custom-popup-javascript">Custom JavaScript</label>
+                <p class="field-hint" id="custom-javascript-warning">Do not paste Javascript here you do not understand, it is a security risk.</p>
+                <p class="field-hint">Enable user scripts for Hachidori on Chrome's Extensions page before using this.</p>
+                <textarea id="opt-custom-popup-javascript" rows="8" spellcheck="false" autocapitalize="off"
+                  aria-describedby="custom-javascript-warning custom-javascript-count"></textarea>
+                <div class="custom-css-footer">
+                  <span id="custom-javascript-count" class="field-hint">0 characters</span>
+                  <button id="reset-custom-javascript" type="button" class="ghost">Reset custom JavaScript</button>
+                </div>
               </details>
               <button id="reset-design" type="button" class="ghost">Reset Design to defaults</button>
               <p class="field-hint">Resets appearance and content controls above. Reading and your library stay unchanged.</p>

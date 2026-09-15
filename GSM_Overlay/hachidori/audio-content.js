@@ -268,6 +268,11 @@
       active.record.button.dataset.state = "playing";
     };
     window.chrome.runtime.onMessage.addListener(listener);
+    // Chrome 128 can tear down the content owner before content.js receives
+    // pagehide. Listen here too so the offscreen player is stopped while this
+    // document can still identify its owned request.
+    const onPageHide = () => retire();
+    window.addEventListener("pagehide", onPageHide);
     return {
       bind, retire, closeMenu, playButton,
       hasMenu: owner => Boolean(menu && (owner === undefined || menu.record.owner === owner)),
@@ -301,7 +306,12 @@
           });
         }
       },
-      dispose() { retire(); controls.clear(); window.chrome.runtime.onMessage.removeListener(listener); },
+      dispose() {
+        retire();
+        controls.clear();
+        window.removeEventListener("pagehide", onPageHide);
+        window.chrome.runtime.onMessage.removeListener(listener);
+      },
     };
   }
   globalThis.HDAudio = { createAudioController };

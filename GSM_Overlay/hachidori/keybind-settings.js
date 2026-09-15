@@ -11,6 +11,7 @@ export const KEYBIND_OPTION_LABELS = {
   showLookupCounts: "Record and show lookup counts",
   definitionBlurEnabled: "Blur definitions by lookup count",
   definitionBlurAnkiMature: "Blur definitions of mature Anki cards",
+  definitionBlurFrequencyEnabled: "Blur definitions by frequency threshold",
   showCompactDefinitionSummary: "Show brief definitions beside the headword",
   averageFrequency: "Show frequency averages",
   showFrequencyDictionaryNames: "Show frequency dictionary names",

@@ -55,6 +55,7 @@ const LIBRARY_SECTIONS = new Set(["dictionaries", "add-dictionaries", "updates",
 const {
   DEFAULT_OPTIONS, LOOKUP_MODES, ACTIVATION_KEYS, FREQUENCY_ORDERS,
   POPUP_THEME_GROUPS, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS,
+  DEFINITION_BLUR_FREQUENCY_ORDERS,
   clampOption, normaliseKanjiSelection, normaliseOptions, normaliseTexthookerUrl,
 } = globalThis.HDReaderOptions;
 const STATUS_POLL_MS = 1000;
@@ -71,6 +72,7 @@ const NUMBER_FIELDS = [
   { key: "popupColumns", id: "opt-popup-columns" },
   { key: "compactDefinitionSummaryCount", id: "opt-summary-count" },
   { key: "definitionBlurThreshold", id: "opt-blur-threshold" },
+  { key: "definitionBlurFrequencyThreshold", id: "opt-blur-frequency-threshold" },
   { key: "popupWidthPx", id: "opt-popup-width", live: true },
   { key: "popupHeightPx", id: "opt-popup-height", live: true },
   { key: "popupOpacityPercent", id: "opt-popup-opacity", live: true },
@@ -87,6 +89,7 @@ const APPEARANCE_CHOICES = [
   { key: "popupTheme", id: "opt-popup-theme" },
   { key: "popupToolbarPosition", id: "opt-popup-toolbar" },
   { key: "definitionBlurDirection", id: "opt-blur-direction", values: DEFINITION_BLUR_DIRECTIONS },
+  { key: "definitionBlurFrequencyOrder", id: "opt-blur-frequency-order", values: DEFINITION_BLUR_FREQUENCY_ORDERS },
   { key: "definitionBlurReveal", id: "opt-blur-reveal", values: DEFINITION_BLUR_REVEALS },
 ];
 
@@ -136,6 +139,10 @@ let pendingDictionaryCommits = 0;
 let dictionaryCommitTail = Promise.resolve();
 let dictionaryCommitFailed = false;
 let dictionaryRenderDeferred = false;
+// A pending reorder can reuse the existing rows: only their order and the
+// index-dependent controls change, not the package set or per-package metadata.
+// Any other queued change clears this so a coalesced render rebuilds instead.
+let reorderReuseHint = false;
 let pendingManagementFocus = null;
 let managementPointerDown = false;
 let dictionarySearch = "";
@@ -800,6 +807,11 @@ function selectedFrequencyDictionary(title = options.frequencyDictionary) {
     && isAvailableFrequencyDictionary(dictionary));
 }
 
+function selectedDefinitionBlurFrequencyDictionary(title = options.definitionBlurFrequencyDictionary) {
+  return dictionaries.find((dictionary) => dictionary.title === title
+    && isAvailableFrequencyDictionary(dictionary));
+}
+
 function normaliseDictionarySelections() {
   let changed = false;
   const kanjiSelection = selectionParts(options.kanjiClickDictionary);
@@ -1295,6 +1307,24 @@ function renderFrequencyChoices() {
   select.value = previous;
 }
 
+function renderDefinitionBlurFrequencyChoices() {
+  const select = element("opt-blur-frequency-dictionary");
+  if (select === document.activeElement) return;
+  const previous = options.definitionBlurFrequencyDictionary;
+  select.disabled = !options.definitionBlurFrequencyEnabled;
+  select.replaceChildren(new Option("Choose an enabled frequency dictionary", ""));
+  const available = dictionaries.filter(isAvailableFrequencyDictionary);
+  for (const dictionary of available) select.add(new Option(dictionaryLabel(dictionary), dictionary.title));
+  if (previous !== "" && !available.some(dictionary => dictionary.title === previous)) {
+    const known = dictionaries.find(dictionary => dictionary.title === previous);
+    const status = known?.enabled === false ? "disabled" : "unavailable";
+    const stale = new Option(`${known ? dictionaryLabel(known) : previous} (${status})`, previous);
+    stale.disabled = true;
+    select.add(stale);
+  }
+  select.value = previous;
+}
+
 function renderCompactSummaryControls() {
   const enabled = options.showCompactDefinitionSummary;
   element("opt-compact-summary").checked = enabled;
@@ -1306,30 +1336,31 @@ function renderCompactSummaryControls() {
     "term", "Automatic — first available definition", enabled);
 }
 
-function definitionBlurSource() {
-  if (options.definitionBlurEnabled) return options.definitionBlurAnkiMature ? "either" : "count";
-  return options.definitionBlurAnkiMature ? "anki" : "off";
-}
-
-// Either blur rule uses the shared reveal controls. The delay field shows
+// All blur rules use the shared reveal controls. The delay field shows
 // seconds, fractions allowed, for the stored milliseconds.
 function renderDefinitionBlurControls() {
-  const source = element("opt-blur-source");
-  if (source !== document.activeElement) source.value = definitionBlurSource();
   const countEnabled = options.definitionBlurEnabled;
-  const enabled = countEnabled || options.definitionBlurAnkiMature;
+  const ankiEnabled = options.definitionBlurAnkiMature;
+  const frequencyEnabled = options.definitionBlurFrequencyEnabled;
+  const enabled = countEnabled || ankiEnabled || frequencyEnabled;
+  for (const [id, checked] of [["opt-blur-count", countEnabled], ["opt-blur-anki", ankiEnabled],
+    ["opt-blur-frequency", frequencyEnabled]]) element(id).checked = checked;
   // Hiding a focused native control can emit blur before its pending change.
   // Defer hiding until focusout so the change keeps its captured revision.
   for (const [id, hidden] of [["definition-blur-count-controls", !countEnabled],
-    ["definition-blur-reveal-controls", !enabled], ["definition-blur-delay-control", options.definitionBlurReveal !== "timed"]]) {
+    ["definition-blur-frequency-controls", !frequencyEnabled], ["definition-blur-reveal-controls", !enabled],
+    ["definition-blur-delay-control", options.definitionBlurReveal !== "timed"]]) {
     const group = element(id);
     if (!hidden || !group.contains(document.activeElement)) group.hidden = hidden;
   }
   element("definition-blur-count-paused").hidden = !countEnabled || options.showLookupCounts;
-  element("definition-blur-anki-help").hidden = !options.definitionBlurAnkiMature;
-  element("definition-blur-either-help").hidden = definitionBlurSource() !== "either";
+  element("definition-blur-anki-help").hidden = !ankiEnabled;
+  element("definition-blur-any-help").hidden = [countEnabled, ankiEnabled, frequencyEnabled].filter(Boolean).length < 2;
   element("definition-blur-help").hidden = !enabled;
+  renderDefinitionBlurFrequencyChoices();
   for (const [id, key, controlEnabled] of [["opt-blur-direction", "definitionBlurDirection", countEnabled],
+    ["opt-blur-frequency-order", "definitionBlurFrequencyOrder", frequencyEnabled],
+    ["opt-blur-frequency-threshold", "definitionBlurFrequencyThreshold", frequencyEnabled],
     ["opt-blur-reveal", "definitionBlurReveal", enabled], ["opt-blur-threshold", "definitionBlurThreshold", countEnabled]]) {
     const control = element(id);
     if (control === document.activeElement) continue;
@@ -1340,6 +1371,27 @@ function renderDefinitionBlurControls() {
   if (delay !== document.activeElement) {
     delay.value = String(options.definitionBlurDelayMs / 1000);
     delay.disabled = !enabled || options.definitionBlurReveal !== "timed";
+  }
+  const frequencyHelp = element("definition-blur-frequency-help");
+  frequencyHelp.hidden = !frequencyEnabled;
+  if (frequencyEnabled) {
+    const selected = selectedDefinitionBlurFrequencyDictionary();
+    if (!options.definitionBlurFrequencyDictionary) {
+      frequencyHelp.textContent = "Choose one enabled frequency dictionary. Missing frequency data leaves this condition unqualified.";
+    } else if (!selected) {
+      frequencyHelp.textContent = "The saved frequency dictionary is unavailable. This condition fails open until it is enabled or reinstalled.";
+    } else {
+      const automatic = options.definitionBlurFrequencyOrder === "auto";
+      const order = automatic && selected.frequencyMode === "rank-based"
+        ? "ascending" : automatic ? "descending" : options.definitionBlurFrequencyOrder;
+      const mode = automatic
+        ? selected.frequencyMode === "rank-based" ? "rank-based metadata"
+          : selected.frequencyMode === "occurrence-based" ? "occurrence-based metadata" : "undeclared metadata"
+        : "your manual order";
+      frequencyHelp.textContent = order === "ascending"
+        ? `Using ${mode}: values at or below the threshold qualify.`
+        : `Using ${mode}: values at or above the threshold qualify.`;
+    }
   }
 }
 
@@ -1517,6 +1569,14 @@ function renderCustomCss(force = false) {
   element("custom-css-count").textContent = `${numberFormat.format(editor.value.length)} characters`;
 }
 
+function renderCustomJavascript(force = false) {
+  const editor = element("opt-custom-popup-javascript");
+  if ((force || editor !== document.activeElement) && editor.value !== options.customPopupJavascript) {
+    editor.value = options.customPopupJavascript;
+  }
+  element("custom-javascript-count").textContent = `${numberFormat.format(editor.value.length)} characters`;
+}
+
 function renderOptions() {
   applyPageTheme(document, options);
   for (const field of NUMBER_FIELDS) {
@@ -1532,6 +1592,7 @@ function renderOptions() {
   element("opt-audio-autoplay").checked = options.audioAutoplay;
   renderThemeChoices();
   renderCustomCss();
+  renderCustomJavascript();
   customLinkController?.render();
   const toolbar = element("opt-popup-toolbar");
   if (toolbar !== document.activeElement) toolbar.value = options.popupToolbarPosition;
@@ -1864,17 +1925,46 @@ function bindDictionaryEnabled(row, entry) {
   });
 }
 
-function bindDictionaryOrder(row, entry, index) {
+// The rank badge, up/down enablement, and position input all depend on where a
+// package sits in the list, so a reorder must refresh them. Everything here is
+// idempotent value-setting with no listeners, so it is also what a reused row
+// needs after a reorder instead of a full rebuild.
+function refreshDictionaryOrder(row, entry, index) {
   const fixed = isManagedCustomDictionary(entry);
   const minimumIndex = isManagedCustomDictionary(dictionaries[0]) ? 1 : 0;
+  row.querySelector(".dict-rank").textContent = String(index + 1);
   const up = row.querySelector(".dict-up");
   const down = row.querySelector(".dict-down");
-  up.setAttribute("aria-label", `Move ${entry.title} up`);
   up.title = `Move ${entry.title} up`;
-  down.setAttribute("aria-label", `Move ${entry.title} down`);
   down.title = `Move ${entry.title} down`;
   up.dataset.pinnedDisabled = String(fixed || index <= minimumIndex);
   down.dataset.pinnedDisabled = String(fixed || index === dictionaries.length - 1);
+
+  const position = row.querySelector(".dict-position-input");
+  const move = row.querySelector(".dict-move");
+  position.value = String(index + 1);
+  position.min = String(minimumIndex + 1);
+  position.max = String(dictionaries.length);
+  position.dataset.pinnedDisabled = String(fixed);
+  move.dataset.pinnedDisabled = String(fixed);
+  move.title = `Move ${dictionaryLabel(entry)} to position`;
+  if (fixed) {
+    up.setAttribute("aria-label", `Move ${entry.title} up (managed; fixed first)`);
+    down.setAttribute("aria-label", `Move ${entry.title} down (managed; fixed first)`);
+    position.setAttribute("aria-label", `Position for ${dictionaryLabel(entry)} (managed; fixed first)`);
+    move.setAttribute("aria-label", `Move ${dictionaryLabel(entry)} (managed; fixed first)`);
+  } else {
+    up.setAttribute("aria-label", `Move ${entry.title} up`);
+    down.setAttribute("aria-label", `Move ${entry.title} down`);
+    position.setAttribute("aria-label", `Position for ${dictionaryLabel(entry)}`);
+    move.setAttribute("aria-label", `Move ${dictionaryLabel(entry)} to position`);
+  }
+}
+
+function bindDictionaryOrder(row, entry, index) {
+  refreshDictionaryOrder(row, entry, index);
+  const up = row.querySelector(".dict-up");
+  const down = row.querySelector(".dict-down");
   up.addEventListener("click", () => {
     moveDictionary(entry.id, { step: -1 });
   });
@@ -1884,29 +1974,19 @@ function bindDictionaryOrder(row, entry, index) {
 
   const position = row.querySelector(".dict-position-input");
   const move = row.querySelector(".dict-move");
-  position.value = String(index + 1);
-  position.min = String(minimumIndex + 1);
-  position.max = String(dictionaries.length);
-  position.dataset.pinnedDisabled = String(fixed);
-  move.dataset.pinnedDisabled = String(fixed);
-  position.setAttribute("aria-label", `Position for ${dictionaryLabel(entry)}`);
-  move.setAttribute("aria-label", `Move ${dictionaryLabel(entry)} to position`);
-  move.title = `Move ${dictionaryLabel(entry)} to position`;
-  if (fixed) {
-    up.setAttribute("aria-label", `Move ${entry.title} up (managed; fixed first)`);
-    down.setAttribute("aria-label", `Move ${entry.title} down (managed; fixed first)`);
-    position.setAttribute("aria-label", `Position for ${dictionaryLabel(entry)} (managed; fixed first)`);
-    move.setAttribute("aria-label", `Move ${dictionaryLabel(entry)} (managed; fixed first)`);
-  }
+  // Read the live index and bounds so a reused row keeps working after the
+  // package moves; only the entry id is stable across reorders.
   const moveToPosition = () => {
+    if (isManagedCustomDictionary(entry)) return;
+    const currentIndex = dictionaries.findIndex((candidate) => candidate.id === entry.id);
+    const minimumIndex = isManagedCustomDictionary(dictionaries[0]) ? 1 : 0;
     const target = Number(position.value);
-    if (!fixed
-        && Number.isInteger(target)
+    if (Number.isInteger(target)
         && target >= minimumIndex + 1
         && target <= dictionaries.length) {
       moveDictionary(entry.id, { position: target });
     } else {
-      position.value = String(index + 1);
+      position.value = String(currentIndex + 1);
     }
   };
   position.addEventListener("keydown", (event) => {
@@ -1925,7 +2005,6 @@ function renderDictionaryRow(template, entry, index) {
   row.querySelector(".dict-details-toggle").setAttribute("aria-label", `Details for ${entry.title}`);
   row.querySelector(".dict-pinned").hidden = !isManagedCustomDictionary(entry);
   row.classList.toggle("is-off", !entry.enabled);
-  row.querySelector(".dict-rank").textContent = String(index + 1);
   bindDictionarySelection(row, entry);
   bindDictionaryDrag(row, entry);
 
@@ -1969,8 +2048,24 @@ function renderDictionaryRow(template, entry, index) {
   return row;
 }
 
+function dictionaryRowsMatch(list, visible) {
+  const domIds = new Set([...list.children].map((row) => row.dataset.dictionaryId));
+  return domIds.size === visible.length && visible.every((entry) => domIds.has(entry.id));
+}
+
 function renderDictionaries(reuseRows = false) {
+  // A queued reorder changes only the order and the index-dependent controls,
+  // so its rows can be reappended in the new order and refreshed instead of
+  // rebuilt from the template. The hint is single-use per render.
+  const reorderReuse = reorderReuseHint;
+  reorderReuseHint = false;
   const list = element("dict-list");
+  const visible = visibleDictionaries();
+  // A failed or conflicting commit can restore a different set than the one
+  // being reordered, so only reuse when the rows on screen still match the
+  // packages about to be shown (the same visible set, only reordered).
+  const reorderReuseSafe = reorderReuse && dictionaryRowsMatch(list, visible);
+  reuseRows = reuseRows || reorderReuseSafe;
   const reusableRows = new Map();
   // Retain disclosure state by package identity, including temporarily filtered rows.
   for (const row of list.children) {
@@ -1985,7 +2080,6 @@ function renderDictionaries(reuseRows = false) {
     if (!installedIds.has(id)) expandedDictionaryIds.delete(id);
   }
   const template = element("dict-row-template");
-  const visible = visibleDictionaries();
   const visibleIds = new Set(visible.map((dictionary) => dictionary.id));
   draggedDictionaryId = null;
   if (reusableRows.size > 0) clearDictionaryDropTargets();
@@ -1995,7 +2089,14 @@ function renderDictionaries(reuseRows = false) {
     if (!visibleIds.has(entry.id)) {
       return;
     }
-    list.appendChild(reusableRows.get(entry.id) ?? renderDictionaryRow(template, entry, index));
+    const reused = reusableRows.get(entry.id);
+    if (reused) {
+      // The package set and metadata are unchanged; only its position moved.
+      if (reorderReuseSafe) refreshDictionaryOrder(reused, entry, index);
+      list.appendChild(reused);
+    } else {
+      list.appendChild(renderDictionaryRow(template, entry, index));
+    }
   });
 
   element("dict-controls").hidden = dictionaries.length === 0;
@@ -2031,7 +2132,7 @@ function moveDictionary(id, move) {
     const minimumIndex = isManagedCustomDictionary(current[0]) ? 1 : 0;
     const target = Math.max(minimumIndex, dictionaryMoveTarget(current, index, move));
     return moveListItem(current, index, target);
-  }, true);
+  }, true, { reorder: true });
 }
 
 async function restoreAuthoritativeState(reply) {
@@ -2133,6 +2234,7 @@ async function commitDictionaryStateChange(update, reloadEngine) {
     const reply = await send(type, fields, target);
     if (!reply.ok) {
       await restoreAuthoritativeState(reply);
+      reorderReuseHint = false;
       dictionaryCommitFailed = true;
       setStatus(`Dictionary change was not saved: ${reply.error ?? "the state changed elsewhere"}`, "error");
       return reply;
@@ -2146,16 +2248,21 @@ async function commitDictionaryStateChange(update, reloadEngine) {
       // Keep the visible error from the failed write; a later storage event or
       // page reload will supply the authoritative state.
     }
+    reorderReuseHint = false;
     dictionaryCommitFailed = true;
     setStatus(`Dictionary change was not saved: ${describe(error)}`, "error");
     return { ok: false, error: describe(error) };
   }
 }
 
-function queueDictionaryStateChange(update, reloadEngine) {
+function queueDictionaryStateChange(update, reloadEngine, { reorder = false } = {}) {
   if (pendingDictionaryCommits === 0) {
     dictionaryCommitFailed = false;
   }
+  // The next render can reuse the existing rows only if every change coalesced
+  // into it was a reorder: reorders touch just the order and index-dependent
+  // controls, while any other change can alter per-package metadata.
+  reorderReuseHint = reorder && (pendingDictionaryCommits === 0 || reorderReuseHint);
   pendingDictionaryCommits += 1;
   committing = true;
   pendingManagementFocus = focusedManagementControl() ?? pendingManagementFocus;
@@ -2183,11 +2290,11 @@ function queueDictionaryStateChange(update, reloadEngine) {
   return settled;
 }
 
-function commitDictionaries(update, reloadEngine) {
+function commitDictionaries(update, reloadEngine, options) {
   return queueDictionaryStateChange((current) => {
     const dictionaries = update(current.dictionaries);
     return dictionaries === null ? null : { ...current, dictionaries };
-  }, reloadEngine);
+  }, reloadEngine, options);
 }
 
 function commitGroups(update) {
@@ -2701,9 +2808,22 @@ function attachHandlers() {
       writeOptions();
     });
   }
-  element("opt-blur-source").addEventListener("change", (event) => {
-    options.definitionBlurEnabled = ["count", "either"].includes(event.target.value);
-    options.definitionBlurAnkiMature = ["anki", "either"].includes(event.target.value);
+  for (const [id, key] of [["opt-blur-count", "definitionBlurEnabled"],
+    ["opt-blur-anki", "definitionBlurAnkiMature"],
+    ["opt-blur-frequency", "definitionBlurFrequencyEnabled"]]) {
+    element(id).addEventListener("change", (event) => {
+      options[key] = event.target.checked;
+      renderDefinitionBlurControls();
+      writeOptions();
+    });
+  }
+  element("opt-blur-frequency-dictionary").addEventListener("change", (event) => {
+    if (event.target.value && !selectedDefinitionBlurFrequencyDictionary(event.target.value)) {
+      event.target.value = options.definitionBlurFrequencyDictionary;
+      setOptionsStatus("That frequency dictionary is no longer available.");
+      return;
+    }
+    options.definitionBlurFrequencyDictionary = event.target.value;
     renderDefinitionBlurControls();
     writeOptions();
   });
@@ -2724,6 +2844,7 @@ function attachHandlers() {
     for (const key of DESIGN_OPTION_KEYS) options[key] = DEFAULT_OPTIONS[key];
     customLinkController?.reset();
     renderCustomCss(true);
+    renderCustomJavascript(true);
     renderOptions();
     writeOptions();
   });
@@ -2737,6 +2858,17 @@ function attachHandlers() {
   element("reset-custom-css").addEventListener("click", () => {
     options.customPopupCss = DEFAULT_OPTIONS.customPopupCss;
     renderCustomCss(true);
+    writeOptions();
+  });
+  element("opt-custom-popup-javascript").addEventListener("input", event => {
+    optionsEditRevision ??= Math.max(0, optionsRevision);
+    options.customPopupJavascript = event.target.value;
+    renderCustomJavascript();
+    writeOptions();
+  });
+  element("reset-custom-javascript").addEventListener("click", () => {
+    options.customPopupJavascript = DEFAULT_OPTIONS.customPopupJavascript;
+    renderCustomJavascript(true);
     writeOptions();
   });
   for (const field of METADATA_FIELDS) {
@@ -2887,11 +3019,12 @@ function attachHandlers() {
     section.addEventListener("focusout", (event) => {
       optionsEditRevision = null;
       if (event.target.id === "opt-custom-popup-css") renderCustomCss(true);
+      if (event.target.id === "opt-custom-popup-javascript") renderCustomJavascript(true);
       if (event.target.id === "opt-frequency-dictionary") renderFrequencyChoices();
+      if (event.target.id === "opt-blur-frequency-dictionary") renderDefinitionBlurFrequencyChoices();
       if (event.target.id === "opt-image-source") renderPopupImageSources();
       if (event.target.id === "opt-pitch-dictionary") renderMetadataControls();
       if (event.target.closest("#definition-blur-settings")) {
-        if (event.target.id === "opt-blur-source") event.target.value = definitionBlurSource();
         renderDefinitionBlurControls();
       }
       if (event.target.id === "opt-summary-dictionary" || event.target.id === "opt-summary-count") renderCompactSummaryControls();
@@ -2914,6 +3047,7 @@ function attachHandlers() {
     optionsSaveFailed = false;
     renderCurrentOptions();
     renderCustomCss(true);
+    renderCustomJavascript(true);
     setOptionsStatus("Using saved settings.");
   });
 

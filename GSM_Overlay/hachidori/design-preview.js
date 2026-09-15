@@ -29,18 +29,26 @@
   let sampleMedia = null;
   let sampleLookupStats = null;
   let clickedKanjiIndex = 0;
-  // Fixed mature word and count of 3; the shared rule, real hover and the real
-  // delay decide the preview's blur. Nothing is recorded or sent to Anki.
+  // Fixed mature word, count of 3 and native frequency samples; the shared
+  // rules, real hover and real delay decide the preview's blur. Nothing is
+  // recorded, looked up or sent to Anki.
   const SAMPLE_LOOKUP_COUNT = 3;
   let sampleRevealed = false;
   let sampleBlurTimer = null;
   let sampleTermView = false;
-  const DEFINITION_BLUR_KEYS = ["showLookupCounts", "definitionBlurEnabled", "definitionBlurAnkiMature", "definitionBlurDirection",
-    "definitionBlurThreshold", "definitionBlurReveal", "definitionBlurDelayMs"];
+  const DEFINITION_BLUR_KEYS = [
+    "showLookupCounts", "definitionBlurEnabled", "definitionBlurAnkiMature",
+    "definitionBlurFrequencyEnabled", "definitionBlurFrequencyDictionary",
+    "definitionBlurFrequencyOrder", "definitionBlurFrequencyThreshold",
+    "definitionBlurDirection", "definitionBlurThreshold", "definitionBlurReveal", "definitionBlurDelayMs",
+  ];
 
   function sampleBlurState() {
     const count = options.showLookupCounts ? SAMPLE_LOOKUP_COUNT : null;
-    return !sampleRevealed && HDReaderOptions.definitionBlurQualifies(options, count, true) ? "blurred" : "revealed";
+    const frequency = HDReaderOptions.definitionBlurFrequencyEvidence(options,
+      sample?.results?.[0]?.term?.frequencies, sample?.dictionaryPresentation);
+    return !sampleRevealed && HDReaderOptions.definitionBlurQualifies(options, count, true, frequency.qualified)
+      ? "blurred" : "revealed";
   }
 
   function clearSampleBlurTimer() {
@@ -126,6 +134,12 @@
     const second = preferred && preferred !== first ? preferred : definitions[1]?.title || "Sample usage";
     const pitch = enabled.find(entry => entry.title === options.pitchAccentFuriganaDictionary && entry.pitchCount > 0)?.title
       || enabled.find(entry => entry.pitchCount > 0)?.title || "Sample pitch";
+    const installedFrequencies = enabled
+      .filter(entry => entry.frequencyCount > 0 && !["Sample ranks", "Sample corpus"].includes(entry.title))
+      .map(entry => ({ dictionary: entry.title, frequencies: [{
+        value: entry.frequencyMode === "rank-based" ? 120 : 18240,
+        displayValue: entry.frequencyMode === "rank-based" ? "120" : "18,240",
+      }] }));
     const glossary = (dictionary, items) => ({ dictionary, glossary: JSON.stringify(items), definitionTags: "v1 vt", termTags: "common" });
     const results = [{ matched: "食べる", deinflected: "食べる", trace: [], preprocessorSteps: 0,
       term: { expression: "食べる", reading: "たべる", rules: "v1", score: 0,
@@ -143,12 +157,13 @@
         frequencies: [
           { dictionary: "Sample ranks", frequencies: [{ value: 120, displayValue: "120" }, { value: 240, displayValue: "240" }] },
           { dictionary: "Sample corpus", frequencies: [{ value: 18240, displayValue: "18,240" }] },
+          ...installedFrequencies,
         ],
         pitches: [{ dictionary: pitch, pitches: [{ position: 2, pattern: "LHL", nasal: [], devoice: [] }], transcriptions: ["ta̠be̞ɾɯ̟ᵝ"] }],
       } }];
     return { results, dictionaryPresentation: [
-      { title: "Sample ranks", frequencyMode: "rank-based" },
-      { title: "Sample corpus", frequencyMode: "occurrence-based" }, ...enabled,
+      { title: "Sample ranks", frequencyMode: "rank-based", frequencyCount: 2 },
+      { title: "Sample corpus", frequencyMode: "occurrence-based", frequencyCount: 1 }, ...enabled,
     ] };
   }
 
