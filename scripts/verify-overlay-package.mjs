@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
+import { validateReleaseMetadata } from './sync-hachidori.mjs';
+
 const repoRoot = process.cwd();
 const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'));
 const productName = packageJson.productName || packageJson.name || 'GameSentenceMiner';
@@ -106,6 +108,12 @@ async function main() {
   );
   if (!/^[0-9a-f]{40}$/.test(hachidoriSource.commit || '')) {
     throw new Error('Packaged Hachidori SOURCE.json does not identify an exact source commit.');
+  }
+  if (hachidoriSource.repository !== 'https://github.com/bee-san/hachidori') {
+    throw new Error('Packaged Hachidori SOURCE.json does not identify the expected upstream repository.');
+  }
+  if ('release' in hachidoriSource) {
+    validateReleaseMetadata(hachidoriSource.release);
   }
 
   const packagedExperimentalTab = path.join(
