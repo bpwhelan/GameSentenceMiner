@@ -34,6 +34,8 @@ interface ResolveAgentScriptResponse {
   isSwitchTarget?: boolean;
   titleId?: string | null;
   candidates?: AgentScriptCandidate[];
+  processName?: string | null;
+  windowTitle?: string | null;
 }
 
 interface ListAgentScriptsResponse {
@@ -723,22 +725,30 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
         )
       : [];
 
+    const configuredScriptPath = sceneProfile.agentScriptPath.trim();
     const mergedCandidates = buildAgentScriptCandidateList({
-      query: configuredScene.name,
+      searchContext: {
+        sceneName: configuredScene.name,
+        windowTitle: resolvedResult?.windowTitle,
+        processName: resolvedResult?.processName,
+      },
       scripts: listedScripts,
       resolvedCandidates,
       resolvedPath:
-        resolvedResult?.status === "success" &&
-        typeof resolvedResult.path === "string" &&
-        resolvedResult.path.trim()
+        configuredScriptPath || (
+          resolvedResult?.status === "success" &&
+          typeof resolvedResult.path === "string" &&
+          resolvedResult.path.trim()
           ? resolvedResult.path
-          : null,
-      resolvedReason: resolvedResult?.reason,
+          : null
+        ),
+      resolvedReason: configuredScriptPath ? "matched_explicit_path" : resolvedResult?.reason,
+      resolvedScore: configuredScriptPath ? 0 : undefined,
     });
 
     setCandidateDialog({
       sceneId: configuredScene.id,
-      query: sceneProfile.agentScriptPath.trim(),
+      query: "",
       candidates: mergedCandidates
     });
   }, [configuredScene, sceneProfile, sharedSettings.agentScriptsPath, t]);
@@ -1549,6 +1559,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
         <AgentScriptSearchDialog
           candidates={candidateDialog.candidates}
           query={candidateDialog.query}
+          selectedPath={sceneProfile?.agentScriptPath}
           title={(filteredCount, totalCount) =>
             t("launcher.scriptPicker.title", {
               filtered: String(filteredCount),

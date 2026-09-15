@@ -61,7 +61,7 @@ function isCaptureModeAvailable(
   windowOption: ObsWindow | undefined | null,
   mode: ObsCaptureMode,
 ): boolean {
-  if (!windowOption || windowOption.targetKind === "capture_card") return false;
+  if (!windowOption || (windowOption.targetKind && windowOption.targetKind !== "window")) return false;
   return typeof windowOption.captureValues?.[mode] === "string";
 }
 
@@ -511,14 +511,18 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
 
   const selectedWindow = windows.find((w) => w.value === selectedWindowValue) ?? null;
   const isCaptureCardSelection = selectedWindow?.targetKind === "capture_card";
+  const isMonitorSelection = selectedWindow?.targetKind === "monitor";
   const isWaylandPipewireSelection = selectedWindow?.targetKind === "wayland_pipewire";
   const canUseWindowCapture = isCaptureModeAvailable(selectedWindow, "window_capture");
   const canUseGameCapture = isCaptureModeAvailable(selectedWindow, "game_capture");
-  const canSelectCaptureMode = Boolean(selectedWindow && isWindows && !isCaptureCardSelection);
+  const canSelectCaptureMode = Boolean(
+    selectedWindow && isWindows && (selectedWindow.targetKind ?? "window") === "window",
+  );
   const canCreateScene = Boolean(
     canEnumerateWindows &&
       selectedWindow &&
-      (isCaptureCardSelection || isLinux || isCaptureModeAvailable(selectedWindow, selectedCaptureMode)),
+      (isCaptureCardSelection || isMonitorSelection || isLinux ||
+        isCaptureModeAvailable(selectedWindow, selectedCaptureMode)),
   );
 
   useEffect(() => {
@@ -721,11 +725,12 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
       value: win.value,
       sceneName: overrideSceneName.trim() || win.title,
       targetKind: win.targetKind ?? "window",
-      captureMode: selectedCaptureMode,
+      captureMode: canSelectCaptureMode ? selectedCaptureMode : undefined,
       captureValues: win.captureValues ?? {},
       videoDeviceId: win.videoDeviceId,
       audioDeviceId: win.audioDeviceId,
       wasapiInputDeviceId: win.wasapiInputDeviceId,
+      monitorId: win.monitorId,
       pipewireInputKind: win.pipewireInputKind,
     };
     await invokeIpc("obs.createScene", payload);
@@ -745,7 +750,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
       setCaptureWizardScene(null);
       setCaptureWizardOpen(true);
     }
-  }, [selectedWindow, overrideSceneName, selectedCaptureMode, refreshAll]);
+  }, [selectedWindow, overrideSceneName, selectedCaptureMode, canSelectCaptureMode, refreshAll]);
 
   const handleCaptureCardToggle = useCallback(async (enabled: boolean) => {
     try {
@@ -861,9 +866,12 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     clipTooltip = t("home.status.tooltipClipboardDisabled");
   }
 
-  /* ---- Window groupings ------------------------------------------ */
-  const windowTargets = windows.filter((w) => w.targetKind !== "capture_card");
+  /* ---- Capture target groupings ---------------------------------- */
+  const windowTargets = windows.filter(
+    (w) => w.targetKind !== "capture_card" && w.targetKind !== "monitor",
+  );
   const captureCardTargets = windows.filter((w) => w.targetKind === "capture_card");
+  const monitorTargets = windows.filter((w) => w.targetKind === "monitor");
 
   /* ---- Render ---------------------------------------------------- */
   return (
@@ -1095,10 +1103,10 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
               {t("home.obs.setupNewScene")}
             </div>
             <div className="card-body">
-              {/* Window selector */}
+              {/* Capture target selector */}
               <div className="home-row">
                 <label className="home-row__label" htmlFor="home-window-select">
-                  {t("home.obs.sectionWindows")}
+                  {t("home.obs.captureTargetLabel")}
                 </label>
                 <div className="home-row__controls">
                   <select
@@ -1125,12 +1133,17 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                       <optgroup label={t("home.obs.sectionWindows")}>
                         {windowTargets.map((w) => (
                           <option key={w.value} value={w.value}>
-                            {w.targetKind === "capture_card"
-                              ? t("home.obs.captureCardPrefix", { title: w.title })
-                              : w.targetKind === "wayland_pipewire"
-                                ? t("home.obs.waylandPipewireOption")
-                                : w.title}
+                            {w.targetKind === "wayland_pipewire"
+                              ? t("home.obs.waylandPipewireOption")
+                              : w.title}
                           </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {monitorTargets.length > 0 && (
+                      <optgroup label={t("home.obs.sectionMonitors")}>
+                        {monitorTargets.map((w) => (
+                          <option key={w.value} value={w.value}>{w.title}</option>
                         ))}
                       </optgroup>
                     )}
@@ -1189,7 +1202,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                 </div>
               </div>}
 
-              {/* Override scene name — only shown once a window is selected */}
+              {/* Override scene name — only shown once a target is selected */}
               {selectedWindowValue && <div className="home-row home-row--scene-name-override">
                 <label className="home-row__label" htmlFor="home-scene-name-override">
                   {t("home.obs.overrideSceneName")}
@@ -1239,7 +1252,9 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     title={t(
                       isWaylandPipewireSelection
                         ? "home.obs.waylandPipewireTooltip"
-                        : "home.obs.setupCaptureTooltip",
+                        : isMonitorSelection
+                          ? "home.obs.monitorCaptureTooltip"
+                          : "home.obs.setupCaptureTooltip",
                     )}
                   >
                     {t("home.obs.setupCapture")}

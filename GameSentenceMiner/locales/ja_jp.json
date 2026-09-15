@@ -245,6 +245,10 @@
             "label": "フォーカス中の項目を実行:",
             "tooltip": "フォーカス中の項目を実行し、音声選択の警告を確定するボタン。"
           },
+          "confirmation_gamepad_play_audio": {
+            "label": "音声スニペットを再生:",
+            "tooltip": "選択した音声スニペットを再生または一時停止するボタン。初期設定はYボタンです。"
+          },
           "confirmation_gamepad_confirm_with_audio": {
             "label": "音声ありで確定:",
             "tooltip": "音声を保持してカードを確定するボタン。"

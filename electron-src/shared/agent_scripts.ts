@@ -71,8 +71,15 @@ export interface AgentScriptDisplayParts {
   stem: string;
 }
 
+export interface AgentScriptSearchContext {
+  sceneName?: string | null;
+  windowTitle?: string | null;
+  processName?: string | null;
+}
+
 export interface BuildAgentScriptCandidateListOptions {
   query?: string | null;
+  searchContext?: AgentScriptSearchContext;
   scripts?: string[];
   resolvedCandidates?: AgentScriptCandidate[];
   resolvedPath?: string | null;
@@ -123,6 +130,10 @@ export function isListableAgentScriptPath(filePath: string): boolean {
     !lowerFileName.startsWith("_") &&
     !lowerFileName.startsWith("lib")
   );
+}
+
+export function isNintendoSwitchAgentScriptPath(filePath: string): boolean {
+  return /^NS_/i.test(getAgentScriptFileName(filePath));
 }
 
 function tokenize(value: string): string[] {
@@ -229,6 +240,92 @@ export function normalizeAgentScriptCandidateScore(score: unknown): number | nul
   return Math.max(0, Math.min(1, score));
 }
 
+const CONTEXT_STOP_WORDS = new Set([
+  "the", "and", "for", "with", "game", "title", "scene", "capture", "window",
+  "main", "launcher", "loading", "release", "debug", "build", "shipping", "client",
+  "win32", "win64", "x32", "x64", "x86", "windows", "bit", "fps", "version",
+  "vulkan", "opengl", "directx", "msvc", "nintendo", "switch",
+  "yuzu", "suyu", "ryujinx", "eden", "citron", "sudachi", "torzu",
+  "citra", "ppsspp", "rpcs3", "pcsx2", "retroarch", "desmume", "melonDS",
+  "unity", "unityplayer", "unreal", "ue4game", "ue5game", "nw", "node", "java",
+  "python", "pythonw", "krkr", "krkrz", "kirikiri", "tvp",
+].map((word) => word.toLowerCase()));
+
+function normalizeContextHint(value: string): string {
+  return normalizeSearchText(
+    value.normalize("NFKC")
+      .replace(/\b[0-9a-f]{16}\b/gi, " ")
+      .replace(/\b(?:v\d+(?:\.\d+)+|\d+\s*(?:fps|bit))\b/gi, " ")
+  ).split(" ")
+    .filter((token) => token && !CONTEXT_STOP_WORDS.has(token))
+    .join(" ");
+}
+
+function getContextHintGroups(context: AgentScriptSearchContext): string[][] {
+  const executable = getAgentScriptFileName(normalizeString(context.processName).replace(/^"|"$/g, ""))
+    .replace(/\.(?:exe|bin|app)$/i, "");
+  const groups = [
+    [normalizeString(context.sceneName)],
+    [normalizeString(context.windowTitle), ...normalizeString(context.windowTitle).split("|")],
+    [executable],
+  ];
+  const seen = new Set<string>();
+  return groups.map((group) => {
+    const hints = Array.from(new Set(group.map(normalizeContextHint)))
+      .filter((hint) => hint.length >= 3 && /\p{L}/u.test(hint));
+    // Repeated scene/title/executable names are one signal, not extra evidence.
+    return hints.filter((hint) => {
+      const key = compactSearchText(hint);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }).filter((group) => group.length > 0);
+}
+
+export function getAgentScriptSearchQueries(context: AgentScriptSearchContext): string[] {
+  return getContextHintGroups(context).flat();
+}
+
+function scoreContextHint(query: string, title: string): number {
+  const compactQuery = compactSearchText(query);
+  const compactTitle = compactSearchText(title);
+  if (!compactTitle || compactTitle.length < 3) return 1;
+  if (compactQuery === compactTitle) return 0.04;
+
+  const queryTokens = query.split(" ");
+  const titleTokens = title.split(" ");
+  const queryNumbers = queryTokens.filter((token) => /^\d+$/.test(token));
+  const titleNumbers = titleTokens.filter((token) => /^\d+$/.test(token));
+  const conflictingNumber = queryNumbers.length > 0 && titleNumbers.length > 0 &&
+    !titleNumbers.every((number) => queryNumbers.includes(number));
+  if (!conflictingNumber && compactTitle.length >= 4 && compactQuery.includes(compactTitle)) {
+    return 0.2;
+  }
+  // A shortened name may identify a series, but cannot identify its game/version.
+  if (compactQuery.length >= 4 && compactTitle.includes(compactQuery)) return 0.3;
+
+  const matched = titleTokens.filter((token) => queryTokens.includes(token)).length;
+  if (matched === 0) return 1;
+  const coverage = Math.min(matched / titleTokens.length, matched / queryTokens.length);
+  return Math.max(0.2, 1 - coverage * 0.8);
+}
+
+export function scoreAgentScriptForContext(
+  context: AgentScriptSearchContext,
+  scriptPath: string
+): number {
+  const title = normalizeContextHint(formatAgentScriptDisplay(scriptPath).title);
+  const scores = getContextHintGroups(context)
+    .map((hints) => Math.min(...hints.map((hint) => scoreContextHint(hint, title))))
+    .sort((left, right) => left - right);
+  const best = scores[0] ?? 1;
+  if (best === 1) return 1;
+  const corroborating = scores.slice(1).filter((score) => score < 0.65).length;
+  // Agreement improves ordering without turning several weak hints into a recommendation.
+  return Math.max(best <= 0.15 ? 0.005 : 0.2, best - corroborating * 0.02);
+}
+
 export function scoreAgentScriptForQuery(query: string, scriptPath: string): number {
   const rawQuery = normalizeString(query).normalize("NFKC").toLowerCase();
   if (!rawQuery) {
@@ -319,6 +416,14 @@ function compareAgentScriptCandidates(
   left: AgentScriptCandidate,
   right: AgentScriptCandidate
 ): number {
+  const priority = (candidate: AgentScriptCandidate) => {
+    if (candidate.reason === "matched_explicit_path") return 0;
+    if (candidate.reason === "matched_explicit_id") return 1;
+    if (candidate.reason === "matched_title_id") return 2;
+    return 3;
+  };
+  const priorityDifference = priority(left) - priority(right);
+  if (priorityDifference !== 0) return priorityDifference;
   const leftScore = normalizeAgentScriptCandidateScore(left.score) ?? 1;
   const rightScore = normalizeAgentScriptCandidateScore(right.score) ?? 1;
   if (leftScore !== rightScore) {
@@ -335,13 +440,39 @@ function compareAgentScriptCandidates(
   return left.path.localeCompare(right.path);
 }
 
+export function getHighConfidenceAgentScriptCandidate(
+  candidates: AgentScriptCandidate[],
+  { isSwitchTarget }: { isSwitchTarget?: boolean } = {}
+): AgentScriptCandidate | null {
+  const sorted = candidates.filter((candidate) =>
+    isListableAgentScriptPath(candidate.path) &&
+    (isSwitchTarget === undefined || isNintendoSwitchAgentScriptPath(candidate.path) === isSwitchTarget)
+  )
+    .slice().sort(compareAgentScriptCandidates);
+  const top = sorted[0];
+  if (!top || typeof top.score !== "number" || !Number.isFinite(top.score) || top.score < 0 || top.score > 0.15) {
+    return null;
+  }
+  if (["matched_explicit_path", "matched_explicit_id", "matched_title_id"].includes(top.reason ?? "")) {
+    return top;
+  }
+  const runnerUp = sorted.find((candidate) =>
+    normalizeAgentScriptPathForCompare(candidate.path) !== normalizeAgentScriptPathForCompare(top.path)
+  );
+  if (runnerUp && (normalizeAgentScriptCandidateScore(runnerUp.score) ?? 1) - top.score < 0.05) {
+    return null;
+  }
+  return top;
+}
+
 export function buildAgentScriptCandidateList({
   query = "",
+  searchContext,
   scripts = [],
   resolvedCandidates = [],
   resolvedPath = null,
   resolvedReason,
-  resolvedScore = 0,
+  resolvedScore,
   limit,
 }: BuildAgentScriptCandidateListOptions): AgentScriptCandidate[] {
   const candidateMap = new Map<string, AgentScriptCandidate>();
@@ -353,20 +484,21 @@ export function buildAgentScriptCandidateList({
     }
 
     const compareKey = normalizeAgentScriptPathForCompare(normalizedPath);
-    const heuristicScore = scoreAgentScriptForQuery(query ?? "", normalizedPath);
-    const explicitScore = normalizeAgentScriptCandidateScore(candidate.score);
-    const score = explicitScore === null
-      ? heuristicScore
-      : Math.min(explicitScore, heuristicScore);
     const existing = candidateMap.get(compareKey);
-    const existingScore = normalizeAgentScriptCandidateScore(existing?.score);
-
-    if (!existing || existingScore === null || score < existingScore) {
-      candidateMap.set(compareKey, {
-        path: normalizedPath,
-        reason: candidate.reason ?? existing?.reason,
-        score,
-      });
+    // A listed path must not replace the resolver's evidence with a generic query score.
+    if (existing && candidate.score === undefined) return;
+    const heuristicScore = searchContext
+      ? scoreAgentScriptForContext(searchContext, normalizedPath)
+      : normalizeString(query) ? scoreAgentScriptForQuery(query ?? "", normalizedPath) : 1;
+    const explicitScore = normalizeAgentScriptCandidateScore(candidate.score);
+    const score = explicitScore ?? heuristicScore;
+    const next = {
+      path: normalizedPath,
+      reason: candidate.reason ?? existing?.reason,
+      score,
+    };
+    if (!existing || compareAgentScriptCandidates(next, existing) < 0) {
+      candidateMap.set(compareKey, next);
     }
   };
 

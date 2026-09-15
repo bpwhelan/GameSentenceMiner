@@ -4,7 +4,7 @@ export interface ObsScene {
 }
 
 export type ObsCaptureMode = "window_capture" | "game_capture";
-export type ObsSetupTargetKind = "window" | "capture_card" | "wayland_pipewire";
+export type ObsSetupTargetKind = "window" | "capture_card" | "monitor" | "wayland_pipewire";
 
 export interface ObsWindow {
   title: string;
@@ -17,6 +17,7 @@ export interface ObsWindow {
   videoDeviceId?: string;
   audioDeviceId?: string;
   wasapiInputDeviceId?: string;
+  monitorId?: string;
   pipewireInputKind?:
     | "pipewire-desktop-capture-source"
     | "pipewire-window-capture-source"

@@ -18,6 +18,7 @@ def test_confirmation_gamepad_binding_defaults_preserve_existing_controls():
     assert config.confirmation_gamepad_focus_left == "14"
     assert config.confirmation_gamepad_focus_right == "15"
     assert config.confirmation_gamepad_activate == "0"
+    assert config.confirmation_gamepad_play_audio == "3"
     assert config.confirmation_gamepad_confirm_with_audio == "2"
     assert config.confirmation_gamepad_confirm_without_audio == "1"
 
@@ -30,6 +31,7 @@ def test_existing_anki_config_without_gamepad_bindings_uses_existing_controls():
         "confirmation_gamepad_focus_left",
         "confirmation_gamepad_focus_right",
         "confirmation_gamepad_activate",
+        "confirmation_gamepad_play_audio",
         "confirmation_gamepad_confirm_with_audio",
         "confirmation_gamepad_confirm_without_audio",
     ):
@@ -42,6 +44,7 @@ def test_existing_anki_config_without_gamepad_bindings_uses_existing_controls():
     assert config.confirmation_gamepad_focus_left == "14"
     assert config.confirmation_gamepad_focus_right == "15"
     assert config.confirmation_gamepad_activate == "0"
+    assert config.confirmation_gamepad_play_audio == "3"
     assert config.confirmation_gamepad_confirm_with_audio == "2"
     assert config.confirmation_gamepad_confirm_without_audio == "1"
 
@@ -67,8 +70,9 @@ def test_confirmation_edit_gamepad_defaults_use_triggers_and_bumpers(existing_co
         assert getattr(config, name) == value
 
 
-def test_confirmation_edit_gamepad_bindings_round_trip_and_sync_across_profiles():
+def test_confirmation_action_gamepad_bindings_round_trip_and_sync_across_profiles():
     bindings = {
+        "confirmation_gamepad_play_audio": "11",
         "confirmation_gamepad_add_previous_line": "8",
         "confirmation_gamepad_add_next_line": "9",
         "confirmation_gamepad_expand_audio_start": "",

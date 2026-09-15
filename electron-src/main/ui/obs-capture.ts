@@ -1,7 +1,9 @@
 export type ObsCaptureMode = 'window_capture' | 'game_capture';
-export type ObsSetupTargetKind = 'window' | 'capture_card' | 'wayland_pipewire';
+export type ObsSetupTargetKind = 'window' | 'capture_card' | 'monitor' | 'wayland_pipewire';
 export const OBS_APPLICATION_AUDIO_INPUT_KIND = 'wasapi_process_output_capture';
 export const OBS_WASAPI_INPUT_CAPTURE_KIND = 'wasapi_input_capture';
+export const OBS_WASAPI_OUTPUT_CAPTURE_KIND = 'wasapi_output_capture';
+export const OBS_MONITOR_CAPTURE_INPUT_KIND = 'monitor_capture';
 export const OBS_DSHOW_INPUT_KIND = 'dshow_input';
 export const OBS_XCOMPOSITE_INPUT_KIND = 'xcomposite_input';
 export const OBS_PIPEWIRE_DESKTOP_INPUT_KIND = 'pipewire-desktop-capture-source';
@@ -15,6 +17,8 @@ export type ObsSceneCaptureInputKind =
     | ObsCaptureMode
     | typeof OBS_APPLICATION_AUDIO_INPUT_KIND
     | typeof OBS_WASAPI_INPUT_CAPTURE_KIND
+    | typeof OBS_WASAPI_OUTPUT_CAPTURE_KIND
+    | typeof OBS_MONITOR_CAPTURE_INPUT_KIND
     | typeof OBS_DSHOW_INPUT_KIND
     | typeof OBS_XCOMPOSITE_INPUT_KIND
     | ObsPipewireInputKind;
@@ -48,6 +52,7 @@ export interface ObsSceneSetupOption {
     videoDeviceId?: string;
     audioDeviceId?: string;
     wasapiInputDeviceId?: string;
+    monitorId?: string;
     pipewireInputKind?: ObsPipewireInputKind;
 }
 
@@ -70,6 +75,7 @@ export interface ObsSceneCaptureWindowSelection {
     videoDeviceId?: string | null;
     audioDeviceId?: string | null;
     wasapiInputDeviceId?: string | null;
+    monitorId?: string | null;
     pipewireInputKind?: ObsPipewireInputKind | null;
 }
 
@@ -335,6 +341,25 @@ export function mergeObsWindowItems(
     );
 }
 
+export function buildMonitorCaptureOptions(
+    monitors: ObsDevicePropertyItem[]
+): ObsSceneSetupOption[] {
+    return monitors
+        .filter((monitor) =>
+            monitor.itemEnabled !== false &&
+            typeof monitor.itemValue === 'string' &&
+            monitor.itemValue.trim().length > 0 &&
+            monitor.itemValue !== 'DUMMY'
+        )
+        .map((monitor) => ({
+            title: monitor.itemName,
+            value: JSON.stringify(['monitor', monitor.itemValue]),
+            targetKind: 'monitor' as const,
+            monitorId: monitor.itemValue,
+        }))
+        .sort((left, right) => left.title.localeCompare(right.title));
+}
+
 export function buildCaptureCardOptions(
     videoDevices: ObsDevicePropertyItem[],
     directShowAudioDevices: ObsDevicePropertyItem[],
@@ -415,6 +440,32 @@ export function buildWindowsSceneCaptureInputs(
         throw new Error(
             'Automatic OBS capture setup is currently only supported on Windows.'
         );
+    }
+
+    if (selectedWindow.targetKind === 'monitor') {
+        const monitorId = selectedWindow.monitorId?.trim();
+        if (!monitorId || monitorId === 'DUMMY') {
+            throw new Error('No OBS monitor was selected.');
+        }
+
+        return [
+            {
+                inputName: `${sceneName} - Monitor Capture`,
+                inputKind: OBS_MONITOR_CAPTURE_INPUT_KIND,
+                inputSettings: {
+                    monitor_id: monitorId,
+                    method: 0,
+                    capture_cursor: false,
+                },
+                sceneItemEnabled: true,
+            },
+            {
+                inputName: `${sceneName} - Desktop Audio`,
+                inputKind: OBS_WASAPI_OUTPUT_CAPTURE_KIND,
+                inputSettings: { device_id: 'default' },
+                sceneItemEnabled: true,
+            },
+        ];
     }
 
     if (

@@ -4,7 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { DOCS_URLS } from "../../../../shared/docs";
 import { getDefaultStabilityOcr } from "../../../../shared/ocr_defaults";
 import { invokeIpc, onIpc, platformFromEnv, sendIpc } from "../../lib/ipc";
-import type { ObsScene } from "../../types/models";
+import type { ObsScene, SceneLaunchProfile, SceneOcrMode } from "../../types/models";
 import { useTranslation } from "../../i18n";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "../../lib/theme";
 
@@ -1045,6 +1045,11 @@ export function OCRTab({ active }: OcrTabProps) {
   const [scenes, setScenes] = useState<ObsScene[]>([]);
   const [selectedSceneId, setSelectedSceneId] = useState("");
   const [loadingScenes, setLoadingScenes] = useState(true);
+  const [sceneAutostart, setSceneAutostart] = useState<{
+    sceneId: string;
+    mode: SceneOcrMode;
+  } | null>(null);
+  const [savingAutostart, setSavingAutostart] = useState(false);
   const [activeSceneAreaConfig, setActiveSceneAreaConfig] =
     useState<OcrSceneAreaConfig | null>(null);
   const [runningState, setRunningState] = useState<OcrRunningState>({
@@ -1082,6 +1087,91 @@ export function OCRTab({ active }: OcrTabProps) {
     () => scenes.find((scene) => scene.id === selectedSceneId) ?? null,
     [scenes, selectedSceneId]
   );
+  const selectedAutostartMode = sceneAutostart?.sceneId === selectedSceneId
+    ? sceneAutostart.mode
+    : null;
+  const autostartTooltip = [
+    t("ocr.sceneAndAreas.autostartHint"),
+    `${t("launcher.scene.ocrNone")}: ${t("launcher.tooltips.ocrNone")}`,
+    `${t("launcher.scene.ocrAuto")}: ${t("launcher.tooltips.ocrAuto")}`,
+    `${t("launcher.scene.ocrManual")}: ${t("launcher.tooltips.ocrManual")}`
+  ].join("\n\n");
+
+  useEffect(() => {
+    if (!selectedScene) {
+      setSceneAutostart(null);
+      return;
+    }
+    if (!active || savingAutostart) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadAutostart = async () => {
+      try {
+        const profile = await invokeIpc<SceneLaunchProfile | null>(
+          "settings.getSceneLaunchProfile",
+          selectedScene
+        );
+        if (!cancelled) {
+          setSceneAutostart({
+            sceneId: selectedScene.id,
+            mode: profile?.ocrMode ?? "none"
+          });
+        }
+      } catch (error) {
+        console.error("Failed to load OCR autostart settings:", error);
+        if (!cancelled) {
+          setSceneAutostart(null);
+          setNotice({ type: "error", message: t("ocr.runtime.failedLoadAutostart") });
+        }
+      }
+    };
+
+    void loadAutostart();
+    return () => {
+      cancelled = true;
+    };
+  }, [active, selectedScene, savingAutostart, t]);
+
+  const saveAutostart = useCallback(async (mode: SceneOcrMode) => {
+    if (!selectedScene || selectedAutostartMode === null || savingAutostart) {
+      return;
+    }
+
+    setSavingAutostart(true);
+    try {
+      // The save API replaces the profile, so preserve its latest non-OCR settings.
+      const profile = await invokeIpc<SceneLaunchProfile | null>(
+        "settings.getSceneLaunchProfile",
+        selectedScene
+      );
+      const result = await invokeIpc<{ success: boolean }>(
+        "settings.saveSceneLaunchProfile",
+        {
+          scene: selectedScene,
+          textHookMode: profile?.textHookMode ?? "none",
+          ocrMode: mode,
+          launchOverlay: profile?.launchOverlay ?? false,
+          agentScriptPath: profile?.agentScriptPath ?? "",
+          launchDelaySeconds: profile?.launchDelaySeconds ?? 0
+        }
+      );
+      if (!result?.success) {
+        throw new Error("Failed to save scene launch profile");
+      }
+      setSceneAutostart({ sceneId: selectedScene.id, mode });
+      setNotice({
+        type: "success",
+        message: t("launcher.status.savedScene", { scene: selectedScene.name })
+      });
+    } catch (error) {
+      console.error("Failed to save OCR autostart settings:", error);
+      setNotice({ type: "error", message: t("ocr.runtime.failedSaveAutostart") });
+    } finally {
+      setSavingAutostart(false);
+    }
+  }, [selectedScene, selectedAutostartMode, savingAutostart, t]);
 
   const configuredAreaCount = activeSceneAreaConfig?.rectangles?.length ?? 0;
   const hasConfiguredAreas = configuredAreaCount > 0;
@@ -2005,6 +2095,33 @@ export function OCRTab({ active }: OcrTabProps) {
                     {t("ocr.sceneAndAreas.noScenesHint")}
                   </div>
                 ) : null}
+                <div
+                  className="input-group ocr-tip-wrap ocr-tip-wrap--start"
+                  {...titleProps(autostartTooltip)}
+                >
+                  <label htmlFor="ocr-autostart-mode">
+                    {t("ocr.sceneAndAreas.autostart")}
+                  </label>
+                  <select
+                    id="ocr-autostart-mode"
+                    aria-description={autostartTooltip}
+                    value={selectedAutostartMode ?? "none"}
+                    disabled={loadingScenes || selectedAutostartMode === null || savingAutostart}
+                    onChange={(event) => {
+                      void saveAutostart(event.target.value as SceneOcrMode);
+                    }}
+                  >
+                    <option value="none">
+                      {t("launcher.scene.ocrNone")}
+                    </option>
+                    <option value="auto">
+                      {t("launcher.scene.ocrAuto")}
+                    </option>
+                    <option value="manual">
+                      {t("launcher.scene.ocrManual")}
+                    </option>
+                  </select>
+                </div>
                 <div className="link-row">
                   <button
                     type="button"

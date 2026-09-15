@@ -71,4 +71,52 @@ describe("agent script file listing", () => {
         expect(result.path).not.toBe(pcScript);
         expect(result.candidates.every((candidate) => path.basename(candidate.path).startsWith("NS_"))).toBe(true);
     });
+
+    it("includes executable matches even when the scene and window have different names", () => {
+        const root = makeTempRoot();
+        const script = path.join(root, "PC_Steam_Unicorn_Overlord.js");
+        fs.writeFileSync(script, "");
+        const result = resolveSwitchAgentScript({
+            scriptsPath: root,
+            sceneName: "My capture",
+            windowTitle: "Loading…",
+            processName: "C:\\Games\\UnicornOverlord-Win64-Shipping.exe",
+        });
+        expect(result.path).toBe(script);
+        expect(result.candidates[0].score).toBeLessThanOrEqual(0.15);
+    });
+
+    it("includes and ranks matches from scene, title, and executable together", () => {
+        const root = makeTempRoot();
+        for (const name of ["PC_Tsukihime.js", "PC_Resident_Evil_HD_REMASTER.js", "PC_Unicorn_Overlord.js"]) {
+            fs.writeFileSync(path.join(root, name), "");
+        }
+        const result = resolveSwitchAgentScript({
+            scriptsPath: root,
+            sceneName: "Tsukihime",
+            windowTitle: "Resident Evil HD REMASTER",
+            processName: "UnicornOverlord.exe",
+        });
+        expect(result.candidates.filter((candidate) => candidate.score <= 0.15)).toHaveLength(3);
+    });
+
+    it("does not match scripts using generic emulator or engine executable names", () => {
+        const root = makeTempRoot();
+        fs.writeFileSync(path.join(root, "PC_Game_UnityPlayer.js"), "");
+        for (const processName of ["game.exe", "UnityPlayer.exe", "main.exe"]) {
+            const result = resolveSwitchAgentScript({ scriptsPath: root, sceneName: "Scene", processName });
+            expect(result.candidates).toEqual([]);
+        }
+    });
+
+    it("preserves explicit and detected Switch title IDs over conflicting name hints", () => {
+        const root = makeTempRoot();
+        const first = path.join(root, "NS_01000AE01954A000_Unicorn_Overlord.js");
+        const second = path.join(root, "NS_01001DC01486A000_Tsukihime.js");
+        fs.writeFileSync(first, "");
+        fs.writeFileSync(second, "");
+        const input = { scriptsPath: root, processName: "yuzu.exe", sceneName: "Tsukihime", windowTitle: "yuzu | Tsukihime [01000AE01954A000]" };
+        expect(resolveSwitchAgentScript(input)).toMatchObject({ path: first, reason: "matched_title_id" });
+        expect(resolveSwitchAgentScript({ ...input, explicitGameId: "01001DC01486A000" })).toMatchObject({ path: second, reason: "matched_explicit_id" });
+    });
 });

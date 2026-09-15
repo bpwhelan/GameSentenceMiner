@@ -63,8 +63,11 @@
       "preview": "Preview",
       "captureCardPrefix": "Capture Card: {title}",
       "setupNewScene": "Setup New Game Capture:",
-      "refreshWindows": "Refresh windows",
-      "selectWindow": "Select Window",
+      "refreshWindows": "Refresh capture targets",
+      "selectWindow": "Select Capture Target",
+      "captureTargetLabel": "Capture Target:",
+      "sectionMonitors": "Monitor Capture",
+      "monitorCaptureTooltip": "Capture everything on the selected monitor with desktop audio from the default output device. Adds a separate audio source to this scene. Global desktop audio settings and automatic scene switching are unchanged.",
       "setupCapture": "Setup Capture",
       "setupCaptureTooltip": "Setup Capture adds the selected Window Capture or Game Capture source for windows, or Video Capture Device for capture cards and cameras.\nUse Game Capture for fullscreen games; use Window Capture when Game Capture shows black.\nOn Linux X11/Steam Deck, Setup Capture uses XComposite Window Capture. On Wayland, it uses OBS Screen Capture (PipeWire) and opens the system screen/window chooser.\nCapture-card game captures are created without automatic window-title switching.",
       "waylandPipewireOption": "Wayland screen capture (PipeWire)",
@@ -275,16 +278,16 @@
     }
   },
   "captureWizard": {
-    "title": "Text Capture Wizard (WIP)",
-    "subtitle": "Finish text input, OCR fallback, and automation for this game.",
+    "title": "Text Capture Wizard",
+    "subtitle": "Learn your text capture options in four steps, or jump to the setting you need.",
     "breadcrumbLabel": "Text capture setup steps",
     "steps": {
-      "preview": "Preview",
+      "preview": "Capture",
       "agent": "Agent",
-      "hook": "Hooks",
+      "hook": "Texthook",
       "ocr": "OCR",
       "profile": "Profile",
-      "finish": "Review"
+      "finish": "Finalize"
     },
     "actions": {
       "deny": "Not now",
@@ -293,8 +296,8 @@
       "next": "Next"
     },
     "preview": {
-      "title": "Check the OBS preview",
-      "description": "GSM refreshes this preview every second and fits the source to the OBS canvas before each screenshot.",
+      "title": "Check your game capture",
+      "description": "GSM uses video capture for screenshots, clips, and OCR. Check that your game is visible below. If the preview is black, try switching the capture type.",
       "scene": "Scene",
       "executable": "Executable",
       "captureType": "Capture type",
@@ -328,16 +331,16 @@
       "useScript": "Use selected script"
     },
     "hook": {
-      "title": "Try Luna or Textractor",
-      "description": "Luna and Textractor hooks are mainly for visual novels. For video games, an Agent script or OCR is more likely to work; only use this if you see clean dialogue.",
+      "title": "Get text directly from the game",
+      "description": "Text hooks read text directly from the game, avoiding OCR recognition errors. Luna and Textractor are usually the best choice for visual novels.",
       "engine": "Engine",
       "luna": "Luna Hook",
       "textractor": "Textractor",
       "start": "Start hook engine",
       "running": "{count} usable hooks found",
       "notRunning": "Hook engine is not running.",
-      "waiting": "Waiting for hooks with text. Advance the game dialogue.",
-      "startFirst": "Start an engine to scan for hooks.",
+      "waiting": "Advance dialogue to find text. If no matching text appears, try Textractor or continue to OCR.",
+      "startFirst": "Start with Luna, advance dialogue in your game, then select the text that matches.",
       "noPreview": "No text preview yet",
       "refreshFailed": "Failed to refresh hooks.",
       "startFailed": "Failed to start hook engine.",
@@ -346,7 +349,7 @@
     },
     "ocr": {
       "title": "Choose the OCR area",
-      "description": "Draw an area around the game's dialogue. When the selector closes, GSM will scan it once so you can check the text it finds.",
+      "description": "OCR reads text from the game picture. It works with most games, including games played through a capture card. Select the dialogue area to get a text sample.",
       "reasonStable": "An OCR area keeps scans focused on the dialogue box.",
       "reasonNoise": "Smaller areas avoid menus, names, and UI noise.",
       "reasonFallback": "It still works for console games, protected engines, and capture cards.",
@@ -373,8 +376,8 @@
       "automationAutoDescription": "Continuously scan the selected area while the game is active."
     },
     "profile": {
-      "title": "Save this game setup",
-      "description": "Save automation for this OBS scene and optionally open GSM Profiles for a larger per-game profile split.",
+      "title": "Finalize this game setup",
+      "description": "Review your text source and choose what starts automatically next time.",
       "source": "Text source",
       "sourceAgent": "Agent script",
       "sourceLuna": "Luna Hook",
@@ -414,6 +417,38 @@
     },
     "errors": {
       "contextFailed": "Failed to load the active capture."
+    },
+    "guided": {
+      "captureNext": "Capture looks right — choose text",
+      "hookNext": "Continue to OCR",
+      "finalize": "Continue to Finalize",
+      "saveAndClose": "Save and close",
+      "skipOcr": "Skip OCR and finalize",
+      "ocrOptional": "Your text hook is selected. You can skip OCR, or set it up for text the hook misses.",
+      "ocrGuide": "Select the dialogue area, check the sample, then choose when OCR runs.",
+      "hookGuide": "1. Start an engine. 2. Advance dialogue in your game. 3. Select the text that matches.",
+      "vnTitle": "Luna / Textractor · Best for visual novels",
+      "agentTitle": "Agent · Game-specific scripts",
+      "agentDescription": "Agent uses a script written for a specific game. Search manually if you already know which script you need.",
+      "agentRecommended": "Strong script match",
+      "agentMatchHint": "Matched against this game’s scene name, window title, or executable. Check the game and platform before using it.",
+      "agentNoMatch": "No strong script match found. Try Luna / Textractor for a visual novel, or continue to OCR.",
+      "useAgent": "Use this script",
+      "stopHook": "Stop engine",
+      "stoppingFailed": "Failed to stop the text hook.",
+      "selectedSource": "Selected: {source}",
+      "noSource": "No text source selected yet. Return to Texthook or OCR to set one up, or save only your capture preferences.",
+      "optionalSettings": "More options: overlay and GSM profile",
+      "noScene": "Start the game and select its capture on Home, then refresh.",
+      "useOcr": "Use OCR and finalize",
+      "keepHook": "Keep text hook and finalize",
+      "engineBusy": "Starting…",
+      "hookSelected": "Text hook selected. Continue to OCR for an optional fallback, or jump to Finalize.",
+      "ocrNotTested": "No sample yet. You can select an area now or use your existing OCR setup.",
+      "agentStart": "Start script",
+      "agentRunning": "Agent is running. Advance dialogue to check the captured text.",
+      "usingSaved": "Your saved setup is loaded. Jump to a step to adjust it.",
+      "otherGameRunning": "A text hook is running for {exe}. Stop it before starting one for this game."
     }
   },
   "install": {
@@ -967,6 +1002,8 @@
   },
   "ocr": {
     "sceneAndAreas": {
+      "autostart": "Autostart OCR:",
+      "autostartHint": "Choose which OCR mode starts automatically when this game is active. This setting is shared with Game Automation.",
       "title": "Game & Areas",
       "areaCount": "{count} area",
       "areaCountPlural": "{count} areas",
@@ -1177,6 +1214,8 @@
       "comparison": "Dedupe and change-detection thresholds that decide when text is new, stable, or a subset of a previous line."
     },
     "runtime": {
+      "failedLoadAutostart": "Failed to load OCR autostart settings.",
+      "failedSaveAutostart": "Failed to save OCR autostart settings.",
       "idle": "Idle",
       "startingAuto": "Starting auto OCR...",
       "startingManual": "Starting manual OCR...",

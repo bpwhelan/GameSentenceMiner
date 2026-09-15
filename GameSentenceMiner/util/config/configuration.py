@@ -843,6 +843,7 @@ class Anki:
     confirmation_gamepad_focus_left: str = "14"
     confirmation_gamepad_focus_right: str = "15"
     confirmation_gamepad_activate: str = "0"
+    confirmation_gamepad_play_audio: str = "3"
     confirmation_gamepad_confirm_with_audio: str = "2"
     confirmation_gamepad_confirm_without_audio: str = "1"
     confirmation_gamepad_add_previous_line: str = "6"
@@ -2276,6 +2277,7 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_left")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_right")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_activate")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_play_audio")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_confirm_with_audio")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_confirm_without_audio")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_add_previous_line")

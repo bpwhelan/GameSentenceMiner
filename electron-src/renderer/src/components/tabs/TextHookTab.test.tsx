@@ -294,15 +294,15 @@ describe("TextHookTab", () => {
     );
   });
 
-  it("searches Agent scripts by the captured window title instead of the executable", async () => {
+  it("ranks Agent scripts from scene, window, and executable without a prefilled filter", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "texthook.getStatus") return { running: false };
       if (channel === "texthook.listHooks") return { selectedHookId: null, hooks: [] };
       if (channel === "texthook.getActiveCapture") {
         return {
-          sceneName: "Resident Evil",
+          sceneName: "Tsukihime",
           sceneId: "scene-1",
-          exeName: "re1.exe",
+          exeName: "UnicornOverlord.exe",
           windowTitle: "Resident Evil HD REMASTER",
         };
       }
@@ -312,6 +312,8 @@ describe("TextHookTab", () => {
           scripts: [
             "C:\\Agent\\data\\scripts\\PC_Steam_Resident_Evil_HD_REMASTER.js",
             "C:\\Agent\\data\\scripts\\PC_Unrelated_Game.js",
+            "C:\\Agent\\data\\scripts\\PC_Tsukihime.js",
+            "C:\\Agent\\data\\scripts\\PC_Unicorn_Overlord.js",
           ],
         };
       }
@@ -340,10 +342,13 @@ describe("TextHookTab", () => {
     const searchInput = container.querySelector(
       ".agent-script-search-dialog input[type='search']"
     ) as HTMLInputElement;
-    expect(searchInput.value).toBe("Resident Evil HD REMASTER");
-    expect(searchInput.value).not.toContain("re1");
-    expect(container.querySelectorAll(".agent-script-search-option")).toHaveLength(1);
+    expect(searchInput.value).toBe("");
+    const options = Array.from(container.querySelectorAll(".agent-script-search-option"));
+    expect(options).toHaveLength(4);
+    expect(options[3].textContent).toContain("Unrelated Game");
     expect(container.textContent).toContain("Resident Evil HD REMASTER");
+    expect(container.textContent).toContain("Tsukihime");
+    expect(container.textContent).toContain("Unicorn Overlord");
   });
 
   it("starts Agent detached by default without showing the option for other engines", async () => {

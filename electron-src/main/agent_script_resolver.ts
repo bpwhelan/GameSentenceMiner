@@ -2,7 +2,10 @@ import * as fs from "fs";
 import * as path from "path";
 import Fuse from "fuse.js";
 import {
+    getAgentScriptSearchQueries,
     isListableAgentScriptPath,
+    isNintendoSwitchAgentScriptPath,
+    scoreAgentScriptForContext,
 } from "../shared/agent_scripts.js";
 
 const SWITCH_EMULATOR_HINTS = [
@@ -14,29 +17,6 @@ const SWITCH_EMULATOR_HINTS = [
     "sudachi",
     "torzu",
 ];
-
-const NAME_STOP_WORDS = new Set([
-    "the",
-    "and",
-    "for",
-    "with",
-    "launcher",
-    "release",
-    "debug",
-    "build",
-    "msvc",
-    "vulkan",
-    "opengl",
-    "nintendo",
-    "switch",
-    "version",
-    "bit",
-    "fps",
-    "game",
-    "title",
-    "scene",
-    ...SWITCH_EMULATOR_HINTS,
-]);
 
 const MIN_AUTO_SELECT_CONFIDENCE = 0.85;
 const MAX_MATCH_SCORE = 1;
@@ -174,11 +154,6 @@ export function listAgentScriptFiles(scriptsPath: string): string[] {
     }
 }
 
-function isNintendoSwitchScriptPath(filePath: string): boolean {
-    const fileName = path.basename(filePath);
-    return /^NS_/i.test(fileName);
-}
-
 function normalizeCandidateId(value: string | null | undefined): string | null {
     if (!value || typeof value !== "string") {
         return null;
@@ -201,40 +176,6 @@ function extractHexTitleIds(value: string | null | undefined): string[] {
     return dedupe(ids);
 }
 
-function tokenizeForMatching(value: string): string[] {
-    return value
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}]+/gu, " ")
-        .split(/\s+/)
-        .map((token) => token.trim())
-        .filter((token) => token.length >= 2 && !NAME_STOP_WORDS.has(token));
-}
-
-function getSceneNameCandidates(sceneName?: string | null, windowTitle?: string | null): string[] {
-    const candidates: string[] = [];
-
-    if (typeof sceneName === "string" && sceneName.trim().length > 0) {
-        candidates.push(sceneName.trim());
-    }
-
-    if (typeof windowTitle === "string" && windowTitle.trim().length > 0) {
-        const trimmed = windowTitle.trim();
-        candidates.push(trimmed);
-        trimmed
-            .split("|")
-            .map((segment) => segment.trim())
-            .filter((segment) => segment.length > 0)
-            .forEach((segment) => candidates.push(segment));
-        trimmed
-            .split("-")
-            .map((segment) => segment.trim())
-            .filter((segment) => segment.length > 0)
-            .forEach((segment) => candidates.push(segment));
-    }
-
-    return dedupe(candidates);
-}
-
 function findScriptById(scriptFiles: string[], gameId: string): string | null {
     const normalizedId = gameId.toLowerCase();
     if (!normalizedId) {
@@ -249,56 +190,6 @@ function findScriptById(scriptFiles: string[], gameId: string): string | null {
     }
 
     return null;
-}
-
-function findBestNameMatch(scriptFiles: string[], names: string[]): string | null {
-    const queryTokens = new Set(
-        names.flatMap((candidate) => tokenizeForMatching(candidate))
-    );
-    if (queryTokens.size === 0) {
-        return null;
-    }
-
-    let bestPath: string | null = null;
-    let bestScore = 0;
-    let secondBest = 0;
-
-    for (const filePath of scriptFiles) {
-        const fileNameWithoutExt = path.basename(filePath, path.extname(filePath));
-        const fileTokens = new Set(tokenizeForMatching(fileNameWithoutExt));
-        if (fileTokens.size === 0) {
-            continue;
-        }
-
-        let score = 0;
-        queryTokens.forEach((token) => {
-            if (fileTokens.has(token)) {
-                score += 1;
-            }
-        });
-
-        if (score > bestScore) {
-            secondBest = bestScore;
-            bestScore = score;
-            bestPath = filePath;
-        } else if (score > secondBest) {
-            secondBest = score;
-        }
-    }
-
-    if (!bestPath) {
-        return null;
-    }
-
-    if (bestScore < 2) {
-        return null;
-    }
-
-    if (bestScore === secondBest) {
-        return null;
-    }
-
-    return bestPath;
 }
 
 function normalizeFuzzyText(value: string): string {
@@ -474,8 +365,8 @@ export function resolveSwitchAgentScript(
     }
 
     const fallbackCandidateScripts = isSwitchTarget
-        ? scriptFiles.filter((filePath) => isNintendoSwitchScriptPath(filePath))
-        : scriptFiles.filter((filePath) => !isNintendoSwitchScriptPath(filePath));
+        ? scriptFiles.filter((filePath) => isNintendoSwitchAgentScriptPath(filePath))
+        : scriptFiles.filter((filePath) => !isNintendoSwitchAgentScriptPath(filePath));
     if (fallbackCandidateScripts.length === 0) {
         return {
             path: null,
@@ -486,11 +377,13 @@ export function resolveSwitchAgentScript(
         };
     }
 
-    const nameCandidates = getSceneNameCandidates(input.sceneName, input.windowTitle);
-    const nameMatch = findBestNameMatch(fallbackCandidateScripts, nameCandidates);
-    if (nameMatch) {
-        pushCandidate(nameMatch, "matched_name", 0.12);
-    }
+    const nameCandidates = getAgentScriptSearchQueries(input);
+    fallbackCandidateScripts.forEach((scriptPath) => {
+        const score = scoreAgentScriptForContext(input, scriptPath);
+        if (score < 1) {
+            pushCandidate(scriptPath, "matched_name", score);
+        }
+    });
 
     const fuzzyNameMatches = findFuzzyNameMatches(fallbackCandidateScripts, nameCandidates);
     fuzzyNameMatches.forEach((candidate, index) => {
@@ -499,22 +392,10 @@ export function resolveSwitchAgentScript(
     });
 
     const sortedCandidates = getSortedCandidates();
-    if (nameMatch) {
-        return {
-            path: nameMatch,
-            reason: "matched_name",
-            isSwitchTarget,
-            titleId: titleIdCandidates[0] ?? null,
-            candidates: sortedCandidates,
-        };
-    }
-
     if (sortedCandidates.length > 0) {
-        const topFuzzy = sortedCandidates.find((candidate) => candidate.reason === "matched_fuzzy_name");
-        const chosenPath = topFuzzy?.path ?? sortedCandidates[0].path;
         return {
-            path: chosenPath,
-            reason: "matched_fuzzy_name",
+            path: sortedCandidates[0].path,
+            reason: sortedCandidates[0].reason,
             isSwitchTarget,
             titleId: titleIdCandidates[0] ?? null,
             candidates: sortedCandidates,

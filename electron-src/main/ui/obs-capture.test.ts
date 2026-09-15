@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     buildWaylandPipewireOption,
     buildCaptureCardOptions,
+    buildMonitorCaptureOptions,
     buildLinuxSceneCaptureInputs,
     buildWindowsSceneCaptureInputs,
     mergeObsWindowItems,
@@ -158,7 +159,59 @@ describe('buildCaptureCardOptions', () => {
     });
 });
 
+describe('buildMonitorCaptureOptions', () => {
+    it('keeps OBS display IDs and labels, excluding disabled and placeholder entries', () => {
+        expect(buildMonitorCaptureOptions([
+            { itemName: 'Display 2: 2560x1440 @ 1920,0', itemValue: 'display-2', itemEnabled: true },
+            { itemName: 'Select a display', itemValue: 'DUMMY', itemEnabled: false },
+            { itemName: 'Disconnected display', itemValue: 'old-display', itemEnabled: false },
+            { itemName: 'Empty', itemValue: '' },
+            { itemName: 'Display 1: 1920x1080 @ 0,0', itemValue: 'display-1' },
+        ])).toEqual([
+            {
+                title: 'Display 1: 1920x1080 @ 0,0',
+                value: '["monitor","display-1"]',
+                targetKind: 'monitor',
+                monitorId: 'display-1',
+            },
+            {
+                title: 'Display 2: 2560x1440 @ 1920,0',
+                value: '["monitor","display-2"]',
+                targetKind: 'monitor',
+                monitorId: 'display-2',
+            },
+        ]);
+    });
+});
+
 describe('buildWindowsSceneCaptureInputs', () => {
+    it('captures the selected monitor with its own default desktop audio source', () => {
+        expect(buildWindowsSceneCaptureInputs('Freeflow', {
+            title: 'Display 2',
+            targetKind: 'monitor',
+            monitorId: 'display-2',
+        }, { isWindows: true, isWindows10OrHigher: true })).toEqual([
+            {
+                inputName: 'Freeflow - Monitor Capture',
+                inputKind: 'monitor_capture',
+                inputSettings: { monitor_id: 'display-2', method: 0, capture_cursor: false },
+                sceneItemEnabled: true,
+            },
+            {
+                inputName: 'Freeflow - Desktop Audio',
+                inputKind: 'wasapi_output_capture',
+                inputSettings: { device_id: 'default' },
+                sceneItemEnabled: true,
+            },
+        ]);
+    });
+
+    it.each([undefined, '', '   ', 'DUMMY'])('rejects an invalid monitor ID: %s', (monitorId) => {
+        expect(() => buildWindowsSceneCaptureInputs('Freeflow', {
+            targetKind: 'monitor', monitorId,
+        }, { isWindows: true, isWindows10OrHigher: true })).toThrow('No OBS monitor was selected.');
+    });
+
     it('defaults to a game-capture video source with separate application audio', () => {
         const plan = buildWindowsSceneCaptureInputs(
             'Example Game',

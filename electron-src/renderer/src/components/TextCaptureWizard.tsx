@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, onIpc, sendIpc } from "../lib/ipc";
 import { useTranslation } from "../i18n";
-import type { ObsCaptureMode, ObsScene, SceneOcrMode } from "../types/models";
+import type { ObsCaptureMode, ObsScene, SceneLaunchProfile, SceneOcrMode } from "../types/models";
 import { AgentScriptDisplay } from "./AgentScriptDisplay";
 import { AgentScriptSearchDialog } from "./AgentScriptSearchDialog";
 import {
   buildAgentScriptCandidateList,
+  getHighConfidenceAgentScriptCandidate,
   normalizeAgentScriptPathForCompare,
   type AgentScriptCandidate,
 } from "../../../shared/agent_scripts";
 
 type TextHookEngine = "luna" | "textractor" | "agent";
-type WizardStep = "preview" | "agent" | "hook" | "ocr" | "profile" | "finish";
+type WizardStep = "preview" | "hook" | "ocr" | "finish";
 type WizardTextSource = "none" | TextHookEngine | "ocr";
 type OcrInitialScanState =
   | "idle"
@@ -33,6 +34,7 @@ interface ActiveCapture {
   sceneName: string;
   sceneId: string;
   exeName: string | null;
+  windowTitle?: string | null;
   error?: string;
 }
 
@@ -92,12 +94,22 @@ interface RuntimeStatusStopped {
 
 type RuntimeStatus = RuntimeStatusRunning | RuntimeStatusStopped;
 
+interface SavedHookProfile {
+  engine: TextHookEngine;
+  autoHook: boolean;
+  flushDelayMs?: number;
+  copyToClipboard?: boolean;
+  hookId?: string | null;
+  hookFunction?: string | null;
+  manualHookCode?: string | null;
+  agentScriptPath?: string | null;
+  agentDetached?: boolean;
+}
+
 const CAPTURE_WIZARD_STEPS: Array<{ id: WizardStep; labelKey: string }> = [
   { id: "preview", labelKey: "captureWizard.steps.preview" },
-  { id: "agent", labelKey: "captureWizard.steps.agent" },
   { id: "hook", labelKey: "captureWizard.steps.hook" },
   { id: "ocr", labelKey: "captureWizard.steps.ocr" },
-  { id: "profile", labelKey: "captureWizard.steps.profile" },
   { id: "finish", labelKey: "captureWizard.steps.finish" }
 ];
 
@@ -155,7 +167,6 @@ function normalizeCaptureMode(value: unknown): ObsCaptureMode | null {
 export function TextCaptureWizard({
   initialScene,
   onClose,
-  onNavigateTab
 }: TextCaptureWizardProps) {
   const t = useTranslation();
   const [step, setStep] = useState<WizardStep>("preview");
@@ -167,7 +178,8 @@ export function TextCaptureWizard({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentCandidates, setAgentCandidates] = useState<AgentScriptCandidate[]>([]);
-  const [agentResolution, setAgentResolution] = useState<ResolveAgentScriptResponse | null>(null);
+  const [agentSamples, setAgentSamples] = useState<string[]>([]);
+  const [isSwitchTarget, setIsSwitchTarget] = useState<boolean | undefined>();
   const [selectedAgentScript, setSelectedAgentScript] = useState("");
   const [agentSearchDialog, setAgentSearchDialog] = useState<AgentScriptSearchDialogState | null>(null);
   const [hookEngine, setHookEngine] = useState<Exclude<TextHookEngine, "agent">>("luna");
@@ -175,6 +187,7 @@ export function TextCaptureWizard({
   const [hooks, setHooks] = useState<HookEntry[]>([]);
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
   const [textSource, setTextSource] = useState<WizardTextSource>("none");
+  const [textSourceChanged, setTextSourceChanged] = useState(false);
   const [saveAutomation, setSaveAutomation] = useState(true);
   const [launchTextHook, setLaunchTextHook] = useState(true);
   const [ocrMode, setOcrMode] = useState<SceneOcrMode>("none");
@@ -190,6 +203,13 @@ export function TextCaptureWizard({
   const [newProfileName, setNewProfileName] = useState("");
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [assigningProfile, setAssigningProfile] = useState(false);
+  const [hookBusy, setHookBusy] = useState(false);
+  const [contextLoading, setContextLoading] = useState(true);
+  const [contextFailed, setContextFailed] = useState(false);
+  const [savedHookProfile, setSavedHookProfile] = useState<SavedHookProfile | null>(null);
+  const [savedSceneProfile, setSavedSceneProfile] = useState<SceneLaunchProfile | null>(null);
+  const [acceptedHook, setAcceptedHook] = useState<{ id: string | null; function: string | null } | null>(null);
+  const loadedSceneRef = useRef<string | null>(null);
   const previewInFlightRef = useRef(false);
   const ocrSelectorRequestedRef = useRef(false);
   const pendingInitialOcrStartRef = useRef(false);
@@ -204,40 +224,114 @@ export function TextCaptureWizard({
     return null;
   }, [capture, scene]);
 
-  const exeName = hookStatus.running ? hookStatus.exeName : capture?.exeName ?? null;
+  const exeName = capture?.exeName ?? null;
   const selectedHook = hooks.find((hook) => hook.id === selectedHookId) ?? null;
   const stepIndex = CAPTURE_WIZARD_STEPS.findIndex((entry) => entry.id === step);
   const isFirstStep = stepIndex <= 0;
+  const hasTextHook = textSource === "agent" || textSource === "luna" || textSource === "textractor";
+  const preserveLegacyHook = !textSourceChanged && !savedHookProfile && !!savedSceneProfile && savedSceneProfile.textHookMode !== "none";
+  const runtimeMatchesCapture = hookStatus.running && !!exeName &&
+    hookStatus.exeName.toLowerCase() === exeName.toLowerCase();
+  const recommendedAgent = useMemo(
+    () => getHighConfidenceAgentScriptCandidate(agentCandidates, { isSwitchTarget }),
+    [agentCandidates, isSwitchTarget]
+  );
+  const displayedAgentScript = selectedAgentScript || recommendedAgent?.path || "";
 
   const visibleHooks = useMemo(
-    () => hooks.filter(hasHookText),
-    [hooks]
+    () => runtimeMatchesCapture ? hooks.filter(hasHookText) : [],
+    [hooks, runtimeMatchesCapture]
   );
 
   const sourceLabel = useMemo(() => {
-    if (textSource === "agent") return t("captureWizard.profile.sourceAgent");
-    if (textSource === "luna") return t("captureWizard.profile.sourceLuna");
-    if (textSource === "textractor") return t("captureWizard.profile.sourceTextractor");
-    if (textSource === "ocr") return t("captureWizard.profile.sourceOcr");
+    const source = preserveLegacyHook ? savedSceneProfile?.textHookMode : textSource;
+    if (source === "agent") return t("captureWizard.profile.sourceAgent");
+    if (source === "luna") return t("captureWizard.profile.sourceLuna");
+    if (source === "textractor") return t("captureWizard.profile.sourceTextractor");
+    if (source === "ocr") return t("captureWizard.profile.sourceOcr");
     return t("captureWizard.profile.sourceNone");
-  }, [textSource, t]);
+  }, [preserveLegacyHook, savedSceneProfile?.textHookMode, textSource, t]);
 
   const refreshContext = useCallback(async () => {
+    setContextLoading(true);
     try {
       const [activeSceneResult, activeCapture] = await Promise.all([
         invokeIpc<ObsScene | null>("obs.getActiveScene"),
         invokeIpc<ActiveCapture | null>("texthook.getActiveCapture")
       ]);
-      if (activeSceneResult?.id && activeSceneResult.name) {
-        setScene(activeSceneResult);
+      const targetScene = activeSceneResult ?? (loadedSceneRef.current === null ? initialScene : null);
+      setScene(targetScene ?? null);
+      setCapture(activeCapture);
+      const targetKey = `${targetScene?.id ?? ""}:${activeCapture?.exeName ?? ""}`;
+      if (loadedSceneRef.current !== targetKey) {
+        loadedSceneRef.current = targetKey;
+        setTextSource("none");
+        setTextSourceChanged(false);
+        setSelectedAgentScript("");
+        setAgentCandidates([]);
+        setAgentSamples([]);
+        setIsSwitchTarget(undefined);
+        setAgentSearchDialog(null);
+        setAcceptedHook(null);
+        setHooks([]);
+        setSelectedHookId(null);
+        setHookStatus({ running: false });
+        setHookEngine("luna");
+        setOcrMode("none");
+        setOcrSamples([]);
+        setOcrInitialScanState("idle");
+        ocrSelectorRequestedRef.current = false;
+        pendingInitialOcrStartRef.current = false;
+        awaitingInitialOcrResultRef.current = false;
+        if (initialOcrTimeoutRef.current !== null) window.clearTimeout(initialOcrTimeoutRef.current);
+        setLaunchOverlay(false);
+        setLaunchTextHook(true);
+        setSaveAutomation(true);
+        setSavedSceneProfile(null);
+        setSavedHookProfile(null);
+        setStatusMessage(null);
+        setPreview(null);
+        setPreviewCaptureMode(null);
+        if (!targetScene?.id) return;
+        const [automationResult, hookResult] = await Promise.allSettled([
+          invokeIpc<SceneLaunchProfile | null>("settings.getSceneLaunchProfile", targetScene),
+          activeCapture?.exeName
+            ? invokeIpc<SavedHookProfile | null>("texthook.getProfile", {
+                exeName: activeCapture.exeName, sceneId: targetScene.id
+              })
+            : Promise.resolve(null)
+        ]);
+        if (automationResult.status === "rejected" || hookResult.status === "rejected") {
+          throw new Error("Failed to load saved capture settings");
+        }
+        const automation = automationResult.status === "fulfilled" ? automationResult.value : null;
+        const profile = hookResult.status === "fulfilled" ? hookResult.value : null;
+        setSavedSceneProfile(automation);
+        setSavedHookProfile(profile);
+        if (automation) {
+          setOcrMode(automation.ocrMode ?? "none");
+          setLaunchOverlay(automation.launchOverlay ?? false);
+          if (automation.ocrMode !== "none") setTextSource("ocr");
+        }
+        if (profile && ["luna", "textractor", "agent"].includes(profile.engine)) {
+          setTextSource(profile.engine);
+          setLaunchTextHook(profile.autoHook);
+          setAcceptedHook({ id: profile.hookId ?? null, function: profile.hookFunction ?? null });
+          if (profile.engine === "agent") setSelectedAgentScript(profile.agentScriptPath ?? "");
+          else setHookEngine(profile.engine);
+        }
       }
-      if (activeCapture) {
-        setCapture(activeCapture);
-      }
+      setContextFailed(false);
     } catch {
+      loadedSceneRef.current = null;
+      setContextFailed(true);
       setPreviewError(t("captureWizard.errors.contextFailed"));
+      setStatusMessage(t("captureWizard.errors.contextFailed"));
+    } finally {
+      setContextLoading(false);
+      setPreviewLoading(false);
     }
-  }, [t]);
+  }, [initialScene, t]);
 
   useEffect(() => {
     void refreshContext();
@@ -302,6 +396,7 @@ export function TextCaptureWizard({
 
   const loadAgentCandidates = useCallback(async () => {
     if (!activeScene) return;
+    const contextKey = loadedSceneRef.current;
     setAgentLoading(true);
     setStatusMessage(null);
     try {
@@ -312,30 +407,31 @@ export function TextCaptureWizard({
         invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", {})
       ]);
 
-      setAgentResolution(resolved);
+      if (loadedSceneRef.current !== contextKey) return;
+      setIsSwitchTarget(resolved?.isSwitchTarget);
       const candidates = buildAgentScriptCandidateList({
-        query: activeScene.name,
+        searchContext: {
+          sceneName: activeScene.name,
+          windowTitle: resolved?.windowTitle ?? capture?.windowTitle,
+          processName: resolved?.processName ?? capture?.exeName
+        },
         scripts: Array.isArray(listed?.scripts) ? listed.scripts : [],
         resolvedCandidates: Array.isArray(resolved?.candidates) ? resolved.candidates : [],
         resolvedPath: resolved?.status === "success" ? resolved.path : null,
         resolvedReason: resolved?.reason,
-        limit: 16,
       });
 
       setAgentCandidates(candidates);
-      setSelectedAgentScript((current) => current || candidates[0]?.path || "");
-      if (candidates.length === 0) {
-        setStatusMessage(listed?.message ?? t("captureWizard.agent.noMatches"));
-      }
     } catch {
       setStatusMessage(t("captureWizard.agent.searchFailed"));
     } finally {
       setAgentLoading(false);
     }
-  }, [activeScene, t]);
+  }, [activeScene, capture?.exeName, capture?.windowTitle, t]);
 
   const openAgentScriptSearch = useCallback(async () => {
     if (!activeScene) return;
+    const contextKey = loadedSceneRef.current;
     setAgentLoading(true);
     setStatusMessage(null);
     try {
@@ -345,9 +441,14 @@ export function TextCaptureWizard({
         }),
         invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", {})
       ]);
+      if (loadedSceneRef.current !== contextKey) return;
       const scripts = Array.isArray(listed?.scripts) ? listed.scripts : [];
       const candidates = buildAgentScriptCandidateList({
-        query: activeScene.name,
+        searchContext: {
+          sceneName: activeScene.name,
+          windowTitle: resolved?.windowTitle ?? capture?.windowTitle,
+          processName: resolved?.processName ?? capture?.exeName
+        },
         scripts,
         resolvedCandidates: Array.isArray(resolved?.candidates) ? resolved.candidates : [],
         resolvedPath: resolved?.status === "success" ? resolved.path : null,
@@ -359,40 +460,45 @@ export function TextCaptureWizard({
         return;
       }
 
-      setAgentResolution(resolved);
       setAgentSearchDialog({
         candidates,
-        query: activeScene.name,
+        query: "",
       });
     } catch {
       setStatusMessage(t("captureWizard.agent.searchFailed"));
     } finally {
       setAgentLoading(false);
     }
-  }, [activeScene, t]);
+  }, [activeScene, capture?.exeName, capture?.windowTitle, t]);
 
   useEffect(() => {
-    if (step === "agent" && activeScene) {
+    if (step === "hook" && activeScene && !contextLoading) {
       void loadAgentCandidates();
     }
-  }, [activeScene, loadAgentCandidates, step]);
+  }, [activeScene, contextLoading, loadAgentCandidates, step]);
 
   const refreshHookRuntime = useCallback(async () => {
+    const contextKey = loadedSceneRef.current;
     try {
       const [status, hookList] = await Promise.all([
         invokeIpc<RuntimeStatus>("texthook.getStatus"),
         invokeIpc<{ hooks: HookEntry[]; selectedHookId: string | null }>("texthook.listHooks")
       ]);
-      setHookStatus(status);
+      if (loadedSceneRef.current !== contextKey) return;
+      setHookStatus(status ?? { running: false });
       setHooks(Array.isArray(hookList?.hooks) ? hookList.hooks : []);
-      setSelectedHookId(hookList?.selectedHookId ?? (status.running ? status.selectedHookId : null));
-      if (status.running && (status.engine === "luna" || status.engine === "textractor")) {
+      setSelectedHookId(hookList?.selectedHookId ?? (status?.running ? status.selectedHookId : null));
+      if (status?.running && (status.engine === "luna" || status.engine === "textractor")) {
         setHookEngine(status.engine);
+      }
+      if (status?.running && status.engine === "agent" && status.agentScriptPath &&
+          status.exeName.toLowerCase() === capture?.exeName?.toLowerCase()) {
+        setSelectedAgentScript((current) => current || status.agentScriptPath || "");
       }
     } catch {
       setStatusMessage(t("captureWizard.hook.refreshFailed"));
     }
-  }, [t]);
+  }, [capture?.exeName, t]);
 
   useEffect(() => {
     if (step !== "hook") return undefined;
@@ -403,37 +509,92 @@ export function TextCaptureWizard({
     return () => window.clearInterval(interval);
   }, [refreshHookRuntime, step]);
 
-  const startHookEngine = useCallback(async () => {
-    setStatusMessage(null);
-    const result = await invokeIpc<{ success: boolean; error?: string }>("texthook.start", {
-      engine: hookEngine,
-      exeName: exeName ?? undefined,
-      flushDelayMs: DEFAULT_FLUSH_DELAY_MS
+  useEffect(() => {
+    if (step !== "hook" || !runtimeMatchesCapture || !hookStatus.running || hookStatus.engine !== "agent") return;
+    return onIpc("texthook.text", (_event, payload) => {
+      const value = (payload as { text?: unknown } | null)?.text;
+      if (typeof value !== "string" || !value.trim()) return;
+      setAgentSamples((current) => [value.trim(), ...current].slice(0, 3));
     });
-    if (!result?.success) {
-      setStatusMessage(result?.error ?? t("captureWizard.hook.startFailed"));
-      return;
+  }, [hookStatus, runtimeMatchesCapture, step]);
+
+  const startHookEngine = useCallback(async (engine: TextHookEngine = hookEngine, scriptPath?: string) => {
+    if (hookBusy || !exeName) return;
+    setHookBusy(true);
+    setAgentSamples([]);
+    setStatusMessage(null);
+    try {
+      const result = await invokeIpc<{ success: boolean; error?: string }>("texthook.start", {
+        engine,
+        exeName,
+        sceneId: activeScene?.id,
+        flushDelayMs: savedHookProfile?.flushDelayMs ?? DEFAULT_FLUSH_DELAY_MS,
+        copyToClipboard: savedHookProfile?.copyToClipboard ?? false,
+        agentScriptPath: engine === "agent" ? scriptPath : undefined,
+        agentDetached: engine === "agent" ? savedHookProfile?.agentDetached ?? true : undefined
+      });
+      if (!result?.success) {
+        setStatusMessage(result?.error ?? t("captureWizard.hook.startFailed"));
+        return;
+      }
+      if (engine === "agent" && scriptPath) {
+        setSelectedAgentScript(scriptPath);
+        setTextSource("agent");
+        setTextSourceChanged(true);
+        if (!hasTextHook) setLaunchTextHook(true);
+      }
+      await refreshHookRuntime();
+    } catch {
+      setStatusMessage(t("captureWizard.hook.startFailed"));
+    } finally {
+      setHookBusy(false);
     }
-    await refreshHookRuntime();
-  }, [exeName, hookEngine, refreshHookRuntime, t]);
+  }, [activeScene?.id, exeName, hasTextHook, hookBusy, hookEngine, refreshHookRuntime, savedHookProfile, t]);
+
+  const stopHookEngine = useCallback(async () => {
+    setHookBusy(true);
+    setStatusMessage(null);
+    try {
+      const result = await invokeIpc<{ success?: boolean }>("texthook.stop");
+      if (!result?.success) throw new Error("Stop failed");
+      setHookStatus({ running: false });
+      setHooks([]);
+      setSelectedHookId(null);
+    } catch {
+      setStatusMessage(t("captureWizard.guided.stoppingFailed"));
+    } finally {
+      setHookBusy(false);
+    }
+  }, [t]);
 
   const selectHook = useCallback(
     async (hookId: string) => {
-      const result = await invokeIpc<{ success: boolean }>("texthook.selectHook", hookId);
-      if (result?.success) {
+      if (!runtimeMatchesCapture) return;
+      try {
+        const result = await invokeIpc<{ success: boolean }>("texthook.selectHook", hookId);
+        if (!result?.success) throw new Error("Select failed");
         setSelectedHookId(hookId);
+        const hook = hooks.find((entry) => entry.id === hookId);
+        if (hook && hookStatus.running && hookStatus.engine !== "agent") {
+          setAcceptedHook({ id: hook.id, function: hook.function });
+          setTextSource(hookStatus.engine);
+          setTextSourceChanged(true);
+          if (!hasTextHook) setLaunchTextHook(true);
+        }
+      } catch {
+        setStatusMessage(t("captureWizard.hook.refreshFailed"));
       }
     },
-    []
+    [hasTextHook, hooks, hookStatus, runtimeMatchesCapture, t]
   );
 
   const acceptAgentScript = useCallback((scriptPath: string) => {
     setSelectedAgentScript(scriptPath);
     setTextSource("agent");
-    setLaunchTextHook(true);
-    setOcrMode("none");
-    setStep("profile");
-  }, []);
+    setTextSourceChanged(true);
+    if (!hasTextHook) setLaunchTextHook(true);
+    setStep("ocr");
+  }, [hasTextHook]);
 
   const selectAgentScript = useCallback((scriptPath: string) => {
     setSelectedAgentScript(scriptPath);
@@ -452,12 +613,13 @@ export function TextCaptureWizard({
   }, []);
 
   const acceptHook = useCallback(() => {
-    if (!selectedHook) return;
-    setTextSource(hookEngine);
-    setLaunchTextHook(true);
-    setOcrMode("none");
-    setStep("profile");
-  }, [hookEngine, selectedHook]);
+    if (!selectedHook || !runtimeMatchesCapture || !hookStatus.running || hookStatus.engine === "agent") return;
+    setTextSource(hookStatus.engine);
+    setTextSourceChanged(true);
+    setAcceptedHook({ id: selectedHook.id, function: selectedHook.function });
+    if (!hasTextHook) setLaunchTextHook(true);
+    setStep("ocr");
+  }, [hasTextHook, hookStatus, runtimeMatchesCapture, selectedHook]);
 
   const clearInitialOcrTimeout = useCallback(() => {
     if (initialOcrTimeoutRef.current !== null) {
@@ -556,25 +718,42 @@ export function TextCaptureWizard({
     setOcrInitialScanState("selecting");
     setStatusMessage(null);
     sendIpc("ocr.run-screen-selector");
-    setTextSource("ocr");
-    setLaunchTextHook(false);
-  }, [clearInitialOcrTimeout]);
+    if (!hasTextHook) {
+      setTextSource("ocr");
+      setLaunchTextHook(false);
+    }
+  }, [clearInitialOcrTimeout, hasTextHook]);
+
+  const closeWizard = useCallback(async () => {
+    try {
+      if (dontAskAgain) {
+        await invokeIpc("settings.saveSettings", { textCaptureWizardEnabled: false });
+      }
+    } catch {
+      // Closing should not be blocked by a settings persistence failure.
+    } finally {
+      onClose();
+    }
+  }, [dontAskAgain, onClose]);
 
   const saveProfileChoices = useCallback(async () => {
     setSaving(true);
     setStatusMessage(null);
     try {
       const sceneForSave = activeScene;
+      if (contextFailed || !sceneForSave || (hasTextHook && !exeName) || (textSource === "agent" && !selectedAgentScript.trim())) {
+        throw new Error("Missing capture target or script");
+      }
       if (saveAutomation && sceneForSave) {
         const automationResult = await invokeIpc<{ success?: boolean }>("settings.saveSceneLaunchProfile", {
           scene: sceneForSave,
           // Agent, Luna, and Textractor are all handled by the integrated
           // text-hook profile below. Keep the legacy external launchers off.
-          textHookMode: "none",
+          textHookMode: preserveLegacyHook ? savedSceneProfile?.textHookMode ?? "none" : "none",
           ocrMode,
           launchOverlay,
-          agentScriptPath: "",
-          launchDelaySeconds: 0
+          agentScriptPath: preserveLegacyHook ? savedSceneProfile?.agentScriptPath ?? "" : "",
+          launchDelaySeconds: savedSceneProfile?.launchDelaySeconds ?? 0
         });
         if (!automationResult?.success) {
           throw new Error("Failed to save scene automation");
@@ -590,20 +769,24 @@ export function TextCaptureWizard({
           sceneId: sceneForSave?.id ?? capture?.sceneId,
           engine: textSource,
           autoHook: launchTextHook,
-          flushDelayMs: DEFAULT_FLUSH_DELAY_MS,
-          copyToClipboard: false,
-          hookId: textSource === "agent" ? null : selectedHook?.id ?? null,
-          hookFunction: textSource === "agent" ? null : selectedHook?.function ?? null,
-          manualHookCode: null,
-          agentScriptPath: textSource === "agent" ? selectedAgentScript.trim() : null
+          flushDelayMs: savedHookProfile?.flushDelayMs ?? DEFAULT_FLUSH_DELAY_MS,
+          copyToClipboard: savedHookProfile?.copyToClipboard ?? false,
+          hookId: textSource === "agent" ? null : acceptedHook?.id ?? null,
+          hookFunction: textSource === "agent" ? null : acceptedHook?.function ?? null,
+          manualHookCode: savedHookProfile?.engine === textSource ? savedHookProfile.manualHookCode ?? null : null,
+          agentScriptPath: textSource === "agent" ? selectedAgentScript.trim() : null,
+          ...(savedHookProfile?.agentDetached !== undefined ? { agentDetached: savedHookProfile.agentDetached } : {})
         });
         if (!profileResult?.success) {
           throw new Error("Failed to save integrated text-hook profile");
         }
+      } else if (textSourceChanged && textSource === "ocr" && savedHookProfile && exeName) {
+        const result = await invokeIpc<{ success?: boolean }>("texthook.saveProfile", {
+          ...savedHookProfile, exeName, sceneId: sceneForSave.id, autoHook: false
+        });
+        if (!result?.success) throw new Error("Failed to disable previous text hook automation");
       }
-
-      setStatusMessage(t("captureWizard.profile.saved"));
-      setStep("finish");
+      await closeWizard();
     } catch {
       setStatusMessage(t("captureWizard.profile.saveFailed"));
     } finally {
@@ -611,14 +794,21 @@ export function TextCaptureWizard({
     }
   }, [
     activeScene,
+    acceptedHook,
     capture?.sceneId,
     exeName,
+    closeWizard,
+    contextFailed,
+    hasTextHook,
     launchOverlay,
     launchTextHook,
     ocrMode,
     saveAutomation,
     selectedAgentScript,
-    selectedHook,
+    savedHookProfile,
+    savedSceneProfile,
+    preserveLegacyHook,
+    textSourceChanged,
     textSource,
     t
   ]);
@@ -640,7 +830,7 @@ export function TextCaptureWizard({
   }, []);
 
   useEffect(() => {
-    if (step === "profile") void loadGsmProfiles();
+    if (step === "finish") void loadGsmProfiles();
   }, [loadGsmProfiles, step]);
 
   const assignSceneToProfile = useCallback(async () => {
@@ -684,34 +874,20 @@ export function TextCaptureWizard({
     }
   }, [activeScene?.name, newProfileName, selectedProfile, t]);
 
-  const closeWizard = useCallback(async () => {
-    try {
-      if (dontAskAgain) {
-        await invokeIpc("settings.saveSettings", {
-          textCaptureWizardEnabled: false
-        });
-      }
-    } catch {
-      // Closing should not be blocked by a settings persistence failure.
-    } finally {
-      onClose();
-    }
-  }, [dontAskAgain, onClose]);
-
   const goBack = useCallback(() => {
     if (isFirstStep) return;
     setStep(CAPTURE_WIZARD_STEPS[stepIndex - 1].id);
   }, [isFirstStep, stepIndex]);
 
   return (
-    <div className="capture-wizard-overlay" role="dialog" aria-modal="true">
+    <div className="capture-wizard-overlay" role="dialog" aria-modal="true" aria-labelledby="capture-wizard-title">
       <div className="capture-wizard-card">
         <div className="capture-wizard-header">
           <div>
-            <h2>{t("captureWizard.title")}</h2>
+            <h2 id="capture-wizard-title">{t("captureWizard.title")}</h2>
             <p>{t("captureWizard.subtitle")}</p>
           </div>
-          <button type="button" className="secondary" onClick={() => void closeWizard()}>
+          <button type="button" className="secondary" disabled={saving} onClick={() => void closeWizard()}>
             {t("captureWizard.actions.deny")}
           </button>
         </div>
@@ -722,7 +898,9 @@ export function TextCaptureWizard({
               key={entry.id}
               type="button"
               className={`capture-wizard-crumb ${entry.id === step ? "capture-wizard-crumb--active" : ""}`}
-              onClick={() => setStep(entry.id)}
+              aria-current={entry.id === step ? "step" : undefined}
+              disabled={saving || hookBusy || contextLoading}
+              onClick={() => { setStatusMessage(null); setStep(entry.id); }}
             >
               <span>{String(index + 1)}</span>
               {t(entry.labelKey)}
@@ -731,6 +909,7 @@ export function TextCaptureWizard({
         </div>
 
         <div className="capture-wizard-body">
+          {contextFailed || statusMessage ? <div className="capture-wizard-note" role="status">{contextFailed ? t("captureWizard.errors.contextFailed") : statusMessage}</div> : null}
           {step === "preview" ? (
             <section className="capture-wizard-step-panel capture-wizard-step-panel--preview">
               <div className="capture-wizard-copy">
@@ -746,7 +925,7 @@ export function TextCaptureWizard({
                   />
                 ) : (
                   <div className="capture-wizard-preview-empty">
-                    {previewLoading ? t("captureWizard.preview.loading") : previewError ?? t("captureWizard.preview.noPreview")}
+                    {previewLoading ? t("captureWizard.preview.loading") : !activeScene ? t("captureWizard.guided.noScene") : previewError ?? t("captureWizard.preview.noPreview")}
                   </div>
                 )}
               </div>
@@ -771,7 +950,7 @@ export function TextCaptureWizard({
                 </div>
               </div>
               <div className="capture-wizard-action-row">
-                <button type="button" className="secondary" onClick={() => void refreshPreview()}>
+                <button type="button" className="secondary" disabled={previewLoading || contextLoading} onClick={() => { void refreshContext(); void refreshPreview(); }}>
                   {t("captureWizard.preview.refresh")}
                 </button>
                 {previewCaptureMode ? (
@@ -781,75 +960,6 @@ export function TextCaptureWizard({
                       : t("captureWizard.preview.switchToWindow")}
                   </button>
                 ) : null}
-                <button type="button" onClick={() => setStep("agent")}>
-                  {t("captureWizard.preview.looksCorrect")}
-                </button>
-              </div>
-            </section>
-          ) : null}
-
-          {step === "agent" ? (
-            <section className="capture-wizard-step-panel">
-              <div className="capture-wizard-copy">
-                <h3>{t("captureWizard.agent.title")}</h3>
-                <p>{t("captureWizard.agent.description")}</p>
-              </div>
-              <div className="capture-wizard-note">
-                {agentResolution?.isSwitchTarget
-                  ? t("captureWizard.agent.switchDetected")
-                  : t("captureWizard.agent.nsHint")}
-              </div>
-              {agentLoading ? (
-                <div className="capture-wizard-empty">{t("captureWizard.agent.loading")}</div>
-              ) : agentCandidates.length === 0 ? (
-                <div className="capture-wizard-empty">{statusMessage ?? t("captureWizard.agent.noMatches")}</div>
-              ) : (
-                <div className="capture-wizard-script-list">
-                  {agentCandidates.map((candidate) => {
-                    const selected =
-                      normalizeAgentScriptPathForCompare(candidate.path) ===
-                      normalizeAgentScriptPathForCompare(selectedAgentScript);
-                    return (
-                      <button
-                        key={candidate.path}
-                        type="button"
-                        className={`capture-wizard-script ${selected ? "capture-wizard-script--selected" : ""}`}
-                        aria-pressed={selected}
-                        onClick={() => setSelectedAgentScript(candidate.path)}
-                      >
-                        <span className="capture-wizard-choice-body">
-                          <AgentScriptDisplay scriptPath={candidate.path} />
-                        </span>
-                        <span className="capture-wizard-choice-check" aria-hidden="true">
-                          {selected ? "✓" : ""}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="capture-wizard-action-row">
-                <button type="button" className="secondary" onClick={() => void loadAgentCandidates()}>
-                  {t("captureWizard.agent.searchAgain")}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={agentLoading}
-                  onClick={() => void openAgentScriptSearch()}
-                >
-                  {t("captureWizard.agent.manualSearch")}
-                </button>
-                <button type="button" className="secondary" onClick={() => setStep("hook")}>
-                  {t("captureWizard.agent.tryHooks")}
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedAgentScript}
-                  onClick={() => acceptAgentScript(selectedAgentScript)}
-                >
-                  {t("captureWizard.agent.useScript")}
-                </button>
               </div>
             </section>
           ) : null}
@@ -860,69 +970,113 @@ export function TextCaptureWizard({
                 <h3>{t("captureWizard.hook.title")}</h3>
                 <p>{t("captureWizard.hook.description")}</p>
               </div>
-              <div className="capture-wizard-hook-toolbar">
-                <label htmlFor="capture-wizard-hook-engine">{t("captureWizard.hook.engine")}</label>
-                <select
-                  id="capture-wizard-hook-engine"
-                  value={hookEngine}
-                  disabled={hookStatus.running}
-                  onChange={(event) => setHookEngine(event.target.value as Exclude<TextHookEngine, "agent">)}
-                >
-                  <option value="luna">{t("captureWizard.hook.luna")}</option>
-                  <option value="textractor">{t("captureWizard.hook.textractor")}</option>
-                </select>
-                <button
-                  type="button"
-                  disabled={hookStatus.running}
-                  onClick={() => void startHookEngine()}
-                >
-                  {t("captureWizard.hook.start")}
-                </button>
-              </div>
-              <div className="capture-wizard-note">
-                {hookStatus.running
-                  ? t("captureWizard.hook.running", { count: String(visibleHooks.length) })
-                  : t("captureWizard.hook.notRunning")}
-              </div>
-              {visibleHooks.length === 0 ? (
-                <div className="capture-wizard-empty">
-                  {hookStatus.running
-                    ? t("captureWizard.hook.waiting")
-                    : t("captureWizard.hook.startFirst")}
+              <div className="capture-wizard-methods">
+              <div className="capture-wizard-method">
+                <h4>{t("captureWizard.guided.vnTitle")}</h4>
+                <p className="capture-wizard-instruction">{t("captureWizard.guided.hookGuide")}</p>
+                <div className="capture-wizard-hook-toolbar">
+                  <label htmlFor="capture-wizard-hook-engine">{t("captureWizard.hook.engine")}</label>
+                  <select
+                    id="capture-wizard-hook-engine"
+                    value={hookEngine}
+                    disabled={hookStatus.running || hookBusy || contextLoading}
+                    onChange={(event) => setHookEngine(event.target.value as Exclude<TextHookEngine, "agent">)}
+                  >
+                    <option value="luna">{t("captureWizard.hook.luna")}</option>
+                    <option value="textractor">{t("captureWizard.hook.textractor")}</option>
+                  </select>
+                  {hookStatus.running ? (
+                    <button type="button" className="secondary" disabled={hookBusy} onClick={() => void stopHookEngine()}>
+                      {t("captureWizard.guided.stopHook")}
+                    </button>
+                  ) : (
+                    <button type="button" disabled={hookBusy || contextLoading || !exeName} onClick={() => void startHookEngine()}>
+                      {t(hookBusy ? "captureWizard.guided.engineBusy" : "captureWizard.hook.start")}
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <div className="capture-wizard-hook-list">
-                  {visibleHooks.map((hook) => {
-                    const selected = hook.id === selectedHookId;
-                    return (
-                      <button
-                        key={hook.id}
-                        type="button"
-                        className={`capture-wizard-hook ${selected ? "capture-wizard-hook--selected" : ""}`}
-                        aria-pressed={selected}
-                        onClick={() => void selectHook(hook.id)}
-                      >
-                        <span className="capture-wizard-hook-id">#{hook.id}</span>
-                        <span className="capture-wizard-choice-body">
-                          <strong>{hook.function}</strong>
-                          <em>{hook.preview || hook.samples[0] || t("captureWizard.hook.noPreview")}</em>
-                        </span>
-                        <span className="capture-wizard-choice-check" aria-hidden="true">
-                          {selected ? "✓" : ""}
-                        </span>
+                {!exeName ? <p className="capture-wizard-instruction">{t("captureWizard.guided.noScene")}</p> : null}
+                {hookStatus.running && !runtimeMatchesCapture ? (
+                  <p className="capture-wizard-instruction">{t("captureWizard.guided.otherGameRunning", { exe: hookStatus.exeName })}</p>
+                ) : hookStatus.running && hookStatus.engine === "agent" ? (
+                  <p className="capture-wizard-instruction">{t("captureWizard.guided.agentRunning")}</p>
+                ) : hookStatus.running && visibleHooks.length === 0 ? (
+                  <p className="capture-wizard-instruction">
+                    {t(hookStatus.running ? "captureWizard.hook.waiting" : "captureWizard.hook.startFirst")}
+                  </p>
+                ) : null}
+                {visibleHooks.length > 0 ? (
+                  <div className="capture-wizard-hook-list">
+                    {visibleHooks.map((hook) => {
+                      const selected = hook.id === selectedHookId;
+                      return (
+                        <button
+                          key={hook.id}
+                          type="button"
+                          className={`capture-wizard-hook ${selected ? "capture-wizard-hook--selected" : ""}`}
+                          aria-pressed={selected}
+                          onClick={() => void selectHook(hook.id)}
+                        >
+                          <span className="capture-wizard-choice-body">
+                            <strong>{hook.preview || hook.samples[0] || t("captureWizard.hook.noPreview")}</strong>
+                            <small>{hook.function}</small>
+                          </span>
+                          <span className="capture-wizard-choice-check" aria-hidden="true">{selected ? "✓" : ""}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {hookStatus.running && runtimeMatchesCapture && hookStatus.engine !== "agent" ? (
+                  <div className="capture-wizard-action-row">
+                    <button type="button" disabled={!selectedHook || hookBusy} onClick={acceptHook}>
+                      {t("captureWizard.hook.useHook")}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <div className={`capture-wizard-method ${recommendedAgent ? "capture-wizard-method--recommended" : ""}`}>
+                <h4>{t("captureWizard.guided.agentTitle")}</h4>
+                <p className="capture-wizard-instruction">{t("captureWizard.guided.agentDescription")}</p>
+                {runtimeMatchesCapture && hookStatus.running && hookStatus.engine === "agent" && agentSamples.length > 0 ? (
+                  <div className="capture-wizard-ocr-samples" role="log" aria-label={t("texthook.output.title")}>
+                    {agentSamples.map((sample, index) => <div className="capture-wizard-ocr-sample" key={index}>{sample}</div>)}
+                  </div>
+                ) : null}
+                {agentLoading ? <p role="status">{t("captureWizard.agent.loading")}</p> : null}
+                {displayedAgentScript ? (
+                  <>
+                    {recommendedAgent?.path === displayedAgentScript ? (
+                      <div className="capture-wizard-recommendation">
+                        <strong>{t("captureWizard.guided.agentRecommended")}</strong>
+                        <p>{t("captureWizard.guided.agentMatchHint")}</p>
+                      </div>
+                    ) : null}
+                    <div className="capture-wizard-script capture-wizard-script--selected">
+                      <span className="capture-wizard-choice-body" title={displayedAgentScript}>
+                        <AgentScriptDisplay scriptPath={displayedAgentScript} showPath={false} />
+                      </span>
+                    </div>
+                    <div className="capture-wizard-action-row">
+                      <button type="button" className="secondary" disabled={hookBusy || hookStatus.running || !exeName || contextLoading}
+                        onClick={() => void startHookEngine("agent", displayedAgentScript)}>
+                        {t("captureWizard.guided.agentStart")}
                       </button>
-                    );
-                  })}
+                      <button type="button" disabled={!exeName || hookBusy || contextLoading} onClick={() => acceptAgentScript(displayedAgentScript)}>
+                        {t("captureWizard.guided.useAgent")}
+                      </button>
+                    </div>
+                  </>
+                ) : !agentLoading ? <p className="capture-wizard-instruction">{t("captureWizard.guided.agentNoMatch")}</p> : null}
+                <div className="capture-wizard-action-row">
+                  <button type="button" className="secondary" disabled={agentLoading || contextLoading || !activeScene}
+                    onClick={() => void openAgentScriptSearch()}>
+                    {t("captureWizard.agent.manualSearch")}
+                  </button>
                 </div>
-              )}
-              <div className="capture-wizard-action-row">
-                <button type="button" className="secondary" onClick={() => setStep("ocr")}>
-                  {t("captureWizard.hook.useOcrInstead")}
-                </button>
-                <button type="button" disabled={!selectedHook} onClick={acceptHook}>
-                  {t("captureWizard.hook.useHook")}
-                </button>
               </div>
+              </div>
+              {hasTextHook ? <div className="capture-wizard-note">{t("captureWizard.guided.selectedSource", { source: sourceLabel })}</div> : null}
             </section>
           ) : null}
 
@@ -931,6 +1085,27 @@ export function TextCaptureWizard({
               <div className="capture-wizard-copy">
                 <h3>{t("captureWizard.ocr.title")}</h3>
                 <p>{t("captureWizard.ocr.description")}</p>
+              </div>
+              {hasTextHook ? (
+                <div className="capture-wizard-note">
+                  <p>{t("captureWizard.guided.ocrOptional")}</p>
+                  <button type="button" className="secondary" onClick={() => { setOcrMode("none"); setStep("finish"); }}>
+                    {t("captureWizard.guided.skipOcr")}
+                  </button>
+                </div>
+              ) : null}
+              <div className="capture-wizard-action-row">
+                <button type="button" disabled={ocrInitialScanState === "selecting" || ocrInitialScanState === "starting" || ocrInitialScanState === "scanning"}
+                  onClick={openAreaSelector}>
+                  {t("captureWizard.ocr.openAreaSelector")}
+                </button>
+                {ocrInitialScanState !== "idle" && ocrInitialScanState !== "selecting" ? (
+                  <button type="button" className="secondary"
+                    disabled={ocrInitialScanState === "starting" || ocrInitialScanState === "scanning"}
+                    onClick={() => void runInitialOcrScan()}>
+                    {t("captureWizard.ocr.scanAgain")}
+                  </button>
+                ) : null}
               </div>
               <div className="capture-wizard-ocr-preview">
                 <div className="capture-wizard-ocr-preview-header">
@@ -976,8 +1151,10 @@ export function TextCaptureWizard({
                         value={option.value}
                         checked={ocrMode === option.value}
                         onChange={() => {
-                          setTextSource("ocr");
-                          setLaunchTextHook(false);
+                          if (!hasTextHook) {
+                            setTextSource("ocr");
+                            setLaunchTextHook(false);
+                          }
                           setOcrMode(option.value);
                         }}
                       />
@@ -989,77 +1166,68 @@ export function TextCaptureWizard({
                   ))}
                 </div>
               </fieldset>
-              <div className="capture-wizard-action-row">
-                <button
-                  type="button"
-                  disabled={ocrInitialScanState === "selecting"}
-                  onClick={openAreaSelector}
-                >
-                  {t("captureWizard.ocr.openAreaSelector")}
-                </button>
-                {ocrInitialScanState !== "idle" && ocrInitialScanState !== "selecting" ? (
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={ocrInitialScanState === "starting" || ocrInitialScanState === "scanning"}
-                    onClick={() => void runInitialOcrScan()}
-                  >
-                    {t("captureWizard.ocr.scanAgain")}
-                  </button>
-                ) : null}
+              {hasTextHook ? <div className="capture-wizard-action-row">
                 <button
                   type="button"
                   className="secondary"
                   onClick={() => {
                     setTextSource("ocr");
+                    setTextSourceChanged(true);
                     setLaunchTextHook(false);
-                    setStep("profile");
+                    setStep("finish");
                   }}
                 >
-                  {t("captureWizard.ocr.continue")}
+                  {t("captureWizard.guided.useOcr")}
                 </button>
-              </div>
+              </div> : null}
             </section>
           ) : null}
 
-          {step === "profile" ? (
+          {step === "finish" ? (
             <section className="capture-wizard-step-panel">
               <div className="capture-wizard-copy">
                 <h3>{t("captureWizard.profile.title")}</h3>
                 <p>{t("captureWizard.profile.description")}</p>
               </div>
               <div className="capture-wizard-summary">
+                <span>{t("captureWizard.preview.scene")}</span>
+                <strong>{activeScene?.name ?? t("captureWizard.preview.unknown")}</strong>
                 <span>{t("captureWizard.profile.source")}</span>
                 <strong>{sourceLabel}</strong>
+                {textSource === "agent" && selectedAgentScript ? <AgentScriptDisplay scriptPath={selectedAgentScript} showPath={false} /> : null}
               </div>
+              {!textSourceChanged && (savedHookProfile || savedSceneProfile) ? <p className="capture-wizard-instruction">{t("captureWizard.guided.usingSaved")}</p> : null}
+              {textSource === "none" && !preserveLegacyHook ? <p className="capture-wizard-instruction">{t("captureWizard.guided.noSource")}</p> : null}
               <div className="capture-wizard-form">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={saveAutomation}
-                    onChange={(event) => setSaveAutomation(event.target.checked)}
-                  />
-                  {t("captureWizard.profile.saveAutomation")}
-                </label>
-                <label>
+                {hasTextHook ? <label>
                   <input
                     type="checkbox"
                     checked={launchTextHook}
-                    disabled={textSource === "ocr" || textSource === "none"}
                     onChange={(event) => setLaunchTextHook(event.target.checked)}
                   />
                   {t("captureWizard.profile.launchTextHook")}
-                </label>
+                </label> : null}
                 <label htmlFor="capture-wizard-ocr-mode">{t("captureWizard.profile.ocrMode")}</label>
                 <select
                   id="capture-wizard-ocr-mode"
                   value={ocrMode}
-                  onChange={(event) => setOcrMode(event.target.value as SceneOcrMode)}
+                  onChange={(event) => {
+                    setOcrMode(event.target.value as SceneOcrMode);
+                    if (!hasTextHook && event.target.value !== "none") setTextSource("ocr");
+                  }}
                 >
                   <option value="none">{t("captureWizard.profile.ocrNone")}</option>
                   <option value="manual">{t("captureWizard.profile.ocrManual")}</option>
                   <option value="auto">{t("captureWizard.profile.ocrAuto")}</option>
                 </select>
+              </div>
+              <details className="capture-wizard-options">
+                <summary>{t("captureWizard.guided.optionalSettings")}</summary>
+                <div className="capture-wizard-form">
+                <label>
+                  <input type="checkbox" checked={saveAutomation} onChange={(event) => setSaveAutomation(event.target.checked)} />
+                  {t("captureWizard.profile.saveAutomation")}
+                </label>
                 <label>
                   <input
                     type="checkbox"
@@ -1119,49 +1287,10 @@ export function TextCaptureWizard({
                   </button>
                 </div>
               </div>
-              {statusMessage ? <div className="capture-wizard-note">{statusMessage}</div> : null}
-              <div className="capture-wizard-action-row">
-                <button type="button" disabled={saving} onClick={() => void saveProfileChoices()}>
-                  {saving ? t("captureWizard.profile.saving") : t("captureWizard.profile.save")}
-                </button>
-              </div>
+              </details>
             </section>
           ) : null}
 
-          {step === "finish" ? (
-            <section className="capture-wizard-step-panel">
-              <div className="capture-wizard-copy">
-                <h3>{t("captureWizard.finish.title")}</h3>
-                <p>{t("captureWizard.finish.description")}</p>
-              </div>
-              <div className="capture-wizard-summary">
-                <span>{t("captureWizard.profile.source")}</span>
-                <strong>{sourceLabel}</strong>
-              </div>
-              <div className="capture-wizard-action-row">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    onNavigateTab?.("texthook");
-                    void closeWizard();
-                  }}
-                >
-                  {t("captureWizard.finish.openTextHook")}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    onNavigateTab?.("launcher");
-                    void closeWizard();
-                  }}
-                >
-                  {t("captureWizard.finish.openAutomation")}
-                </button>
-              </div>
-            </section>
-          ) : null}
         </div>
 
         <div className="capture-wizard-footer">
@@ -1174,20 +1303,28 @@ export function TextCaptureWizard({
             {t("captureWizard.actions.dontAskAgain")}
           </label>
           <div className="capture-wizard-footer-actions">
-            <button type="button" className="secondary" disabled={isFirstStep} onClick={goBack}>
+            <button type="button" className="secondary" disabled={isFirstStep || saving || hookBusy} onClick={goBack}>
               {t("captureWizard.actions.back")}
             </button>
             {step !== "finish" ? (
               <button
                 type="button"
-                className="secondary"
-                onClick={() => setStep(CAPTURE_WIZARD_STEPS[Math.min(stepIndex + 1, CAPTURE_WIZARD_STEPS.length - 1)].id)}
+                disabled={contextLoading || hookBusy || (step === "preview" && !activeScene)}
+                onClick={() => {
+                  setStatusMessage(null);
+                  if (step === "ocr" && !hasTextHook) {
+                    setTextSource("ocr");
+                    setTextSourceChanged(true);
+                    setLaunchTextHook(false);
+                  }
+                  setStep(CAPTURE_WIZARD_STEPS[stepIndex + 1].id);
+                }}
               >
-                {t("captureWizard.actions.next")}
+                {t(step === "preview" ? "captureWizard.guided.captureNext" : step === "hook" ? "captureWizard.guided.hookNext" : hasTextHook ? "captureWizard.guided.keepHook" : "captureWizard.guided.useOcr")}
               </button>
             ) : (
-              <button type="button" onClick={() => void closeWizard()}>
-                {t("captureWizard.finish.done")}
+              <button type="button" disabled={saving || assigningProfile || contextLoading || contextFailed || !activeScene} onClick={() => void saveProfileChoices()}>
+                {t(saving ? "captureWizard.profile.saving" : "captureWizard.guided.saveAndClose")}
               </button>
             )}
           </div>

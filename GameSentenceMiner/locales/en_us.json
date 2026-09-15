@@ -256,6 +256,10 @@
             "label": "Activate Focused Component:",
             "tooltip": "Button that activates the focused component and accepts an audio-choice warning."
           },
+          "confirmation_gamepad_play_audio": {
+            "label": "Play Audio Snippet:",
+            "tooltip": "Button that plays or pauses the selected audio snippet. Defaults to Y."
+          },
           "confirmation_gamepad_confirm_with_audio": {
             "label": "Confirm With Audio:",
             "tooltip": "Button that confirms the card while keeping audio."

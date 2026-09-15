@@ -36,11 +36,13 @@ import {
 } from './obs_default_config.js';
 import {
     OBS_DSHOW_INPUT_KIND,
+    OBS_MONITOR_CAPTURE_INPUT_KIND,
     OBS_PIPEWIRE_DESKTOP_INPUT_KIND,
     OBS_PIPEWIRE_SCREEN_INPUT_KIND,
     OBS_PIPEWIRE_WINDOW_INPUT_KIND,
     OBS_WASAPI_INPUT_CAPTURE_KIND,
     buildCaptureCardOptions,
+    buildMonitorCaptureOptions,
     buildWaylandPipewireOption,
     buildLinuxSceneCaptureInputs,
     getObsWindowTitle,
@@ -367,11 +369,13 @@ const OLD_HELPER_SCENE = "GSM Helper";
 const HELPER_SCENE = 'GSM Helper - DONT TOUCH';
 const WINDOW_GETTER_INPUT = 'window_getter';
 const GAME_WINDOW_INPUT = 'game_window_getter';
+const MONITOR_GETTER_INPUT = 'monitor_getter';
 const CAPTURE_CARD_GETTER_INPUT = 'capture_card_getter';
 const AUDIO_INPUT_GETTER_INPUT = 'audio_input_getter';
 const HELPER_INPUT_NAMES = new Set([
     WINDOW_GETTER_INPUT,
     GAME_WINDOW_INPUT,
+    MONITOR_GETTER_INPUT,
     CAPTURE_CARD_GETTER_INPUT,
     AUDIO_INPUT_GETTER_INPUT,
 ]);
@@ -402,7 +406,7 @@ const OBS_DISCONNECT_TIMEOUT_MS = 3000;
 const VIDEO_CAPTURE_INPUT_KINDS = new Set([
     'window_capture',
     'game_capture',
-    'monitor_capture',
+    OBS_MONITOR_CAPTURE_INPUT_KIND,
     'xcomposite_input',
     OBS_PIPEWIRE_DESKTOP_INPUT_KIND,
     OBS_PIPEWIRE_WINDOW_INPUT_KIND,
@@ -2106,11 +2110,13 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
     await getOBSConnection();
 
     const targetKind =
-        window.targetKind === 'capture_card' || typeof window.videoDeviceId === 'string'
-            ? 'capture_card'
-            : window.targetKind === 'wayland_pipewire'
-              ? 'wayland_pipewire'
-              : 'window';
+        window.targetKind === 'monitor'
+            ? 'monitor'
+            : window.targetKind === 'capture_card' || typeof window.videoDeviceId === 'string'
+              ? 'capture_card'
+              : window.targetKind === 'wayland_pipewire'
+                ? 'wayland_pipewire'
+                : 'window';
     const rawWindowTitle =
         typeof window.title === 'string' && window.title.trim()
             ? window.title.trim()
@@ -2136,6 +2142,15 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
                   switcherRegex: null,
               };
     const sceneName = sceneInfo.sceneName.trim() || generateFallbackWindowName();
+    // Validate the target before creating or replacing a scene.
+    const captureInputs = isWindows()
+        ? buildWindowsSceneCaptureInputs(sceneName, window, {
+              isWindows: isWindows(),
+              isWindows10OrHigher: isWindows10OrHigher(),
+          })
+        : buildLinuxSceneCaptureInputs(sceneName, window, {
+              isLinux: isLinux(),
+          });
 
     let sceneExisted = false;
     let sceneUuid = '';
@@ -2183,17 +2198,14 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
     expectWindowSceneSwitcherOBSSceneChange(sceneUuid);
     await callOBS('SetCurrentProgramScene', { sceneName });
 
-    const captureInputs = isWindows()
-        ? buildWindowsSceneCaptureInputs(sceneName, window, {
-              isWindows: isWindows(),
-              isWindows10OrHigher: isWindows10OrHigher(),
-          })
-        : buildLinuxSceneCaptureInputs(sceneName, window, {
-              isLinux: isLinux(),
-          });
-
     for (const captureInput of captureInputs) {
         await upsertSceneInput(sceneName, captureInput);
+    }
+
+    if (targetKind === 'monitor' && sceneUuid) {
+        await fitSceneItemsToPreview({ name: sceneName, id: sceneUuid });
+        // A reused scene may still have a rule from its previous window target.
+        removeWindowSceneSwitcherRule(sceneUuid);
     }
 
     if (targetKind === 'wayland_pipewire' && isLinux()) {
@@ -2946,6 +2958,23 @@ export async function registerOBSIPC() {
         return option ? [option] : [];
     }
 
+    async function getMonitorList(): Promise<ObsWindowOption[]> {
+        if (!isWindows()) {
+            return [];
+        }
+        try {
+            const monitors = await getInputPropertyItems(
+                MONITOR_GETTER_INPUT,
+                OBS_MONITOR_CAPTURE_INPUT_KIND,
+                'monitor_id'
+            );
+            return buildMonitorCaptureOptions(monitors);
+        } catch (error) {
+            logObsError('Error getting monitor list:', error);
+            return [];
+        }
+    }
+
     async function getCaptureCardList(): Promise<ObsWindowOption[]> {
         if (!captureCardProbeEnabled) {
             return [];
@@ -2982,14 +3011,14 @@ export async function registerOBSIPC() {
 
     // Cache for getWindowList results to avoid hammering OBS with device
     // enumeration every poll cycle.
-    // "fast" = window/game capture only (cheap), "full" = also capture cards (expensive probes).
+    // "fast" = windows and monitors (cheap), "full" = also capture cards (expensive probes).
     const WINDOW_LIST_FAST_CACHE_TTL_MS = 3_000;
     const WINDOW_LIST_FULL_CACHE_TTL_MS = 30_000;
     let windowListFastCache: { data: ObsWindowOption[]; timestamp: number } | null = null;
     let windowListFullCache: { data: ObsWindowOption[]; timestamp: number } | null = null;
 
     /**
-     * Fetch only window_capture + game_capture lists (cheap OBS calls, no device probing).
+     * Fetch windows and monitors (cheap OBS calls, no capture-card probing).
      */
     async function getWindowListFast(): Promise<ObsWindowOption[]> {
         try {
@@ -3001,10 +3030,11 @@ export async function registerOBSIPC() {
 
             await forceDisableHelperSceneInputs();
 
-            const [windowCaptureWindows, gameCaptureWindows] =
+            const [windowCaptureWindows, gameCaptureWindows, monitors] =
                 await Promise.all([
                     getWindowsFromSource(WINDOW_GETTER_INPUT, 'window_capture'),
                     getWindowsFromSource(GAME_WINDOW_INPUT, 'game_capture'),
+                    getMonitorList(),
                 ]);
 
             const allWindows = [...windowCaptureWindows, ...gameCaptureWindows].filter(
@@ -3016,7 +3046,7 @@ export async function registerOBSIPC() {
                 (item) => item.targetKind === 'capture_card'
             ) ?? [];
 
-            return [...mergeObsWindowItems(allWindows), ...cachedCaptureCards].sort((left, right) =>
+            return [...mergeObsWindowItems(allWindows), ...monitors, ...cachedCaptureCards].sort((left, right) =>
                 left.title.localeCompare(right.title)
             );
         } catch (error) {
@@ -3040,17 +3070,18 @@ export async function registerOBSIPC() {
 
             await forceDisableHelperSceneInputs();
 
-            const [windowCaptureWindows, gameCaptureWindows, captureCards] =
+            const [windowCaptureWindows, gameCaptureWindows, monitors, captureCards] =
                 await Promise.all([
                     getWindowsFromSource(WINDOW_GETTER_INPUT, 'window_capture'),
                     getWindowsFromSource(GAME_WINDOW_INPUT, 'game_capture'),
+                    getMonitorList(),
                     getCaptureCardList(),
                 ]);
 
             const allWindows = [...windowCaptureWindows, ...gameCaptureWindows].filter(
                 (item) => !shouldFilterWindow(item)
             );
-            return [...mergeObsWindowItems(allWindows), ...captureCards].sort((left, right) =>
+            return [...mergeObsWindowItems(allWindows), ...monitors, ...captureCards].sort((left, right) =>
                 left.title.localeCompare(right.title)
             );
         } catch (error) {

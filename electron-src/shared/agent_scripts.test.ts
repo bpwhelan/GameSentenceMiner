@@ -4,7 +4,9 @@ import {
     buildAgentScriptCandidateList,
     filterAgentScriptCandidatesForQuery,
     formatAgentScriptDisplay,
+    getHighConfidenceAgentScriptCandidate,
     isListableAgentScriptPath,
+    scoreAgentScriptForContext,
     scoreAgentScriptForQuery,
 } from "./agent_scripts.js";
 
@@ -117,5 +119,89 @@ describe("agent script helpers", () => {
                 scriptPath
             )
         ).toBeLessThan(0.1);
+    });
+
+    it("ranks all capture hints without filtering out executable or scene matches", () => {
+        const candidates = buildAgentScriptCandidateList({
+            searchContext: {
+                sceneName: "Tsukihime",
+                windowTitle: "Resident Evil HD REMASTER",
+                processName: "C:\\Games\\UnicornOverlord-Win64-Shipping.exe",
+            },
+            scripts: ["PC_Unrelated.js", "PC_Tsukihime.js", "PC_Resident_Evil_HD_REMASTER.js", "PC_Unicorn_Overlord.js"],
+        });
+        expect(candidates.slice(0, 3).map((candidate) => candidate.path)).toEqual(
+            expect.arrayContaining(["PC_Tsukihime.js", "PC_Resident_Evil_HD_REMASTER.js", "PC_Unicorn_Overlord.js"])
+        );
+        expect(candidates[3]).toMatchObject({ path: "PC_Unrelated.js", score: 1 });
+        expect(getHighConfidenceAgentScriptCandidate(candidates)).toBeNull();
+    });
+
+    it("uses corroborating context to rank otherwise equally strong matches", () => {
+        const candidates = buildAgentScriptCandidateList({
+            searchContext: {
+                sceneName: "Tsukihime",
+                windowTitle: "Resident Evil HD REMASTER",
+                processName: "ResidentEvil.exe",
+            },
+            scripts: ["PC_Tsukihime.js", "PC_Resident_Evil_HD_REMASTER.js"],
+        });
+        expect(candidates[0].path).toBe("PC_Resident_Evil_HD_REMASTER.js");
+        expect(candidates[0].score).toBeLessThan(candidates[1].score!);
+    });
+
+    it("does not invent high confidence from blank, generic, or repeated partial context", () => {
+        const candidates = buildAgentScriptCandidateList({ scripts: ["PC_Game.js", "PC_Persona_4.js"] });
+        expect(candidates.every((candidate) => candidate.score === 1)).toBe(true);
+        expect(getHighConfidenceAgentScriptCandidate(candidates)).toBeNull();
+        for (const processName of ["game.exe", "C:\\Games\\main.exe", "yuzu.exe", "UnityPlayer.exe", "nw.exe"]) {
+            expect(scoreAgentScriptForContext({ processName }, "PC_Game_UnityPlayer_NW.js")).toBe(1);
+        }
+        expect(scoreAgentScriptForContext({ sceneName: "Persona", windowTitle: "Persona", processName: "Persona.exe" }, "PC_Persona_4.js")).toBeGreaterThan(0.15);
+        expect(scoreAgentScriptForContext({ sceneName: "Octopath Traveler 0" }, "PC_Octopath_Traveler_2.js")).toBeGreaterThan(0.15);
+        expect(scoreAgentScriptForContext({ windowTitle: "Persona 4 - Golden" }, "PC_Persona_4.js")).toBeGreaterThan(0.15);
+    });
+
+    it("preserves resolver scores and explicit ID precedence over title guesses", () => {
+        const candidates = buildAgentScriptCandidateList({
+            searchContext: { sceneName: "Persona 4" },
+            scripts: ["PC_Persona_4.js", "NS_01000AE01954A000_Unicorn_Overlord.js"],
+            resolvedCandidates: [
+                { path: "PC_Persona_4.js", reason: "matched_fuzzy_name", score: 0.7 },
+                { path: "NS_01000AE01954A000_Unicorn_Overlord.js", reason: "matched_title_id", score: 0.01 },
+            ],
+            resolvedPath: "PC_Persona_4.js",
+        });
+        expect(candidates[1]).toMatchObject({ path: "PC_Persona_4.js", score: 0.7 });
+        expect(getHighConfidenceAgentScriptCandidate(candidates)?.path).toBe("NS_01000AE01954A000_Unicorn_Overlord.js");
+    });
+
+    it("keeps an explicitly chosen path before an equally scored inferred candidate", () => {
+        const candidates = buildAgentScriptCandidateList({
+            resolvedCandidates: [
+                { path: "PC_Tsukihime.js", reason: "matched_name", score: 0 },
+                { path: "NS_01000AE01954A000_Unicorn_Overlord.js", reason: "matched_title_id", score: 0.01 },
+            ],
+            resolvedPath: "PC_Tsukihime.js",
+            resolvedReason: "matched_explicit_path",
+            resolvedScore: 0,
+        });
+        expect(getHighConfidenceAgentScriptCandidate(candidates)).toMatchObject({ path: "PC_Tsukihime.js", reason: "matched_explicit_path" });
+    });
+
+    it("only recommends a clear high-confidence result", () => {
+        expect(getHighConfidenceAgentScriptCandidate([{ path: "PC_Tsukihime.js", score: 0.04 }, { path: "PC_Other.js", score: 0.8 }])?.path).toBe("PC_Tsukihime.js");
+        expect(getHighConfidenceAgentScriptCandidate([{ path: "PC_Tsukihime.js", score: 0.04 }, { path: "PC_Tsukihime_EN.js", score: 0.05 }])).toBeNull();
+        expect(getHighConfidenceAgentScriptCandidate([{ path: "PC_Tsukihime.js", score: 0.3 }])).toBeNull();
+        expect(getHighConfidenceAgentScriptCandidate([{ path: "PC_Tsukihime.js" }])).toBeNull();
+    });
+
+    it("does not recommend a different platform even when its title matches exactly", () => {
+        const pc = { path: "PC_Tsukihime.js", score: 0.04 };
+        const ns = { path: "NS_01001DC01486A000_Tsukihime.js", score: 0.04 };
+        expect(getHighConfidenceAgentScriptCandidate([pc], { isSwitchTarget: true })).toBeNull();
+        expect(getHighConfidenceAgentScriptCandidate([ns], { isSwitchTarget: false })).toBeNull();
+        expect(getHighConfidenceAgentScriptCandidate([pc, ns], { isSwitchTarget: true })).toEqual(ns);
+        expect(getHighConfidenceAgentScriptCandidate([pc, ns], { isSwitchTarget: false })).toEqual(pc);
     });
 });

@@ -143,12 +143,18 @@ def test_confirmation_edit_gamepad_bindings_can_be_saved_and_reloaded(monkeypatc
     monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
     window = ConfigWindow()
     bindings = {
+        "confirmation_gamepad_play_audio": "11",
         "confirmation_gamepad_add_previous_line": "8",
         "confirmation_gamepad_add_next_line": "9",
         "confirmation_gamepad_expand_audio_start": "",
         "confirmation_gamepad_expand_audio_end": "3",
     }
     try:
+        window._set_gamepad_hotkey_combo(
+            window.anki_confirmation_gamepad_play_audio_combo,
+            Anki().confirmation_gamepad_play_audio,
+        )
+        assert window.anki_confirmation_gamepad_play_audio_combo.currentText() == "Y"
         for name, value in bindings.items():
             combo = getattr(window, f"anki_{name}_combo")
             assert combo.parentWidget() is not None

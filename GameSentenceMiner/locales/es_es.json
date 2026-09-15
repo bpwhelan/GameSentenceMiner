@@ -246,6 +246,10 @@
             "label": "Activar componente enfocado:",
             "tooltip": "Botón que activa el componente enfocado y acepta una advertencia de elección de audio."
           },
+          "confirmation_gamepad_play_audio": {
+            "label": "Reproducir fragmento de audio:",
+            "tooltip": "Botón que reproduce o pausa el fragmento de audio seleccionado. Por defecto, Y."
+          },
           "confirmation_gamepad_confirm_with_audio": {
             "label": "Confirmar con audio:",
             "tooltip": "Botón que confirma la tarjeta conservando el audio."

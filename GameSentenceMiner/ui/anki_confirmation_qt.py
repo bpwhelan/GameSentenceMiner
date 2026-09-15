@@ -196,6 +196,7 @@ ANKI_CONFIRMATION_GAMEPAD_ACTIONS = (
     ("add_next_line", "confirmation_gamepad_add_next_line", "7"),
     ("expand_audio_start", "confirmation_gamepad_expand_audio_start", "4"),
     ("expand_audio_end", "confirmation_gamepad_expand_audio_end", "5"),
+    ("play_audio", "confirmation_gamepad_play_audio", "3"),
 )
 
 
@@ -995,6 +996,9 @@ class AnkiConfirmationDialog(QDialog):
             self._apply_gamepad_confirmation_action(use_audio=False)
         elif action == "confirm_with_audio":
             self._apply_gamepad_confirmation_action(use_audio=True)
+        elif action == "play_audio":
+            if self.audio_button.isVisible() and self.audio_button.isEnabled():
+                self.audio_button.click()
         elif action in ("add_previous_line", "add_next_line", "expand_audio_start", "expand_audio_end"):
             button = {
                 "add_previous_line": self.add_prev_line_button,

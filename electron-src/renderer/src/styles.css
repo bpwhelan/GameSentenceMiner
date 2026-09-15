@@ -1772,7 +1772,7 @@ button:disabled {
 
 .capture-wizard-breadcrumbs {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--gsm-surface-2, #343a44);
@@ -1832,6 +1832,74 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.capture-wizard-methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+.capture-wizard-method {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--gsm-border-default, #38404b);
+  border-radius: 8px;
+  background: var(--gsm-surface-0, #1a1c20);
+}
+
+.capture-wizard-method h4 {
+  margin: 0;
+  color: var(--gsm-text-primary, #eef2f7);
+  font-size: 0.98rem;
+}
+
+.capture-wizard-method--recommended {
+  border-color: var(--gsm-success, #6a9955);
+}
+
+.capture-wizard-method .capture-wizard-hook-list {
+  max-height: 180px;
+}
+
+.capture-wizard-method .capture-wizard-script {
+  display: block;
+  cursor: default;
+}
+
+.capture-wizard-instruction,
+.capture-wizard-recommendation p {
+  margin: 0;
+  color: var(--gsm-text-secondary, #b6bfcd);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.capture-wizard-recommendation strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--gsm-success, #6a9955);
+}
+
+.capture-wizard-options {
+  border-top: 1px solid var(--gsm-border-default, #38404b);
+  padding-top: 14px;
+}
+
+.capture-wizard-options summary {
+  cursor: pointer;
+  color: var(--gsm-text-secondary, #b6bfcd);
+}
+
+.capture-wizard-options[open] summary {
+  margin-bottom: 14px;
+}
+
+.capture-wizard-note[role="status"] {
+  margin-bottom: 14px;
 }
 
 .capture-wizard-step-panel--preview {
@@ -2003,7 +2071,7 @@ button:disabled {
 }
 
 .capture-wizard-hook {
-  grid-template-columns: minmax(54px, max-content) minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) 28px;
 }
 
 .capture-wizard-script:hover,
@@ -2430,6 +2498,7 @@ button:disabled {
   }
 
   .capture-wizard-meta-grid,
+  .capture-wizard-methods,
   .capture-wizard-form {
     grid-template-columns: 1fr;
   }

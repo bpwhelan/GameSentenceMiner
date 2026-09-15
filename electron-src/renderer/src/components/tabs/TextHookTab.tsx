@@ -4,7 +4,6 @@ import { useLocale, useTranslation } from "../../i18n";
 import { AgentScriptSearchDialog } from "../AgentScriptSearchDialog";
 import {
   buildAgentScriptCandidateList,
-  getAgentScriptFileName,
   type AgentScriptCandidate,
 } from "../../../../shared/agent_scripts";
 
@@ -15,6 +14,13 @@ interface ListAgentScriptsResponse {
   path?: string;
   scripts?: string[];
   message?: string;
+}
+
+interface ResolveAgentScriptResponse {
+  status?: string;
+  path?: string;
+  reason?: string;
+  candidates?: AgentScriptCandidate[];
 }
 
 interface HookEntry {
@@ -634,25 +640,36 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   }, [agentScriptPath]);
 
   const openAgentScriptSearch = useCallback(async () => {
-    const response = await invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", {
-      path: agentScriptPath,
-    });
+    const [listed, resolved] = await Promise.allSettled([
+      invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", { path: agentScriptPath }),
+      capture?.sceneId
+        ? invokeIpc<ResolveAgentScriptResponse>("settings.resolveAgentScriptForScene", {
+            scene: { id: capture.sceneId, name: capture.sceneName },
+          })
+        : Promise.resolve(null),
+    ]);
+    const response = listed.status === "fulfilled" ? listed.value : null;
+    const resolution = resolved.status === "fulfilled" ? resolved.value : null;
     const scripts = Array.isArray(response?.scripts) ? response.scripts : [];
     if (scripts.length === 0) {
       showNotice(response?.message ?? t("texthook.agent.noScripts"), "error");
       return;
     }
-    const titleQuery = capture?.windowTitle?.trim() || capture?.sceneName?.trim() || "";
-    const fallbackExeName = status.running ? status.exeName : capture?.exeName ?? "";
-    const initialQuery = agentScriptPath
-      ? getAgentScriptFileName(agentScriptPath).replace(/\.[^/.]+$/u, "")
-      : titleQuery || getAgentScriptFileName(fallbackExeName).replace(/\.[^/.]+$/u, "");
+    const fallbackExeName = capture?.exeName || (status.running ? status.exeName : "");
     const candidates = buildAgentScriptCandidateList({
-      query: initialQuery,
+      searchContext: {
+        sceneName: capture?.sceneName,
+        windowTitle: capture?.windowTitle,
+        processName: fallbackExeName,
+      },
       scripts,
+      resolvedCandidates: resolution?.candidates,
+      resolvedPath: agentScriptPath || (resolution?.status === "success" ? resolution.path : null),
+      resolvedReason: agentScriptPath ? "matched_explicit_path" : resolution?.reason,
+      resolvedScore: agentScriptPath ? 0 : undefined,
     });
-    setAgentScriptDialog({ candidates, query: initialQuery });
-  }, [agentScriptPath, capture?.exeName, capture?.sceneName, capture?.windowTitle, showNotice, status, t]);
+    setAgentScriptDialog({ candidates, query: "" });
+  }, [agentScriptPath, capture?.exeName, capture?.sceneId, capture?.sceneName, capture?.windowTitle, showNotice, status, t]);
 
   const pickAgentScriptCandidate = useCallback((scriptPath: string) => {
     setAgentScriptPath(scriptPath);
@@ -1372,6 +1389,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
           <AgentScriptSearchDialog
             candidates={agentScriptDialog.candidates}
             query={agentScriptDialog.query}
+            selectedPath={agentScriptPath}
             title={t("texthook.agent.pickerTitle")}
             closeLabel={t("texthook.agent.pickerClose")}
             searchPlaceholder={t("texthook.agent.searchPlaceholder")}

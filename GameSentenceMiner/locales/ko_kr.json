@@ -250,6 +250,10 @@
             "label": "포커스된 구성 요소 활성화:",
             "tooltip": "포커스된 구성 요소를 활성화하고 오디오 선택 경고를 수락하는 버튼입니다."
           },
+          "confirmation_gamepad_play_audio": {
+            "label": "오디오 구간 재생:",
+            "tooltip": "선택한 오디오 구간을 재생하거나 일시 정지하는 버튼입니다. 기본값은 Y 버튼입니다."
+          },
           "confirmation_gamepad_confirm_with_audio": {
             "label": "오디오 포함 확인:",
             "tooltip": "오디오를 유지한 채 카드를 확인하는 버튼입니다."

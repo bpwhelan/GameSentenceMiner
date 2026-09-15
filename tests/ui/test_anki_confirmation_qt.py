@@ -390,6 +390,7 @@ def test_gamepad_capture_registers_configured_bindings(monkeypatch):
                 confirmation_gamepad_focus_left="14",
                 confirmation_gamepad_focus_right="13",
                 confirmation_gamepad_activate="12",
+                confirmation_gamepad_play_audio="3",
                 confirmation_gamepad_confirm_with_audio="11",
                 confirmation_gamepad_confirm_without_audio="10",
                 confirmation_gamepad_add_previous_line="8",
@@ -406,8 +407,14 @@ def test_gamepad_capture_registers_configured_bindings(monkeypatch):
 
     anki_confirmation_qt.AnkiConfirmationDialog._start_gamepad_capture(probe)
 
-    assert registrations == ["16", "15", "14", "13", "12", "11", "10", "8", "9", "6", "7"]
-    assert actions[-4:] == ["add_previous_line", "add_next_line", "expand_audio_start", "expand_audio_end"]
+    assert registrations == ["16", "15", "14", "13", "12", "11", "10", "8", "9", "6", "7", "3"]
+    assert actions[-5:] == [
+        "add_previous_line",
+        "add_next_line",
+        "expand_audio_start",
+        "expand_audio_end",
+        "play_audio",
+    ]
     assert probe._gamepad_capture_active is True
     assert probe._gamepad_client.started is True
 
@@ -429,6 +436,11 @@ def test_gamepad_actions_map_to_audio_no_audio_and_focused_component(monkeypatch
         _on_no_voice=lambda: calls.append("no_voice"),
         _cancel_auto_accept=lambda: calls.append("cancel_timer"),
         _click_active_component=lambda: calls.append("click"),
+        audio_button=SimpleNamespace(
+            isVisible=lambda: True,
+            isEnabled=lambda: True,
+            click=lambda: calls.append("play_audio"),
+        ),
     )
 
     def apply_audio_choice(*, use_audio):
@@ -439,6 +451,7 @@ def test_gamepad_actions_map_to_audio_no_audio_and_focused_component(monkeypatch
 
     anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_action(probe, "confirm_with_audio")
     anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_action(probe, "confirm_without_audio")
+    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_action(probe, "play_audio")
     anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_action(probe, "activate")
 
     assert calls == [
@@ -446,6 +459,7 @@ def test_gamepad_actions_map_to_audio_no_audio_and_focused_component(monkeypatch
         "voice",
         "cancel_timer",
         "no_voice",
+        "play_audio",
         "cancel_timer",
         "click",
     ]
@@ -572,6 +586,7 @@ def test_gamepad_triggers_and_bumpers_edit_dialog_without_moving_focus(
 @pytest.mark.parametrize(
     ("action", "button_path"),
     [
+        ("play_audio", "audio_button"),
         ("add_previous_line", "add_prev_line_button"),
         ("add_next_line", "add_next_line_button"),
         ("expand_audio_start", "waveform_widget.expand_start_button"),

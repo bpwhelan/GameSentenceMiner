@@ -339,6 +339,7 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ("confirmation_gamepad_focus_left", window.anki_confirmation_gamepad_focus_left_combo),
         ("confirmation_gamepad_focus_right", window.anki_confirmation_gamepad_focus_right_combo),
         ("confirmation_gamepad_activate", window.anki_confirmation_gamepad_activate_combo),
+        ("confirmation_gamepad_play_audio", window.anki_confirmation_gamepad_play_audio_combo),
         ("confirmation_gamepad_confirm_with_audio", window.anki_confirmation_gamepad_confirm_with_audio_combo),
         (
             "confirmation_gamepad_confirm_without_audio",

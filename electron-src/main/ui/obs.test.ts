@@ -93,7 +93,8 @@ vi.mock('../util.js', () => ({
     isWindows10OrHigher: () => true,
 }));
 
-vi.mock('./obs-capture.js', () => ({
+vi.mock('./obs-capture.js', async () => ({
+    ...await vi.importActual<typeof import('./obs-capture.js')>('./obs-capture.js'),
     OBS_DSHOW_INPUT_KIND: 'dshow_input',
     OBS_PIPEWIRE_DESKTOP_INPUT_KIND: 'pipewire-desktop-capture-source',
     OBS_PIPEWIRE_SCREEN_INPUT_KIND: 'pipewire-screen-capture-source',
@@ -857,6 +858,122 @@ describe('renameOBSScene', () => {
             inputSettings: {},
             sceneItemEnabled: false,
         });
+    });
+
+    it.each([true, false])('lists monitors with capture-card probing disabled (quick: %s)', async (quick) => {
+        const { registerOBSIPC } = await loadObsModule();
+        let monitorHelperCreated = false;
+        obsCallMock.mockImplementation(async (requestType: string, requestData?: any) => {
+            if (requestType === 'CreateInput' && requestData?.inputName === 'monitor_getter') {
+                monitorHelperCreated = true;
+            }
+            if (requestType === 'GetSceneItemList' && requestData?.sceneName === 'GSM Helper - DONT TOUCH') {
+                return { sceneItems: monitorHelperCreated ? [
+                    { sceneItemId: 42, sourceName: 'monitor_getter', sceneItemEnabled: true },
+                ] : [] };
+            }
+            if (requestType === 'GetInputPropertiesListPropertyItems' && requestData?.inputName === 'monitor_getter') {
+                if (!monitorHelperCreated) throw new Error('No source was found');
+                return { propertyItems: [
+                    { itemName: 'Display 2: 2560x1440 @ 1920,0', itemValue: 'display-2', itemEnabled: true },
+                ] };
+            }
+            return {};
+        });
+        await registerOBSIPC();
+        const getWindows = ipcHandleMock.mock.calls.find(([channel]) => channel === 'obs.getWindows')![1];
+        await expect(getWindows({}, { quick })).resolves.toEqual([
+            {
+                title: 'Display 2: 2560x1440 @ 1920,0',
+                value: '["monitor","display-2"]', targetKind: 'monitor', monitorId: 'display-2',
+            },
+        ]);
+        expect(obsCallMock).toHaveBeenCalledWith('GetInputPropertiesListPropertyItems', {
+            inputName: 'monitor_getter', propertyName: 'monitor_id',
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('CreateInput', {
+            sceneName: 'GSM Helper - DONT TOUCH', inputName: 'monitor_getter',
+            inputKind: 'monitor_capture', inputSettings: {}, sceneItemEnabled: false,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('SetSceneItemEnabled', {
+            sceneName: 'GSM Helper - DONT TOUCH', sceneItemId: 42, sceneItemEnabled: false,
+        });
+        expect(buildCaptureCardOptionsMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps windows available when OBS cannot create the monitor probe', async () => {
+        const { registerOBSIPC } = await loadObsModule();
+        const { mergeObsWindowItems } = await vi.importActual<typeof import('./obs-capture.js')>('./obs-capture.js');
+        mergeObsWindowItemsMock.mockImplementation(mergeObsWindowItems);
+        obsCallMock.mockImplementation(async (requestType: string, requestData?: any) => {
+            if (requestType === 'GetInputPropertiesListPropertyItems') {
+                if (requestData?.inputName === 'monitor_getter') {
+                    throw new Error('No source was found');
+                }
+                if (requestData?.inputName === 'window_getter') {
+                    return { propertyItems: [
+                        { itemName: 'Window: Example Game', itemValue: 'Example Game:Class:game.exe' },
+                    ] };
+                }
+            }
+            if (requestType === 'CreateInput' && requestData?.inputName === 'monitor_getter') {
+                throw new Error('Input kind is not supported');
+            }
+            return {};
+        });
+        await registerOBSIPC();
+        const getWindows = ipcHandleMock.mock.calls.find(([channel]) => channel === 'obs.getWindows')![1];
+
+        await expect(getWindows({}, { quick: true })).resolves.toEqual([
+            expect.objectContaining({ title: 'Example Game', targetKind: 'window' }),
+        ]);
+    });
+
+    it('rejects an invalid monitor before creating or replacing an OBS scene', async () => {
+        const { buildWindowsSceneCaptureInputs } = await vi.importActual<typeof import('./obs-capture.js')>('./obs-capture.js');
+        buildWindowsSceneCaptureInputsMock.mockImplementation(buildWindowsSceneCaptureInputs);
+        const { registerOBSIPC } = await loadObsModule();
+        await registerOBSIPC();
+        const createScene = ipcHandleMock.mock.calls.find(([channel]) => channel === 'obs.createScene')![1];
+
+        await createScene({}, { title: 'Display 2', sceneName: 'Existing Scene', targetKind: 'monitor' });
+
+        for (const requestType of ['CreateScene', 'RemoveSceneItem', 'SetCurrentProgramScene', 'CreateInput']) {
+            expect(obsCallMock).not.toHaveBeenCalledWith(requestType, expect.anything());
+        }
+    });
+
+    it('creates and fits a monitor scene with default desktop audio without changing global audio or adding a window rule', async () => {
+        const actualCapture = await vi.importActual<typeof import('./obs-capture.js')>('./obs-capture.js');
+        buildWindowsSceneCaptureInputsMock.mockImplementation(actualCapture.buildWindowsSceneCaptureInputs);
+        const { registerOBSIPC } = await loadObsModule();
+        obsCallMock.mockImplementation(async (requestType: string) => {
+            if (requestType === 'CreateScene') return { sceneUuid: 'scene-monitor' };
+            if (requestType === 'GetInputSettings') throw new Error('No source was found');
+            if (requestType === 'GetVideoSettings') return { baseWidth: 1920, baseHeight: 1080 };
+            if (requestType === 'GetSceneItemList') return { sceneItems: [
+                { sceneItemId: 3, sourceName: 'Freeflow - Monitor Capture', inputKind: 'monitor_capture' },
+            ] };
+            if (requestType === 'GetSceneCollectionList') return { currentSceneCollectionName: 'Collection 1' };
+            return {};
+        });
+        await registerOBSIPC();
+        const createScene = ipcHandleMock.mock.calls.find(([channel]) => channel === 'obs.createScene')![1];
+        await createScene({}, { title: 'Display 2', sceneName: 'Freeflow', targetKind: 'monitor', monitorId: 'display-2' });
+        expect(obsCallMock).toHaveBeenCalledWith('CreateInput', {
+            sceneName: 'Freeflow', inputName: 'Freeflow - Monitor Capture', inputKind: 'monitor_capture',
+            inputSettings: { monitor_id: 'display-2', method: 0, capture_cursor: false }, sceneItemEnabled: true,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('CreateInput', {
+            sceneName: 'Freeflow', inputName: 'Freeflow - Desktop Audio', inputKind: 'wasapi_output_capture',
+            inputSettings: { device_id: 'default' }, sceneItemEnabled: true,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('SetSceneItemTransform', expect.objectContaining({
+            sceneUuid: 'scene-monitor', sceneItemId: 3,
+            sceneItemTransform: expect.objectContaining({ boundsWidth: 1920, boundsHeight: 1080, boundsType: 'OBS_BOUNDS_SCALE_INNER' }),
+        }));
+        expect(obsCallMock).not.toHaveBeenCalledWith('SetInputMute', expect.anything());
+        expect(storeSetMock).not.toHaveBeenCalledWith('windowSceneSwitcher', expect.anything());
     });
 
     it('forces capture-card helper sources to stay disabled during full enumeration', async () => {

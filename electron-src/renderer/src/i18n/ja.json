@@ -57,8 +57,11 @@
       "preview": "プレビュー",
       "captureCardPrefix": "キャプチャカード: {title}",
       "setupNewScene": "新しいゲームキャプチャを設定:",
-      "refreshWindows": "ウィンドウを更新",
-      "selectWindow": "ウィンドウを選択",
+      "refreshWindows": "キャプチャ対象を更新",
+      "selectWindow": "キャプチャ対象を選択",
+      "captureTargetLabel": "キャプチャ対象:",
+      "sectionMonitors": "モニターキャプチャ",
+      "monitorCaptureTooltip": "選択したモニター全体と、既定の出力デバイスのデスクトップ音声をキャプチャします。このシーン専用の音声ソースを追加します。グローバルのデスクトップ音声設定と自動シーン切り替えは変更されません。",
       "setupCapture": "キャプチャを設定",
       "setupCaptureTooltip": "キャプチャ設定は、選択したWindow CaptureまたはGame Captureをウィンドウに追加し、キャプチャカードやカメラにはVideo Capture Deviceを追加します。\nフルスクリーンゲームにはGame Captureを使い、Game Captureが黒画面になる場合はWindow Captureを使ってください。\nLinux X11/Steam DeckではXComposite Window Captureを使用します。WaylandではOBSのScreen Capture (PipeWire)を使用し、システムの画面/ウィンドウ選択画面を開きます。\nキャプチャカードのゲームキャプチャはウィンドウタイトルによる自動切替なしで作成されます。",
       "waylandPipewireOption": "Wayland画面キャプチャ（PipeWire）",
@@ -269,16 +272,16 @@
     }
   },
   "captureWizard": {
-    "title": "テキストキャプチャウィザード (WIP)",
-    "subtitle": "このゲームのテキスト入力、OCRフォールバック、自動化を仕上げます。",
+    "title": "テキストキャプチャウィザード",
+    "subtitle": "4つのステップでテキストの取得方法を確認できます。必要な設定に直接移動することもできます。",
     "breadcrumbLabel": "テキストキャプチャ設定のステップ",
     "steps": {
-      "preview": "プレビュー",
+      "preview": "キャプチャ",
       "agent": "Agent",
-      "hook": "フック",
+      "hook": "テキストフック",
       "ocr": "OCR",
       "profile": "プロファイル",
-      "finish": "確認"
+      "finish": "仕上げ"
     },
     "actions": {
       "deny": "今はしない",
@@ -287,8 +290,8 @@
       "next": "次へ"
     },
     "preview": {
-      "title": "OBSプレビューを確認",
-      "description": "GSMは毎秒プレビューを更新し、各スクリーンショットの前にソースをOBSキャンバスへ合わせます。",
+      "title": "ゲームのキャプチャを確認",
+      "description": "GSMは映像キャプチャをスクリーンショット、クリップ、OCRに使用します。下のプレビューにゲームが映っているか確認してください。画面が黒い場合は、キャプチャの種類を切り替えてみてください。",
       "scene": "シーン",
       "executable": "実行ファイル",
       "captureType": "キャプチャ種類",
@@ -322,16 +325,16 @@
       "useScript": "選択したスクリプトを使う"
     },
     "hook": {
-      "title": "LunaまたはTextractorを試す",
-      "description": "Luna/Textractorのフックは主にビジュアルノベル向けです。一般的なゲームではAgentスクリプトかOCRの方が動作しやすいため、ここではきれいな会話テキストが見えるフックだけを選んでください。",
+      "title": "ゲームからテキストを直接取得",
+      "description": "テキストフックはゲームから直接テキストを取得するため、OCRの認識ミスを避けられます。ビジュアルノベルには、通常LunaやTextractorが最適です。",
       "engine": "エンジン",
       "luna": "Luna Hook",
       "textractor": "Textractor",
       "start": "フックエンジンを開始",
       "running": "使用可能なフック {count} 件",
       "notRunning": "フックエンジンは実行されていません。",
-      "waiting": "テキスト付きフックを待機中です。ゲームの会話を進めてください。",
-      "startFirst": "エンジンを開始してフックをスキャンしてください。",
+      "waiting": "ゲームの会話を進めてテキストを取得してください。一致するテキストが表示されない場合は、Textractorを試すかOCRに進んでください。",
+      "startFirst": "まずLunaを起動し、ゲームの会話を進めて、画面と一致するテキストを選択してください。",
       "noPreview": "テキストプレビューはまだありません",
       "refreshFailed": "フックの更新に失敗しました。",
       "startFailed": "フックエンジンの起動に失敗しました。",
@@ -340,7 +343,7 @@
     },
     "ocr": {
       "title": "OCR範囲を選択",
-      "description": "ゲームの会話を囲む範囲を描画してください。選択画面を閉じると、GSMが一度スキャンして認識したテキストを表示します。",
+      "description": "OCRはゲームの映像から文字を読み取ります。キャプチャカード経由のゲームを含め、多くのゲームで使えます。会話の範囲を選択して、テキストのサンプルを確認してください。",
       "reasonStable": "OCRエリアを指定すると会話ボックスだけにスキャンを絞れます。",
       "reasonNoise": "小さい範囲はメニュー、名前欄、UIノイズを避けやすくします。",
       "reasonFallback": "コンソールゲーム、保護されたエンジン、キャプチャカードでも動作します。",
@@ -367,8 +370,8 @@
       "automationAutoDescription": "ゲームがアクティブな間、選択範囲を継続的にスキャンします。"
     },
     "profile": {
-      "title": "このゲーム設定を保存",
-      "description": "このOBSシーンの自動化を保存し、必要ならGSMプロファイルでより大きなゲーム別設定に分けられます。",
+      "title": "このゲームの設定を仕上げる",
+      "description": "テキストソースを確認し、次回から自動起動するものを選んでください。",
       "source": "テキストソース",
       "sourceAgent": "Agentスクリプト",
       "sourceLuna": "Luna Hook",
@@ -408,6 +411,38 @@
     },
     "errors": {
       "contextFailed": "アクティブキャプチャの読み込みに失敗しました。"
+    },
+    "guided": {
+      "captureNext": "キャプチャを確認してテキスト選択へ",
+      "hookNext": "OCRへ進む",
+      "finalize": "仕上げへ進む",
+      "saveAndClose": "保存して閉じる",
+      "skipOcr": "OCRをスキップして仕上げる",
+      "ocrOptional": "テキストフックを選択済みです。OCRをスキップするか、フックで取得できないテキスト用に設定できます。",
+      "ocrGuide": "会話の範囲を選択し、サンプルを確認して、OCRを実行するタイミングを選んでください。",
+      "hookGuide": "1. エンジンを起動します。2. ゲームの会話を進めます。3. 画面と一致するテキストを選択します。",
+      "vnTitle": "Luna / Textractor · ビジュアルノベルにおすすめ",
+      "agentTitle": "Agent · ゲーム専用スクリプト",
+      "agentDescription": "Agentは特定のゲーム用に作成されたスクリプトを使用します。必要なスクリプトがわかっている場合は、手動で検索できます。",
+      "agentRecommended": "一致度の高いスクリプト",
+      "agentMatchHint": "このゲームのシーン名、ウィンドウタイトル、実行ファイルをもとに見つかった候補です。使用前にゲームとプラットフォームを確認してください。",
+      "agentNoMatch": "一致度の高いスクリプトは見つかりませんでした。ビジュアルノベルならLuna / Textractorを試すか、OCRに進んでください。",
+      "useAgent": "このスクリプトを使う",
+      "stopHook": "エンジンを停止",
+      "stoppingFailed": "テキストフックの停止に失敗しました。",
+      "selectedSource": "選択中: {source}",
+      "noSource": "テキストソースが未選択です。テキストフックまたはOCRに戻って設定するか、キャプチャ設定のみ保存できます。",
+      "optionalSettings": "その他の設定: オーバーレイとGSMプロファイル",
+      "noScene": "ゲームを起動し、ホームでそのゲームのキャプチャを選択してから更新してください。",
+      "useOcr": "OCRを使って仕上げる",
+      "keepHook": "テキストフックを使って仕上げる",
+      "engineBusy": "起動中…",
+      "hookSelected": "テキストフックを選択しました。補助としてOCRを設定するか、仕上げに進めます。",
+      "ocrNotTested": "サンプルはまだありません。今すぐ範囲を選択するか、既存のOCR設定を使えます。",
+      "agentStart": "スクリプトを起動",
+      "agentRunning": "Agentは実行中です。会話を進めて取得したテキストを確認してください。",
+      "usingSaved": "保存済みの設定を読み込みました。変更したいステップに移動できます。",
+      "otherGameRunning": "{exe} のテキストフックが実行中です。このゲーム用のフックを起動する前に停止してください。"
     }
   },
   "install": {
@@ -945,6 +980,8 @@
   },
   "ocr": {
     "sceneAndAreas": {
+      "autostart": "OCRの自動起動:",
+      "autostartHint": "このゲームがアクティブなときに自動起動するOCRモードを選択します。この設定はゲーム自動化と共通です。",
       "title": "ゲームとエリア",
       "areaCount": "{count} エリア",
       "areaCountPlural": "{count} エリア",
@@ -1149,6 +1186,8 @@
       "comparison": "テキストが新規、安定、または前の行の一部かを判定する重複除去と変更検出のしきい値です。"
     },
     "runtime": {
+      "failedLoadAutostart": "OCRの自動起動設定を読み込めませんでした。",
+      "failedSaveAutostart": "OCRの自動起動設定を保存できませんでした。",
       "idle": "アイドル",
       "startingAuto": "自動OCRを起動中...",
       "startingManual": "手動OCRを起動中...",

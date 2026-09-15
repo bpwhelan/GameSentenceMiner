@@ -907,6 +907,9 @@ class ConfigWindow(QWidget):
                     confirmation_gamepad_activate=str(
                         self.anki_confirmation_gamepad_activate_combo.currentData() or ""
                     ),
+                    confirmation_gamepad_play_audio=str(
+                        self.anki_confirmation_gamepad_play_audio_combo.currentData() or ""
+                    ),
                     confirmation_gamepad_confirm_with_audio=str(
                         self.anki_confirmation_gamepad_confirm_with_audio_combo.currentData() or ""
                     ),
@@ -1504,6 +1507,7 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_gamepad_focus_left_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_gamepad_focus_right_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_gamepad_activate_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_play_audio_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_gamepad_confirm_with_audio_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_gamepad_confirm_without_audio_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_gamepad_add_previous_line_combo = self._create_gamepad_hotkey_combo()
@@ -3109,6 +3113,10 @@ class ConfigWindow(QWidget):
         self._set_gamepad_hotkey_combo(
             self.anki_confirmation_gamepad_activate_combo,
             getattr(s.anki, "confirmation_gamepad_activate", "0"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_play_audio_combo,
+            getattr(s.anki, "confirmation_gamepad_play_audio", "3"),
         )
         self._set_gamepad_hotkey_combo(
             self.anki_confirmation_gamepad_confirm_with_audio_combo,
