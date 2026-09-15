@@ -71,16 +71,42 @@ app.whenReady().then(async () => {
     });
   `);
   fs.writeFileSync(path.join(extensionDirectory, 'probe.html'), '<!doctype html><title>Offline test</title>');
-  const gradingSource = fs.readFileSync(path.join(__dirname, '../yomitan/js/display/gsm-jiten-grading.js'), 'utf8').replace('export class', 'class');
-  fs.writeFileSync(path.join(extensionDirectory, 'grading.html'), '<!doctype html><meta charset="utf-8"><script src="grading.js"></script>');
-  fs.writeFileSync(path.join(extensionDirectory, 'grading.js'), gradingSource + `
-    const grader = new GsmJitenGrading({});
-    grader._getCurrentHeadword = () => ({term:'猫', reading:'ねこ'});
+  // Load the rebuilt popup modules in an actual extension iframe. Only the
+  // dictionary entries and external APIs are fixtures; navigation and grading
+  // run through the production gamepad / popup message handlers.
+  fs.cpSync(path.join(__dirname, '../yomitan/js'), path.join(extensionDirectory, 'js'), { recursive: true });
+  fs.writeFileSync(path.join(extensionDirectory, 'grading.html'), `<!doctype html><meta charset="utf-8">
+    <style>body { font: 18px sans-serif; } #content-scroll { height: 260px; overflow: auto; }
+      .entry { padding: 20px; height: 300px; }</style>
+    <div id="content-scroll"><div id="dictionary-entries">
+      <div class="entry entry-current">猫 <button class="action-button" data-action="save-note" data-card-format-index="0">Mine</button></div>
+      <div class="entry">犬 <button class="action-button" data-action="save-note" data-card-format-index="0">Mine second</button></div>
+    </div></div><div id="popup-menus"></div><script type="module" src="grading.js"></script>`);
+  fs.writeFileSync(path.join(extensionDirectory, 'grading.js'), `
+    import {DisplayAnki} from './js/display/display-anki.js';
+    import {GsmJitenGrading} from './js/display/gsm-jiten-grading.js';
+    const display = { application: {api: {}}, selectedIndex: 0, dictionaryEntries: [
+      {type:'term', headwords:[{term:'猫', reading:'ねこ'}]},
+      {type:'term', headwords:[{term:'犬', reading:'いぬ'}]}
+    ], _focusEntry(index) {
+      this.selectedIndex = Math.max(0, Math.min(index, 1));
+      document.querySelectorAll('.entry').forEach((entry, i) => entry.classList.toggle('entry-current', i === this.selectedIndex));
+    }};
+    const controller = new DisplayAnki(display, {});
+    const grader = new GsmJitenGrading(display);
+    grader._ensureStyle();
+    grader._applyConfig({enabled: true});
     grader._setStatus = (text, tone) => { if(tone === 'success' || tone === 'error') window.top.postMessage({type:'gsm-test-done', tone, text}, '*'); };
     window.addEventListener('message', grader._onMessageBind);
-    const button = document.createElement('button');
-    button.dataset.kind = 'review'; button.dataset.rating = '3'; button.textContent = 'Good';
-    void grader._onButtonClick(button);
+    window.addEventListener('message', event => {
+      controller._onGsmPostMessage(event);
+      if (event.data.type === 'gsm-yomitan-control') {
+        const selected = document.querySelector('.gsm-controller-selected-action');
+        window.top.postMessage({type:'gsm-test-selection', label: selected?.textContent,
+          disabled: selected?.disabled, outline: selected ? getComputedStyle(selected).outlineStyle : ''}, '*');
+      }
+    });
+    window.top.postMessage({type:'gsm-test-ready'}, '*');
   `);
   const extension = await ses.extensions.loadExtension(extensionDirectory, { allowFileAccess: true });
   const window = new BrowserWindow({ show: false, webPreferences: { session: ses } });
@@ -131,6 +157,7 @@ app.whenReady().then(async () => {
   const hostPath = path.join(directory, 'grading-host.html');
   fs.writeFileSync(hostPath, '<!doctype html><body></body>');
   await gradingWindow.loadFile(hostPath);
+  await gradingWindow.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname, '../gamepad.js'), 'utf8') + '\nvoid 0;');
   const gradeResult = await gradingWindow.webContents.executeJavaScript(`
     const ipcRenderer = require('electron').ipcRenderer;
     const getJitenGradingApiKey = () => 'offline-test';
@@ -140,22 +167,45 @@ app.whenReady().then(async () => {
     const JITEN_GRADING_PARSE_URL = '${DEFAULT_JITEN_PARSE_URL}';
     const applyOptimisticHighlightState = () => {};
     ${handlerSource}
+    const handler = Object.create(GamepadHandler.prototype);
+    Object.assign(handler, {yomitanPopupVisible: true, popupActionSelectionActive: true, thumbstickLatch: new Map()});
+    const selections = [];
     new Promise(resolve => {
       window.addEventListener('message', event => {
         if(event.data.type === 'gsm-jiten-grade') void handleJitenGradeRequest(event.data, event.source);
-        if(event.data.type === 'gsm-test-done') resolve({ tone: event.data.tone, text: event.data.text });
+        if(event.data.type === 'gsm-test-selection') selections.push(event.data);
+        if(event.data.type === 'gsm-test-done') resolve({ tone: event.data.tone, text: event.data.text, selections });
+        if(event.data.type === 'gsm-test-ready') {
+          handler.resetYomitanPopupActionSelection();
+          handler.navigateYomitanNextEntry();
+          handler.navigateYomitanPrevEntry();
+          handler.navigateYomitanPrevEntry();
+          handler.navigateYomitanPrevEntry();
+          handler.navigateYomitanNextEntry();
+          handler.navigateYomitanPrevEntry();
+          handler.processRightStickHorizontalForPopup(-1, 0.6);
+          handler.processRightStickHorizontalForPopup(0, 0.6);
+          handler.processRightStickHorizontalForPopup(1, 0.6);
+          handler.confirmSelection();
+          handler.confirmSelection();
+        }
       });
       const frame = document.createElement('iframe');
+      frame.className = 'yomitan-popup'; frame.style.width = '650px'; frame.style.height = '320px';
       frame.src = 'chrome-extension://${extension.id}/grading.html'; document.body.append(frame);
     });
   `);
   assert.equal(gradeResult.tone, 'success');
+  assert.equal(gradeResult.text, 'Good ✓');
+  assert.deepEqual(gradeResult.selections.map(item => item.label), ['Mine', 'Mine second', 'Mine', 'Good', 'Never Forget', 'Mine', 'Good', 'Hard', 'Good', 'Good', 'Good']);
+  assert.ok(gradeResult.selections.every(item => item.outline === 'solid'));
+  assert.ok(gradeResult.selections.slice(-2).every(item => item.disabled));
   await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(writes, 2, 'custom popup duplicate delivery must produce one additional write');
   assert.equal(gradingWindow.isDestroyed(), false);
   assert.ok(fs.readFileSync(path.join(directory, 'overlay-diagnostics.log'), 'utf8').includes('grade-highlighted'));
   gradingWindow.destroy();
-  console.log(JSON.stringify({ ok: true, serviceWorkerIntercepted: true, rendererIntercepted: true, chromiumLoopbackTransport: true, upstreamParagraphs: calls.flat().length, batches: calls.length }));
+  console.log(JSON.stringify({ ok: true, serviceWorkerIntercepted: true, rendererIntercepted: true, chromiumLoopbackTransport: true, gamepadGrading: true, upstreamParagraphs: calls.flat().length, batches: calls.length }));
   broker.dispose();
   uninstall();
   window.destroy();

@@ -63,6 +63,7 @@ function loadStartupGamepadSettings(settings: Record<string, unknown>) {
       `const newsettings = ${JSON.stringify(settings)};`,
       "const gamepadSettings = { enabled: true };",
       "const KEYBOARD_SETTING_KEYS = [];",
+      source.slice(source.indexOf("  const GAMEPAD_NAVIGATION_OPTIONS = ["), source.indexOf("  let gamepadSettings = {")),
       source.slice(start, end),
       "module.exports = gamepadSettings;"
     ].join("\n"),
@@ -78,6 +79,16 @@ const GamepadHandler = legacyGamepad.GamepadHandler;
 const legacyGamepadContext = legacyGamepad.context;
 
 describe("legacy gamepad startup settings", () => {
+  it("loads saved navigation experiments before initialization", () => {
+    expect(loadStartupGamepadSettings({
+      gamepadHoldNavigation: "sentence", gamepadHorizontalWrap: "line",
+      gamepadVerticalNavigation: "spatial", gamepadInitialPosition: "nearest",
+      gamepadBlockJumpAnimation: true, gamepadAnalogAcceleration: true
+    })).toMatchObject({
+      holdNavigation: "sentence", horizontalWrap: "line", verticalNavigation: "spatial",
+      initialPosition: "nearest", blockJumpAnimation: true, analogAcceleration: true
+    });
+  });
   it("honors a disabled master gamepad setting before initialization", () => {
     expect(loadStartupGamepadSettings({ gamepadEnabled: false })).toMatchObject({
       enabled: false

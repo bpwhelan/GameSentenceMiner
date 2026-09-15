@@ -1048,6 +1048,12 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadShowNavigationStatus": true,
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
+  "gamepadHoldNavigation": "repeat",
+  "gamepadHorizontalWrap": "adjacent",
+  "gamepadVerticalNavigation": "lines",
+  "gamepadInitialPosition": "remember",
+  "gamepadBlockJumpAnimation": false,
+  "gamepadAnalogAcceleration": false,
   "gamepadServerPort": GAMEPAD_SERVER_BASE_PORT, // Port for gamepad server
   "gamepadDeviceBlacklist": [], // Controller device names ignored by the input server
   "gamepadKeyboardHotkey": "Alt+G", // Keyboard hotkey to toggle gamepad mode
@@ -7931,6 +7937,12 @@ async function startOverlayAppImpl() {
       case "gamepadShowNavigationStatus":
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":
+      case "gamepadHoldNavigation":
+      case "gamepadHorizontalWrap":
+      case "gamepadVerticalNavigation":
+      case "gamepadInitialPosition":
+      case "gamepadBlockJumpAnimation":
+      case "gamepadAnalogAcceleration":
       case "gamepadControllerEnabled":
       case "gamepadTokenizerBackend":
       case "gamepadLocalTokenizerFallbackBackend":

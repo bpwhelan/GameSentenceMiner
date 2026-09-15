@@ -4704,6 +4704,9 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadRepeatRate !== undefined) {
       gamepadSettings.repeatRate = newsettings.gamepadRepeatRate;
     }
+    for (const [setting, option] of GAMEPAD_NAVIGATION_OPTIONS) {
+      if (newsettings[setting] !== undefined) gamepadSettings[option] = newsettings[setting];
+    }
     if (newsettings.gamepadAutoConfirmSelection !== undefined) {
       gamepadSettings.autoConfirmSelection = newsettings.gamepadAutoConfirmSelection;
     }
@@ -5391,6 +5394,14 @@ background: rgba(202, 12, 12, 0.692);
   let gamepadInputSuppressed = false;
   let gamepadStatusHideTimeout = null;
   let wasGamepadConnected = false;
+  const GAMEPAD_NAVIGATION_OPTIONS = [
+    ['gamepadHoldNavigation', 'holdNavigation'],
+    ['gamepadHorizontalWrap', 'horizontalWrap'],
+    ['gamepadVerticalNavigation', 'verticalNavigation'],
+    ['gamepadInitialPosition', 'initialPosition'],
+    ['gamepadBlockJumpAnimation', 'blockJumpAnimation'],
+    ['gamepadAnalogAcceleration', 'analogAcceleration'],
+  ];
   let gamepadSettings = {
     enabled: true,
     serverUrl: 'ws://localhost:7276', // Python gamepad server
@@ -5412,6 +5423,12 @@ background: rgba(202, 12, 12, 0.692);
     prevEntryButton: 6, // LT trigger - navigate to previous Yomitan entry
     repeatDelay: 400,
     repeatRate: 150,
+    holdNavigation: 'repeat',
+    horizontalWrap: 'adjacent',
+    verticalNavigation: 'lines',
+    initialPosition: 'remember',
+    blockJumpAnimation: false,
+    analogAcceleration: false,
     autoConfirmSelection: true,
     focusOverlayOnEntry: true, // Focus overlay window when navigation activates
     tokenMode: false, // Navigate by tokenizer word units instead of characters
@@ -5514,6 +5531,12 @@ background: rgba(202, 12, 12, 0.692);
       prevEntryButton: gamepadSettings.prevEntryButton,
       repeatDelay: gamepadSettings.repeatDelay,
       repeatRate: gamepadSettings.repeatRate,
+      holdNavigation: gamepadSettings.holdNavigation,
+      horizontalWrap: gamepadSettings.horizontalWrap,
+      verticalNavigation: gamepadSettings.verticalNavigation,
+      initialPosition: gamepadSettings.initialPosition,
+      blockJumpAnimation: gamepadSettings.blockJumpAnimation,
+      analogAcceleration: gamepadSettings.analogAcceleration,
       autoConfirmSelection: gamepadSettings.autoConfirmSelection,
       focusOverlayOnEntry: gamepadSettings.focusOverlayOnEntry,
       tokenMode: gamepadSettings.tokenMode,
@@ -6009,6 +6032,12 @@ background: rgba(202, 12, 12, 0.692);
     if (updatedSettings.gamepadRepeatRate !== undefined) {
       gamepadSettings.repeatRate = updatedSettings.gamepadRepeatRate;
       needsLifecycleSync = true;
+    }
+    for (const [setting, option] of GAMEPAD_NAVIGATION_OPTIONS) {
+      if (updatedSettings[setting] !== undefined) {
+        gamepadSettings[option] = updatedSettings[setting];
+        needsLifecycleSync = true;
+      }
     }
     if (updatedSettings.gamepadAutoConfirmSelection !== undefined) {
       gamepadSettings.autoConfirmSelection = updatedSettings.gamepadAutoConfirmSelection;

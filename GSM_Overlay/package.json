@@ -11,6 +11,7 @@
     "start": "electron-forge start",
     "test": "node --test tests/*.test.cjs",
     "test:jiten-electron": "node tests/run-jiten-electron-smoke.cjs",
+    "test:gamepad-electron": "node tests/run-gamepad-electron-smoke.cjs",
     "package": "electron-forge package",
     "make": "electron-forge make"
   },

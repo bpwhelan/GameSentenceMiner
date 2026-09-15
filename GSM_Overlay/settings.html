@@ -2543,6 +2543,72 @@
         </span>
         <input type="number" id="gamepadRepeatRate" value="150" min="50" max="500" step="25" />
       </label>
+      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Navigation Experiments</h5>
+      <div class="hotkey-info">Mix these options using your existing buttons. Defaults preserve the original navigation. Try sentence jumps for dialogue, or spatial block hopping with nearest-point entry for menus.</div>
+      <label>
+        <span class="label-text">
+          Hold Direction
+          <div class="hotkey-info">Taps keep the current character/word step. After the repeat delay, left/right uses the selected jump. Acceleration applies to all directions and reaches a 50 ms interval after 1.2 seconds of repeating.</div>
+        </span>
+        <select id="gamepadHoldNavigation">
+          <option value="repeat">Normal repeat (default)</option>
+          <option value="accelerate">Accelerating repeat</option>
+          <option value="sentence">Jump to sentence starts</option>
+          <option value="new">Jump to new Jiten words</option>
+          <option value="highlighted">Jump to highlighted Jiten words</option>
+          <option value="status-change">Jump to a different Jiten status</option>
+        </select>
+      </label>
+      <div class="hotkey-info">Jiten jumps need Jiten Reader highlighting and reuse its current results. Without a matching target, normal movement is used. Sentence jumps use punctuation; abbreviations may count as sentence breaks.</div>
+      <label>
+        <span class="label-text">
+          Left/Right at an Edge
+          <div class="hotkey-info">Choose where horizontal movement wraps. Also limits held sentence/Jiten jumps; up/down can still leave the line or block.</div>
+        </span>
+        <select id="gamepadHorizontalWrap">
+          <option value="adjacent">Continue to other blocks (default)</option>
+          <option value="line">Wrap within the current line</option>
+          <option value="block">Wrap within the current block</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Up/Down Movement
+          <div class="hotkey-info">Direct hopping skips lines. Spatial hopping chooses a nearby block above/below, preferring the same column, and stops at screen edges.</div>
+        </span>
+        <select id="gamepadVerticalNavigation">
+          <option value="lines">Lines, then blocks (default)</option>
+          <option value="blocks">Whole blocks in reading order</option>
+          <option value="spatial">Nearest block above/below</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Starting Position
+          <div class="hotkey-info">On activation and entry into another block. First new uses available Jiten results, otherwise the start. Nearest point applies on block entry and uses the position you just left.</div>
+        </span>
+        <select id="gamepadInitialPosition">
+          <option value="remember">Resume on activation; block start on entry (default)</option>
+          <option value="start">Start of block</option>
+          <option value="middle">Middle of block</option>
+          <option value="first-new">First new Jiten word</option>
+          <option value="nearest">Nearest point to previous position</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Left-Stick Speed Curve
+          <div class="hotkey-info">Gentle tilt gives finer cursor control; full tilt moves twice as fast. The left stick still moves the cursor freely.</div>
+        </span>
+        <input type="checkbox" id="gamepadAnalogAcceleration" />
+      </label>
+      <label>
+        <span class="label-text">
+          Block-Jump Trail
+          <div class="hotkey-info">A short light streak connects the old and new cursor positions when changing blocks. Respects reduced-motion preferences.</div>
+        </span>
+        <input type="checkbox" id="gamepadBlockJumpAnimation" />
+      </label>
       <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Activation Methods</h5>
       <label>
         <span class="label-text">
@@ -3540,6 +3606,12 @@
         "gamepadShowNavigationStatus",
         "gamepadRepeatDelay",
         "gamepadRepeatRate",
+        "gamepadHoldNavigation",
+        "gamepadHorizontalWrap",
+        "gamepadVerticalNavigation",
+        "gamepadInitialPosition",
+        "gamepadBlockJumpAnimation",
+        "gamepadAnalogAcceleration",
         "gamepadServerPort",
         "gamepadControllerEnabled",
         "gamepadKeyboardEnabled",
@@ -4057,6 +4129,12 @@
         max: 500,
         integer: true,
       }),
+      createSelectBinding("gamepadHoldNavigation", "#gamepadHoldNavigation", { getDefault: () => "repeat" }),
+      createSelectBinding("gamepadHorizontalWrap", "#gamepadHorizontalWrap", { getDefault: () => "adjacent" }),
+      createSelectBinding("gamepadVerticalNavigation", "#gamepadVerticalNavigation", { getDefault: () => "lines" }),
+      createSelectBinding("gamepadInitialPosition", "#gamepadInitialPosition", { getDefault: () => "remember" }),
+      createCheckboxBinding("gamepadBlockJumpAnimation", "#gamepadBlockJumpAnimation"),
+      createCheckboxBinding("gamepadAnalogAcceleration", "#gamepadAnalogAcceleration"),
       createCheckboxBinding("gamepadControllerEnabled", "#gamepadControllerEnabled", {
         afterApply: () => updateControllerActivationFieldState(),
       }),
