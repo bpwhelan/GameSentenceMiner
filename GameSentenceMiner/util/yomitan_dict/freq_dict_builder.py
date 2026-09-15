@@ -46,11 +46,12 @@ class FrequencyDictBuilder:
     def build_from_db(self) -> None:
         """Query words + word_occurrences and populate self.entries."""
         from GameSentenceMiner.util.database.tokenization_tables import WordsTable
+        from GameSentenceMiner.util.database.game_archive import word_occurrence_source
 
         rows = WordsTable._db.fetchall(
-            "SELECT w.word, w.reading, COUNT(wo.id) as freq "
+            "SELECT w.word, w.reading, SUM(wo.frequency) as freq "
             "FROM words w "
-            "INNER JOIN word_occurrences wo ON w.id = wo.word_id "
+            f"INNER JOIN ({word_occurrence_source(WordsTable._db)}) wo ON w.id = wo.word_id "
             "GROUP BY w.id "
             "HAVING freq > 0 "
             "ORDER BY freq DESC"

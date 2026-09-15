@@ -241,6 +241,10 @@ def tokenize_line(line_id: str, line_text: str, line_timestamp: float | None = N
     try:
 
         def _tokenize(conn):
+            # A queued realtime job may arrive after its game has been archived.
+            row = conn.execute("SELECT tokenized FROM game_lines WHERE id=?", (line_id,)).fetchone()
+            if not row or row[0]:
+                return
             for token in tokens:
                 # Skip punctuation and non-word tokens
                 if not is_word_token(token):
@@ -322,6 +326,8 @@ def cleanup_orphaned_occurrences() -> int:
     kanji_orphans = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
     word_cleanup_query = "DELETE FROM words WHERE id NOT IN (SELECT DISTINCT word_id FROM word_occurrences)"
+    if db.table_exists("archived_word_stats"):
+        word_cleanup_query += " AND id NOT IN (SELECT DISTINCT word_id FROM archived_word_stats)"
     if db.table_exists("word_anki_links"):
         # Preserve stable word IDs that are still linked to cached Anki notes.
         word_cleanup_query += " AND id NOT IN (SELECT DISTINCT word_id FROM word_anki_links)"

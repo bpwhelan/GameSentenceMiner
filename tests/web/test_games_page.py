@@ -1011,7 +1011,8 @@ class TestGameDetailPageRendering:
         javascript = client.get("/static/js/database-game-operations.js").data.decode()
 
         assert "await loadGamesForDataManagement()" in javascript
-        assert javascript.count("await refreshGameManagementView()") == 2
+        delete_action = javascript.split("async function confirmIndividualGameDelete()", 1)[1]
+        assert "await refreshGameManagementView()" in delete_action
 
     def test_detail_page_contains_chart_containers(self, client):
         game = _create_game("Chart Test")

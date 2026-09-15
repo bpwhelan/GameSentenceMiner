@@ -29,6 +29,7 @@ from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.text_utils import is_kanji
 from GameSentenceMiner.util.database.tokenization_tables import WORD_STATS_CACHE_TABLE
 from GameSentenceMiner.web.rollup_stats import aggregate_rollup_data
+from GameSentenceMiner.util.database.game_archive import has_archives, word_occurrence_source, kanji_occurrence_source
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +134,7 @@ def _get_words_not_in_anki_order_by(
 
 
 def _has_word_stats_cache(db) -> bool:
-    return db.table_exists(WORD_STATS_CACHE_TABLE)
+    return db.table_exists(WORD_STATS_CACHE_TABLE) and not has_archives(db)
 
 
 def _parse_optional_positive_int(raw_value: str | None) -> int | None:
@@ -739,11 +740,10 @@ def _build_words_not_in_anki_source_query(
             w.word AS word,
             w.reading AS reading,
             w.pos AS pos,
-            COUNT(*) AS frequency,
+            SUM(gl.frequency) AS frequency,
             {rank_select_sql}
-        FROM word_occurrences wo
-        JOIN words w ON w.id = wo.word_id
-        JOIN game_lines gl ON gl.id = wo.line_id
+        FROM ({word_occurrence_source(db)}) gl
+                    JOIN words w ON w.id = gl.word_id
         {join_sql}
         WHERE {where}
         GROUP BY w.id, w.word, w.reading, w.pos{group_rank_sql}
@@ -1510,7 +1510,7 @@ def register_tokenization_api_routes(app):
             conditions.append("w.pos NOT IN ('記号', 'その他')")
 
             if days is not None:
-                conditions.append("gl.timestamp >= strftime('%s', 'now', ?)")
+                conditions.append("gl.timestamp >= CAST(strftime('%s', 'now', ?) AS REAL)")
                 params.append(f"-{int(days)} days")
 
             if game_id:
@@ -1557,10 +1557,9 @@ def register_tokenization_api_routes(app):
                 total_count = db.fetchone(count_query, tuple(params[:-2]))[0]
             else:
                 query = f"""
-                    SELECT w.id, w.word, w.reading, w.pos, COUNT(*) AS freq
-                    FROM word_occurrences wo
-                    JOIN words w ON w.id = wo.word_id
-                    JOIN game_lines gl ON gl.id = wo.line_id
+                    SELECT w.id, w.word, w.reading, w.pos, SUM(gl.frequency) AS freq
+                    FROM ({word_occurrence_source(db)}) gl
+                    JOIN words w ON w.id = gl.word_id
                     WHERE {where}
                     GROUP BY w.id
                     ORDER BY freq DESC
@@ -1573,9 +1572,8 @@ def register_tokenization_api_routes(app):
                 # Also get total count for pagination
                 count_query = f"""
                     SELECT COUNT(DISTINCT w.id)
-                    FROM word_occurrences wo
-                    JOIN words w ON w.id = wo.word_id
-                    JOIN game_lines gl ON gl.id = wo.line_id
+                    FROM ({word_occurrence_source(db)}) gl
+                    JOIN words w ON w.id = gl.word_id
                     WHERE {where}
                 """
                 total_count = db.fetchone(count_query, tuple(params[:-2]))[0]
@@ -1664,7 +1662,7 @@ def register_tokenization_api_routes(app):
             params: list = []
 
             if days is not None:
-                conditions.append("gl.timestamp >= strftime('%s', 'now', ?)")
+                conditions.append("gl.timestamp >= CAST(strftime('%s', 'now', ?) AS REAL)")
                 params.append(f"-{int(days)} days")
 
             if game_id:
@@ -1674,12 +1672,10 @@ def register_tokenization_api_routes(app):
             where = (" AND " + " AND ".join(conditions)) if conditions else ""
 
             query = f"""
-                SELECT k.character, COUNT(*) AS freq
-                FROM kanji_occurrences ko
-                JOIN kanji k ON k.id = ko.kanji_id
-                JOIN game_lines gl ON gl.id = ko.line_id
+                SELECT gl.character, SUM(gl.frequency) AS freq
+                FROM ({kanji_occurrence_source(db)}) gl
                 WHERE 1=1 {where}
-                GROUP BY k.id
+                GROUP BY gl.character
                 ORDER BY freq DESC
                 LIMIT ? OFFSET ?
             """
@@ -1688,10 +1684,8 @@ def register_tokenization_api_routes(app):
             rows = db.fetchall(query, tuple(params))
 
             count_query = f"""
-                SELECT COUNT(DISTINCT k.id)
-                FROM kanji_occurrences ko
-                JOIN kanji k ON k.id = ko.kanji_id
-                JOIN game_lines gl ON gl.id = ko.line_id
+                SELECT COUNT(DISTINCT gl.character)
+                FROM ({kanji_occurrence_source(db)}) gl
                 WHERE 1=1 {where}
             """
             total_count = db.fetchone(count_query, tuple(params[:-2]))[0]
@@ -1957,7 +1951,7 @@ def register_tokenization_api_routes(app):
                 return jsonify({"error": "Word not found"}), 404
 
             word_id = row[0]
-            game_scope_conditions = ["wo.word_id = ?"]
+            game_scope_conditions = ["gl.word_id = ?"]
             game_scope_params: list = [word_id]
             if game_ids:
                 placeholders = ",".join("?" for _ in game_ids)
@@ -1972,9 +1966,8 @@ def register_tokenization_api_routes(app):
             else:
                 total_occurrences = db.fetchone(
                     f"""
-                    SELECT COUNT(*)
-                    FROM word_occurrences wo
-                    JOIN game_lines gl ON gl.id = wo.line_id
+                    SELECT COALESCE(SUM(gl.frequency), 0)
+                    FROM ({word_occurrence_source(db)}) gl
                     WHERE {game_scope_where_sql}
                     """,
                     tuple(game_scope_params),
@@ -1986,9 +1979,8 @@ def register_tokenization_api_routes(app):
             else:
                 game_rows = db.fetchall(
                     f"""
-                    SELECT gl.game_name, COUNT(*) AS freq
-                    FROM word_occurrences wo
-                    JOIN game_lines gl ON gl.id = wo.line_id
+                    SELECT gl.game_name, SUM(gl.frequency) AS freq
+                    FROM ({word_occurrence_source(db)}) gl
                     WHERE {game_scope_where_sql}
                     GROUP BY gl.game_name
                     ORDER BY freq DESC
@@ -2052,11 +2044,10 @@ def register_tokenization_api_routes(app):
             limit = min(int(request.args.get("limit", 20)), 100)
 
             rows = db.fetchall(
-                """
-                SELECT gl.game_name, COUNT(DISTINCT wo.word_id) AS unique_words
-                FROM word_occurrences wo
-                JOIN game_lines gl ON gl.id = wo.line_id
-                JOIN words w ON w.id = wo.word_id
+                f"""
+                SELECT gl.game_name, COUNT(DISTINCT gl.word_id) AS unique_words
+                FROM ({word_occurrence_source(db)}) gl
+                JOIN words w ON w.id = gl.word_id
                 WHERE w.pos NOT IN ('記号', 'その他')
                 GROUP BY gl.game_name
                 ORDER BY unique_words DESC

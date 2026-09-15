@@ -171,7 +171,18 @@ def compute_today_game_profiles() -> Dict[str, GameProfile]:
     query += " GROUP BY game_id"
 
     rows = GameLinesTable._db.fetchall(query, tuple(params))
-    return _compute_profiles_from_aggregate_rows(rows)
+    result = _compute_profiles_from_aggregate_rows(rows)
+    from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+
+    archived = archived_stats_lines(start_ts)
+    grouped = {}
+    for line in archived:
+        row = grouped.setdefault(line.game_id, [line.game_id, 0, 0, line.timestamp, line.timestamp])
+        row[1] += 1
+        row[2] += len(line.line_text)
+        row[3] = min(row[3], line.timestamp)
+        row[4] = max(row[4], line.timestamp)
+    return merge_game_profiles(result, _compute_profiles_from_aggregate_rows(grouped.values()))
 
 
 def _compute_profiles_from_aggregate_rows(rows) -> Dict[str, GameProfile]:
@@ -206,6 +217,17 @@ def load_game_timestamp_profiles() -> Dict[str, GameProfile]:
         GROUP BY game_id
         """
     )
+    from GameSentenceMiner.util.database.game_archive import archive_summaries
+
+    archived = archive_summaries()
+    bounds = {r[0]: (r[1], r[2]) for r in rows}
+    for gid, summary in archived.items():
+        first, last = bounds.get(gid, (None, None))
+        bounds[gid] = (
+            min(float(t) for t in (first, summary["first_timestamp"]) if t is not None),
+            max(float(t) for t in (last, summary["last_timestamp"]) if t is not None),
+        )
+    rows = [(gid, *values) for gid, values in bounds.items()]
 
     result: Dict[str, GameProfile] = {}
     for row in rows:

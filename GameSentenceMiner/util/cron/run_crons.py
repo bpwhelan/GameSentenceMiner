@@ -53,6 +53,7 @@ class Crons(enum.Enum):
     ANKI_WORD_SYNC = "anki_word_sync"
     ANKI_CARD_SYNC = "anki_card_sync"
     TADOKU_SYNC = "tadoku_sync"
+    DATABASE_MAINTENANCE = "database_maintenance"
 
 
 @dataclass
@@ -149,6 +150,12 @@ def _run_tadoku_sync() -> dict:
     return run_scheduled_tadoku_sync()
 
 
+def _run_database_maintenance() -> dict:
+    from GameSentenceMiner.util.database.maintenance import run_database_maintenance
+
+    return run_database_maintenance()
+
+
 def _skip_or(result: dict, done: str) -> str:
     if result.get("skipped"):
         return f"skipped: {result.get('reason', 'unknown')}"
@@ -156,6 +163,12 @@ def _skip_or(result: dict, done: str) -> str:
 
 
 _TASK_REGISTRY: dict[str, _TaskDef] = {
+    Crons.DATABASE_MAINTENANCE.value: _TaskDef(
+        runner=_run_database_maintenance,
+        success=lambda r: r.get("success", False),
+        priority=PRIORITY_LOW,
+        summary=lambda r: f"archived {r.get('archived_games', 0)} games, {r.get('archived_lines', 0)} lines",
+    ),
     Crons.POPULATE_GAMES.value: _TaskDef(
         runner=_run_populate_games,
         summary=lambda r: f"created {r.get('created', 0)} games, linked {r.get('linked_lines', 0)} lines",

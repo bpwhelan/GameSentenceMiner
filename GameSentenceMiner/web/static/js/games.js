@@ -27,6 +27,7 @@
     };
     let allGames = [];
     let bulkMode = false;
+    let bulkOperationRunning = false;
     let bulkSelected = new Set();
     // Track the first-selected game for merge target
     let bulkMergeTarget = null;
@@ -45,6 +46,8 @@
     const bulkModeToggle = document.getElementById('bulkModeToggle');
     const bulkBar = document.getElementById('gamesBulkBar');
     const bulkCountLabel = document.getElementById('gamesBulkCount');
+    const bulkStatusSelect = document.getElementById('gamesBulkStatusSelect');
+    const bulkStatusMessage = document.getElementById('gamesBulkStatus');
 
     function formatNumber(num) {
         if (!num && num !== 0) return '0';
@@ -111,9 +114,10 @@
         const title = getDisplayTitle(game);
         const subtitle = getSubtitle(game);
 
+        // The title is already visible below the decorative cover. Yomitan scans image alt text.
         const imageHTML = imageSrc
-            ? `<img class="game-card-image" src="${imageSrc}" alt="${escapeHtml(title)}" loading="lazy">`
-            : `<div class="game-card-placeholder"><img src="${PLACEHOLDER_IMAGE}" alt="No cover"></div>`;
+            ? `<img class="game-card-image" src="${imageSrc}" alt="" loading="lazy">`
+            : `<div class="game-card-placeholder"><img src="${PLACEHOLDER_IMAGE}" alt=""></div>`;
 
         const gameStatus = getGameStatus(game);
         const statusClass = gameStatus.replace('_', '-');
@@ -143,6 +147,7 @@
                     ${game.is_linked ? '<button data-action="unlink">🔗 Unlink</button>' : ''}
                     ${!game.completed ? '<button data-action="complete">🏁 Mark Complete</button>' : ''}
                     <button data-action="dedup">🔄 Deduplicate</button>
+                    <button data-action="archive">🗄️ ${game.archived_line_count ? 'Archive new sentences' : 'Archive game'}</button>
                     <hr>
                     <button data-action="delete" class="danger-action">🗑️ Delete Lines</button>
                 </div>
@@ -150,6 +155,7 @@
             <div class="game-card-info">
                 <div class="game-card-title">${escapeHtml(title)}</div>
                 ${subtitleHTML}
+                ${game.archived_line_count ? `<div class="game-card-labels">🗄️ ${formatNumber(game.archived_line_count)} sentences archived · statistics retained</div>` : ''}
                 ${typeBadge ? `<div class="game-card-labels">${typeBadge}</div>` : ''}
                 <div class="game-card-stats">
                     <span class="game-card-stat">Last played <span class="game-card-stat-value">${formatLastPlayed(game.last_played)}</span></span>
@@ -162,6 +168,7 @@
         // Wire up the ⋮ menu
         const menuBtn = card.querySelector('.game-card-menu-btn');
         const menu = card.querySelector('.game-card-menu');
+        menuBtn.disabled = bulkOperationRunning;
 
         menuBtn.addEventListener('click', function (e) {
             e.stopPropagation();
@@ -185,6 +192,7 @@
         if (bulkMode) {
             const cb = card.querySelector('.game-card-bulk-checkbox');
             cb.checked = bulkSelected.has(game.id);
+            cb.disabled = bulkOperationRunning;
             cb.addEventListener('click', function (e) { e.stopPropagation(); });
             cb.addEventListener('change', function () {
                 if (cb.checked) {
@@ -202,6 +210,7 @@
 
         // Click card to navigate (unless bulk mode or menu click)
         card.addEventListener('click', function (e) {
+            if (bulkOperationRunning) return;
             if (bulkMode) {
                 const cb = card.querySelector('.game-card-bulk-checkbox');
                 if (cb && e.target !== cb) {
@@ -219,6 +228,7 @@
     // ── Card action handler ────────────────────────────────────────────
 
     function handleCardAction(action, game) {
+        if (bulkOperationRunning) return;
         // Ensure currentGames is populated for the database modules
         if (typeof window.currentGames === 'undefined' || !window.currentGames) {
             window.currentGames = allGames;
@@ -247,6 +257,9 @@
                 break;
             case 'dedup':
                 openDeduplicationForGame(game);
+                break;
+            case 'archive':
+                archiveGame(game.id);
                 break;
             case 'delete':
                 openIndividualGameDeleteModal(
@@ -402,9 +415,11 @@
     // ── Bulk mode ──────────────────────────────────────────────────────
 
     function toggleBulkMode() {
+        if (bulkOperationRunning) return;
         bulkMode = !bulkMode;
         bulkSelected.clear();
         bulkMergeTarget = null;
+        bulkStatusSelect.value = '';
         bulkBar.style.display = bulkMode ? 'flex' : 'none';
         bulkModeToggle.classList.toggle('active', bulkMode);
         bulkModeToggle.innerHTML = bulkMode
@@ -417,11 +432,92 @@
     function updateBulkUI() {
         const count = bulkSelected.size;
         bulkCountLabel.textContent = count + ' selected';
-        document.getElementById('gamesBulkMerge').disabled = count < 2;
-        document.getElementById('gamesBulkDelete').disabled = count === 0;
+        document.getElementById('gamesBulkMerge').disabled = bulkOperationRunning || count < 2;
+        for (const id of ['gamesBulkDelete', 'gamesBulkArchive', 'gamesBulkComplete']) {
+            document.getElementById(id).disabled = bulkOperationRunning || count === 0;
+        }
+        bulkStatusSelect.disabled = bulkOperationRunning || count === 0;
+        document.getElementById('gamesBulkApplyStatus').disabled =
+            bulkOperationRunning || count === 0 || !bulkStatusSelect.value;
+        for (const id of ['bulkModeToggle', 'gamesBulkSelectAll', 'gamesBulkSelectNone']) {
+            document.getElementById(id).disabled = bulkOperationRunning;
+        }
+        gamesGrid.querySelectorAll('.game-card-bulk-checkbox, .game-card-menu-btn').forEach(control => {
+            control.disabled = bulkOperationRunning;
+        });
+        if (bulkOperationRunning && _openMenu) {
+            _openMenu.style.display = 'none';
+            _openMenu = null;
+        }
+    }
+
+    async function bulkChangeStatus(status) {
+        if (bulkOperationRunning || !Object.prototype.hasOwnProperty.call(STATUS_LABELS, status)) return;
+        const selectedGames = allGames.filter(game => bulkSelected.has(game.id));
+        if (!selectedGames.length) return;
+
+        const label = STATUS_LABELS[status];
+        const failedGames = [];
+        let updatedCount = 0;
+        bulkOperationRunning = true;
+        updateBulkUI();
+        try {
+            for (const [index, game] of selectedGames.entries()) {
+                bulkStatusMessage.textContent = `Updating game ${index + 1} of ${selectedGames.length} to ${label}…`;
+                try {
+                    const response = await fetch('/api/games/' + encodeURIComponent(game.id), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: status })
+                    });
+                    const result = await response.json().catch(() => ({}));
+                    if (!response.ok) throw new Error(result?.error || `Request failed (${response.status})`);
+
+                    game.status = status;
+                    game.completed = status === 'completed';
+                    bulkSelected.delete(game.id);
+                    updatedCount++;
+                } catch (error) {
+                    failedGames.push(getDisplayTitle(game) + ': ' + (error.message || 'Unable to update status'));
+                }
+            }
+
+            if (!bulkSelected.has(bulkMergeTarget)) {
+                bulkMergeTarget = bulkSelected.values().next().value || null;
+            }
+            if (updatedCount) await loadGames();
+
+            let message = `Updated ${updatedCount} of ${selectedGames.length} ${selectedGames.length === 1 ? 'game' : 'games'} to ${label}.`;
+            if (failedGames.length) {
+                message += ' Could not update the following games. They remain selected for retry: ' + failedGames.join('; ');
+            }
+            bulkStatusMessage.textContent = message;
+        } finally {
+            bulkOperationRunning = false;
+            updateBulkUI();
+        }
+    }
+
+    async function bulkArchive() {
+        if (!bulkSelected.size || bulkOperationRunning) return;
+        const gameIds = Array.from(bulkSelected);
+        bulkOperationRunning = true;
+        updateBulkUI();
+        try {
+            const result = await archiveGames(gameIds, {onStatus: message => { bulkStatusMessage.textContent = message; }});
+            if (result) {
+                result.successful_game_ids.forEach(id => bulkSelected.delete(id));
+                if (!bulkSelected.has(bulkMergeTarget)) bulkMergeTarget = bulkSelected.values().next().value || null;
+            }
+        } finally {
+            bulkOperationRunning = false;
+            filterAndRender();
+            updateBulkUI();
+        }
     }
 
     function bulkSelectAll() {
+        if (bulkOperationRunning) return;
         const visible = getFilteredGames();
         bulkSelected.clear();
         bulkMergeTarget = null;
@@ -434,6 +530,7 @@
     }
 
     function bulkSelectNone() {
+        if (bulkOperationRunning) return;
         bulkSelected.clear();
         bulkMergeTarget = null;
         filterAndRender();
@@ -445,7 +542,7 @@
      * Reuses the shared gameMergeModal and confirmGameMerge from database-bulk-operations.js
      */
     async function bulkMerge() {
-        if (bulkSelected.size < 2) return;
+        if (bulkOperationRunning || bulkSelected.size < 2) return;
 
         try {
             const selectedGames = allGames.filter(function (game) {
@@ -505,7 +602,7 @@
      * Delete lines for all bulk-selected games.
      */
     function bulkDelete() {
-        if (bulkSelected.size === 0) return;
+        if (bulkOperationRunning || bulkSelected.size === 0) return;
 
         const selectedGames = allGames.filter(function (game) {
             return bulkSelected.has(game.id);
@@ -634,7 +731,15 @@
     bulkModeToggle.addEventListener('click', toggleBulkMode);
     document.getElementById('gamesBulkSelectAll').addEventListener('click', bulkSelectAll);
     document.getElementById('gamesBulkSelectNone').addEventListener('click', bulkSelectNone);
+    bulkStatusSelect.addEventListener('change', updateBulkUI);
+    document.getElementById('gamesBulkComplete').addEventListener('click', function () {
+        bulkChangeStatus('completed');
+    });
+    document.getElementById('gamesBulkApplyStatus').addEventListener('click', function () {
+        bulkChangeStatus(bulkStatusSelect.value);
+    });
     document.getElementById('gamesBulkMerge').addEventListener('click', bulkMerge);
+    document.getElementById('gamesBulkArchive').addEventListener('click', bulkArchive);
     document.getElementById('gamesBulkDelete').addEventListener('click', bulkDelete);
 
     // ── Boot ───────────────────────────────────────────────────────────

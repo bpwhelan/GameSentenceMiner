@@ -268,6 +268,7 @@ async function loadGamesForManagement() {
                     </div>
                     ` : ''}
                     <div class="individual-game-actions">
+                        <button class="action-btn" onclick="archiveGame('${game.id}')">🗄️ Archive Game</button>
                         ${game.is_linked ? `<button class="action-btn unlink-btn" onclick="openIndividualGameUnlinkModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🔗 Unlink Game</button>` : ''}
                         <button class="action-btn delete-lines-btn" onclick="openIndividualGameDeleteModal('${game.id}', '${escapeHtml(game.title_original)}', ${game.line_count}, ${game.mined_character_count})">🗑️ Delete Game Lines</button>
                         ${!game.is_linked ? `<button class="action-btn primary" onclick="openJitenSearch('${game.id}', '${escapeHtml(game.title_original)}')">🔍 Find Game Info</button>` : ''}

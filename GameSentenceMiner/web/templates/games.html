@@ -61,10 +61,25 @@
                 <button class="games-bulk-link-btn" id="gamesBulkSelectNone">Clear</button>
             </div>
             <div class="games-bulk-actions">
+                <button class="games-bulk-action-btn complete" id="gamesBulkComplete" disabled>🏁 Mark Complete</button>
+                <div class="games-bulk-status-controls">
+                    <select id="gamesBulkStatusSelect" class="games-sort-select games-bulk-status-select" aria-label="Status for selected games" disabled>
+                        <option value="">Change status…</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="planned">Planned</option>
+                        <option value="on_hold">On Hold / Postponed</option>
+                        <option value="dropped">Dropped</option>
+                    </select>
+                    <button class="games-bulk-action-btn status" id="gamesBulkApplyStatus" disabled>Apply Status</button>
+                </div>
                 <button class="games-bulk-action-btn merge" id="gamesBulkMerge" disabled>🔀 Merge</button>
+                <button class="games-bulk-action-btn archive" id="gamesBulkArchive" disabled>🗄️ Archive</button>
                 <button class="games-bulk-action-btn delete" id="gamesBulkDelete" disabled>🗑️ Delete</button>
             </div>
         </div>
+
+        <p class="games-bulk-status" id="gamesBulkStatus" role="status" aria-live="polite"></p>
 
         <!-- Loading State -->
         <div class="games-loading" id="gamesLoading">

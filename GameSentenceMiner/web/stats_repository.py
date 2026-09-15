@@ -230,12 +230,16 @@ def fetch_stats_lines_for_timestamp_range(
     end_timestamp: float,
 ) -> list[StatsLineRecord]:
     """Fetch lightweight stats line records for an inclusive timestamp range."""
-    return query_stats_lines(
+    from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+
+    lines = query_stats_lines(
         where_clause="timestamp >= ? AND timestamp <= ?",
         params=(start_timestamp, end_timestamp),
         include_media_fields=False,
         parse_note_ids=False,
     )
+    lines.extend(archived_stats_lines(start_timestamp, end_timestamp))
+    return sorted(lines, key=lambda line: float(line.timestamp))
 
 
 def build_game_mappings(
@@ -297,7 +301,11 @@ def fetch_today_lines(today: datetime.date) -> list[StatsLineRecord]:
     """Fetch today's game lines for live stats calculation."""
     today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
     today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
-    return query_stats_lines(
+    from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+
+    lines = query_stats_lines(
         where_clause="timestamp >= ? AND timestamp <= ?",
         params=(today_start, today_end),
     )
+    lines.extend(archived_stats_lines(today_start, today_end))
+    return sorted(lines, key=lambda line: float(line.timestamp))

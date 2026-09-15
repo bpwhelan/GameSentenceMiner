@@ -32,6 +32,7 @@
 
         <!-- Game Detail Content -->
         <div id="gameDetailContent" style="display: none;">
+            <p id="gameArchiveStatus" role="status" aria-live="polite"></p>
 
             <!-- Game Info Card -->
             <div class="dashboard-card game-detail-card" id="gameDetailCard">
@@ -49,6 +50,7 @@
                                 &#9881;&#65039;
                             </button>
                             <div class="settings-cog-dropdown" id="settingsCogDropdown">
+                                <button class="dropdown-item" data-action="archiveGame">🗄️ Archive Game</button>
                                 <button class="dropdown-item" data-action="editGame">
                                     &#9999;&#65039; Edit Metadata
                                 </button>
@@ -544,7 +546,7 @@
     {% set include_kanji_grid_js = true %}
     {% set include_heatmap_js = true %}
     {% set page_specific_js = 'game-stats.js' %}
-    {% set additional_js = ['unified-search.js', 'game-import-widget.js'] %}
+    {% set additional_js = ['unified-search.js', 'game-import-widget.js', 'database-game-operations.js'] %}
     {% include 'components/js-config.html' %}
 </body>
 </html>

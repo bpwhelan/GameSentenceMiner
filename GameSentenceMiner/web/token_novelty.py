@@ -142,6 +142,11 @@ def get_tokenization_status_snapshot() -> dict:
     tokenized_row = db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenized = 1")
     total_lines = int(total_row[0]) if total_row and total_row[0] is not None else 0
     tokenized_lines = int(tokenized_row[0]) if tokenized_row and tokenized_row[0] is not None else 0
+    from GameSentenceMiner.util.database.game_archive import archive_summary
+
+    archived = archive_summary()
+    total_lines += archived["archived_lines"]
+    tokenized_lines += archived["tokenized_lines"]
     percent_complete = round((tokenized_lines / total_lines) * 100, 2) if total_lines > 0 else 0.0
     return {"enabled": True, "percentComplete": percent_complete}
 
@@ -262,6 +267,10 @@ def build_global_word_novelty(start_date_str: str, end_date_str: str) -> tuple[d
         )
 
     start_timestamp, end_timestamp = _timestamp_range_for_dates(start_date_str, end_date_str)
+    from GameSentenceMiner.util.database.game_archive import has_archives, word_novelty_with_archives
+
+    if has_archives(db):
+        return (tokenization_status, *word_novelty_with_archives(start_date_str, end_date_str))
     unique_words_row = db.fetchone(
         f"""
         SELECT COUNT(DISTINCT wo.word_id)
@@ -327,6 +336,11 @@ def build_game_word_novelty(game_id: str, first_date_str: str | None, last_date_
     db = _get_db()
     if not _has_word_novelty_support(db):
         return tokenization_status, empty_payload
+
+    from GameSentenceMiner.util.database.game_archive import has_archives, word_novelty_with_archives
+
+    if has_archives(db):
+        return tokenization_status, word_novelty_with_archives(first_date_str, last_date_str, game_id)
 
     unique_words_row = db.fetchone(
         f"""

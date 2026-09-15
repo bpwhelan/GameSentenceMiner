@@ -703,7 +703,13 @@ class GameLinesTable(SQLiteDBTable):
     def all(cls, for_stats: bool = False) -> List["GameLinesTable"]:
         rows = cls._db.fetchall(f"SELECT * FROM {cls._table}")
         clean_columns = ["line_text"] if for_stats else []
-        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        lines = [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        if for_stats:
+            from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+
+            lines.extend(archived_stats_lines())
+            lines.sort(key=lambda line: float(line.timestamp))
+        return lines
 
     @classmethod
     def get_all_lines_for_scene(cls, game_name: str, limit: int | None = None) -> List["GameLinesTable"]:
@@ -726,7 +732,13 @@ class GameLinesTable(SQLiteDBTable):
             (game_id,),
         )
         clean_columns = ["line_text"] if for_stats else []
-        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        lines = [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        if for_stats:
+            from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+
+            lines.extend(archived_stats_lines(game_id=game_id))
+            lines.sort(key=lambda line: float(line.timestamp))
+        return lines
 
     @classmethod
     def get_all_games_with_lines(cls) -> List[str]:
@@ -1145,7 +1157,13 @@ class GameLinesTable(SQLiteDBTable):
         # Execute the query
         rows = cls._db.fetchall(query, tuple(params))
         clean_columns = ["line_text"] if for_stats else []
-        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        lines = [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        if for_stats:
+            from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+
+            lines.extend(archived_stats_lines(start, end))
+            lines.sort(key=lambda line: float(line.timestamp))
+        return lines
 
     @classmethod
     def mark_tokenized(cls, line_id: str):
@@ -2231,6 +2249,9 @@ def start_database_runtime() -> None:
 
     initialize_tadoku_cursor()
     check_and_run_migrations()
+    from GameSentenceMiner.util.database.maintenance import setup_database_maintenance
+
+    setup_database_maintenance()
 
 
 # all_lines = GameLinesTable.all()
