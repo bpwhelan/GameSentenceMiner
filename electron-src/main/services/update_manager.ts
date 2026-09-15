@@ -724,7 +724,8 @@ export class UpdateManager {
                 return;
             }
 
-            autoUpdater.quitAndInstall();
+            // Run the same NSIS installer silently for updates and relaunch GSM afterward.
+            autoUpdater.quitAndInstall(true, true);
         });
 
         autoUpdater.on('error', (err: any) => {

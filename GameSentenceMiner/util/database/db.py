@@ -12,7 +12,6 @@ from contextlib import contextmanager
 from datetime import datetime
 from datetime import timedelta
 from functools import lru_cache
-from sys import platform
 from typing import Any, Dict, List, Optional, Tuple, Union, Type, TypeVar
 
 from GameSentenceMiner.util.config.configuration import (
@@ -22,6 +21,8 @@ from GameSentenceMiner.util.config.configuration import (
     sanitize_and_resolve_path,
 )
 from GameSentenceMiner.util.text_log import GameLine
+from GameSentenceMiner.util.data_directory import get_app_directory
+from GameSentenceMiner.util.database.data_dir_migration import recover_legacy_database
 from GameSentenceMiner.util.database.sqlite_core import (
     DB_PRIORITY_HIGH as DB_PRIORITY_HIGH,
     DB_PRIORITY_LOW as DB_PRIORITY_LOW,
@@ -1371,11 +1372,9 @@ def get_db_directory(test=False, delete_test=False) -> str:
         config_dir = os.path.join(test_data_root, "database")
         test = True
     else:
-        if platform == "win32":  # Windows
-            appdata_dir = os.getenv("APPDATA")
-        else:  # macOS and Linux
-            appdata_dir = os.path.expanduser("~/.config")
-        config_dir = os.path.join(appdata_dir, "GameSentenceMiner")
+        config_dir = get_app_directory()
+        if not test:
+            recover_legacy_database(config_dir)
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
     path = os.path.join(config_dir, "gsm.db" if not test else "gsm_test.db")

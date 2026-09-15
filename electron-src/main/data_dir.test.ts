@@ -1,7 +1,11 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('os', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('os')>();
+    return { ...actual, homedir: vi.fn(actual.homedir) };
+});
 import {
     getDefaultBaseDir,
     getPointerFilePath,
@@ -18,6 +22,7 @@ beforeEach(() => {
     tempDirs.push(dir);
     // getDefaultBaseDir() keys off APPDATA on Windows; point it at a throwaway dir.
     process.env.APPDATA = dir;
+    vi.mocked(os.homedir).mockReturnValue(path.join(dir, 'home'));
 });
 
 afterEach(() => {
@@ -38,21 +43,48 @@ describe('resolveDataDir', () => {
 
     it('returns the dir recorded in the pointer file', () => {
         const target = path.join(os.tmpdir(), 'gsm-relocated-xyz');
-        fs.mkdirSync(getDefaultBaseDir(), { recursive: true });
+        fs.mkdirSync(path.dirname(getPointerFilePath()), { recursive: true });
         fs.writeFileSync(getPointerFilePath(), JSON.stringify({ dataDir: target }), 'utf-8');
         expect(resolveDataDir()).toBe(target);
     });
 
-    it('falls back to the default when the pointer is empty', () => {
-        fs.mkdirSync(getDefaultBaseDir(), { recursive: true });
+    it('reports an invalid saved location instead of silently resetting data', () => {
+        fs.mkdirSync(path.dirname(getPointerFilePath()), { recursive: true });
         fs.writeFileSync(getPointerFilePath(), JSON.stringify({ dataDir: '   ' }), 'utf-8');
+        expect(() => resolveDataDir()).toThrow('data_dir.json');
+    });
+
+    it('reports malformed saved JSON instead of silently resetting data', () => {
+        fs.mkdirSync(path.dirname(getPointerFilePath()), { recursive: true });
+        fs.writeFileSync(getPointerFilePath(), 'not json', 'utf-8');
+        expect(() => resolveDataDir()).toThrow('data_dir.json');
+    });
+
+    it('stores the pointer outside AppData and survives deletion of the original folder', () => {
+        expect(getPointerFilePath()).toBe(path.join(os.homedir(), '.config', 'GameSentenceMiner', 'data_dir.json'));
+        const legacy = path.join(getDefaultBaseDir(), 'data_dir.json');
+        const target = path.join(os.homedir(), '日本語 GSM');
+        fs.mkdirSync(path.dirname(legacy), { recursive: true });
+        fs.writeFileSync(legacy, '\uFEFF' + JSON.stringify({ dataDir: target }));
+        expect(resolveDataDir()).toBe(target);
+        expect(JSON.parse(fs.readFileSync(getPointerFilePath(), 'utf8'))).toMatchObject({
+            dataDir: target, version: 2, legacyDatabaseDir: getDefaultBaseDir(),
+        });
+        fs.rmSync(getDefaultBaseDir(), { recursive: true });
+        expect(resolveDataDir()).toBe(target);
+    });
+
+    it('prefers the stable pointer over a stale legacy pointer', () => {
+        fs.mkdirSync(getDefaultBaseDir(), { recursive: true });
+        fs.writeFileSync(path.join(getDefaultBaseDir(), 'data_dir.json'), JSON.stringify({ dataDir: path.join(os.homedir(), 'old') }));
+        writeDataDirPointer(path.join(os.homedir(), 'new'));
+        expect(resolveDataDir()).toBe(path.join(os.homedir(), 'new'));
+        writeDataDirPointer(getDefaultBaseDir());
         expect(resolveDataDir()).toBe(getDefaultBaseDir());
     });
 
-    it('falls back to the default when the pointer is malformed JSON', () => {
-        fs.mkdirSync(getDefaultBaseDir(), { recursive: true });
-        fs.writeFileSync(getPointerFilePath(), 'not json', 'utf-8');
-        expect(resolveDataDir()).toBe(getDefaultBaseDir());
+    it('rejects relative paths', () => {
+        expect(() => writeDataDirPointer('relative/data')).toThrow();
     });
 });
 
@@ -84,11 +116,11 @@ describe('writeDataDirPointer', () => {
         expect(resolveDataDir()).toBe(target);
     });
 
-    it('removes the pointer when set back to the default location', () => {
+    it('records an explicit default so an old pointer cannot become active again', () => {
         writeDataDirPointer(path.join(os.tmpdir(), 'gsm-custom-loc'));
         expect(fs.existsSync(getPointerFilePath())).toBe(true);
         writeDataDirPointer(getDefaultBaseDir());
-        expect(fs.existsSync(getPointerFilePath())).toBe(false);
+        expect(fs.existsSync(getPointerFilePath())).toBe(true);
         expect(resolveDataDir()).toBe(getDefaultBaseDir());
     });
 });

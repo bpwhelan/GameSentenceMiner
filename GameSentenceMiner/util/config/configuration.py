@@ -15,6 +15,11 @@ from pathlib import Path
 from sys import platform
 from typing import Any, Callable, List, Dict, Optional, ClassVar
 
+from GameSentenceMiner.util.data_directory import (
+    get_app_directory,
+    get_default_app_directory,  # noqa: F401 - public compatibility import
+)
+
 OFF = "OFF"
 # VOSK = 'VOSK'
 FIRERED = "FIRERED"
@@ -2453,34 +2458,6 @@ def is_cuda_available():
     except Exception:
         pass
     return False
-
-
-def get_default_app_directory():
-    """The default %APPDATA%/GameSentenceMiner (Windows) or ~/.config/GameSentenceMiner (mac/Linux)."""
-    if platform == "win32":  # Windows
-        appdata_dir = os.getenv("APPDATA")
-    else:  # macOS and Linux
-        appdata_dir = sanitize_and_resolve_path("~/.config")
-    return os.path.join(appdata_dir, "GameSentenceMiner")
-
-
-def get_app_directory():
-    # Resolution order: GSM_DATA_DIR env (set by Electron) -> pointer file at the default
-    # location -> the default. The pointer file lets a standalone (pip) backend find a
-    # relocated data dir even when Electron isn't around to set the env var.
-    default_dir = get_default_app_directory()
-    config_dir = os.getenv("GSM_DATA_DIR", "").strip()
-    if not config_dir:
-        try:
-            with open(os.path.join(default_dir, "data_dir.json"), "r", encoding="utf-8") as f:
-                config_dir = str(json.load(f).get("dataDir", "")).strip()
-        except (OSError, ValueError):
-            config_dir = ""
-    if not config_dir:
-        config_dir = default_dir
-    # Create the directory if it doesn't exist
-    os.makedirs(config_dir, exist_ok=True)
-    return config_dir
 
 
 # Logging is now handled by GameSentenceMiner.util.logging_config

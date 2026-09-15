@@ -40,6 +40,7 @@ import {
 } from './util.js';
 import {
     getDefaultBaseDir,
+    getPointerFilePath,
     writeDataDirPointer,
     writeDataDirRegistry,
 } from './data_dir.js';
@@ -2590,7 +2591,7 @@ async function processArgsAndStartSettings() {
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 // Expose the resolved data dir to every spawned child (overlay binary, python) via inherited env.
 process.env.GSM_DATA_DIR = BASE_DIR;
-// Keep the uninstaller's view of the data dir current (best-effort, Windows-only).
+// Keep the legacy registry mirror current for Windows integrations and diagnostics.
 writeDataDirRegistry(BASE_DIR);
 if (isWindows()) {
     app.setAppUserModelId(APP_USER_MODEL_ID);
@@ -3057,6 +3058,7 @@ function registerDataRelocateIPC(): void {
 
     ipcMain.handle('data.getCurrentDir', () => BASE_DIR);
     ipcMain.handle('data.getDefaultDir', () => getDefaultBaseDir());
+    ipcMain.handle('data.getPointerPath', () => getPointerFilePath());
 
     ipcMain.handle('data.relocate', async () => {
         const win = mainWindow ?? undefined;

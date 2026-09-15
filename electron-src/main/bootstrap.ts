@@ -124,5 +124,9 @@ if (process.argv.includes(AGENT_HOST_ARG)) {
     }
 } else {
     traceOverlayBootstrap('main app mode detected');
-    void import('./main.js');
+    void import('./main.js').catch((error) => {
+        console.error('GSM startup failed:', error);
+        dialog.showErrorBox('GSM Startup Failed', error instanceof Error ? error.message : String(error));
+        app.exit(1);
+    });
 }

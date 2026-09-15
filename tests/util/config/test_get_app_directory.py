@@ -1,8 +1,18 @@
 import json
 import os
 import sys
+from pathlib import Path
+
+import pytest
 
 from GameSentenceMiner.util.config import configuration
+
+
+@pytest.fixture(autouse=True)
+def isolated_directories(monkeypatch, tmp_path):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "AppData"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
 
 
 def _legacy_app_directory():
@@ -69,13 +79,17 @@ def test_env_var_overrides_pointer(monkeypatch, tmp_path):
         os.remove(os.path.join(default_dir, "data_dir.json"))
 
 
-def test_malformed_pointer_falls_back_to_default(monkeypatch):
+def test_malformed_legacy_pointer_falls_back_to_default(monkeypatch):
     monkeypatch.delenv("GSM_DATA_DIR", raising=False)
     default_dir = configuration.get_default_app_directory()
     os.makedirs(default_dir, exist_ok=True)
     with open(os.path.join(default_dir, "data_dir.json"), "w", encoding="utf-8") as f:
         f.write("not json")
     try:
-        assert configuration.get_app_directory() == default_dir
+        if Path(default_dir) == Path.home() / ".config" / "GameSentenceMiner":
+            with pytest.raises(ValueError, match="data_dir.json"):
+                configuration.get_app_directory()
+        else:
+            assert configuration.get_app_directory() == default_dir
     finally:
         os.remove(os.path.join(default_dir, "data_dir.json"))

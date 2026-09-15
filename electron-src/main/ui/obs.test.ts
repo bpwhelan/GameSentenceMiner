@@ -79,6 +79,10 @@ vi.mock('../main.js', () => ({
     sendQuitOBS: sendQuitOBSMock,
 }));
 
+vi.mock('../data_dir.js', () => ({
+    getBaseDir: () => TEST_BASE_DIR,
+}));
+
 vi.mock('../util.js', () => ({
     BASE_DIR: TEST_BASE_DIR,
     execFileAsync: execFileAsyncMock,

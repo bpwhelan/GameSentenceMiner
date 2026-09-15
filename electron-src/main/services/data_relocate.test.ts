@@ -2,6 +2,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('os', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('os')>();
+    return { ...actual, homedir: vi.fn(actual.homedir) };
+});
 
 // Keep the real pointer logic but stub the Windows registry write (it shells out to reg.exe).
 vi.mock('../data_dir.js', async (importOriginal) => {
@@ -25,6 +29,7 @@ beforeEach(() => {
     originalAppData = process.env.APPDATA;
     // Default base dir lives under APPDATA; isolate it so the pointer file lands in a temp dir.
     process.env.APPDATA = makeTempDir('gsm-appdata-');
+    vi.mocked(os.homedir).mockReturnValue(path.join(process.env.APPDATA, 'home'));
 });
 
 afterEach(() => {
@@ -69,6 +74,25 @@ describe('validateTargetDir', () => {
         expect(result.ok).toBe(false);
         expect(result.error).toContain('config.json');
         expect(fs.readFileSync(path.join(newDir, 'config.json'), 'utf-8')).toBe('{"keep":true}');
+    });
+
+    it('rejects a target with a database even if the source database is missing', async () => {
+        const oldDir = makeTempDir('gsm-old-');
+        const newDir = makeTempDir('gsm-existing-');
+        fs.writeFileSync(path.join(newDir, 'gsm.db'), 'keep');
+        expect((await validateTargetDir(oldDir, newDir)).ok).toBe(false);
+    });
+
+    it('does not abandon a pending legacy database repair when moving again', async () => {
+        const source = makeTempDir('gsm-old-');
+        fs.mkdirSync(path.dirname(getPointerFilePath()), { recursive: true });
+        fs.writeFileSync(getPointerFilePath(), JSON.stringify({
+            version: 2, dataDir: source, legacyDatabaseDir: getDefaultBaseDir(),
+        }));
+        const target = makeTempDir('gsm-new-');
+        await expect(performDataMove(source, target)).rejects.toThrow('repairing its database');
+        expect(resolveDataDir()).toBe(source);
+        expect(fs.readdirSync(target)).toEqual([]);
     });
 });
 
