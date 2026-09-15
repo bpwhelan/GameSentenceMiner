@@ -1158,6 +1158,7 @@ class ConfigWindow(QWidget):
 
             self.master_config.experimental = Experimental(
                 enable_experimental_features=self.experimental_features_enabled_check.isChecked(),
+                enable_hachidori=self.enable_hachidori_check.isChecked(),
                 enable_tokenization=self.enable_tokenization_check.isChecked(),
                 tokenization_backend=str(self.tokenization_backend_combo.currentData() or "sudachi"),
                 tokenization_sudachi_dictionary=str(
@@ -1793,6 +1794,7 @@ class ConfigWindow(QWidget):
 
         # Experimental
         self.experimental_features_enabled_check = QCheckBox()
+        self.enable_hachidori_check = QCheckBox()
         self.enable_tokenization_check = QCheckBox()
         self.tokenization_backend_combo = QComboBox()
         self.tokenization_backend_combo.addItem("Sudachi", "sudachi")
@@ -3428,6 +3430,7 @@ class ConfigWindow(QWidget):
         # Safety / Experimental
         experimental_cfg = getattr(self.master_config, "experimental", Experimental())
         self.experimental_features_enabled_check.setChecked(experimental_cfg.enable_experimental_features)
+        self.enable_hachidori_check.setChecked(getattr(experimental_cfg, "enable_hachidori", False))
         self.enable_tokenization_check.setChecked(getattr(experimental_cfg, "enable_tokenization", False))
         tokenization_backend = normalize_tokenization_backend(
             getattr(experimental_cfg, "tokenization_backend", "sudachi")

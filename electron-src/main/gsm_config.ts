@@ -72,6 +72,18 @@ export function resolveSinglePortFromConfigData(configData: unknown): number {
     return normalizePort(profileData.general.texthooker_port);
 }
 
+/** Hachidori needs both the master experimental toggle and its own opt-in. */
+export function resolveHachidoriEnabledFromConfigData(configData: unknown): boolean {
+    if (!isJsonObject(configData) || !isJsonObject(configData.experimental)) {
+        return false;
+    }
+
+    return (
+        configData.experimental.enable_experimental_features === true &&
+        configData.experimental.enable_hachidori === true
+    );
+}
+
 export interface GsmProfileList {
     profiles: string[];
     currentProfile: string;

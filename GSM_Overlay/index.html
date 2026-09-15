@@ -958,7 +958,7 @@ background: rgba(202, 12, 12, 0.692);
       <button class="control-btn" id="btn-pin">⬤</button>
       <button class="control-btn" id="btn-translate-toolbar">🌐</button>
       <button class="control-btn" id="btn-settings">⚙</button>
-      <button class="control-btn" id="btn-yomitan"><img src="yomitan-icon.svg"></button>
+      <button class="control-btn" id="btn-yomitan" title="Dictionary settings"><img src="yomitan-icon.svg"></button>
       <button class="control-btn" id="btn-minimize">➖</button>
       <button class="control-btn" id="btn-close">✖</button>
     </div>
@@ -973,6 +973,7 @@ background: rgba(202, 12, 12, 0.692);
 
 <script>
   let yomitanShowing = false;
+  let dictionaryReader = 'yomitan';
   let autoHide = null;
   let hideOnYomitanClose = false;
   // let currentX = 0;
@@ -1037,6 +1038,10 @@ background: rgba(202, 12, 12, 0.692);
     return normalized === MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION
       ? MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION
       : MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY;
+  }
+
+  function normalizeDictionaryReader(value) {
+    return value === 'hachidori' ? 'hachidori' : 'yomitan';
   }
 
   function shouldHideOverlayWhenManualInactive() {
@@ -1368,7 +1373,11 @@ background: rgba(202, 12, 12, 0.692);
   function isYomitanPopupElement(element) {
     return (
       element instanceof HTMLElement &&
-      (element.classList.contains('yomitan-popup') || element.tagName === 'YOMITAN-POPUP-TAG-NAME')
+      (
+        element.classList.contains('yomitan-popup')
+        || element.tagName === 'YOMITAN-POPUP-TAG-NAME'
+        || element.tagName === 'HACHIDORI-HOST'
+      )
     );
   }
 
@@ -1408,6 +1417,9 @@ background: rgba(202, 12, 12, 0.692);
   }
   
   setInterval(() => {
+    if (dictionaryReader === 'hachidori') {
+      return;
+    }
     if (syncYomitanPopupStateFromDom('stale-check')) {
       return;
     }
@@ -1451,75 +1463,73 @@ background: rgba(202, 12, 12, 0.692);
   //   currentY = e.clientY;
   // });
 
-  window.addEventListener('yomitan-popup-shown', (event) => {
-    console.log('Yomitan popup shown:', event);
-    console.log(event.detail); // This will log the value of 'this' passed above
-    
-    // Extract popup ID if available, otherwise use timestamp as unique identifier
-    const popupId = event.detail?.popupId || `popup-${Date.now()}-${Math.random()}`;
-    
-    // Only increment if this is a new popup
+  function handleDictionaryPopupShown(event) {
+    const isHachidori = event.type === 'hachidori-popup-shown';
+    const readerName = isHachidori ? 'Hachidori' : 'Yomitan';
+    const popupId = event.detail?.popupId
+      || (isHachidori ? 'hachidori-root' : `popup-${Date.now()}-${Math.random()}`);
+
     if (!yomitanPopupIds.has(popupId)) {
       yomitanPopupIds.add(popupId);
       yomitanPopupCount++;
-      console.log(`Yomitan popup opened. Active popups: ${yomitanPopupCount}`, Array.from(yomitanPopupIds));
+      console.log(`${readerName} popup opened. Active popups: ${yomitanPopupCount}`, Array.from(yomitanPopupIds));
     }
-    
-    // Update state based on popup count
+
+    lastPopupCount = yomitanPopupCount;
+    lastPopupChangeTime = Date.now();
     if (yomitanPopupCount > 0) {
       yomitanShowing = true;
       ipcRenderer.send('yomitan-event', true);
     }
 
-    // Refresh the Jiten grading bar config for the (possibly new) popup frame.
-    requestJitenReaderGradingSettings();
-    pushJitenGradingConfig();
-    setTimeout(() => pushJitenGradingConfig(), 250);
-  });
+    if (!isHachidori) {
+      requestJitenReaderGradingSettings();
+      pushJitenGradingConfig();
+      setTimeout(() => pushJitenGradingConfig(), 250);
+    }
+  }
 
-  // When popup is hidden, tell main process to ignore mouse events again
-  window.addEventListener('yomitan-popup-hidden', (event) => {
-    console.log('Yomitan popup hidden:', event);
-    
-    // Extract popup ID if available
-    const popupId = event.detail?.popupId || null;
-    
-    // Decrement count, ensuring we don't go below 0
+  function handleDictionaryPopupHidden(event) {
+    const isHachidori = event.type === 'hachidori-popup-hidden';
+    const readerName = isHachidori ? 'Hachidori' : 'Yomitan';
+    const popupId = event.detail?.popupId || (isHachidori ? 'hachidori-root' : null);
+
     if (popupId && yomitanPopupIds.has(popupId)) {
       yomitanPopupIds.delete(popupId);
       yomitanPopupCount--;
     } else if (!popupId && yomitanPopupCount > 0) {
-      // Fallback: decrement by 1 if no ID provided
       yomitanPopupCount--;
-      // Clear the oldest entry if we have IDs tracked
       if (yomitanPopupIds.size > 0) {
         const firstId = yomitanPopupIds.values().next().value;
         yomitanPopupIds.delete(firstId);
       }
     }
-    
-    // Ensure count never goes negative
+
     yomitanPopupCount = Math.max(0, yomitanPopupCount);
-    
-    console.log(`Yomitan popup closed. Remaining popups: ${yomitanPopupCount}`, Array.from(yomitanPopupIds));
-    
-    // Only trigger cleanup when ALL popups are closed
+    lastPopupCount = yomitanPopupCount;
+    lastPopupChangeTime = Date.now();
+    console.log(`${readerName} popup closed. Remaining popups: ${yomitanPopupCount}`, Array.from(yomitanPopupIds));
+
     if (yomitanPopupCount === 0) {
-      console.log('All Yomitan popups closed, triggering cleanup');
       yomitanShowing = false;
-      yomitanPopupIds.clear(); // Clear the set to prevent memory leaks
-      
+      yomitanPopupIds.clear();
+
       ipcRenderer.send('yomitan-event', false);
       if (isMagpieActive && !manualHotkeyPressed) {
-        requestMagpieMouseRelease('yomitan-popup-hidden');
+        requestMagpieMouseRelease('dictionary-popup-hidden');
       }
-      
+
       if (hideOnYomitanClose) {
         hideOnYomitanClose = false;
-        applyManualInactivePresentation('yomitan-popup-hidden');
+        applyManualInactivePresentation('dictionary-popup-hidden');
       }
     }
-  });
+  }
+
+  window.addEventListener('yomitan-popup-shown', handleDictionaryPopupShown);
+  window.addEventListener('yomitan-popup-hidden', handleDictionaryPopupHidden);
+  window.addEventListener('hachidori-popup-shown', handleDictionaryPopupShown);
+  window.addEventListener('hachidori-popup-hidden', handleDictionaryPopupHidden);
 
   const textElement = document.getElementById("text");
   const handle = document.getElementById("resize-handle");
@@ -4553,6 +4563,7 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   ipcRenderer.on("load-settings", (event, newsettings) => {
+    dictionaryReader = normalizeDictionaryReader(newsettings.dictionaryReader);
     applyFloatingWindowFontSize(newsettings.fontSize);
     setupWebSocket(newsettings.weburl1, true)
     setupWebSocket(newsettings.weburl2, false)

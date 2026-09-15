@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hachidori media capture</title>
+    <link rel="stylesheet" href="capture.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">Hachidori</p>
+          <h1>Media capture</h1>
+          <p>Capture keeps running when you close this page. Reopen it to stop or change the linked reading page.</p>
+        </div>
+        <span id="capture-state" class="status-badge">Stopped</span>
+      </header>
+
+      <section class="card capture-controls" aria-labelledby="capture-heading">
+        <div>
+          <h2 id="capture-heading">Shared media</h2>
+          <p id="media-source">No tab, window, or screen is being captured.</p>
+        </div>
+        <div class="button-row">
+          <button id="capture-start" class="primary" type="button">Start capture</button>
+          <button id="capture-stop" type="button" disabled>Stop</button>
+        </div>
+        <output id="capture-error" class="error" aria-live="polite"></output>
+      </section>
+
+      <section class="card" aria-labelledby="reading-heading">
+        <div>
+          <h2 id="reading-heading">Reading page</h2>
+          <p id="linked-page">No reading page is linked.</p>
+        </div>
+        <div class="field-row">
+          <label>
+            <span>Open page</span>
+            <select id="reading-tab"></select>
+          </label>
+          <button id="link-page" type="button">Link this reading page</button>
+        </div>
+        <div class="field-row" id="video-row" hidden>
+          <label>
+            <span>Video source</span>
+            <select id="reading-video"></select>
+          </label>
+          <button id="select-video" type="button">Use video</button>
+        </div>
+        <div class="button-row">
+          <button id="track-area" type="button">Track this text area</button>
+          <button id="clear-area" type="button">Clear tracked area</button>
+        </div>
+        <output id="page-status" aria-live="polite"></output>
+      </section>
+
+      <section class="card status-grid" aria-labelledby="timing-heading">
+        <h2 id="timing-heading">Timing sources</h2>
+        <div><span>Texthooker</span><strong id="texthooker-status">Disabled</strong></div>
+        <div><span>Video history</span><strong id="video-history">0 frames</strong></div>
+        <div><span>Audio history</span><strong id="audio-history">0 samples</strong></div>
+        <div><span>Lookup pin</span><strong id="pin-status">None</strong></div>
+      </section>
+
+      <p class="privacy">
+        Choose a tab, window, or entire screen. Screen sharing includes everything visible on that screen.
+        Audio availability and scope depend on Chrome's selected share. Hachidori does not request microphone access,
+        persist capture history, or send captured media anywhere except your configured AnkiConnect server.
+      </p>
+    </main>
+    <script type="module" src="capture.js"></script>
+  </body>
+</html>

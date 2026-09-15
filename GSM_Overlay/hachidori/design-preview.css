@@ -1,0 +1,6 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+body {
+  margin: 0;
+  height: 100vh;
+}
+#preview-host { position: fixed; inset: 0; pointer-events: none; }

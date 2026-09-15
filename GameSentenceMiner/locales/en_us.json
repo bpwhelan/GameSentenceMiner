@@ -900,7 +900,11 @@
           }
         },
         "experimental": {
-          "title": "Experimental"
+          "title": "Experimental",
+          "enable_hachidori": {
+            "label": "Enable Hachidori:",
+            "tooltip": "Use Hachidori instead of Yomitan for overlay dictionary lookups. The master experimental toggle must also be enabled, and the overlay must be restarted."
+          }
         },
         "tokenization": {
           "title": "Tokenization"

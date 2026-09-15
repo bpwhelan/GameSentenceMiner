@@ -1,0 +1,12 @@
+{
+  "name": "Hachidori",
+  "repository": "https://github.com/bee-san/hachidori",
+  "commit": "6a45c8e1590505d777ac4ea69f1df561cba0bfa4",
+  "sourceDirectory": "extension",
+  "license": "GPL-3.0-or-later",
+  "modifications": [
+    "manifest.json includes a fixed public key so the GSM-hosted extension keeps one stable ID.",
+    "overlay-mode.js enables overlay mode: hover lookups, no word highlight, and no first-run setup page.",
+    "README.md is left out."
+  ]
+}

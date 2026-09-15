@@ -1,0 +1,26 @@
+/*
+ * Page-document styles for Hachidori's hover highlight.
+ *
+ * Everything else the extension draws lives in the popup's shadow root and is
+ * styled by render/reader.css. This rule cannot: `::highlight()` resolves
+ * only against the ranges' own tree, and the ranges CSS.highlights receives
+ * point at the page's text nodes -- a `::highlight()` rule inside the shadow
+ * root would never match them. Fallback paint is extension-owned, inside the
+ * popup host's shadow root; it never adds classes to page elements.
+ *
+ * Colours here are the initial default. The shared popup appearance helper
+ * updates an owned CSSOM sheet from the shadow host's selected palette without
+ * modifying the page's html element or inheriting its theme policy.
+ *
+ * Copyright (C) 2026 Manhhao
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+::highlight(gsm-hoshidicts-match) {
+  color: inherit;
+  background-color: color-mix(
+    in srgb,
+    var(--hoshidicts-palette-primary, #7aa2ff) 34%,
+    transparent
+  );
+}

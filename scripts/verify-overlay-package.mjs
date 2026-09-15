@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
+import { validateReleaseMetadata } from './sync-hachidori.mjs';
+
 const repoRoot = process.cwd();
 const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'));
 const productName = packageJson.productName || packageJson.name || 'GameSentenceMiner';
@@ -44,11 +46,13 @@ async function exists(candidate) {
 async function main() {
   const resourcesDirCandidates = candidateResourceDirs();
   let overlayResourcesDir = null;
+  let packagedResourcesDir = null;
 
   for (const resourcesDir of resourcesDirCandidates) {
     const candidate = path.join(resourcesDir, 'GSM_Overlay', overlayDirName, 'resources');
     if (await exists(candidate)) {
       overlayResourcesDir = candidate;
+      packagedResourcesDir = resourcesDir;
       break;
     }
   }
@@ -66,6 +70,14 @@ async function main() {
     path.join(overlayResourcesDir, serverExecutableName),
     path.join(overlayResourcesDir, 'mecab_bridge.py'),
     path.join(overlayResourcesDir, 'yomitan', 'manifest.json'),
+    path.join(overlayResourcesDir, 'hachidori', 'manifest.json'),
+    path.join(overlayResourcesDir, 'hachidori', 'background.js'),
+    path.join(overlayResourcesDir, 'hachidori', 'offscreen.js'),
+    path.join(overlayResourcesDir, 'hachidori', 'overlay-mode.js'),
+    path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts.wasm'),
+    path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts-threaded.wasm'),
+    path.join(overlayResourcesDir, 'hachidori', 'LICENSE.hachidori'),
+    path.join(overlayResourcesDir, 'hachidori', 'SOURCE.json'),
   ];
 
   const missing = [];
@@ -77,6 +89,46 @@ async function main() {
 
   if (missing.length > 0) {
     throw new Error(`Packaged overlay is incomplete. Missing:\n${missing.map((item) => `  - ${item}`).join('\n')}`);
+  }
+
+  const hachidoriManifest = JSON.parse(
+    await fs.readFile(path.join(overlayResourcesDir, 'hachidori', 'manifest.json'), 'utf8')
+  );
+  if (typeof hachidoriManifest.key !== 'string' || hachidoriManifest.key.length === 0) {
+    throw new Error('Packaged Hachidori manifest does not contain its stable extension key.');
+  }
+
+  const hachidoriOverlayMode = await fs.readFile(path.join(overlayResourcesDir, 'hachidori', 'overlay-mode.js'), 'utf8');
+  if (!hachidoriOverlayMode.includes('export const OVERLAY_MODE = true;')) {
+    throw new Error('Packaged Hachidori does not run in overlay mode.');
+  }
+
+  const hachidoriSource = JSON.parse(
+    await fs.readFile(path.join(overlayResourcesDir, 'hachidori', 'SOURCE.json'), 'utf8')
+  );
+  if (!/^[0-9a-f]{40}$/.test(hachidoriSource.commit || '')) {
+    throw new Error('Packaged Hachidori SOURCE.json does not identify an exact source commit.');
+  }
+  if (hachidoriSource.repository !== 'https://github.com/bee-san/hachidori') {
+    throw new Error('Packaged Hachidori SOURCE.json does not identify the expected upstream repository.');
+  }
+  if ('release' in hachidoriSource) {
+    validateReleaseMetadata(hachidoriSource.release);
+  }
+
+  const packagedExperimentalTab = path.join(
+    packagedResourcesDir,
+    'GameSentenceMiner',
+    'ui',
+    'config',
+    'tabs',
+    'experimental.py'
+  );
+  if (await exists(packagedExperimentalTab)) {
+    const packagedExperimentalContents = await fs.readFile(packagedExperimentalTab, 'utf8');
+    if (!packagedExperimentalContents.includes('enable_hachidori')) {
+      throw new Error('Packaged backend does not expose the Hachidori experimental toggle.');
+    }
   }
 
   console.log(`[verify-overlay-package] Verified ${overlayResourcesDir}`);
