@@ -174,6 +174,10 @@ def api_games_management():
         all_games = GamesTable.all_without_images()
 
         games_data = []
+        from GameSentenceMiner.util.database.game_archive import archive_summaries
+
+        archives = archive_summaries()
+        raw_counts = dict(GameLinesTable._db.fetchall("SELECT game_id, COUNT(*) FROM game_lines GROUP BY game_id"))
         for game in all_games:
             profile = profiles.get(game.id, GameProfile())
 
@@ -189,6 +193,9 @@ def api_games_management():
             games_data.append(
                 {
                     "id": game.id,
+                    "archived_line_count": archives.get(game.id, {}).get("archived_lines", 0),
+                    "archived_at": archives.get(game.id, {}).get("archived_at"),
+                    "raw_line_count": raw_counts.get(game.id, 0),
                     "title_original": game.title_original,
                     "title_romaji": game.title_romaji,
                     "title_english": game.title_english,
@@ -462,6 +469,18 @@ def api_delete_individual_game(game_id):
             return jsonify({"error": "Game not found"}), 404
 
         game_name = game.title_original
+
+        from GameSentenceMiner.util.database.game_archive import archive_summary
+
+        if archive_summary(game_id)["archived_lines"]:
+            # Keep the identity used by archived stats when unlinking external metadata.
+            GameLinesTable._db.execute(
+                "UPDATE games SET deck_id=NULL, vndb_id=NULL, anilist_id=NULL, links='[]' WHERE id=?",
+                (game_id,),
+                commit=True,
+            )
+            invalidate_game_profiles_cache()
+            return jsonify({"success": True, "game_name": game_name, "unlinked_lines": 0})
 
         # Get count of lines that will be unlinked
         lines_count = GameLinesTable._db.fetchone(

@@ -422,6 +422,9 @@ def deduplicate_lines_core(
 
 
 def register_database_api_routes(app):
+    from GameSentenceMiner.web.database_maintenance_api import register_database_maintenance_routes
+
+    register_database_maintenance_routes(app)
     """Register all database API routes with the Flask app."""
 
     @app.route("/api/search-sentences")
@@ -2574,6 +2577,42 @@ def register_database_api_routes(app):
                 return jsonify({"error": "At least 1 game must be selected for merging"}), 400
 
             # Validate that all games exist
+            from GameSentenceMiner.util.database.game_archive import archive_summaries, merge_archived_games
+
+            archives = archive_summaries()
+            source_ids = _get_game_record_ids_for_names(games_to_merge) if archives else []
+            target_ids = _get_game_record_ids_for_names([target_game]) if archives else []
+            if any(gid in archives for gid in source_ids + target_ids):
+                if target_game in games_to_merge or len(set(games_to_merge)) != len(games_to_merge):
+                    return jsonify({"error": "Choose distinct source games and a separate target game"}), 400
+                if len(target_ids) != 1 or len(source_ids) != len(games_to_merge):
+                    return jsonify(
+                        {"error": "Choose existing games with distinct names to merge archived statistics"}
+                    ), 400
+                moved = merge_archived_games(target_ids[0], source_ids, target_game)
+                from GameSentenceMiner.util.database.game_archive import archive_summary
+
+                total = (
+                    archive_summary(target_ids[0])["archived_lines"]
+                    + GameLinesTable._db.fetchone("SELECT COUNT(*) FROM game_lines WHERE game_id=?", (target_ids[0],))[
+                        0
+                    ]
+                )
+                return jsonify(
+                    {
+                        "message": "Game history merged",
+                        "primary_game": target_game,
+                        "merged_games": games_to_merge,
+                        "lines_moved": moved,
+                        "total_lines_in_primary": total,
+                        "merge_summary": {
+                            "primary_game": target_game,
+                            "secondary_games": games_to_merge,
+                            "lines_moved": moved,
+                            "total_lines_after_merge": total,
+                        },
+                    }
+                ), 200
             existing_games = GameLinesTable.get_all_games_with_lines()
             invalid_games = [name for name in games_to_merge if name not in existing_games]
 

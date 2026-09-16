@@ -1,6 +1,6 @@
 /**
  * One Jiten request broker for renderer IPC and the bundled Reader.
- * Exact paragraphs retain UTF-16 offsets; only cache misses are batched.
+ * Cached paragraph variants remap UTF-16 offsets; only cache misses are batched.
  * Syntax lasts a day; account state uses the lighter lookup-vocabulary API.
  * All caches are bounded and memory-only. No credentials or text are logged.
  */
@@ -9,6 +9,12 @@ const DEFAULT_JITEN_PARSE_URL = 'https://api.jiten.moe/api/reader/parse';
 const JAPANESE_TEXT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 const EMPTY_PAYLOAD = { tokens: [[]], vocabulary: [] };
 const READ_TTLS = new Map([['reader/ping', 60_000], ['srs/reader-study-decks', 300_000]]);
+const CACHE_IGNORED_CHARACTERS = /[\s\p{P}]/u;
+// A name/label around a substantial shared sentence is reusable. A common word
+// inside otherwise new dialogue is not enough to treat that dialogue as cached.
+const MIN_OVERLAP_LENGTH = 12;
+const MAX_AFFIX_LENGTH = 32;
+const MIN_OVERLAP_RATIO = 0.75;
 
 function deriveJitenApiBase(parseUrl = DEFAULT_JITEN_PARSE_URL) {
   const url = new URL(parseUrl);
@@ -36,6 +42,76 @@ function mergePayloads(payloads) {
     return payload.tokens[0];
   });
   return { tokens, vocabulary: [...vocabulary.values()] };
+}
+
+function normalizeCacheText(text) {
+  // Only the comparison ignores punctuation/whitespace. Preserve letters,
+  // digits, kana length marks and width differences, and never send this text.
+  return text.replace(/[\s\p{P}]/gu, '');
+}
+
+function findCacheOverlap(source, target) {
+  if (!source || !target) return null;
+  if (source === target) return { sourceStart: 0, targetStart: 0, length: target.length, extra: 0 };
+  const shorter = source.length < target.length ? source : target;
+  const longer = source.length < target.length ? target : source;
+  const extra = longer.length - shorter.length;
+  if (shorter.length < MIN_OVERLAP_LENGTH || extra > MAX_AFFIX_LENGTH || shorter.length / longer.length < MIN_OVERLAP_RATIO) return null;
+  const start = longer.indexOf(shorter);
+  // Repeated occurrences are ambiguous; do not guess which instance was parsed.
+  if (start < 0 || longer.indexOf(shorter, start + 1) >= 0) return null;
+  return {
+    sourceStart: source.length > target.length ? start : 0,
+    targetStart: target.length > source.length ? start : 0,
+    length: shorter.length,
+    extra,
+  };
+}
+
+function cacheTextOffsets(text) {
+  const starts = [];
+  const ends = [];
+  const offsets = [0];
+  let rawOffset = 0;
+  for (const char of text) {
+    if (!CACHE_IGNORED_CHARACTERS.test(char)) {
+      for (let i = 0; i < char.length; i++) {
+        starts.push(rawOffset);
+        ends.push(rawOffset + char.length);
+      }
+    }
+    rawOffset += char.length;
+    // Leave the middle of surrogate pairs unmapped: a cached token cannot be
+    // safely projected if one of its boundaries splits a character.
+    offsets[rawOffset] = starts.length;
+  }
+  return { starts, ends, offsets };
+}
+
+function remapCachedPayload(sourceText, targetText, payload, match, targetOffsets) {
+  const sourceOffsets = cacheTextOffsets(sourceText);
+  const matchEnd = match.sourceStart + match.length;
+  const tokens = [];
+  const used = new Set();
+  for (const token of payload.tokens[0]) {
+    const start = sourceOffsets.offsets[token.start];
+    const end = sourceOffsets.offsets[token.start + token.length];
+    if (start === undefined || end === undefined) return null;
+    // Punctuation-only tokens and words outside the shared sentence are omitted.
+    if (start === end || end <= match.sourceStart || start >= matchEnd) continue;
+    // Never clip a vocabulary word into a different word at an overlap boundary.
+    if (start < match.sourceStart || end > matchEnd) return null;
+    const targetStart = targetOffsets.starts[match.targetStart + start - match.sourceStart];
+    const targetEnd = targetOffsets.ends[match.targetStart + end - match.sourceStart - 1];
+    // Keep each word's spelling and internal layout exact. Moving surrounding
+    // punctuation is fine; editing inside a word would invalidate its readings.
+    if (sourceText.slice(token.start, token.start + token.length) !== targetText.slice(targetStart, targetEnd)) return null;
+    const projected = { ...token, start: targetStart, length: targetEnd - targetStart };
+    if (token.end !== undefined) projected.end = targetEnd;
+    tokens.push(projected);
+    used.add(wordKey(token));
+  }
+  return { tokens: [tokens], vocabulary: payload.vocabulary.filter(word => used.has(wordKey(word))) };
 }
 
 class LruCache {
@@ -103,7 +179,7 @@ class JitenParseCache {
     this._charges = [];
     this._disposed = false;
     this._controller = null;
-    this._stats = { upstreamRequests: 0, parseRequests: 0, parsedParagraphs: 0, cacheHits: 0, coalesced: 0, skipped: 0, cancelled: 0, cooldowns: 0 };
+    this._stats = { upstreamRequests: 0, parseRequests: 0, parsedParagraphs: 0, cacheHits: 0, variantCacheHits: 0, coalesced: 0, skipped: 0, cancelled: 0, cooldowns: 0 };
   }
 
   _scope({ apiKey, endpoint = DEFAULT_JITEN_PARSE_URL }) {
@@ -128,8 +204,41 @@ class JitenParseCache {
   }
   getCached(text, options = {}) {
     const scope = this._scope(options);
-    const payload = this._entries.get(`${scope.id}:${text}`);
-    return payload ? structuredClone(payload) : null;
+    const cached = this._findCached(scope, text);
+    return cached ? structuredClone(cached.payload) : null;
+  }
+  _findCached(scope, text) {
+    if (typeof text !== 'string') return null;
+    const prefix = `${scope.id}:`;
+    const exact = this._entries.get(`${prefix}${text}`);
+    if (exact) return { payload: exact.payload, variant: false };
+    const normalized = normalizeCacheText(text);
+    if (!normalized) return null;
+    const matches = [];
+    const now = Date.now();
+    // Search only the bounded syntax LRU. The normalized comparison text lives
+    // in that same cache, so eviction/expiry also removes it and counts its bytes.
+    for (const [key, entry] of this._entries.entries) {
+      if (entry.expiresAt <= now) { this._entries.delete(key); continue; }
+      if (!key.startsWith(prefix)) continue;
+      const match = findCacheOverlap(entry.value.normalized, normalized);
+      if (match) matches.push({ key, entry, match });
+    }
+    // Prefer more of the requested text, then less discarded source text, then
+    // the most recent parse. Exact matches above always take precedence.
+    matches.reverse();
+    matches.sort((a, b) => b.match.length - a.match.length || a.match.extra - b.match.extra);
+    const targetOffsets = matches.length ? cacheTextOffsets(text) : null;
+    for (const candidate of matches) {
+      const payload = remapCachedPayload(candidate.key.slice(prefix.length), text,
+        candidate.entry.value.payload, candidate.match, targetOffsets);
+      if (payload && this._entries.get(candidate.key)) {
+        // Do not cache projections as full parses: an added name/suffix remains
+        // unparsed, and must never become evidence for further cache matches.
+        return { payload, variant: true };
+      }
+    }
+    return null;
   }
   async parse(args) {
     if (typeof args.text !== 'string') throw error('Jiten text must be a string', 400);
@@ -141,7 +250,7 @@ class JitenParseCache {
     if (this._disposed) throw error('Jiten broker is closed');
     if (signal?.aborted) throw abortError();
     if (!Array.isArray(texts) || texts.length > 2048 || texts.some((text) => typeof text !== 'string')) throw error('Jiten texts must be an array of strings (at most 2048)', 400);
-    // Never silently truncate or normalize text; either changes token offsets.
+    // Upstream misses retain the original text; cache hits map into its offsets.
     if (texts.some((text) => text.length > this.maxBatchCharacters) || texts.reduce((sum, text) => sum + text.length, 0) > this.maxPendingCharacters) throw error('Jiten text exceeds the local request budget', 413);
     const acquired = [];
     let release;
@@ -149,8 +258,12 @@ class JitenParseCache {
       const promises = texts.map((text) => {
         if (!JAPANESE_TEXT.test(text)) { this._stats.skipped++; return Promise.resolve(EMPTY_PAYLOAD); }
         const key = `${scope.id}:${text}`;
-        const cached = this._entries.get(key);
-        if (cached) { this._stats.cacheHits++; return Promise.resolve(cached); }
+        const cached = this._findCached(scope, text);
+        if (cached) {
+          this._stats.cacheHits++;
+          if (cached.variant) this._stats.variantCacheHits++;
+          return Promise.resolve(cached.payload);
+        }
         this._check(scope);
         const item = this._item(`parse:${key}`, 'parse', scope, text);
         item.users++;
@@ -368,7 +481,9 @@ class JitenParseCache {
         const payload = await this._fetch(first.scope, 'reader/parse', { text: batch.map((item) => item.value) });
         results = this._splitParse(batch, payload);
         results.forEach((result, i) => {
-          this._entries.set(`${first.scope.id}:${batch[i].value}`, result, this.ttlMs);
+          this._entries.set(`${first.scope.id}:${batch[i].value}`, {
+            normalized: normalizeCacheText(batch[i].value), payload: result,
+          }, this.ttlMs);
           if (version === first.scope.version) for (const word of result.vocabulary) this._rememberState(first.scope, wordKey(word), word);
         });
       } else if (first.kind === 'state') {

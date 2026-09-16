@@ -89,7 +89,8 @@
           },
           "open_texthooker_on_startup": {
             "label": "시작 시 GSM 텍스트 피드 열기:",
-            "tooltip": "스크립트 시작 시 텍스트 피드 페이지를 열지 여부입니다."
+            "tooltip": "GSM 시작 시 텍스트 피드 페이지를 열지 여부입니다. 브라우저가 관리자 권한으로 실행되지 않도록 GSM을 관리자 권한으로 실행하는 동안에는 비활성화됩니다. 설정은 일반 실행 시 적용되도록 유지됩니다.",
+            "disabled_admin": "GSM을 관리자 권한으로 실행하는 동안 비활성화됩니다."
           },
           "texthooker_port": {
             "label": "레거시 텍스트 피드 포트:",
@@ -212,6 +213,22 @@
           },
           "confirmation_gamepad_bindings": {
             "label": "게임패드 바인딩:"
+          },
+          "confirmation_gamepad_add_previous_line": {
+            "label": "이전 줄 추가:",
+            "tooltip": "이전 대사를 이 카드에 추가하는 버튼입니다. 기본값은 왼쪽 트리거(LT)입니다."
+          },
+          "confirmation_gamepad_add_next_line": {
+            "label": "다음 줄 추가:",
+            "tooltip": "다음 대사를 이 카드에 추가하는 버튼입니다. 기본값은 오른쪽 트리거(RT)입니다."
+          },
+          "confirmation_gamepad_expand_audio_start": {
+            "label": "시작 부분에 0.25초 추가:",
+            "tooltip": "오디오 시작 지점을 0.25초 앞당기는 버튼입니다. 기본값은 왼쪽 범퍼(LB)입니다."
+          },
+          "confirmation_gamepad_expand_audio_end": {
+            "label": "끝부분에 0.25초 추가:",
+            "tooltip": "오디오 끝 지점을 0.25초 늘리는 버튼입니다. 기본값은 오른쪽 범퍼(RB)입니다."
           },
           "confirmation_gamepad_focus_up": {
             "label": "포커스를 위로 이동:",

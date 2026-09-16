@@ -6,7 +6,6 @@ import hashlib
 import importlib.metadata
 import json
 import math
-import os
 import platform
 import statistics
 import subprocess
@@ -33,11 +32,9 @@ PERFORMANCE_TIE_MARGIN = 0.10
 
 
 def default_input_dir() -> Path:
-    if sys.platform == "win32":
-        appdata = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    else:
-        appdata = Path.home() / ".config"
-    return appdata / "GameSentenceMiner" / "ocr_metrics" / "pending"
+    from GameSentenceMiner.util.data_directory import resolve_data_directory
+
+    return Path(resolve_data_directory()) / "ocr_metrics" / "pending"
 
 
 def normalize_box(value: Any) -> tuple[int, int, int, int] | None:

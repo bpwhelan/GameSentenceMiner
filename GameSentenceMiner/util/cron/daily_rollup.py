@@ -46,7 +46,10 @@ def get_first_data_date() -> Optional[str]:
     result = GameLinesTable._db.fetchone(
         f"SELECT DATE(datetime(MIN(timestamp), 'unixepoch', 'localtime')) FROM {GameLinesTable._table}"
     )
-    return result[0] if result and result[0] else None
+    from GameSentenceMiner.util.database.game_archive import archive_dates
+
+    candidates = archive_dates() + ([result[0]] if result and result[0] else [])
+    return min(candidates) if candidates else None
 
 
 def get_all_data_dates() -> List[str]:
@@ -55,7 +58,9 @@ def get_all_data_dates() -> List[str]:
         f"SELECT DISTINCT DATE(datetime(timestamp, 'unixepoch', 'localtime')) as date "
         f"FROM {GameLinesTable._table} ORDER BY date"
     )
-    return [row[0] for row in rows if row[0]]
+    from GameSentenceMiner.util.database.game_archive import archive_dates
+
+    return sorted(set([row[0] for row in rows if row[0]] + archive_dates()))
 
 
 def analyze_sessions(lines: List) -> Dict:
@@ -309,9 +314,16 @@ def analyze_kanji_data_from_tokens(date_start: float, date_end: float) -> Dict:
     )
     untokenized_count = untokenized_count_row[0] if untokenized_count_row else 0
 
-    if untokenized_count > 0:
+    from GameSentenceMiner.util.database.game_archive import archived_stats_lines, load_archive_days
+
+    archived_days = load_archive_days(
+        datetime.fromtimestamp(date_start).date().isoformat(),
+        datetime.fromtimestamp(date_end - 0.000001).date().isoformat(),
+    )
+    archived = archived_stats_lines(date_start, date_end - 0.000001)
+    if untokenized_count > 0 or any(not line.tokenized for line in archived):
         # Fallback: some lines not yet tokenized, use legacy path
-        lines = GameLinesTable.get_lines_filtered_by_timestamp(date_start, date_end, for_stats=True)
+        lines = GameLinesTable.get_lines_filtered_by_timestamp(date_start, date_end - 0.000001, for_stats=True)
         return analyze_kanji_data(lines)
 
     # All lines tokenized — query the indexed tables
@@ -327,6 +339,11 @@ def analyze_kanji_data_from_tokens(date_start: float, date_end: float) -> Dict:
     )
 
     frequencies = {row[0]: row[1] for row in rows}
+    import json
+
+    for day in archived_days:
+        for char, count in json.loads(day[7]).items():
+            frequencies[char] = frequencies.get(char, 0) + count
     return {
         "unique_count": len(frequencies),
         "frequencies": frequencies,
@@ -348,21 +365,30 @@ def analyze_word_data_from_tokens(date_start: float, date_end: float) -> Dict:
 
     if untokenized_count > 0:
         # Can't compute accurate word frequency without full tokenization
-        return {"unique_count": 0, "frequencies": {}}
-
-    rows = db.fetchall(
-        """SELECT w.word, COUNT(*) AS freq
-           FROM word_occurrences wo
-           JOIN words w ON w.id = wo.word_id
-           JOIN game_lines gl ON gl.id = wo.line_id
-           WHERE gl.timestamp >= ? AND gl.timestamp < ?
-             AND w.pos NOT IN ('記号', 'その他')
-           GROUP BY w.word
-           ORDER BY freq DESC""",
-        (date_start, date_end),
-    )
+        rows = []
+    else:
+        rows = db.fetchall(
+            """SELECT w.word, COUNT(*) AS freq
+               FROM word_occurrences wo
+               JOIN words w ON w.id = wo.word_id
+               JOIN game_lines gl ON gl.id = wo.line_id
+               WHERE gl.timestamp >= ? AND gl.timestamp < ?
+                 AND w.pos NOT IN ('記号', 'その他')
+               GROUP BY w.word ORDER BY freq DESC""",
+            (date_start, date_end),
+        )
 
     frequencies = {row[0]: row[1] for row in rows}
+    if db.table_exists("archived_word_stats"):
+        for word, count in db.fetchall(
+            "SELECT word, SUM(frequency) FROM archived_word_stats WHERE date >= ? AND date < ? "
+            "AND pos NOT IN ('記号', 'その他') GROUP BY word",
+            (
+                datetime.fromtimestamp(date_start).date().isoformat(),
+                datetime.fromtimestamp(date_end).date().isoformat(),
+            ),
+        ):
+            frequencies[word] = frequencies.get(word, 0) + count
     return {
         "unique_count": len(frequencies),
         "frequencies": frequencies,
@@ -547,10 +573,11 @@ def calculate_daily_stats(date_str: str) -> Dict:
 
     # Convert date to timestamp range
     date_start = datetime.strptime(date_str, "%Y-%m-%d").timestamp()
-    date_end = date_start + 86400  # +24 hours
+    date_end = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).timestamp()
 
     # Get all lines for this day
-    lines = GameLinesTable.get_lines_filtered_by_timestamp(date_start, date_end, for_stats=True)
+    lines = GameLinesTable.get_lines_filtered_by_timestamp(date_start, date_end - 0.000001, for_stats=True)
+    lines.sort(key=lambda line: float(line.timestamp))
 
     if not lines:
         logger.debug(f"No lines found for {date_str}")
@@ -623,7 +650,10 @@ def calculate_daily_stats(date_str: str) -> Dict:
         word_data = analyze_word_data_from_tokens(date_start, date_end)
     else:
         kanji_data = analyze_kanji_data(lines)
-        word_data = {"unique_count": 0, "frequencies": {}}
+        from GameSentenceMiner.util.database.game_archive import archived_word_frequencies
+
+        frequencies = archived_word_frequencies(date_str, date_str)
+        word_data = {"unique_count": len(frequencies), "frequencies": frequencies}
 
     # Analyze genre and type activity
     genre_activity = analyze_genre_activity(lines, date_str)
@@ -691,6 +721,11 @@ def _build_game_daily_rollup_rows(date_str: str, per_game_daily_rollups: dict) -
 
 
 def replace_rollup_for_date(date_str: str) -> dict:
+    """Read inputs and replace both rollups in the same writer transaction."""
+    return GameLinesTable._db.run_transaction(lambda conn: _replace_rollup_for_date(date_str))
+
+
+def _replace_rollup_for_date(date_str: str) -> dict:
     """Recompute or remove persisted rollups for one local date."""
     today_str = datetime.now().strftime("%Y-%m-%d")
     if date_str >= today_str:
@@ -878,94 +913,9 @@ def run_daily_rollup() -> Dict:
 
         for i, date_str in enumerate(dates_to_process, 1):
             try:
-                # Always calculate fresh stats for the date
-                # logger.info(f"Processing {i}/{total_dates}: {date_str}")
-                stats = calculate_daily_stats(date_str)
-                GameDailyRollupTable.replace_for_date(
-                    date_str,
-                    _build_game_daily_rollup_rows(date_str, stats.get("per_game_daily_rollups", {})),
-                )
-
-                # Check if rollup already exists
-                existing = StatsRollupTable.get_by_date(date_str)
-
-                if existing:
-                    # Update all fields in existing rollup
-                    existing.date = stats["date"]
-                    existing.total_lines = stats["total_lines"]
-                    existing.total_characters = stats["total_characters"]
-                    existing.total_sessions = stats["total_sessions"]
-                    existing.unique_games_played = stats["unique_games_played"]
-                    existing.total_reading_time_seconds = stats["total_reading_time_seconds"]
-                    existing.total_active_time_seconds = stats["total_active_time_seconds"]
-                    existing.longest_session_seconds = stats["longest_session_seconds"]
-                    existing.shortest_session_seconds = stats["shortest_session_seconds"]
-                    existing.average_session_seconds = stats["average_session_seconds"]
-                    existing.average_reading_speed_chars_per_hour = stats["average_reading_speed_chars_per_hour"]
-                    existing.peak_reading_speed_chars_per_hour = stats["peak_reading_speed_chars_per_hour"]
-                    existing.games_completed = stats["games_completed"]
-                    existing.games_started = stats["games_started"]
-                    existing.anki_cards_created = stats["anki_cards_created"]
-                    existing.lines_with_screenshots = stats["lines_with_screenshots"]
-                    existing.lines_with_audio = stats["lines_with_audio"]
-                    existing.lines_with_translations = stats["lines_with_translations"]
-                    existing.unique_kanji_seen = stats["unique_kanji_seen"]
-                    existing.kanji_frequency_data = stats["kanji_frequency_data"]
-                    existing.hourly_activity_data = stats["hourly_activity_data"]
-                    existing.hourly_reading_speed_data = stats["hourly_reading_speed_data"]
-                    existing.game_activity_data = stats["game_activity_data"]
-                    existing.games_played_ids = stats["games_played_ids"]
-                    existing.genre_activity_data = stats["genre_activity_data"]
-                    existing.type_activity_data = stats["type_activity_data"]
-                    existing.max_chars_in_session = stats["max_chars_in_session"]
-                    existing.max_time_in_session_seconds = stats["max_time_in_session_seconds"]
-                    existing.unique_words_seen = stats.get("unique_words_seen", 0)
-                    existing.word_frequency_data = stats.get("word_frequency_data", "{}")
-                    existing.updated_at = time.time()
-                    existing.save()
-
-                    overwritten += 1
-                    logger.debug(f"Overwritten rollup for {date_str}")
-                else:
-                    # Create and save new rollup entry with all 27 fields
-                    rollup = StatsRollupTable(
-                        date=stats["date"],
-                        total_lines=stats["total_lines"],
-                        total_characters=stats["total_characters"],
-                        total_sessions=stats["total_sessions"],
-                        unique_games_played=stats["unique_games_played"],
-                        total_reading_time_seconds=stats["total_reading_time_seconds"],
-                        total_active_time_seconds=stats["total_active_time_seconds"],
-                        longest_session_seconds=stats["longest_session_seconds"],
-                        shortest_session_seconds=stats["shortest_session_seconds"],
-                        average_session_seconds=stats["average_session_seconds"],
-                        average_reading_speed_chars_per_hour=stats["average_reading_speed_chars_per_hour"],
-                        peak_reading_speed_chars_per_hour=stats["peak_reading_speed_chars_per_hour"],
-                        games_completed=stats["games_completed"],
-                        games_started=stats["games_started"],
-                        anki_cards_created=stats["anki_cards_created"],
-                        lines_with_screenshots=stats["lines_with_screenshots"],
-                        lines_with_audio=stats["lines_with_audio"],
-                        lines_with_translations=stats["lines_with_translations"],
-                        unique_kanji_seen=stats["unique_kanji_seen"],
-                        kanji_frequency_data=stats["kanji_frequency_data"],
-                        hourly_activity_data=stats["hourly_activity_data"],
-                        hourly_reading_speed_data=stats["hourly_reading_speed_data"],
-                        game_activity_data=stats["game_activity_data"],
-                        games_played_ids=stats["games_played_ids"],
-                        genre_activity_data=stats["genre_activity_data"],
-                        type_activity_data=stats["type_activity_data"],
-                        max_chars_in_session=stats["max_chars_in_session"],
-                        max_time_in_session_seconds=stats["max_time_in_session_seconds"],
-                        unique_words_seen=stats.get("unique_words_seen", 0),
-                        word_frequency_data=stats.get("word_frequency_data", "{}"),
-                        created_at=time.time(),
-                        updated_at=time.time(),
-                    )
-                    rollup.save()
-
-                    processed += 1
-                    logger.debug(f"Created rollup for {date_str}")
+                result = replace_rollup_for_date(date_str)
+                overwritten += int(result["updated"])
+                processed += int(result["created"])
 
             except Exception as e:
                 logger.exception(f"Error processing {date_str}: {e}")

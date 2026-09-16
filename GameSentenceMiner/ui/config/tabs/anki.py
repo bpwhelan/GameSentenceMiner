@@ -344,6 +344,10 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             "confirmation_gamepad_confirm_without_audio",
             window.anki_confirmation_gamepad_confirm_without_audio_combo,
         ),
+        ("confirmation_gamepad_add_previous_line", window.anki_confirmation_gamepad_add_previous_line_combo),
+        ("confirmation_gamepad_add_next_line", window.anki_confirmation_gamepad_add_next_line_combo),
+        ("confirmation_gamepad_expand_audio_start", window.anki_confirmation_gamepad_expand_audio_start_combo),
+        ("confirmation_gamepad_expand_audio_end", window.anki_confirmation_gamepad_expand_audio_end_combo),
     ):
         gamepad_bindings_layout.addRow(
             window._create_labeled_widget(tabs_i18n, "anki", label_key),

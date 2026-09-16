@@ -840,6 +840,21 @@ def _determine_update_conditions(last_note: "AnkiCard") -> (bool, bool):
     return update_audio, update_picture
 
 
+def _get_previous_context_line(
+    game_line: GameLine | None, selected_lines: list[GameLine] | None = None
+) -> GameLine | None:
+    """Find the nearest earlier line with text beyond any quoted dialogue's speaker name."""
+    first_line = selected_lines[0] if selected_lines else game_line
+    previous_line = first_line.prev if first_line else None
+    while previous_line:
+        # Names before Japanese dialogue quotes do not make silent dialogue usable.
+        dialogue_text = re.split(r"[「『｢]", previous_line.text or "", maxsplit=1)[-1]
+        if any(character.isalnum() for character in dialogue_text):
+            return previous_line
+        previous_line = previous_line.prev
+    return None
+
+
 def _generate_media_files(
     reuse_audio: bool,
     game_line: "GameLine",
@@ -912,13 +927,16 @@ def _generate_media_files(
             "vad_end": vad_result.end,
         }
 
-    if _field_is_active("previous_image_field") and game_line and game_line.prev:
-        if anki_results.get(game_line.prev.id):
-            assets.prev_screenshot_in_anki = anki_results.get(game_line.prev.id).screenshot_in_anki
+    previous_line = (
+        _get_previous_context_line(game_line, selected_lines) if _field_is_active("previous_image_field") else None
+    )
+    if previous_line:
+        previous_result = anki_results.get(previous_line.id)
+        if previous_result:
+            assets.prev_screenshot_in_anki = previous_result.screenshot_in_anki
         else:
             # Get raw PNG for previous screenshot (fast preview)
-            line_for_prev_ss = selected_lines[0].prev if selected_lines else game_line.prev
-            assets.prev_screenshot_timestamp = ffmpeg.get_screenshot_time(video_path, line_for_prev_ss)
+            assets.prev_screenshot_timestamp = ffmpeg.get_screenshot_time(video_path, previous_line)
             with time_anki_card_block(timing_context, "anki.media.generate_previous_raw_screenshot"):
                 assets.prev_screenshot_path = ffmpeg.get_raw_screenshot(
                     video_path,
@@ -1607,11 +1625,12 @@ def update_anki_card(
 
         gsm_state.vad_result = vad_result  # Pass VAD result to dialog if needed
         with time_anki_card_block(timing_context, "anki.confirmation_dialog.previous_screenshot_time"):
-            previous_ss_time = (
-                ffmpeg.get_screenshot_time(video_path, game_line.prev if game_line else None)
+            previous_line = (
+                _get_previous_context_line(game_line, selected_lines)
                 if _field_is_active("previous_image_field")
-                else 0
+                else None
             )
+            previous_ss_time = ffmpeg.get_screenshot_time(video_path, previous_line) if previous_line else 0
         with time_anki_card_block(timing_context, "anki.confirmation_dialog", log_start=True):
             result = launch_anki_confirmation(
                 tango,
@@ -2810,15 +2829,15 @@ def get_initial_card_info(
                 force=has_sentence_override or should_force_selected_line_sentence,
             )
 
-    if _field_is_active("previous_sentence_field") and game_line.prev:
-        previous_sentence_text = (
-            selected_lines[0].prev.text if selected_lines and selected_lines[0].prev else game_line.prev.text
-        )
+    previous_line = (
+        _get_previous_context_line(game_line, selected_lines) if _field_is_active("previous_sentence_field") else None
+    )
+    if previous_line:
         _apply_field_policy(
             note,
             last_note,
             "previous_sentence_field",
-            previous_sentence_text,
+            previous_line.text,
             append_separator=get_config().advanced.multi_line_line_break,
         )
     return note, last_note

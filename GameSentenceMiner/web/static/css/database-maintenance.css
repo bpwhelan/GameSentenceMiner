@@ -1,0 +1,47 @@
+#archiveFilesList {
+    max-height: 400px;
+    overflow-y: auto;
+    margin: 16px 0;
+}
+
+.archive-file-row {
+    padding: 16px 0;
+    border-top: 1px solid var(--border-color);
+}
+
+.archive-file-name {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+.archive-file-details {
+    color: var(--text-secondary);
+    margin: 6px 0 12px;
+}
+
+.archive-file-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.archive-file-actions .action-btn {
+    font-size: 13px;
+    padding: 8px 12px;
+    text-decoration: none;
+}
+
+#archiveFilesCard button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.archive-files-location summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+#archiveFilesDirectory {
+    overflow-wrap: anywhere;
+    font-size: 13px;
+}

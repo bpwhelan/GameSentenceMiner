@@ -66,6 +66,8 @@ def count_cards_from_line(line) -> int:
     Prefers `note_ids` when present; otherwise counts either
     `screenshot_in_anki` or `audio_in_anki` as a single card.
     """
+    if hasattr(line, "archived_card_count"):
+        return line.archived_card_count
     if hasattr(line, "note_ids") and line.note_ids:
         return len(line.note_ids)
 
@@ -85,6 +87,8 @@ def count_cards_from_lines(lines: Iterable) -> int:
 
 def has_cards(line) -> bool:
     """Return True if the line has any Anki cards."""
+    if hasattr(line, "archived_card_count"):
+        return line.archived_card_count > 0
     if hasattr(line, "note_ids") and line.note_ids:
         return True
 

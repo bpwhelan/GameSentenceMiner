@@ -33,6 +33,9 @@ describe("SettingsTab data folder controls", () => {
       if (channel === "data.getDefaultDir") {
         return "C:\\Users\\Tester\\AppData\\Roaming\\GameSentenceMiner";
       }
+      if (channel === "data.getPointerPath") {
+        return "C:\\Users\\Tester\\.config\\GameSentenceMiner\\data_dir.json";
+      }
       if (channel === "data.relocate") {
         return { success: false, canceled: true };
       }
@@ -94,6 +97,8 @@ describe("SettingsTab data folder controls", () => {
     });
 
     expect(container.textContent).toContain("Data Folder");
+    expect(container.textContent).toContain("Database: C:\\Data\\GameSentenceMiner\\gsm.db");
+    expect(container.textContent).toContain("C:\\Users\\Tester\\.config\\GameSentenceMiner\\data_dir.json");
     expect(container.textContent).toContain(
       "Current folder: C:\\Data\\GameSentenceMiner"
     );

@@ -638,6 +638,15 @@ def recompute_word_first_seen_metadata(
             str(raw_line_id or ""),
         )
 
+    if db.table_exists("archived_word_stats"):
+        for word_id, timestamp, line_id in db.fetchall(
+            f"SELECT word_id, first_seen, first_line_id FROM archived_word_stats WHERE word_id IN ({placeholders})",
+            tuple(target_word_ids),
+        ):
+            candidate = (float(timestamp), str(line_id))
+            if word_id not in earliest_by_word or candidate < earliest_by_word[word_id]:
+                earliest_by_word[word_id] = candidate
+
     updated = 0
 
     def _update(conn):
@@ -746,6 +755,9 @@ def setup_tokenization(db: SQLiteDB):
 
     # 3. Create indexes
     create_tokenization_indexes(db)
+    from GameSentenceMiner.util.database.game_archive import restore_archived_words
+
+    restore_archived_words(db)
 
     # 3b. Create Anki cache tables
     setup_anki_tables(db)

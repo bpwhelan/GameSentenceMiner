@@ -94,6 +94,9 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
       "menuCategory": "GameSentenceMiner",
       "runAfterFinish": true
     },

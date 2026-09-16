@@ -306,26 +306,9 @@ def get_windows_speech_cache_dir(cache_dir: str | os.PathLike[str] | None = None
     if configured_cache:
         return Path(configured_cache).expanduser()
 
-    data_dir = os.environ.get("GSM_DATA_DIR", "").strip()
-    if data_dir:
-        return Path(data_dir).expanduser() / "windows-speech"
+    from GameSentenceMiner.util.data_directory import resolve_data_directory
 
-    appdata = os.environ.get("APPDATA", "").strip() or os.environ.get("LOCALAPPDATA", "").strip()
-    if appdata:
-        default_app_dir = Path(appdata).expanduser() / "GameSentenceMiner"
-        try:
-            with (default_app_dir / "data_dir.json").open("r", encoding="utf-8") as pointer:
-                pointer_data = json.load(pointer)
-                pointed_data_dir = str(
-                    pointer_data.get("dataDir", "") if isinstance(pointer_data, dict) else ""
-                ).strip()
-        except (OSError, TypeError, ValueError):
-            pointed_data_dir = ""
-        return (Path(pointed_data_dir) if pointed_data_dir else default_app_dir) / "windows-speech"
-
-    if sys.platform == "win32":
-        return Path.home() / "AppData" / "Local" / "GameSentenceMiner" / "windows-speech"
-    return Path.home() / ".config" / "GameSentenceMiner" / "windows-speech"
+    return Path(resolve_data_directory()) / "windows-speech"
 
 
 def _bundle_root_candidates(root: Path) -> list[Path]:

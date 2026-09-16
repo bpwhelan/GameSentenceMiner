@@ -40,6 +40,7 @@ import {
 } from './util.js';
 import {
     getDefaultBaseDir,
+    getPointerFilePath,
     writeDataDirPointer,
     writeDataDirRegistry,
 } from './data_dir.js';
@@ -306,12 +307,13 @@ let tray: Tray | null = null;
 export let pyProc: ChildProcessWithoutNullStreams;
 export let isQuitting = false;
 let restartingGSM: boolean = false;
+let gsmStopPromise: Promise<void> | null = null;
+const intentionalBackendStops = new WeakSet<ChildProcessWithoutNullStreams>();
 let reopenSettingsAfterBackendRestart: boolean = false;
 let pythonPath: string;
 const originalLog = console.log;
 const originalError = console.error;
 const originalWarn = console.warn;
-let cleanupComplete = false;
 let backendExitRequestedFromPython = false;
 let textIntakePaused = false;
 let pythonIpcConnected = false;
@@ -1436,7 +1438,6 @@ function handleBackendMessage(msg: BackendMessage): void {
     }
     if (msg.function === 'cleanup_complete') {
         console.log('Received cleanup_complete message from Python.');
-        cleanupComplete = true;
     }
     if (msg.function === 'python_exit_requested') {
         const source = String(msg.data?.source ?? '');
@@ -1494,7 +1495,7 @@ function wireBackendBus(): void {
  * @param command The command to run.
  * @param args The arguments to pass.
  */
-function runGSM(command: string, args: string[]): Promise<void> {
+function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<void> {
     return new Promise((resolve, reject) => {
         const activeInstallSessionId = installSessionManager.getActiveSnapshot()?.id ?? '';
         const taskManagerCommand = getWindowsNamedPythonExecutable(command, APP_NAME);
@@ -1524,19 +1525,27 @@ function runGSM(command: string, args: string[]): Promise<void> {
 
         // Backend stdout/stderr are pure logs now — control travels over the bus.
         attachBackendLogForwarding(proc);
+        proc.once('spawn', () => onSpawn?.());
 
         proc.on('close', (code) => {
-            clearManagedGSMProcessState();
-            resetStartupTrayState();
-            setTextIntakePausedState(false);
+            const intentionallyStopped = intentionalBackendStops.has(proc);
+            if (pyProc === proc) {
+                clearManagedGSMProcessState();
+                resetStartupTrayState();
+                setTextIntakePausedState(false);
+            }
             const shouldQuitForPickaxeExit =
                 code === 0 &&
+                pyProc === proc &&
                 backendExitRequestedFromPython &&
+                !intentionallyStopped &&
                 !restartingGSM &&
                 !updateManager.anyUpdateInProgress;
-            backendExitRequestedFromPython = false;
-            if (restartingGSM) {
-                restartingGSM = false;
+            if (pyProc === proc) {
+                backendExitRequestedFromPython = false;
+            }
+            if (intentionallyStopped) {
+                resolve();
                 return;
             }
             if (code === 0) {
@@ -1552,9 +1561,11 @@ function runGSM(command: string, args: string[]): Promise<void> {
         });
 
         proc.on('error', (err) => {
-            clearManagedGSMProcessState();
-            resetStartupTrayState();
-            setTextIntakePausedState(false);
+            if (pyProc === proc) {
+                clearManagedGSMProcessState();
+                resetStartupTrayState();
+                setTextIntakePausedState(false);
+            }
             reject(err);
         });
     });
@@ -2088,6 +2099,8 @@ interface EnsureAndRunOptions {
     knownInstalledVersion?: string | null;
     origin?: InstallSessionOrigin;
     trackInstallSession?: boolean;
+    /** Signals launch without waiting for the backend's entire lifetime. */
+    onSpawn?: () => void;
 }
 
 async function ensureAndRunGSM(
@@ -2394,7 +2407,7 @@ async function ensureAndRunGSM(
             simulatedStartupFailureTriggered = true;
             throw new Error(SIMULATED_STARTUP_FAILURE_MESSAGE);
         }
-        return await runGSM(runtimePythonPath, args);
+        return await runGSM(runtimePythonPath, args, options?.onSpawn);
     } catch (err) {
         console.error('Failed to start GameSentenceMiner:', err);
         console.log(`[Startup] Failed to start GameSentenceMiner: ${formatConsoleArg(err)}`);
@@ -2535,8 +2548,6 @@ async function ensureAndRunGSM(
             err instanceof Error ? err.message : String(err)
         );
         throw err instanceof Error ? err : new Error(String(err));
-    } finally {
-        restartingGSM = false;
     }
 }
 
@@ -2580,7 +2591,7 @@ async function processArgsAndStartSettings() {
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 // Expose the resolved data dir to every spawned child (overlay binary, python) via inherited env.
 process.env.GSM_DATA_DIR = BASE_DIR;
-// Keep the uninstaller's view of the data dir current (best-effort, Windows-only).
+// Keep the legacy registry mirror current for Windows integrations and diagnostics.
 writeDataDirRegistry(BASE_DIR);
 if (isWindows()) {
     app.setAppUserModelId(APP_USER_MODEL_ID);
@@ -2892,47 +2903,65 @@ async function waitForChildProcessExit(
 }
 
 async function closeGSM(): Promise<void> {
+    if (gsmStopPromise) {
+        return gsmStopPromise;
+    }
     const procToClose = pyProc;
     if (!isChildProcessActive(procToClose)) {
         clearManagedGSMProcessState();
         return;
     }
-    restartingGSM = true;
-    stopScripts();
-    // Prefer graceful quit via the bus 'quit' command; fall back to kill.
-    // `cleanupComplete` is flipped by the persistent backend.event subscription
-    // (handleBackendMessage) when the backend reports cleanup_complete.
+    gsmStopPromise = stopGSMProcess(procToClose).finally(() => {
+        gsmStopPromise = null;
+    });
+    return gsmStopPromise;
+}
+
+async function stopGSMProcess(procToClose: ChildProcessWithoutNullStreams): Promise<void> {
+    intentionalBackendStops.add(procToClose);
+    await stopScripts();
     if (bus.isConnected('backend')) {
-        cleanupComplete = false;
-        sendBackendCommand('quit');
-        console.log('Sent quit command to GSM over the bus.');
-        await waitForBackendCleanup();
-        if (isChildProcessActive(procToClose) && !cleanupComplete) {
-            procToClose.kill();
-            console.log('Force killed GSM after timeout.');
-        } else {
-            console.log('GSM closed gracefully.');
+        try {
+            sendBackendCommand('quit');
+            console.log('Sent quit command to GSM over the bus.');
+            // cleanup_complete precedes transport/thread teardown. Only process
+            // exit proves it is safe to launch another backend or modify its files.
+            if (await waitForChildProcessExit(procToClose)) {
+                console.log('GSM closed gracefully.');
+                return;
+            }
+        } catch (error) {
+            console.warn('Failed to request graceful GSM shutdown:', error);
         }
-    } else {
-        console.log('Backend not on the bus, killing process directly.');
-        procToClose.kill();
     }
 
-    const exited = await waitForChildProcessExit(procToClose);
-    if (!exited) {
-        console.warn('Timed out waiting for GSM process to exit.');
+    await forceTerminateGSMProcess(procToClose);
+    if (!(await waitForChildProcessExit(procToClose))) {
+        throw new Error(`GSM process ${procToClose.pid} did not exit; refusing to start a second backend.`);
     }
 }
 
-/** Wait up to `timeoutMs` for the backend to report cleanup_complete. */
-async function waitForBackendCleanup(timeoutMs: number = 5000): Promise<boolean> {
-    const intervalMs = 100;
-    let waited = 0;
-    while (!cleanupComplete && waited < timeoutMs) {
-        await new Promise((resolve) => setTimeout(resolve, intervalMs));
-        waited += intervalMs;
+async function forceTerminateGSMProcess(proc: ChildProcessWithoutNullStreams): Promise<void> {
+    if (!isChildProcessActive(proc)) {
+        return;
     }
-    return cleanupComplete;
+    try {
+        if (isWindows() && proc.pid) {
+            // Windows venv python.exe can be a launcher with a Python child.
+            // Killing the launcher first orphans that child and loses its tree.
+            await execFileAsync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], {
+                windowsHide: true,
+                timeout: 5000,
+            });
+        } else {
+            proc.kill('SIGTERM');
+            if (!(await waitForChildProcessExit(proc, 1500))) {
+                proc.kill('SIGKILL');
+            }
+        }
+    } catch (error) {
+        console.warn('Failed to terminate GSM process:', error);
+    }
 }
 
 async function restartGSM(): Promise<void> {
@@ -2940,24 +2969,23 @@ async function restartGSM(): Promise<void> {
         console.log('GSM restart already in progress. Ignoring duplicate request.');
         return;
     }
-    const procToRestart = pyProc;
-    if (!isChildProcessActive(procToRestart)) {
-        await ensureAndRunGSM(pythonPath);
-        console.log('GSM Successfully Restarted!');
-        return;
-    }
     restartingGSM = true;
-    cleanupComplete = false;
-    if (bus.isConnected('backend')) {
-        sendBackendCommand('quit');
-        await waitForBackendCleanup();
+    try {
+        await closeGSM();
+        await new Promise<void>((resolve, reject) => {
+            // ensureAndRunGSM follows the child until exit; release the restart
+            // guard once it spawns so subsequent restart requests can proceed.
+            void ensureAndRunGSM(pythonPath, 1, { onSpawn: resolve }).catch((error) => {
+                console.error('Failed to run GSM after restart:', error);
+                reject(error);
+            });
+        });
+        console.log('GSM backend relaunched.');
+    } catch (error) {
+        console.error('Failed to restart GSM:', error);
+    } finally {
+        restartingGSM = false;
     }
-    if (isChildProcessActive(procToRestart) && !cleanupComplete) {
-        procToRestart.kill();
-    }
-    await waitForChildProcessExit(procToRestart);
-    await ensureAndRunGSM(pythonPath);
-    console.log('GSM Successfully Restarted!');
 }
 
 export { closeGSM, restartGSM, closeAllPythonProcesses, ensureAndRunGSM };
@@ -3030,6 +3058,7 @@ function registerDataRelocateIPC(): void {
 
     ipcMain.handle('data.getCurrentDir', () => BASE_DIR);
     ipcMain.handle('data.getDefaultDir', () => getDefaultBaseDir());
+    ipcMain.handle('data.getPointerPath', () => getPointerFilePath());
 
     ipcMain.handle('data.relocate', async () => {
         const win = mainWindow ?? undefined;

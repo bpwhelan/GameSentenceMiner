@@ -95,7 +95,8 @@
           },
           "open_texthooker_on_startup": {
             "label": "Open GSM Text Feed on Startup:",
-            "tooltip": "Whether to open Text Feed page when the script starts."
+            "tooltip": "Whether to open the Text Feed page when GSM starts. Disabled while GSM runs as administrator to avoid launching the browser with administrator privileges. Your preference is preserved for normal launches.",
+            "disabled_admin": "Disabled while GSM runs as administrator."
           },
           "texthooker_port": {
             "label": "Legacy Text Feed Port:",
@@ -218,6 +219,22 @@
           },
           "confirmation_gamepad_bindings": {
             "label": "Gamepad Bindings:"
+          },
+          "confirmation_gamepad_add_previous_line": {
+            "label": "Add Previous Line:",
+            "tooltip": "Button that adds the previous dialogue line to this card. Defaults to the left trigger (LT)."
+          },
+          "confirmation_gamepad_add_next_line": {
+            "label": "Add Next Line:",
+            "tooltip": "Button that adds the next dialogue line to this card. Defaults to the right trigger (RT)."
+          },
+          "confirmation_gamepad_expand_audio_start": {
+            "label": "Add -0.25 Seconds (Start):",
+            "tooltip": "Button that extends the audio start by 0.25 seconds. Defaults to the left bumper (LB)."
+          },
+          "confirmation_gamepad_expand_audio_end": {
+            "label": "Add +0.25 Seconds (End):",
+            "tooltip": "Button that extends the audio end by 0.25 seconds. Defaults to the right bumper (RB)."
           },
           "confirmation_gamepad_focus_up": {
             "label": "Move Focus Up:",

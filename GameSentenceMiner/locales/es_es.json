@@ -89,7 +89,8 @@
           },
           "open_texthooker_on_startup": {
             "label": "Abrir GSM Text Feed al Iniciar:",
-            "tooltip": "Si abrir la página de Texthooking cuando el script inicia."
+            "tooltip": "Abrir la página del flujo de texto al iniciar GSM. Se desactiva mientras GSM se ejecuta como administrador para evitar iniciar el navegador con privilegios de administrador. Tu preferencia se conserva para los inicios normales.",
+            "disabled_admin": "Desactivado mientras GSM se ejecuta como administrador."
           },
           "texthooker_port": {
             "label": "Puerto de GSM Text Feed:",
@@ -208,6 +209,22 @@
           },
           "confirmation_gamepad_bindings": {
             "label": "Asignaciones del mando:"
+          },
+          "confirmation_gamepad_add_previous_line": {
+            "label": "Añadir línea anterior:",
+            "tooltip": "Botón que añade la línea de diálogo anterior a esta tarjeta. Por defecto, el gatillo izquierdo (LT)."
+          },
+          "confirmation_gamepad_add_next_line": {
+            "label": "Añadir línea siguiente:",
+            "tooltip": "Botón que añade la línea de diálogo siguiente a esta tarjeta. Por defecto, el gatillo derecho (RT)."
+          },
+          "confirmation_gamepad_expand_audio_start": {
+            "label": "Añadir 0,25 segundos al inicio:",
+            "tooltip": "Botón que amplía el inicio del audio en 0,25 segundos. Por defecto, el botón superior izquierdo (LB)."
+          },
+          "confirmation_gamepad_expand_audio_end": {
+            "label": "Añadir 0,25 segundos al final:",
+            "tooltip": "Botón que amplía el final del audio en 0,25 segundos. Por defecto, el botón superior derecho (RB)."
           },
           "confirmation_gamepad_focus_up": {
             "label": "Mover foco hacia arriba:",

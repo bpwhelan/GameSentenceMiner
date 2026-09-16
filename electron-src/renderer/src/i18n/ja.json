@@ -609,6 +609,10 @@
     },
     "dataFolder": {
       "title": "データフォルダー",
+      "intro": "GSMの設定、データベース、ログ、ダウンロードしたツールの保存先を選択します。変更するとGSMが再起動します。",
+      "database": "データベース: {path}",
+      "locationFile": "保存先の設定ファイル",
+      "locationHint": "ホームの.config/GameSentenceMinerにある小さなdata_dir.jsonファイルが保存先を記憶するため、元のAppDataフォルダーを削除しても設定が保持されます。GSMを終了してからdataDirのパスを手動で編集することもできます。古いデータを整理する際は、このファイルを残してください。",
       "description": "GSM設定、デスクトップアプリ設定、オーバーレイ設定、データベースをコピーします。Chromiumのセッション/ストレージおよびYomitanデータはコピーされません。変更前にYomitan辞書をエクスポートし、変更後にインポートしてください。元のファイルは削除されません。",
       "current": "現在のフォルダー: {path}",
       "original": "元のAppDataフォルダー: {path}",

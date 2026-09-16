@@ -87,6 +87,10 @@ def calculate_kanji_frequency(all_lines) -> Dict:
     kanji_count: Dict[str, int] = defaultdict(int)
 
     for line in all_lines:
+        if hasattr(line, "archived_kanji"):
+            for char, count in line.archived_kanji.items():
+                kanji_count[char] += count
+            continue
         if line.line_text:
             try:
                 line_text = str(line.line_text) if line.line_text else ""

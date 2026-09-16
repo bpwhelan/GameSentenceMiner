@@ -84,11 +84,9 @@ class _NoopLogger:
 
 
 def _default_db_path() -> Path:
-    if sys.platform == "win32":
-        appdata_dir = Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming"))
-    else:
-        appdata_dir = Path(os.path.expanduser("~/.config"))
-    return appdata_dir / "GameSentenceMiner" / "gsm.db"
+    from GameSentenceMiner.util.data_directory import resolve_data_directory
+
+    return Path(resolve_data_directory()) / "gsm.db"
 
 
 def _sqlite_uri(path: Path, mode: str) -> str:

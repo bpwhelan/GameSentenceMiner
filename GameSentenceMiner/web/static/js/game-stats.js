@@ -1517,6 +1517,8 @@
             const data = await response.json();
             currentGameData = data.game;
             currentStatsData = data.stats;
+            document.getElementById('gameArchiveStatus').textContent = data.game.archived_line_count
+                ? `${formatNumber(data.game.archived_line_count)} original sentences archived. Statistics and kanji are retained; archived sentences are unavailable in search. Manage saved archive files in Tools to restore sentences.` : '';
             cachedDailySpeed = data.dailySpeed;
 
             renderGameInfo(data.game);
@@ -1619,6 +1621,11 @@
 
             switch (action) {
                 case 'editGame': openEditModal(); break;
+                case 'archiveGame':
+                    archiveGame(gameId, {onStatus: message => {
+                        document.getElementById('gameArchiveStatus').textContent = message;
+                    }}).then(archived => { if (archived) loadGameData(); });
+                    break;
                 case 'linkExternal': openLinkSearchModal(); break;
                 case 'repullMetadata': repullMetadata(); break;
                 case 'markComplete': markGameComplete(); break;

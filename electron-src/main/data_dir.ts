@@ -2,14 +2,14 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFile } from 'child_process';
+import { randomUUID } from 'crypto';
 
-// Leaf module: only imports fs/os/path/child_process. Must NOT import electron or main.js
+// Leaf module: only imports Node built-ins. Must NOT import electron or main.js
 // so it can be used by util.ts/store.ts/gsm_config.ts without an import cycle.
 
 const APP_NAME = 'GameSentenceMiner';
 
-// The pointer file always lives at the fixed default location so it can be found before
-// the (possibly relocated) data dir is known. It records where the real data dir lives.
+// Bootstrap configuration is independent of the data folder and the installation.
 const POINTER_FILE_NAME = 'data_dir.json';
 
 /** The default %APPDATA%/GameSentenceMiner (Windows) or ~/.config/GameSentenceMiner (mac/Linux). */
@@ -19,27 +19,78 @@ export function getDefaultBaseDir(): string {
         : path.join(os.homedir(), '.config', APP_NAME);
 }
 
-/** Absolute path of the pointer file at the fixed default location. */
+/** Small, permanent bootstrap file, including on Windows. Do not move with app data. */
 export function getPointerFilePath(): string {
-    return path.join(getDefaultBaseDir(), POINTER_FILE_NAME);
+    return path.join(os.homedir(), '.config', APP_NAME, POINTER_FILE_NAME);
 }
 
-/**
- * Resolve the active data dir: pointer file at the default location, else the default.
- * Synchronous + dependency-free so it can run at module-import time and before app ready.
- */
-export function resolveDataDir(): string {
-    try {
-        const raw = fs.readFileSync(getPointerFilePath(), 'utf-8');
-        const parsed = JSON.parse(raw);
-        const dataDir = typeof parsed?.dataDir === 'string' ? parsed.dataDir.trim() : '';
-        if (dataDir) {
-            return dataDir;
-        }
-    } catch {
-        // Missing/unreadable/malformed pointer → default location (backward compatible).
+function normalizeDataDir(value: unknown): string {
+    let dataDir = typeof value === 'string' ? value.trim() : '';
+    if (/^~([/\\]|$)/.test(dataDir)) {
+        dataDir = path.join(os.homedir(), dataDir.slice(2));
     }
-    return getDefaultBaseDir();
+    if (!dataDir || !path.isAbsolute(dataDir) || dataDir.includes('\0')) {
+        throw new Error('dataDir must be an absolute folder path.');
+    }
+    return path.normalize(dataDir);
+}
+
+function readPointer(pointerPath: string): Record<string, unknown> | null {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(pointerPath, 'utf8').replace(/^\uFEFF/, ''));
+        return { ...parsed, dataDir: normalizeDataDir(parsed?.dataDir) };
+    } catch (error: any) {
+        if (error?.code === 'ENOENT') return null;
+        throw new Error(`Cannot read GSM data location from ${pointerPath}: ${error.message}`);
+    }
+}
+
+function writePointer(config: Record<string, unknown>, onlyIfMissing = false): void {
+    const pointerPath = getPointerFilePath();
+    fs.mkdirSync(path.dirname(pointerPath), { recursive: true });
+    const temporary = `${pointerPath}.${randomUUID()}.tmp`;
+    try {
+        fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', flush: true });
+        if (onlyIfMissing) {
+            // Publish a complete file without overwriting a concurrently saved selection.
+            try {
+                fs.linkSync(temporary, pointerPath);
+            } catch (error: any) {
+                if (error?.code !== 'EEXIST') throw error;
+            }
+        } else {
+            fs.renameSync(temporary, pointerPath);
+        }
+    } finally {
+        fs.rmSync(temporary, { force: true });
+    }
+}
+
+/** Resolve before app ready. A missing target stays selected; never fall back to old data. */
+export function resolveDataDir(): string {
+    const pointerPath = getPointerFilePath();
+    const legacyPath = path.join(getDefaultBaseDir(), POINTER_FILE_NAME);
+    let pointer = readPointer(pointerPath);
+    if (pointer && (pointerPath !== legacyPath || pointer.version === 2)) {
+        return pointer.dataDir as string;
+    }
+    if (!pointer) {
+        try {
+            pointer = readPointer(legacyPath);
+        } catch {
+            // Preserve the historical fallback for invalid *legacy* files only.
+            return getDefaultBaseDir();
+        }
+    }
+    if (!pointer) return getDefaultBaseDir();
+
+    const dataDir = pointer.dataDir as string;
+    // Old backends always used the original database, even after copying the data folder.
+    // Let Python recover that database once, using SQLite's WAL-aware backup API.
+    const migrated = { ...pointer, version: 2, ...(dataDir !== getDefaultBaseDir()
+        ? { legacyDatabaseDir: getDefaultBaseDir() } : {}) };
+    writePointer(migrated, pointerPath !== legacyPath);
+    return readPointer(pointerPath)!.dataDir as string;
 }
 
 let cachedBaseDir: string | null = null;
@@ -52,25 +103,19 @@ export function getBaseDir(): string {
     return cachedBaseDir;
 }
 
-/** Write (or clear) the pointer file. Pass the default dir to remove the pointer. */
+/** Always persist the selection, including the default, to supersede stale legacy files. */
 export function writeDataDirPointer(dataDir: string): void {
-    const pointerPath = getPointerFilePath();
-    fs.mkdirSync(getDefaultBaseDir(), { recursive: true });
-    const isDefault = path.resolve(dataDir) === path.resolve(getDefaultBaseDir());
-    if (isDefault) {
-        try {
-            fs.rmSync(pointerPath, { force: true });
-        } catch {
-            // ignore
-        }
-        return;
-    }
-    fs.writeFileSync(pointerPath, JSON.stringify({ dataDir }, null, 2), 'utf-8');
+    writePointer({ version: 2, dataDir: normalizeDataDir(dataDir) });
+}
+
+export function isLegacyDatabaseMigrationPending(dataDir: string): boolean {
+    const pointer = readPointer(getPointerFilePath());
+    return Boolean(pointer?.legacyDatabaseDir && path.relative(pointer.dataDir as string, dataDir) === '');
 }
 
 /**
- * Mirror the data dir into HKCU\Software\GameSentenceMiner\DataDir so the NSIS uninstaller
- * can find and offer to delete a relocated data dir. Windows-only; best-effort.
+ * Mirror the location for existing Windows integrations and diagnostics. Best-effort;
+ * the bootstrap file remains authoritative and uninstallers must preserve user data.
  */
 export function writeDataDirRegistry(dataDir: string): void {
     if (process.platform !== 'win32') {
@@ -79,6 +124,7 @@ export function writeDataDirRegistry(dataDir: string): void {
     execFile(
         'reg',
         ['add', 'HKCU\\Software\\GameSentenceMiner', '/v', 'DataDir', '/t', 'REG_SZ', '/d', dataDir, '/f'],
+        { windowsHide: true },
         (err) => {
             if (err) {
                 console.warn('Failed to write DataDir registry value:', err.message);

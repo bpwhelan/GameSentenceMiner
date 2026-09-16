@@ -7943,3 +7943,15 @@ button.danger:hover:not(:disabled) {
   justify-content: flex-end;
   margin-top: 1rem;
 }
+.settings-data-folder .update-version-meta {
+  overflow-wrap: anywhere;
+}
+
+.settings-data-folder-location {
+  border-top: 1px solid var(--border-color, #444);
+  padding-top: 0.75rem;
+}
+
+.settings-data-folder-location summary {
+  cursor: pointer;
+}

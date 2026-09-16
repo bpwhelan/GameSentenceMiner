@@ -1,8 +1,7 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { getBaseDir } from './data_dir.js';
 
-const APP_NAME = 'GameSentenceMiner';
 export const ELECTRON_TO_PYTHON_LOCALE: Record<string, string> = {
     en: 'en_us',
     ja: 'ja_jp',
@@ -18,10 +17,7 @@ export function toPythonLocale(locale: string): string {
 }
 
 export function getPythonConfigPath(): string {
-    const baseDir = process.env.APPDATA
-        ? path.join(process.env.APPDATA, APP_NAME)
-        : path.join(os.homedir(), '.config', APP_NAME);
-    return path.join(baseDir, 'config.json');
+    return path.join(getBaseDir(), 'config.json');
 }
 
 export function syncPythonDisplayLocale(

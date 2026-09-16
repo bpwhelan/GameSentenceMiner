@@ -266,7 +266,11 @@ class CronTable(SQLiteDBTable):
         # Calculate next_run based on schedule
         now_dt = datetime.fromtimestamp(now)
 
-        if cron.schedule == "once":
+        if cron.name == "kechimochi_sync":
+            from GameSentenceMiner.util.cron.kechimochi_sync import reschedule_kechimochi_run
+
+            cron.next_run = reschedule_kechimochi_run(now_dt)
+        elif cron.schedule == "once":
             # For one-time jobs, disable after running
             cron.enabled = False
             cron.next_run = now  # Set to now since it won't run again

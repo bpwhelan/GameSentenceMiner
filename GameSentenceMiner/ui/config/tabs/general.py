@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFormLayout,
@@ -10,15 +13,15 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-from GameSentenceMiner.util.config.configuration import is_beangate
 from GameSentenceMiner.ui.config.safety import safe_config_callback
+from GameSentenceMiner.util.config.configuration import is_beangate
+from GameSentenceMiner.util.elevation import is_windows_admin
+
 from ..binding import ValueTransform
 from ..labels import LabelColor, build_label
-from .websocket_sources import WebsocketSourcesEditor
 from .port_widget import make_port_controls
+from .websocket_sources import WebsocketSourcesEditor
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config.binding import BindingManager
@@ -140,6 +143,19 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
         )
         layout.addRow(label, getattr(window, spec.attr))
         binder.bind(spec.path, getattr(window, spec.attr), transform=spec.transform)
+        if spec.key == "open_texthooker_on_startup":
+            checkbox = window.open_multimine_on_startup_check
+            admin = is_windows_admin()
+            checkbox.setEnabled(not admin)
+            checkbox.setToolTip(label.toolTip())
+            # Preserve the bound value; elevation only disables it for this run.
+            checkbox.setText(
+                tabs_i18n.get("general", {})
+                .get(spec.key, {})
+                .get("disabled_admin", "Disabled while GSM runs as administrator.")
+                if admin
+                else ""
+            )
 
     if is_beangate:
         test_button = QPushButton(i18n.get("buttons", {}).get("run_function", "Run Function"))

@@ -15,6 +15,11 @@ from pathlib import Path
 from sys import platform
 from typing import Any, Callable, List, Dict, Optional, ClassVar
 
+from GameSentenceMiner.util.data_directory import (
+    get_app_directory,
+    get_default_app_directory,  # noqa: F401 - public compatibility import
+)
+
 OFF = "OFF"
 # VOSK = 'VOSK'
 FIRERED = "FIRERED"
@@ -840,6 +845,10 @@ class Anki:
     confirmation_gamepad_activate: str = "0"
     confirmation_gamepad_confirm_with_audio: str = "2"
     confirmation_gamepad_confirm_without_audio: str = "1"
+    confirmation_gamepad_add_previous_line: str = "6"
+    confirmation_gamepad_add_next_line: str = "7"
+    confirmation_gamepad_expand_audio_start: str = "4"
+    confirmation_gamepad_expand_audio_end: str = "5"
     url: str = "http://127.0.0.1:8765"
     note_type: str = ""
     available_fields: List[str] = field(default_factory=list)
@@ -1804,6 +1813,13 @@ class StatsConfig:
     tadoku_daily_sync_time: str = "00:01"
     tadoku_daily_sync_deduplicate: bool = True
     tadoku_daily_sync_game_ids: List[str] = field(default_factory=list)
+    kechimochi_url: str = "http://127.0.0.1:3031"
+    kechimochi_sync_enabled: bool = False
+    kechimochi_sync_schedule: str = "quarter_hourly"
+    kechimochi_sync_time: str = "00:05"
+    kechimochi_include_external_stats: bool = True
+    kechimochi_sync_covers: bool = True
+    kechimochi_adopt_matching_logs: bool = False
     easy_days_settings: Dict[str, int] = field(
         default_factory=lambda: {
             "monday": 100,
@@ -2263,6 +2279,10 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_activate")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_confirm_with_audio")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_confirm_without_audio")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_add_previous_line")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_add_next_line")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_expand_audio_start")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_expand_audio_end")
             self.sync_shared_field(config.anki, profile.anki, "replay_audio_on_tts_generation")
             self.sync_shared_field(
                 config.anki,
@@ -2454,34 +2474,6 @@ def is_cuda_available():
     except Exception:
         pass
     return False
-
-
-def get_default_app_directory():
-    """The default %APPDATA%/GameSentenceMiner (Windows) or ~/.config/GameSentenceMiner (mac/Linux)."""
-    if platform == "win32":  # Windows
-        appdata_dir = os.getenv("APPDATA")
-    else:  # macOS and Linux
-        appdata_dir = sanitize_and_resolve_path("~/.config")
-    return os.path.join(appdata_dir, "GameSentenceMiner")
-
-
-def get_app_directory():
-    # Resolution order: GSM_DATA_DIR env (set by Electron) -> pointer file at the default
-    # location -> the default. The pointer file lets a standalone (pip) backend find a
-    # relocated data dir even when Electron isn't around to set the env var.
-    default_dir = get_default_app_directory()
-    config_dir = os.getenv("GSM_DATA_DIR", "").strip()
-    if not config_dir:
-        try:
-            with open(os.path.join(default_dir, "data_dir.json"), "r", encoding="utf-8") as f:
-                config_dir = str(json.load(f).get("dataDir", "")).strip()
-        except (OSError, ValueError):
-            config_dir = ""
-    if not config_dir:
-        config_dir = default_dir
-    # Create the directory if it doesn't exist
-    os.makedirs(config_dir, exist_ok=True)
-    return config_dir
 
 
 # Logging is now handled by GameSentenceMiner.util.logging_config

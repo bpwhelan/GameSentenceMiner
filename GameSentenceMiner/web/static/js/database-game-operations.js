@@ -4,6 +4,96 @@
 // Global variables for individual game operations
 let currentGameToUnlink = null;
 let currentGameToDelete = null;
+let archiveRequestRunning = false;
+
+async function runDatabaseMaintenanceJob(url, body, onProgress) {
+    const response = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const job = await response.json();
+    if (!response.ok) throw new Error(job.error || 'Unable to start database maintenance');
+    while (true) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const poll = await fetch(`/api/database/maintenance/jobs/${encodeURIComponent(job.id)}`);
+        const progress = await poll.json();
+        if (!poll.ok || progress.status === 'failed') throw new Error(progress.error || 'Database maintenance failed');
+        if (onProgress) onProgress(progress);
+        if (progress.status === 'completed') return progress.result;
+    }
+}
+
+async function archiveGames(gameIds, options = {}) {
+    if (archiveRequestRunning || !gameIds.length) return;
+    archiveRequestRunning = true;
+    const notify = options.onStatus || showDatabaseSuccessPopup;
+    try {
+        notify('Checking selected games…');
+        const response = await fetch('/api/games/archive/preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({game_ids: gameIds})
+        });
+        const preview = await response.json();
+        if (!response.ok) throw new Error(preview.error || 'Unable to preview archive');
+        if (!preview.raw_lines) {
+            notify('The selected games have no original sentences left to archive. Their saved statistics remain available.');
+            return;
+        }
+        if (!window.confirm(`Archive ${preview.raw_lines.toLocaleString()} original sentences across ${preview.game_count.toLocaleString()} selected games?\n\nReading statistics, mined-card totals, kanji frequencies, and available word frequencies will be preserved. Original sentences and translations will be saved in a compressed file per game, then removed from the database. You can restore them from Tools while you keep the files.\n\nArchive these games?`)) {
+            notify('Archive cancelled.');
+            return;
+        }
+        notify(`Archiving ${preview.game_count.toLocaleString()} selected games…`);
+        const result = await runDatabaseMaintenanceJob('/api/games/archive', {game_ids: gameIds, confirm: true}, progress => {
+            if (progress.status === 'running' && progress.total_games) {
+                notify(`Archiving games: ${progress.completed_games} of ${progress.total_games} processed.` +
+                    (progress.current_game ? ` Currently archiving ${progress.current_game}.` : ''));
+            }
+        });
+        let message = `Archived ${result.archived_lines.toLocaleString()} sentences across ${result.archived_games.toLocaleString()} games. Statistics are preserved and original sentences are saved in ZIP files. Manage saved files or use Vacuum now in Tools to reclaim unused database space.`;
+        if (result.skipped_games) message += ` ${result.skipped_games} games had no original sentences to archive.`;
+        if (result.failed_games.length) {
+            message += ` Could not archive ${result.failed_games.length} games: ` +
+                result.failed_games.map(game => `${game.game_name}: ${game.error}`).join('; ');
+        }
+        notify(message);
+        await refreshGameManagementView();
+        if (typeof loadDatabaseMaintenance === 'function') await loadDatabaseMaintenance();
+        if (typeof loadArchiveFiles === 'function') await loadArchiveFiles();
+        if (typeof databaseManager !== 'undefined') await databaseManager.loadDashboardStats();
+        return result;
+    } catch (error) {
+        if (options.onStatus) options.onStatus(error.message);
+        else showDatabaseErrorPopup(error.message);
+    } finally { archiveRequestRunning = false; }
+}
+
+async function archiveGame(gameId, options = {}) {
+    if (archiveRequestRunning) return;
+    archiveRequestRunning = true;
+    const notify = options.onStatus || showDatabaseSuccessPopup;
+    try {
+        const response = await fetch(`/api/games/${encodeURIComponent(gameId)}/archive`);
+        const preview = await response.json();
+        if (!response.ok) throw new Error(preview.error || 'Unable to preview archive');
+        if (!preview.raw_lines) {
+            notify('This game has no original sentences left to archive. Its saved statistics remain available.');
+            return;
+        }
+        if (!window.confirm(`Archive ${preview.raw_lines.toLocaleString()} original sentences?\n\nReading statistics, mined-card totals, kanji frequencies, and available word frequencies will be preserved. Original sentences and translations will be saved in a compressed file for this game, then removed from the database. You can restore them from Tools while you keep the file.\n\nArchive this game?`)) return;
+        notify('Archiving game… This can take a while for large games.');
+        const result = await runDatabaseMaintenanceJob(`/api/games/${encodeURIComponent(gameId)}/archive`, {confirm: true});
+        notify(`Archived ${result.archived_lines.toLocaleString()} sentences. Statistics are preserved and original sentences are saved in a ZIP file. Manage saved files or use Vacuum now in Tools to reclaim unused database space.`);
+        await refreshGameManagementView();
+        if (typeof loadDatabaseMaintenance === 'function') await loadDatabaseMaintenance();
+        if (typeof loadArchiveFiles === 'function') await loadArchiveFiles();
+        if (typeof databaseManager !== 'undefined') await databaseManager.loadDashboardStats();
+        return true;
+    } catch (error) {
+        if (options.onStatus) options.onStatus(error.message);
+        else showDatabaseErrorPopup(error.message);
+    }
+    finally { archiveRequestRunning = false; }
+}
 
 /**
  * Refresh whichever game-management view is hosting these shared operations.

@@ -1,0 +1,325 @@
+{
+  "book_url": "https://www.gutenberg.org/ebooks/1661.txt.utf-8",
+  "cases": [
+    {
+      "backend": "yasbd_clean",
+      "workload": "ja_unpunctuated_1000",
+      "chars": 1000,
+      "sha256": "aed17d472e3e679f19a8ca16a3a165baa851bb38896c4753a27bef76db767525",
+      "sentences": 1,
+      "first_document_ms": 1.2143999920226634,
+      "warm_ms": [
+        1.2194999726489186,
+        1.7207000055350363,
+        1.2388000031933188
+      ],
+      "median_ms": 1.2388000031933188,
+      "rss_growth_mib": 0.00390625,
+      "peak_working_set_mib": 44.9609375
+    },
+    {
+      "backend": "yasbd_core",
+      "workload": "ja_unpunctuated_100000",
+      "chars": 100000,
+      "sha256": "eaa4b3e467fc54011c5f4aa84446ff671ff3c811a6ed1f73d98c3ac374d82522",
+      "sentences": 1,
+      "first_document_ms": 75.63420000951737,
+      "warm_ms": [
+        78.79310002317652,
+        71.77110004704446,
+        70.62409998616204
+      ],
+      "median_ms": 71.77110004704446,
+      "rss_growth_mib": 0.26171875,
+      "peak_working_set_mib": 42.13671875
+    },
+    {
+      "backend": "yasbd_clean",
+      "workload": "ja_unpunctuated_100000",
+      "chars": 100000,
+      "sha256": "eaa4b3e467fc54011c5f4aa84446ff671ff3c811a6ed1f73d98c3ac374d82522",
+      "sentences": 1,
+      "first_document_ms": 123.60479997005314,
+      "warm_ms": [
+        119.5945999934338,
+        118.52379998890683,
+        116.99790001148358
+      ],
+      "median_ms": 118.52379998890683,
+      "rss_growth_mib": -0.21875,
+      "peak_working_set_mib": 45.86328125
+    },
+    {
+      "backend": "yasbd_core",
+      "workload": "ja_wrapped_100k",
+      "chars": 90000,
+      "sha256": "32d5f9cab624248f6356d6f4a2f872565d167626515fdd968f690ced2c0e080d",
+      "sentences": 13500,
+      "first_document_ms": 96.21600003447384,
+      "warm_ms": [
+        96.55229997588322,
+        101.01540002506226,
+        96.32080001756549
+      ],
+      "median_ms": 96.55229997588322,
+      "rss_growth_mib": 1.1953125,
+      "peak_working_set_mib": 44.37890625
+    },
+    {
+      "backend": "pysbd_clean",
+      "workload": "ja_wrapped_100k",
+      "chars": 90000,
+      "sha256": "32d5f9cab624248f6356d6f4a2f872565d167626515fdd968f690ced2c0e080d",
+      "sentences": 13500,
+      "first_document_ms": 9765.897699980997,
+      "warm_ms": [
+        9467.261000012513,
+        9453.019400010817,
+        9457.337800005917
+      ],
+      "median_ms": 9457.337800005917,
+      "rss_growth_mib": 4.12890625,
+      "peak_working_set_mib": 37.15234375
+    },
+    {
+      "backend": "yasbd_core",
+      "workload": "ja_unpunctuated_1000",
+      "chars": 1000,
+      "sha256": "aed17d472e3e679f19a8ca16a3a165baa851bb38896c4753a27bef76db767525",
+      "sentences": 1,
+      "first_document_ms": 0.7734000100754201,
+      "warm_ms": [
+        0.7808000082150102,
+        1.4387000119313598,
+        0.7257999968715012
+      ],
+      "median_ms": 0.7808000082150102,
+      "rss_growth_mib": 0.00390625,
+      "peak_working_set_mib": 41.4765625
+    },
+    {
+      "backend": "pysbd_raw",
+      "workload": "ja_unpunctuated_100000",
+      "chars": 100000,
+      "sha256": "eaa4b3e467fc54011c5f4aa84446ff671ff3c811a6ed1f73d98c3ac374d82522",
+      "sentences": 1,
+      "first_document_ms": 162.33520000241697,
+      "warm_ms": [
+        78.26390000991523,
+        88.5435999953188,
+        88.17269996507093
+      ],
+      "median_ms": 88.17269996507093,
+      "rss_growth_mib": 3.14453125,
+      "peak_working_set_mib": 50.8984375
+    },
+    {
+      "backend": "pysbd_raw",
+      "workload": "ja_wrapped_100k",
+      "chars": 90000,
+      "sha256": "32d5f9cab624248f6356d6f4a2f872565d167626515fdd968f690ced2c0e080d",
+      "sentences": 13500,
+      "first_document_ms": 9759.819799975958,
+      "warm_ms": [
+        9486.814200005028,
+        9785.478100006003,
+        9470.839400019031
+      ],
+      "median_ms": 9486.814200005028,
+      "rss_growth_mib": 3.61328125,
+      "peak_working_set_mib": 36.515625
+    },
+    {
+      "backend": "pysbd_clean",
+      "workload": "ja_unpunctuated_10000",
+      "chars": 10000,
+      "sha256": "e4eea943ab0d3c7771d9d782e3c93a920ac930a8062f9189afead7c593b8b164",
+      "sentences": 1,
+      "first_document_ms": 17.449700040742755,
+      "warm_ms": [
+        8.55329999467358,
+        11.706500023137778,
+        7.753400015644729
+      ],
+      "median_ms": 8.55329999467358,
+      "rss_growth_mib": 1.875,
+      "peak_working_set_mib": 33.859375
+    },
+    {
+      "backend": "pysbd_raw",
+      "workload": "ja_unpunctuated_1000",
+      "chars": 1000,
+      "sha256": "aed17d472e3e679f19a8ca16a3a165baa851bb38896c4753a27bef76db767525",
+      "sentences": 1,
+      "first_document_ms": 1.5715999761596322,
+      "warm_ms": [
+        2.1914999815635383,
+        0.8511000196449459,
+        1.0349000222049654
+      ],
+      "median_ms": 1.0349000222049654,
+      "rss_growth_mib": 0.1484375,
+      "peak_working_set_mib": 32.12109375
+    },
+    {
+      "backend": "yasbd_clean",
+      "workload": "sherlock",
+      "chars": 593911,
+      "sha256": "922e2a12ccb43a4c9544c260b2166c6ad2097aeb5957faeee113f173bb857cd0",
+      "sentences": 4675,
+      "first_document_ms": 1324.70519997878,
+      "warm_ms": [
+        1269.8978999978863,
+        1293.7706999946386,
+        1263.6245000176132
+      ],
+      "median_ms": 1269.8978999978863,
+      "rss_growth_mib": 1.40234375,
+      "peak_working_set_mib": 49.9140625
+    },
+    {
+      "backend": "pysbd_clean",
+      "workload": "ja_unpunctuated_100000",
+      "chars": 100000,
+      "sha256": "eaa4b3e467fc54011c5f4aa84446ff671ff3c811a6ed1f73d98c3ac374d82522",
+      "sentences": 1,
+      "first_document_ms": 167.85619995789602,
+      "warm_ms": [
+        78.47110001603141,
+        78.7718000356108,
+        76.81229995796457
+      ],
+      "median_ms": 78.47110001603141,
+      "rss_growth_mib": 3.0078125,
+      "peak_working_set_mib": 50.92578125
+    },
+    {
+      "backend": "yasbd_clean",
+      "workload": "ja_wrapped_100k",
+      "chars": 90000,
+      "sha256": "32d5f9cab624248f6356d6f4a2f872565d167626515fdd968f690ced2c0e080d",
+      "sentences": 9000,
+      "first_document_ms": 254.97959996573627,
+      "warm_ms": [
+        229.8579999478534,
+        246.93129997467622,
+        225.41190002812073
+      ],
+      "median_ms": 229.8579999478534,
+      "rss_growth_mib": 1.78125,
+      "peak_working_set_mib": 48.17578125
+    },
+    {
+      "backend": "yasbd_core",
+      "workload": "sherlock",
+      "chars": 593911,
+      "sha256": "922e2a12ccb43a4c9544c260b2166c6ad2097aeb5957faeee113f173bb857cd0",
+      "sentences": 5980,
+      "first_document_ms": 964.9751000106335,
+      "warm_ms": [
+        1068.3380999835208,
+        958.3415000233799,
+        947.6331999758258
+      ],
+      "median_ms": 958.3415000233799,
+      "rss_growth_mib": 1.171875,
+      "peak_working_set_mib": 46.53515625
+    },
+    {
+      "backend": "yasbd_clean",
+      "workload": "ja_unpunctuated_10000",
+      "chars": 10000,
+      "sha256": "e4eea943ab0d3c7771d9d782e3c93a920ac930a8062f9189afead7c593b8b164",
+      "sentences": 1,
+      "first_document_ms": 11.245200003031641,
+      "warm_ms": [
+        11.739000037778169,
+        11.936499970033765,
+        12.101999949663877
+      ],
+      "median_ms": 11.936499970033765,
+      "rss_growth_mib": 0.0078125,
+      "peak_working_set_mib": 44.76171875
+    },
+    {
+      "backend": "pysbd_raw",
+      "workload": "sherlock",
+      "chars": 593911,
+      "sha256": "922e2a12ccb43a4c9544c260b2166c6ad2097aeb5957faeee113f173bb857cd0",
+      "sentences": 14501,
+      "first_document_ms": 5901.229400013108,
+      "warm_ms": [
+        5922.190300014336,
+        5734.792999981437,
+        5851.663599954918
+      ],
+      "median_ms": 5851.663599954918,
+      "rss_growth_mib": 7.73828125,
+      "peak_working_set_mib": 48.3203125
+    },
+    {
+      "backend": "pysbd_raw",
+      "workload": "ja_unpunctuated_10000",
+      "chars": 10000,
+      "sha256": "e4eea943ab0d3c7771d9d782e3c93a920ac930a8062f9189afead7c593b8b164",
+      "sentences": 1,
+      "first_document_ms": 16.779600002337247,
+      "warm_ms": [
+        8.286900003440678,
+        7.222899992484599,
+        10.760299977846444
+      ],
+      "median_ms": 8.286900003440678,
+      "rss_growth_mib": 2.04296875,
+      "peak_working_set_mib": 33.953125
+    },
+    {
+      "backend": "pysbd_clean",
+      "workload": "ja_unpunctuated_1000",
+      "chars": 1000,
+      "sha256": "aed17d472e3e679f19a8ca16a3a165baa851bb38896c4753a27bef76db767525",
+      "sentences": 1,
+      "first_document_ms": 1.8662000074982643,
+      "warm_ms": [
+        0.825099996291101,
+        0.8823999669402838,
+        1.720600004773587
+      ],
+      "median_ms": 0.8823999669402838,
+      "rss_growth_mib": 0.09765625,
+      "peak_working_set_mib": 31.9765625
+    },
+    {
+      "backend": "yasbd_core",
+      "workload": "ja_unpunctuated_10000",
+      "chars": 10000,
+      "sha256": "e4eea943ab0d3c7771d9d782e3c93a920ac930a8062f9189afead7c593b8b164",
+      "sentences": 1,
+      "first_document_ms": 8.027000003494322,
+      "warm_ms": [
+        7.99620000179857,
+        7.974899956025183,
+        8.264600008260459
+      ],
+      "median_ms": 7.99620000179857,
+      "rss_growth_mib": 0.0078125,
+      "peak_working_set_mib": 41.8671875
+    },
+    {
+      "backend": "pysbd_clean",
+      "workload": "sherlock",
+      "chars": 593911,
+      "sha256": "922e2a12ccb43a4c9544c260b2166c6ad2097aeb5957faeee113f173bb857cd0",
+      "sentences": 14496,
+      "first_document_ms": 5999.020299990661,
+      "warm_ms": [
+        5896.503099997062,
+        5862.529499980155,
+        5901.633500005119
+      ],
+      "median_ms": 5896.503099997062,
+      "rss_growth_mib": 7.55859375,
+      "peak_working_set_mib": 49.04296875
+    }
+  ]
+}

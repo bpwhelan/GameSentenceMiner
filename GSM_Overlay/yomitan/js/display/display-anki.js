@@ -114,8 +114,10 @@ export class DisplayAnki {
         this._onViewNotesButtonMenuCloseBind = this._onViewNotesButtonMenuClose.bind(this);
         /** @type {boolean} */
         this._forceSync = false;
-        /** @type {number} */
-        this._gsmSelectedActionButtonIndex = -1;
+        /** @type {?HTMLElement} */
+        this._gsmSelectedActionButton = null;
+        /** @type {'entry'|'jiten'} */
+        this._gsmActionSelectionScope = 'entry';
         /** @type {string} */
         this._gsmControllerSelectionClass = 'gsm-controller-selected-action';
         /** @type {?number} */
@@ -266,6 +268,7 @@ export class DisplayAnki {
             case 'clear-action-selection':
                 this._cancelGsmActionSelectionRetry();
                 this._clearGsmActionSelection();
+                this._gsmActionSelectionScope = 'entry';
                 break;
             case 'next-entry':
                 this._navigateGsmNextEntry();
@@ -283,7 +286,10 @@ export class DisplayAnki {
      */
     _navigateGsmNextEntry() {
         if (this._display) {
-            this._display._focusEntry(this._display.selectedIndex + 1, 0, true);
+            const index = this._gsmActionSelectionScope === 'jiten' ? 0 : this._display.selectedIndex + 1;
+            // eslint-disable-next-line no-underscore-dangle
+            this._display._focusEntry(index, 0, true);
+            this._resetGsmActionSelection();
         }
     }
 
@@ -292,8 +298,35 @@ export class DisplayAnki {
      */
     _navigateGsmPreviousEntry() {
         if (this._display) {
+            if (this._gsmActionSelectionScope === 'jiten') {
+                const button = this._getGsmJitenButtons().find((node) => node.dataset.deck === 'neverForget');
+                if (button !== undefined) { this._setGsmSelectedActionButton(button); }
+                return;
+            }
+            if (this._display.selectedIndex === 0 && this._selectGsmJitenAction()) { return; }
+            // eslint-disable-next-line no-underscore-dangle
             this._display._focusEntry(Math.max(0, this._display.selectedIndex - 1), 0, true);
+            this._resetGsmActionSelection();
         }
+    }
+
+    /**
+     * The grading bar is the row above the first dictionary entry. Keep the
+     * entry selected so grading continues to resolve the correct headword.
+     * @returns {boolean}
+     */
+    _selectGsmJitenAction() {
+        if (this._gsmActionSelectionScope === 'jiten') { return true; }
+        const buttons = this._getGsmJitenButtons();
+        if (buttons.length === 0) { return false; }
+        if (this._display.selectedIndex !== 0) {
+            // eslint-disable-next-line no-underscore-dangle
+            this._display._focusEntry(0, 0, false);
+        }
+        this._cancelGsmActionSelectionRetry();
+        this._gsmActionSelectionScope = 'jiten';
+        this._setGsmSelectedActionButton(buttons[this._getGsmPreferredActionButtonIndex(buttons)]);
+        return true;
     }
 
     /**
@@ -319,7 +352,7 @@ export class DisplayAnki {
      */
     _isGsmNodeVisible(node) {
         if (!(node instanceof HTMLElement)) { return false; }
-        if (node.hidden || node.disabled) { return false; }
+        if (node.closest('[hidden]') !== null || node.matches(':disabled')) { return false; }
         if (node.getClientRects().length === 0) { return false; }
         const style = window.getComputedStyle(node);
         return style.display !== 'none' && style.visibility !== 'hidden';
@@ -329,6 +362,7 @@ export class DisplayAnki {
      * @returns {HTMLElement[]}
      */
     _getGsmActionButtons() {
+        if (this._gsmActionSelectionScope === 'jiten') { return this._getGsmJitenButtons(); }
         /** @type {HTMLElement[]} */
         const buttons = [];
         const currentEntry = document.querySelector('.entry-current');
@@ -355,6 +389,14 @@ export class DisplayAnki {
     }
 
     /**
+     * @returns {HTMLButtonElement[]}
+     */
+    _getGsmJitenButtons() {
+        const buttons = /** @type {NodeListOf<HTMLButtonElement>} */ (document.querySelectorAll('.gsm-jiten-bar .gsm-jiten-btn'));
+        return [...buttons].filter((node) => this._isGsmNodeVisible(node));
+    }
+
+    /**
      *
      */
     _clearGsmActionSelection() {
@@ -362,18 +404,17 @@ export class DisplayAnki {
         for (const node of nodes) {
             node.classList.remove(this._gsmControllerSelectionClass);
         }
-        this._gsmSelectedActionButtonIndex = -1;
+        this._gsmSelectedActionButton = null;
     }
 
     /**
      * @param {HTMLElement} button
-     * @param {number} index
      */
-    _setGsmSelectedActionButton(button, index) {
+    _setGsmSelectedActionButton(button) {
         this._ensureGsmControllerStyle();
         this._clearGsmActionSelection();
         button.classList.add(this._gsmControllerSelectionClass);
-        this._gsmSelectedActionButtonIndex = index;
+        this._gsmSelectedActionButton = button;
         button.scrollIntoView({block: 'nearest', inline: 'nearest'});
     }
 
@@ -408,12 +449,14 @@ export class DisplayAnki {
     /**
      *
      * @param {boolean} scheduleRetry
+     * @returns {boolean}
      */
     _resetGsmActionSelection(scheduleRetry = true) {
         if (scheduleRetry) {
             this._cancelGsmActionSelectionRetry();
         }
 
+        this._gsmActionSelectionScope = 'entry';
         const buttons = this._getGsmActionButtons();
         if (buttons.length === 0) {
             this._clearGsmActionSelection();
@@ -423,7 +466,7 @@ export class DisplayAnki {
             return false;
         }
         const preferredIndex = this._getGsmPreferredActionButtonIndex(buttons);
-        this._setGsmSelectedActionButton(buttons[preferredIndex], preferredIndex);
+        this._setGsmSelectedActionButton(buttons[preferredIndex]);
         this._cancelGsmActionSelectionRetry();
         return true;
     }
@@ -433,6 +476,9 @@ export class DisplayAnki {
      * @returns {number}
      */
     _getGsmPreferredActionButtonIndex(buttons) {
+        if (this._gsmActionSelectionScope === 'jiten') {
+            return Math.max(0, buttons.findIndex((button) => button.dataset.kind === 'review' && button.dataset.rating === '3'));
+        }
         for (let i = 0; i < buttons.length; ++i) {
             const button = buttons[i];
             if (button.dataset.action === 'save-note' && button.dataset.cardFormatIndex === '0') {
@@ -463,36 +509,37 @@ export class DisplayAnki {
      */
     _shiftGsmActionSelection(direction) {
         const buttons = this._getGsmActionButtons();
-        if (buttons.length === 0) {
-            this._clearGsmActionSelection();
-            return false;
-        }
+        // All grading buttons are temporarily disabled while a request is in
+        // flight. Keep the selection until they become available again.
+        if (buttons.length === 0) { return false; }
 
-        let index = this._gsmSelectedActionButtonIndex;
+        let index = this._gsmSelectedActionButton === null ? -1 : buttons.indexOf(this._gsmSelectedActionButton);
         index = index < 0 || index >= buttons.length ?
             this._getGsmPreferredActionButtonIndex(buttons) :
             (index + direction + buttons.length) % buttons.length;
 
-        this._setGsmSelectedActionButton(buttons[index], index);
+        this._setGsmSelectedActionButton(buttons[index]);
         return true;
     }
 
     /**
-     *
+     * @returns {boolean}
      */
     _activateGsmSelectedAction() {
         const buttons = this._getGsmActionButtons();
-        if (buttons.length === 0) {
-            this._clearGsmActionSelection();
+        if (buttons.length === 0) { return false; }
+
+        const selectedButton = this._gsmSelectedActionButton;
+        if (selectedButton !== null && !buttons.includes(selectedButton)) {
+            // Re-rendered or disabled controls must not redirect this confirm
+            // to a different grade, state change, or mining action.
+            if (!selectedButton.matches(':disabled')) {
+                this._setGsmSelectedActionButton(buttons[this._getGsmPreferredActionButtonIndex(buttons)]);
+            }
             return false;
         }
-
-        let index = this._gsmSelectedActionButtonIndex;
-        if (index < 0 || index >= buttons.length) {
-            index = this._getGsmPreferredActionButtonIndex(buttons);
-        }
-        const button = buttons[index];
-        this._setGsmSelectedActionButton(button, index);
+        const button = selectedButton ?? buttons[this._getGsmPreferredActionButtonIndex(buttons)];
+        this._setGsmSelectedActionButton(button);
 
         const clickEvent = new MouseEvent('click', {
             bubbles: true,
@@ -512,6 +559,10 @@ export class DisplayAnki {
         if (!(contentScroll instanceof HTMLElement)) { return; }
         const safeDirection = Number(direction) >= 0 ? 1 : -1;
         const safeStep = Math.max(30, Math.min(500, Number(step) || 110));
+        if (safeDirection < 0 && contentScroll.scrollTop <= 0 && this._selectGsmJitenAction()) { return; }
+        if (safeDirection > 0 && this._gsmActionSelectionScope === 'jiten') {
+            this._resetGsmActionSelection();
+        }
         contentScroll.scrollBy({top: safeDirection * safeStep, behavior: 'auto'});
     }
 
@@ -577,6 +628,7 @@ export class DisplayAnki {
         this._eventListeners.removeAllEventListeners();
         this._cancelGsmActionSelectionRetry();
         this._clearGsmActionSelection();
+        this._gsmActionSelectionScope = 'entry';
     }
 
     /** */

@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -6,11 +7,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QElapsedTimer, Qt, QTimer
+from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication
 
-from GameSentenceMiner.ui import anki_confirmation_qt
-from GameSentenceMiner.ui import audio_waveform_widget
+from GameSentenceMiner.ui import anki_confirmation_qt, audio_waveform_widget
+from GameSentenceMiner.util.config.configuration import Anki
 
 
 class _UnavailableAudioPlayer:
@@ -150,6 +152,119 @@ def test_exec_routes_to_modal_exec_when_focus_enabled():
     assert probe.calls == ["apply", "with"]
 
 
+@pytest.fixture
+def focus_confirmation_dialog(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    config = deepcopy(anki_confirmation_qt.get_config())
+    config.anki = Anki(auto_accept_timer=0, autoplay_audio=False)
+    monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
+    monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", _UnavailableAudioPlayer)
+    monkeypatch.setattr(anki_confirmation_qt.AnkiConfirmationDialog, "_cleanup_audio", lambda self: None)
+    monkeypatch.setattr(anki_confirmation_qt, "FOCUS_ON_SHOW_RETRY_MS", 1)
+    dialog = anki_confirmation_qt.AnkiConfirmationDialog()
+    try:
+        yield dialog, config
+    finally:
+        dialog.hide()
+        dialog.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.parametrize("failures_before_focus", [0, 2])
+def test_focus_on_show_activates_after_show_and_stops_after_success(
+    focus_confirmation_dialog, monkeypatch, failures_before_focus
+):
+    dialog, _config = focus_confirmation_dialog
+    attempts = []
+
+    def activate(window):
+        attempts.append(window.isVisible())
+        return len(attempts) > failures_before_focus
+
+    monkeypatch.setattr(anki_confirmation_qt, "activate_window", activate)
+
+    dialog.show()
+    assert attempts == []
+    QTest.qWait(100)
+
+    assert attempts == [True] * (failures_before_focus + 1)
+    assert not dialog._focus_on_show_timer.isActive()
+
+
+def test_focus_on_show_gives_up_after_bounded_retries(focus_confirmation_dialog, monkeypatch):
+    dialog, _config = focus_confirmation_dialog
+    attempts = []
+    monkeypatch.setattr(
+        anki_confirmation_qt,
+        "activate_window",
+        lambda window: attempts.append(window) or False,
+    )
+
+    dialog.show()
+    QTest.qWait(150)
+
+    assert len(attempts) == anki_confirmation_qt.FOCUS_ON_SHOW_MAX_ATTEMPTS
+    assert not dialog._focus_on_show_timer.isActive()
+
+
+@pytest.mark.parametrize("unavailable", ["disabled", "hidden", "minimized", "modal", "confirming"])
+def test_focus_on_show_does_not_activate_unavailable_dialog(focus_confirmation_dialog, monkeypatch, unavailable):
+    dialog, config = focus_confirmation_dialog
+    attempts = []
+    monkeypatch.setattr(
+        anki_confirmation_qt,
+        "activate_window",
+        lambda window: attempts.append(window) or True,
+    )
+
+    dialog.show()
+    if unavailable == "disabled":
+        config.anki.confirmation_focus_on_show = False
+    elif unavailable == "hidden":
+        dialog.hide()
+    elif unavailable == "minimized":
+        dialog.showMinimized()
+    elif unavailable == "modal":
+        monkeypatch.setattr(anki_confirmation_qt.QApplication, "activeModalWidget", lambda: object())
+    elif unavailable == "confirming":
+        dialog._pending_gamepad_confirmation = lambda: None
+    QTest.qWait(100)
+
+    assert attempts == []
+    assert not dialog._focus_on_show_timer.isActive()
+
+
+def test_focus_on_show_disabled_never_schedules_activation(focus_confirmation_dialog, monkeypatch):
+    dialog, config = focus_confirmation_dialog
+    config.anki.confirmation_focus_on_show = False
+    monkeypatch.setattr(anki_confirmation_qt, "activate_window", lambda _window: pytest.fail("Unexpected focus"))
+
+    dialog.show()
+
+    assert not dialog._focus_on_show_timer.isActive()
+
+
+def test_hiding_confirmation_cancels_focus_retry_and_reopening_starts_fresh(focus_confirmation_dialog, monkeypatch):
+    dialog, _config = focus_confirmation_dialog
+    attempts = []
+    monkeypatch.setattr(
+        anki_confirmation_qt,
+        "activate_window",
+        lambda window: attempts.append(window) or True,
+    )
+
+    dialog.show()
+    dialog.hide()
+    assert not dialog._focus_on_show_timer.isActive()
+    QTest.qWait(20)
+    assert attempts == []
+
+    dialog.show()
+    QTest.qWait(50)
+
+    assert attempts == [dialog]
+
+
 @pytest.mark.parametrize(
     ("use_audio", "expected"),
     [
@@ -159,11 +274,13 @@ def test_exec_routes_to_modal_exec_when_focus_enabled():
 )
 def test_gamepad_confirmation_action_uses_explicit_audio_choice(use_audio, expected):
     calls = []
+    pending = []
     probe = SimpleNamespace(
         vad_result=None,
         _on_voice=lambda: calls.append("voice"),
         _on_no_voice=lambda: calls.append("no_voice"),
         _cancel_auto_accept=lambda: calls.append("cancel_timer"),
+        _queue_gamepad_confirmation=pending.append,
     )
 
     anki_confirmation_qt.AnkiConfirmationDialog._apply_gamepad_confirmation_action(
@@ -171,6 +288,9 @@ def test_gamepad_confirmation_action_uses_explicit_audio_choice(use_audio, expec
         use_audio=use_audio,
     )
 
+    assert calls == ["cancel_timer"]
+    assert len(pending) == 1
+    pending[0]()
     assert calls == ["cancel_timer", expected]
 
 
@@ -215,12 +335,14 @@ def test_gamepad_confirmation_action_keeps_dialog_open_when_conflicting_choice_i
 
 def test_gamepad_confirmation_action_applies_conflicting_choice_after_confirmation():
     calls = []
+    pending = []
     probe = SimpleNamespace(
         vad_result=SimpleNamespace(success=False),
         _on_voice=lambda: calls.append("voice"),
         _on_no_voice=lambda: calls.append("no_voice"),
         _cancel_auto_accept=lambda: calls.append("cancel_timer"),
         _show_gamepad_audio_choice_confirmation=lambda **_kwargs: calls.append("confirm") or True,
+        _queue_gamepad_confirmation=pending.append,
     )
 
     anki_confirmation_qt.AnkiConfirmationDialog._apply_gamepad_confirmation_action(
@@ -228,11 +350,15 @@ def test_gamepad_confirmation_action_applies_conflicting_choice_after_confirmati
         use_audio=True,
     )
 
+    assert calls == ["cancel_timer", "confirm"]
+    assert len(pending) == 1
+    pending[0]()
     assert calls == ["cancel_timer", "confirm", "voice"]
 
 
 def test_gamepad_capture_registers_configured_bindings(monkeypatch):
     registrations = []
+    actions = []
 
     class _DispatcherProbe:
         def __init__(self):
@@ -240,6 +366,7 @@ def test_gamepad_capture_registers_configured_bindings(monkeypatch):
 
         def register(self, button, callback):
             self.registrations.append(button)
+            callback()
             return True
 
     class _ClientProbe:
@@ -265,17 +392,22 @@ def test_gamepad_capture_registers_configured_bindings(monkeypatch):
                 confirmation_gamepad_activate="12",
                 confirmation_gamepad_confirm_with_audio="11",
                 confirmation_gamepad_confirm_without_audio="10",
+                confirmation_gamepad_add_previous_line="8",
+                confirmation_gamepad_add_next_line="9",
+                confirmation_gamepad_expand_audio_start="6",
+                confirmation_gamepad_expand_audio_end="7",
             )
         ),
     )
     probe = SimpleNamespace(
         _gamepad_client=None,
-        gamepad_action_signal=SimpleNamespace(emit=lambda _action: None),
+        gamepad_action_signal=SimpleNamespace(emit=actions.append),
     )
 
     anki_confirmation_qt.AnkiConfirmationDialog._start_gamepad_capture(probe)
 
-    assert registrations == ["16", "15", "14", "13", "12", "11", "10"]
+    assert registrations == ["16", "15", "14", "13", "12", "11", "10", "8", "9", "6", "7"]
+    assert actions[-4:] == ["add_previous_line", "add_next_line", "expand_audio_start", "expand_audio_end"]
     assert probe._gamepad_capture_active is True
     assert probe._gamepad_client.started is True
 
@@ -291,6 +423,7 @@ def test_gamepad_actions_map_to_audio_no_audio_and_focused_component(monkeypatch
     monkeypatch.setattr(anki_confirmation_qt, "QApplication", _ApplicationProbe)
     probe = SimpleNamespace(
         _gamepad_capture_active=True,
+        _pending_gamepad_confirmation=None,
         isVisible=lambda: True,
         _on_voice=lambda: calls.append("voice"),
         _on_no_voice=lambda: calls.append("no_voice"),
@@ -330,6 +463,7 @@ def test_gamepad_audio_choice_confirmation_uses_activate_to_confirm_and_no_audio
     monkeypatch.setattr(anki_confirmation_qt, "QApplication", _ApplicationProbe)
     probe = SimpleNamespace(
         _gamepad_capture_active=True,
+        _pending_gamepad_confirmation=None,
         isVisible=lambda: True,
         _gamepad_audio_choice_message_box=confirmation_dialog,
         _gamepad_audio_choice_confirm_button=SimpleNamespace(click=lambda: calls.append("confirm")),
@@ -352,11 +486,179 @@ def test_click_active_component_invokes_focused_clickable_widget(monkeypatch):
             return focused_widget
 
     monkeypatch.setattr(anki_confirmation_qt, "QApplication", _ApplicationProbe)
-    probe = SimpleNamespace(isAncestorOf=lambda widget: widget is focused_widget)
+    probe = SimpleNamespace(
+        isAncestorOf=lambda widget: widget is focused_widget,
+        voice_button=None,
+        no_voice_button=None,
+        confirm_button=None,
+    )
 
     anki_confirmation_qt.AnkiConfirmationDialog._click_active_component(probe)
 
     assert calls == ["clicked"]
+
+
+@pytest.fixture
+def gamepad_confirmation_dialog(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", _UnavailableAudioPlayer)
+    # Exercise the real dialog and Qt timers without starting controller or audio services.
+    monkeypatch.setattr(anki_confirmation_qt.AnkiConfirmationDialog, "showEvent", lambda self, event: None)
+    monkeypatch.setattr(anki_confirmation_qt.AnkiConfirmationDialog, "_cleanup_audio", lambda self: None)
+    monkeypatch.setattr(anki_confirmation_qt.AnkiConfirmationDialog, "_save_trimmed_audio", lambda self: "trimmed.wav")
+    dialog = anki_confirmation_qt.AnkiConfirmationDialog()
+    dialog._gamepad_capture_active = True
+    dialog.show()
+    app.processEvents()
+    try:
+        yield dialog
+    finally:
+        dialog.hide()
+        dialog.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.parametrize(
+    ("button_code", "expected"),
+    [
+        (6, ("lines", ["previous", "current"])),
+        (7, ("lines", ["current", "next"])),
+        (4, ("audio", {"expand_start": 0.25})),
+        (5, ("audio", {"expand_end": 0.25})),
+    ],
+)
+def test_gamepad_triggers_and_bumpers_edit_dialog_without_moving_focus(
+    gamepad_confirmation_dialog, monkeypatch, button_code, expected
+):
+    dialog = gamepad_confirmation_dialog
+    calls = []
+    monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: SimpleNamespace(anki=Anki()))
+    monkeypatch.setattr(
+        anki_confirmation_qt,
+        "GamepadInputClient",
+        lambda *_args, **_kwargs: SimpleNamespace(start=lambda: None, stop=lambda: None),
+    )
+    dialog._dialog_selected_lines = ["current"]
+    monkeypatch.setattr(dialog, "_previous_dialogue_line", lambda: "previous")
+    monkeypatch.setattr(dialog, "_next_dialogue_line", lambda: "next")
+    monkeypatch.setattr(dialog, "_apply_dialogue_line_change", lambda lines: calls.append(("lines", lines)))
+    monkeypatch.setattr(dialog, "_expand_audio_window", lambda **kwargs: calls.append(("audio", kwargs)))
+    dialog.waveform_widget.show()
+    for button in (
+        dialog.add_prev_line_button,
+        dialog.add_next_line_button,
+        dialog.waveform_widget.expand_start_button,
+        dialog.waveform_widget.expand_end_button,
+    ):
+        button.show()
+        button.setEnabled(True)
+    dialog.sentence_text.setFocus()
+    dialog._auto_accept_qtimer = QTimer(dialog)
+    dialog._auto_accept_qtimer.start(10000)
+    dialog._start_gamepad_capture()
+
+    for pressed in (True, True, False, True):
+        dialog._gamepad_dispatcher.handle_message(
+            {"type": "button", "device": "test-controller", "button": button_code, "pressed": pressed}
+        )
+
+    assert calls == [expected, expected]
+    assert QApplication.focusWidget() is dialog.sentence_text
+    assert not dialog._auto_accept_qtimer.isActive()
+    assert dialog.isVisible()
+    assert dialog.result is None
+
+
+@pytest.mark.parametrize(
+    ("action", "button_path"),
+    [
+        ("add_previous_line", "add_prev_line_button"),
+        ("add_next_line", "add_next_line_button"),
+        ("expand_audio_start", "waveform_widget.expand_start_button"),
+        ("expand_audio_end", "waveform_widget.expand_end_button"),
+    ],
+)
+@pytest.mark.parametrize("unavailable", ["hidden", "disabled", "modal", "pending", "capture_stopped"])
+def test_gamepad_edit_actions_respect_unavailable_controls(
+    gamepad_confirmation_dialog, monkeypatch, action, button_path, unavailable
+):
+    dialog = gamepad_confirmation_dialog
+    button = dialog
+    for name in button_path.split("."):
+        button = getattr(button, name)
+    button.setVisible(unavailable != "hidden")
+    button.setEnabled(unavailable != "disabled")
+    clicked = QSignalSpy(button.clicked)
+    if unavailable == "modal":
+        monkeypatch.setattr(anki_confirmation_qt.QApplication, "activeModalWidget", lambda: object())
+    elif unavailable == "pending":
+        dialog._pending_gamepad_confirmation = lambda: None
+    elif unavailable == "capture_stopped":
+        dialog._gamepad_capture_active = False
+
+    dialog._on_gamepad_action(action)
+
+    assert len(clicked) == 0
+
+
+@pytest.mark.parametrize(
+    ("action", "focused_button", "use_audio"),
+    [
+        ("confirm_with_audio", None, True),
+        ("confirm_without_audio", None, False),
+        ("activate", "voice_button", True),
+        ("activate", "no_voice_button", False),
+        ("activate", "confirm_button", False),
+    ],
+)
+def test_gamepad_confirmation_keeps_dialog_open_for_half_a_second(
+    gamepad_confirmation_dialog, action, focused_button, use_audio
+):
+    dialog = gamepad_confirmation_dialog
+    if focused_button:
+        button = getattr(dialog, focused_button)
+        button.setFocus()
+        assert QApplication.focusWidget() is button
+    accepted = QSignalSpy(dialog.accepted)
+    elapsed = QElapsedTimer()
+    elapsed.start()
+
+    dialog._on_gamepad_action(action)
+    # Further presses must not change or duplicate the pending confirmation.
+    dialog._on_gamepad_action("confirm_without_audio" if use_audio else "confirm_with_audio")
+    dialog._on_gamepad_action("activate")
+
+    assert dialog.result is None
+    assert not accepted.wait(200)
+    assert dialog.isVisible()
+    assert dialog._gamepad_capture_active
+    assert accepted.wait(1000)
+    # Qt's integer millisecond clocks can differ by one millisecond at the deadline.
+    assert dialog._gamepad_confirmation_timer.interval() == 500
+    assert elapsed.elapsed() >= 499
+    assert len(accepted) == 1
+    assert dialog.result[0] is use_audio
+    assert not dialog.isVisible()
+    assert not dialog._gamepad_capture_active
+
+
+def test_hiding_dialog_cancels_pending_gamepad_confirmation(gamepad_confirmation_dialog):
+    dialog = gamepad_confirmation_dialog
+    accepted = QSignalSpy(dialog.accepted)
+    dialog._on_gamepad_action("confirm_with_audio")
+
+    dialog.hide()
+    dialog.show()
+    dialog._gamepad_capture_active = True
+
+    assert not accepted.wait(650)
+    assert dialog.result is None
+    assert dialog.isVisible()
+
+    dialog._on_gamepad_action("confirm_without_audio")
+    assert accepted.wait(1000)
+    assert len(accepted) == 1
+    assert dialog.result[0] is False
 
 
 def test_apply_exit_choice_cancel_keeps_dialog_open():

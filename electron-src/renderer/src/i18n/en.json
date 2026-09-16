@@ -627,6 +627,10 @@
     },
     "dataFolder": {
       "title": "Data Folder",
+      "intro": "Choose where GSM keeps your settings, database, logs, and downloaded tools. Changing this folder restarts GSM.",
+      "database": "Database: {path}",
+      "locationFile": "Where this choice is saved",
+      "locationHint": "A small data_dir.json file in your home .config/GameSentenceMiner folder remembers this location, even if you delete the original AppData folder. You can still edit its dataDir path manually while GSM is closed. Keep this file when cleaning up old data.",
       "description": "GSM configs, desktop app settings, overlay settings, and the database are copied. Chromium session/storage and Yomitan data are not copied; export your Yomitan dictionaries before changing folders and import them afterward. No source files are deleted.",
       "current": "Current folder: {path}",
       "original": "Original AppData folder: {path}",

@@ -219,10 +219,12 @@ def _build_game_stats_response_payload(
 ) -> dict:
     total_time_hours = total_time_seconds / 3600
     reading_speed = int(total_characters / total_time_hours) if total_time_hours > 0 else 0
+    from GameSentenceMiner.util.database.game_archive import archive_summary
 
     return {
         "game": {
             "id": game.id,
+            "archived_line_count": archive_summary(game.id)["archived_lines"],
             "deck_id": getattr(game, "deck_id", None),
             "title_original": game.title_original or "",
             "title_romaji": game.title_romaji or "",
@@ -293,7 +295,7 @@ def _build_game_stats_from_game_daily_rollups(
     except Exception as exc:
         logger.debug(f"Unable to load game_daily_rollup rows for {game_id}: {exc}")
         return None
-    if not game_rollups:
+    if not game_rollups and not today_lines:
         return None
 
     total_sentences = 0
@@ -2348,7 +2350,7 @@ def register_stats_api_routes(app):
                         "totalSeconds": 0,
                         "charsPerHour": 0,
                         "gameMetadata": game_metadata,  # Add full game metadata
-                        "lines": [line.id],
+                        "lines": [] if hasattr(line, "archived_kanji") else [line.id],
                         "_timestamps": [ts],
                         "_line_texts": [line.line_text or ""],
                     }
@@ -2356,7 +2358,8 @@ def register_stats_api_routes(app):
                     # Continue current session
                     current_session["endTime"] = ts
                     current_session["totalChars"] += chars
-                    current_session["lines"].append(line.id)
+                    if not hasattr(line, "archived_kanji"):
+                        current_session["lines"].append(line.id)
                     current_session["_timestamps"].append(ts)
                     current_session["_line_texts"].append(line.line_text or "")
 
@@ -2447,7 +2450,12 @@ def register_stats_api_routes(app):
                 f"SELECT line_text FROM {GameLinesTable._table} WHERE game_id=?",
                 (game_id,),
             )
-            return jsonify(_build_game_kanji_grid_data(line_text_rows)), 200
+            from GameSentenceMiner.util.database.game_archive import archived_kanji_counts
+
+            frequencies = archived_kanji_counts(game_id, raw=True)
+            for item in _build_game_kanji_grid_data(line_text_rows)["kanji_data"]:
+                frequencies[item["kanji"]] += item["frequency"]
+            return jsonify(_build_kanji_grid_data({"kanji_frequency_data": frequencies})), 200
         except Exception as e:
             logger.exception(f"Error building kanji grid for game {game_id}: {e}")
             return jsonify({"error": "Failed to build game kanji grid"}), 500
@@ -2488,6 +2496,12 @@ def register_stats_api_routes(app):
                 (game_id,),
             )
             min_timestamp, max_timestamp = line_bounds[0] if line_bounds else (None, None)
+            from GameSentenceMiner.util.database.game_archive import archive_summary, archived_stats_lines
+
+            archive = archive_summary(game_id)
+            if archive["archived_lines"]:
+                min_timestamp = min(float(t) for t in (min_timestamp, archive["first_timestamp"]) if t is not None)
+                max_timestamp = max(float(t) for t in (max_timestamp, archive["last_timestamp"]) if t is not None)
 
             if min_timestamp is None or max_timestamp is None:
                 # Game exists but has no lines yet
@@ -2527,6 +2541,9 @@ def register_stats_api_routes(app):
                     params=(game_id, today_start, today_end),
                     include_media_fields=True,
                 )
+
+                today_lines.extend(archived_stats_lines(today_start, today_end, game_id))
+                today_lines.sort(key=lambda line: float(line.timestamp))
 
             game_rollup_payload = _build_game_stats_from_game_daily_rollups(
                 game,

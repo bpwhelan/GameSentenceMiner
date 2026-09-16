@@ -531,6 +531,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
   >(() => new Set(getBackupNodeCategories(getBackupSelectionTree(isWindows)[0])));
   const [dataDir, setDataDir] = useState<string | null>(null);
   const [defaultDataDir, setDefaultDataDir] = useState<string | null>(null);
+  const [dataPointerPath, setDataPointerPath] = useState<string | null>(null);
   const [dataRelocationBusy, setDataRelocationBusy] = useState<
     "change" | "restore" | null
   >(null);
@@ -631,14 +632,18 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
     void Promise.all([
       invokeIpc<string>("data.getCurrentDir"),
-      invokeIpc<string>("data.getDefaultDir")
+      invokeIpc<string>("data.getDefaultDir"),
+      invokeIpc<string>("data.getPointerPath")
     ])
-      .then(([currentDir, originalDir]) => {
+      .then(([currentDir, originalDir, pointerPath]) => {
         if (typeof currentDir === "string") {
           setDataDir(currentDir);
         }
         if (typeof originalDir === "string") {
           setDefaultDataDir(originalDir);
+        }
+        if (typeof pointerPath === "string") {
+          setDataPointerPath(pointerPath);
         }
       })
       .catch((error) => {
@@ -1773,13 +1778,26 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
           <section className="card legacy-card">
             <h2>{t("settings.dataFolder.title")}</h2>
-            <div className="settings-update-panel">
-              <p className="muted">{t("settings.dataFolder.description")}</p>
+            <div className="settings-update-panel settings-data-folder">
+              <p className="muted">{t("settings.dataFolder.intro")}</p>
               <p className="update-version-meta">
                 {t("settings.dataFolder.current", {
                   path: dataDir ?? t("settings.dataFolder.loading")
                 })}
               </p>
+              <p className="update-version-meta">
+                {t("settings.dataFolder.database", {
+                  path: dataDir
+                    ? `${dataDir.replace(/[\\/]+$/, "")}${isWindows ? "\\" : "/"}gsm.db`
+                    : t("settings.dataFolder.loading")
+                })}
+              </p>
+              <p className="muted">{t("settings.dataFolder.description")}</p>
+              <details className="settings-data-folder-location">
+                <summary>{t("settings.dataFolder.locationFile")}</summary>
+                <p className="update-version-meta">{dataPointerPath ?? t("settings.dataFolder.loading")}</p>
+                <p className="muted">{t("settings.dataFolder.locationHint")}</p>
+              </details>
               {usingCustomDataDir ? (
                 <>
                   <p className="update-version-meta">

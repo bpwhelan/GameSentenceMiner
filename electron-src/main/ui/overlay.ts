@@ -85,9 +85,7 @@ if (fs.existsSync(settingsPath)) {
     }
 }
 
-const GSM_APPDATA = process.env.APPDATA
-    ? path.join(process.env.APPDATA, 'GameSentenceMiner')
-    : path.join(os.homedir(), '.config', 'GameSentenceMiner');
+const GSM_APPDATA = getBaseDir();
 
 function getGSMSettings() {
     const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');

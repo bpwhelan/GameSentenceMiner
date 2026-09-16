@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from loguru import logger as _logger
 
+from GameSentenceMiner.util.data_directory import get_app_directory
 from GameSentenceMiner.util.log_paths import get_process_log_path
 
 # Remove default handler
@@ -52,14 +53,7 @@ class LoggerManager:
 
     def _get_app_directory(self) -> Path:
         """Get the application config directory (platform-aware)."""
-        if sys.platform == "win32":
-            appdata_dir = os.getenv("APPDATA")
-        else:
-            appdata_dir = os.path.expanduser("~/.config")
-
-        config_dir = Path(appdata_dir) / "GameSentenceMiner"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        return config_dir
+        return Path(get_app_directory())
 
     def _get_log_directory(self) -> Path:
         """Get or create the logs directory."""

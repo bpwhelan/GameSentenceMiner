@@ -504,6 +504,26 @@ class SQLiteDB:
 
         return self.run_transaction(op, priority=priority)
 
+    def vacuum(self) -> dict:
+        """Compact on the writer thread, outside SQLite's transaction scope."""
+        if self.read_only:
+            raise RuntimeError("Cannot vacuum a read-only database.")
+
+        def compact(conn):
+            if conn.in_transaction:
+                raise RuntimeError("Cannot vacuum inside a transaction.")
+            page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+            before = conn.execute("PRAGMA page_count").fetchone()[0] * page_size
+            conn.execute("VACUUM")
+            after = conn.execute("PRAGMA page_count").fetchone()[0] * page_size
+            # Active readers may keep WAL pages alive; report the compacted logical size.
+            conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            return {"before_bytes": before, "after_bytes": after, "reclaimed_bytes": max(0, before - after)}
+
+        if self._on_writer_thread():
+            return compact(self._write_conn)
+        return self._submit_and_maybe_wait(compact, DB_PRIORITY_LOW, True)
+
     def backup(self, backup_path: str) -> None:
         """Create a verified snapshot and atomically replace ``backup_path``."""
 

@@ -89,7 +89,8 @@
           },
           "open_texthooker_on_startup": {
             "label": "启动时打开 GSM 文本评送:",
-            "tooltip": "脚本启动时是否打开文本评送页面。"
+            "tooltip": "是否在 GSM 启动时打开文本流页面。以管理员身份运行 GSM 时禁用此功能，以避免浏览器以管理员权限启动。此设置会保留，并在正常启动时生效。",
+            "disabled_admin": "以管理员身份运行 GSM 时禁用。"
           },
           "texthooker_port": {
             "label": "GSM 文本评送端口:",
@@ -208,6 +209,22 @@
           },
           "confirmation_gamepad_bindings": {
             "label": "手柄按键:"
+          },
+          "confirmation_gamepad_add_previous_line": {
+            "label": "添加上一行：",
+            "tooltip": "将上一行对话添加到此卡片的按键。默认为左扳机（LT）。"
+          },
+          "confirmation_gamepad_add_next_line": {
+            "label": "添加下一行：",
+            "tooltip": "将下一行对话添加到此卡片的按键。默认为右扳机（RT）。"
+          },
+          "confirmation_gamepad_expand_audio_start": {
+            "label": "开头增加0.25秒：",
+            "tooltip": "将音频起点向前延长0.25秒的按键。默认为左肩键（LB）。"
+          },
+          "confirmation_gamepad_expand_audio_end": {
+            "label": "结尾增加0.25秒：",
+            "tooltip": "将音频终点向后延长0.25秒的按键。默认为右肩键（RB）。"
           },
           "confirmation_gamepad_focus_up": {
             "label": "向上移动焦点:",

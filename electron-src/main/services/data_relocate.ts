@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
     getDefaultBaseDir,
+    isLegacyDatabaseMigrationPending,
     writeDataDirPointer,
     writeDataDirRegistry,
 } from '../data_dir.js';
@@ -109,6 +110,10 @@ async function getExistingRelocationEntries(
 }
 
 async function findDestinationConflict(oldDir: string, newDir: string): Promise<string | null> {
+    // Existing target data must be rejected even when the matching source file is absent.
+    for (const relativePath of RELOCATED_DATA_PATHS) {
+        if (await pathExists(path.join(newDir, relativePath))) return relativePath;
+    }
     const entries = await getExistingRelocationEntries(oldDir, newDir);
     for (const entry of entries) {
         if (await pathExists(entry.destination)) {
@@ -212,6 +217,12 @@ function shouldCopyObsConfigPath(obsConfigRoot: string, sourcePath: string): boo
 }
 
 export async function validateTargetDir(oldDir: string, newDir: string): Promise<ValidateResult> {
+    if (isLegacyDatabaseMigrationPending(oldDir)) {
+        return {
+            ok: false,
+            error: 'GSM must finish repairing its database before changing folders. Start the GSM backend or restart GSM, then try again.',
+        };
+    }
     const resolvedOld = path.resolve(oldDir);
     const resolvedNew = path.resolve(newDir);
 
@@ -221,7 +232,7 @@ export async function validateTargetDir(oldDir: string, newDir: string): Promise
 
     // Reject a target nested inside the current data dir (would copy into itself).
     const rel = path.relative(resolvedOld, resolvedNew);
-    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    if (rel && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) {
         return { ok: false, error: 'The new location cannot be inside the current data folder.' };
     }
 

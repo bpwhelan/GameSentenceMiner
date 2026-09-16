@@ -12,7 +12,6 @@ from contextlib import contextmanager
 from datetime import datetime
 from datetime import timedelta
 from functools import lru_cache
-from sys import platform
 from typing import Any, Dict, List, Optional, Tuple, Union, Type, TypeVar
 
 from GameSentenceMiner.util.config.configuration import (
@@ -22,6 +21,8 @@ from GameSentenceMiner.util.config.configuration import (
     sanitize_and_resolve_path,
 )
 from GameSentenceMiner.util.text_log import GameLine
+from GameSentenceMiner.util.data_directory import get_app_directory
+from GameSentenceMiner.util.database.data_dir_migration import recover_legacy_database
 from GameSentenceMiner.util.database.sqlite_core import (
     DB_PRIORITY_HIGH as DB_PRIORITY_HIGH,
     DB_PRIORITY_LOW as DB_PRIORITY_LOW,
@@ -702,7 +703,13 @@ class GameLinesTable(SQLiteDBTable):
     def all(cls, for_stats: bool = False) -> List["GameLinesTable"]:
         rows = cls._db.fetchall(f"SELECT * FROM {cls._table}")
         clean_columns = ["line_text"] if for_stats else []
-        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        lines = [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        if for_stats:
+            from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+
+            lines.extend(archived_stats_lines())
+            lines.sort(key=lambda line: float(line.timestamp))
+        return lines
 
     @classmethod
     def get_all_lines_for_scene(cls, game_name: str, limit: int | None = None) -> List["GameLinesTable"]:
@@ -725,7 +732,13 @@ class GameLinesTable(SQLiteDBTable):
             (game_id,),
         )
         clean_columns = ["line_text"] if for_stats else []
-        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        lines = [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        if for_stats:
+            from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+
+            lines.extend(archived_stats_lines(game_id=game_id))
+            lines.sort(key=lambda line: float(line.timestamp))
+        return lines
 
     @classmethod
     def get_all_games_with_lines(cls) -> List[str]:
@@ -1144,7 +1157,13 @@ class GameLinesTable(SQLiteDBTable):
         # Execute the query
         rows = cls._db.fetchall(query, tuple(params))
         clean_columns = ["line_text"] if for_stats else []
-        return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        lines = [cls.from_row(row, clean_columns=clean_columns) for row in rows]
+        if for_stats:
+            from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+
+            lines.extend(archived_stats_lines(start, end))
+            lines.sort(key=lambda line: float(line.timestamp))
+        return lines
 
     @classmethod
     def mark_tokenized(cls, line_id: str):
@@ -1371,11 +1390,9 @@ def get_db_directory(test=False, delete_test=False) -> str:
         config_dir = os.path.join(test_data_root, "database")
         test = True
     else:
-        if platform == "win32":  # Windows
-            appdata_dir = os.getenv("APPDATA")
-        else:  # macOS and Linux
-            appdata_dir = os.path.expanduser("~/.config")
-        config_dir = os.path.join(appdata_dir, "GameSentenceMiner")
+        config_dir = get_app_directory()
+        if not test:
+            recover_legacy_database(config_dir)
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
     path = os.path.join(config_dir, "gsm.db" if not test else "gsm_test.db")
@@ -2232,6 +2249,12 @@ def start_database_runtime() -> None:
 
     initialize_tadoku_cursor()
     check_and_run_migrations()
+    from GameSentenceMiner.util.database.maintenance import setup_database_maintenance
+
+    setup_database_maintenance()
+    from GameSentenceMiner.util.cron.kechimochi_sync import configure_kechimochi_cron
+
+    configure_kechimochi_cron()
 
 
 # all_lines = GameLinesTable.all()

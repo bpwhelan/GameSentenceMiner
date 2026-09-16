@@ -91,6 +91,40 @@ function loadOverlaySettingsPage() {
 }
 
 describe("overlay settings keyboard binding capture", () => {
+  it("loads, edits, and restores navigation experiment settings through IPC", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const values = {
+        gamepadHoldNavigation: "sentence", gamepadHorizontalWrap: "line",
+        gamepadVerticalNavigation: "spatial", gamepadInitialPosition: "nearest",
+        gamepadBlockJumpAnimation: true, gamepadAnalogAcceleration: true
+      };
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: { gamepadEnabled: true, ...values }, defaultSettings: {},
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      for (const [id, value] of Object.entries(values)) {
+        const control = page.dom.window.document.getElementById(id);
+        expect(typeof value === "boolean" ? control.checked : control.value).toBe(value);
+        expect(control.disabled).toBe(false);
+      }
+      const select = page.dom.window.document.getElementById("gamepadHoldNavigation");
+      select.value = "new";
+      select.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "gamepadHoldNavigation", value: "new"
+      });
+      page.listeners.get("settings-updated")?.(null, { gamepadHoldNavigation: "repeat", gamepadBlockJumpAnimation: false });
+      await nextTick();
+      expect(select.value).toBe("repeat");
+      expect(page.dom.window.document.getElementById("gamepadBlockJumpAnimation").checked).toBe(false);
+    } finally {
+      page.dom.window.close();
+    }
+  });
   it.each(["Backspace", "Delete"])(
     "clears a keyboard binding when the input server reports %s",
     async (key) => {
