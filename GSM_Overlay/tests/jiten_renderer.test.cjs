@@ -145,6 +145,7 @@ test('furigana script filter includes kana and extended kanji, excludes wide Lat
 
 function loadGamepad(invoke) {
   const context = vm.createContext({ module: { exports: {} }, window: { ipcRenderer: { invoke } }, console });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../dictionary_navigation.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../gamepad.js'), 'utf8'), context);
   const handler = Object.create(context.module.exports.prototype);
   handler.config = { tokenizerBackend: 'jiten-api', jitenApiKey: 'test' };

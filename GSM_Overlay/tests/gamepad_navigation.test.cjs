@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function setup(options = {}) {
   const context = vm.createContext({ module: { exports: {} }, window: {}, console: { log() {} } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../dictionary_navigation.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../gamepad.js'), 'utf8'), context);
   const handler = Object.create(context.module.exports.prototype);
   Object.assign(handler, {
@@ -196,7 +197,7 @@ test('the D-pad sends an ordinary tap, a held jump after the delay, and stops on
   handler.buttonStates = new Map([['pad', { 15: true }]]);
   handler.hideVirtualMouseCursorForDpadNavigation = () => {};
   handler.shouldProcessNavigation = () => true;
-  handler.scanHiddenCharacterToHideYomitan = () => {};
+  handler.closeDictionaryPopups = () => {};
   handler.handleDPadNavigation(15, 'pad');
   assert.equal(handler.currentCursorIndex, 1);
   const [id, timer] = [...timers][0];

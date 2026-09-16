@@ -28,6 +28,7 @@ async function writeFixtureExtension(sourceRoot, marker) {
                     manifest_version: 3,
                     name: 'Hachidori fixture',
                     version: marker,
+                    content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'] }],
                 },
                 null,
                 2,
@@ -41,6 +42,8 @@ async function writeFixtureExtension(sourceRoot, marker) {
             path.join(extensionDir, 'marker.js'),
             `export const marker = ${JSON.stringify(marker)};\n`,
         ),
+        // Exercise the real upstream hook surfaces, including already-generated copies.
+        fs.copyFile(new URL('../GSM_Overlay/hachidori/content.js', import.meta.url), path.join(extensionDir, 'content.js')),
     ]);
 }
 
@@ -143,6 +146,8 @@ test('an equal release adds provenance and repeated syncs are identical', async 
     assert.deepEqual(firstResult, { status: 'synced', commit: firstCommit });
     const source = JSON.parse(await fs.readFile(path.join(targetDir, 'SOURCE.json'), 'utf8'));
     assert.equal(source.commit, firstCommit);
+    assert.match(source.gsmIntegration.sha256, /^[0-9a-f]{64}$/);
+    await fs.access(path.join(targetDir, 'gsm', 'bridge.js'));
     assert.deepEqual(source.release, release('0.1.0', 1));
     assert.equal(
         JSON.parse(await fs.readFile(path.join(targetDir, 'manifest.json'), 'utf8')).key.length > 0,
@@ -226,5 +231,17 @@ test('a divergent release fails before changing the vendored source', async (t) 
         }),
         new RegExp(`release 0\\.2\\.0-diverged \\(${divergentCommit}\\) diverges`),
     );
+    assert.deepEqual(await snapshot(targetDir), before);
+});
+
+test('upstream hook drift fails before replacing the existing vendor copy', async (t) => {
+    const { sourceRoot, targetDir } = await createFixture(t);
+    await syncHachidori({ sourceRoot, targetDir });
+    const before = await snapshot(targetDir);
+    const contentPath = path.join(sourceRoot, 'extension', 'content.js');
+    const content = await fs.readFile(contentPath, 'utf8');
+    await fs.writeFile(contentPath, content.replace('function onMouseMove(event)', 'function onMouseMove(pointer)'));
+    await commitAll(sourceRoot, 'fixture: incompatible reader');
+    await assert.rejects(syncHachidori({ sourceRoot, targetDir }), /integration hook changed upstream/);
     assert.deepEqual(await snapshot(targetDir), before);
 });

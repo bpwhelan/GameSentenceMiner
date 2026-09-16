@@ -1482,11 +1482,9 @@ background: rgba(202, 12, 12, 0.692);
       ipcRenderer.send('yomitan-event', true);
     }
 
-    if (!isHachidori) {
-      requestJitenReaderGradingSettings();
-      pushJitenGradingConfig();
-      setTimeout(() => pushJitenGradingConfig(), 250);
-    }
+    requestJitenReaderGradingSettings();
+    pushJitenGradingConfig();
+    setTimeout(() => pushJitenGradingConfig(), 250);
   }
 
   function handleDictionaryPopupHidden(event) {
@@ -1740,7 +1738,8 @@ background: rgba(202, 12, 12, 0.692);
   window.addEventListener('gsm-anki-note-added', (event) => {
     console.log('Received mining success signal');
     if (hideYomitanAfterMine && OverlayUtils) {
-      OverlayUtils.hideYomitan();
+      if (dictionaryReader === 'hachidori') void window.gsmHachidoriBridge?.closePopups().catch(console.warn);
+      else OverlayUtils.hideYomitan();
     }
   });
   // Bridge: listen for postMessage from Yomitan iframe/extension and re-dispatch as CustomEvent
@@ -2292,6 +2291,7 @@ background: rgba(202, 12, 12, 0.692);
     for (const frame of getYomitanGradingTargetFrames()) {
       try { if (frame.contentWindow) frame.contentWindow.postMessage(msg, '*'); } catch (_) { /* ignore */ }
     }
+    if (dictionaryReader === 'hachidori') window.postMessage(msg, '*');
   }
 
   // Pull the user's grading-related Jiten Reader settings via the content-script
@@ -5388,7 +5388,10 @@ background: rgba(202, 12, 12, 0.692);
 
 </script>
 
+<script src="extension_bridge.js"></script>
 <script src="yomitan_bridge.js"></script>
+<script src="hachidori_bridge.js"></script>
+<script src="dictionary_navigation.js"></script>
 <script src="jiten_highlight.js"></script>
 
 <script>
@@ -5523,6 +5526,7 @@ background: rgba(202, 12, 12, 0.692);
 
   function getGamepadHandlerConfig() {
     return {
+      dictionaryReader,
       serverUrl: gamepadSettings.serverUrl,
       activationMode: gamepadSettings.activationMode,
       modifierButton: gamepadSettings.modifierButton,

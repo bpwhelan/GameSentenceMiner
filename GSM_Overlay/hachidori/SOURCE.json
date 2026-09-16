@@ -7,6 +7,11 @@
   "modifications": [
     "manifest.json includes a fixed public key so the GSM-hosted extension keeps one stable ID.",
     "overlay-mode.js enables overlay mode: hover lookups, no word highlight, and no first-run setup page.",
-    "README.md is left out."
-  ]
+    "README.md is left out.",
+    "gsm/ contains GSM-owned bridge and navigation modules; content.js has generated integration hooks."
+  ],
+  "gsmIntegration": {
+    "version": 1,
+    "sha256": "61c7177cf5951d39850b8c8ff642e7df094b38ac9443a8dc42c03c49022ca873"
+  }
 }

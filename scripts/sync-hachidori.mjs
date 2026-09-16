@@ -4,6 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { prepareIntegration, writeIntegration } from './hachidori-integration.mjs';
 
 const execFile = promisify(execFileCallback);
 const repoRoot = path.resolve(import.meta.dirname, '..');
@@ -300,25 +301,32 @@ export async function syncHachidori({ sourceRoot, targetDir = defaultTargetDir, 
         }
     }
 
+    // Check every upstream hook and load our assets before replacing the known-good copy.
+    const integration = await prepareIntegration(sourceExtensionDir);
+    const overlayMode = await fs.readFile(path.join(sourceExtensionDir, 'overlay-mode.js'), 'utf8');
+    if (!overlayMode.includes(overlayModeOff)) {
+        throw new Error(`overlay-mode.js no longer contains "${overlayModeOff}"; update this script for the new switch.`);
+    }
+    targetDir = path.resolve(targetDir);
+    const containsPath = (parent, child) => {
+        const relative = path.relative(parent, child);
+        return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+    };
+    if (path.basename(targetDir).toLowerCase() !== 'hachidori' ||
+        containsPath(path.resolve(sourceRoot), targetDir) || containsPath(targetDir, path.resolve(sourceRoot))) {
+        throw new Error('The Hachidori vendor target must be a hachidori directory outside the upstream checkout.');
+    }
     await fs.rm(targetDir, { recursive: true, force: true });
     await fs.cp(sourceExtensionDir, targetDir, {
         recursive: true,
         filter: (source) => !excludedPaths.has(path.relative(sourceExtensionDir, source)),
     });
 
-    const manifestPath = path.join(targetDir, 'manifest.json');
-    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-    manifest.key = stableManifestKey;
-    await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    integration.manifest.key = stableManifestKey;
+    await writeIntegration(targetDir, integration);
 
     // The overlay hosts Hachidori in its own window, so it runs in Hachidori's overlay mode.
     const overlayModePath = path.join(targetDir, 'overlay-mode.js');
-    const overlayMode = await fs.readFile(overlayModePath, 'utf8');
-    if (!overlayMode.includes(overlayModeOff)) {
-        throw new Error(
-            `overlay-mode.js no longer contains "${overlayModeOff}"; update this script for the new switch.`,
-        );
-    }
     await fs.writeFile(overlayModePath, overlayMode.replace(overlayModeOff, overlayModeOn));
 
     await fs.copyFile(sourceLicensePath, path.join(targetDir, 'LICENSE.hachidori'));
@@ -326,6 +334,7 @@ export async function syncHachidori({ sourceRoot, targetDir = defaultTargetDir, 
         name: 'Hachidori',
         repository: hachidoriRepository,
         commit,
+        gsmIntegration: integration.metadata,
     };
     if (normalizedRelease !== null) {
         sourceMetadata.release = normalizedRelease;
@@ -337,6 +346,7 @@ export async function syncHachidori({ sourceRoot, targetDir = defaultTargetDir, 
             'manifest.json includes a fixed public key so the GSM-hosted extension keeps one stable ID.',
             'overlay-mode.js enables overlay mode: hover lookups, no word highlight, and no first-run setup page.',
             'README.md is left out.',
+            'gsm/ contains GSM-owned bridge and navigation modules; content.js has generated integration hooks.',
         ],
     });
     await fs.writeFile(

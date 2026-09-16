@@ -20,7 +20,7 @@ app.whenReady().then(async () => {
     .text-box { display: inline-block; width: 28px; height: 36px; }
     #jiten-parse-container { position: absolute; left: -99999px; top: -99999px;
       width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }</style><body></body>`));
-  for (const filename of ['gamepad.js', 'jiten_highlight.js']) {
+  for (const filename of ['dictionary_navigation.js', 'gamepad.js', 'jiten_highlight.js']) {
     await view.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname, '..', filename), 'utf8') + '\nvoid 0;');
   }
   const result = await view.webContents.executeJavaScript(`(async () => {
@@ -44,7 +44,7 @@ app.whenReady().then(async () => {
     window.handler = handler;
     handler.requestTokenizationForBlock = () => {};
     const lookups = [];
-    handler.triggerYomitanLookup = info => lookups.push(info.targetChar.textContent);
+    handler.triggerDictionaryLookup = info => lookups.push(info.targetChar.textContent);
     handler.activateNavigation();
     // Keep this fixture fixed while the synthetic Reader DOM is being populated.
     handler.textMutationObserver.disconnect();

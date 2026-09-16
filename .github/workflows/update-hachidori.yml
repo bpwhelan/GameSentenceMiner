@@ -77,7 +77,7 @@ jobs:
                   } >> "$GITHUB_OUTPUT"
 
             - name: Test release-aware sync logic
-              run: node --test scripts/sync-hachidori.test.mjs
+              run: node --test scripts/sync-hachidori.test.mjs scripts/hachidori-integration.test.mjs GSM_Overlay/tests/hachidori_bridge.test.cjs GSM_Overlay/tests/reader_bridge.test.cjs GSM_Overlay/tests/dictionary_navigation.test.cjs GSM_Overlay/tests/popup_navigation.test.cjs GSM_Overlay/tests/overlay_startup.test.cjs GSM_Overlay/tests/extension_version.test.cjs
 
             - name: Sync Hachidori release
               id: sync

@@ -12,6 +12,14 @@
 - If possible, make tests first, making sure they fail before implementing functionality, and then iterate on your solution until tests pass.
 - Increment coverage where possible.
 
+## Hachidori Integration Workflow
+
+- Treat `GSM_Overlay/hachidori/` as generated vendor output. Keep GSM logic in `GSM_Overlay/integrations/hachidori/` and shared modules in `GSM_Overlay/`.
+- Regenerate local integration edits with `node scripts/hachidori-integration.mjs`.
+- Import upstream updates with `node scripts/sync-hachidori.mjs <clean-upstream-checkout>`. The sync applies and validates GSM hooks automatically.
+- Keep upstream touch points in `scripts/hachidori-integration.mjs`; fail if an anchor changes instead of silently skipping a hook.
+- See `GSM_Overlay/HACHIDORI_BRIDGE.md` for the API, ownership, and validation commands.
+
 ## Ruff
 - Always run Ruff after Python changes.
 - Use `uv run ruff format GameSentenceMiner tests scripts` from the repo root.

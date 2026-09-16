@@ -12,6 +12,7 @@
     "test": "node --test tests/*.test.cjs",
     "test:jiten-electron": "node tests/run-jiten-electron-smoke.cjs",
     "test:gamepad-electron": "node tests/run-gamepad-electron-smoke.cjs",
+    "test:hachidori-electron": "node tests/run-hachidori-electron-smoke.cjs",
     "package": "electron-forge package",
     "make": "electron-forge make"
   },

@@ -747,6 +747,7 @@ let activityTimer = null;
 let isDev = false;
 let yomitanExt;
 let hachidoriExt;
+let activeDictionaryReader = DICTIONARY_READER_YOMITAN;
 let hachidoriEngineWindow = null;
 let hachidoriOwnedEngineWatcherInstalled = false;
 let jitenReaderExt;
@@ -1600,6 +1601,7 @@ function getLiveStatsVisibilityCycleModes(settings = userSettings, goalsAvailabl
 function buildOverlaySettingsPayload() {
   return {
     ...userSettings,
+    dictionaryReader: activeDictionaryReader,
     liveStatsVisibilityMode: normalizeLiveStatsVisibilityMode(liveStatsVisibilityMode),
   };
 }
@@ -3533,10 +3535,11 @@ function readExtensionPackageVersion(dirPath) {
     if (!pkg || !pkg.version) {
       return null;
     }
-    // Vendored Hachidori keeps one manifest version; its SOURCE.json commit tells syncs apart.
+    // Both upstream updates and GSM-only integration edits invalidate cached copies.
     const sourcePath = path.join(dirPath, 'SOURCE.json');
-    const commit = fs.existsSync(sourcePath) ? JSON.parse(fs.readFileSync(sourcePath, 'utf-8')).commit : null;
-    return commit ? `${pkg.version}+${commit}` : String(pkg.version);
+    const source = fs.existsSync(sourcePath) ? JSON.parse(fs.readFileSync(sourcePath, 'utf-8')) : null;
+    const revision = [source?.commit, source?.gsmIntegration?.sha256].filter(Boolean).join('.');
+    return revision ? `${pkg.version}+${revision}` : String(pkg.version);
   } catch (e) {
     console.warn(`Failed to read manifest.json at ${pkgPath}`, e);
     return null;
@@ -6598,7 +6601,10 @@ async function startOverlayAppImpl() {
   // ===========================================================
 
   isDev = !app.isPackaged;
-  const dictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings());
+  // Keep renderer routing aligned with the extensions loaded by this startup.
+  // Config edits take effect when the overlay restarts, not on settings broadcasts.
+  activeDictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings());
+  const dictionaryReader = activeDictionaryReader;
   const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
 
   // 1. Define Paths
@@ -6777,7 +6783,10 @@ async function startOverlayAppImpl() {
     const hachidoriExtDir = isDev ? path.join(__dirname, 'hachidori') : path.join(getPackagedResourcesPath(), 'hachidori');
     const hachidoriCommitPath = path.join(dataPath, 'hachidori_last_commit.json');
     let currentCommit = null;
-    try { currentCommit = JSON.parse(fs.readFileSync(path.join(hachidoriExtDir, 'SOURCE.json'), 'utf-8')).commit; } catch {}
+    try {
+      const source = JSON.parse(fs.readFileSync(path.join(hachidoriExtDir, 'SOURCE.json'), 'utf-8'));
+      currentCommit = `${source.commit}:${source.gsmIntegration?.sha256 || ''}`;
+    } catch {}
     let storedCommit = null;
     try { storedCommit = JSON.parse(fs.readFileSync(hachidoriCommitPath, 'utf-8')).commit; } catch {}
 

@@ -121,6 +121,7 @@
     return;
   }
 
+  let gsmBridge = null; // GSM hook
   let disposed = false;
   let appearance;
   let customStyle;
@@ -216,6 +217,7 @@
   // carries over to the selection's pending lookup, so the host never sees a
   // gap between the drag and the popup it produces.
   function syncHostAttention() {
+    queueMicrotask(() => gsmBridge?.refresh()); // GSM hook
     const wanted = Boolean(rootLevel.popup && !rootLevel.popup.hidden) || selectionDragActive
       || hostAttentionHold > 0 || pendingCandidateLookup?.candidate?.exactSelection === true;
     if (wanted === hostAttentionPublished) return;
@@ -1056,6 +1058,7 @@
   }
 
   function teardown(reason) {
+    gsmBridge?.destroy(); // GSM hook
     if (disposed) {
       return;
     }
@@ -1206,6 +1209,7 @@
             reject(error);
             return;
           }
+          gsmBridge?.requestCompleted(type, reply); // GSM hook
           resolve(reply);
         });
       } catch (error) {
@@ -1585,6 +1589,7 @@
   }
 
   function positionPopup(fromLevel = rootLevel, resetToolbar = false) {
+    queueMicrotask(() => gsmBridge?.refresh()); // GSM hook
     if (fromLevel.retired || fromLevel.popup?.inert || !rootLevel.popup || rootLevel.popup.hidden || !rootLevel.activeCandidate) {
       return;
     }
@@ -1922,6 +1927,7 @@
   }
 
   function bindResultActions(rendered, level) {
+    queueMicrotask(() => gsmBridge?.refresh()); // GSM hook
     const token = level.lookupToken, request = level.currentViewRequest;
     // Keybinds index these like the view's entries; Show more grows the same
     // arrays and rebinds only the newly revealed controls. The count element
@@ -2421,6 +2427,7 @@
   }
 
   function scheduleHide() {
+    if (gsmBridge?.navigationActive) return; // GSM hook
     if (disposed || hasProtectedNote() || audio?.hasMenu() || !rootLevel.popup || rootLevel.popup.hidden
         || popupHasFocus() || hideTimer !== null || transferTimer !== null) {
       return;
@@ -3213,6 +3220,7 @@
   }
 
   function onPopupMouseMove(event, level) {
+    if (gsmBridge?.navigationActive) return; // GSM hook
     if (popupResize) return;
     if (disposed || !options.hoverEnabled || level.retired) {
       return;
@@ -3250,6 +3258,7 @@
   }
 
   function onMouseMove(event) {
+    if (gsmBridge?.navigationActive) return; // GSM hook
     if (popupResize) return;
     if (disposed || !options.hoverEnabled) {
       return;
@@ -3561,6 +3570,7 @@
   }
 
   function onKeyDown(event) {
+    if (gsmBridge?.navigationActive) return; // GSM hook
     if (disposed || event.repeat || runKeybinds(event)) {
       return;
     }
@@ -3588,6 +3598,7 @@
   }
 
   function onKeyUp(event) {
+    if (gsmBridge?.navigationActive) return; // GSM hook
     if (disposed) return;
     updateModifierState(event);
     if (!MODIFIER_PROPERTIES.has(options.activationKey)
@@ -3603,6 +3614,7 @@
   }
 
   function onMouseOut(event) {
+    if (gsmBridge?.navigationActive) return; // GSM hook
     if (popupResize) return;
     // A null relatedTarget on a document-level mouseout means the pointer left
     // the window entirely, which mouseleave cannot report from here: it does not
@@ -3616,6 +3628,7 @@
   }
 
   function onWindowBlur() {
+    if (gsmBridge?.navigationActive) return; // GSM hook
     stopPopupResize();
     if (!disposed) {
       setSelectionDrag(false);
@@ -3944,5 +3957,15 @@
     refreshPageZoom();
   }
 
+  // GSM integration hook begin
+  gsmBridge = globalThis.GsmHachidoriIntegration?.install({
+    state: () => ({ disposed, levels, options, dictionaries }),
+    ready: () => globalThis.HDReaderReady,
+    readOptions: async () => (await chrome.storage.local.get("options")).options ?? null,
+    resolveCandidate, resolveCandidateAt, lookupCandidate, hide, sendRequest,
+    cancelHover() { cancelCandidateScan(); clearHideTimer(); clearTransferTimer(); clearDescendantTimer(); },
+    command: (action, argument) => runKeybindAction({ action, argument }, { preventDefault() {}, stopPropagation() {} }),
+  });
+  // GSM integration hook end
   start();
 }());

@@ -78,6 +78,8 @@ async function main() {
     path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts-threaded.wasm'),
     path.join(overlayResourcesDir, 'hachidori', 'LICENSE.hachidori'),
     path.join(overlayResourcesDir, 'hachidori', 'SOURCE.json'),
+    ...['bridge.js', 'popup.js', 'popup-navigation.js', 'jiten-grading-bar.js'].map(file =>
+      path.join(overlayResourcesDir, 'hachidori', 'gsm', file)),
   ];
 
   const missing = [];
@@ -114,6 +116,13 @@ async function main() {
   }
   if ('release' in hachidoriSource) {
     validateReleaseMetadata(hachidoriSource.release);
+  }
+  if (hachidoriSource.gsmIntegration?.version !== 1 || !/^[0-9a-f]{64}$/.test(hachidoriSource.gsmIntegration?.sha256 || '')) {
+    throw new Error('Packaged Hachidori is missing its GSM integration fingerprint.');
+  }
+  const readerScripts = hachidoriManifest.content_scripts?.find(item => item.js?.includes('content.js'))?.js || [];
+  if (!readerScripts.includes('gsm/bridge.js') || readerScripts.indexOf('gsm/bridge.js') > readerScripts.indexOf('content.js')) {
+    throw new Error('Packaged Hachidori does not load its GSM bridge before the reader.');
   }
 
   const packagedExperimentalTab = path.join(
