@@ -2,6 +2,8 @@ import "./reader-options.js";
 import { createAnkiGateway } from "./anki.js";
 import { detectAnkiSetup, verifyAnkiSetup } from "./anki-setup.js";
 import { createAnkiWorkerService } from "./anki-worker.js";
+import { detectLocalAudioSource } from "./local-audio-setup.js";
+import { createLocalAudioSource, findLocalAudioSource } from "./local-audio-source.js";
 import { lookupAnkiIndex } from "./anki-index.js";
 import { ANKI_INDEX_ALARM, ANKI_INDEX_KEY, ankiIndexConfigurationChange, createAnkiDuplicateIndex } from "./anki-index-cache.js";
 import { createBackupDownloads } from "./backup-downloads.js";
@@ -1065,8 +1067,8 @@ const WORKER_HANDLERS = {
   // The offscreen installer reports each dictionary outcome and each run's
   // duration; a committed catalogue entry also settles its first-install
   // selection exactly once.
-  // The startup page asks once for Anki detection; the reply carries the
-  // settled outcome, which is also the durable record every later page reads.
+  // The startup page asks once for Anki and local-audio detection. The Anki
+  // outcome is the durable gate, so duplicate startup pages share one run.
   async hd_setup_anki(message, sender) {
     if (!startupSender(sender)) throw new Error("Anki setup is available only from the Hachidori startup page.");
     const stored = await chrome.storage.local.get(SETUP_STATE_KEY);
@@ -1228,24 +1230,52 @@ async function checkAnkiSetup(anki) {
 const ANKI_SETUP_ATTEMPTS = 3;
 const ANKI_SETUP_CHANGED = "Anki settings changed while setup checked them. Confirm the mapping in Settings.";
 
+async function detectFirstRunLocalAudio(options) {
+  if (sharingLinked || findLocalAudioSource(options.audioSources) !== null) return null;
+  try {
+    return await detectLocalAudioSource({ fetch: globalThis.fetch });
+  } catch {
+    // Local audio is optional. Its absence never changes the Anki outcome or
+    // interrupts first-run setup.
+    return null;
+  }
+}
+
 async function detectFirstRunAnki() {
+  let localAudioDetection = null;
   for (let attempt = 1; ; attempt += 1) {
     const stored = await chrome.storage.local.get([SETUP_STATE_KEY, OPTIONS_KEY]);
     const options = normaliseOptions(stored[OPTIONS_KEY]);
     const last = attempt >= ANKI_SETUP_ATTEMPTS;
-    const { proposal, outcome } = await checkAnkiSetup(options.anki);
+    localAudioDetection ??= detectFirstRunLocalAudio(options);
+    const [{ proposal, outcome }, detectedAudio] = await Promise.all([
+      checkAnkiSetup(options.anki),
+      localAudioDetection,
+    ]);
     const written = await serialiseStorage(async () => {
       const current = await chrome.storage.local.get([SETUP_STATE_KEY, OPTIONS_KEY]);
       const setup = normaliseSetupState(current[SETUP_STATE_KEY]);
       if (setup === null) throw new Error("Setup has not started on this installation.");
       if (setup.anki !== null) return { state: setup };
-      const stale = !sameJsonValue(normaliseOptions(current[OPTIONS_KEY]).anki, options.anki);
+      const currentOptions = normaliseOptions(current[OPTIONS_KEY]);
+      const stale = !sameJsonValue(currentOptions.anki, options.anki);
       if (stale && !last) return null;
       const values = {};
+      const patch = {};
       if (!stale && proposal?.status === "configured") {
-        const revision = optionsRevision(current[OPTIONS_KEY]);
         const anki = { ...options.anki, model: proposal.model, deck: proposal.deck, fieldTemplates: proposal.fieldTemplates };
-        values[OPTIONS_KEY] = { ...projectStoredOptions(current[OPTIONS_KEY]), ...validateOptionsPatch({ anki }), revision: revision + 1 };
+        patch.anki = anki;
+      }
+      if (detectedAudio !== null && !sharingLinked && findLocalAudioSource(currentOptions.audioSources) === null) {
+        patch.audioSources = [createLocalAudioSource(crypto.randomUUID(), detectedAudio), ...currentOptions.audioSources];
+      }
+      if (Object.keys(patch).length > 0) {
+        const revision = optionsRevision(current[OPTIONS_KEY]);
+        values[OPTIONS_KEY] = {
+          ...projectStoredOptions(current[OPTIONS_KEY]),
+          ...validateOptionsPatch(patch),
+          revision: revision + 1,
+        };
       }
       const state = recordSetupAnki(setup, stale
         ? { status: "needs-attention", detail: ANKI_SETUP_CHANGED, model: null, deck: null }
@@ -2456,8 +2486,8 @@ async function handleWorkerRequest(message, sender) {
   if (!Object.prototype.hasOwnProperty.call(WORKER_HANDLERS, type)) {
     return failureReply(message, new Error(`unknown worker request type ${JSON.stringify(type)}`));
   }
-  if (type === "hd_backup_download" && !HOST_CAPABILITIES.backupExport) {
-    return failureReply(message, new Error("Backup export is unavailable in this overlay."));
+  if (type === "hd_backup_download" && typeof chrome.downloads?.download !== "function") {
+    return failureReply(message, new Error("Chrome downloads are unavailable. Export the backup from Hachidori Settings."));
   }
   if (type === "hd_open_external" && !HOST_CAPABILITIES.customLinks) {
     return failureReply(message, new Error("Custom toolbar links are unavailable in this overlay."));

@@ -87,11 +87,13 @@
         else delete host.dataset.hoshidictsAudioButton;
         for (const [key, variable, unit] of [
           ["popupOpacityPercent", "opacity", "%"], ["popupWidthPx", "width", "px"], ["popupHeightPx", "height", "px"],
+          ["popupScalePercent", "scale", "%"],
         ]) {
           if (current[key] !== options[key]) host.style.setProperty(`--gsm-hoshidicts-popup-${variable}`, `${options[key]}${unit}`);
         }
         current = { popupTheme: options.popupTheme, popupWidthPx: options.popupWidthPx,
-          popupHeightPx: options.popupHeightPx, popupOpacityPercent: options.popupOpacityPercent };
+          popupHeightPx: options.popupHeightPx, popupOpacityPercent: options.popupOpacityPercent,
+          popupScalePercent: options.popupScalePercent };
         if (themeChanged) refreshHighlight();
       },
       refreshHighlight,
@@ -1896,6 +1898,10 @@
       bottom: rect.bottom * factor, width: rect.width * factor, height: rect.height * factor };
   }
 
+  function popupCoordinateScale(pageZoom, scalePercent) {
+    return pageZoom * 100 / scalePercent;
+  }
+
   function calculatePopupPosition(anchorRect, popupSize, viewport, { gap = 4, padding = 6, vertical = false } = {}) {
     const width = Math.min(popupSize.width, Math.max(1, viewport.width - padding * 2));
     const height = Math.min(popupSize.height, Math.max(1, viewport.height - padding * 2));
@@ -1933,8 +1939,20 @@
     const windowRef = options.window;
     const popup = options.popup;
     const getPageZoom = options.getPageZoom ?? (() => 1);
+    const getCoordinateScale = () => popupCoordinateScale(getPageZoom(), options.getPopupScalePercent?.() ?? 100);
     const contentScroll = documentRef.createElement("div");
     contentScroll.className = "gsm-hoshidicts-content-scroll";
+    const resizeHandle = options.onResizeStart ? documentRef.createElement("div") : null;
+    if (resizeHandle) {
+      resizeHandle.className = "gsm-hoshidicts-resize-handle";
+      resizeHandle.title = "Resize popup";
+      resizeHandle.addEventListener("pointerdown", options.onResizeStart);
+      resizeHandle.addEventListener("pointermove", options.onResizeMove);
+      for (const event of ["pointerup", "pointercancel", "lostpointercapture"]) {
+        resizeHandle.addEventListener(event, options.onResizeEnd);
+      }
+      popup.appendChild(resizeHandle);
+    }
     const appendExpressionRuby = options.appendExpressionRuby;
     const appendTextOnlyGlossary = options.appendTextOnlyGlossary;
     const appendStructuredImage = options.appendStructuredImage;
@@ -2016,7 +2034,9 @@
 
     function positionImagePreview(anchorRect = imagePreview.image.getBoundingClientRect()) {
       const preview = imagePreview.element;
-      const zoom = getPageZoom();
+      const zoom = getCoordinateScale();
+      preview.firstElementChild.style.maxWidth = `${Math.max(1, windowRef.innerWidth * zoom - 16)}px`;
+      preview.firstElementChild.style.maxHeight = `${Math.max(1, windowRef.innerHeight * zoom - 16)}px`;
       const position = calculatePopupPosition(scaleRect(anchorRect, zoom), scaleRect(preview.getBoundingClientRect(), zoom), {
         width: windowRef.innerWidth * zoom, height: windowRef.innerHeight * zoom,
       }, { gap: 8, padding: 8, vertical: true });
@@ -2102,9 +2122,9 @@
     function scrollToEntry(nodes, index, target = nodes[index]) {
       currentEntry = nodes[index];
       const top = index === 0 && target === currentEntry ? 0
-        : (target.getBoundingClientRect().top - contentScroll.getBoundingClientRect().top) * getPageZoom()
+        : (target.getBoundingClientRect().top - contentScroll.getBoundingClientRect().top) * getCoordinateScale()
           + contentScroll.scrollTop;
-      contentScroll.scrollTo({ top, behavior: "smooth" });
+      contentScroll.scrollTo({ top, behavior: "instant" });
       return true;
     }
 
@@ -2309,7 +2329,7 @@
       // viewport. Keep a retained live form mounted for focus and selection too.
       contentScroll.replaceChildren();
       for (const child of [...popup.childNodes]) {
-        if (child !== contentScroll && child !== retainedForm) child.remove();
+        if (child !== contentScroll && child !== retainedForm && child !== resizeHandle) child.remove();
       }
       // A hidden retirement needs no layout; the next visible render resets it.
       if (!popup.hidden && !preserveViewControls) contentScroll.scrollTop = 0;
@@ -2393,9 +2413,9 @@
       button.setAttribute("aria-expanded", "false");
 
       const icon = documentRef.createElement("span");
-      icon.className = "gsm-hoshidicts-note-icon";
+      icon.className = "gsm-hoshidicts-note-icon hd-icon";
       icon.setAttribute("aria-hidden", "true");
-      icon.textContent = "\u270e";
+      icon.dataset.icon = "edit";
       button.appendChild(icon);
 
       const actions = documentRef.createElement("div");
@@ -3004,7 +3024,6 @@
         back.type = "button";
         if (typeof onClose === "function") {
           back.className = "gsm-hoshidicts-popup-close";
-          back.textContent = "×";
           back.setAttribute("aria-label", "Close lookup");
           back.addEventListener("click", onClose);
         } else {
@@ -3321,7 +3340,7 @@
 
       // Fills the queued glossaries on the next task, once the first entry has
       // had a chance to paint. Fills inline without a timer available.
-      function flushDeferredGlossaries() {
+      function flushDeferredGlossaries(immediate = false) {
         if (deferredGlossaryFills.length === 0) {
           restoreViewportAfterFill();
           return;
@@ -3332,10 +3351,10 @@
             if (!isCurrent()) return;
             fill();
           }
-          positionIfCurrent();
+          if (!immediate) positionIfCurrent();
           restoreViewportAfterFill();
         };
-        if (typeof windowRef.setTimeout === "function") {
+        if (!immediate && typeof windowRef.setTimeout === "function") {
           windowRef.setTimeout(() => runRenderAction(isCurrent, renderContext, run), 0);
         } else {
           run();
@@ -3347,6 +3366,7 @@
       flushDeferredGlossaries();
 
       if (results.length > visibleCount) {
+        let nextResultIndex = visibleCount;
         const showMore = documentRef.createElement("button");
         showMore.type = "button";
         showMore.className = "gsm-hoshidicts-show-more";
@@ -3359,14 +3379,36 @@
           }
           showMore.remove();
           expanded = true;
-          results.slice(visibleCount).forEach((result, resultIndex) => {
-            appendResult(result, resultIndex + visibleCount);
-          });
+          while (nextResultIndex < results.length) {
+            appendResult(results[nextResultIndex], nextResultIndex++);
+          }
           flushDeferredGlossaries();
           onResultsExpanded({ audioButtons, miningActions });
           positionPopup();
         }));
         panel.appendChild(showMore);
+        function scheduleNextResult() {
+          windowRef.requestAnimationFrame(() => {
+            windowRef.setTimeout(() => runRenderAction(isCurrent, renderContext, () => {
+              if (nextResultIndex >= results.length) return;
+              const deadline = windowRef.performance.now() + 8;
+              do {
+                appendResult(results[nextResultIndex], nextResultIndex++);
+                flushDeferredGlossaries(true);
+              } while (nextResultIndex < results.length && windowRef.performance.now() < deadline);
+              expanded = true;
+              onResultsExpanded({ audioButtons, miningActions });
+              if (nextResultIndex === results.length) showMore.remove();
+              else {
+                showMore.textContent = `Show ${results.length - nextResultIndex} more`;
+                panel.appendChild(showMore);
+                scheduleNextResult();
+              }
+              positionPopup();
+            }), 0);
+          });
+        }
+        scheduleNextResult();
       }
 
       currentSourceHighlight = {
@@ -3553,13 +3595,14 @@
           }
           if (readings.childNodes.length > 0) entry.appendChild(readings);
 
-          if (kanjiEntry.definitions.length > 0) {
+          const definitions = Array.isArray(kanjiEntry.definitions) ? kanjiEntry.definitions : [];
+          if (definitions.length > 0) {
             const meaningsHeading = documentRef.createElement("h4");
             meaningsHeading.textContent = "Meanings";
             entry.appendChild(meaningsHeading);
             const meanings = documentRef.createElement("ol");
             meanings.className = "gsm-hoshidicts-kanji-meanings";
-            for (const meaning of kanjiEntry.definitions) {
+            for (const meaning of definitions) {
               const item = documentRef.createElement("li");
               item.textContent = meaning;
               meanings.appendChild(item);
@@ -3567,14 +3610,15 @@
             entry.appendChild(meanings);
           }
 
-          if (kanjiEntry.stats.length > 0) {
+          const stats = Array.isArray(kanjiEntry.stats) ? kanjiEntry.stats : [];
+          if (stats.length > 0) {
             const details = documentRef.createElement("details");
             details.className = "gsm-hoshidicts-kanji-stats";
             const summary = documentRef.createElement("summary");
             summary.textContent = "Details";
             details.appendChild(summary);
             const list = documentRef.createElement("dl");
-            for (const stat of kanjiEntry.stats) {
+            for (const stat of stats) {
               const name = documentRef.createElement("dt");
               name.textContent = stat.name;
               const value = documentRef.createElement("dd");
@@ -4007,6 +4051,7 @@
     resolveToolbarPosition,
     calculatePopupPosition,
     scaleRect,
+    popupCoordinateScale,
     createDictionaryDisplayNames,
     createFrequencyTags,
     createPitchTag,

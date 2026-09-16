@@ -371,11 +371,14 @@ button,
   background: var(--surface-sunken);
   box-shadow: 0 4px 12px rgb(0 0 0 / 5%);
 }
-#options-feedback:has(.is-ready) {
+#options-feedback:has(.is-quiet) {
   padding: 0;
   border: 0;
   background: var(--surface);
   box-shadow: none;
+}
+#options-status.is-quiet {
+  color: var(--text-dim);
 }
 #options-feedback:has(.is-error) {
   border-color: var(--error);
@@ -1172,36 +1175,17 @@ textarea {
   overflow-wrap: anywhere;
 }
 .operational-status::before {
-  content: "";
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
   margin-top: 1px;
-  border: 2px solid var(--status-color);
-  border-radius: 50%;
   color: var(--status-color);
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1;
 }
 .operational-status.is-working {
   --status-color: var(--accent);
 }
-.operational-status.is-working::before {
-  content: "…";
-}
 .operational-status.is-ready {
   --status-color: var(--ok);
 }
-.operational-status.is-ready::before {
-  content: "✓";
-}
 .operational-status.is-error {
   --status-color: var(--error);
-}
-.operational-status.is-error::before {
-  content: "!";
 }
 #anki { gap: 16px; }
 #anki .field-hint { margin: 0; }

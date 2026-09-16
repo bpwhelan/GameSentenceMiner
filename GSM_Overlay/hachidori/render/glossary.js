@@ -664,6 +664,10 @@
       return;
     }
 
+    const useNaturalDimensions = !["width", "height", "preferredWidth", "preferredHeight"]
+      .some((key) => Object.prototype.hasOwnProperty.call(value, key))
+      && value.sizeUnits !== "px"
+      && value.sizeUnits !== "em";
     const width = Number.isFinite(Number(value.width)) && Number(value.width) > 0
       ? Number(value.width)
       : 100;
@@ -696,7 +700,8 @@
     const displayWidth = Math.max(0.1, Math.min(maximumSize, usedWidth));
 
     const link = documentRef.createElement("a");
-    link.className = "gloss-image-link";
+    link.className = "gloss-image-link gloss-sc-a";
+    applyStructuredData(link, value.data);
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.dataset.path = path;
@@ -745,7 +750,7 @@
     const overlay = documentRef.createElement("span");
     overlay.className = "gloss-image-container-overlay";
     const image = documentRef.createElement("img");
-    image.className = "gloss-image gsm-hoshidicts-structured-image";
+    image.className = "gloss-image gloss-sc-img gsm-hoshidicts-structured-image";
     image.alt = isRecord(value.data) && typeof value.data.alt === "string"
       ? value.data.alt.slice(0, 1024)
       : typeof value.alt === "string"
@@ -849,6 +854,11 @@
       if (onError) image.removeEventListener("error", onError);
       onLoad = () => {
         if (!canPublish() || image.hidden) return;
+        if (useNaturalDimensions && image.naturalWidth > 0 && image.naturalHeight > 0) {
+          const naturalWidth = Math.max(0.1, Math.min(MAX_MEDIA_DISPLAY_SIZE, image.naturalWidth));
+          container.style.width = `${naturalWidth}px`;
+          sizer.style.paddingTop = `${Math.min(10_000, image.naturalHeight / image.naturalWidth * 100)}%`;
+        }
         link.dataset.imageLoadState = "loaded";
         onLayoutChange();
         state.refreshImagePreview?.(link, image);
@@ -1155,7 +1165,7 @@
       const icon = documentRef.createElement("span");
       icon.className = "gloss-link-external-icon";
       icon.setAttribute("aria-hidden", "true");
-      icon.textContent = "↗";
+
       element.appendChild(icon);
     }
     if (tag === "table") {

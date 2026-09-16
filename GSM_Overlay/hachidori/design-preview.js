@@ -12,7 +12,10 @@
   stylesheet.href = "render/reader.css";
   const popup = document.createElement("div");
   popup.className = "gsm-hoshidicts-popup";
-  shadow.append(stylesheet, popup);
+  const iconStylesheet = document.createElement("link");
+  iconStylesheet.rel = "stylesheet";
+  iconStylesheet.href = "icons.css";
+  shadow.append(stylesheet, iconStylesheet, popup);
   const source = document.getElementById("preview-source");
   const candidate = { query: "食べる", sentence: source.textContent,
     sourceElements: [source], matchOffset: source.textContent.indexOf("食べる") };
@@ -75,8 +78,9 @@
   });
 
   function positionPopup(resetToolbar = false) {
-    const position = HDPopup.calculatePopupPosition(source.getBoundingClientRect(),
-      { width: options.popupWidthPx, height: options.popupHeightPx }, { width: innerWidth, height: innerHeight });
+    const factor = HDPopup.popupCoordinateScale(1, options.popupScalePercent);
+    const position = HDPopup.calculatePopupPosition(HDPopup.scaleRect(source.getBoundingClientRect(), factor),
+      { width: options.popupWidthPx, height: options.popupHeightPx }, { width: innerWidth * factor, height: innerHeight * factor });
     for (const key of ["left", "top", "width", "height"]) popup.style[key] = `${position[key]}px`;
     const edge = HDPopup.resolveToolbarPosition(options.popupToolbarPosition, position.placement,
       resetToolbar ? "top" : popup.dataset.toolbarPosition);
@@ -89,6 +93,7 @@
     appendStructuredImage: HDGlossary.appendStructuredImage,
     parseTagList: HDGlossary.parseTagList,
     getPopupColumns: () => options.popupColumns,
+    getPopupScalePercent: () => options.popupScalePercent,
     customLinks: options.customLinks,
     positionPopup, sourceHighlightEnabled: true,
     onKanjiClick(character, result, anchor, link) {
@@ -227,7 +232,8 @@
   window.HDDesignPreview = { update(nextOptions, nextState) {
     const toolbarChanged = !state || options.popupToolbarPosition !== nextOptions.popupToolbarPosition;
     const geometryChanged = !state || options.popupColumns !== nextOptions.popupColumns
-      || options.popupWidthPx !== nextOptions.popupWidthPx || options.popupHeightPx !== nextOptions.popupHeightPx;
+      || options.popupWidthPx !== nextOptions.popupWidthPx || options.popupHeightPx !== nextOptions.popupHeightPx
+      || options.popupScalePercent !== nextOptions.popupScalePercent;
     if (!state || options.sourceHighlightEnabled !== nextOptions.sourceHighlightEnabled) {
       view.setSourceHighlightEnabled(nextOptions.sourceHighlightEnabled);
     }
@@ -239,6 +245,7 @@
     options = { ...nextOptions };
     view.setCustomLinks(options.customLinks);
     updateSampleAudio();
+    if (geometryChanged) view.hideImagePreview();
     if (geometryChanged || toolbarChanged) positionPopup(toolbarChanged);
     if (geometryChanged || cssChanged) view.scheduleMasonry();
     if (countsChanged) paintSampleLookupStats();

@@ -69,7 +69,7 @@ export function createAudioSettingsController({ document, readSources, editSourc
     // control values below, never interpolated into HTML.
     element.innerHTML = `<div class="audio-source-heading">
       <label class="audio-source-enabled"><input class="audio-enabled" type="checkbox"><span class="audio-number"></span></label>
-      <div class="audio-source-actions"><button type="button" class="ghost audio-up">↑</button><button type="button" class="ghost audio-down">↓</button>
+      <div class="audio-source-actions"><button type="button" class="ghost audio-up"><span class="hd-icon" data-icon="arrow-up" aria-hidden="true"></span></button><button type="button" class="ghost audio-down"><span class="hd-icon" data-icon="arrow-down" aria-hidden="true"></span></button>
       <button type="button" class="ghost audio-remove">Remove</button></div></div>
       <label class="field"><span class="field-label">Source type</span><select class="audio-type"></select></label>
       <label class="field audio-url-field"><span class="field-label">URL template</span><input class="audio-url" type="text" spellcheck="false" autocomplete="off"></label>

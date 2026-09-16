@@ -31,8 +31,14 @@ lines; the repository's root `LICENSE` has the full GNU GPL version 3 text.
   submodule. Licensed under GPL-3.0.
 
 - **[Yomitan GSM](https://github.com/bpwhelan/yomitan-gsm)** — the dark popup
-  palette adapted by `reader.css`. Licensed under GPL-3.0-or-later. Its Anki
-  icons are *not* copied here; the mining surface they belonged to was removed.
+  palette adapted by `reader.css`. Licensed under GPL-3.0-or-later.
+
+- **[Microsoft Fluent System Icons](https://github.com/microsoft/fluentui-system-icons)**
+  — native action and status icons use the 20px Regular SVG subset in
+  `../icons/fluent/`. That directory includes the MIT license and a
+  `sources.json` manifest pinning the upstream revision and original paths.
+  `scripts/vendor-fluent-icons.py` generates the local `../icons.css` masks;
+  icons inherit theme colors and require no runtime external requests.
 
 Dictionary archives are not redistributed. Imported dictionaries keep whatever
 source, license, and attribution metadata their own index carries, and any CSS a
