@@ -83,7 +83,8 @@ export function recommendedDictionarySource(sourceId) {
 // or its exact update index, never through a display name.
 export function installedRecommendedDictionary(entry, dictionaries) {
   return dictionaries.find((dictionary) =>
-    dictionary.sourceId === entry.sourceId || dictionary.indexUrl === entry.indexUrl) ?? null;
+    dictionary.sourceId === entry.sourceId
+      || (entry.indexUrl !== null && dictionary.indexUrl === entry.indexUrl)) ?? null;
 }
 
 export function recommendedDictionaryInstalled(entry, dictionaries) {
@@ -110,6 +111,7 @@ export function assertRecommendedDictionary(source, dictionary) {
 export function managedDictionarySource(dictionary) {
   const recommended = recommendedDictionarySource(dictionary?.sourceId);
   if (recommended !== null) {
+    if (recommended.indexUrl === null) return null;
     return {
       kind: "recommended",
       sourceId: recommended.sourceId,

@@ -23,8 +23,6 @@ button:focus-visible { outline: 3px solid #7765dc; outline-offset: 3px; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .actions button { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 4px 9px; border: 1px solid #e0e0eb; border-radius: 9px; color: #51516a; background: #fff; font-size: 11px; }
 .actions button:hover { background: #f1edf9; border-color: #c9bedf; }
-.actions svg { width: 21px; height: 21px; }
-.record-dot { fill: #d96373; stroke: none; }
 .actions .is-recording { color: #a62e46; border-color: #e8b5bf; background: #fff0f3; }
 .error { margin: 10px 0 0; color: #a62e46; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 @media (prefers-color-scheme: dark) {

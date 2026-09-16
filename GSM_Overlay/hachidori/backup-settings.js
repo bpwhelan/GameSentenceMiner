@@ -1,17 +1,20 @@
 // Explicit complete backup/restore controls; the engine owns preparation tokens.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { downloadBlob } from "./blob-download.js";
+
 export function createBackupSettingsController({
-  document, send, download, checkReady, setBusy, status, refresh, exportAvailable = true,
+  document, send, download, checkReady, setBusy, status, refresh,
   trackPreparation = () => {}, cancelPreparation = () => {},
 }) {
   const element = id => document.getElementById(id);
   const window = document.defaultView;
   let busy = false, prepared = null;
   let preparingToken = null;
+  let exportedUrl = null;
   let pageEpoch = 0;
 
   function render() {
-    element("backup-export").disabled = busy || !exportAvailable;
+    element("backup-export").disabled = busy;
     element("backup-file").disabled = busy;
     element("backup-cancel").disabled = busy;
     element("backup-restore").disabled = busy || !prepared || !element("backup-confirm").checked;
@@ -48,9 +51,30 @@ export function createBackupSettingsController({
     render();
   }
 
+  async function releaseExport() {
+    if (!exportedUrl) return;
+    const reply = await send("hd_backup_release", { blobUrl: exportedUrl });
+    if (!reply?.ok) throw new Error(reply?.error || "Could not release the temporary backup archive. Try exporting again.");
+    exportedUrl = null;
+  }
+
   element("backup-export").addEventListener("click", () => {
-    if (!exportAvailable) return;
     void run("Creating the backup archive…", async () => {
+      if (!download) {
+        await releaseExport();
+        const exported = await send("hd_backup_export");
+        if (!exported.ok) throw new Error(exported.error || "Could not create the backup.");
+        exportedUrl = exported.blobUrl;
+        let blob;
+        // A failure here leaves exportedUrl set; the next export click retries the release.
+        const response = await window.fetch(exported.blobUrl);
+        if (!response.ok) throw new Error("Could not read the backup archive.");
+        blob = await response.blob();
+        await releaseExport();
+        downloadBlob(document, blob, `hachidori-backup-${new Date().toISOString().slice(0, 10)}.zip`);
+        status("Save requested. Choose where to save the backup in your app’s save dialog.", "ready", true);
+        return;
+      }
       const reply = await download();
       if (!reply.ok) throw new Error(reply.error || "Could not create the backup.");
       status(reply.warning || "Download started. Check Chrome’s downloads for progress.", reply.warning ? "" : "ready", true);
@@ -143,6 +167,11 @@ export function createBackupSettingsController({
       void send("hd_backup_cancel", { token })
         .then(reply => { if (reply.ok) trackPreparation(token, false); })
         .catch(() => {});
+    }
+    if (exportedUrl) {
+      const blobUrl = exportedUrl;
+      exportedUrl = null;
+      void send("hd_backup_release", { blobUrl }).catch(() => {});
     }
   });
   render();

@@ -20,6 +20,7 @@ import {
 import { createRecommendedInstallClient } from "./recommended-install-client.js";
 import { applyPageTheme } from "./settings-dom.js";
 import { canDiscoverSharingHost } from "./sharing-protocol.js";
+import { findLocalAudioSource } from "./local-audio-source.js";
 import { recommendedDictionaryInstalled } from "./managed-dictionary-source.js";
 import { RECOMMENDED_DICTIONARIES, describeRecommendedCatalogue } from "./recommended-dictionaries.js";
 import { SETUP_STATE_KEY, SETUP_STAGES, normaliseSetupState } from "./setup-state.js";
@@ -480,7 +481,15 @@ function ankiProgressView(anki = null, complete = false) {
     const marker = document.createElement("span");
     marker.className = "setup-anki-progress-marker";
     marker.setAttribute("aria-hidden", "true");
-    marker.textContent = done ? "✓" : String(index + 1);
+    if (done) {
+      const icon = document.createElement("span");
+      icon.className = "hd-icon";
+      icon.dataset.icon = "checkmark";
+      icon.setAttribute("aria-hidden", "true");
+      marker.append(icon);
+    } else {
+      marker.textContent = String(index + 1);
+    }
     const copy = document.createElement("span");
     copy.className = "setup-anki-progress-copy";
     const label = document.createElement("strong");
@@ -571,6 +580,21 @@ function ankiOutcomeNote(anki) {
   return node;
 }
 
+function localAudioOutcomeNote() {
+  const source = findLocalAudioSource(options.audioSources);
+  if (source === null) return null;
+  const node = paragraph(source.enabled
+    ? "Local audio is configured."
+    : "Local audio is configured but disabled.");
+  node.classList.add("setup-local-audio-outcome");
+  return node;
+}
+
+function ankiOutcomeBody(anki) {
+  const audio = localAudioOutcomeNote();
+  return [ankiOutcomeNote(anki), ...(audio === null ? [] : [audio])];
+}
+
 function ankiHeading(anki) {
   switch (anki.status) {
     case "configured": return "Anki is set up";
@@ -625,14 +649,14 @@ function ankiView() {
   if (advanceFailed) {
     cancelCountdown();
     return { heading: ankiHeading(anki),
-      body: [...(anki.status === "configured" ? [ankiProgressView(anki, true)] : []), ankiOutcomeNote(anki)],
+      body: [...(anki.status === "configured" ? [ankiProgressView(anki, true)] : []), ...ankiOutcomeBody(anki)],
       actions: [button("setup-continue", "Continue setup", () => { void advance("practice"); })] };
   }
   if (countdownPaused) cancelCountdown();
   else startCountdown("anki", "practice", "practice", ANKI_RESULT_DISPLAY_MS);
   return {
     heading: ankiHeading(anki),
-    body: [...(anki.status === "configured" ? [ankiProgressView(anki, true)] : []), ankiOutcomeNote(anki),
+    body: [...(anki.status === "configured" ? [ankiProgressView(anki, true)] : []), ...ankiOutcomeBody(anki),
       countdownPaused ? paragraph("Automatic continuation is paused. Continue when you’re ready.") : countdownView()],
     actions: [
       button("setup-continue", "Continue now", () => { void finishCountdown("anki", "practice"); }),

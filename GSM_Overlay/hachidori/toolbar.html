@@ -5,6 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hachidori</title>
+    <link rel="stylesheet" href="icons.css" />
     <link rel="stylesheet" href="toolbar.css" />
   </head>
   <body>
@@ -18,11 +19,11 @@
       <p id="toolbar-sharing" class="activation-hint" hidden></p>
       <div class="actions">
         <button id="record-screen" type="button" title="Choose a screen, window, or tab to record" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8m-4-5v5"/><circle class="record-dot" cx="12" cy="9.5" r="2.5"/></svg>
+          <span class="hd-icon" data-icon="desktop" aria-hidden="true"></span>
           <span id="record-label">Record screen</span>
         </button>
         <button id="open-settings" type="button" title="Open Hachidori settings">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m9 3-.6 2.5-2 .9L4 5.7 2 9.2 3.9 11v2L2 14.8l2 3.5 2.4-.7 2 .9L9 21h6l.6-2.5 2-.9 2.4.7 2-3.5-1.9-1.8v-2L22 9.2l-2-3.5-2.4.7-2-.9L15 3Z"/><circle cx="12" cy="12" r="3.2"/></svg>
+          <span class="hd-icon" data-icon="settings" aria-hidden="true"></span>
           <span>Settings</span>
         </button>
       </div>

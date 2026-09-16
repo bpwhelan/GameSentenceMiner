@@ -33,7 +33,7 @@ export const OVERLAY_MODE_OPTIONS = Object.freeze({
 // These describe the local reading surface, even while its library is shared.
 export const OVERLAY_LOCAL_OPTION_KEYS = Object.freeze([
   "hoverEnabled", "onlyScanJapaneseText", "lookupMode", "activationKey", "hoverDelayMs", "popupHideDelayMs",
-  "sourceHighlightEnabled", "popupWidthPx", "popupHeightPx", "popupColumns", "popupToolbarPosition", "popupNestingMaxDepth",
+  "sourceHighlightEnabled", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupColumns", "popupToolbarPosition", "popupNestingMaxDepth",
 ]);
 
 // What mining may use in an overlay host, whatever the stored options say.

@@ -59,8 +59,6 @@
 
   // Same character set PR #549 gates lookups on: kana, halfwidth katakana, CJK
   // ideographs (including ext-A and ext-B), and the iteration/repeat marks.
-  const JAPANESE_TOKEN_PATTERN =
-    /^[々-〇〻぀-ヿㇰ-ㇿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ\u{20000}-\u{2fa1f}]+$/u;
   const JAPANESE_CHARACTER_PATTERN =
     /[々-〇〻぀-ヿㇰ-ㇿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ\u{20000}-\u{2fa1f}]/u;
   const TOKEN_BOUNDARY_PATTERN = /[\p{White_Space}\p{Punctuation}\p{Symbol}]/u;
@@ -144,6 +142,7 @@
       activeTermRender: null, currentViewRequest: null, noteEditing: false,
       pendingCustomAppends: 0, deferredDictionaryInvalidationRevision: -1,
       deferredRefresh: null, lookupToken: 0, pendingHover: null, pendingLink: null,
+      pendingPopupInteraction: null,
       retainedView: false,
       pendingViewReplay: null,
       blurTimer: null,
@@ -161,6 +160,8 @@
   let pageZoom = 1;
   let pageZoomRatio = null;
   let pageZoomRequest = 0;
+  let sessionPopupSize = null;
+  let popupResize = null;
 
   let styleGeneration = -1;
   let styleRequest = null;
@@ -348,7 +349,7 @@
 
   function isJapaneseToken(text) {
     const token = text.split(TOKEN_BOUNDARY_PATTERN, 1)[0];
-    return token.length > 0 && JAPANESE_TOKEN_PATTERN.test(token);
+    return JAPANESE_CHARACTER_PATTERN.test(token);
   }
 
   function computedStyleFor(element, styleCache) {
@@ -1391,11 +1392,12 @@
   // one on-screen size, so its lengths are unzoomed pixels and page geometry is
   // converted into them before placement.
   function popupRect(rect) {
-    return window.HDPopup.scaleRect(rect, pageZoom);
+    return window.HDPopup.scaleRect(rect, window.HDPopup.popupCoordinateScale(pageZoom, options.popupScalePercent));
   }
 
   function popupViewport() {
-    return { width: window.innerWidth * pageZoom, height: window.innerHeight * pageZoom };
+    const factor = window.HDPopup.popupCoordinateScale(pageZoom, options.popupScalePercent);
+    return { width: window.innerWidth * factor, height: window.innerHeight * factor };
   }
 
   function applyPageZoom() {
@@ -1417,7 +1419,7 @@
   }
 
   function calculatePopupPosition(anchorRect, viewport, vertical) {
-    return window.HDPopup.calculatePopupPosition(anchorRect, {
+    return window.HDPopup.calculatePopupPosition(anchorRect, sessionPopupSize ?? {
       width: options.popupWidthPx, height: options.popupHeightPx,
     }, viewport, { gap: POPUP_GAP_PX, padding: POPUP_PADDING_PX, vertical });
   }
@@ -1425,6 +1427,18 @@
   function anchorRectFor(candidate) {
     if (candidate.anchorRange) {
       try {
+        const first = candidate.scanEntries?.[0];
+        if (first && !candidate.linkAnchor && candidate.exactSelection !== true) {
+          const origin = document.createRange();
+          origin.setStart(first.node, first.offset);
+          origin.setEnd(first.node, first.offset + first.sourceLength);
+          const glyph = origin.getBoundingClientRect();
+          const x = (glyph.left + glyph.right) / 2;
+          const y = (glyph.top + glyph.bottom) / 2;
+          const fragment = [...candidate.anchorRange.getClientRects()].find(rect =>
+            rect.left <= x && rect.right >= x && rect.top <= y && rect.bottom >= y);
+          if (fragment) return fragment;
+        }
         const rect = candidate.anchorRange.getBoundingClientRect();
         if (rect && Number.isFinite(rect.left) && (rect.width > 0 || rect.height > 0)) {
           return rect;
@@ -1471,7 +1485,7 @@
     return false;
   }
 
-  function lookupFailureState(error) {
+  function lookupFailureState(error, request = null) {
     const message = error instanceof Error ? error.message : String(error);
     if (error?.code === "engine-mutating" || message === "the dictionary engine is busy mutating") {
       return {
@@ -1501,6 +1515,13 @@
         detail: "Open Settings to check the engine status, then try again.",
       };
     }
+    if (request?.kind === "kanji") {
+      return {
+        kind: "kanji",
+        title: "Kanji lookup failed.",
+        detail: "The current definition is still available. Try again.",
+      };
+    }
     return null;
   }
 
@@ -1521,7 +1542,7 @@
   function handleLookupFailure(token, error, level = rootLevel, request = null, preserveView = false) {
     if (disposed || level.retired || token !== level.lookupToken) return false;
     console.debug("hachidori: lookup failed", error);
-    const state = lookupFailureState(error);
+    const state = lookupFailureState(error, request);
     if (state === null) {
       if (!preserveView) hide(level);
       return false;
@@ -1564,7 +1585,7 @@
   }
 
   function positionPopup(fromLevel = rootLevel, resetToolbar = false) {
-    if (fromLevel.retired || !rootLevel.popup || rootLevel.popup.hidden || !rootLevel.activeCandidate) {
+    if (fromLevel.retired || fromLevel.popup?.inert || !rootLevel.popup || rootLevel.popup.hidden || !rootLevel.activeCandidate) {
       return;
     }
     if (retireDetachedAncestor(fromLevel)) return;
@@ -1574,7 +1595,7 @@
     }
     highlighter?.refresh();
     if (fromLevel === rootLevel) {
-      const position = calculatePopupPosition(
+      const position = popupResize?.level === rootLevel ? popupResizePosition() : calculatePopupPosition(
         popupRect(anchorRectFor(rootLevel.activeCandidate)),
         popupViewport(),
         rootLevel.activeCandidate.vertical
@@ -1603,8 +1624,8 @@
       }
       positionToolbar(level, "beside", resetToolbar);
       const anchorRect = popupRect(anchorRectFor(level.activeCandidate));
-      const width = Math.min(options.popupWidthPx, viewport.width - POPUP_PADDING_PX * 2);
-      const height = Math.min(options.popupHeightPx, viewport.height - POPUP_PADDING_PX * 2);
+      const width = Math.min(sessionPopupSize?.width ?? options.popupWidthPx, viewport.width - POPUP_PADDING_PX * 2);
+      const height = Math.min(sessionPopupSize?.height ?? options.popupHeightPx, viewport.height - POPUP_PADDING_PX * 2);
       const rightRoom = viewport.width - parentRect.right - POPUP_GAP_PX - POPUP_PADDING_PX;
       const leftRoom = parentRect.left - POPUP_GAP_PX - POPUP_PADDING_PX;
       const preferredLeft = rightRoom >= width || rightRoom >= leftRoom
@@ -1616,6 +1637,13 @@
       level.popup.style.top = `${top}px`;
       level.popup.style.width = `${width}px`;
       level.popup.style.height = `${height}px`;
+      if (popupResize?.level === level) {
+        const position = popupResizePosition();
+        level.popup.style.left = `${position.left}px`;
+        level.popup.style.top = `${position.top}px`;
+        level.popup.style.width = `${position.width}px`;
+        level.popup.style.height = `${position.height}px`;
+      }
       // Each parent box is read once, after its own placement, not once per
       // ancestor for every descendant. Narrow viewports may overlap panes.
       parentRect = popupRect(level.popup.getBoundingClientRect());
@@ -1634,8 +1662,54 @@
     if (popupLayouts.size === 0) cancelPopupLayout();
   }
 
+  function popupResizePosition() {
+    const viewport = popupViewport();
+    const left = Math.min(popupResize.left, viewport.width - POPUP_PADDING_PX);
+    const top = Math.min(popupResize.top, viewport.height - POPUP_PADDING_PX);
+    return { left, top, placement: "beside",
+      width: Math.min(sessionPopupSize.width, viewport.width - left - POPUP_PADDING_PX),
+      height: Math.min(sessionPopupSize.height, viewport.height - top - POPUP_PADDING_PX) };
+  }
+
+  function startPopupResize(event, level) {
+    if (event.button !== 0 || level.retired) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const rect = popupRect(level.popup.getBoundingClientRect());
+    const minimum = popupRect(handle.getBoundingClientRect());
+    cancelCandidateScan();
+    clearHideTimer();
+    clearTransferTimer();
+    clearDescendantTimer();
+    sessionPopupSize = { width: rect.width, height: rect.height };
+    popupResize = { level, handle, pointerId: event.pointerId, ...rect,
+      x: event.clientX, y: event.clientY, minimum };
+    handle.setPointerCapture(event.pointerId);
+  }
+
+  function movePopupResize(event) {
+    if (!popupResize || event.pointerId !== popupResize.pointerId) return;
+    if ((event.buttons & 1) === 0) { stopPopupResize(); return; }
+    const drag = popupResize;
+    const factor = window.HDPopup.popupCoordinateScale(pageZoom, options.popupScalePercent);
+    sessionPopupSize = {
+      width: Math.max(drag.minimum.width, drag.width + (event.clientX - drag.x) * factor),
+      height: Math.max(drag.minimum.height, drag.height + (event.clientY - drag.y) * factor),
+    };
+    const position = popupResizePosition();
+    sessionPopupSize = { width: position.width, height: position.height };
+    positionPopup();
+  }
+
+  function stopPopupResize() {
+    if (!popupResize) return;
+    const { handle, pointerId } = popupResize;
+    popupResize = null;
+    if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+  }
+
   function queueMasonry(level, layout) {
-    if (disposed || level.retired || level.popup.hidden) return;
+    if (disposed || level.retired || level.popup.hidden || level.popup.inert) return;
     popupLayouts.set(level, layout);
     if (popupLayoutFrame !== null) return;
     // Lay out every dirty pane before placing the chain once in this frame.
@@ -1646,7 +1720,7 @@
       popupLayoutFrame = null;
       let owner = null;
       for (const [level, layout] of layouts) {
-        if (level.retired || level.popup.hidden) continue;
+        if (level.retired || level.popup.hidden || level.popup.inert) continue;
         layout();
         if (!owner || level.depth < owner.depth) owner = level;
       }
@@ -1696,7 +1770,9 @@
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    const text = await response.text();
+    const iconResponse = await fetch(chrome.runtime.getURL("icons.css"));
+    if (!iconResponse.ok) throw new Error(`HTTP ${iconResponse.status}`);
+    const text = `${await response.text()}\n${await iconResponse.text()}`;
     try {
       const sheet = new CSSStyleSheet();
       sheet.replaceSync(text);
@@ -1802,7 +1878,11 @@
       appendStructuredImage: window.HDGlossary.appendStructuredImage,
       document,
       getPageZoom: () => pageZoom,
+      getPopupScalePercent: () => options.popupScalePercent,
       getPopupColumns: () => options.popupColumns,
+      onResizeStart: event => startPopupResize(event, level),
+      onResizeMove: movePopupResize,
+      onResizeEnd: stopPopupResize,
       customLinks: options.customLinks,
       highlightName: HIGHLIGHT_NAME,
       idPrefix: level === rootLevel ? "hoshidicts" : `hoshidicts-${nextLevelId += 1}`,
@@ -2165,6 +2245,7 @@
       document.body.appendChild(host);
     }
     level.popup.hidden = false;
+    level.popup.inert = false;
     level.view.scrollElement.scrollTop = 0;
     syncHostAttention();
   }
@@ -2179,6 +2260,7 @@
     const removed = levels.splice(Math.max(1, depth));
     const focused = removed.some((level) => level.popup?.contains(shadow?.activeElement));
     for (const level of removed.reverse()) {
+      if (popupResize?.level === level) stopPopupResize();
       audio?.retire(level);
       mining?.retire(level);
       clearDefinitionBlurTimer(level);
@@ -2196,6 +2278,7 @@
   }
 
   function hide(level = rootLevel) {
+    if (level === rootLevel || popupResize?.level === level) stopPopupResize();
     audio?.retire(level);
     mining?.retire(level);
     clearDefinitionBlurTimer(level);
@@ -2230,6 +2313,7 @@
     rootLevel.lookupToken += 1;
     if (rootLevel.popup) {
       rootLevel.popup.hidden = true;
+      rootLevel.popup.inert = false;
       rootLevel.view.clear();
       highlighter.clearAll();
     }
@@ -2551,6 +2635,16 @@
     mining?.retire(level);
     const token = (level.lookupToken += 1);
     level.retainedView = replayOptions?.preserveViewControls === true;
+    if (level.popup && !level.popup.hidden && request !== level.currentViewRequest) {
+      pruneLevels(level.depth + 1, false);
+      clearDefinitionBlurTimer(level);
+      level.popup.inert = true;
+      level.currentViewRequest = null;
+      level.activeTermRender = null;
+      level.deferredRefresh = null;
+      level.deferredDictionaryInvalidationRevision = -1;
+      level.noteEditing = false;
+    }
     level.view?.hideImagePreview();
     let reply, capturePin;
     const capturePinPromise = request.capturePinPromise ?? Promise.resolve(rootLevel.capturePin);
@@ -2677,10 +2771,12 @@
       }
       return pending?.promise;
     }
-    pruneLevels(level.depth + 1, false);
-    const child = createLevelState(level.depth + 1);
-    levels.push(child);
-    buildLevelUi(child);
+    pruneLevels(level.depth + 2, false);
+    const child = existing ?? createLevelState(level.depth + 1);
+    if (!existing) {
+      levels.push(child);
+      buildLevelUi(child);
+    }
     child.primaryReading = primaryReading;
     child.focusLinkedBack = focusChild;
     child.activeCandidate = candidate;
@@ -2722,6 +2818,10 @@
     const { candidate, capability, character } = request;
     const useTermDictionary = capability?.kind === "term";
     const token = (level.lookupToken += 1);
+    level.pendingPopupInteraction = token;
+    const finishInteraction = () => {
+      if (level.pendingPopupInteraction === token) level.pendingPopupInteraction = null;
+    };
     level.retainedView = replayOptions?.preserveViewControls === true;
     level.view?.hideImagePreview();
     let reply;
@@ -2730,9 +2830,11 @@
         ? await sendRequest("hd_lookup_dictionary", request.termPayload)
         : await sendRequest("hd_kanji", request.kanjiPayload);
     } catch (error) {
-      return handleRequestFailure(request, token, error, level, replayOptions);
+      finishInteraction();
+      return handleLookupFailure(token, error, level, request, true);
     }
     if (!requestCanRender(token, candidate, level) || level.popup.hidden) {
+      finishInteraction();
       return false;
     }
     noteGeneration(reply.generation, level);
@@ -2742,6 +2844,7 @@
         capability.title
       );
       if (results.length > 0) {
+        finishInteraction();
         return renderTerms(
           results,
           candidate,
@@ -2755,22 +2858,30 @@
       try {
         reply = await sendRequest("hd_kanji", request.kanjiPayload);
       } catch (error) {
-        return handleRequestFailure(request, token, error, level, replayOptions);
+        finishInteraction();
+        return handleLookupFailure(token, error, level, request, true);
       }
       if (!requestCanRender(token, candidate, level) || level.popup.hidden) {
+        finishInteraction();
         return false;
       }
       noteGeneration(reply.generation, level);
     }
     const kanji = reply.kanji;
     if (!kanji || !Array.isArray(kanji.entries) || kanji.entries.length === 0) {
-      if (!retainProtectedReplay(request, token, level, replayOptions)) hide(level);
-      return false;
+      finishInteraction();
+      return handleLookupFailure(token, new Error("kanji lookup returned no usable result"), level, request, true);
+    }
+    const validEntries = kanji.entries.filter((entry) => entry && typeof entry === "object"
+      && typeof entry.dictionary === "string" && entry.dictionary !== "");
+    if (validEntries.length === 0) {
+      finishInteraction();
+      return handleLookupFailure(token, new Error("kanji lookup returned no usable result"), level, request, true);
     }
     const selectedEntries = capability?.kind === "kanji"
-      ? kanji.entries.filter((entry) => entry.dictionary === capability.title)
-      : kanji.entries;
-    const entries = selectedEntries.length > 0 ? selectedEntries : kanji.entries;
+      ? validEntries.filter((entry) => entry.dictionary === capability.title)
+      : validEntries;
+    const entries = selectedEntries.length > 0 ? selectedEntries : validEntries;
     clearDefinitionBlurTimer(level);
     level.currentViewRequest = request;
     level.deferredRefresh = null;
@@ -2791,8 +2902,9 @@
       });
     } catch (error) {
       console.warn("hachidori: could not render kanji", error);
-      hide(level);
-      return false;
+      return handleLookupFailure(token, error, level, request, true);
+    } finally {
+      finishInteraction();
     }
     ensureDictionaryStyles(currentGeneration);
     positionPopup(level);
@@ -2917,6 +3029,10 @@
 
   function cancelCandidateScan() {
     clearScanTimer();
+    if (rootLevel.popup?.inert) {
+      hide();
+      return;
+    }
     // Retaining a rendered popup during transfer must not invalidate its media
     // or deferred glossary. Only an unfinished candidate loses ownership.
     if (pendingCandidateLookup?.token === rootLevel.lookupToken) rootLevel.lookupToken += 1;
@@ -2928,7 +3044,7 @@
     if (
       !child ||
       child.pendingHover?.token !== child.lookupToken ||
-      !child.popup?.hidden
+      (!child.popup?.hidden && !child.popup?.inert)
     ) {
       return;
     }
@@ -3085,7 +3201,7 @@
       return;
     }
     if (
-      rootLevel.popup && !rootLevel.popup.hidden &&
+      rootLevel.popup && !rootLevel.popup.hidden && !rootLevel.popup.inert &&
       rootLevel.activeSignature === signature &&
       sameAnchorNode(candidate, rootLevel.activeCandidate)
     ) {
@@ -3093,13 +3209,11 @@
       return;
     }
     clearHideTimer();
-    // A new valid pointer lookup owns this popup. Retire the previous view
-    // rather than leave its expired glossary/media and Note controls usable.
-    if (rootLevel.popup && !rootLevel.popup.hidden) hide();
     lookupCandidate(candidate, signature);
   }
 
   function onPopupMouseMove(event, level) {
+    if (popupResize) return;
     if (disposed || !options.hoverEnabled || level.retired) {
       return;
     }
@@ -3136,6 +3250,7 @@
   }
 
   function onMouseMove(event) {
+    if (popupResize) return;
     if (disposed || !options.hoverEnabled) {
       return;
     }
@@ -3338,7 +3453,8 @@
     if (rootLevel.popup && !rootLevel.popup.hidden) {
       const focused = levels.find((level) => level.popup.contains(shadow.activeElement));
       const editing = focused?.noteEditing ? focused : levels.findLast((level) => level.noteEditing);
-      if ((editing || focused || levels.at(-1)).view?.closeNoteForm?.() === true) {
+      const noteOwner = editing || focused || levels.at(-1);
+      if (!noteOwner.popup.inert && noteOwner.view?.closeNoteForm?.() === true) {
         event.preventDefault();
         event.stopPropagation();
         return true;
@@ -3385,7 +3501,7 @@
       return true;
     }
     const level = levels.findLast((item) => item.popup && !item.popup.hidden);
-    if (!level?.view) return false;
+    if (!level?.view || level.popup.inert) return false;
     const entry = level.view.currentEntryIndex();
     switch (action) {
       case "nextEntry":
@@ -3487,6 +3603,7 @@
   }
 
   function onMouseOut(event) {
+    if (popupResize) return;
     // A null relatedTarget on a document-level mouseout means the pointer left
     // the window entirely, which mouseleave cannot report from here: it does not
     // bubble, and a capture listener would fire for every element left.
@@ -3499,17 +3616,26 @@
   }
 
   function onWindowBlur() {
+    stopPopupResize();
     if (!disposed) {
       setSelectionDrag(false);
       lastPointer = null;
       activationPressed = false;
       activationCode = null;
       pointerInPopup = false;
+      const interaction = levels.find((level) => !level.popup?.hidden
+        && level.pendingPopupInteraction === level.lookupToken);
+      if (interaction) {
+        interaction.pendingPopupInteraction = null;
+        return;
+      }
       hide();
     }
   }
 
   function onPageHide() {
+    stopPopupResize();
+    sessionPopupSize = null;
     // Navigation can destroy the content owner without blurring the tab.
     // Retire while runtime messaging is alive; a BFCache return can reuse UI.
     audio?.retire();
@@ -3519,6 +3645,7 @@
 
   function onPageShow(event) {
     if (!event.persisted) return;
+    positionPopup();
     // The absolute deadline kept running while the page was cached.
     for (const level of levels) {
       const request = level.currentViewRequest;
@@ -3556,6 +3683,10 @@
     if (!hasProtectedNote()) activeSelectionCandidate = null;
     for (const level of levels) {
       level.view?.hideImagePreview();
+      if (level.popup?.inert) {
+        hide(level);
+        return;
+      }
       level.lookupToken += 1;
       level.retainedView = Boolean(level.currentViewRequest && !level.popup.hidden);
       if (dictionaryChanged && level.popup && !level.popup.hidden) {
@@ -3653,7 +3784,8 @@
     const scanDelayChanged = next.hoverDelayMs !== options.hoverDelayMs && scanTimer !== null;
     const hideDelayChanged = next.popupHideDelayMs !== options.popupHideDelayMs && hideTimer !== null;
     const columnsChanged = next.popupColumns !== options.popupColumns;
-    const sizeChanged = next.popupWidthPx !== options.popupWidthPx || next.popupHeightPx !== options.popupHeightPx;
+    const sizeChanged = next.popupWidthPx !== options.popupWidthPx || next.popupHeightPx !== options.popupHeightPx
+      || next.popupScalePercent !== options.popupScalePercent;
     const toolbarChanged = next.popupToolbarPosition !== options.popupToolbarPosition;
     const highlightChanged = next.sourceHighlightEnabled !== options.sourceHighlightEnabled;
     const summaryChanged = next.showCompactDefinitionSummary !== options.showCompactDefinitionSummary
@@ -3714,6 +3846,7 @@
     audio?.update(options);
     mining?.update(options);
     appearance?.update(options);
+    if (sizeChanged) for (const level of levels) level.view?.hideImagePreview();
     const cssChanged = customStyle?.update(options.customPopupCss);
     if (highlightChanged) {
       for (const level of levels) level.view?.setSourceHighlightEnabled(options.sourceHighlightEnabled);

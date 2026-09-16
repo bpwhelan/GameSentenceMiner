@@ -23,7 +23,11 @@
     next.dataset.focusKey = "next-background";
     next.title = "Next background";
     next.setAttribute("aria-label", "Next background");
-    next.textContent = "→";
+    const icon = scene.ownerDocument.createElement("span");
+    icon.className = "hd-icon";
+    icon.dataset.icon = "arrow-right";
+    icon.setAttribute("aria-hidden", "true");
+    next.append(icon);
     next.addEventListener("click", () => {
       index = (index + 1) % backgrounds.length;
       show();

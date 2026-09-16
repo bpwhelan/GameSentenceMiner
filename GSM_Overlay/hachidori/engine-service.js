@@ -475,7 +475,7 @@ function withRecommendedSource(dictionary, source) {
   return {
     ...dictionary,
     sourceId: source.sourceId,
-    isUpdatable: true,
+    isUpdatable: source.indexUrl !== null,
     indexUrl: source.indexUrl,
     downloadUrl: source.downloadUrl,
   };

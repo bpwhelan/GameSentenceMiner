@@ -5,6 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hachidori settings</title>
+    <link rel="stylesheet" href="icons.css" />
     <link rel="stylesheet" href="render/reader.css" />
     <link rel="stylesheet" href="settings.css" />
     <link rel="stylesheet" href="dictionary-progress.css" />
@@ -159,6 +160,9 @@
               </button>
               <button type="button" class="ghost" id="dict-bulk-unfavorite">
                 Unfavourite
+              </button>
+              <button type="button" class="ghost danger" id="dict-bulk-remove">
+                Remove
               </button>
             </div>
           </div>
@@ -647,6 +651,14 @@
                     </span>
                   </label>
                 </div>
+                <label class="field">
+                  <span class="field-label">Scale</span>
+                  <span class="input-suffix">
+                    <input id="opt-popup-scale" type="number" min="25" max="500" step="1" />
+                    <span class="suffix">%</span>
+                  </span>
+                  <span class="field-hint">Scale the whole popup, including text and controls. 100% is the default.</span>
+                </label>
                 <p class="field-hint">Popups shrink to fit smaller windows.</p>
                 <label class="field">
                   <span class="field-label">Toolbar position</span>
@@ -979,6 +991,12 @@
               <span class="field-hint">Find your most-used Kiku, Lapis or Senren setup, or check your saved mapping. Open Anki and retry if it was unavailable.</span>
             </div>
             <output id="anki-setup-status" class="operational-status" aria-live="polite" aria-atomic="true" hidden></output>
+            <div class="sharing-actions">
+              <button id="anki-audio-check" type="button" class="ghost">Detect local audio</button>
+              <button id="anki-audio-add" type="button" class="ghost" hidden>Add detected audio source</button>
+            </div>
+            <p class="field-hint">Checks <a href="https://github.com/bee-san/yomitan-audio-fast" target="_blank" rel="noopener noreferrer">Local Audio Server</a> on this device at 127.0.0.1:5050. Keep Anki open. Adding appends a Custom JSON source without changing your existing sources. For custom ports, use <a href="#audio">Audio settings</a>.</p>
+            <output id="anki-audio-status" class="operational-status" aria-live="polite" aria-atomic="true"></output>
           </div>
           <fieldset class="lookup-group">
             <legend>Destination</legend>
@@ -1096,7 +1114,7 @@
             <div>
               <h2>Save a backup</h2>
               <p>Includes every dictionary, media and styles, your personal source, groups, and all saved settings.</p>
-              <p id="backup-export-overlay-help" class="field-hint" hidden>Electron cannot start Chrome downloads here. Restore remains available; export from Hachidori in Chrome.</p>
+
             </div>
             <button id="backup-export" class="ghost" type="button">Export backup</button>
           </div>
@@ -1134,17 +1152,13 @@
           />
         </label>
         <span class="dict-order">
-          <span class="dict-drag" draggable="true" aria-hidden="true"
-            >&#10247;</span
-          >
+          <span class="dict-drag" draggable="true" aria-hidden="true"><span class="hd-icon" data-icon="reorder" aria-hidden="true"></span></span>
           <span class="dict-rank" aria-hidden="true"></span>
         </span>
         <div class="dict-main">
           <div class="dict-heading">
             <span class="dict-title"></span>
-            <span class="dict-favorite" title="Favourite" aria-label="Favourite"
-              >&#9733;</span
-            >
+            <span class="dict-favorite" title="Favourite" aria-label="Favourite"><span class="hd-icon" data-icon="star" aria-hidden="true"></span></span>
           </div>
           <span class="dict-canonical"></span>
           <div class="dict-badges" aria-label="Dictionary entry counts"></div>
@@ -1157,8 +1171,8 @@
             <span class="cell-label">Enabled</span>
           </label>
           <span class="dict-order-actions">
-            <button type="button" class="ghost dict-up" aria-label="Move up" title="Move up">&#8593;</button>
-            <button type="button" class="ghost dict-down" aria-label="Move down" title="Move down">&#8595;</button>
+            <button type="button" class="ghost dict-up" aria-label="Move up" title="Move up"><span class="hd-icon" data-icon="arrow-up" aria-hidden="true"></span></button>
+            <button type="button" class="ghost dict-down" aria-label="Move down" title="Move down"><span class="hd-icon" data-icon="arrow-down" aria-hidden="true"></span></button>
           </span>
         </div>
         <details class="dict-details">
@@ -1231,7 +1245,7 @@
               aria-label="Move group up"
               title="Move group up"
             >
-              &#8593;
+              <span class="hd-icon" data-icon="arrow-up" aria-hidden="true"></span>
             </button>
             <button
               type="button"
@@ -1239,7 +1253,7 @@
               aria-label="Move group down"
               title="Move group down"
             >
-              &#8595;
+              <span class="hd-icon" data-icon="arrow-down" aria-hidden="true"></span>
             </button>
             <button type="button" class="ghost danger dict-group-delete">
               Delete
@@ -1273,7 +1287,7 @@
             aria-label="Move dictionary up"
             title="Move dictionary up"
           >
-            &#8593;
+            <span class="hd-icon" data-icon="arrow-up" aria-hidden="true"></span>
           </button>
           <button
             type="button"
@@ -1281,7 +1295,7 @@
             aria-label="Move dictionary down"
             title="Move dictionary down"
           >
-            &#8595;
+            <span class="hd-icon" data-icon="arrow-down" aria-hidden="true"></span>
           </button>
           <button type="button" class="ghost dict-group-member-remove">
             Remove

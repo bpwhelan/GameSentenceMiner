@@ -118,10 +118,7 @@
       "resources": [
         "overlay-mode.js",
         "render/reader.css",
-        "render/icons/big-circle.svg",
-        "render/icons/add-duplicate-big-circle.svg",
-        "render/icons/overwrite-big-circle.svg",
-        "render/icons/view-note.svg"
+        "icons.css"
       ],
       "matches": [
         "<all_urls>"

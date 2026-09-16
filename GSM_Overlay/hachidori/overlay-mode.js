@@ -7,7 +7,7 @@ export const OVERLAY_MODE = true;
 // browser window. Keep every host-owned capability in one place so shared
 // settings cannot make an unavailable control live again in an overlay.
 export const HOST_CAPABILITIES = Object.freeze({
-  backupExport: !OVERLAY_MODE,
+
   browserShortcuts: !OVERLAY_MODE,
   customLinks: !OVERLAY_MODE,
   localFileAccessPrompt: !OVERLAY_MODE,
