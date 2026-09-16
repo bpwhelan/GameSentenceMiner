@@ -2940,8 +2940,9 @@ def _is_capture_frame_empty(image, sample_step=64):
         ),
     )
     try:
+        pixels = image.load()
         sampled_pixels = [
-            [image.getpixel((x, y)) for x in range(0, image.width, effective_step)]
+            [pixels[x, y] for x in range(0, image.width, effective_step)]
             for y in range(0, image.height, effective_step)
         ]
         return is_image_empty(np.asarray(sampled_pixels), sample_step=1)
