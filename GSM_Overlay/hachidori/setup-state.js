@@ -32,7 +32,7 @@ export const OVERLAY_MODE_OPTIONS = Object.freeze({
 
 // These describe the local reading surface, even while its library is shared.
 export const OVERLAY_LOCAL_OPTION_KEYS = Object.freeze([
-  "hoverEnabled", "onlyScanJapaneseText", "lookupMode", "activationKey", "hoverDelayMs", "popupHideDelayMs",
+  "hoverEnabled", "onlyScanJapaneseText", "lookupMode", "activationKey", "popupHideDelayMs",
   "sourceHighlightEnabled", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupColumns", "popupToolbarPosition", "popupNestingMaxDepth",
 ]);
 

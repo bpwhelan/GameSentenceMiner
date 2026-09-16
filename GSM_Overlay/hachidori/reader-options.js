@@ -81,7 +81,7 @@
     onlyScanJapaneseText: true,
     lookupMode: "activationSticky",
     activationKey: "Shift",
-    hoverDelayMs: 50,
+    hoverDelayMs: 0,
     popupHideDelayMs: 160,
     popupNestingMaxDepth: 10,
     popupTheme: "default",
@@ -446,6 +446,7 @@
   };
 
   function normaliseField(key, value) {
+    if (key === "hoverDelayMs") return 0;
     if (Object.hasOwn(NUMBER_RANGES, key)) return clampOption(key, value);
     if (typeof DEFAULT_OPTIONS[key] === "boolean") {
       return typeof value === "boolean" ? value : DEFAULT_OPTIONS[key];

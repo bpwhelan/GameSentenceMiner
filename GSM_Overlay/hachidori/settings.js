@@ -68,7 +68,6 @@ const STATUS_RETRY_MS = 5000;
 const NUMBER_FIELDS = [
   { key: "scanLength", id: "opt-scan-length" },
   { key: "maxResults", id: "opt-max-results" },
-  { key: "hoverDelayMs", id: "opt-hover-delay" },
   { key: "popupHideDelayMs", id: "opt-hide-delay" },
   { key: "popupNestingMaxDepth", id: "opt-popup-nesting-depth" },
   { key: "popupColumns", id: "opt-popup-columns" },
