@@ -68,13 +68,27 @@ app.whenReady().then(async () => {
     handler.navigateCursorRight(true);
     const newCharacter = handler.getTargetCharForLookup().targetChar.textContent;
     const newIndex = handler.currentCursorIndex;
+    handler.config.initialPosition = 'first-new';
+    handler.navigateCursorLeft();
+    const resumedSelections = [];
+    for (const redraw of [false, true]) {
+      handler.deactivateNavigation();
+      if (redraw) {
+        const block = handler.textBlocks[2];
+        block.replaceWith(block.cloneNode(true));
+      }
+      handler.activateNavigation();
+      resumedSelections.push([handler.currentBlockIndex, handler.getCurrentAnchorCharIndex(),
+        handler.getTargetCharForLookup().targetChar.textContent]);
+    }
+    handler.navigateCursorRight(true);
     api.applyCardState(42, 0, ['mature']);
     const graded = api.getNavigationTokens()[1].states.includes('new');
     api.requestParse([{ text: '違う文章' }]);
     const staleCount = api.getNavigationTokens().length;
     api.setEnabled(false);
     return { sentenceCharacter, spatialBlock, trailResult, ranges, newCharacter, newIndex,
-      graded, staleCount, lookups };
+      resumedSelections, graded, staleCount, lookups };
   })()`);
   assert.equal(result.sentenceCharacter, '犬');
   assert.equal(result.spatialBlock, 2);
@@ -84,6 +98,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(result.ranges, [[0, 2], [4, 5]]);
   assert.equal(result.newCharacter, '猫');
   assert.equal(result.newIndex, 2);
+  assert.deepEqual(result.resumedSelections, [[2, 1, 'は'], [2, 1, 'は']]);
   assert.equal(result.graded, false);
   assert.equal(result.staleCount, 0);
   assert.equal(result.lookups.at(-1), '猫');

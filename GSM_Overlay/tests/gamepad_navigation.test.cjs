@@ -39,6 +39,27 @@ function setup(options = {}) {
   return { handler, context, confirmations: () => confirmations };
 }
 
+function setupActivation(options = {}) {
+  const fixture = setup({ activationMode: 'modifier', initialPosition: 'first-new', ...options });
+  const { handler, context } = fixture;
+  Object.assign(handler, {
+    isActive: false, virtualMouse: {}, navigationAwayHideToken: 0,
+    tokenCacheByBlock: new Map(), pendingTokenizationByBlock: new Map(),
+    pendingTokenizationStartedWhileNavigationActive: new Map(),
+  });
+  context.document = { querySelectorAll: () => handler.textBlocks };
+  context.window.dispatchEvent = () => {};
+  context.CustomEvent = class {};
+  context.setTimeout = () => 1;
+  for (const method of ['publishNavigationActiveState', 'rememberCurrentSelectionSnapshot',
+    'initializeVirtualMousePosition', 'syncVirtualMouseToCurrentSelection', 'showModeIndicator',
+    'syncOverlayFocusState', 'releaseOverlayFocus', 'hideVisuals', 'clearCursorPosition',
+    'closeDictionaryPopups']) {
+    handler[method] = () => {};
+  }
+  return fixture;
+}
+
 test('repeat acceleration ramps smoothly, is bounded, and leaves the default timing intact', () => {
   const { handler } = setup();
   assert.equal(handler.getNavigationRepeatRate(5000), 150);
@@ -124,6 +145,97 @@ test('preferred positions use navigable units and first-new falls back to the st
   handler.currentCursorIndex = 5;
   handler.applyPreferredEntryPosition();
   assert.equal(handler.currentCursorIndex, 0);
+});
+
+test('first-new resumes the moved cursor through repeated navigation activations', () => {
+  const { handler } = setupActivation({ holdNavigation: 'new' });
+  handler.currentCursorIndex = 5;
+  handler.activateNavigation();
+  assert.equal(handler.currentCursorIndex, 0);
+  handler.navigateCursorRight(true);
+  assert.equal(handler.currentCursorIndex, 4);
+  handler.navigateCursorRight();
+  for (const expectedIndex of [5, 4, 3]) {
+    handler.deactivateNavigation();
+    handler.deactivateNavigation();
+    handler.activateNavigation();
+    assert.equal(handler.currentBlockIndex, 0);
+    assert.equal(handler.currentCursorIndex, expectedIndex);
+    handler.navigateCursorLeft();
+  }
+});
+
+test('first-new restores the exact character after an inactive redraw and late tokens', () => {
+  const { handler } = setupActivation({ holdNavigation: 'new' });
+  handler.tokenMode = true;
+  handler.activateNavigation();
+  handler.navigateCursorRight(true);
+  handler.deactivateNavigation();
+  handler.textBlocks[0] = {
+    ...handler.textBlocks[0],
+    chars: handler.characters.map(char => ({ ...char })),
+    querySelectorAll() { return this.chars; },
+  };
+  handler.currentCursorIndex = 0;
+  handler.lineNavPrefersCharacters = false;
+  handler.tokens = [{ word: '猫は犬を見る', start: 0, end: 6 }];
+  handler.activateNavigation();
+  assert.equal(handler.getCurrentAnchorCharIndex(), 4);
+  assert.equal(handler.characters[handler.getCurrentAnchorCharIndex()].textContent, '見');
+});
+
+test('first-new remembers the character anchor when deactivated in token mode', () => {
+  const { handler } = setupActivation();
+  handler.tokenMode = true;
+  handler.tokens = [
+    { word: '猫は', start: 0, end: 2 },
+    { word: '犬を', start: 2, end: 4 },
+    { word: '見る', start: 4, end: 6 },
+  ];
+  handler.activateNavigation();
+  handler.navigateCursorRight();
+  assert.equal(handler.currentCursorIndex, 1);
+  assert.equal(handler.getCurrentAnchorCharIndex(), 2);
+  handler.deactivateNavigation();
+  handler.activateNavigation();
+  assert.equal(handler.getCurrentAnchorCharIndex(), 2);
+});
+
+test('first-new keeps the saved cursor when no unknown words remain', () => {
+  const { handler, context } = setupActivation({ holdNavigation: 'new' });
+  handler.activateNavigation();
+  handler.navigateCursorRight(true);
+  handler.deactivateNavigation();
+  context.window.GsmJitenHighlight.getNavigationTokens = () => [];
+  handler.activateNavigation();
+  assert.equal(handler.currentCursorIndex, 4);
+});
+
+test('first-new selects the first unknown word again when the text changes', () => {
+  const { handler, context } = setupActivation({ holdNavigation: 'new' });
+  handler.activateNavigation();
+  handler.navigateCursorRight(true);
+  handler.deactivateNavigation();
+  handler.textBlocks[0].chars[0].textContent = '虎';
+  context.window.GsmJitenHighlight.getNavigationTokens = () => [
+    { lineIndex: 0, text: '虎は犬を見る', start: 2, end: 3, states: ['new'] },
+  ];
+  handler.activateNavigation();
+  assert.equal(handler.currentCursorIndex, 2);
+});
+
+test('first-new applies to a different block selected while navigation was inactive', () => {
+  const { handler, context } = setupActivation({ holdNavigation: 'new' });
+  handler.activateNavigation();
+  handler.navigateCursorRight(true);
+  handler.deactivateNavigation();
+  handler.currentBlockIndex = 1;
+  context.window.GsmJitenHighlight.getNavigationTokens = () => [
+    { lineIndex: 1, text: '鳥も見る', start: 2, end: 4, states: ['new'] },
+  ];
+  handler.activateNavigation();
+  assert.equal(handler.currentBlockIndex, 1);
+  assert.equal(handler.currentCursorIndex, 2);
 });
 
 test('sentence holds skip closing quotes and punctuation, and respect line scope', () => {

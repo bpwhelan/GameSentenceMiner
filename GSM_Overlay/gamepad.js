@@ -647,6 +647,7 @@ class GamepadHandler {
     this.currentBlockIndex = -1; // Currently selected text block
     this.currentCursorIndex = 0; // Cursor position within block (now token index)
     this.currentLineIndex = 0; // Line within the current block
+    this.deactivatedSelection = null; // Character anchor to resume when re-entering unchanged text
     this.textBlocks = []; // Array of text block elements
     this.characters = []; // Characters in current block
     this.lines = []; // Line metadata for current block
@@ -3485,7 +3486,9 @@ class GamepadHandler {
       this.currentCursorIndex = 0;
     }
 
-    this.applyPreferredEntryPosition();
+    if (!this.restoreDeactivatedSelection()) {
+      this.applyPreferredEntryPosition();
+    }
     this.initializeVirtualMousePosition();
     
     this.updateVisuals();
@@ -3516,6 +3519,14 @@ class GamepadHandler {
       return;
     }
     
+    this.deactivatedSelection = this.config.initialPosition === 'first-new' && this.characters.length > 0
+      ? {
+        blockIndex: this.currentBlockIndex,
+        text: this.getBlockText(this.currentBlockIndex, true),
+        charIndex: this.getCurrentAnchorCharIndex(),
+      }
+      : null;
+
     this.closeDictionaryPopups();
     this.isActive = false;
     this.publishNavigationActiveState(false);
@@ -5420,6 +5431,25 @@ class GamepadHandler {
       this.config.onCursorChange({ cursorIndex: this.currentCursorIndex,
         character: this.characters[this.currentCursorIndex], totalCharacters: this.characters.length, isToken: false });
     }
+    return true;
+  }
+
+  restoreDeactivatedSelection() {
+    const selection = this.deactivatedSelection;
+    this.deactivatedSelection = null;
+    if (this.config.initialPosition !== 'first-new' || !selection ||
+      selection.blockIndex !== this.currentBlockIndex ||
+      selection.text !== this.getBlockText(this.currentBlockIndex, true) ||
+      selection.charIndex < 0 || selection.charIndex >= this.characters.length) {
+      return false;
+    }
+
+    // Preserve the exact anchor even if token boundaries changed while inactive.
+    // Ordinary navigation restores the configured character/token mode on its next tap.
+    this.lineNavPrefersCharacters = true;
+    this.currentCursorIndex = selection.charIndex;
+    this.currentLineIndex = this.getLineIndexForCursor();
+    this.syncVirtualMouseToCurrentSelection();
     return true;
   }
 
