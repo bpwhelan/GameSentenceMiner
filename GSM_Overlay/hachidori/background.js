@@ -8,6 +8,15 @@ import { lookupAnkiIndex } from "./anki-index.js";
 import { ANKI_INDEX_ALARM, ANKI_INDEX_KEY, ankiIndexConfigurationChange, createAnkiDuplicateIndex } from "./anki-index-cache.js";
 import { createBackupDownloads } from "./backup-downloads.js";
 import { assertBackupSnapshot, backupRevisions } from "./backup-state.js";
+import {
+  AUTOMATIC_BACKUP_ALARM,
+  AUTOMATIC_BACKUPS_KEY,
+  automaticBackupDue,
+  automaticBackupStore,
+  nextAutomaticBackupTime,
+  replaceAutomaticBackup,
+  validAutomaticBackups,
+} from "./backup-automatic.js";
 import { SHARING_HOST_ALARM, SHARING_KEY, createSharingHost } from "./sharing-host.js";
 import { NOT_REACHABLE, SHARING_LOCAL_STATE_KEY, createSharingClient } from "./sharing-client.js";
 import {
@@ -115,6 +124,9 @@ function waitForAnkiIdle() {
   return new Promise(resolve => ankiIdleWaiters.add(resolve));
 }
 let backupDownloads;
+let automaticBackupRun = null;
+let automaticBackupNextAt = null;
+let automaticBackupWaitingForState = false;
 // One first-run Anki detection at a time; duplicate startup pages share it.
 let ankiSetupDetection = null;
 
@@ -128,6 +140,7 @@ const LEGACY_DICTIONARIES_KEY = "dictionaries";
 const OPTIONS_KEY = "options";
 const UPDATE_SETTINGS_KEY = "dictionaryUpdates";
 const UPDATE_ALARM = "hachidori-managed-dictionary-updates";
+const AUTOMATIC_BACKUP_RETRY_MS = 60 * 60 * 1000;
 const DICTIONARY_STATE_SCHEMA_VERSION = 1;
 const KANJI_SELECTION_KINDS = new Set(["term", "kanji"]);
 const alarms = chrome.alarms ?? {
@@ -804,6 +817,159 @@ function assertBackupEngineSender(sender) {
   }
 }
 
+class AutomaticBackupNotReadyError extends Error {}
+
+async function readBackupPayload() {
+  const { snapshot } = await WORKER_HANDLERS.hd_backup_base_read();
+  const stored = await chrome.storage.local.get(null);
+  const descriptor = stored[LOOKUP_STATS_KEY] === undefined ? emptyLookupStats() : stored[LOOKUP_STATS_KEY];
+  assertLookupStatsDescriptor(descriptor);
+  const prefix = lookupStatsPrefix(descriptor);
+  const lookupStatsRows = Object.entries(stored).filter(([key]) => key.startsWith(prefix)).map(([key, row]) => {
+    if (lookupStatsKey(descriptor, row) !== key) throw new Error("The lookup statistics row does not match its key.");
+    return row;
+  });
+  assertLookupStatsRows(descriptor, lookupStatsRows);
+  return { snapshot: {
+    state: snapshot.state,
+    options: { ...projectStoredOptions(snapshot.options), revision: optionsRevision(snapshot.options) },
+    document: normaliseCustomDictionaryDocument(snapshot.document),
+    updates: normaliseUpdateSettings(snapshot.updates),
+    lookupStats: descriptor,
+  }, lookupStatsRows };
+}
+
+async function commitAutomaticBackupStore(current, next) {
+  try {
+    await chrome.storage.local.set({ [AUTOMATIC_BACKUPS_KEY]: next });
+    return;
+  } catch (commitError) {
+    let readback;
+    try {
+      readback = (await chrome.storage.local.get(AUTOMATIC_BACKUPS_KEY))[AUTOMATIC_BACKUPS_KEY];
+    } catch (readError) {
+      throw new Error(
+        `automatic backup metadata commit outcome is unknown: ${describe(commitError)}; `
+        + `readback failed: ${describe(readError)}`,
+      );
+    }
+    if (sameJsonValue(readback, next)) return;
+    if (sameJsonValue(readback, current)) throw commitError;
+    throw new Error(
+      `automatic backup metadata commit outcome is unknown: ${describe(commitError)}; `
+      + "readback did not match the previous or replacement index",
+    );
+  }
+}
+
+function automaticBackupSummary(record) {
+  return {
+    id: record.id,
+    createdAt: record.createdAt,
+    dictionaries: record.snapshot.state.dictionaries.map(({ title, enabled }) => ({ title, enabled })),
+    customEntryCount: parseCustomDictionary(record.snapshot.document.text).entries.length,
+  };
+}
+
+async function scheduleAutomaticBackup(when) {
+  const scheduledTime = Math.max(Date.now(), when);
+  const existing = await alarms.get(AUTOMATIC_BACKUP_ALARM);
+  if (existing?.scheduledTime !== scheduledTime || existing.periodInMinutes !== undefined) {
+    await alarms.create(AUTOMATIC_BACKUP_ALARM, { when: scheduledTime });
+  }
+  automaticBackupNextAt = when;
+}
+
+async function suppressAutomaticBackupsWhileLinked() {
+  automaticBackupNextAt = null;
+  automaticBackupWaitingForState = false;
+  await alarms.clear(AUTOMATIC_BACKUP_ALARM);
+  return { created: false, linked: true };
+}
+
+async function reconcileAutomaticBackups() {
+  if (sharingLinked) return suppressAutomaticBackupsWhileLinked();
+  const result = await serialiseStorage(async () => {
+    if (sharingLinked) return { created: false, linked: true };
+    const current = (await chrome.storage.local.get(AUTOMATIC_BACKUPS_KEY))[AUTOMATIC_BACKUPS_KEY];
+    const store = automaticBackupStore(current);
+    const checkedAt = Date.now();
+    if (!automaticBackupDue(store, checkedAt)) {
+      return { created: false, nextAt: nextAutomaticBackupTime(store, checkedAt) };
+    }
+    const payload = await readBackupPayload();
+    try {
+      await assertBackupSnapshot(payload.snapshot);
+    } catch (error) {
+      throw new AutomaticBackupNotReadyError(describe(error), { cause: error });
+    }
+    const createdAt = Date.now();
+    if (!automaticBackupDue(store, createdAt)) {
+      return { created: false, nextAt: nextAutomaticBackupTime(store, createdAt) };
+    }
+    const record = {
+      id: crypto.randomUUID(),
+      createdAt: new Date(createdAt).toISOString(),
+      snapshot: payload.snapshot,
+      lookupStatsRows: payload.lookupStatsRows,
+    };
+    const next = await replaceAutomaticBackup(store, record);
+    await commitAutomaticBackupStore(current, next);
+    return {
+      created: true,
+      record,
+      nextAt: nextAutomaticBackupTime(next, createdAt),
+    };
+  });
+  if (result.linked) return suppressAutomaticBackupsWhileLinked();
+  automaticBackupWaitingForState = false;
+  await scheduleAutomaticBackup(result.nextAt);
+  if (result.created) {
+    try {
+      const cleanup = await relay({
+        target: TARGET,
+        type: "hd_backup_auto_cleanup",
+        requestId: `automatic-backup-cleanup-${result.record.id}`,
+      });
+      if (!cleanup?.ok) throw new Error(cleanup?.error || "the dictionary engine refused automatic backup cleanup");
+    } catch (error) {
+      console.warn("hachidori: automatic backup metadata was committed; deferred generation cleanup failed:", describe(error));
+    }
+  }
+  return result;
+}
+
+function queueAutomaticBackup(force = false) {
+  if (!force && automaticBackupNextAt !== null && Date.now() < automaticBackupNextAt) {
+    return automaticBackupRun ?? Promise.resolve();
+  }
+  if (automaticBackupRun !== null) return automaticBackupRun;
+  const run = sharingReady.then(reconcileAutomaticBackups).catch(async (error) => {
+    if (error instanceof AutomaticBackupNotReadyError) {
+      automaticBackupNextAt = null;
+      automaticBackupWaitingForState = true;
+      return;
+    }
+    automaticBackupWaitingForState = false;
+    const retryAt = Date.now() + AUTOMATIC_BACKUP_RETRY_MS;
+    try { await scheduleAutomaticBackup(retryAt); }
+    catch (alarmError) {
+      console.warn("hachidori: could not schedule an automatic backup retry:", describe(alarmError));
+    }
+    console.warn("hachidori: could not create the automatic backup:", describe(error));
+  }).finally(() => {
+    if (automaticBackupRun === run) automaticBackupRun = null;
+  });
+  automaticBackupRun = run;
+  return run;
+}
+
+async function reconcileAutomaticBackupsAfterSharingTransition() {
+  const previous = automaticBackupRun;
+  if (previous !== null) await previous;
+  await queueAutomaticBackup(true);
+}
+
 const WORKER_HANDLERS = {
   hd_lookup_stats_record(message) { return lookupStatistics(message, true); },
   hd_lookup_stats_read(message) { return lookupStatistics(message, false); },
@@ -837,23 +1003,45 @@ const WORKER_HANDLERS = {
   },
 
   async hd_backup_read() {
-    const { snapshot } = await WORKER_HANDLERS.hd_backup_base_read();
-    const stored = await chrome.storage.local.get(null);
-    const descriptor = stored[LOOKUP_STATS_KEY] === undefined ? emptyLookupStats() : stored[LOOKUP_STATS_KEY];
-    assertLookupStatsDescriptor(descriptor);
-    const prefix = lookupStatsPrefix(descriptor);
-    const lookupStatsRows = Object.entries(stored).filter(([key]) => key.startsWith(prefix)).map(([key, row]) => {
-      if (lookupStatsKey(descriptor, row) !== key) throw new Error("The lookup statistics row does not match its key.");
-      return row;
-    });
-    assertLookupStatsRows(descriptor, lookupStatsRows);
-    return { snapshot: {
-      state: snapshot.state,
-      options: { ...projectStoredOptions(snapshot.options), revision: optionsRevision(snapshot.options) },
-      document: normaliseCustomDictionaryDocument(snapshot.document),
-      updates: normaliseUpdateSettings(snapshot.updates),
-      lookupStats: descriptor,
-    }, lookupStatsRows };
+    return readBackupPayload();
+  },
+
+  async hd_backup_auto_list(_message, sender) {
+    if (!ankiSettingsSender(sender)) {
+      throw new Error("Automatic backups are available only from Hachidori Settings.");
+    }
+    if (sharingLinked) return { backups: [], corruptCount: 0, linked: true };
+    const stored = (await chrome.storage.local.get(AUTOMATIC_BACKUPS_KEY))[AUTOMATIC_BACKUPS_KEY];
+    const { backups, corruptCount } = await validAutomaticBackups(stored);
+    return { backups: backups.slice(0, 2).map(automaticBackupSummary), corruptCount };
+  },
+
+  async hd_backup_auto_get(message, sender) {
+    assertBackupEngineSender(sender);
+    if (typeof message.id !== "string" || message.id === "") {
+      throw new Error("Choose an automatic backup to restore.");
+    }
+    const stored = (await chrome.storage.local.get(AUTOMATIC_BACKUPS_KEY))[AUTOMATIC_BACKUPS_KEY];
+    const { backups } = await validAutomaticBackups(stored);
+    const matches = backups.filter(record => record.id === message.id);
+    if (matches.length !== 1) {
+      throw new Error("This automatic backup is corrupt or no longer retained.");
+    }
+    return { backup: matches[0] };
+  },
+
+  async hd_backup_auto_roots(_message, sender) {
+    assertBackupEngineSender(sender);
+    const stored = (await chrome.storage.local.get(AUTOMATIC_BACKUPS_KEY))[AUTOMATIC_BACKUPS_KEY];
+    const store = automaticBackupStore(stored);
+    const { backups, corruptCount } = await validAutomaticBackups(store);
+    if (corruptCount > 0 || backups.length !== store.backups.length) {
+      return { complete: false, dictionaries: [] };
+    }
+    return {
+      complete: true,
+      dictionaries: backups.flatMap(record => record.snapshot.state.dictionaries),
+    };
   },
 
   async hd_backup_cas(message, sender) {
@@ -2328,7 +2516,7 @@ async function relayEngineRequest(message) {
     backupCancelTail = cancelled.catch(() => {});
     return cancelled;
   }
-  if (message.type !== "hd_backup_prepare") return relay(message);
+  if (!["hd_backup_prepare", "hd_backup_auto_prepare"].includes(message.type)) return relay(message);
   let settlePreparation;
   const preparation = {
     cancelled: false,
@@ -2519,8 +2707,10 @@ async function handleWorkerRequest(message, sender) {
   if (type === "hd_backup_download" && typeof chrome.downloads?.download !== "function") {
     return failureReply(message, new Error("Chrome downloads are unavailable. Export the backup from Hachidori Settings."));
   }
-  if (type === "hd_open_external" && !HOST_CAPABILITIES.customLinks) {
-    return failureReply(message, new Error("Custom toolbar links are unavailable in this overlay."));
+  if (type === "hd_open_external" && HOST_CAPABILITIES.externalLinkHost) {
+    return failureReply(message, new Error(
+      "Custom toolbar links open only from lookup popups in this overlay; the Settings preview cannot launch them.",
+    ));
   }
   await sharingReady;
   if (["hd_anki_discover", "hd_anki_setup", "hd_setup_anki"].includes(type)) await sharingTransitionTail;
@@ -2724,6 +2914,7 @@ const SHARING_HANDLERS = {
       throw error;
     }
     await reconcileUpdateAlarm();
+    await reconcileAutomaticBackupsAfterSharingTransition();
     await applyAnkiIndexRole();
     return { sharing: sharingStatus() };
   },
@@ -2767,6 +2958,7 @@ const SHARING_HANDLERS = {
       });
     });
     await reconcileUpdateAlarm();
+    await reconcileAutomaticBackupsAfterSharingTransition();
     await applyAnkiIndexRole();
     return { sharing: sharingStatus() };
   },
@@ -2797,6 +2989,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   sharingHost?.storageChanged(changes, area);
+  if (area !== "local") return;
+  const relevant = Object.keys(changes).some(key =>
+    SHARED_STATE_KEYS.includes(key) || key.startsWith(LOOKUP_STATS_ROW_PREFIX) || key === SHARING_KEY);
+  if (relevant && (automaticBackupWaitingForState
+      || automaticBackupNextAt !== null && Date.now() >= automaticBackupNextAt)) {
+    void queueAutomaticBackup();
+  }
 });
 
 // A browser install shares by default; the overlay copy is a client, so it
@@ -2819,6 +3018,11 @@ async function initialiseSharing() {
 }
 
 chrome.alarms?.onAlarm?.addListener((alarm) => {
+  if (alarm.name === AUTOMATIC_BACKUP_ALARM) {
+    automaticBackupNextAt = null;
+    void queueAutomaticBackup(true);
+    return;
+  }
   if (alarm.name === ANKI_INDEX_ALARM) {
     void reconcileAnkiIndex();
     return;
@@ -2844,6 +3048,7 @@ chrome.downloads?.onChanged?.addListener(delta => {
 
 function warmUp() {
   void reconcileAnkiIndex();
+  void queueAutomaticBackup(true);
   ensureOffscreen().catch((error) => {
     console.error("hoshidicts: could not create the offscreen document:", describe(error));
   });
@@ -2947,10 +3152,31 @@ async function initialiseUpdateAlarm() {
   }
 }
 
+async function initialiseAutomaticBackupAlarm() {
+  try {
+    await sharingReady;
+    if (sharingLinked) {
+      await alarms.clear(AUTOMATIC_BACKUP_ALARM);
+      return;
+    }
+    const stored = (await chrome.storage.local.get(AUTOMATIC_BACKUPS_KEY))[AUTOMATIC_BACKUPS_KEY];
+    if (stored === undefined) {
+      await queueAutomaticBackup(true);
+      return;
+    }
+    const nextAt = nextAutomaticBackupTime(stored);
+    if (Date.now() >= nextAt) await queueAutomaticBackup(true);
+    else await scheduleAutomaticBackup(nextAt);
+  } catch (error) {
+    console.warn("hachidori: could not reconcile the automatic backup alarm:", describe(error));
+  }
+}
+
 sharingReady = initialiseSharing().catch((error) => {
   console.error("hachidori: could not restore sharing:", describe(error));
 });
 void initialiseUpdateAlarm(); // NOSONAR -- top-level await prevents this MV3 worker from activating.
+void initialiseAutomaticBackupAlarm(); // NOSONAR -- top-level await prevents this MV3 worker from activating.
 void chrome.storage.local.get(OPTIONS_KEY).then(stored =>
   applyCustomJavaScript(chrome, normaliseOptions(stored[OPTIONS_KEY]).customPopupJavascript));
 

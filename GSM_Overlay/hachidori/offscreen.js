@@ -43,6 +43,8 @@ const MUTATION_TYPES = new Set([
   "hd_custom_save",
   "hd_backup_export",
   "hd_backup_prepare",
+  "hd_backup_auto_prepare",
+  "hd_backup_auto_cleanup",
   "hd_backup_restore",
   "hd_backup_cancel",
 ]);

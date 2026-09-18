@@ -18,6 +18,7 @@ export const SETUP_ANKI_STATUSES = Object.freeze(["configured", "already-configu
 // stored options, so an extension update never changes an existing user's
 // reader defaults or overrides a later edit.
 export const FIRST_INSTALL_OPTIONS = Object.freeze({
+  popupTheme: "auto",
   showCompactDefinitionSummary: true,
   compactDefinitionSummaryCount: 2,
 });

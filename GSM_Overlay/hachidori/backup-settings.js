@@ -1,9 +1,10 @@
 // Explicit complete backup/restore controls; the engine owns preparation tokens.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { formatAutomaticBackupAge } from "./backup-automatic.js";
 import { downloadBlob } from "./blob-download.js";
 
 export function createBackupSettingsController({
-  document, send, download, checkReady, setBusy, status, refresh,
+  document, send, download, listAutomatic = null, checkReady, setBusy, status, refresh,
   trackPreparation = () => {}, cancelPreparation = () => {},
 }) {
   const element = id => document.getElementById(id);
@@ -12,6 +13,9 @@ export function createBackupSettingsController({
   let preparingToken = null;
   let exportedUrl = null;
   let pageEpoch = 0;
+  let automaticBackups = [];
+  let automaticTimer = null;
+  let automaticLoadEpoch = 0;
 
   function render() {
     element("backup-export").disabled = busy;
@@ -20,6 +24,9 @@ export function createBackupSettingsController({
     element("backup-restore").disabled = busy || !prepared || !element("backup-confirm").checked;
     element("backup-confirm").disabled = busy;
     element("backup-preview").hidden = prepared === null;
+    for (const button of element("automatic-backup-list").querySelectorAll("button")) {
+      button.disabled = busy;
+    }
   }
 
   async function run(message, operation, requireReady = true) {
@@ -58,6 +65,122 @@ export function createBackupSettingsController({
     exportedUrl = null;
   }
 
+  function renderAutomaticAges() {
+    for (const row of element("automatic-backup-list").children) {
+      const backup = automaticBackups.find(candidate => candidate.id === row.dataset.backupId);
+      if (!backup) continue;
+      const age = formatAutomaticBackupAge(backup.createdAt);
+      row.querySelector(".automatic-backup-age").textContent = age;
+      row.querySelector(".automatic-backup-restore").textContent = `Restore from ${age}`;
+    }
+  }
+
+  function renderAutomaticBackups() {
+    const rows = document.createDocumentFragment();
+    for (const backup of automaticBackups) {
+      const row = element("automatic-backup-template").content.firstElementChild.cloneNode(true);
+      row.dataset.backupId = backup.id;
+      row.querySelector(".automatic-backup-detail").textContent =
+        `${backup.dictionaries.length} dictionaries · ${backup.customEntryCount} personal entries`;
+      const created = row.querySelector(".automatic-backup-created");
+      created.dateTime = backup.createdAt;
+      created.textContent = new Date(backup.createdAt).toLocaleString();
+      row.querySelector(".automatic-backup-restore").addEventListener("click", () => {
+        const age = formatAutomaticBackupAge(backup.createdAt);
+        void run("Checking the automatic backup and validating its dictionary files…", () =>
+          prepareRestore("hd_backup_auto_prepare", { id: backup.id }, `Automatic backup from ${age}`));
+      });
+      rows.append(row);
+    }
+    element("automatic-backup-list").replaceChildren(rows);
+    renderAutomaticAges();
+    render();
+  }
+
+  async function loadAutomaticBackups() {
+    if (!listAutomatic) return;
+    const epoch = ++automaticLoadEpoch;
+    try {
+      const reply = await listAutomatic();
+      if (epoch !== automaticLoadEpoch) return;
+      if (!reply?.ok) throw new Error(reply?.error || "Could not read automatic backups.");
+      automaticBackups = Array.isArray(reply.backups) ? reply.backups : [];
+      renderAutomaticBackups();
+      if (reply.corruptCount > 0) {
+        const count = reply.corruptCount === 1 ? "One automatic backup is" : `${reply.corruptCount} automatic backups are`;
+        element("automatic-backup-status").textContent =
+          `${count} damaged. Any valid older backup remains available below.`;
+      } else if (automaticBackups.length === 0) {
+        element("automatic-backup-status").textContent =
+          "No automatic backup has been created yet.";
+      } else {
+        element("automatic-backup-status").textContent = "";
+      }
+    } catch (error) {
+      if (epoch !== automaticLoadEpoch) return;
+      automaticBackups = [];
+      renderAutomaticBackups();
+      element("automatic-backup-status").textContent =
+        error.message || String(error);
+    }
+  }
+
+  function startAutomaticBackups() {
+    if (!listAutomatic) return;
+    void loadAutomaticBackups();
+    if (automaticTimer === null) {
+      automaticTimer = window.setInterval(renderAutomaticAges, 60_000);
+    }
+  }
+
+  function showPrepared(reply, label) {
+    prepared = reply;
+    element("backup-confirm").checked = false;
+    element("backup-file-name").textContent = label;
+    const created = element("backup-created");
+    created.dateTime = reply.createdAt;
+    created.textContent = new Date(reply.createdAt).toLocaleString();
+    element("backup-count").textContent = `${reply.dictionaries.length} dictionaries · ${reply.customEntryCount} personal entries`;
+    const list = document.createDocumentFragment();
+    for (const dictionary of reply.dictionaries) {
+      const item = document.createElement("li");
+      item.textContent = `${dictionary.title}${dictionary.enabled ? "" : " (disabled)"}`;
+      list.append(item);
+    }
+    element("backup-dictionaries").replaceChildren(list);
+    status(reply.warning || "Backup checked. Nothing has been replaced.", reply.warning ? "" : "ready");
+    render();
+    element("backup-preview-heading").focus();
+  }
+
+  async function prepareRestore(type, fields, label) {
+    const epoch = pageEpoch;
+    await cancelPrepared();
+    if (epoch !== pageEpoch) return;
+    const token = window.crypto.randomUUID();
+    preparingToken = token;
+    trackPreparation(token, true);
+    let reply;
+    try {
+      reply = await send(type, { ...fields, token });
+    } catch (error) {
+      // The engine may have prepared successfully before its reply was lost.
+      try {
+        const cancelled = await send("hd_backup_cancel", { token });
+        if (cancelled.ok) trackPreparation(token, false);
+      } catch { /* Keep the original failure. */ }
+      throw error;
+    } finally {
+      preparingToken = null;
+    }
+    if (!reply.ok) {
+      trackPreparation(token, false);
+      throw new Error(reply.error || "This backup could not be prepared.");
+    }
+    if (epoch !== pageEpoch) return;
+    showPrepared(reply, label);
+  }
+
   element("backup-export").addEventListener("click", () => {
     void run("Creating the backup archive…", async () => {
       if (!download) {
@@ -86,47 +209,12 @@ export function createBackupSettingsController({
     element("backup-file").value = "";
     if (!file) return;
     void run("Checking the archive and preparing fresh dictionary files…", async () => {
-      const epoch = pageEpoch;
-      await cancelPrepared();
-      if (epoch !== pageEpoch) return;
-      const token = window.crypto.randomUUID();
       const blobUrl = window.URL.createObjectURL(file);
-      preparingToken = token;
-      trackPreparation(token, true);
-      let reply;
-      try { reply = await send("hd_backup_prepare", { blobUrl, token }); }
-      catch (error) {
-        // The engine may have prepared successfully before its reply was lost.
-        try {
-          const cancelled = await send("hd_backup_cancel", { token });
-          if (cancelled.ok) trackPreparation(token, false);
-        } catch { /* Keep the original failure. */ }
-        throw error;
-      }
-      finally {
-        preparingToken = null;
+      try {
+        await prepareRestore("hd_backup_prepare", { blobUrl }, file.name);
+      } finally {
         window.URL.revokeObjectURL(blobUrl);
       }
-      if (!reply.ok) {
-        trackPreparation(token, false);
-        throw new Error(reply.error || "This backup could not be prepared.");
-      }
-      if (epoch !== pageEpoch) return;
-      prepared = reply;
-      element("backup-confirm").checked = false;
-      element("backup-file-name").textContent = file.name;
-      element("backup-created").textContent = new Date(reply.createdAt).toLocaleString();
-      element("backup-count").textContent = `${reply.dictionaries.length} dictionaries · ${reply.customEntryCount} personal entries`;
-      const list = document.createDocumentFragment();
-      for (const dictionary of reply.dictionaries) {
-        const item = document.createElement("li");
-        item.textContent = `${dictionary.title}${dictionary.enabled ? "" : " (disabled)"}`;
-        list.append(item);
-      }
-      element("backup-dictionaries").replaceChildren(list);
-      status(reply.warning || "Backup checked. Nothing has been replaced.", reply.warning ? "" : "ready");
-      render();
-      element("backup-preview-heading").focus();
     });
   });
 
@@ -149,11 +237,17 @@ export function createBackupSettingsController({
       status(reply.warning || "Restored successfully.", reply.warning ? "" : "ready", true);
       try { await refresh(); }
       catch { status("Restored successfully. Reopen Settings to refresh this page.", "ready", true); }
+      await loadAutomaticBackups();
     });
   });
 
   window.addEventListener("pagehide", () => {
     pageEpoch += 1;
+    automaticLoadEpoch += 1;
+    if (automaticTimer !== null) {
+      window.clearInterval(automaticTimer);
+      automaticTimer = null;
+    }
     const token = preparingToken ?? prepared?.token;
     preparingToken = null;
     prepared = null;
@@ -174,6 +268,10 @@ export function createBackupSettingsController({
       void send("hd_backup_release", { blobUrl }).catch(() => {});
     }
   });
+  window.addEventListener("pageshow", event => {
+    if (event.persisted) startAutomaticBackups();
+  });
   render();
-  return { render };
+  startAutomaticBackups();
+  return { render, refreshAutomaticBackups: loadAutomaticBackups };
 }

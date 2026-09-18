@@ -6,8 +6,9 @@
 
   function normaliseExternalUrl(value) {
     if (typeof value !== "string") return null;
+    if (/[\u0000-\u001f\u007f]/u.test(value)) return null;
     const source = value.trim();
-    if (/[\u0000-\u001f\u007f]/u.test(source)) return null;
+    if (!/^https?:\/\//iu.test(source)) return null;
     try {
       const url = new URL(source);
       return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password

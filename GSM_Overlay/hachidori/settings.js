@@ -285,7 +285,7 @@ function showSettingsSection(focus = false) {
   updateKeybindSettings();
   updateBackupSettings();
   updateSharingSettings();
-  if (activeSection === "design" && HOST_CAPABILITIES.customLinks) {
+  if (activeSection === "design") {
     customLinkController ??= createCustomLinkSettings({ document,
       readLinks: () => options.customLinks,
       saveLinks: links => { options.customLinks = links; writeOptions(); },
@@ -348,6 +348,7 @@ function updateAnkiSettings() {
 
 // While linked, archives and backups belong to the host; the notices say so.
 function renderSharingLink(value) {
+  const wasLinked = sharingLinkedAddress !== null;
   sharingLinkedAddress = typeof value?.client?.address === "string" ? value.client.address : null;
   const linked = sharingLinkedAddress !== null;
   localAudioSetup?.render();
@@ -356,6 +357,10 @@ function renderSharingLink(value) {
   element("sharing-backup-notice").hidden = !linked;
   element("import-drop-zone").hidden = linked;
   for (const node of document.querySelectorAll("#backup > .backup-action, #backup > .section-note")) node.hidden = linked;
+  element("automatic-backups").hidden = linked;
+  if (wasLinked && !linked) {
+    void backupController?.refreshAutomaticBackups();
+  }
 }
 
 // Save the pinned release through a blob download, including in Electron hosts.
@@ -482,6 +487,7 @@ function updateBackupSettings() {
     document, send,
     download: typeof chrome.downloads?.download === "function"
       ? () => send("hd_backup_download", {}, WORKER_TARGET) : null,
+    listAutomatic: () => send("hd_backup_auto_list", {}, WORKER_TARGET),
     trackPreparation: trackBackupPreparation,
     cancelPreparation(token) {
       if (backupLifecycleTokens.has(token)) postBackupLifecycle({ type: "cancel", token });
@@ -581,8 +587,7 @@ function updateDesignPreview() {
   }
   if (frame.style.width !== `${options.popupWidthPx * options.popupScalePercent / 100 + 96}px`
       || frame.style.height !== `${options.popupHeightPx * options.popupScalePercent / 100 + 216}px`) resizeDesignPreview();
-  const previewOptions = HOST_CAPABILITIES.customLinks ? options : { ...options, customLinks: [] };
-  frame.contentWindow.HDDesignPreview?.update(previewOptions, dictionaryState);
+  frame.contentWindow.HDDesignPreview?.update(options, dictionaryState);
 }
 
 function resizeDesignPreview() {
@@ -3298,6 +3303,9 @@ function handleStorageChange(changes, area) {
   if (changes.dictionaryUpdates) {
     if (adoptUpdateSettings(changes.dictionaryUpdates.newValue)) renderUpdateControls();
   }
+  if (changes.automaticBackups) {
+    void backupController?.refreshAutomaticBackups();
+  }
 }
 
 function setOptionsStatus(message, completed = false) {
@@ -3396,8 +3404,8 @@ async function start() {
   element("audio-mining-help").hidden = MINING_CAPABILITIES.browserSpeech;
   element("audio-speech-capture-help").hidden = !MINING_CAPABILITIES.browserSpeech;
   element("media-overlay-help").hidden = HOST_CAPABILITIES.mediaCapture;
-  element("custom-links-settings").disabled = !HOST_CAPABILITIES.customLinks;
-  element("custom-links-overlay-help").hidden = HOST_CAPABILITIES.customLinks;
+  element("custom-links-settings").disabled = false;
+  element("custom-links-overlay-help").hidden = !HOST_CAPABILITIES.externalLinkHost;
   if (HOST_CAPABILITIES.localFileAccessPrompt) {
     createLocalFileAccessController({ document, container: element("settings-local-file-access") });
   }

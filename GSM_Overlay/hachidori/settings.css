@@ -108,6 +108,23 @@
   --favorite: #d1aa71;
 }
 
+:root[data-hoshidicts-theme="autumn"] {
+  --bg: #eee2cb;
+  --surface: #fbf6e9;
+  --surface-sunken: #f3ead8;
+  --border: #96866b;
+  --border-strong: #71634e;
+  --text: #2f3127;
+  --text-dim: #626052;
+  --accent: #4f6232;
+  --accent-fill: #596b3b;
+  --accent-soft: #e1e6d2;
+  --accent-contrast: #fffdf7;
+  --ok: #326b54;
+  --error: #983f35;
+  --favorite: #85520d;
+}
+
 :root[data-hoshidicts-theme="high-contrast"] {
   --border: #777777;
   --border-strong: #ffffff;
@@ -551,6 +568,23 @@ button.danger:hover:not(:disabled) {
 .backup-action > div { flex: 1 1 20rem; }
 .backup-action h2, .backup-preview h2 { margin: 0 0 .5rem; font-size: 1rem; }
 .backup-action p, .backup-preview p { margin: .4rem 0; color: var(--text-dim); }
+.automatic-backups { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; }
+.automatic-backups .backup-action { border-bottom: 0; padding-bottom: .5rem; }
+.automatic-backup-list { display: grid; gap: .75rem; margin: .75rem 0 0; padding: 0; list-style: none; }
+.automatic-backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  background: var(--surface-sunken);
+}
+.automatic-backup-row > div { display: grid; gap: .2rem; min-width: 0; }
+.automatic-backup-age { color: var(--text); }
+.automatic-backup-detail, .automatic-backup-created { color: var(--text-dim); font-size: .9rem; }
+.automatic-backup-restore { flex: none; }
 .backup-status { display: block; margin-top: 1.25rem; }
 .backup-status.is-error { color: var(--error); }
 .backup-preview { margin-top: 1.5rem; padding: 1.5rem; background: var(--surface-sunken); border: 1px solid var(--border); border-radius: .5rem; }
@@ -560,6 +594,11 @@ button.danger:hover:not(:disabled) {
 .backup-confirm { display: flex; align-items: start; gap: .75rem; margin: 1.5rem 0 1rem; }
 .backup-confirm input { flex: none; margin-top: .25rem; }
 .backup-buttons { display: flex; gap: .75rem; flex-wrap: wrap; }
+
+@media (max-width: 36rem) {
+  .automatic-backup-row { align-items: stretch; flex-direction: column; }
+  .automatic-backup-restore { align-self: start; }
+}
 
 .import-row,
 .update-actions,

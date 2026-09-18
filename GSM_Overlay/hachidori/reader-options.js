@@ -149,6 +149,7 @@
   const DEFINITION_BLUR_FREQUENCY_ORDERS = ["auto", "ascending", "descending"];
   // Audited Hoshidicts catalogue from GSM PR #549; palette values live in reader.css.
   const POPUP_THEME_GROUPS = [
+    { label: "Automatic", ids: ["auto"] },
     { label: "Dark", ids: ["default", "miku", "catppuccin-mocha", "solarized-dark", "dark", "synthwave",
       "halloween", "forest", "aqua", "black", "luxury", "dracula", "business", "night", "coffee", "dim", "sunset", "abyss"] },
     { label: "Light", ids: ["girlypop", "solarized-light", "light", "cupcake", "bumblebee", "emerald", "corporate",
@@ -246,8 +247,17 @@
     return result;
   }
 
+  function sameFields(left, right, keys) {
+    return keys.every(key => Object.hasOwn(left, key) && left[key] === right[key]);
+  }
+
   function sameMediaCapture(left, right) {
-    return JSON.stringify(left) === JSON.stringify(right);
+    const keys = Object.keys(DEFAULT_MEDIA_CAPTURE).filter(key => !["texthooker", "page"].includes(key));
+    return Object.hasOwn(left, "texthooker")
+      && Object.hasOwn(left, "page")
+      && sameFields(left, right, keys)
+      && sameFields(left.texthooker, right.texthooker, Object.keys(DEFAULT_MEDIA_CAPTURE.texthooker))
+      && sameFields(left.page, right.page, Object.keys(DEFAULT_MEDIA_CAPTURE.page));
   }
 
   function validMediaCapture(value, normalized) {
