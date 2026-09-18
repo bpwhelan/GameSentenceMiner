@@ -600,6 +600,62 @@ button.danger:hover:not(:disabled) {
   color: var(--text-dim);
   font-size: 13px;
 }
+.import-decision-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 30%);
+}
+.import-decision-dialog::backdrop {
+  background: rgb(0 0 0 / 48%);
+}
+.import-decision-dialog form {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+.import-decision-dialog h2,
+.import-decision-dialog p,
+.import-decision-dialog dl {
+  margin: 0;
+}
+.import-decision-revisions {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-sunken);
+}
+.import-decision-revisions div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+.import-decision-revisions dt {
+  color: var(--text-dim);
+}
+.import-decision-revisions dd {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.import-decision-target {
+  display: grid;
+  gap: 6px;
+}
+.import-decision-target select {
+  width: 100%;
+}
+.import-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .import-state,
 .update-last-checked,
 .update-state,

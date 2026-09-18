@@ -25,6 +25,10 @@ import {
   responseLimitError,
   validResponseRequestId,
 } from "./response-limits.js";
+import {
+  dictionaryArchiveIdentity,
+  dictionaryImportTarget,
+} from "./dictionary-import.js";
 
 /*
  * Owns the single hoshidicts engine instance inside a dedicated Web Worker.
@@ -499,9 +503,17 @@ async function stableDictionaryId(title) {
   return Array.from(digest.subarray(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function packageFromIndex(path) {
+function readDictionaryIndex(path) {
   const json = new TextDecoder().decode(engine.FS.readFile(`${path}/index.json`));
-  const index = parseJson(json, `${path}/index.json`);
+  return parseJson(json, `${path}/index.json`);
+}
+
+function importedIdentityFromIndex(path) {
+  return dictionaryArchiveIdentity(readDictionaryIndex(path));
+}
+
+async function packageFromIndex(path) {
+  const index = readDictionaryIndex(path);
   const title = text(index?.title);
   if (title === "") {
     throw new Error(`${path}/index.json has no dictionary title`);
@@ -789,6 +801,9 @@ async function commitDictionaryCandidate(buildCandidate) {
 function withStoredPresentation(generated, stored) {
   const sourceId = optionalText(stored?.sourceId);
   return {
+    // Preserve fields introduced by newer Hachidori versions or integrations.
+    // Generated engine metadata below replaces only values owned by this import.
+    ...stored,
     ...generated,
     id: optionalText(stored?.id) ?? generated.id,
     displayName: typeof stored?.displayName === "string" ? stored.displayName : null,
@@ -1168,9 +1183,6 @@ function importReplacementIndex(stored, generated, recommendedSource, managedSou
     existingIndex = stored.findIndex((dictionary) =>
       optionalText(dictionary?.sourceId) === recommendedSource.sourceId);
   }
-  if (existingIndex < 0 && generated.indexUrl !== null) {
-    existingIndex = stored.findIndex((dictionary) => dictionary?.indexUrl === generated.indexUrl);
-  }
   if (existingIndex < 0) {
     existingIndex = stored.findIndex((dictionary) =>
       dictionary?.id === generated.id || text(dictionary?.title) === generated.title);
@@ -1224,6 +1236,99 @@ function withImport(stored, generated, recommendedSource, managedSource) {
   return next;
 }
 
+function sameImportedIdentity(left, right) {
+  return left.title === right.title
+    && left.revision === right.revision
+    && left.indexUrl === right.indexUrl
+    && left.downloadUrl === right.downloadUrl;
+}
+
+function interactiveTargetIndex(stored, decision) {
+  const existingIndex = stored.findIndex(dictionary => dictionary?.id === decision.target.id);
+  const existing = stored[existingIndex];
+  if (existingIndex < 0
+      || !sameJsonValue(dictionaryImportTarget(existing), decision.target)) {
+    throw new Error("the chosen dictionary changed while the archive was being imported");
+  }
+  if (decision.matchKind === "title") {
+    if (existing.title !== decision.identity.title) {
+      throw new Error("the chosen dictionary no longer matches the imported title");
+    }
+  } else {
+    if (decision.identity.indexUrl === null
+        || optionalText(existing.indexUrl) !== decision.identity.indexUrl
+        || stored.some(dictionary => dictionary?.title === decision.identity.title)) {
+      throw new Error("the chosen dictionary no longer matches the imported source");
+    }
+  }
+  return existingIndex;
+}
+
+function storedImportIdentityIndex(stored, identity) {
+  const titleIndex = stored.findIndex(dictionary => dictionary?.title === identity.title);
+  if (titleIndex >= 0 || identity.indexUrl === null) return titleIndex;
+  return stored.findIndex(dictionary => optionalText(dictionary?.indexUrl) === identity.indexUrl);
+}
+
+function withInteractiveReplacement(stored, generated, existingIndex) {
+  const current = stored[existingIndex];
+  const collision = stored.some((dictionary, index) =>
+    index !== existingIndex
+      && (dictionary?.id === current.id || dictionary?.title === generated.title));
+  if (collision) {
+    throw new Error(`a dictionary named ${generated.title} is already installed`);
+  }
+  const replacement = {
+    ...withStoredPresentation(generated, current),
+    // A local archive cannot acquire or redirect update ownership while
+    // replacing a package. Keep the target's source contract verbatim.
+    isUpdatable: current?.isUpdatable === true,
+    indexUrl: optionalText(current?.indexUrl),
+    downloadUrl: optionalText(current?.downloadUrl),
+    lastUpdateCheck: null,
+  };
+  if (current?.sourceId === undefined) delete replacement.sourceId;
+  const next = [...stored];
+  next[existingIndex] = replacement;
+  return next;
+}
+
+async function separateDictionaryTitle(title, stored) {
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${title} (${suffix})`;
+    if (!usableDictionaryTitle(candidate)
+        || stored.some(dictionary => dictionary?.title === candidate)) {
+      continue;
+    }
+    const id = await stableDictionaryId(candidate);
+    if (!stored.some(dictionary => dictionary?.id === id)) return candidate;
+  }
+}
+
+function retitleImportedPackage(generationRoot, currentTitle, nextTitle) {
+  if (currentTitle === nextTitle) return;
+  if (!usableDictionaryTitle(nextTitle)) {
+    throw new Error("the separate dictionary title cannot be used as a filesystem path");
+  }
+  const currentPath = `${generationRoot}/${currentTitle}`;
+  const nextPath = `${generationRoot}/${nextTitle}`;
+  if (!exists(currentPath) || exists(nextPath)) {
+    throw new Error("the staged dictionary title changed unexpectedly");
+  }
+  const index = readDictionaryIndex(currentPath);
+  if (index?.title !== currentTitle) {
+    throw new Error("the staged dictionary index does not match its directory");
+  }
+  moveDictionaryFiles(currentPath, nextPath, true);
+  index.title = nextTitle;
+  const indexPath = `${nextPath}/index.json`;
+  // WasmFS's OPFS writeFile does not reliably truncate an existing file. This
+  // serialized rewrite can be shorter than the engine-generated index, leaving
+  // trailing JSON bytes if it overwrites the moved file in place.
+  engine.FS.unlink(indexPath);
+  engine.FS.writeFile(indexPath, new TextEncoder().encode(JSON.stringify(index)));
+}
+
 async function cleanupCommittedDictionaries() {
   try {
     const { state } = await readDictionaryStorage();
@@ -1242,10 +1347,16 @@ async function commitImportedGeneration(
   recommendedSource,
   managedSource,
   expectedRevision,
+  importDecision,
 ) {
-  const generated = await packageFromIndex(`${generationRoot}/${report.title}`);
+  let generated = await packageFromIndex(`${generationRoot}/${report.title}`);
   if (generated.title !== report.title) {
     throw new Error("the imported dictionary title changed while it was being committed");
+  }
+  const importedIdentity = importedIdentityFromIndex(generated.path);
+  if (importDecision !== null
+      && !sameImportedIdentity(importedIdentity, importDecision.identity)) {
+    throw new Error("the imported dictionary metadata did not match the reviewed archive");
   }
   if (expectedRevision !== null && generated.revision !== expectedRevision) {
     throw new Error("the downloaded dictionary revision did not match its update index");
@@ -1257,13 +1368,35 @@ async function commitImportedGeneration(
   if (recommendedSource !== null) {
     validateRecommendedImport(recommendedSource, report, generated);
   }
-  const committed = await commitDictionaryCandidate((snapshot) =>
-    withImport(
-      snapshot.state?.dictionaries ?? [],
-      generated,
-      recommendedSource,
-      managedSource,
-    ));
+  if (generated.title === CUSTOM_DICTIONARY_TITLE) {
+    throw new Error(`${CUSTOM_DICTIONARY_TITLE} is reserved for the managed custom dictionary`);
+  }
+  let candidateTitle = generated.title;
+  const committed = await commitDictionaryCandidate(async (snapshot) => {
+    const stored = snapshot.state?.dictionaries ?? [];
+    if (importDecision === null) {
+      return withImport(stored, generated, recommendedSource, managedSource);
+    }
+    if (importDecision.action === "install") {
+      if (storedImportIdentityIndex(stored, importDecision.identity) >= 0) {
+        throw new Error("the dictionary library changed; review this import again");
+      }
+      return [...stored, generated];
+    }
+    const existingIndex = interactiveTargetIndex(stored, importDecision);
+    if (importDecision.action === "replace") {
+      return withInteractiveReplacement(stored, generated, existingIndex);
+    }
+    const nextTitle = await separateDictionaryTitle(importDecision.identity.title, stored);
+    if (candidateTitle !== nextTitle) {
+      retitleImportedPackage(generationRoot, candidateTitle, nextTitle);
+      candidateTitle = nextTitle;
+      await persistFilesystem();
+      generated = await packageFromIndex(`${generationRoot}/${candidateTitle}`);
+    }
+    return [...stored, generated];
+  });
+  report.title = generated.title;
   publishLoadedDictionaries(committed.loadedCount);
   reloadError = null;
   await cleanupCommittedDictionaries();
@@ -1463,6 +1596,80 @@ function validateLocalImportRequest(message, managedSource, recommendedSource) {
   }
 }
 
+function exactNullableString(value, label, { empty = false } = {}) {
+  if (value === null) return null;
+  if (typeof value !== "string" || (!empty && value === "")) {
+    throw new Error(`the import decision carried an invalid ${label}`);
+  }
+  return value;
+}
+
+function exactRequiredString(value, label) {
+  if (typeof value !== "string" || value === "") {
+    throw new Error(`the import decision carried an invalid ${label}`);
+  }
+  return value;
+}
+
+function importDecisionIdentity(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("the import decision carried no archive identity");
+  }
+  return {
+    title: exactRequiredString(value.title, "dictionary title"),
+    revision: exactNullableString(value.revision, "dictionary revision", { empty: true }),
+    indexUrl: exactNullableString(value.indexUrl, "dictionary index URL"),
+    downloadUrl: exactNullableString(value.downloadUrl, "dictionary download URL"),
+  };
+}
+
+function importDecisionTarget(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+      || typeof value.id !== "string" || value.id === ""
+      || typeof value.title !== "string" || value.title === ""
+      || typeof value.path !== "string" || value.path === ""
+      || typeof value.revision !== "string"
+      || !["string", "object"].includes(typeof value.sourceId)
+      || !["string", "object"].includes(typeof value.indexUrl)
+      || !["string", "object"].includes(typeof value.downloadUrl)
+      || typeof value.isUpdatable !== "boolean") {
+    throw new Error("the import decision carried an invalid replacement target");
+  }
+  return {
+    ...dictionaryImportTarget(value),
+    sourceId: exactNullableString(value.sourceId, "target source ID"),
+    indexUrl: exactNullableString(value.indexUrl, "target index URL"),
+    downloadUrl: exactNullableString(value.downloadUrl, "target download URL"),
+  };
+}
+
+function interactiveImportDecision(value, remote, managedSource, recommendedSource) {
+  if (value === undefined) return null;
+  if (remote || managedSource !== null || recommendedSource !== null) {
+    throw new Error("only an ordinary local import can carry an interactive decision");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)
+      || !["install", "replace", "separate"].includes(value.action)) {
+    throw new Error("the import decision carried an invalid action");
+  }
+  const identity = importDecisionIdentity(value.identity);
+  if (value.action === "install") {
+    if (value.target !== null || value.matchKind !== null) {
+      throw new Error("a new import decision cannot name a replacement target");
+    }
+    return { action: value.action, identity, target: null, matchKind: null };
+  }
+  if (!["title", "source"].includes(value.matchKind)) {
+    throw new Error("the import decision carried an invalid target match");
+  }
+  return {
+    action: value.action,
+    identity,
+    target: importDecisionTarget(value.target),
+    matchKind: value.matchKind,
+  };
+}
+
 // A remote import is either a checked managed update or a first install of a
 // recommended source, which downloads only its catalogue-pinned archive.
 function validateRemoteImportRequest(message, managedSource, recommendedSource, expectedRevision) {
@@ -1494,10 +1701,17 @@ async function prepareImportRequest(message) {
   } else {
     validateLocalImportRequest(message, managedSource, recommendedSource);
   }
+  const importDecision = interactiveImportDecision(
+    message.importDecision,
+    remote,
+    managedSource,
+    recommendedSource,
+  );
   return {
     archiveUrl,
     expectedRevision,
     fileName: text(message.fileName) || recommendedSource?.archiveName || "the archive",
+    importDecision,
     importLowRam,
     managedSource,
     recommendedSource,
@@ -1511,6 +1725,7 @@ function samePreparedImport(left, right) {
     && left.fileName === right.fileName
     && left.importLowRam === right.importLowRam
     && left.remote === right.remote
+    && JSON.stringify(left.importDecision) === JSON.stringify(right.importDecision)
     && left.recommendedSource?.sourceId === right.recommendedSource?.sourceId
     && left.managedSource?.checkedAt === right.managedSource?.checkedAt
     && JSON.stringify(left.managedSource?.fingerprint ?? null)
@@ -2183,6 +2398,7 @@ const HANDLERS = {
         const {
           expectedRevision,
           fileName,
+          importDecision,
           importLowRam,
           managedSource,
           recommendedSource,
@@ -2207,6 +2423,7 @@ const HANDLERS = {
               recommendedSource,
               managedSource,
               expectedRevision,
+              importDecision,
             ),
           staged.byteLength,
         );

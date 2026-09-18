@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hachidori",
   "short_name": "Hachidori",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Private Japanese hover lookups from your Yomitan dictionaries, entirely in Chrome.",
   "minimum_chrome_version": "128",
   "icons": {

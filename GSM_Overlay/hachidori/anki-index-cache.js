@@ -247,15 +247,26 @@ export function createAnkiDuplicateIndex({
     return reconcile();
   }
 
-  async function find(config, expression, invoke, force) {
+  async function local(config, expression) {
     const [source, wordKey] = await Promise.all([ankiIndexSource(config), Promise.resolve(ankiWordKey(expression))]);
     if (source === null || wordKey === null) {
-      return { wordKey, mature: false, noteIds: [], cached: false };
+      return { source, wordKey, mature: false, noteIds: [], cached: false };
     }
     await hydrate;
     const cached = snapshot?.sourceKey === source.key ? rows.get(wordKey) : null;
-    if (!force && cached) {
-      return { wordKey, mature: cached.mature, noteIds: [...cached.noteIds], cached: true };
+    return cached
+      ? { source, wordKey, mature: cached.mature, noteIds: [...cached.noteIds], cached: true }
+      : { source, wordKey, mature: false, noteIds: [], cached: false };
+  }
+
+  async function find(config, expression, invoke, force) {
+    const cached = await local(config, expression);
+    const { source, wordKey } = cached;
+    if (source === null || wordKey === null) {
+      return { wordKey, mature: false, noteIds: [], cached: false };
+    }
+    if (!force && cached.cached) {
+      return { wordKey, mature: cached.mature, noteIds: cached.noteIds, cached: true };
     }
     const liveKey = `${source.key}\n${wordKey}\n${force ? "repair" : "lookup"}`;
     let operation = liveLookups.get(liveKey);
@@ -281,6 +292,10 @@ export function createAnkiDuplicateIndex({
     suspend,
     resume,
     source: ankiIndexSource,
+    async peek(config, expression) {
+      const result = await local(config, expression);
+      return { wordKey: result.wordKey, mature: result.mature, noteIds: result.noteIds, cached: result.cached };
+    },
     lookup: (config, expression, invoke) => find(config, expression, invoke, false),
     repair: (config, expression, invoke) => find(config, expression, invoke, true),
     async recordWrite(config, expression, noteId, { mature = false } = {}) {

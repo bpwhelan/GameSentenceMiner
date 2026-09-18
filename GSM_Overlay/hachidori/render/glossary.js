@@ -143,6 +143,37 @@
     return typeof value === "string" ? value.slice(0, maxLength) : "";
   }
 
+  function structuredContentLocation(path) {
+    let location = "";
+    for (const segment of path) {
+      location += typeof segment === "number"
+        ? `[${segment}]`
+        : `${location ? "." : ""}${segment}`;
+    }
+    return location || "structuredContent";
+  }
+
+  function structuredContentLimitError(kind, actual, limit, path) {
+    const error = new RangeError(
+      `Structured content ${kind} ${actual} exceeds limit ${limit} at ${structuredContentLocation(path)}`
+    );
+    error.code = "structured-content-limit";
+    error.structuredContentActual = actual;
+    error.structuredContentLimit = limit;
+    error.structuredContentLimitKind = kind;
+    error.structuredContentLocation = structuredContentLocation(path);
+    return error;
+  }
+
+  function appendStructuredChild(documentRef, parent, value, state, depth, path, segment) {
+    path.push(segment);
+    try {
+      appendStructuredValue(documentRef, parent, value, state, depth, path);
+    } finally {
+      path.pop();
+    }
+  }
+
   function toHiragana(text) {
     return String(text || "").replace(
       /[\u30a1-\u30f6]/gu,
@@ -1018,9 +1049,24 @@
     return element.isConnected && (typeof isCurrent !== "function" || isCurrent());
   }
 
-  function appendStructuredValue(documentRef, parent, value, state, depth) {
-    if (state.nodes >= MAX_STRUCTURED_NODES || depth > MAX_STRUCTURED_DEPTH) {
-      throw new RangeError("Structured content exceeds its node or depth limit");
+  function appendStructuredValue(
+    documentRef,
+    parent,
+    value,
+    state,
+    depth,
+    path = ["structuredContent"]
+  ) {
+    if (state.nodes >= MAX_STRUCTURED_NODES) {
+      throw structuredContentLimitError(
+        "node count",
+        state.nodes + 1,
+        MAX_STRUCTURED_NODES,
+        path
+      );
+    }
+    if (depth > MAX_STRUCTURED_DEPTH) {
+      throw structuredContentLimitError("depth", depth, MAX_STRUCTURED_DEPTH, path);
     }
     // Bound traversal work, including containers and values that render no DOM.
     state.nodes += 1;
@@ -1033,8 +1079,16 @@
       return;
     }
     if (Array.isArray(value)) {
-      for (const child of value) {
-        appendStructuredValue(documentRef, parent, child, state, depth + 1);
+      for (let index = 0; index < value.length; index += 1) {
+        appendStructuredChild(
+          documentRef,
+          parent,
+          value[index],
+          state,
+          depth + 1,
+          path,
+          index
+        );
       }
       return;
     }
@@ -1043,16 +1097,27 @@
     }
 
     if (value.type === "structured-content") {
-      appendStructuredValue(documentRef, parent, value.content, state, depth + 1);
+      appendStructuredChild(
+        documentRef,
+        parent,
+        value.content,
+        state,
+        depth + 1,
+        path,
+        "content"
+      );
       return;
     }
     if (value.type === "text") {
-      appendStructuredValue(
+      const property = Object.prototype.hasOwnProperty.call(value, "text") ? "text" : "content";
+      appendStructuredChild(
         documentRef,
         parent,
-        Object.prototype.hasOwnProperty.call(value, "text") ? value.text : value.content,
+        value[property],
         state,
-        depth + 1
+        depth + 1,
+        path,
+        property
       );
       return;
     }
@@ -1066,7 +1131,15 @@
     }
     if (!ALLOWED_STRUCTURED_TAGS.has(tag)) {
       if (Object.prototype.hasOwnProperty.call(value, "content")) {
-        appendStructuredValue(documentRef, parent, value.content, state, depth + 1);
+        appendStructuredChild(
+          documentRef,
+          parent,
+          value.content,
+          state,
+          depth + 1,
+          path,
+          "content"
+        );
       }
       return;
     }
@@ -1159,7 +1232,15 @@
       !STRUCTURED_TAGS_WITHOUT_CONTENT.has(tag) &&
       Object.prototype.hasOwnProperty.call(value, "content")
     ) {
-      appendStructuredValue(documentRef, contentParent, value.content, state, depth + 1);
+      appendStructuredChild(
+        documentRef,
+        contentParent,
+        value.content,
+        state,
+        depth + 1,
+        path,
+        "content"
+      );
     }
     if (tag === "a" && element.dataset.external === "true") {
       const icon = documentRef.createElement("span");
@@ -1228,15 +1309,15 @@
         : null,
     };
     if (items.length === 1) {
-      appendStructuredValue(documentRef, parent, items[0], state, 0);
+      appendStructuredValue(documentRef, parent, items[0], state, 0, ["glossary", 0]);
       return;
     }
     const list = documentRef.createElement("ul");
     list.className = "gloss-list";
-    for (const item of items) {
+    for (let index = 0; index < items.length; index += 1) {
       const listItem = documentRef.createElement("li");
       listItem.className = "gloss-item";
-      appendStructuredValue(documentRef, listItem, item, state, 0);
+      appendStructuredValue(documentRef, listItem, items[index], state, 0, ["glossary", index]);
       list.appendChild(listItem);
     }
     parent.appendChild(list);

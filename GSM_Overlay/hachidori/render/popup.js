@@ -175,6 +175,7 @@
   const DEINFLECTION_TEXT_MAX_BYTES = 4096;
   const DEINFLECTION_STEP_MAX_COUNT = 31;
   const DEINFLECTION_OMITTED_MARKER = "…";
+  const RENDER_DIAGNOSTIC_TEXT_MAX_BYTES = 512;
 
   function utf8Length(value) {
     return typeof TextEncoder === "function"
@@ -198,6 +199,50 @@
       ? low - 1
       : low;
     return value.slice(0, end);
+  }
+
+  function diagnosticText(value, fallback = "unknown") {
+    return typeof value === "string" && value
+      ? truncateUtf8(value, RENDER_DIAGNOSTIC_TEXT_MAX_BYTES)
+      : fallback;
+  }
+
+  function dictionaryStableId(title, presentation) {
+    const dictionary = Array.isArray(presentation)
+      ? presentation.find((entry) => entry?.title === title)
+      : null;
+    return diagnosticText(dictionary?.id);
+  }
+
+  function structuredContentRenderError(error, {
+    definitionIndex,
+    dictionary,
+    dictionaryId,
+    resultIndex,
+    term,
+  }) {
+    if (error?.code !== "structured-content-limit") return error;
+    const title = diagnosticText(dictionary);
+    const id = diagnosticText(dictionaryId);
+    const expression = diagnosticText(term?.expression, "");
+    const reading = diagnosticText(term?.reading, "");
+    const entry = `entry ${resultIndex + 1}, definition ${definitionIndex + 1}`;
+    const word = expression
+      ? `, term ${JSON.stringify(expression)}${reading ? `, reading ${JSON.stringify(reading)}` : ""}`
+      : "";
+    const message = `Dictionary ${JSON.stringify(title)} (stable ID ${JSON.stringify(id)}) could not render ${entry}${word}: ${error.message}`;
+    const contextual = new RangeError(message, { cause: error });
+    contextual.code = "dictionary-structured-content-limit";
+    contextual.definitionIndex = definitionIndex;
+    contextual.dictionaryId = id;
+    contextual.dictionaryTitle = title;
+    contextual.entryIndex = resultIndex;
+    contextual.originalStack = error.stack;
+    contextual.termExpression = expression;
+    contextual.termReading = reading;
+    contextual.userDetail = message;
+    contextual.userTitle = "Dictionary content could not be rendered.";
+    return contextual;
   }
 
   function deinflectionSteps(result) {
@@ -2380,6 +2425,26 @@
     }
     popup.addEventListener("focusout", onPresentationFocusOut);
 
+    function configureEntryActions(actions, label) {
+      actions.className = "gsm-hoshidicts-entry-actions";
+      actions.setAttribute("role", "group");
+      actions.setAttribute("aria-label", label);
+      actions.addEventListener("focusin", event => {
+        const item = [...actions.children].find(child =>
+          child === event.target || child.contains(event.target));
+        if (!item || actions.scrollWidth <= actions.clientWidth) return;
+        const padding = 2;
+        const left = item.offsetLeft;
+        const right = left + item.offsetWidth;
+        if (left < actions.scrollLeft + padding) {
+          actions.scrollLeft = Math.max(0, left - padding);
+        } else if (right > actions.scrollLeft + actions.clientWidth - padding) {
+          actions.scrollLeft = right - actions.clientWidth + padding;
+        }
+      });
+      return actions;
+    }
+
     function runRenderAction(isCurrent, renderContext, action) {
       if (!isCurrent()) return;
       try {
@@ -2419,7 +2484,7 @@
       button.appendChild(icon);
 
       const actions = documentRef.createElement("div");
-      actions.className = "gsm-hoshidicts-entry-actions";
+      configureEntryActions(actions, "Lookup actions");
       actions.appendChild(button);
       const linkButtons = [];
 
@@ -2430,6 +2495,9 @@
             linkButton = documentRef.createElement("button");
             linkButton.type = "button";
             linkButton.className = "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button";
+            const label = documentRef.createElement("span");
+            label.className = "gsm-hoshidicts-text-action-label";
+            linkButton.appendChild(label);
             const activate = event => {
               if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
               event.preventDefault();
@@ -2448,7 +2516,7 @@
             linkButtons.push(linkButton);
             actions.appendChild(linkButton);
           }
-          linkButton.textContent = link.label;
+          linkButton.firstElementChild.textContent = link.label;
           linkButton.title = link.label;
           linkButton.setAttribute("aria-label", link.label);
         });
@@ -3017,29 +3085,28 @@
         deinflection.addEventListener("toggle", onDeinflectionToggle);
         headword.appendChild(deinflection);
       }
+      let navigationAction = null;
       if (primary && (typeof onBack === "function" || typeof onClose === "function")) {
-        const navigation = documentRef.createElement("div");
-        navigation.className = "gsm-hoshidicts-kanji-navigation";
-        const back = documentRef.createElement("button");
-        back.type = "button";
+        navigationAction = documentRef.createElement("button");
+        navigationAction.type = "button";
         if (typeof onClose === "function") {
-          back.className = "gsm-hoshidicts-popup-close";
-          back.setAttribute("aria-label", "Close lookup");
-          back.addEventListener("click", onClose);
+          navigationAction.className = "gsm-hoshidicts-popup-close";
+          navigationAction.setAttribute("aria-label", "Close lookup");
+          navigationAction.addEventListener("click", onClose);
         } else {
-          back.className = "gsm-hoshidicts-kanji-back";
-          back.textContent = "Back";
-          back.setAttribute("aria-label", "Back to previous results");
-          back.addEventListener("click", onBack);
+          navigationAction.className = "gsm-hoshidicts-kanji-back";
+          navigationAction.textContent = "Back";
+          navigationAction.setAttribute("aria-label", "Back to previous results");
+          navigationAction.addEventListener("click", onBack);
         }
-        navigation.append(back, headword);
-        header.appendChild(navigation);
-      } else {
-        header.appendChild(headword);
       }
+      header.appendChild(headword);
       const actions = primary && noteControls ? noteControls.actions : documentRef.createElement("div");
-      actions.className = "gsm-hoshidicts-entry-actions";
+      if (!primary || !noteControls) configureEntryActions(actions, "Entry actions");
       if (primary && noteControls) actions.querySelector(".gsm-hoshidicts-audio-control")?.remove();
+      for (const previous of actions.querySelectorAll(
+        ":scope > .gsm-hoshidicts-popup-close, :scope > .gsm-hoshidicts-kanji-back"
+      )) previous.remove();
       const audio = documentRef.createElement("div");
       audio.className = "gsm-hoshidicts-audio-control";
       const button = documentRef.createElement("button");
@@ -3051,6 +3118,9 @@
       button.setAttribute("aria-expanded", "false");
       audio.append(button);
       actions.prepend(audio);
+      const existingMiningAction = actions.querySelector(":scope > .gsm-hoshidicts-mine-button");
+      if (existingMiningAction) actions.prepend(existingMiningAction);
+      if (navigationAction) actions.prepend(navigationAction);
       header.append(actions);
       return { element: header, audio: { button, result }, mining: { actions, feedback, result },
         updateRuby(context) {
@@ -3279,7 +3349,7 @@
             definitions.classList.add("gsm-hoshidicts-definitions-single");
           }
           applyDefinitionBlurState(definitions);
-          for (const glossary of glossaries) {
+          for (const [definitionIndex, glossary] of glossaries.entries()) {
             const definition = documentRef.createElement("li");
             const definitionTags = parseTagList(glossary.definitionTags);
             if (definitionTags.length > 0) {
@@ -3295,26 +3365,41 @@
             const content = documentRef.createElement("div");
             content.className = "gsm-hoshidicts-glossary-content";
             content.dataset.hoshidictsDictionary = dictionary;
-            const fillContent = () => appendTextOnlyGlossary(
-              documentRef,
-              content,
-              glossary.glossary,
-              {
-                dictionary,
-                generation: renderContext.generation,
-                isCurrent,
-                isCurrentLink,
-                onExternalLink: renderContext.onExternalLink,
-                onInternalLink: renderContext.onInternalLink,
-                onLayoutChange: positionIfCurrent,
-                requestImagePreview,
-                refreshImagePreview,
-                hideImagePreview,
-                imageContext,
-                onImageCreated,
-                resolveMedia: typeof imageContext.resolveMedia === "function" ? resolveImage : null,
+            const fillContent = () => {
+              try {
+                appendTextOnlyGlossary(
+                  documentRef,
+                  content,
+                  glossary.glossary,
+                  {
+                    dictionary,
+                    generation: renderContext.generation,
+                    isCurrent,
+                    isCurrentLink,
+                    onExternalLink: renderContext.onExternalLink,
+                    onInternalLink: renderContext.onInternalLink,
+                    onLayoutChange: positionIfCurrent,
+                    requestImagePreview,
+                    refreshImagePreview,
+                    hideImagePreview,
+                    imageContext,
+                    onImageCreated,
+                    resolveMedia: typeof imageContext.resolveMedia === "function" ? resolveImage : null,
+                  }
+                );
+              } catch (error) {
+                throw structuredContentRenderError(error, {
+                  definitionIndex,
+                  dictionary,
+                  dictionaryId: dictionaryStableId(
+                    dictionary,
+                    imageContext.dictionaryPresentation
+                  ),
+                  resultIndex,
+                  term: result.term,
+                });
               }
-            );
+            };
             // Glossary bodies are most of a render. Only the first entry is
             // visible in the popup, so fill the rest after it has painted.
             if (resultIndex === 0) {
@@ -3532,19 +3617,23 @@
         "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
       const navigation = documentRef.createElement("div");
       navigation.className = "gsm-hoshidicts-kanji-navigation";
+      let back = null;
       if (typeof renderOptions.onBack === "function") {
-        const back = documentRef.createElement("button");
+        back = documentRef.createElement("button");
         back.type = "button";
         back.className = "gsm-hoshidicts-kanji-back";
         back.textContent = "Back";
         back.setAttribute("aria-label", "Back to previous results");
         back.addEventListener("click", renderOptions.onBack);
-        navigation.appendChild(back);
       }
       const glyph = documentRef.createElement("div");
       glyph.className = "gsm-hoshidicts-kanji-glyph";
       glyph.textContent = kanji.character;
       navigation.appendChild(glyph);
+      for (const previous of noteControls.actions.querySelectorAll(
+        ":scope > .gsm-hoshidicts-popup-close, :scope > .gsm-hoshidicts-kanji-back"
+      )) previous.remove();
+      if (back) noteControls.actions.prepend(back);
       primaryHeader.append(navigation, noteControls.actions);
       const toolbar = createResultChrome(primaryHeader);
 

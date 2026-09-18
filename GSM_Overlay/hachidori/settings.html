@@ -1004,7 +1004,7 @@
             <p id="anki-screenshot-help" class="field-hint">Adds the visible page to fields using <code>{screenshot}</code>.</p>
             <label class="lookup-enable"><span>Edit field templates directly</span><input id="opt-anki-advanced" type="checkbox"></label>
             <p class="field-hint">Combine text with markers such as <code>{expression}</code> and <code>{glossary}</code>.</p>
-            <details class="anki-marker-reference"><summary>Available markers</summary><p id="anki-markers" class="anki-markers"></p><p class="field-hint">Dictionary-specific values also use <code>{single-glossary-DICTIONARY}</code>, <code>{single-frequency-DICTIONARY}</code> or <code>{single-frequency-number-DICTIONARY}</code>.</p></details>
+            <details class="anki-marker-reference"><summary>Available markers</summary><p id="anki-markers" class="anki-markers"></p><p class="field-hint">Dictionary-specific values also use <code>{single-glossary-DICTIONARY}</code>, <code>{single-frequency-DICTIONARY}</code> or <code>{single-frequency-number-DICTIONARY}</code>. A single-glossary marker uses the dictionary's Display name when that sanitized name is unique; current title-based markers and their suffix variants keep precedence. Display-name markers normalize Unicode, change spaces and underscores to hyphens, and remove other punctuation. Empty, colliding or shadowed names can use <code>{single-glossary-id--PACKAGE-ID}</code>, where <code>PACKAGE-ID</code> is the dictionary's 32-character lowercase hexadecimal ID shown in its Details.</p></details>
             <div id="anki-templates" class="anki-templates"></div>
           </fieldset>
           <details class="anki-details">
@@ -1127,6 +1127,42 @@
         </section>
       </main>
     </div>
+
+    <dialog
+      class="import-decision-dialog"
+      id="import-decision-dialog"
+      aria-labelledby="import-decision-heading"
+      aria-describedby="import-decision-description"
+    >
+      <form method="dialog">
+        <h2 id="import-decision-heading">Dictionary already installed</h2>
+        <p id="import-decision-description"></p>
+        <dl class="import-decision-revisions">
+          <div>
+            <dt>Imported dictionary</dt>
+            <dd id="import-decision-imported"></dd>
+          </div>
+          <div>
+            <dt>Installed dictionary</dt>
+            <dd id="import-decision-installed"></dd>
+          </div>
+        </dl>
+        <label class="field import-decision-target" id="import-decision-target-row" hidden>
+          <span class="field-label">Dictionary to replace</span>
+          <select id="import-decision-target"></select>
+          <span class="field-hint">The archive source matches more than one installed dictionary.</span>
+        </label>
+        <p class="field-hint">
+          Replace keeps this dictionary’s position, display name, enabled state,
+          favourite, groups, and other saved settings. Add separately keeps both.
+        </p>
+        <div class="import-decision-actions">
+          <button class="primary-button" type="submit" value="replace">Replace existing</button>
+          <button class="ghost" type="submit" value="separate">Add separately</button>
+          <button class="ghost" type="submit" value="cancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <template id="dict-row-template">
       <li class="dict-row">

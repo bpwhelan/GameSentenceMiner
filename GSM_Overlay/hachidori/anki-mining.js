@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { ankiAvailability } from "./anki.js";
+import { ankiAvailability, isUndispatchedAnkiTransportError } from "./anki.js";
 import { ankiCaptureRequirements, resolveAnkiTemplates } from "./anki-templates.js";
 import { ankiDigest } from "./anki-digest.js";
 import { ankiSetupFamily } from "./anki-setup.js";
@@ -182,14 +182,21 @@ export function createAnkiMiningService({
   let mutations = Promise.resolve();
   const invokeFor = config => (action, params, timeoutMs) => gateway.invoke(action, params, config.apiKey, timeoutMs, config.url);
 
-  async function configuration(fresh = false) {
+  async function identity() {
     const config = await readConfig();
     const configJson = JSON.stringify(config);
+    const configKey = await ankiDigest(new TextEncoder().encode(configJson));
+    return { config, configJson, configKey };
+  }
+
+  async function configuration(fresh = false) {
+    const current = await identity();
+    const { config, configJson } = current;
     if (!fresh && cached?.key === configJson && now() < cached.expires) return cached.promise;
     const promise = (async () => {
       // Correlate reader requests without returning the saved API key/source
       // credentials in a serialized configuration string to each content script.
-      const configKey = await ankiDigest(new TextEncoder().encode(configJson));
+      const { configKey } = current;
       if (!config.model) return { config, configKey, configJson, errors: ["Choose an Anki note type in Settings."] };
       const discovery = await gateway.discover(config);
       const resolved = resolveAnkiTemplates(config, discovery.fields);
@@ -204,6 +211,29 @@ export function createAnkiMiningService({
   async function status() {
     const current = await configuration();
     return { available: current.errors.length === 0, configKey: current.configKey, error: current.errors.join("\n") };
+  }
+
+  async function view(request) {
+    const current = await identity();
+    const expression = request?.term?.expression ?? request?.expression;
+    const unknown = {
+      state: "unknown",
+      canAdd: false,
+      noteIds: [],
+      configKey: current.configKey,
+      cached: false,
+    };
+    if (current.config.duplicateBehavior !== "prevent") return unknown;
+    const duplicate = await duplicateIndex.peek(current.config, expression);
+    if (!duplicate.noteIds.length) return unknown;
+    return {
+      state: "duplicate",
+      canAdd: false,
+      noteIds: duplicate.noteIds,
+      mature: duplicate.mature,
+      configKey: current.configKey,
+      cached: true,
+    };
   }
 
   async function prepare(request, fresh) {
@@ -311,6 +341,13 @@ export function createAnkiMiningService({
         } catch { /* The duplicate result is definitive even if browse discovery fails. */ }
         return { state: "duplicate", error: "This note already exists in Anki.", noteIds };
       }
+      if (isUndispatchedAnkiTransportError(error)) {
+        // A failed endpoint generation rejected this queued mutation before it
+        // entered fetch. Its note cannot exist, so release request-owned media
+        // and return a definitive retryable failure instead of uncertainty.
+        await releaseRejected();
+        throw error;
+      }
       // A lost acknowledgement may follow a completed write. Neither this
       // worker nor the reader retries it automatically, including append modes.
       return { state: "uncertain", error: `The write could not be confirmed. Check Anki before trying again. ${error.message}` };
@@ -367,19 +404,21 @@ export function createAnkiMiningService({
       const configKey = await ankiDigest(new TextEncoder().encode(JSON.stringify(config)));
       if (value.configKey !== configKey) throw new Error(CONFIG_CHANGED);
     }
-    const query = Array.isArray(value?.noteIds) && value.noteIds.length
-      ? ankiNoteIdsQuery(value.noteIds) : ankiBrowseQuery(value?.expression ?? "");
     const invoke = invokeFor(config);
-    const opened = await invoke("guiBrowse", { query });
-    if (Array.isArray(value?.noteIds) && value.noteIds.length && Array.isArray(opened)
-        && value.noteIds.some(noteId => !opened.includes(noteId))) {
-      const repaired = await duplicateIndex.repair(config, value.expression ?? "", invoke);
-      if (repaired.noteIds.length) {
-        await invoke("guiBrowse", { query: ankiNoteIdsQuery(repaired.noteIds) });
-      }
+    const supplied = Array.isArray(value?.noteIds) && value.noteIds.length;
+    let noteIds = supplied ? [...value.noteIds] : [];
+    let repaired = false;
+    if (supplied && typeof value?.expression === "string" && value.expression
+        && await duplicateIndex.source(config) !== null) {
+      const refreshed = await duplicateIndex.repair(config, value.expression, invoke);
+      noteIds = refreshed.noteIds;
+      if (!noteIds.length) return { opened: false, noteIds: [], repaired: true };
+      repaired = true;
     }
-    return { opened: true };
+    const query = noteIds.length ? ankiNoteIdsQuery(noteIds) : ankiBrowseQuery(value?.expression ?? "");
+    await invoke("guiBrowse", { query }, 30_000);
+    return { opened: true, noteIds, repaired };
   }
 
-  return { status, preflight, submit, browse };
+  return { status, view, preflight, submit, browse };
 }

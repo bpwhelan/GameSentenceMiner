@@ -310,6 +310,7 @@
     return dictionaries
       .filter((entry) => entry.enabled !== false)
       .map((entry) => ({
+        id: entry.id,
         title: entry.title,
         favorite: entry.favorite,
         frequencyMode: entry.frequencyMode,
@@ -1487,6 +1488,15 @@
 
   function lookupFailureState(error, request = null) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error?.code === "dictionary-structured-content-limit") {
+      return {
+        kind: "render",
+        title: typeof error.userTitle === "string"
+          ? error.userTitle
+          : "Dictionary content could not be rendered.",
+        detail: typeof error.userDetail === "string" ? error.userDetail : message,
+      };
+    }
     if (error?.code === "engine-mutating" || message === "the dictionary engine is busy mutating") {
       return {
         kind: "updating",
@@ -1541,7 +1551,9 @@
 
   function handleLookupFailure(token, error, level = rootLevel, request = null, preserveView = false) {
     if (disposed || level.retired || token !== level.lookupToken) return false;
-    console.debug("hachidori: lookup failed", error);
+    if (error?.code !== "dictionary-structured-content-limit") {
+      console.debug("hachidori: lookup failed", error);
+    }
     const state = lookupFailureState(error, request);
     if (state === null) {
       if (!preserveView) hide(level);
@@ -1566,6 +1578,16 @@
     }, { preserveView });
     positionPopup(level);
     return false;
+  }
+
+  function handleRenderFailure(token, error, request, level = rootLevel) {
+    if (disposed || level.retired || token !== level.lookupToken) return false;
+    if (error?.cause instanceof Error) {
+      console.warn("hachidori: could not render results", error, "caused by", error.cause);
+    } else {
+      console.warn("hachidori: could not render results", error);
+    }
+    return handleLookupFailure(token, error, level, request);
   }
 
   function retainProtectedReplay(request, token, level, replayOptions) {
@@ -1955,6 +1977,7 @@
         documentTitle: document.title, audioSelection: audio.selectionFor(result) ?? undefined,
         capturePin: rootLevel.capturePin ?? undefined,
         dictionaryAliases: Object.fromEntries(dictionaries.filter(item => item.displayName).map(item => [item.title, item.displayName])),
+        dictionaryIds: Object.fromEntries(dictionaries.map(item => [item.title, item.id])),
         frequencyDictionaries: dictionaries.filter(item => item.enabled && item.frequencyCount > 0).map(item => item.title),
       };
     } });
@@ -2585,13 +2608,12 @@
         isCurrentRequest: () => !disposed && !level.retired && token === level.lookupToken,
         isCurrentView: () => !disposed && !level.retired && level.currentViewRequest === request
           && (token === level.lookupToken || level.retainedView),
-        onRenderError(error) { handleLookupFailure(token, error, level); },
+        onRenderError(error) { handleRenderFailure(token, error, request, level); },
         ...dictionarySelectionContext(request),
       });
     } catch (error) {
       // A malformed result must cost one hover, not the whole content script.
-      console.warn("hachidori: could not render results", error);
-      hide(level);
+      handleRenderFailure(token, error, request, level);
       return false;
     }
     level.activeHighlightText = matchedText;
@@ -3174,6 +3196,11 @@
     }
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) {
+      if (!activationAllowed()) {
+        cancelCandidateScan();
+        schedulePointerHide();
+        return;
+      }
       const selected = resolveSelectedLookupCandidate(selection);
       if (selected) startSelectionLookup(selected);
       else {
@@ -3292,7 +3319,7 @@
       scheduleScan();
       return;
     }
-    if (!activationAllowed() && window.getSelection()?.isCollapsed !== false) {
+    if (!activationAllowed()) {
       cancelCandidateScan();
       schedulePointerHide();
       return;
@@ -3355,6 +3382,7 @@
       return;
     }
     if (isOurNode(event.target) || pointInsidePopup(event.clientX, event.clientY)) return;
+    updateModifierState(event);
     if (event.button === 0 && options.hoverEnabled
         && isScannableElement(selectionBoundaryElement(event.target), new Map())) {
       // A press on text may start a selection, so the popup stays until release
@@ -3424,12 +3452,14 @@
       node && (node === host || node.getRootNode() === shadow))) return;
     const candidate = resolveSelectedLookupCandidate(selection);
     if (!candidate && !activeSelectionCandidate) return;
-    if (candidate) startSelectionLookup(candidate);
+    if (candidate && !activationAllowed()) hide();
+    else if (candidate) startSelectionLookup(candidate);
     else hide();
   }
 
   function onMouseUp(event) {
     if (disposed || event.button !== 0 || !selectionDragActive) return;
+    updateModifierState(event);
     finishSelectionDrag({ dismissClick: true });
   }
 
@@ -3484,11 +3514,20 @@
     return true;
   }
 
+  function scanSelectedText() {
+    if (disposed || !options.hoverEnabled) return false;
+    const candidate = resolveSelectedLookupCandidate();
+    if (!candidate) return false;
+    startSelectionLookup(candidate);
+    return true;
+  }
+
   function runKeybindAction({ action, argument }, event) {
     if (action === "close") return closeFromKeybind(event);
     if (action === "scanSelectedText" || action === "scanTextAtSelection") {
       if (!options.hoverEnabled) return false;
-      const candidate = action === "scanSelectedText" ? resolveSelectedLookupCandidate() : resolveSelectionScanCandidate();
+      if (action === "scanSelectedText") return scanSelectedText();
+      const candidate = resolveSelectionScanCandidate();
       if (!candidate) return false;
       startSelectionLookup(candidate);
       return true;
@@ -3901,7 +3940,10 @@
     void loadOverlayMode();
     // Startup awaits this snapshot before demonstrating its first selection.
     let storageReady;
-    globalThis.HDReaderReady = new Promise(resolve => { storageReady = resolve; });
+    const reader = Object.freeze({ scanSelectedText });
+    globalThis.HDReaderReady = new Promise(resolve => {
+      storageReady = () => { resolve(reader); };
+    });
     try {
       chrome.storage.onChanged.addListener(onStorageChanged);
       // Optional like the worker's commands API: reader smoke hosts have no runtime messages.

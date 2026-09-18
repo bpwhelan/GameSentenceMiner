@@ -21,7 +21,7 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const ADDRESS_HINT = "Enter the address shown under Sharing on the other computer, like 100.101.102.103.";
 
 export const LINKED_ANKI_REQUESTS = new Set([
-  "hd_anki_status", "hd_anki_preflight", "hd_anki_submit", "hd_anki_browse", "hd_anki_maturity",
+  "hd_anki_status", "hd_anki_view", "hd_anki_preflight", "hd_anki_submit", "hd_anki_browse", "hd_anki_maturity",
 ]);
 
 // Which runtime messages a linked client sends to the host instead of its own
@@ -138,7 +138,7 @@ export function assertLinkedAnkiFrame(text) {
 
 const MINING_REQUEST_FIELDS = [
   "term", "trace", "generation", "sentence", "matchOffset", "matched", "popupSelectionText",
-  "searchQuery", "documentTitle", "audioSelection", "capturePin", "dictionaryAliases",
+  "searchQuery", "documentTitle", "audioSelection", "capturePin", "dictionaryAliases", "dictionaryIds",
   "frequencyDictionaries", "configKey", "screenshot", "captureJobId", "captureUnavailable",
   "clientSpeech",
 ];
@@ -160,7 +160,7 @@ export function allowLinkedAnkiRequest(message) {
     ? message.requestId : null;
   const base = { target: "hachidori-anki", type: message.type, requestId };
   if (message.type === "hd_anki_status") return base;
-  if (message.type === "hd_anki_maturity") {
+  if (message.type === "hd_anki_view" || message.type === "hd_anki_maturity") {
     const request = selectedFields(message.request, ["term"]);
     request.term = selectedFields(request.term, ["expression", "reading"]);
     return { ...base, request };

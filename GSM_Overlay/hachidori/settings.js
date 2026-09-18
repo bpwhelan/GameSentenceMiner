@@ -44,6 +44,12 @@ import {
   parseCustomDictionary,
 } from "./custom-dictionary.js";
 import { SETUP_STATE_KEY, normaliseSetupState, setupIncomplete } from "./setup-state.js";
+import { readDictionaryArchiveIdentity } from "./dictionary-import-archive.js";
+import {
+  describeRevisionComparison,
+  dictionaryImportMatches,
+  dictionaryImportTarget,
+} from "./dictionary-import.js";
 
 const TARGET = "hoshidicts-offscreen";
 const WORKER_TARGET = "hoshidicts-worker";
@@ -670,6 +676,7 @@ function normaliseDictionary(row) {
   }
   const sourceId = nonemptyString(row?.sourceId);
   return {
+    ...(row && typeof row === "object" && !Array.isArray(row) ? row : {}),
     id: stringValue(row?.id),
     title,
     displayName: displayName(row?.displayName),
@@ -1644,7 +1651,7 @@ function dictionaryMetadata(entry) {
       details.push(`Imported ${installed.toLocaleString()}`);
     }
   }
-  details.push(isUpdateCheckable(entry) ? "Update source available" : "Local archive");
+  details.push(`Package ID ${entry.id}`, isUpdateCheckable(entry) ? "Update source available" : "Local archive");
   return details.join(" · ");
 }
 
@@ -2422,10 +2429,109 @@ function summariseReport(report) {
   return counts.length === 0 ? "no entries" : counts.join(", ");
 }
 
-async function importFile(file, index, total, request = {}, label = file.name, started = Date.now()) {
+function revisionLabel(value) {
+  return value === null || value === "" ? "(missing)" : value;
+}
+
+function chooseDictionaryImport(identity, matches) {
+  const dialog = element("import-decision-dialog");
+  const target = element("import-decision-target");
+  const imported = element("import-decision-imported");
+  const installed = element("import-decision-installed");
+  const description = element("import-decision-description");
+  target.replaceChildren(...matches.map(({ dictionary }, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    const name = dictionary.displayName
+      ? `${dictionary.displayName} (${dictionary.title})`
+      : dictionary.title;
+    option.textContent = `${name} — revision ${revisionLabel(dictionary.revision)}`
+      + ` · ID ${dictionary.id.slice(0, 8)}`;
+    return option;
+  }));
+  element("import-decision-target-row").hidden = matches.length === 1;
+  imported.textContent = `${identity.title} — revision ${revisionLabel(identity.revision)}`;
+
+  const renderTarget = () => {
+    const match = matches[Number(target.value) || 0];
+    installed.textContent = `${match.dictionary.displayName || match.dictionary.title}`
+      + ` — revision ${revisionLabel(match.dictionary.revision)}`;
+    description.textContent = describeRevisionComparison(
+      identity.revision,
+      match.dictionary.revision,
+    );
+  };
+  target.value = "0";
+  target.onchange = renderTarget;
+  renderTarget();
+  dialog.returnValue = "";
+
+  return new Promise((resolve) => {
+    const finish = () => {
+      dialog.removeEventListener("cancel", cancel);
+      const action = ["replace", "separate"].includes(dialog.returnValue)
+        ? dialog.returnValue
+        : "cancel";
+      const match = matches[Number(target.value) || 0];
+      target.onchange = null;
+      resolve(action === "cancel" ? null : {
+        action,
+        identity,
+        matchKind: match.kind,
+        target: dictionaryImportTarget(match.dictionary),
+      });
+    };
+    const cancel = (event) => {
+      event.preventDefault();
+      dialog.close("cancel");
+    };
+    dialog.addEventListener("close", finish, { once: true });
+    dialog.addEventListener("cancel", cancel, { once: true });
+    dialog.showModal();
+  });
+}
+
+async function importFile(file, index, total, request = {}, label = file.name) {
+  updateImportResult(index, { text: "Reading dictionary metadata…", progress: { value: null } });
+  let identity;
+  try {
+    identity = await readDictionaryArchiveIdentity(file);
+  } catch (error) {
+    updateImportResult(index, {
+      text: `Failed before import: ${describe(error)}`,
+      tone: "error",
+    });
+    return "failed";
+  }
+
+  const matches = dictionaryImportMatches(identity, dictionaries);
+  let importDecision = {
+    action: "install",
+    identity,
+    matchKind: null,
+    target: null,
+  };
+  if (matches.length > 0) {
+    importDecision = await chooseDictionaryImport(identity, matches);
+    if (importDecision === null) {
+      updateImportResult(index, {
+        text: "Cancelled before import. Existing dictionary unchanged.",
+      });
+      return "cancelled";
+    }
+  }
+
+  // The decision happens before this URL exists, so Cancel cannot start a
+  // native import, create a generation, or mutate persistent storage.
+  const started = Date.now();
   const blobUrl = URL.createObjectURL(file);
   try {
-    return await importArchive({ blobUrl, fileName: file.name, ...request }, index, total, label, started);
+    return await importArchive({
+      blobUrl,
+      fileName: file.name,
+      ...request,
+      importDecision,
+    }, index, total, label, started);
   } finally {
     // The offscreen document has read the bytes by now; holding the URL any
     // longer just pins the file.
@@ -2453,7 +2559,7 @@ async function importArchive(request, index, total, label, started) {
         text: `Imported ${report.title} in ${importDuration(started)}: ${summariseReport(report)}.`,
         tone: "ok",
       });
-      return true;
+      return "imported";
     }
     const reason = reply.error ?? report.error ?? "The engine gave no reason.";
     updateImportResult(index, {
@@ -2468,7 +2574,7 @@ async function importArchive(request, index, total, label, started) {
   } finally {
     clearInterval(ticker);
   }
-  return false;
+  return "failed";
 }
 
 function renderRecommendedInstallation() {
@@ -2517,16 +2623,26 @@ async function runImportBatch(items, importOne, singular, plural, describeItem) 
   })));
 
   let imported = 0;
+  let cancelled = 0;
   try {
     for (const [index, item] of items.entries()) {
-      if (await importOne(item, index, items.length)) {
+      const outcome = await importOne(item, index, items.length);
+      if (outcome === "imported") {
         imported += 1;
-      }
+        // A later archive in the same batch must decide against the state the
+        // previous archive actually committed, not a delayed storage event.
+        await reloadDictionaries();
+      } else if (outcome === "cancelled") cancelled += 1;
     }
-    const failed = items.length - imported;
+    const failed = items.length - imported - cancelled;
     const itemLabel = items.length === 1 ? singular : plural;
+    const outcomes = [
+      `${imported} imported`,
+      ...(cancelled === 0 ? [] : [`${cancelled} cancelled`]),
+      `${failed} failed`,
+    ].join(", ");
     setImportState(
-      `Finished ${items.length} of ${items.length} ${itemLabel} — ${imported} imported, ${failed} failed.`,
+      `Finished ${items.length} of ${items.length} ${itemLabel} — ${outcomes}.`,
       failed === 0 ? "ready" : "error",
     );
     await reloadDictionaries();
