@@ -13,7 +13,11 @@ export const EMBEDDED_SPEECH_CAPTURE = true;
 export const HOST_CAPABILITIES = Object.freeze({
 
   browserShortcuts: !OVERLAY_MODE,
+  // `customLinks` is the pre-Custom-buttons host contract. Keep the alias so
+  // an embedding host can update its reader before updating its capability
+  // projection.
   customLinks: true,
+  linkButtons: true,
   externalLinkHost: OVERLAY_MODE,
   localFileAccessPrompt: !OVERLAY_MODE,
   mediaCapture: !OVERLAY_MODE,

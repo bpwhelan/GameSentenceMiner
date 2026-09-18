@@ -283,10 +283,12 @@ export function createAnkiWorkerService({
   }
 
   const mining = createAnkiMiningService({ gateway,
-    readConfig: async () => {
+    readConfig: async templateId => {
       const options = await readOptions();
+      const template = globalThis.HDReaderOptions.ankiTemplateConfig(options.anki, templateId);
+      if (template === null) return null;
       return {
-        ...options.anki,
+        ...template,
         audioSources: options.audioSources.filter(source => source.enabled),
         mediaCapture: options.mediaCapture,
       };
@@ -363,11 +365,13 @@ export function createAnkiWorkerService({
   // is held here under a name a field may reference and uploaded only when the
   // note is written, so this reply is immediate and the reader can show itself
   // again without waiting for Anki.
-  async function screenshot(captureViewport) {
+  async function screenshot(captureViewport, templateId) {
     const token = crypto.randomUUID();
     screenshotRequestToken = token;
     const { anki } = await readOptions();
-    if (anki.captureScreenshot !== true) throw new Error("Screenshots when mining are turned off in Settings.");
+    const template = globalThis.HDReaderOptions.ankiTemplateConfig(anki, templateId);
+    if (template === null) throw new Error("The selected Anki Template is no longer available.");
+    if (template.captureScreenshot !== true) throw new Error("Screenshots when mining are turned off in Settings.");
     const dataUrl = await captureViewport();
     // Capture retries can complete out of order. Only the latest request may
     // publish its bytes, even if a newer picture has already been consumed.

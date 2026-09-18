@@ -66,7 +66,8 @@ import {
 import { applyCustomJavaScript } from "./custom-javascript.js";
 
 const {
-  DEFAULT_OPTIONS, normaliseOptions, projectStoredOptions, validateOptionsPatch,
+  ANKI_TEMPLATE_CONFIG_KEYS, DEFAULT_OPTIONS, ankiTemplateConfig, normaliseOptions, projectStoredOptions,
+  validateOptionsPatch,
 } = globalThis.HDReaderOptions;
 const { normaliseExternalUrl } = globalThis.HDExternalLinks;
 const { pruneGroupMemberships } = globalThis.HDDictionaryGroups;
@@ -287,14 +288,120 @@ function sharingStatus() {
   return { ...getSharingHost().status(), client: { ...client, display: client.address === null ? null : parseLinkAddress(client.address).display } };
 }
 
-function forwardToHost(message) {
+function forwardToHost(message, capability = null) {
   return getSharingClient().forward(message, {
+    capability,
     mutation: mutatingForwardedRequest(message),
   }).catch(error => failureReply(message, error));
 }
 
+function linkedOptionsCapability(message) {
+  if (message?.type !== "hd_options_write") return null;
+  const patch = message.options;
+  return patch && typeof patch === "object"
+    && (Object.hasOwn(patch, "anki") || Object.hasOwn(patch, "customButtons"))
+    ? LINKED_ANKI_CAPABILITY
+    : null;
+}
+
+const LINKED_SETTINGS_UPDATE_REQUIRED =
+  "Update the linked Hachidori before editing Templates or Custom Buttons.";
+
+function assignMatchingLegacyLinks(incoming, currentLinks, available, assigned) {
+  for (const [incomingIndex, button] of incoming.entries()) {
+    const match = currentLinks.findIndex((candidate, currentIndex) => available.has(currentIndex)
+      && candidate.label === button.label && candidate.url === button.url);
+    if (match < 0) continue;
+    assigned[incomingIndex] = match;
+    available.delete(match);
+  }
+}
+
+function assignPositionedLegacyLinks(incoming, available, assigned) {
+  for (let index = 0; index < incoming.length; index += 1) {
+    if (assigned[index] >= 0 || !available.has(index)) continue;
+    assigned[index] = index;
+    available.delete(index);
+  }
+}
+
+function mergeLegacyCustomLinks(currentButtons, links) {
+  const incoming = validateOptionsPatch({ customLinks: links }).customButtons;
+  const currentLinks = currentButtons.filter(button => button.type === "link");
+  const assigned = new Array(incoming.length).fill(-1);
+  const available = new Set(currentLinks.map((_, index) => index));
+  // Preserve identity through legacy reordering before treating a changed row
+  // as an edit of the link that occupied the same legacy position.
+  assignMatchingLegacyLinks(incoming, currentLinks, available, assigned);
+  assignPositionedLegacyLinks(incoming, available, assigned);
+  const usedIds = new Set(currentButtons.filter(button => button.type !== "link").map(button => button.id));
+  for (const currentIndex of assigned) {
+    if (currentIndex >= 0) usedIds.add(currentLinks[currentIndex].id);
+  }
+  let generated = 1;
+  const nextLinks = incoming.map((button, index) => {
+    if (assigned[index] >= 0) return { ...button, id: currentLinks[assigned[index]].id };
+    let id = `legacy-link-${generated++}`;
+    while (usedIds.has(id)) id = `legacy-link-${generated++}`;
+    usedIds.add(id);
+    return { ...button, id };
+  });
+  let linkIndex = 0;
+  const merged = [];
+  for (const button of currentButtons) {
+    if (button.type === "link") {
+      if (linkIndex < nextLinks.length) merged.push(nextLinks[linkIndex++]);
+    } else {
+      merged.push(button);
+    }
+  }
+  merged.push(...nextLinks.slice(linkIndex));
+  return merged;
+}
+
+function mergeLegacyAnki(current, legacy) {
+  const first = {
+    id: current.templates[0].id,
+    name: current.templates[0].name,
+    ...Object.fromEntries(ANKI_TEMPLATE_CONFIG_KEYS.map(key => [key, legacy[key]])),
+  };
+  return {
+    url: legacy.url,
+    apiKey: legacy.apiKey,
+    templates: [first, ...current.templates.slice(1)],
+    ...Object.fromEntries(ANKI_TEMPLATE_CONFIG_KEYS.map(key => [key, first[key]])),
+  };
+}
+
+async function compatibleLinkedWorkerMessage(message, sender) {
+  const capabilities = sender.linkedCapabilities;
+  if (message.type !== "hd_options_write" || !Array.isArray(capabilities)
+      || capabilities.includes(LINKED_ANKI_CAPABILITY)) return message;
+  const patch = message.options;
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return message;
+  const richAnki = patch.anki && typeof patch.anki === "object"
+    && Object.hasOwn(patch.anki, "templates");
+  if (Object.hasOwn(patch, "customButtons") || richAnki) {
+    throw new Error(LINKED_SETTINGS_UPDATE_REQUIRED);
+  }
+  if (!Object.hasOwn(patch, "customLinks") && !Object.hasOwn(patch, "anki")) return message;
+  const stored = normaliseOptions((await chrome.storage.local.get(OPTIONS_KEY))[OPTIONS_KEY]);
+  const compatible = { ...patch };
+  if (Object.hasOwn(patch, "customLinks")) {
+    compatible.customButtons = mergeLegacyCustomLinks(stored.customButtons, patch.customLinks);
+    delete compatible.customLinks;
+  }
+  if (Object.hasOwn(patch, "anki")) {
+    const legacy = validateOptionsPatch({ anki: patch.anki }).anki;
+    compatible.anki = mergeLegacyAnki(stored.anki, legacy);
+  }
+  return { ...message, options: compatible };
+}
+
 function forwardWorkerRequest(message) {
-  return OVERLAY_MODE && message.type === "hd_options_write" ? writeLinkedOverlayOptions(message) : forwardToHost(message);
+  return OVERLAY_MODE && message.type === "hd_options_write"
+    ? writeLinkedOverlayOptions(message)
+    : forwardToHost(message, linkedOptionsCapability(message));
 }
 
 async function readAnkiOptions() {
@@ -346,6 +453,9 @@ const RELAY_BACKOFF_MS = 40;
 const NOT_LISTENING = /Receiving end does not exist|Could not establish connection/i;
 
 let creating = null;
+// True after the offscreen document answered a relayed request; cleared when a
+// relay gets no reply, so the next attempt verifies the document again.
+let offscreenAnswered = false;
 let latestAudioOperation = null;
 let capturePage = null;
 let captureRecovery = null;
@@ -552,7 +662,14 @@ async function ensureOffscreen() {
 async function relay(message, stillCurrent = null) {
   let failure = null;
   for (let attempt = 0; attempt < RELAY_ATTEMPTS; attempt += 1) {
-    await ensureOffscreen();
+    // ensureOffscreen() costs a getContexts() round trip to the browser process
+    // on every request (about 0.2 ms of a 2.3 ms lookup). Once the document has
+    // answered, send to it directly; a missing reply falls back to the checked
+    // path immediately, without consuming an attempt or backing off.
+    const optimistic = offscreenAnswered;
+    if (!optimistic) {
+      await ensureOffscreen();
+    }
     if (stillCurrent && !stillCurrent()) {
       return { type: `${message.type}_result`, requestId: message.requestId, ok: true, status: "cancelled" };
     }
@@ -562,6 +679,7 @@ async function relay(message, stillCurrent = null) {
       // from an extension page runs on the engine exactly once.
       const reply = await chrome.runtime.sendMessage({ ...message, relayed: true });
       if (reply !== undefined) {
+        offscreenAnswered = true;
         return reply;
       }
       failure = new Error("offscreen document sent no reply");
@@ -570,6 +688,11 @@ async function relay(message, stillCurrent = null) {
         throw error;
       }
       failure = error;
+    }
+    offscreenAnswered = false;
+    if (optimistic) {
+      attempt -= 1;
+      continue;
     }
     await sleep(RELAY_BACKOFF_MS * (attempt + 1));
   }
@@ -1409,7 +1532,8 @@ async function finishOverlayOptionsWrite(message, prepared, reply) {
 async function writeLinkedOverlayOptions(message) {
   const prepared = await serialiseStorage(() => prepareOverlayOptionsWrite(message));
   if (prepared.reply) return prepared.reply;
-  const reply = await forwardToHost({ ...message, options: prepared.shared, baseRevision: prepared.version.hostRevision });
+  const forwarded = { ...message, options: prepared.shared, baseRevision: prepared.version.hostRevision };
+  const reply = await forwardToHost(forwarded, linkedOptionsCapability(forwarded));
   return serialiseStorage(() => finishOverlayOptionsWrite(message, prepared, reply));
 }
 
@@ -2472,9 +2596,11 @@ function answerAnkiRequest(message, sender, linkedClient = false) {
     const service = getAnkiMining();
     // Only the screenshot needs to know which page asked, and it is given the
     // capture rather than the sender, so nothing else can capture a tab.
-    if (message.type === "hd_anki_screenshot") return service.screenshot(() => captureSenderViewport(sender));
+    if (message.type === "hd_anki_screenshot") {
+      return service.screenshot(() => captureSenderViewport(sender), message.templateId);
+    }
     if (linkedClient && message.type === "hd_anki_status") {
-      const status = await service.status();
+      const status = await service.status(message.templateId);
       return { ...status, configKey: linkedAnkiConfigKey(status.configKey) };
     }
     if (linkedClient && message.type === "hd_anki_view") {
@@ -2490,6 +2616,7 @@ function answerAnkiRequest(message, sender, linkedClient = false) {
     if (linkedClient && message.type === "hd_anki_browse") {
       return service.browse(hostLinkedAnkiRequest(message.request));
     }
+    if (message.type === "hd_anki_status") return service.status(message.templateId);
     return service[ANKI_METHODS[message.type]](message.type === "hd_anki_browse"
       ? message.request ?? message.expression : message.request);
   }).then(result => workerReply(message, result), error => failureReply(message, error));
@@ -2740,7 +2867,7 @@ async function handleWorkerRequest(message, sender) {
       return failureReply(message, error);
     }
   }
-  const invoke = () => WORKER_HANDLERS[type](message, sender);
+  const invoke = async () => WORKER_HANDLERS[type](await compatibleLinkedWorkerMessage(message, sender), sender);
   if (sharingLinked && !engineSender(sender) && WORKER_FORWARDS.has(type)) {
     return forwardWorkerRequest(message).catch(error => failureReply(message, error));
   }
@@ -2794,8 +2921,12 @@ async function handleUpdatesRequest(message) {
 // each one is answered by the handler for its target, as if a page sent it.
 const SHARING_TARGET = "hachidori-sharing";
 
-async function dispatchSharedRequest(message, clientId) {
-  const sender = { id: chrome.runtime.id, url: `hachidori-sharing://client/${clientId}` };
+async function dispatchSharedRequest(message, clientId, capabilities = []) {
+  const sender = {
+    id: chrome.runtime.id,
+    url: `hachidori-sharing://client/${clientId}`,
+    linkedCapabilities: capabilities,
+  };
   const ordinary = () => {
     if (!forwardableRequest(message)) {
       throw new Error(`unsupported shared request ${JSON.stringify(message.target)} ${JSON.stringify(message.type)}`);
@@ -2818,7 +2949,9 @@ async function dispatchSharedRequest(message, clientId) {
         if (message.type === "hd_anki_setup") {
           const allowed = allowLinkedAnkiSetupRequest(message);
           const options = await readAnkiOptions();
-          return workerReply(allowed, await trackAnkiOperation(() => checkAnkiSetup(options.anki)));
+          const config = ankiTemplateConfig(options.anki, allowed.templateId);
+          if (config === null) throw new Error("The selected Anki Template is no longer available.");
+          return workerReply(allowed, await trackAnkiOperation(() => checkAnkiSetup(config)));
         }
         ordinary();
         return await handleWorkerRequest(message, sender);
@@ -3087,8 +3220,11 @@ async function seedOverlayModeOptions() {
   await serialiseStorage(async () => {
     const stored = await chrome.storage.local.get(OPTIONS_KEY);
     if (stored[OPTIONS_KEY] !== undefined) return;
-    const options = validateOptionsPatch({ ...FIRST_INSTALL_OPTIONS, ...OVERLAY_MODE_OPTIONS,
-      anki: { ...DEFAULT_OPTIONS.anki, ...OVERLAY_MODE_OPTIONS.anki } });
+    const options = validateOptionsPatch({
+      ...FIRST_INSTALL_OPTIONS,
+      ...OVERLAY_MODE_OPTIONS,
+      anki: overlayAnkiOptions(DEFAULT_OPTIONS, MINING_CAPABILITIES).anki,
+    });
     await writeLocalState({ [OPTIONS_KEY]: { ...options, revision: 1 } });
   });
 }

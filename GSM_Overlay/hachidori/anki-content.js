@@ -30,7 +30,7 @@
   function setMiningButtonState(record, state, message = "") {
     const button = record.add;
     button.dataset.state = state;
-    const title = message || {
+    const actionTitle = message || {
       checking: "Checking Anki card status",
       ready: "Mine to Anki",
       "add-duplicate": "Add duplicate to Anki",
@@ -42,10 +42,21 @@
       duplicate: "Note already exists",
       unavailable: "Anki mining is unavailable",
     }[state] || "Mine to Anki";
+    const title = record.custom && !message ? `${record.label}: ${actionTitle}` : actionTitle;
     button.title = title;
     button.setAttribute("aria-label", title);
     button.setAttribute("aria-busy", String(state === "checking" || state === "mining"));
     button.dataset.action = views(record) ? "view" : "add";
+    if (record.custom) {
+      let label = button.querySelector(".gsm-hoshidicts-text-action-label");
+      if (!label) {
+        label = button.ownerDocument.createElement("span");
+        label.className = "gsm-hoshidicts-text-action-label";
+        button.replaceChildren(label);
+      }
+      text(label, record.label);
+      return;
+    }
     const iconName = {
       ready: "add",
       "add-duplicate": "document-add",
@@ -75,7 +86,11 @@
       || (!record.terminal && (record.needsCheck || (!record.decision?.canAdd && !views(record))));
   }
   function payload(record) {
-    return { ...record.group.getRequest(record.result), configKey: record.group.configKey };
+    return {
+      ...record.group.getRequest(record.result),
+      configKey: record.configKey,
+      templateId: record.templateId,
+    };
   }
   function decisionState(value) {
     if (value.action === "overwrite" && value.canAdd) return "overwrite";
@@ -89,9 +104,49 @@
     syncFeedback(record);
   }
   function removeControls(record) {
-    record?.add?.remove();
+    if (record?.add && !record.custom) record.add.remove();
+    if (record?.add && record.custom) {
+      record.add.removeEventListener("mousedown", record.onMouseDown);
+      record.add.removeEventListener("click", record.onClick);
+      record.add.disabled = true;
+      delete record.add.dataset.state;
+      delete record.add.dataset.action;
+      record.add.removeAttribute("aria-busy");
+    }
     record?.control?.remove();
     if (record?.feedback) syncFeedbackSurface(record.feedback);
+  }
+  function reusableRecord(record, group, spec) {
+    return record?.group === group && record.result === spec.item.result
+      && record.custom === spec.custom && record.templateId === spec.templateId;
+  }
+  function createRecord(group, spec) {
+    const { item, binding, custom, templateId, label, add } = spec;
+    return {
+      ...item,
+      binding,
+      group,
+      custom,
+      templateId,
+      label,
+      ...(add ? { add } : {}),
+      configKey: null,
+      busy: false,
+      terminal: false,
+      decision: null,
+      viewChecked: false,
+      needsCheck: true,
+      captureJobId: null,
+    };
+  }
+  function updateRecord(record, spec) {
+    Object.assign(record, {
+      actions: spec.item.actions,
+      feedback: spec.item.feedback,
+      result: spec.item.result,
+      label: spec.label,
+    });
+    if (spec.custom) setMiningButtonState(record, record.add.dataset.state || "checking");
   }
   function captureBadge(record, state = "") {
     if (!record.badge) return;
@@ -138,8 +193,8 @@
       setStatus(record, `Encoding captured media${progress}…`);
     }
   }
-  function restartChecks(group) {
-    for (const record of group.records) {
+  function restartChecks(records) {
+    for (const record of records) {
       if (record.terminal) continue;
       record.viewChecked = false;
       record.needsCheck = true;
@@ -153,6 +208,7 @@
         expression: record.result.term.expression,
         reading: record.result.term.reading,
       },
+      templateId: record.templateId,
     } };
   }
   function cachedView(value) {
@@ -175,16 +231,24 @@
   }) {
     const owners = new Map(), bound = new WeakMap();
     let enabled = false, settingsKey = "", checks = Promise.resolve();
+    let primaryTemplateId = "default";
+    let templateIds = new Set(["default"]);
+    let customButtonTemplates = new Map();
     const live = group => enabled && owners.get(group.owner) === group && !group.popup.hidden && group.isCurrent();
-    const boundHere = record => bound.get(record.actions) === record && record.actions.isConnected;
+    const boundHere = record => bound.get(record.binding) === record && record.binding.isConnected;
     const current = record => live(record.group) && boundHere(record);
     const needsCheck = record => boundHere(record) && record.needsCheck && !record.busy && !record.terminal;
-    function available(group, value) {
-      for (const record of group.records) {
-        const show = value || record.terminal || cachedView(record.decision);
+    function available(records, value, error = "") {
+      for (const record of records) {
+        const show = value || record.custom || record.terminal || cachedView(record.decision);
         if (show && record.actions.isConnected) controls(record);
         if (record.control) showControls(record, show);
         if (!value && !show) record.needsCheck = false;
+        if (!value && record.custom) {
+          record.needsCheck = false;
+          setMiningButtonState(record, "unavailable", error || "This Anki Template is unavailable.");
+          setStatus(record, error || "This Anki Template is unavailable.", "error");
+        }
       }
     }
     async function requestCachedView(record) {
@@ -203,22 +267,29 @@
       decision(record, result);
       onChange(group.owner);
     }
-    async function checkCachedViews(group, owns) {
-      let configKey = null;
-      for (const record of group.records) {
-        if (!owns()) return { configKey, changed: false };
+    async function checkCachedViews(group, records, owns) {
+      const configKeys = new Map();
+      for (const record of records) {
+        if (!owns()) return { configKeys, changed: [] };
         if (!needsCheck(record) || record.viewChecked) continue;
         const result = await requestCachedView(record);
         if (result === null || !owns() || !boundHere(record)) continue;
+        const configKey = configKeys.get(record.templateId) ?? null;
         const checked = checkedConfigKey(configKey, result);
-        if (checked.changed) return checked;
-        configKey = checked.configKey;
+        if (checked.changed) {
+          return {
+            configKeys,
+            changed: records.filter(candidate => candidate.templateId === record.templateId),
+          };
+        }
+        if (checked.configKey !== null) configKeys.set(record.templateId, checked.configKey);
+        record.configKey = checked.configKey;
         applyCachedView(group, record, result);
       }
-      return { configKey, changed: false };
+      return { configKeys, changed: [] };
     }
-    async function checkRecords(group, owns) {
-      for (const record of group.records) {
+    async function checkRecords(records, owns) {
+      for (const record of records) {
         if (!owns()) return;
         if (!needsCheck(record)) continue;
         record.needsCheck = false;
@@ -230,32 +301,50 @@
         }
       }
     }
+    function recordsByTemplate(records) {
+      const byTemplate = new Map();
+      for (const record of records) {
+        if (!byTemplate.has(record.templateId)) byTemplate.set(record.templateId, []);
+        byTemplate.get(record.templateId).push(record);
+      }
+      return byTemplate;
+    }
+    async function checkTemplateRecords(group, templateId, records, configKeys, owns) {
+      const status = await send("hd_anki_status", { templateId });
+      if (!owns()) return;
+      const cachedKey = configKeys.get(templateId) ?? null;
+      if (status.available && cachedKey !== null && status.configKey !== cachedKey) {
+        restartChecks(records);
+        return;
+      }
+      for (const record of records) record.configKey = status.configKey;
+      available(records, status.available, status.error);
+      if (!status.available) return;
+      onChange(group.owner);
+      await checkRecords(records, owns);
+    }
     async function checkGroup(group) {
       const epoch = group.epoch;
       const owns = () => live(group) && epoch === group.epoch;
       try {
         if (!owns()) return;
-        const cached = await checkCachedViews(group, owns);
+        const missing = group.records.filter(record => needsCheck(record) && !templateIds.has(record.templateId));
+        available(missing, false, "The selected Anki Template is no longer available.");
+        const configured = group.records.filter(record => templateIds.has(record.templateId));
+        const cached = await checkCachedViews(group, configured, owns);
         if (!owns()) return;
-        if (cached.changed) {
-          restartChecks(group);
+        if (cached.changed.length > 0) {
+          restartChecks(cached.changed);
           return;
         }
-        if (cached.configKey !== null) group.configKey = cached.configKey;
         if (!group.records.some(needsCheck)) return;
-        const status = await send("hd_anki_status", {});
-        if (!owns()) return;
-        if (cached.configKey !== null && status.configKey !== cached.configKey) {
-          restartChecks(group);
-          return;
+        const byTemplate = recordsByTemplate(group.records.filter(needsCheck));
+        for (const [templateId, records] of byTemplate) {
+          await checkTemplateRecords(group, templateId, records, cached.configKeys, owns);
+          if (!owns()) return;
         }
-        group.configKey = status.configKey;
-        available(group, status.available);
-        if (!status.available) return;
-        onChange(group.owner);
-        await checkRecords(group, owns);
-      } catch {
-        if (owns()) available(group, false);
+      } catch (error) {
+        if (owns()) available(group.records.filter(needsCheck), false, error.message);
       } finally {
         group.queued = false;
         if (live(group)) {
@@ -327,7 +416,7 @@
       if (record.decision?.screenshot !== true) return request;
       if (owns()) setStatus(record, "Taking the screenshot…");
       try {
-        const taken = await conceal(() => send("hd_anki_screenshot", {}));
+        const taken = await conceal(() => send("hd_anki_screenshot", { templateId: record.templateId }));
         if (typeof taken?.filename !== "string" || !taken.filename) throw new Error("no screenshot was taken");
         record.screenshot = { token: taken.token, filename: taken.filename };
         return { ...request, screenshot: record.screenshot };
@@ -415,7 +504,8 @@
         const result = await send("hd_anki_browse", { request: {
           noteIds: Array.isArray(noteIds) ? noteIds : [],
           expression: record.result.term.expression,
-          configKey: record.group.configKey,
+          configKey: record.configKey,
+          templateId: record.templateId,
         } });
         if (current(record) && Array.isArray(result?.noteIds)) {
           if (record.terminal) record.noteIds = result.noteIds;
@@ -450,9 +540,11 @@
       }
       const control = document.createElement("div");
       control.className = "gsm-hoshidicts-anki-control";
-      const add = document.createElement("button");
-      add.type = "button";
-      add.className = "gsm-hoshidicts-mine-button";
+      const add = record.add || document.createElement("button");
+      if (!record.custom) {
+        add.type = "button";
+        add.className = "gsm-hoshidicts-mine-button";
+      }
       const badge = document.createElement("span");
       badge.className = "gsm-hoshidicts-capture-badge";
       badge.hidden = true;
@@ -462,40 +554,88 @@
       control.append(badge, output);
       control.hidden = true;
       feedback.append(control);
-      const leadingAction = record.actions.firstElementChild;
-      if (leadingAction?.matches(".gsm-hoshidicts-popup-close, .gsm-hoshidicts-kanji-back")) {
-        leadingAction.after(add);
-      } else {
-        record.actions.prepend(add);
+      if (!record.custom) {
+        const leadingAction = record.actions.firstElementChild;
+        if (leadingAction?.matches(".gsm-hoshidicts-popup-close, .gsm-hoshidicts-kanji-back")) {
+          leadingAction.after(add);
+        } else {
+          record.actions.prepend(add);
+        }
       }
       Object.assign(record, { feedback, control, add, badge, output, hidden: false });
       setMiningButtonState(record, "checking");
-      add.addEventListener("mousedown", event => {
+      record.onMouseDown = event => {
         if (event.button === 0 && current(record) && !views(record)) record.pointerRequest = payload(record);
-      });
-      add.addEventListener("click", event => {
+      };
+      record.onClick = event => {
         if (views(record)) void browse(record);
         else void submit(record, event.detail > 0);
-      });
+      };
+      add.addEventListener("mousedown", record.onMouseDown);
+      add.addEventListener("click", record.onClick);
       disabled(record);
+    }
+    function recordSpecs(group) {
+      const specs = [];
+      for (const item of group.items) {
+        specs.push({
+          item,
+          binding: item.actions,
+          custom: false,
+          templateId: primaryTemplateId,
+          label: "Anki",
+        });
+        for (const add of item.actions.querySelectorAll(".gsm-hoshidicts-custom-anki-button")) {
+          const descriptor = customButtonTemplates.get(add.dataset.customButtonId);
+          if (!descriptor) continue;
+          specs.push({
+            item,
+            binding: add,
+            add,
+            custom: true,
+            templateId: descriptor.templateId,
+            label: descriptor.label,
+          });
+        }
+      }
+      return specs;
+    }
+    function recordForSpec(group, spec) {
+      let record = bound.get(spec.binding);
+      if (reusableRecord(record, group, spec)) {
+        updateRecord(record, spec);
+        return record;
+      }
+      if (record) {
+        removeControls(record);
+        bound.delete(spec.binding);
+      }
+      record = createRecord(group, spec);
+      bound.set(spec.binding, record);
+      return record;
+    }
+    function reconcile(group) {
+      const next = recordSpecs(group).map(spec => recordForSpec(group, spec));
+      const retained = new Set(next);
+      const retainedBindings = new Set(next.map(record => record.binding));
+      for (const record of group.records) {
+        if (retained.has(record) || retainedBindings.has(record.binding)) continue;
+        removeControls(record);
+        if (bound.get(record.binding) === record) bound.delete(record.binding);
+      }
+      group.records = next;
     }
     function bind(items, context) {
       let group = owners.get(context.owner);
       if (group && group.request !== context.request) { retire(context.owner); group = null; }
-      if (!group) { group = { ...context, records: [], epoch: 0, queued: false }; owners.set(context.owner, group); }
-      else Object.assign(group, context);
-      const records = [...group.records];
-      for (const item of items) {
-        let record = bound.get(item.actions);
-        if (record?.group === group && record.result === item.result) continue;
-        removeControls(record);
-        record = { ...item, group, busy: false, terminal: false, decision: null, viewChecked: false, needsCheck: true,
-          captureJobId: null };
-        bound.set(item.actions, record);
-        records.push(record);
-        disabled(record);
+      if (!group) {
+        group = { ...context, items, records: [], epoch: 0, queued: false };
+        owners.set(context.owner, group);
       }
-      group.records = records.filter(boundHere);
+      else Object.assign(group, context);
+      group.items = items;
+      reconcile(group);
+      group.records.forEach(disabled);
       refresh(group);
     }
     function retire(owner) {
@@ -508,12 +648,20 @@
     return { bind, retire,
       refresh(owner) { const group = owners.get(owner); if (group) refresh(group, true); },
       update(options, ready = true) {
-        const key = JSON.stringify([ready, options.anki, options.audioSources, options.mediaCapture]);
+        const anki = globalThis.HDReaderOptions.normaliseAnki(options.anki);
+        const customButtons = globalThis.HDReaderOptions.normaliseCustomButtons(options.customButtons);
+        const key = JSON.stringify([ready, anki, customButtons, options.audioSources, options.mediaCapture]);
         if (key === settingsKey) return;
         settingsKey = key;
-        enabled = ready && Boolean(options.anki.model);
+        primaryTemplateId = anki.templates[0].id;
+        templateIds = new Set(anki.templates.map(template => template.id));
+        customButtonTemplates = new Map(customButtons.filter(button => button.type === "anki")
+          .map(button => [button.id, { templateId: button.templateId, label: button.label }]));
+        enabled = ready && (anki.templates.some(template => Boolean(template.model))
+          || customButtonTemplates.size > 0);
         for (const group of owners.values()) {
           group.epoch++;
+          reconcile(group);
           for (const record of group.records) if (record.control) showControls(record, false);
           refresh(group, true);
         }

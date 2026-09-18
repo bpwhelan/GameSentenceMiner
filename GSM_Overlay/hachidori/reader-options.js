@@ -10,13 +10,22 @@
   const ANKI_DUPLICATE_SCOPES = ["model", "deck", "all"];
   const ANKI_DUPLICATE_BEHAVIORS = ["prevent", "new", "overwrite"];
   const ANKI_OVERWRITE_MODES = ["coalesce", "coalesce-new", "skip", "append", "prepend", "overwrite"];
+  const STABLE_ID_MAX_LENGTH = 256;
+  const ANKI_TEMPLATE_CONFIG_KEYS = ["deck", "model", "tags", "fields", "duplicateScope", "duplicateBehavior",
+    "captureScreenshot", "fieldTemplates"];
   // `captureScreenshot` only matters once a mapped field asks for {screenshot},
   // so it is on by default: a note type with a picture field gets the viewport
   // screenshot the mining request was made from, and nothing else changes.
-  const DEFAULT_ANKI = { deck: "Default", model: "", url: "http://127.0.0.1:8765", apiKey: "", tags: ["hachidori"],
+  const DEFAULT_ANKI_TEMPLATE = { id: "default", name: "Default", deck: "Default", model: "", tags: ["hachidori"],
     fields: Object.fromEntries(ANKI_FIELDS.map(key => [key, ""])),
     duplicateScope: "model", duplicateBehavior: "prevent",
     captureScreenshot: true, fieldTemplates: null };
+  const DEFAULT_ANKI = {
+    url: "http://127.0.0.1:8765",
+    apiKey: "",
+    templates: [DEFAULT_ANKI_TEMPLATE],
+    ...Object.fromEntries(ANKI_TEMPLATE_CONFIG_KEYS.map(key => [key, DEFAULT_ANKI_TEMPLATE[key]])),
+  };
   const DEFAULT_MEDIA_CAPTURE = {
     enabled: false,
     timingMode: "auto",
@@ -89,6 +98,7 @@
     customPopupCss: "",
     customPopupJavascript: "",
     customLinks: [],
+    customButtons: [],
     audioSources: [{ id: "default-tts", type: "text-to-speech-reading", enabled: true, url: "", voice: "" }],
     audioAutoplay: false,
     anki: DEFAULT_ANKI,
@@ -162,7 +172,7 @@
   })) }));
   const POPUP_THEME_IDS = new Set(POPUP_THEME_GROUPS.flatMap(group => group.themes.map(theme => theme.id)));
   const DESIGN_OPTION_KEYS = [
-    "popupTheme", "popupToolbarPosition", "customPopupCss", "customPopupJavascript", "customLinks", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupOpacityPercent", "sourceHighlightEnabled", "showPopupAudioButton", "popupColumns",
+    "popupTheme", "popupToolbarPosition", "customPopupCss", "customPopupJavascript", "customLinks", "customButtons", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupOpacityPercent", "sourceHighlightEnabled", "showPopupAudioButton", "popupColumns",
     "showCompactDefinitionSummary", "compactDefinitionSummaryCount", "compactDefinitionSummaryDictionary",
     "kanjiClickDictionary", "popupImageSource", "averageFrequency", "showFrequencyDictionaryNames",
     "showPitchAccentFurigana", "pitchAccentFuriganaDictionary", "showPitchAccentBadge", "hidePopupGrammarTags",
@@ -318,6 +328,44 @@
       .map(({ label, url }) => ({ label, url }));
   }
 
+  function validIdentifier(value) {
+    return typeof value === "string" && value !== "" && value.length <= STABLE_ID_MAX_LENGTH
+      && !/[\u0000-\u001f\u007f]/u.test(value);
+  }
+
+  function legacyCustomButtons(links) {
+    return normaliseCustomLinks(links).map((link, index) => ({
+      id: `legacy-link-${index + 1}`,
+      type: "link",
+      ...link,
+    }));
+  }
+
+  function normaliseCustomButtons(value) {
+    if (!Array.isArray(value)) return [];
+    const ids = new Set();
+    return value.flatMap(button => {
+      if (!button || !validIdentifier(button.id) || ids.has(button.id)
+          || typeof button.label !== "string" || !button.label.trim()
+          || /[\u0000-\u001f\u007f]/u.test(button.label)) return [];
+      let normalized;
+      if (button.type === "link" && typeof button.url === "string" && button.url.trim()) {
+        normalized = { id: button.id, type: "link", label: button.label, url: button.url };
+      } else if (button.type === "anki" && validIdentifier(button.templateId)) {
+        normalized = { id: button.id, type: "anki", label: button.label, templateId: button.templateId };
+      } else {
+        return [];
+      }
+      ids.add(button.id);
+      return [normalized];
+    });
+  }
+
+  function customLinksFromButtons(buttons) {
+    return buttons.filter(button => button.type === "link")
+      .map(({ label, url }) => ({ label, url }));
+  }
+
   function normaliseAnkiConnectUrl(value) {
     if (typeof value !== "string" || /[\u0000-\u001f\u007f]/u.test(value)) return null;
     try {
@@ -328,16 +376,35 @@
     } catch { return null; }
   }
 
-  function normaliseAnki(value) {
-    const source = value && typeof value === "object" ? value : {};
-    const result = { ...DEFAULT_ANKI };
-    for (const key of ["deck", "model", "apiKey", "captureScreenshot"]) {
-      if (typeof source[key] === typeof DEFAULT_ANKI[key]) result[key] = source[key];
+  function cloneAnkiFieldTemplates(value) {
+    if (value === null) return null;
+    return Object.fromEntries(Object.entries(value).map(([field, template]) => [field, { ...template }]));
+  }
+
+  function cloneAnkiTemplate(value = DEFAULT_ANKI_TEMPLATE) {
+    return {
+      ...value,
+      tags: [...value.tags],
+      fields: { ...value.fields },
+      fieldTemplates: cloneAnkiFieldTemplates(value.fieldTemplates),
+    };
+  }
+
+  function normaliseAnkiFieldTemplates(value) {
+    if (value === null || !validAnkiTemplates(value)) return null;
+    return cloneAnkiFieldTemplates(value);
+  }
+
+  function normaliseAnkiTemplateConfig(value) {
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const result = cloneAnkiTemplate();
+    delete result.id;
+    delete result.name;
+    for (const key of ["deck", "model", "captureScreenshot"]) {
+      if (typeof source[key] === typeof DEFAULT_ANKI_TEMPLATE[key]) result[key] = source[key];
     }
-    // Missing legacy settings keep localhost; an explicitly invalid endpoint
-    // must remain unavailable rather than sending its requests somewhere else.
-    if (Object.hasOwn(source, "url")) result.url = normaliseAnkiConnectUrl(source.url) ?? "";
-    result.tags = Array.isArray(source.tags) ? source.tags.filter(tag => typeof tag === "string") : [...DEFAULT_ANKI.tags];
+    result.tags = Array.isArray(source.tags) ? source.tags.filter(tag => typeof tag === "string")
+      : [...DEFAULT_ANKI_TEMPLATE.tags];
     result.fields = Object.fromEntries(ANKI_FIELDS.map(key => [key,
       typeof source.fields?.[key] === "string" ? source.fields[key] : ""]));
     if (ANKI_DUPLICATE_SCOPES.includes(source.duplicateScope)) {
@@ -349,7 +416,59 @@
     }
     if (ANKI_DUPLICATE_BEHAVIORS.includes(source.duplicateBehavior)) result.duplicateBehavior = source.duplicateBehavior;
     if (source.checkForDuplicates === false) result.duplicateBehavior = "new";
-    result.fieldTemplates = validAnkiTemplates(source.fieldTemplates) ? source.fieldTemplates : null;
+    result.fieldTemplates = normaliseAnkiFieldTemplates(source.fieldTemplates);
+    return result;
+  }
+
+  function normaliseAnkiTemplate(value, index = 0) {
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const fallbackId = index === 0 ? "default" : `template-${index + 1}`;
+    const fallbackName = index === 0 ? "Default" : `Template ${index + 1}`;
+    const validName = typeof source.name === "string" && source.name.trim()
+      && !/[\u0000-\u001f\u007f]/u.test(source.name);
+    return {
+      id: validIdentifier(source.id) ? source.id : fallbackId,
+      name: validName ? source.name : fallbackName,
+      ...normaliseAnkiTemplateConfig(source),
+    };
+  }
+
+  function sameAnkiTemplateConfig(left, right) {
+    return ANKI_TEMPLATE_CONFIG_KEYS.every(key => JSON.stringify(left[key]) === JSON.stringify(right[key]));
+  }
+
+  function normaliseAnki(value) {
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    let templates;
+    if (Array.isArray(source.templates) && source.templates.length > 0) {
+      const ids = new Set();
+      templates = source.templates.map((template, index) => normaliseAnkiTemplate(template, index))
+        .filter(template => {
+          if (ids.has(template.id)) return false;
+          ids.add(template.id);
+          return true;
+        });
+      if (templates.length === 0) templates = [cloneAnkiTemplate()];
+      // A legacy caller may spread the normalized object and edit its
+      // first-Template compatibility fields. Keep that edit lossless.
+      const projected = normaliseAnkiTemplateConfig(source);
+      const carriesProjection = ANKI_TEMPLATE_CONFIG_KEYS.every(key => Object.hasOwn(source, key));
+      if (carriesProjection && !sameAnkiTemplateConfig(projected, templates[0])) {
+        templates[0] = { id: templates[0].id, name: templates[0].name, ...projected };
+      }
+    } else {
+      templates = [{ id: "default", name: "Default", ...normaliseAnkiTemplateConfig(source) }];
+    }
+    const first = templates[0];
+    const result = {
+      url: DEFAULT_ANKI.url,
+      apiKey: typeof source.apiKey === "string" ? source.apiKey : DEFAULT_ANKI.apiKey,
+      templates,
+      ...Object.fromEntries(ANKI_TEMPLATE_CONFIG_KEYS.map(key => [key, first[key]])),
+    };
+    // Missing legacy settings keep localhost; an explicitly invalid endpoint
+    // must remain unavailable rather than sending its requests somewhere else.
+    if (Object.hasOwn(source, "url")) result.url = normaliseAnkiConnectUrl(source.url) ?? "";
     return result;
   }
 
@@ -360,9 +479,23 @@
       && typeof template.value === "string" && ANKI_OVERWRITE_MODES.includes(template.overwriteMode));
   }
 
-  function validAnki(value, normalized) {
+  function validAnkiTemplate(value, normalized) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-    return Object.entries(normalized).every(([key, expected]) => {
+    const keys = new Set(["id", "name", ...ANKI_TEMPLATE_CONFIG_KEYS]);
+    if (Object.keys(value).some(key => !keys.has(key))
+        || value.id !== normalized.id || value.name !== normalized.name) return false;
+    return ANKI_TEMPLATE_CONFIG_KEYS.every(key => {
+      if (key === "fieldTemplates") return validAnkiTemplates(value.fieldTemplates)
+        && JSON.stringify(value.fieldTemplates) === JSON.stringify(normalized.fieldTemplates);
+      if (key === "fields") return value.fields && !Array.isArray(value.fields)
+        && ANKI_FIELDS.every(field => value.fields[field] === normalized.fields[field]);
+      if (key === "tags") return Array.isArray(value.tags) && JSON.stringify(value.tags) === JSON.stringify(normalized.tags);
+      return value[key] === normalized[key];
+    });
+  }
+
+  function validAnkiProjection(value, normalized) {
+    return Object.entries(normalized).filter(([key]) => key !== "templates").every(([key, expected]) => {
       if (key === "url") return !Object.hasOwn(value, key)
         || (normaliseAnkiConnectUrl(value.url) !== null && normaliseAnkiConnectUrl(value.url) === expected);
       if (key === "fieldTemplates") return validAnkiTemplates(value.fieldTemplates);
@@ -372,6 +505,21 @@
         && expected.every((tag, index) => value.tags[index] === tag);
       return value[key] === expected;
     });
+  }
+
+  function validLegacyAnki(value, normalized) {
+    return validAnkiProjection(value, normalized);
+  }
+
+  function validAnki(value, normalized) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    if (!Object.hasOwn(value, "templates")) return validLegacyAnki(value, normalized);
+    const keys = new Set(["url", "apiKey", "templates", ...ANKI_TEMPLATE_CONFIG_KEYS]);
+    if (Object.keys(value).some(key => !keys.has(key))
+        || !Array.isArray(value.templates) || value.templates.length !== normalized.templates.length
+        || !value.templates.every((template, index) =>
+          validAnkiTemplate(template, normaliseAnkiTemplate(template, index)))) return false;
+    return validAnkiProjection(value, normalized);
   }
 
   function normaliseActivationKey(value, fallback = DEFAULT_OPTIONS.activationKey) {
@@ -468,6 +616,7 @@
       case "popupImageSource": return normalisePopupImageSource(value);
       case "audioSources": return normaliseAudioSources(value);
       case "customLinks": return normaliseCustomLinks(value);
+      case "customButtons": return normaliseCustomButtons(value);
       case "keybinds": return normaliseKeybinds(value);
       case "anki": return normaliseAnki(value);
       case "mediaCapture": return normaliseMediaCapture(value);
@@ -536,6 +685,11 @@
       }
       result[key] = normalized;
     }
+    if (Object.hasOwn(source, "customButtons")) {
+      result.customLinks = customLinksFromButtons(result.customButtons);
+    } else if (Object.hasOwn(source, "customLinks")) {
+      result.customButtons = legacyCustomButtons(result.customLinks);
+    }
     return result;
   }
 
@@ -547,7 +701,7 @@
     if (key === "keybinds") return Array.isArray(raw) && raw.length === normalized.length
       && normalized.every((bind, index) => raw[index] && typeof raw[index] === "object" && JSON.stringify(bind)
         === JSON.stringify(Object.fromEntries(Object.keys(bind).map(field => [field, raw[index][field]]))));
-    if (key === "audioSources" || key === "customLinks") return Array.isArray(raw) && raw.length === normalized.length
+    if (key === "audioSources" || key === "customLinks" || key === "customButtons") return Array.isArray(raw) && raw.length === normalized.length
       && normalized.every((source, index) => Object.entries(source).every(([field, value]) => raw[index][field] === value));
     return typeof raw === typeof DEFAULT_OPTIONS[key] && raw === normalized;
   }
@@ -565,8 +719,29 @@
 
   function normaliseOptions(value) {
     const options = { ...DEFAULT_OPTIONS, ...projectStoredOptions(value) };
+    const source = value && typeof value === "object" ? value : {};
+    options.anki = normaliseAnki(options.anki);
+    if (Object.hasOwn(source, "customButtons")) {
+      options.customButtons = normaliseCustomButtons(options.customButtons);
+    } else {
+      options.customButtons = legacyCustomButtons(options.customLinks);
+    }
+    options.customLinks = customLinksFromButtons(options.customButtons);
     options.mediaCapture = cloneMediaCapture(options.mediaCapture);
     return options;
+  }
+
+  function ankiTemplateConfig(anki, templateId) {
+    const normalized = normaliseAnki(anki);
+    const template = templateId === undefined || templateId === null
+      ? normalized.templates[0]
+      : normalized.templates.find(candidate => candidate.id === templateId);
+    if (!template) return null;
+    return {
+      url: normalized.url,
+      apiKey: normalized.apiKey,
+      ...Object.fromEntries(ANKI_TEMPLATE_CONFIG_KEYS.map(key => [key, template[key]])),
+    };
   }
 
   function projectContentOptions(value) {
@@ -585,13 +760,15 @@
 
   globalThis.HDReaderOptions = {
     ANKI_FIELDS, ANKI_DUPLICATE_SCOPES, ANKI_DUPLICATE_BEHAVIORS, ANKI_OVERWRITE_MODES,
+    ANKI_TEMPLATE_CONFIG_KEYS, DEFAULT_ANKI_TEMPLATE, STABLE_ID_MAX_LENGTH,
     DEFAULT_OPTIONS, DEFAULT_MEDIA_CAPTURE, NUMBER_RANGES, LOOKUP_MODES, ACTIVATION_KEYS, FREQUENCY_ORDERS,
     POPUP_THEME_GROUPS, DESIGN_OPTION_KEYS,
     KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_SCOPES, KEYBIND_MODIFIERS, KEYBIND_MODIFIER_CODES, KEYBIND_TOGGLE_OPTIONS,
     AUDIO_SOURCE_TYPES, AUDIO_SOURCE_LABELS,
     MEDIA_TIMING_MODES, MEDIA_HISTORY_SECONDS, MEDIA_CLIP_SECONDS, MEDIA_VIDEO_PRESETS, MEDIA_TEXTHOOKER_FORMATS,
     clampOption, normaliseActivationKey, normaliseKanjiSelection, normaliseOptions,
-    normaliseTexthookerUrl, normaliseAnkiConnectUrl, normaliseMediaCapture,
+    normaliseTexthookerUrl, normaliseAnkiConnectUrl, normaliseMediaCapture, normaliseAnki,
+    normaliseCustomButtons, ankiTemplateConfig,
     definitionBlurFrequencyEvidence, definitionBlurQualifies,
     DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS, DEFINITION_BLUR_FREQUENCY_ORDERS,
     projectStoredOptions, projectContentOptions, validateOptionsPatch,

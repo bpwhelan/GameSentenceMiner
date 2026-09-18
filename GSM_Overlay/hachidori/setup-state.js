@@ -43,7 +43,11 @@ export const OVERLAY_LOCAL_OPTION_KEYS = Object.freeze([
 export function overlayAnkiOptions(options, { browserSpeech = false } = {}) {
   return {
     ...options,
-    anki: { ...options.anki, captureScreenshot: false },
+    anki: {
+      ...options.anki,
+      captureScreenshot: false,
+      templates: options.anki.templates.map(template => ({ ...template, captureScreenshot: false })),
+    },
     audioSources: browserSpeech
       ? options.audioSources
       : options.audioSources.filter(source => !source.type.startsWith("text-to-speech")),

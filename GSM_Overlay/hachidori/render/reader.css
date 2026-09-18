@@ -1859,7 +1859,7 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-entry-actions {
   display: flex;
-  flex: 1 1 260px;
+  flex: 1 1 270px;
   flex-wrap: nowrap;
   min-width: 0;
   width: auto;
@@ -1880,7 +1880,8 @@ html[data-hoshidicts-theme="girlypop"],
   touch-action: pan-x pan-y;
 }
 
-.gsm-hoshidicts-entry-actions > .gsm-hoshidicts-external-link-button {
+.gsm-hoshidicts-entry-actions > .gsm-hoshidicts-external-link-button,
+.gsm-hoshidicts-entry-actions > .gsm-hoshidicts-custom-anki-button {
   flex: 0 1 160px;
   min-width: 36px;
 }
@@ -2030,6 +2031,37 @@ html[data-hoshidicts-theme="girlypop"],
   cursor: default;
 }
 
+.gsm-hoshidicts-custom-anki-button[data-state="ready"],
+.gsm-hoshidicts-custom-anki-button[data-state="add-duplicate"],
+.gsm-hoshidicts-custom-anki-button[data-state="overwrite"] {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+.gsm-hoshidicts-custom-anki-button[data-state="view-existing"],
+.gsm-hoshidicts-custom-anki-button[data-state="success"] {
+  border-color: var(--hoshidicts-success);
+  color: var(--hoshidicts-success);
+}
+
+.gsm-hoshidicts-custom-anki-button[data-state="error"] {
+  border-color: var(--hoshidicts-danger);
+  color: var(--hoshidicts-danger);
+}
+
+.gsm-hoshidicts-custom-anki-button[data-state="checking"]::before,
+.gsm-hoshidicts-custom-anki-button[data-state="mining"]::before {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  content: "";
+  animation: gsm-hoshidicts-spin 0.8s linear infinite;
+}
+
 .gsm-hoshidicts-text-action-label {
   min-width: 0;
   overflow: hidden;
@@ -2141,7 +2173,9 @@ html[data-hoshidicts-theme="girlypop"],
   }
 
   .gsm-hoshidicts-mine-button[data-state="checking"] .hd-icon,
-  .gsm-hoshidicts-mine-button[data-state="mining"] .hd-icon {
+  .gsm-hoshidicts-mine-button[data-state="mining"] .hd-icon,
+  .gsm-hoshidicts-custom-anki-button[data-state="checking"]::before,
+  .gsm-hoshidicts-custom-anki-button[data-state="mining"]::before {
     animation: none;
   }
 }

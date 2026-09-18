@@ -1290,6 +1290,58 @@ textarea {
 .anki-connection-summary { display: grid; gap: 4px; }
 #anki-url-error:empty { display: none; }
 #anki .anki-details > .field { margin-top: 10px; }
+.anki-template-manager {
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+.anki-template-navigation,
+.anki-template-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.anki-template-navigation {
+  margin-top: 10px;
+}
+.anki-template-navigation > button {
+  min-width: 36px;
+  font-size: 22px;
+  line-height: 1;
+}
+.anki-template-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: min(100%, 280px);
+}
+.anki-template-picker select {
+  min-width: 0;
+}
+.anki-template-position {
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.anki-template-role {
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.anki-template-role[hidden] {
+  display: none;
+}
+.anki-template-actions {
+  margin-top: 8px;
+}
+.anki-template-actions .ghost {
+  min-height: 34px;
+}
 .anki-details {
   border-top: 1px solid var(--border);
   padding: 10px 0;
@@ -1588,12 +1640,12 @@ textarea {
 #audio > p { margin: 0; }
 #audio-source-add { align-self: flex-start; }
 
-.custom-link-list {
+.custom-button-list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.custom-link-row {
+.custom-button-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1602,12 +1654,20 @@ textarea {
   padding: 10px 0;
   border-block: 1px solid var(--border);
 }
-.custom-link-row + .custom-link-row { border-top: 0; }
-.custom-link-text { display: grid; gap: 2px; min-width: 0; }
-.custom-link-text code { color: var(--text-dim); overflow-wrap: anywhere; }
-.custom-link-actions { display: flex; gap: 6px; }
-.custom-link-form { display: grid; gap: 8px; }
-.custom-link-form input[type="text"] { width: 100%; }
+.custom-button-row + .custom-button-row { border-top: 0; }
+.custom-button-text { display: grid; gap: 3px; min-width: 0; }
+.custom-button-summary {
+  color: var(--text-dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.custom-button-kind {
+  color: var(--accent);
+  font-weight: 650;
+}
+.custom-button-actions { display: flex; gap: 6px; }
+.custom-button-form { display: grid; gap: 8px; }
+.custom-button-form input[type="text"] { width: 100%; }
 
 .keybind-list {
   margin: 0;

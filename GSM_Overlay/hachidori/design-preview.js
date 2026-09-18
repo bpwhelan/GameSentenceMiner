@@ -94,7 +94,7 @@
     parseTagList: HDGlossary.parseTagList,
     getPopupColumns: () => options.popupColumns,
     getPopupScalePercent: () => options.popupScalePercent,
-    customLinks: options.customLinks,
+    customButtons: options.customButtons,
     positionPopup, sourceHighlightEnabled: true,
     onKanjiClick(character, result, anchor, link) {
       if (!kanjiCharacter) {
@@ -243,7 +243,7 @@
     // A blur edit restarts the sample decision so its effect is visible.
     const blurChanged = !state || DEFINITION_BLUR_KEYS.some(key => options[key] !== nextOptions[key]);
     options = { ...nextOptions };
-    view.setCustomLinks(options.customLinks);
+    view.setCustomButtons(options.customButtons);
     updateSampleAudio();
     if (geometryChanged) view.hideImagePreview();
     if (geometryChanged || toolbarChanged) positionPopup(toolbarChanged);

@@ -10,8 +10,16 @@ export function canDiscoverSharingHost(sharing) {
     && !(sharing.enabled === true && sharing.connected === true);
 }
 
-export const LINKED_ANKI_CAPABILITY = "linked-anki-v1";
-export const SHARING_CAPABILITIES = Object.freeze([LINKED_ANKI_CAPABILITY]);
+// v1 carries the singleton Anki configuration. v2 adds stable Template
+// identity to every readiness, write and browse operation. Advertise both so
+// older readers can still use the first Template without a mixed-version
+// reader silently sending a custom button through the wrong destination.
+export const LEGACY_LINKED_ANKI_CAPABILITY = "linked-anki-v1";
+export const LINKED_ANKI_CAPABILITY = "linked-anki-v2";
+export const SHARING_CAPABILITIES = Object.freeze([
+  LEGACY_LINKED_ANKI_CAPABILITY,
+  LINKED_ANKI_CAPABILITY,
+]);
 export const LINKED_ANKI_UNSUPPORTED = "The linked Hachidori does not support host-owned Anki mining. Update it and try again.";
 export const MAX_LINKED_ANKI_FRAME_BYTES = 16 * 1024 * 1024;
 const HOST_PATH = "/host";
@@ -140,12 +148,21 @@ const MINING_REQUEST_FIELDS = [
   "term", "trace", "generation", "sentence", "matchOffset", "matched", "popupSelectionText",
   "searchQuery", "documentTitle", "audioSelection", "capturePin", "dictionaryAliases", "dictionaryIds",
   "frequencyDictionaries", "configKey", "screenshot", "captureJobId", "captureUnavailable",
-  "clientSpeech",
+  "clientSpeech", "templateId",
 ];
 
 function selectedFields(value, fields) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("malformed linked Anki request");
   return Object.fromEntries(fields.filter(field => Object.hasOwn(value, field)).map(field => [field, value[field]]));
+}
+
+function selectedTemplateId(value) {
+  if (!Object.hasOwn(value ?? {}, "templateId")) return {};
+  if (typeof value.templateId !== "string" || value.templateId === "" || value.templateId.length > 256
+      || /[\u0000-\u001f\u007f]/u.test(value.templateId)) {
+    throw new Error("malformed linked Anki Template");
+  }
+  return { templateId: value.templateId };
 }
 
 // A linked browser is untrusted at the host boundary. Rebuild only the request
@@ -159,16 +176,25 @@ export function allowLinkedAnkiRequest(message) {
   const requestId = typeof message.requestId === "string" || Number.isFinite(message.requestId)
     ? message.requestId : null;
   const base = { target: "hachidori-anki", type: message.type, requestId };
-  if (message.type === "hd_anki_status") return base;
-  if (message.type === "hd_anki_view" || message.type === "hd_anki_maturity") {
+  if (message.type === "hd_anki_status") return { ...base, ...selectedTemplateId(message) };
+  if (message.type === "hd_anki_view") {
+    const request = selectedFields(message.request, ["term", "templateId"]);
+    Object.assign(request, selectedTemplateId(request));
+    request.term = selectedFields(request.term, ["expression", "reading"]);
+    return { ...base, request };
+  }
+  if (message.type === "hd_anki_maturity") {
     const request = selectedFields(message.request, ["term"]);
     request.term = selectedFields(request.term, ["expression", "reading"]);
     return { ...base, request };
   }
   if (message.type === "hd_anki_browse") {
-    return { ...base, request: selectedFields(message.request, ["noteIds", "expression", "configKey"]) };
+    const request = selectedFields(message.request, ["noteIds", "expression", "configKey", "templateId"]);
+    Object.assign(request, selectedTemplateId(request));
+    return { ...base, request };
   }
   const request = selectedFields(message.request, MINING_REQUEST_FIELDS);
+  Object.assign(request, selectedTemplateId(request));
   return message.type === "hd_anki_submit"
     ? { ...base, request, clientMedia: message.clientMedia }
     : { ...base, request };
@@ -193,8 +219,9 @@ export function allowLinkedAnkiDiscoveryRequest(message) {
   };
 }
 
-// Full setup detection reads the host's saved mapping as well as its endpoint.
-// The client therefore supplies no configuration fields at all.
+// Full setup detection reads the selected host Template as well as its shared
+// endpoint. The client supplies only that stable identity, never its endpoint,
+// key or mapping.
 export function allowLinkedAnkiSetupRequest(message) {
   if (!message || typeof message !== "object" || message.target !== "hoshidicts-worker"
       || message.type !== "hd_anki_setup") {
@@ -206,6 +233,7 @@ export function allowLinkedAnkiSetupRequest(message) {
     target: "hoshidicts-worker",
     type: "hd_anki_setup",
     requestId,
+    ...selectedTemplateId(message),
   };
 }
 

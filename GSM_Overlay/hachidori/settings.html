@@ -755,30 +755,43 @@
                   </label>
                 </div>
               </fieldset>
-              <fieldset class="lookup-group" id="custom-links-settings">
-                <legend>Custom toolbar links</legend>
-                <p id="custom-links-overlay-help" class="section-note" hidden>Saved links open in your system browser from a real lookup popup. The live preview cannot launch them in this overlay.</p>
-                <p class="field-hint">Use %w for the word, %r for its reading and %s for the sentence.</p>
-                <ol id="custom-link-list" class="custom-link-list"></ol>
-                <p id="custom-link-empty" class="field-hint">No custom links yet.</p>
-                <form id="custom-link-form" class="custom-link-form" novalidate>
+              <fieldset class="lookup-group" id="custom-buttons-settings">
+                <legend>Custom buttons</legend>
+                <p id="custom-buttons-overlay-help" class="section-note" hidden>Link buttons open in your system browser from a real lookup popup. The live preview cannot launch links in this overlay.</p>
+                <p class="field-hint">Add link buttons or Anki buttons that use a chosen Template. Buttons appear in this order after the built-in actions.</p>
+                <ol id="custom-button-list" class="custom-button-list"></ol>
+                <p id="custom-button-empty" class="field-hint">No custom buttons yet.</p>
+                <form id="custom-button-form" class="custom-button-form" novalidate>
                   <div class="fields">
                     <label class="field">
-                      <span class="field-label">Link name</span>
-                      <input id="opt-custom-link-name" type="text" autocomplete="off" placeholder="Jisho"
-                        aria-describedby="custom-links-status" />
+                      <span class="field-label">Button name</span>
+                      <input id="opt-custom-button-name" type="text" autocomplete="off" placeholder="Search Jisho"
+                        aria-describedby="custom-buttons-status" />
                     </label>
                     <label class="field">
+                      <span class="field-label">Action</span>
+                      <select id="opt-custom-button-type">
+                        <option value="link">Open a link</option>
+                        <option value="anki">Send to Anki</option>
+                      </select>
+                    </label>
+                    <label class="field" id="custom-button-link-field">
                       <span class="field-label">URL template</span>
-                      <input id="opt-custom-link-url" type="text" spellcheck="false" autocomplete="off"
-                        placeholder="https://jisho.org/search/%w" aria-describedby="custom-links-status" />
+                      <input id="opt-custom-button-url" type="text" spellcheck="false" autocomplete="off"
+                        placeholder="https://jisho.org/search/%w" aria-describedby="custom-button-url-help custom-buttons-status" />
+                      <span id="custom-button-url-help" class="field-hint">Use %w for the word, %r for its reading and %s for the sentence.</span>
+                    </label>
+                    <label class="field" id="custom-button-anki-field" hidden>
+                      <span class="field-label">Template</span>
+                      <select id="opt-custom-button-template" aria-describedby="custom-buttons-status"></select>
+                      <span class="field-hint">This button uses that Template’s deck, note type, fields and duplicate handling.</span>
                     </label>
                   </div>
                   <div class="custom-dictionary-actions">
-                    <button id="custom-link-submit" type="submit" class="ghost">Add link</button>
-                    <button id="custom-link-cancel" type="button" class="ghost" hidden>Cancel</button>
+                    <button id="custom-button-submit" type="submit" class="ghost">Add button</button>
+                    <button id="custom-button-cancel" type="button" class="ghost" hidden>Cancel</button>
                   </div>
-                  <output id="custom-links-status" class="is-error" aria-live="polite"></output>
+                  <output id="custom-buttons-status" class="is-error" aria-live="polite"></output>
                 </form>
               </fieldset>
               <details class="settings-disclosure custom-css-disclosure">
@@ -964,7 +977,7 @@
         <section class="card" id="anki" aria-labelledby="anki-heading" hidden>
           <div class="section-heading">
             <div class="card-head">
-              <h1 id="anki-heading" tabindex="-1" data-search-keywords="deck note type field mapping note templates tags API key flashcards AnkiConnect URL endpoint">Anki</h1>
+              <h1 id="anki-heading" tabindex="-1" data-search-keywords="deck note type field mapping Template templates tags API key flashcards AnkiConnect URL endpoint">Anki</h1>
               <p class="hint">Save words to Anki. Changes save automatically.</p>
             </div>
             <button id="anki-refresh" type="button" class="ghost">Refresh connection</button>
@@ -985,6 +998,37 @@
             <p class="field-hint">Checks <a href="https://github.com/bee-san/yomitan-audio-fast" target="_blank" rel="noopener noreferrer">Local Audio Server</a> on this device at 127.0.0.1:5050. Keep Anki open. Adding appends a Custom JSON source without changing your existing sources. For custom ports, use <a href="#audio">Audio settings</a>.</p>
             <output id="anki-audio-status" class="operational-status" aria-live="polite" aria-atomic="true"></output>
           </div>
+          <fieldset class="lookup-group anki-template-manager" id="anki-template-manager">
+            <legend>Templates</legend>
+            <p class="field-hint">A Template keeps one Anki destination, note type, field mapping and duplicate policy together. The first Template powers the built-in Anki button.</p>
+            <div class="anki-template-navigation">
+              <button id="anki-template-previous" type="button" class="ghost" aria-label="Previous Template">
+                <span aria-hidden="true">‹</span>
+              </button>
+              <label class="anki-template-picker">
+                <span class="field-label">Editing</span>
+                <select id="anki-template-select"></select>
+              </label>
+              <button id="anki-template-next" type="button" class="ghost" aria-label="Next Template">
+                <span aria-hidden="true">›</span>
+              </button>
+              <span id="anki-template-position" class="anki-template-position" aria-live="polite"></span>
+              <span id="anki-template-role" class="anki-template-role">Built-in button</span>
+            </div>
+            <label class="field">
+              <span class="field-label">Template name</span>
+              <input id="opt-anki-template-name" type="text" autocomplete="off" aria-describedby="anki-template-status">
+              <span class="field-hint">Custom Anki buttons choose Templates by this name.</span>
+            </label>
+            <div class="anki-template-actions">
+              <button id="anki-template-add" type="button" class="ghost">Add Template</button>
+              <button id="anki-template-duplicate" type="button" class="ghost">Duplicate</button>
+              <button id="anki-template-up" type="button" class="ghost">Move up</button>
+              <button id="anki-template-down" type="button" class="ghost">Move down</button>
+              <button id="anki-template-delete" type="button" class="ghost">Delete</button>
+            </div>
+            <output id="anki-template-status" class="is-error" aria-live="polite"></output>
+          </fieldset>
           <fieldset class="lookup-group">
             <legend>Destination</legend>
             <div class="fields">
@@ -1017,9 +1061,9 @@
           </details>
           <details class="anki-details">
             <summary>Connection settings</summary>
-            <label class="field"><span class="field-label">AnkiConnect URL</span><input id="opt-anki-url" type="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8765" aria-describedby="anki-url-help anki-url-error"><span id="anki-url-help" class="field-hint">The address where AnkiConnect is running.</span></label>
+            <label class="field"><span class="field-label">AnkiConnect URL</span><input id="opt-anki-url" type="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8765" aria-describedby="anki-url-help anki-url-error"><span id="anki-url-help" class="field-hint">The address where AnkiConnect is running. Shared by every Template.</span></label>
             <output id="anki-url-error" class="field-hint is-error" aria-live="polite"></output>
-            <label class="field"><span class="field-label">API key</span><input id="opt-anki-api-key" type="password" autocomplete="off"><span class="field-hint">Leave blank unless you configured an API key in AnkiConnect. Stored locally in this browser.</span></label>
+            <label class="field"><span class="field-label">API key</span><input id="opt-anki-api-key" type="password" autocomplete="off"><span class="field-hint">Leave blank unless you configured an API key in AnkiConnect. Shared by every Template and stored locally in this browser.</span></label>
           </details>
         </section>
         <section class="card" id="keybinds" aria-labelledby="keybinds-heading" hidden>

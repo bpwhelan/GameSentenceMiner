@@ -2069,7 +2069,13 @@
     let currentToolbar = null;
     let currentFeedback = null;
     let currentLookupFailure = null;
-    let customLinks = options.customLinks || [];
+    let customButtons = Array.isArray(options.customButtons)
+      ? options.customButtons
+      : (options.customLinks || []).map((link, index) => ({
+        id: `legacy-link-${index + 1}`,
+        type: "link",
+        ...link,
+      }));
     let currentNoteControls = null;
     let renderRevision = 0;
     let currentResultPanel = null;
@@ -2500,47 +2506,76 @@
       const actions = documentRef.createElement("div");
       configureEntryActions(actions, "Lookup actions");
       actions.appendChild(button);
-      const linkButtons = [];
+      const buttonNodes = new Map();
 
-      function updateLinks() {
-        customLinks.forEach((link, index) => {
-          let linkButton = linkButtons[index];
-          if (!linkButton) {
-            linkButton = documentRef.createElement("button");
-            linkButton.type = "button";
-            linkButton.className = "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button";
-            const label = documentRef.createElement("span");
-            label.className = "gsm-hoshidicts-text-action-label";
-            linkButton.appendChild(label);
-            const activate = event => {
-              if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
-              event.preventDefault();
-              event.stopPropagation();
-              if (!linkButton.isConnected || popup.hidden || currentNoteControls?.actions !== actions
-                  || renderContext.isCurrentRequest?.() === false) return;
-              const prefill = readPrefill() || {};
-              const url = windowRef.HDExternalLinks.expandCustomLinkUrl(customLinks[index].url, {
-                word: prefill.term, reading: prefill.reading, sentence: prefill.sentence,
-              });
-              if (url) options.onCustomLinkClick?.({ url,
-                active: event.shiftKey || !(event.button === 1 || event.ctrlKey || event.metaKey) });
-            };
-            linkButton.addEventListener("click", activate);
-            linkButton.addEventListener("auxclick", activate);
-            linkButtons.push(linkButton);
-            actions.appendChild(linkButton);
+      function createCustomButton(value) {
+        const custom = documentRef.createElement("button");
+        custom.type = "button";
+        custom.dataset.customButtonId = value.id;
+        const label = documentRef.createElement("span");
+        label.className = "gsm-hoshidicts-text-action-label";
+        custom.appendChild(label);
+        if (value.type === "link") {
+          custom.className = "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button";
+          const activate = event => {
+            if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const link = customButtons.find(candidate =>
+              candidate.id === custom.dataset.customButtonId && candidate.type === "link");
+            if (!link || !custom.isConnected || popup.hidden || currentNoteControls?.actions !== actions
+                || renderContext.isCurrentRequest?.() === false) return;
+            const prefill = readPrefill() || {};
+            const url = windowRef.HDExternalLinks.expandCustomLinkUrl(link.url, {
+              word: prefill.term, reading: prefill.reading, sentence: prefill.sentence,
+            });
+            if (url) options.onCustomLinkClick?.({ url,
+              active: event.shiftKey || !(event.button === 1 || event.ctrlKey || event.metaKey) });
+          };
+          custom.addEventListener("click", activate);
+          custom.addEventListener("auxclick", activate);
+        } else {
+          custom.className = "gsm-hoshidicts-custom-anki-button gsm-hoshidicts-text-action-button";
+          custom.disabled = true;
+        }
+        return custom;
+      }
+
+      function updateButtons() {
+        const retained = new Set();
+        const ordered = [];
+        for (const value of customButtons) {
+          let custom = buttonNodes.get(value.id);
+          const expectedType = value.type === "anki" ? "anki" : "link";
+          if (custom && custom.dataset.customButtonType !== expectedType) {
+            custom.remove();
+            buttonNodes.delete(value.id);
+            custom = null;
           }
-          linkButton.firstElementChild.textContent = link.label;
-          linkButton.title = link.label;
-          linkButton.setAttribute("aria-label", link.label);
-        });
-        for (const removed of linkButtons.splice(customLinks.length)) {
+          if (!custom) {
+            custom = createCustomButton(value);
+            custom.dataset.customButtonType = expectedType;
+            buttonNodes.set(value.id, custom);
+          }
+          custom.firstElementChild.textContent = value.label;
+          custom.dataset.customButtonLabel = value.label;
+          custom.title = value.type === "anki" ? `Send to Anki with ${value.label}` : value.label;
+          custom.setAttribute("aria-label", custom.title);
+          if (value.type === "anki") custom.dataset.ankiTemplateId = value.templateId;
+          else delete custom.dataset.ankiTemplateId;
+          retained.add(value.id);
+          ordered.push(custom);
+        }
+        for (const [id, removed] of buttonNodes) {
+          if (retained.has(id)) continue;
           const focused = popup.getRootNode().activeElement === removed;
           removed.remove();
+          buttonNodes.delete(id);
           if (focused) button.focus();
         }
+        actions.append(...ordered);
       }
-      updateLinks();
+      updateButtons();
 
       let editor = null;
       button.addEventListener("click", () => {
@@ -2555,18 +2590,26 @@
         actions,
         button,
         close: (restoreFocus) => editor?.close(restoreFocus) ?? false,
-        updateLinks,
+        updateButtons,
         setPrefillReader(value, context) { readPrefill = value; renderContext = context; },
         get form() { return editor?.form ?? null; },
       };
     }
 
-    function setCustomLinks(value) {
+    function setCustomButtons(value) {
       const next = value || [];
-      if (JSON.stringify(customLinks) === JSON.stringify(next)) return;
-      customLinks = next;
-      currentNoteControls?.updateLinks();
+      if (JSON.stringify(customButtons) === JSON.stringify(next)) return;
+      customButtons = next;
+      currentNoteControls?.updateButtons();
       positionPopup();
+    }
+
+    function setCustomLinks(value) {
+      setCustomButtons((value || []).map((link, index) => ({
+        id: `legacy-link-${index + 1}`,
+        type: "link",
+        ...link,
+      })));
     }
 
     function createNoteForm(button, readPrefill) {
@@ -4107,6 +4150,7 @@
       setDefinitionBlurState,
       setLookupStats,
       setSourceHighlightEnabled,
+      setCustomButtons,
       setCustomLinks,
       setToolbarPosition,
       scheduleMasonry,

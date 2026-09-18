@@ -187,7 +187,7 @@
   // A drag the reader selects itself, glyph by glyph, in an overlay host.
   let dragSelection = null;
   let overlayMode = false;
-  let hostCapabilities = { customLinks: true, externalLinkHost: false, mediaCapture: true };
+  let hostCapabilities = { linkButtons: true, externalLinkHost: false, mediaCapture: true };
   let hostAttentionPublished = false;
   let hostAttentionHold = 0;
 
@@ -236,13 +236,18 @@
     try {
       const module = await import(chrome.runtime.getURL("overlay-mode.js"));
       overlayMode = module.OVERLAY_MODE === true;
-      hostCapabilities = { ...hostCapabilities, ...module.HOST_CAPABILITIES };
+      const advertised = module.HOST_CAPABILITIES ?? {};
+      hostCapabilities = { ...hostCapabilities, ...advertised };
+      if (!Object.hasOwn(advertised, "linkButtons") && Object.hasOwn(advertised, "customLinks")) {
+        hostCapabilities.linkButtons = advertised.customLinks;
+      }
       const next = applyHostCapabilities(options);
-      const customLinksChanged = JSON.stringify(next.customLinks) !== JSON.stringify(options.customLinks);
-      const miningChanged = JSON.stringify(next.mediaCapture) !== JSON.stringify(options.mediaCapture);
+      const customButtonsChanged = JSON.stringify(next.customButtons) !== JSON.stringify(options.customButtons);
+      const miningChanged = customButtonsChanged
+        || JSON.stringify(next.mediaCapture) !== JSON.stringify(options.mediaCapture);
       options = next;
-      if (customLinksChanged) {
-        for (const level of levels) level.view?.setCustomLinks(options.customLinks);
+      if (customButtonsChanged) {
+        for (const level of levels) level.view?.setCustomButtons(options.customButtons);
       }
       if (miningChanged) mining?.update(options, optionsStorageRevision >= 0);
     } catch {
@@ -254,7 +259,11 @@
     if (!hostCapabilities.mediaCapture) {
       projected = { ...projected, mediaCapture: { ...projected.mediaCapture, enabled: false } };
     }
-    if (!hostCapabilities.customLinks) projected = { ...projected, customLinks: [] };
+    if (!hostCapabilities.linkButtons) projected = {
+      ...projected,
+      customLinks: [],
+      customButtons: projected.customButtons.filter(button => button.type !== "link"),
+    };
     return projected;
   }
 
@@ -1905,7 +1914,7 @@
       onResizeStart: event => startPopupResize(event, level),
       onResizeMove: movePopupResize,
       onResizeEnd: stopPopupResize,
-      customLinks: options.customLinks,
+      customButtons: options.customButtons,
       highlightName: HIGHLIGHT_NAME,
       idPrefix: level === rootLevel ? "hoshidicts" : `hoshidicts-${nextLevelId += 1}`,
       onAddCustomEntry: (entry) => appendCustomEntry(entry, level),
@@ -3842,7 +3851,7 @@
     // A simultaneous dictionary replacement must invalidate the old view first.
     const countsChanged = next.showLookupCounts !== options.showLookupCounts;
     const ankiChanged = JSON.stringify(next.anki) !== JSON.stringify(options.anki);
-    const customLinksChanged = JSON.stringify(next.customLinks) !== JSON.stringify(options.customLinks);
+    const customButtonsChanged = JSON.stringify(next.customButtons) !== JSON.stringify(options.customButtons);
     if (ankiChanged || next.definitionBlurAnkiMature !== options.definitionBlurAnkiMature) ankiMaturityEpoch++;
     const blurChanged = ankiChanged || next.showLookupCounts !== options.showLookupCounts || DEFINITION_BLUR_KEYS
       .some(key => next[key] !== options[key]);
@@ -3855,8 +3864,8 @@
     }
     optionsStorageRevision = revision;
     options = next;
-    if (customLinksChanged) {
-      for (const level of levels) level.view?.setCustomLinks(options.customLinks);
+    if (customButtonsChanged) {
+      for (const level of levels) level.view?.setCustomButtons(options.customButtons);
     }
     if (countsChanged) {
       for (const level of levels) {

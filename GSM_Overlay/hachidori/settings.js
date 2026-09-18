@@ -7,7 +7,7 @@
 import "./reader-options.js";
 import { createAudioSettingsController } from "./audio-settings.js";
 import { createKeybindSettingsController } from "./keybind-settings.js";
-import { createAnkiSettingsController } from "./anki-settings.js";
+import { createAnkiTemplateSettingsController } from "./anki-settings.js";
 import { createLocalAudioSetup } from "./local-audio-setup.js";
 import { createBackupSettingsController } from "./backup-settings.js";
 import { downloadBlob } from "./blob-download.js";
@@ -18,7 +18,7 @@ import { createSettingsSearch } from "./settings-search.js";
 import { applyPageTheme, setStatusOutput } from "./settings-dom.js";
 import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import { createRecommendedInstallClient } from "./recommended-install-client.js";
-import { createCustomLinkSettings } from "./custom-link-settings.js";
+import { createCustomButtonSettings } from "./custom-button-settings.js";
 import { createDictionaryNameDrafts, renameWithBaseline } from "./dictionary-name-drafts.js";
 import {
   createDictionaryProgressList,
@@ -64,7 +64,7 @@ const {
   DEFAULT_OPTIONS, LOOKUP_MODES, ACTIVATION_KEYS, FREQUENCY_ORDERS,
   POPUP_THEME_GROUPS, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS,
   DEFINITION_BLUR_FREQUENCY_ORDERS,
-  clampOption, normaliseKanjiSelection, normaliseOptions, normaliseTexthookerUrl,
+  clampOption, normaliseCustomButtons, normaliseKanjiSelection, normaliseOptions, normaliseTexthookerUrl,
 } = globalThis.HDReaderOptions;
 const STATUS_POLL_MS = 1000;
 // Slower than the boot poll: a failing poll may be failing for a while, and the
@@ -171,7 +171,7 @@ let backupController;
 let backupLifecyclePort = null;
 let backupLifecycleReconnectTimer = null;
 const backupLifecycleTokens = new Set();
-let customLinkController;
+let customButtonController;
 let backingUp = false;
 let mediaStatusEpoch = 0;
 let mediaRuntimeState = "unavailable";
@@ -286,11 +286,17 @@ function showSettingsSection(focus = false) {
   updateBackupSettings();
   updateSharingSettings();
   if (activeSection === "design") {
-    customLinkController ??= createCustomLinkSettings({ document,
-      readLinks: () => options.customLinks,
-      saveLinks: links => { options.customLinks = links; writeOptions(); },
+    customButtonController ??= createCustomButtonSettings({ document,
+      readButtons: () => options.customButtons,
+      readTemplates: () => options.anki.templates,
+      saveButtons: buttons => {
+        options.customButtons = normaliseCustomButtons(buttons);
+        options.customLinks = options.customButtons.filter(button => button.type === "link")
+          .map(({ label, url }) => ({ label, url }));
+        writeOptions();
+      },
     });
-    customLinkController.render();
+    customButtonController.render();
   }
   if (activeSection === "custom-dictionary" && !customEditorLoaded) void loadCustomDictionarySource();
   if (fragment === "settings-content") element("settings-content").focus();
@@ -326,9 +332,14 @@ function updateKeybindSettings() {
 
 function updateAnkiSettings() {
   if (activeSection !== "anki" || optionsRevision < 0) return;
-  ankiController ??= createAnkiSettingsController({ document, readConfig: () => options.anki,
+  ankiController ??= createAnkiTemplateSettingsController({ document, readAnki: () => options.anki,
     capabilities: MINING_CAPABILITIES,
-    editConfig: config => { options.anki = config; writeOptions(); },
+    readButtons: () => options.customButtons,
+    editAnki: anki => {
+      options.anki = anki;
+      customButtonController?.render();
+      writeOptions();
+    },
     send: async (type, fields) => {
       // Linked checks cannot forward draft endpoint credentials or mappings.
       // Commit them to the host first, then let the host read its saved copy.
@@ -496,7 +507,8 @@ function updateBackupSettings() {
       if (importing || installingRecommended || updating || removing || committing || customLoading || customSaving || pendingDictionaryCommits > 0) {
         throw new Error("Wait for the current dictionary operation to finish, then try again.");
       }
-      if (customDictionaryDirty() || customLinkController?.dirty() || savingOptions !== null || optionsEditRevision !== null
+      if (customDictionaryDirty() || customButtonController?.dirty() || ankiController?.dirty()
+          || savingOptions !== null || optionsEditRevision !== null
           || Object.keys(pendingOptions).length > 0 || savingSchedule !== null || pendingSchedule !== null
           || nameDrafts.hasPendingChanges()) {
         throw new Error("Save or discard your pending changes before working with a backup.");
@@ -1610,7 +1622,7 @@ function renderOptions() {
   renderThemeChoices();
   renderCustomCss();
   renderCustomJavascript();
-  customLinkController?.render();
+  customButtonController?.render();
   const toolbar = element("opt-popup-toolbar");
   if (toolbar !== document.activeElement) toolbar.value = options.popupToolbarPosition;
   const mode = element("opt-lookup-mode");
@@ -2991,7 +3003,7 @@ function attachHandlers() {
   });
   element("reset-design").addEventListener("click", () => {
     for (const key of DESIGN_OPTION_KEYS) options[key] = DEFAULT_OPTIONS[key];
-    customLinkController?.reset();
+    customButtonController?.reset();
     renderCustomCss(true);
     renderCustomJavascript(true);
     renderOptions();
@@ -3203,7 +3215,7 @@ function attachHandlers() {
   window.addEventListener("beforeunload", (event) => {
     if (!importing && !backingUp && savingOptions === null && optionsEditRevision === null
         && Object.keys(pendingOptions).length === 0 && savingSchedule === null && pendingSchedule === null
-        && !nameDrafts.hasPendingChanges() && !customLinkController?.dirty()) {
+        && !nameDrafts.hasPendingChanges() && !customButtonController?.dirty() && !ankiController?.dirty()) {
       return;
     }
     // Leaving can revoke an import's blob URL or discard a queued settings draft.
@@ -3410,8 +3422,8 @@ function renderMiningCapabilityHelp() {
 
 async function start() {
   renderMiningCapabilityHelp();
-  element("custom-links-settings").disabled = false;
-  element("custom-links-overlay-help").hidden = !HOST_CAPABILITIES.externalLinkHost;
+  element("custom-buttons-settings").disabled = false;
+  element("custom-buttons-overlay-help").hidden = !HOST_CAPABILITIES.externalLinkHost;
   if (HOST_CAPABILITIES.localFileAccessPrompt) {
     createLocalFileAccessController({ document, container: element("settings-local-file-access") });
   }
