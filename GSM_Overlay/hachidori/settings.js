@@ -3400,10 +3400,16 @@ async function flushOptionsUntilIdle() {
   }
 }
 
-async function start() {
+function renderMiningCapabilityHelp() {
   element("audio-mining-help").hidden = MINING_CAPABILITIES.browserSpeech;
-  element("audio-speech-capture-help").hidden = !MINING_CAPABILITIES.browserSpeech;
+  element("audio-speech-capture-help").hidden = !MINING_CAPABILITIES.browserSpeech
+    || MINING_CAPABILITIES.embeddedSpeechCapture;
+  element("audio-embedded-speech-capture-help").hidden = !MINING_CAPABILITIES.embeddedSpeechCapture;
   element("media-overlay-help").hidden = HOST_CAPABILITIES.mediaCapture;
+}
+
+async function start() {
+  renderMiningCapabilityHelp();
   element("custom-links-settings").disabled = false;
   element("custom-links-overlay-help").hidden = !HOST_CAPABILITIES.externalLinkHost;
   if (HOST_CAPABILITIES.localFileAccessPrompt) {

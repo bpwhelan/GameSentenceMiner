@@ -35,7 +35,7 @@ async function writeFixtureExtension(sourceRoot, marker) {
         ),
         fs.writeFile(
             path.join(extensionDir, 'overlay-mode.js'),
-            'export const OVERLAY_MODE = false;\n',
+            'export const OVERLAY_MODE = false;\nexport const EMBEDDED_SPEECH_CAPTURE = false;\n',
         ),
         fs.writeFile(
             path.join(extensionDir, 'marker.js'),
@@ -150,7 +150,7 @@ test('an equal release adds provenance and repeated syncs are identical', async 
     );
     assert.equal(
         await fs.readFile(path.join(targetDir, 'overlay-mode.js'), 'utf8'),
-        'export const OVERLAY_MODE = true;\n',
+        'export const OVERLAY_MODE = true;\nexport const EMBEDDED_SPEECH_CAPTURE = true;\n',
     );
     await assert.rejects(fs.access(path.join(targetDir, 'README.md')));
 
@@ -225,6 +225,24 @@ test('a divergent release fails before changing the vendored source', async (t) 
             release: release('0.2.0-diverged', 3),
         }),
         new RegExp(`release 0\\.2\\.0-diverged \\(${divergentCommit}\\) diverges`),
+    );
+    assert.deepEqual(await snapshot(targetDir), before);
+});
+
+test('an incompatible overlay capability fails before changing the vendored source', async (t) => {
+    const { sourceRoot, targetDir } = await createFixture(t);
+    await syncHachidori({ sourceRoot, targetDir });
+    const before = await snapshot(targetDir);
+
+    await fs.writeFile(
+        path.join(sourceRoot, 'extension', 'overlay-mode.js'),
+        'export const OVERLAY_MODE = false;\n',
+    );
+    await commitAll(sourceRoot, 'fixture: remove embedded speech capability');
+
+    await assert.rejects(
+        syncHachidori({ sourceRoot, targetDir }),
+        /EMBEDDED_SPEECH_CAPTURE = false/u,
     );
     assert.deepEqual(await snapshot(targetDir), before);
 });

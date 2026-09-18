@@ -57,7 +57,7 @@ import { sameJsonValue } from "./json-value.js";
 import {
   boundResponseFailure, responseFits, responseLimitError, validResponseRequestId,
 } from "./response-limits.js";
-import { HOST_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
+import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import {
   FIRST_INSTALL_OPTIONS, FIRST_INSTALL_SELECTIONS, OVERLAY_MODE_OPTIONS, SETUP_STATE_KEY, STARTUP_PAGE,
   RECOMMENDED_SELECTIONS_KEY, OVERLAY_LOCAL_OPTION_KEYS,
@@ -299,7 +299,7 @@ function forwardWorkerRequest(message) {
 
 async function readAnkiOptions() {
   const options = normaliseOptions((await chrome.storage.local.get(OPTIONS_KEY))[OPTIONS_KEY]);
-  return OVERLAY_MODE ? overlayAnkiOptions(options) : options;
+  return OVERLAY_MODE ? overlayAnkiOptions(options, MINING_CAPABILITIES) : options;
 }
 
 // Called within the background storage queue. Options and index invalidation
@@ -2409,6 +2409,7 @@ function getAnkiMining() {
     ankiMining = createAnkiWorkerService({ gateway: ankiGateway,
       readOptions: readAnkiOptions,
       duplicateIndex: getAnkiDuplicateIndex(),
+      requireAudioBeforeMutation: MINING_CAPABILITIES.embeddedSpeechCapture,
       readDictionaries: async () => (await readDictionaryStorage()).state?.dictionaries ?? [],
       engine: fields => send(TARGET, fields), offscreen: fields => send("hachidori-anki-render", fields),
       capture: fields => relayCapture({ ...fields, requestId: `anki-capture-${crypto.randomUUID()}` }),

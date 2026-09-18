@@ -13,6 +13,8 @@ const hachidoriRepository = 'https://github.com/bee-san/hachidori';
 const excludedPaths = new Set(['README.md']);
 const overlayModeOff = 'export const OVERLAY_MODE = false;';
 const overlayModeOn = 'export const OVERLAY_MODE = true;';
+const embeddedSpeechCaptureOff = 'export const EMBEDDED_SPEECH_CAPTURE = false;';
+const embeddedSpeechCaptureOn = 'export const EMBEDDED_SPEECH_CAPTURE = true;';
 const stableManifestKey =
     'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3EBnBqP0Ma73KIk9Nx2ye+WFabltPVObI7QWPgYhdupw89RJ7J7xRUddIGszPDhpQNYnm37eLQupFXjqlSt0B1ltnltpzGynkRflAmRbtlqPWf19TWy6EowMm1SegxRR/YPxP5M93oQ/ojzfUPDQ4bhTE23vic/xY7sZttqcewAJou/TyCJTEjcoZgqDTD4PDnXyu1rB+bMJpu+uF/geKkkAOU4IRXHOEuE1JhJorvzmlZT07H01eqXGpmjR7ySbXryhN2gWb1arY+lCWd/qXWWUcIuyjak8D/6WgIaJwsBwoL/B/60gMoXDnDCRWi5kMWH68scx2QzF6g+FDykntwIDAQAB';
 const commitPattern = /^[0-9a-f]{40}$/;
@@ -300,6 +302,19 @@ export async function syncHachidori({ sourceRoot, targetDir = defaultTargetDir, 
         }
     }
 
+    const sourceOverlayModePath = path.join(sourceExtensionDir, 'overlay-mode.js');
+    const overlayMode = await fs.readFile(sourceOverlayModePath, 'utf8');
+    if (!overlayMode.includes(overlayModeOff)) {
+        throw new Error(
+            `overlay-mode.js no longer contains "${overlayModeOff}"; update this script for the new switch.`,
+        );
+    }
+    if (!overlayMode.includes(embeddedSpeechCaptureOff)) {
+        throw new Error(
+            `overlay-mode.js no longer contains "${embeddedSpeechCaptureOff}"; update this script for the new switch.`,
+        );
+    }
+
     await fs.rm(targetDir, { recursive: true, force: true });
     await fs.cp(sourceExtensionDir, targetDir, {
         recursive: true,
@@ -313,13 +328,12 @@ export async function syncHachidori({ sourceRoot, targetDir = defaultTargetDir, 
 
     // The overlay hosts Hachidori in its own window, so it runs in Hachidori's overlay mode.
     const overlayModePath = path.join(targetDir, 'overlay-mode.js');
-    const overlayMode = await fs.readFile(overlayModePath, 'utf8');
-    if (!overlayMode.includes(overlayModeOff)) {
-        throw new Error(
-            `overlay-mode.js no longer contains "${overlayModeOff}"; update this script for the new switch.`,
-        );
-    }
-    await fs.writeFile(overlayModePath, overlayMode.replace(overlayModeOff, overlayModeOn));
+    await fs.writeFile(
+        overlayModePath,
+        overlayMode
+            .replace(overlayModeOff, overlayModeOn)
+            .replace(embeddedSpeechCaptureOff, embeddedSpeechCaptureOn),
+    );
 
     await fs.copyFile(sourceLicensePath, path.join(targetDir, 'LICENSE.hachidori'));
     const sourceMetadata = {
@@ -336,6 +350,7 @@ export async function syncHachidori({ sourceRoot, targetDir = defaultTargetDir, 
         modifications: [
             'manifest.json includes a fixed public key so the GSM-hosted extension keeps one stable ID.',
             'overlay-mode.js enables overlay mode: hover lookups, no word highlight, and no first-run setup page.',
+            'overlay-mode.js enables byte-backed system synthesis or capture through Hachidori’s dedicated speech page.',
             'README.md is left out.',
         ],
     });
