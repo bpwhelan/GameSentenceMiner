@@ -785,23 +785,23 @@ html[data-hoshidicts-theme="cmyk"],
 html[data-hoshidicts-theme="autumn"],
 :host([data-hoshidicts-theme="autumn"]) {
   --hoshidicts-palette-color-scheme: light;
-  --hoshidicts-palette-base-100: oklch(95.814% 0 0);
-  --hoshidicts-palette-base-200: oklch(89.107% 0 0);
-  --hoshidicts-palette-base-300: oklch(82.4% 0 0);
-  --hoshidicts-palette-base-content: oklch(19.162% 0 0);
-  --hoshidicts-palette-primary: oklch(40.723% 0.161 17.53);
-  --hoshidicts-palette-primary-content: oklch(88.144% 0.032 17.53);
-  --hoshidicts-palette-secondary: oklch(61.676% 0.169 23.865);
-  --hoshidicts-palette-secondary-content: oklch(12.335% 0.033 23.865);
-  --hoshidicts-palette-accent: oklch(73.425% 0.094 60.729);
-  --hoshidicts-palette-accent-content: oklch(14.685% 0.018 60.729);
-  --hoshidicts-palette-neutral: oklch(54.367% 0.037 51.902);
-  --hoshidicts-palette-neutral-content: oklch(90.873% 0.007 51.902);
-  --hoshidicts-palette-info: oklch(69.224% 0.097 207.284);
-  --hoshidicts-palette-info-content: oklch(13.844% 0.019 207.284);
-  --hoshidicts-palette-success: oklch(60.995% 0.08 174.616);
-  --hoshidicts-palette-warning: oklch(70.081% 0.164 56.844);
-  --hoshidicts-palette-error: oklch(53.07% 0.241 24.16);
+  --hoshidicts-palette-base-100: #fbf6e9;
+  --hoshidicts-palette-base-200: #f0e4cd;
+  --hoshidicts-palette-base-300: #ddc9a8;
+  --hoshidicts-palette-base-content: #2f3127;
+  --hoshidicts-palette-primary: #596b3b;
+  --hoshidicts-palette-primary-content: #fffdf7;
+  --hoshidicts-palette-secondary: #9a5136;
+  --hoshidicts-palette-secondary-content: #fffaf2;
+  --hoshidicts-palette-accent: #d09a46;
+  --hoshidicts-palette-accent-content: #302416;
+  --hoshidicts-palette-neutral: #675746;
+  --hoshidicts-palette-neutral-content: #fffaf2;
+  --hoshidicts-palette-info: #426879;
+  --hoshidicts-palette-info-content: #f8fcfb;
+  --hoshidicts-palette-success: #326b54;
+  --hoshidicts-palette-warning: #85520d;
+  --hoshidicts-palette-error: #983f35;
 }
 
 html[data-hoshidicts-theme="acid"],
@@ -1161,6 +1161,33 @@ html[data-hoshidicts-theme="girlypop"],
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: 0 0 0 2px #000000, 0 0 0 4px #ffffff;
+}
+
+:host([data-hoshidicts-theme="autumn"]) .gsm-hoshidicts-popup {
+  --hoshidicts-text-faint: #68685d;
+  --hoshidicts-border: #96866b;
+  --hoshidicts-border-strong: #71634e;
+  --hoshidicts-accent-soft: #e1e6d2;
+  --hoshidicts-link: #46602f;
+  --hoshidicts-link-hover: #793f2f;
+  --hoshidicts-scrollbar: #71634e;
+  --hoshidicts-pitch: #945b17;
+  background:
+    radial-gradient(
+      circle at 100% 0,
+      color-mix(in srgb, var(--hoshidicts-palette-accent) calc(var(--hoshidicts-background-opacity) * 0.15), transparent),
+      transparent 42%
+    ),
+    radial-gradient(
+      circle at 0 100%,
+      color-mix(in srgb, var(--hoshidicts-palette-primary) calc(var(--hoshidicts-background-opacity) * 0.1), transparent),
+      transparent 48%
+    ),
+    var(--hoshidicts-popup-background);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 253, 247, 0.8),
+    0 18px 48px rgba(72, 49, 25, 0.24),
+    0 2px 8px rgba(72, 49, 25, 0.18);
 }
 
 :host([data-hoshidicts-theme="girlypop"]) .gsm-hoshidicts-popup {

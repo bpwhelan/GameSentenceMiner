@@ -92,6 +92,7 @@
         "dictionary-group-state.js",
         "lookup-stats-identity.js",
         "external-links.js",
+        "external-link-host.js",
         "audio-content.js",
         "anki-content.js",
         "capture-content.js",

@@ -187,7 +187,7 @@
   // A drag the reader selects itself, glyph by glyph, in an overlay host.
   let dragSelection = null;
   let overlayMode = false;
-  let hostCapabilities = { customLinks: true, mediaCapture: true };
+  let hostCapabilities = { customLinks: true, externalLinkHost: false, mediaCapture: true };
   let hostAttentionPublished = false;
   let hostAttentionHold = 0;
 
@@ -2467,6 +2467,12 @@
   }
 
   function openExternalLink({ url, active }) {
+    if (hostCapabilities.externalLinkHost) {
+      void window.HDExternalLinkHost.open(window, { url, active }).catch((error) => {
+        console.debug("hachidori: overlay host could not open external link", error);
+      });
+      return;
+    }
     // A lost reply may follow a successful open, so never retry navigation.
     void sendRequest("hd_open_external", { url, active }, "hoshidicts-worker").catch((error) => {
       console.debug("hachidori: external link could not be opened", error);

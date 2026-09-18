@@ -9,7 +9,8 @@ export const OVERLAY_MODE = true;
 export const HOST_CAPABILITIES = Object.freeze({
 
   browserShortcuts: !OVERLAY_MODE,
-  customLinks: !OVERLAY_MODE,
+  customLinks: true,
+  externalLinkHost: OVERLAY_MODE,
   localFileAccessPrompt: !OVERLAY_MODE,
   mediaCapture: !OVERLAY_MODE,
 });

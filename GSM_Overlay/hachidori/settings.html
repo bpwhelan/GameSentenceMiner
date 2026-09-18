@@ -757,7 +757,7 @@
               </fieldset>
               <fieldset class="lookup-group" id="custom-links-settings">
                 <legend>Custom toolbar links</legend>
-                <p id="custom-links-overlay-help" class="section-note" hidden>Custom toolbar links are unavailable in this overlay because Electron cannot open browser tabs. Saved links are preserved for browser mode.</p>
+                <p id="custom-links-overlay-help" class="section-note" hidden>Saved links open in your system browser from a real lookup popup. The live preview cannot launch them in this overlay.</p>
                 <p class="field-hint">Use %w for the word, %r for its reading and %s for the sentence.</p>
                 <ol id="custom-link-list" class="custom-link-list"></ol>
                 <p id="custom-link-empty" class="field-hint">No custom links yet.</p>
@@ -1105,6 +1105,26 @@
             <button id="backup-export" class="ghost" type="button">Export backup</button>
           </div>
           <p class="section-note">The archive is not encrypted. Keep it private: it includes custom URLs and your AnkiConnect API key, if configured. Unsaved edits are not included.</p>
+          <div id="automatic-backups" class="automatic-backups">
+            <div class="backup-action">
+              <div>
+                <h2>Automatic backups</h2>
+                <p>Hachidori keeps the newest two daily snapshots on this device. They contain the same saved settings and personal data as an export, including your AnkiConnect API key if configured.</p>
+              </div>
+            </div>
+            <p id="automatic-backup-status" class="section-note" aria-live="polite"></p>
+            <ul id="automatic-backup-list" class="automatic-backup-list"></ul>
+          </div>
+          <template id="automatic-backup-template">
+            <li class="automatic-backup-row">
+              <div>
+                <strong class="automatic-backup-age"></strong>
+                <span class="automatic-backup-detail"></span>
+                <time class="automatic-backup-created"></time>
+              </div>
+              <button class="automatic-backup-restore ghost" type="button"></button>
+            </li>
+          </template>
           <div class="backup-action">
             <div>
               <h2>Restore a backup</h2>

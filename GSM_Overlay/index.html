@@ -1531,6 +1531,35 @@ background: rgba(202, 12, 12, 0.692);
   window.addEventListener('hachidori-popup-shown', handleDictionaryPopupShown);
   window.addEventListener('hachidori-popup-hidden', handleDictionaryPopupHidden);
 
+  const HACHIDORI_EXTERNAL_LINK_RESULT_EVENT = 'hachidori-open-external-result';
+  window.addEventListener('hachidori-open-external', async (event) => {
+    const requestId = event.detail?.requestId;
+    if (typeof requestId !== 'string' || requestId.length === 0) {
+      return;
+    }
+    let result;
+    try {
+      const reply = await ipcRenderer.invoke('hachidori-open-external', {
+        url: event.detail?.url,
+        active: event.detail?.active,
+      });
+      result = reply?.opened === true
+        ? { requestId, ok: true }
+        : { requestId, ok: false, error: 'The system browser did not open the link.' };
+    } catch (error) {
+      result = {
+        requestId,
+        ok: false,
+        error: error instanceof Error && error.message
+          ? error.message
+          : 'The system browser could not open the link.',
+      };
+    }
+    window.dispatchEvent(new CustomEvent(HACHIDORI_EXTERNAL_LINK_RESULT_EVENT, {
+      detail: result,
+    }));
+  });
+
   const textElement = document.getElementById("text");
   const handle = document.getElementById("resize-handle");
 
@@ -6077,6 +6106,11 @@ background: rgba(202, 12, 12, 0.692);
   // Expose for debugging
   window.getGamepadState = () => gamepadHandler ? gamepadHandler.getCurrentState() : null;
   window.gamepadHandler = gamepadHandler;
+
+  // The main window can become ready before this large renderer script has
+  // installed its settings listeners. Ask for a fresh snapshot only after all
+  // renderer listeners above are in place; repeated requests are intentional.
+  ipcRenderer.send('overlay-settings-ready');
 </script>
 
 </html>

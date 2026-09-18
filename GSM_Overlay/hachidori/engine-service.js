@@ -1335,7 +1335,20 @@ async function cleanupCommittedDictionaries() {
     if (state === null) {
       return;
     }
-    await cleanupUnreferencedDictionaries(state.dictionaries);
+    const retained = await ask("hd_backup_auto_roots");
+    if (!retained.ok) throw new Error(retained.error || "Could not read automatic backup roots.");
+    if (retained.complete !== true) {
+      console.warn("hoshidicts: automatic backup metadata is corrupt; retaining unreferenced dictionary generations");
+      return;
+    }
+    if (!Array.isArray(retained.dictionaries)) {
+      throw new TypeError("The automatic backup root list is invalid.");
+    }
+    await cleanupUnreferencedDictionaries([
+      ...state.dictionaries,
+      ...retained.dictionaries,
+      ...(preparedBackup?.dictionaries ?? []),
+    ]);
   } catch (error) {
     console.warn(`hoshidicts: could not remove unreferenced dictionaries: ${describe(error)}`);
   }
@@ -2059,6 +2072,7 @@ async function discardPreparedBackup() {
   const previous = preparedBackup;
   preparedBackup = null;
   if (previous) await discardGenerations(previous.roots);
+  if (previous?.retained === true) await cleanupCommittedDictionaries();
 }
 
 async function discardGenerations(roots) {
@@ -2078,7 +2092,7 @@ async function stageBackupFiles(prepared, roots) {
     const root = createGenerationRoot();
     roots.push(root);
     const next = { ...dictionary, path: `${root}/${dictionary.title}` };
-    if (dictionaryRoot(next) === null) throw new Error("The backup contains an invalid dictionary title.");
+    assertBackupDictionaryPath(next, "The backup contains an invalid dictionary title.");
     return next;
   });
   for (const file of prepared.files) {
@@ -2089,12 +2103,22 @@ async function stageBackupFiles(prepared, roots) {
     engine.FS.mkdirTree(path.slice(0, path.lastIndexOf("/")));
     await streamResponseToFile(engine.FS, new Response(file.data), path);
   }
-  for (const dictionary of dictionaries) await validateBackupDictionary(dictionary);
+  for (const dictionary of dictionaries) await validateBackupDictionaryFiles(dictionary);
   await persistFilesystem();
   return dictionaries;
 }
 
-async function validateBackupDictionary(dictionary) {
+function assertBackupDictionaryPath(dictionary, message = "The backup contains an invalid dictionary path.") {
+  if (dictionaryRoot(dictionary) === null) {
+    throw new Error(message);
+  }
+}
+
+function assertBackupDictionaryPaths(dictionaries) {
+  for (const dictionary of dictionaries) assertBackupDictionaryPath(dictionary);
+}
+
+async function validateBackupDictionaryFiles(dictionary) {
   const generated = await packageFromIndex(dictionary.path);
   const keys = ["title", "revision", "termCount", "frequencyCount", "pitchCount", "kanjiCount", "mediaCount"];
   if (keys.some(key => generated[key] !== dictionary[key]) || !hasDictionaryMarker(dictionary.path)) {
@@ -2252,6 +2276,67 @@ const HANDLERS = {
       await discardGenerations(roots);
       throw error;
     }
+  },
+
+  async hd_backup_auto_prepare(message) {
+    requireEngine();
+    if (typeof message.token !== "string" || message.token === "") {
+      throw new Error("Automatic backup preparation requires its Settings cancellation token.");
+    }
+    if (typeof message.id !== "string" || message.id === "") {
+      throw new Error("Choose an automatic backup to restore.");
+    }
+    await discardPreparedBackup();
+    const current = (await readBackupStorage(true)).snapshot;
+    const [{ backup: prepared }, { assertBackupSnapshot }] = await Promise.all([
+      ask("hd_backup_auto_get", { id: message.id }),
+      import("./backup-state.js"),
+    ]);
+    if (!prepared) throw new Error("This automatic backup is corrupt or no longer retained.");
+    await assertBackupSnapshot(prepared.snapshot);
+    const dictionaries = prepared.snapshot.state.dictionaries;
+    assertBackupDictionaryPaths(dictionaries);
+    try {
+      for (const dictionary of dictionaries) await validateBackupDictionaryFiles(dictionary);
+      loadDictionaries(dictionaries);
+      let warning = null;
+      try {
+        await restoreCommittedDictionaries(null, { publish: false });
+        if (loadFailures.length > 0) {
+          warning = "Some current dictionaries cannot be loaded. This validated backup can replace them.";
+        }
+      } catch (error) {
+        reloadError = asError(error);
+        warning = "The current dictionaries cannot be loaded. This validated backup can replace them.";
+      }
+      const token = message.token;
+      preparedBackup = {
+        token,
+        current,
+        retained: true,
+        roots: [],
+        dictionaries,
+        snapshot: prepared.snapshot,
+        lookupStatsRows: prepared.lookupStatsRows,
+      };
+      return {
+        token,
+        warning,
+        createdAt: prepared.createdAt,
+        dictionaries: dictionaries.map(({ title, enabled }) => ({ title, enabled })),
+        customEntryCount: parseCustomDictionary(prepared.snapshot.document.text).entries.length,
+      };
+    } catch (error) {
+      try { await restoreCommittedDictionaries(null, { publish: false }); }
+      catch (restoreError) { reloadError = asError(restoreError); }
+      throw error;
+    }
+  },
+
+  async hd_backup_auto_cleanup() {
+    requireEngine();
+    await cleanupCommittedDictionaries();
+    return {};
   },
 
   hd_backup_restore: restoreBackup,
