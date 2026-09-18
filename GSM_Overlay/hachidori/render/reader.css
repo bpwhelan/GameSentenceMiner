@@ -1831,21 +1831,44 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 .gsm-hoshidicts-entry-actions {
-  display: grid;
-  grid-template-columns: repeat(3, auto);
-  flex: 0 0 auto;
-  width: min-content;
+  display: flex;
+  flex: 1 1 260px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  width: auto;
   max-width: 100%;
-  margin-left: auto;
-  align-self: start;
+  box-sizing: border-box;
+  margin: -2px -2px -2px auto;
+  padding: 2px;
+  align-self: end;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: safe flex-end;
   gap: 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 2px;
+  scrollbar-color: var(--hoshidicts-scrollbar) transparent;
+  scrollbar-width: thin;
+  touch-action: pan-x pan-y;
 }
 
 .gsm-hoshidicts-entry-actions > .gsm-hoshidicts-external-link-button {
-  grid-column: 1 / -1;
-  min-width: 0;
+  flex: 0 1 160px;
+  min-width: 36px;
+}
+
+.gsm-hoshidicts-entry-actions::-webkit-scrollbar {
+  height: 5px;
+}
+
+.gsm-hoshidicts-entry-actions::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--hoshidicts-scrollbar);
+}
+
+.gsm-hoshidicts-entry-actions::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .gsm-hoshidicts-audio-button,
@@ -1916,11 +1939,13 @@ html[data-hoshidicts-theme="girlypop"],
   background: var(--hoshidicts-accent-soft);
 }
 
+.gsm-hoshidicts-mine-button[data-state="view-existing"],
 .gsm-hoshidicts-mine-button[data-state="success"] {
   border-color: var(--hoshidicts-success);
   color: var(--hoshidicts-success);
 }
 
+.gsm-hoshidicts-mine-button[data-state="checking"] .hd-icon,
 .gsm-hoshidicts-mine-button[data-state="mining"] .hd-icon {
   animation: gsm-hoshidicts-spin 0.8s linear infinite;
 }
@@ -1976,6 +2001,13 @@ html[data-hoshidicts-theme="girlypop"],
 .gsm-hoshidicts-text-action-button:disabled {
   color: var(--hoshidicts-text-faint);
   cursor: default;
+}
+
+.gsm-hoshidicts-text-action-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gsm-hoshidicts-audio-menu {
@@ -2081,6 +2113,7 @@ html[data-hoshidicts-theme="girlypop"],
     scroll-behavior: auto;
   }
 
+  .gsm-hoshidicts-mine-button[data-state="checking"] .hd-icon,
   .gsm-hoshidicts-mine-button[data-state="mining"] .hd-icon {
     animation: none;
   }
@@ -2699,6 +2732,12 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-kanji-back,
 .gsm-hoshidicts-popup-close {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
   padding: 4px 8px;
   border: 1px solid var(--hoshidicts-border);
   border-radius: 5px;
@@ -2706,6 +2745,17 @@ html[data-hoshidicts-theme="girlypop"],
   color: var(--text-color);
   font: inherit;
   cursor: pointer;
+}
+
+.gsm-hoshidicts-popup-close {
+  width: 36px;
+  padding: 0;
+}
+
+.gsm-hoshidicts-kanji-back:focus-visible,
+.gsm-hoshidicts-popup-close:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
 }
 
 .gsm-hoshidicts-kanji-glyph {

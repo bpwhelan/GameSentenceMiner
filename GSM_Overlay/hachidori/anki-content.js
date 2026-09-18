@@ -31,7 +31,7 @@
     const button = record.add;
     button.dataset.state = state;
     const title = message || {
-      checking: "Checking Anki availability",
+      checking: "Checking Anki card status",
       ready: "Mine to Anki",
       "add-duplicate": "Add duplicate to Anki",
       overwrite: "Overwrite note in Anki",
@@ -44,13 +44,14 @@
     }[state] || "Mine to Anki";
     button.title = title;
     button.setAttribute("aria-label", title);
+    button.setAttribute("aria-busy", String(state === "checking" || state === "mining"));
     button.dataset.action = views(record) ? "view" : "add";
     const iconName = {
       ready: "add",
       "add-duplicate": "document-add",
       overwrite: "document-edit",
       "view-existing": "book-search",
-      checking: "more-horizontal",
+      checking: "arrow-clockwise",
       mining: "arrow-sync",
       success: "book-search",
       error: "error-circle",
@@ -71,7 +72,7 @@
   function disabled(record) {
     if (!record.add) return;
     record.add.disabled = record.busy
-      || (!record.terminal && (record.group.checking || (!record.decision?.canAdd && !views(record))));
+      || (!record.terminal && (record.needsCheck || (!record.decision?.canAdd && !views(record))));
   }
   function payload(record) {
     return { ...record.group.getRequest(record.result), configKey: record.group.configKey };
@@ -137,6 +138,32 @@
       setStatus(record, `Encoding captured media${progress}…`);
     }
   }
+  function restartChecks(group) {
+    for (const record of group.records) {
+      if (record.terminal) continue;
+      record.viewChecked = false;
+      record.needsCheck = true;
+      record.decision = null;
+      if (record.add) setMiningButtonState(record, "checking");
+    }
+  }
+  function cachedViewRequest(record) {
+    return { request: {
+      term: {
+        expression: record.result.term.expression,
+        reading: record.result.term.reading,
+      },
+    } };
+  }
+  function cachedView(value) {
+    return value?.cached === true && value.state === "duplicate"
+      && value.canAdd === false && Array.isArray(value.noteIds) && value.noteIds.length > 0;
+  }
+  function checkedConfigKey(configKey, result) {
+    if (typeof result?.configKey !== "string") return { configKey, changed: false };
+    if (configKey !== null && result.configKey !== configKey) return { configKey, changed: true };
+    return { configKey: result.configKey, changed: false };
+  }
   function createAnkiController({
     send,
     capture = send,
@@ -154,10 +181,41 @@
     const needsCheck = record => boundHere(record) && record.needsCheck && !record.busy && !record.terminal;
     function available(group, value) {
       for (const record of group.records) {
-        if (value && record.actions.isConnected) controls(record);
-        if (record.control) showControls(record, value);
-        if (!value) record.needsCheck = false;
+        const show = value || record.terminal || cachedView(record.decision);
+        if (show && record.actions.isConnected) controls(record);
+        if (record.control) showControls(record, show);
+        if (!value && !show) record.needsCheck = false;
       }
+    }
+    async function requestCachedView(record) {
+      record.viewChecked = true;
+      try {
+        return await send("hd_anki_view", cachedViewRequest(record));
+      } catch {
+        return null;
+      }
+    }
+    function applyCachedView(group, record, result) {
+      if (!cachedView(result)) return;
+      record.needsCheck = false;
+      controls(record);
+      showControls(record, true);
+      decision(record, result);
+      onChange(group.owner);
+    }
+    async function checkCachedViews(group, owns) {
+      let configKey = null;
+      for (const record of group.records) {
+        if (!owns()) return { configKey, changed: false };
+        if (!needsCheck(record) || record.viewChecked) continue;
+        const result = await requestCachedView(record);
+        if (result === null || !owns() || !boundHere(record)) continue;
+        const checked = checkedConfigKey(configKey, result);
+        if (checked.changed) return checked;
+        configKey = checked.configKey;
+        applyCachedView(group, record, result);
+      }
+      return { configKey, changed: false };
     }
     async function checkRecords(group, owns) {
       for (const record of group.records) {
@@ -177,8 +235,20 @@
       const owns = () => live(group) && epoch === group.epoch;
       try {
         if (!owns()) return;
+        const cached = await checkCachedViews(group, owns);
+        if (!owns()) return;
+        if (cached.changed) {
+          restartChecks(group);
+          return;
+        }
+        if (cached.configKey !== null) group.configKey = cached.configKey;
+        if (!group.records.some(needsCheck)) return;
         const status = await send("hd_anki_status", {});
         if (!owns()) return;
+        if (cached.configKey !== null && status.configKey !== cached.configKey) {
+          restartChecks(group);
+          return;
+        }
         group.configKey = status.configKey;
         available(group, status.available);
         if (!status.available) return;
@@ -187,7 +257,7 @@
       } catch {
         if (owns()) available(group, false);
       } finally {
-        group.queued = group.checking = false;
+        group.queued = false;
         if (live(group)) {
           group.records.forEach(disabled);
           onChange(group.owner);
@@ -196,13 +266,24 @@
       }
     }
     function refresh(group, all = false) {
-      if (all) for (const record of group.records) record.needsCheck = !record.terminal;
-      if (!live(group) || group.queued || !group.records.some(needsCheck)) return;
-      group.queued = group.checking = true;
+      if (all) for (const record of group.records) {
+        record.viewChecked = record.terminal;
+        record.needsCheck = !record.terminal;
+      }
       group.records.forEach(record => {
-        if (needsCheck(record) && record.add) setMiningButtonState(record, "checking");
+        if (needsCheck(record)) {
+          // Readiness belongs to this result, not to the whole popup's queue.
+          record.decision = null;
+          if (enabled) {
+            controls(record);
+            showControls(record, true);
+            setMiningButtonState(record, "checking");
+          }
+        }
         disabled(record);
       });
+      if (!live(group) || group.queued || !group.records.some(needsCheck)) return;
+      group.queued = true;
       const operation = () => checkGroup(group);
       checks = checks.then(operation, operation);
     }
@@ -219,6 +300,23 @@
       if (!record.captureJobId) return;
       try { await capture("hd_capture_cancel", { jobId: record.captureJobId }); } catch { /* Stop/expiry already cleaned it up. */ }
       record.captureJobId = null;
+    }
+    async function handleSubmissionFailure(record, error, writeSent, owns) {
+      if (!writeSent) {
+        // Nothing was sent, so the picture this submission took is nobody's.
+        await discardScreenshot(record);
+      } else if (!error.responseReceived) {
+        uncertain(record, `The write could not be confirmed. Check Anki before trying again. ${error.message}`);
+        return;
+      } else {
+        // A worker reply confirms that no Anki mutation was sent. Release the
+        // request-owned export even after its popup owner has retired.
+        await cancelCapture(record);
+        await discardScreenshot(record);
+      }
+      if (!owns()) return;
+      setMiningButtonState(record, decisionState(record.decision));
+      setStatus(record, `Could not add: ${error.message}`, "error");
     }
     // One viewport screenshot for this submission, taken with Hachidori's own
     // overlays hidden. A capture or upload that fails is a warning carried with
@@ -302,13 +400,7 @@
         if (["duplicate", "invalid"].includes(result.state)) await cancelCapture(record);
         if (!submitted(record, result) && owns()) { decision(record, { ...result, canAdd: false }); refreshAll(); }
       } catch (error) {
-        // Nothing was sent, so the picture this submission took is nobody's.
-        if (!writeSent) await discardScreenshot(record);
-        if (writeSent && !error.responseReceived) uncertain(record, `The write could not be confirmed. Check Anki before trying again. ${error.message}`);
-        else if (owns()) {
-          setMiningButtonState(record, decisionState(record.decision));
-          setStatus(record, `Could not add: ${error.message}`, "error");
-        }
+        await handleSubmissionFailure(record, error, writeSent, owns);
       } finally {
         record.busy = false;
         if (current(record)) { disabled(record); onChange(record.group.owner); refresh(record.group); }
@@ -320,11 +412,25 @@
       record.add.disabled = true;
       const noteIds = record.terminal ? record.noteIds : record.decision?.noteIds;
       try {
-        await send("hd_anki_browse", { request: {
+        const result = await send("hd_anki_browse", { request: {
           noteIds: Array.isArray(noteIds) ? noteIds : [],
           expression: record.result.term.expression,
           configKey: record.group.configKey,
         } });
+        if (current(record) && Array.isArray(result?.noteIds)) {
+          if (record.terminal) record.noteIds = result.noteIds;
+          else if (record.decision) record.decision = { ...record.decision, noteIds: result.noteIds };
+        }
+        if (current(record) && result?.opened === false) {
+          record.terminal = false;
+          record.noteIds = [];
+          record.decision = null;
+          record.viewChecked = false;
+          record.needsCheck = true;
+          setMiningButtonState(record, "checking");
+          setStatus(record, "");
+          refresh(record.group);
+        }
       }
       catch (error) { if (current(record)) setStatus(record, `Could not open Anki: ${error.message}`, "error"); }
       finally {
@@ -356,7 +462,12 @@
       control.append(badge, output);
       control.hidden = true;
       feedback.append(control);
-      record.actions.prepend(add);
+      const leadingAction = record.actions.firstElementChild;
+      if (leadingAction?.matches(".gsm-hoshidicts-popup-close, .gsm-hoshidicts-kanji-back")) {
+        leadingAction.after(add);
+      } else {
+        record.actions.prepend(add);
+      }
       Object.assign(record, { feedback, control, add, badge, output, hidden: false });
       setMiningButtonState(record, "checking");
       add.addEventListener("mousedown", event => {
@@ -371,14 +482,14 @@
     function bind(items, context) {
       let group = owners.get(context.owner);
       if (group && group.request !== context.request) { retire(context.owner); group = null; }
-      if (!group) { group = { ...context, records: [], epoch: 0, checking: false, queued: false }; owners.set(context.owner, group); }
+      if (!group) { group = { ...context, records: [], epoch: 0, queued: false }; owners.set(context.owner, group); }
       else Object.assign(group, context);
       const records = [...group.records];
       for (const item of items) {
         let record = bound.get(item.actions);
         if (record?.group === group && record.result === item.result) continue;
         removeControls(record);
-        record = { ...item, group, busy: false, terminal: false, decision: null, needsCheck: true,
+        record = { ...item, group, busy: false, terminal: false, decision: null, viewChecked: false, needsCheck: true,
           captureJobId: null };
         bound.set(item.actions, record);
         records.push(record);

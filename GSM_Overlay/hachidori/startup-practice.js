@@ -81,6 +81,7 @@ export function createPracticeView({ document, onDismiss, loadReader, onReaderSe
   let readerStarted = false;
   let readerFailed = false;
   let readerReady = false;
+  let reader = null;
   let currentOptions;
   let currentDictionaries;
   let currentOutcome;
@@ -94,6 +95,7 @@ export function createPracticeView({ document, onDismiss, loadReader, onReaderSe
     const selection = document.defaultView.getSelection();
     selection.removeAllRanges();
     selection.addRange(range);
+    reader.scanSelectedText();
   }
 
   lookup.addEventListener("click", selectLookupWord);
@@ -102,7 +104,8 @@ export function createPracticeView({ document, onDismiss, loadReader, onReaderSe
   function startReader() {
     if (readerStarted) return;
     readerStarted = true;
-    void loadReader().then(() => {
+    void loadReader().then((loadedReader) => {
+      reader = loadedReader;
       readerReady = true;
       update(currentOptions, currentDictionaries, currentOutcome);
       onReaderSettled();

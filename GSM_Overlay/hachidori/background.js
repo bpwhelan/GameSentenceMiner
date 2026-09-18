@@ -693,6 +693,36 @@ function committedSelectionTitle(title, current, dictionaries) {
   return selected ? dictionaries.find((entry) => entry.id === selected.id)?.title ?? "" : title;
 }
 
+function migrateCommittedDictionarySelections(value, current, dictionaries) {
+  const options = { ...value };
+  const migrate = (title) => typeof title === "string" && title !== ""
+    ? committedSelectionTitle(title, current, dictionaries)
+    : title;
+  for (const key of [
+    "frequencyDictionary",
+    "definitionBlurFrequencyDictionary",
+    "compactDefinitionSummaryDictionary",
+    "pitchAccentFuriganaDictionary",
+  ]) {
+    if (Object.hasOwn(options, key)) options[key] = migrate(options[key]);
+  }
+  if (Object.hasOwn(options, "kanjiClickDictionary")
+      && typeof options.kanjiClickDictionary === "string") {
+    options.kanjiClickDictionary = migrate(options.kanjiClickDictionary);
+  } else if (options.kanjiClickDictionary?.title) {
+    const title = migrate(options.kanjiClickDictionary.title);
+    options.kanjiClickDictionary = title === ""
+      ? ""
+      : { ...options.kanjiClickDictionary, title };
+  }
+  if (Object.hasOwn(options, "popupImageSource")
+      && options.popupImageSource?.kind === "dictionary") {
+    const title = migrate(options.popupImageSource.title);
+    options.popupImageSource = title ? { kind: "dictionary", title } : null;
+  }
+  return options;
+}
+
 function dictionaryCommit(current, currentOptions, dictionaries, groups) {
   for (const dictionary of dictionaries) assertDictionaryUpdateSchedule(dictionary);
   const currentRevision = current?.revision ?? 0;
@@ -706,17 +736,13 @@ function dictionaryCommit(current, currentOptions, dictionaries, groups) {
   if (currentOptions !== undefined) {
     const revision = optionsRevision(currentOptions);
     const nextOptions = normaliseDictionarySelections(
-      { ...projectStoredOptions(currentOptions), revision }, state.dictionaries,
+      migrateCommittedDictionarySelections(
+        { ...projectStoredOptions(currentOptions), revision },
+        current,
+        state.dictionaries,
+      ),
+      state.dictionaries,
     );
-    if (nextOptions.popupImageSource?.kind === "dictionary") {
-      const title = committedSelectionTitle(nextOptions.popupImageSource.title, current, dictionaries);
-      nextOptions.popupImageSource = title ? { kind: "dictionary", title } : null;
-    }
-    if (nextOptions.pitchAccentFuriganaDictionary) {
-      nextOptions.pitchAccentFuriganaDictionary = committedSelectionTitle(
-        nextOptions.pitchAccentFuriganaDictionary, current, dictionaries,
-      );
-    }
     if (!sameJsonValue(nextOptions, { ...currentOptions, revision })) {
       values[OPTIONS_KEY] = { ...nextOptions, revision: revision + 1 };
     }
@@ -1703,7 +1729,7 @@ function failureReply(message, error) {
   });
 }
 
-const ANKI_METHODS = { hd_anki_status: "status", hd_anki_preflight: "preflight", hd_anki_submit: "submit",
+const ANKI_METHODS = { hd_anki_status: "status", hd_anki_view: "view", hd_anki_preflight: "preflight", hd_anki_submit: "submit",
   hd_anki_browse: "browse", hd_anki_screenshot: "screenshot", hd_anki_screenshot_discard: "discardScreenshot",
   hd_anki_maturity: "maturity" };
 
@@ -2162,7 +2188,7 @@ async function handleAnkiRequest(message, sender) {
       // from before linked mining advertised a capability.
       if (message.type === "hd_anki_maturity") return forwardToHost(message);
       if (message.type === "hd_anki_submit") return submitToLinkedAnki(message);
-      if (["hd_anki_status", "hd_anki_preflight", "hd_anki_browse"].includes(message.type)) {
+      if (["hd_anki_status", "hd_anki_view", "hd_anki_preflight", "hd_anki_browse"].includes(message.type)) {
         try {
           const reply = await getSharingClient().forward(message, { capability: LINKED_ANKI_CAPABILITY });
           if (message.type === "hd_anki_preflight" && reply?.ok !== false && reply?.clientSpeech) {
@@ -2261,6 +2287,10 @@ function answerAnkiRequest(message, sender, linkedClient = false) {
     if (linkedClient && message.type === "hd_anki_status") {
       const status = await service.status();
       return { ...status, configKey: linkedAnkiConfigKey(status.configKey) };
+    }
+    if (linkedClient && message.type === "hd_anki_view") {
+      const result = await service.view(message.request);
+      return { ...result, configKey: linkedAnkiConfigKey(result.configKey) };
     }
     if (linkedClient && message.type === "hd_anki_preflight") {
       return service.preflightClient(hostLinkedAnkiRequest(message.request));
