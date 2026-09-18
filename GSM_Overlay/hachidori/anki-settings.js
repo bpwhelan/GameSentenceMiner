@@ -1,8 +1,319 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { ankiAvailability } from "./anki.js";
 import { ankiSetupFamily } from "./anki-setup.js";
-import { ANKI_TEMPLATE_MARKERS, ankiFieldNames, applyAnkiPreset, resolveAnkiTemplates } from "./anki-templates.js";
+import { ANKI_TEMPLATE_MARKER_OPTIONS, ankiFieldNames, ankiTemplateErrors, applyAnkiPreset, resolveAnkiTemplates } from "./anki-templates.js";
 import { reorderSettingsRows, setStatusOutput } from "./settings-dom.js";
+
+function setAttributeIfChanged(element, name, value) {
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+}
+
+function intersectingMarkerSelection(value, selectionStart, selectionEnd) {
+  const collapsed = selectionStart === selectionEnd;
+  for (const match of value.matchAll(/\{([^{}]*)\}/gu)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const intersects = collapsed
+      ? selectionStart > start && selectionStart < end
+      : selectionStart < end && selectionEnd > start;
+    if (!intersects) continue;
+    return {
+      start: collapsed ? start : Math.min(selectionStart, start),
+      end: collapsed ? end : Math.max(selectionEnd, end),
+      query: match[1],
+    };
+  }
+  return null;
+}
+
+function partialMarkerSelection(value, selectionStart, selectionEnd) {
+  const before = value.slice(0, selectionStart);
+  const open = before.lastIndexOf("{");
+  if (open <= before.lastIndexOf("}")) return null;
+  const close = value.indexOf("}", selectionEnd);
+  return {
+    start: open,
+    end: close < 0 ? selectionEnd : close + 1,
+    query: value.slice(open + 1, selectionStart),
+  };
+}
+
+function markerLikeTokenQuery(token) {
+  let start = token.startsWith("{") ? 1 : 0;
+  let end = token.endsWith("}") ? token.length - 1 : token.length;
+  if (end < start) end = start;
+  const query = token.slice(start, end);
+  for (const character of query) {
+    if (character === "{" || character === "}" || character.trim() === "") return null;
+  }
+  return query;
+}
+
+function singleTokenSelection(value, selectionStart, selectionEnd) {
+  const trimmedStart = value.length - value.trimStart().length;
+  const trimmedEnd = value.trimEnd().length;
+  if (trimmedStart >= trimmedEnd || trimmedStart > selectionStart || selectionEnd > trimmedEnd) return null;
+  const token = value.slice(trimmedStart, trimmedEnd);
+  const collapsed = selectionStart === selectionEnd;
+  const completeMarkerBoundary = collapsed && token.startsWith("{") && token.endsWith("}")
+    && (selectionStart === trimmedStart || selectionStart === trimmedEnd);
+  if (completeMarkerBoundary) return null;
+  const query = markerLikeTokenQuery(token);
+  return query === null ? null : { start: trimmedStart, end: trimmedEnd, query };
+}
+
+function markerSelection(value, selectionStart, selectionEnd) {
+  const selection = intersectingMarkerSelection(value, selectionStart, selectionEnd)
+    ?? partialMarkerSelection(value, selectionStart, selectionEnd)
+    ?? singleTokenSelection(value, selectionStart, selectionEnd);
+  if (selection) return selection;
+  return { start: selectionStart, end: selectionEnd, query: "" };
+}
+
+function createMarkerCombobox(document, id, labelText, onValue) {
+  const root = document.createElement("div");
+  root.className = "anki-marker-combobox";
+  root.innerHTML = `<div class="anki-marker-combobox-editor">
+      <textarea rows="2" spellcheck="false" autocomplete="off" autocapitalize="off"
+        placeholder="Blank disables this field"
+        role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false"></textarea>
+      <button type="button" class="anki-marker-combobox-toggle" tabindex="-1"
+        aria-haspopup="listbox" aria-expanded="false"><span aria-hidden="true">▾</span></button>
+      <div class="anki-marker-listbox" role="listbox" hidden></div>
+    </div>
+    <span class="anki-marker-combobox-status" role="status" aria-live="polite"></span>
+    <output class="anki-template-error field-hint is-error" aria-live="polite"></output>`;
+  const editor = root.querySelector("textarea");
+  const toggle = root.querySelector("button");
+  const listbox = root.querySelector('[role="listbox"]');
+  const status = root.querySelector('[role="status"]');
+  const error = root.querySelector("output");
+  editor.id = id;
+  listbox.id = `${id}-listbox`;
+  status.id = `${id}-status`;
+  error.id = `${id}-error`;
+  editor.setAttribute("aria-controls", listbox.id);
+  editor.setAttribute("aria-describedby", `${status.id} ${error.id}`);
+  toggle.setAttribute("aria-controls", listbox.id);
+
+  const empty = document.createElement("div");
+  empty.className = "anki-marker-empty";
+  empty.setAttribute("role", "presentation");
+  empty.setAttribute("aria-hidden", "true");
+  empty.textContent = "No markers match. Keep typing to use this text as-is.";
+  empty.hidden = true;
+  const options = ANKI_TEMPLATE_MARKER_OPTIONS.map((marker, index) => {
+    const option = document.createElement("div");
+    option.id = `${id}-option-${index + 1}`;
+    option.className = "anki-marker-option";
+    option.dataset.marker = marker.value;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", "false");
+    option.setAttribute("aria-label", `${marker.value}: ${marker.description}`);
+    const value = document.createElement("code");
+    value.textContent = marker.value;
+    const description = document.createElement("span");
+    description.textContent = marker.description;
+    option.append(value, description);
+    option.addEventListener("pointerenter", () => {
+      if (!option.hidden) setActive(index);
+    });
+    option.addEventListener("pointerdown", event => event.preventDefault());
+    option.addEventListener("click", () => select(index));
+    listbox.append(option);
+    return {
+      ...marker,
+      element: option,
+      search: `${marker.marker} ${marker.value}`.toLocaleLowerCase(),
+    };
+  });
+  listbox.append(empty);
+
+  let open = false;
+  let showAll = false;
+  let active = -1;
+  let composing = false;
+  let committedValue = "";
+
+  function updateLabel(value) {
+    setAttributeIfChanged(toggle, "aria-label", `${open ? "Hide" : "Show"} marker suggestions for ${value}`);
+    setAttributeIfChanged(listbox, "aria-label", `Marker suggestions for ${value}`);
+  }
+
+  function setActive(index) {
+    active = index;
+    for (const [optionIndex, option] of options.entries()) {
+      option.element.setAttribute("aria-selected", `${open && optionIndex === active}`);
+    }
+    if (open && active >= 0) {
+      editor.setAttribute("aria-activedescendant", options[active].element.id);
+      options[active].element.scrollIntoView?.({ block: "nearest" });
+    } else {
+      editor.removeAttribute("aria-activedescendant");
+    }
+  }
+
+  function visibleOptions() {
+    return options.map((option, index) => option.element.hidden ? -1 : index).filter(index => index >= 0);
+  }
+
+  function refreshOptions() {
+    const selection = markerSelection(editor.value, editor.selectionStart, editor.selectionEnd);
+    const query = showAll ? "" : selection.query.toLocaleLowerCase();
+    for (const option of options) option.element.hidden = query !== "" && !option.search.includes(query);
+    const visible = visibleOptions();
+    empty.hidden = visible.length !== 0;
+    if (!visible.includes(active)) {
+      const exact = visible.find(index => options[index].value === editor.value);
+      setActive(exact ?? visible[0] ?? -1);
+    } else {
+      setActive(active);
+    }
+    if (visible.length === 0) {
+      status.textContent = query
+        ? `No marker suggestions match ${selection.query}. Keep typing to use this text as-is.`
+        : "No marker suggestions are available.";
+    } else {
+      status.textContent = `${visible.length} marker suggestion${visible.length === 1 ? "" : "s"} available. Use Arrow keys and Enter to select.`;
+    }
+  }
+
+  function setOpen(value, all = false) {
+    open = value;
+    showAll = value && all;
+    editor.setAttribute("aria-expanded", `${open}`);
+    toggle.setAttribute("aria-expanded", `${open}`);
+    listbox.hidden = !open;
+    updateLabel(labelText);
+    if (open) refreshOptions();
+    else {
+      status.textContent = "";
+      setActive(-1);
+    }
+  }
+
+  function commit() {
+    if (editor.value === committedValue) return;
+    onValue(editor.value);
+  }
+
+  function select(index) {
+    if (index < 0 || options[index].element.hidden) return;
+    const selection = markerSelection(editor.value, editor.selectionStart, editor.selectionEnd);
+    const value = options[index].value;
+    editor.value = `${editor.value.slice(0, selection.start)}${value}${editor.value.slice(selection.end)}`;
+    const caret = selection.start + value.length;
+    editor.setSelectionRange(caret, caret);
+    commit();
+    setOpen(false);
+    editor.focus({ preventScroll: true });
+  }
+
+  function moveActive(offset) {
+    const visible = visibleOptions();
+    if (visible.length === 0) return;
+    const position = visible.indexOf(active);
+    let next = 0;
+    if (position >= 0) next = (position + offset + visible.length) % visible.length;
+    else if (offset < 0) next = visible.length - 1;
+    setActive(visible[next]);
+  }
+
+  function moveActiveToEdge(last) {
+    const visible = visibleOptions();
+    setActive(last ? visible.at(-1) ?? -1 : visible[0] ?? -1);
+  }
+
+  function handleOpenKey(event) {
+    if (!open) return false;
+    if (event.key === "Tab") {
+      setOpen(false);
+      return false;
+    }
+    switch (event.key) {
+      case "Home":
+        moveActiveToEdge(false);
+        return true;
+      case "End":
+        moveActiveToEdge(true);
+        return true;
+      case "Enter":
+        if (event.shiftKey || active < 0) return false;
+        select(active);
+        return true;
+      case "Escape":
+        setOpen(false);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  function handleKeydown(event) {
+    if (composing || event.isComposing) return;
+    let handled = false;
+    if (event.altKey && event.key === "ArrowUp" && open) {
+      setOpen(false);
+      handled = true;
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!open) setOpen(true, true);
+      else moveActive(event.key === "ArrowDown" ? 1 : -1);
+      handled = true;
+    } else {
+      handled = handleOpenKey(event);
+    }
+    if (handled) event.preventDefault();
+  }
+
+  editor.addEventListener("input", event => {
+    showAll = false;
+    if (!composing && !event.isComposing) commit();
+    if (!open) setOpen(true);
+    else refreshOptions();
+  });
+  editor.addEventListener("compositionstart", () => { composing = true; });
+  editor.addEventListener("compositionend", () => {
+    composing = false;
+    commit();
+    if (!open) setOpen(true);
+    else refreshOptions();
+  });
+  editor.addEventListener("keydown", handleKeydown);
+  toggle.addEventListener("pointerdown", event => event.preventDefault());
+  toggle.addEventListener("click", () => {
+    const wasOpen = open;
+    editor.focus({ preventScroll: true });
+    setOpen(!wasOpen, true);
+  });
+  root.addEventListener("focusout", () => {
+    document.defaultView.queueMicrotask(() => {
+      if (root.contains(document.activeElement)) return;
+      if (composing) {
+        composing = false;
+        commit();
+      }
+      setOpen(false);
+    });
+  });
+
+  updateLabel(labelText);
+  return {
+    root,
+    editor,
+    error,
+    close: () => setOpen(false),
+    update({ value, label, errors }) {
+      labelText = label;
+      committedValue = value;
+      updateLabel(label);
+      if (editor !== document.activeElement && editor.value !== value) editor.value = value;
+      const message = errors.join("\n");
+      if (error.textContent !== message) error.textContent = message;
+      setAttributeIfChanged(editor, "aria-invalid", `${errors.length > 0}`);
+      if (open) refreshOptions();
+    },
+  };
+}
 
 export function createAnkiSettingsController({
   document,
@@ -45,11 +356,37 @@ export function createAnkiSettingsController({
     return discovery?.model === config.model && discoveryKey === connectionKey(config) ? discovery.fields : [];
   }
 
+  function templatePresentation(config = readConfig()) {
+    const fields = currentFields();
+    const resolved = resolveAnkiTemplates(config, fields);
+    if (config.fieldTemplates !== null) {
+      return {
+        resolved,
+        entries: [...Object.entries(resolved.templates),
+          ...resolved.staleFields.map(field => [field, config.fieldTemplates[field]])],
+        unavailable: new Set(resolved.staleFields),
+      };
+    }
+    const names = [...fields];
+    const folded = new Set(names.map(field => field.toLowerCase()));
+    for (const semantic of ANKI_FIELDS) {
+      const field = config.fields[semantic];
+      if (field && !folded.has(field.toLowerCase())) {
+        names.push(field);
+        folded.add(field.toLowerCase());
+      }
+    }
+    const display = resolveAnkiTemplates(config, names);
+    const available = ankiFieldNames(fields);
+    return {
+      resolved,
+      entries: Object.entries(display.templates),
+      unavailable: new Set(names.filter(field => !available.has(field.toLowerCase()))),
+    };
+  }
+
   function materializeTemplates() {
-    const config = readConfig();
-    const resolved = resolveAnkiTemplates(config, currentFields());
-    return Object.fromEntries([...Object.entries(resolved.templates),
-      ...resolved.staleFields.map(field => [field, { ...config.fieldTemplates[field] }])]);
+    return Object.fromEntries(templatePresentation().entries.map(([field, template]) => [field, { ...template }]));
   }
 
   function editTemplate(field, patch) {
@@ -62,11 +399,15 @@ export function createAnkiSettingsController({
     const row = document.createElement("div");
     row.className = "anki-template-row";
     row.innerHTML = `<div class="anki-template-heading"><label class="field-label"></label><button type="button" class="ghost">Remove unavailable field</button></div>
-      <textarea rows="2" spellcheck="false" placeholder="Blank disables this field"></textarea>
       <label class="anki-template-mode"><span>On overwrite</span><select></select></label>`;
-    const label = row.querySelector(".field-label"), editor = row.querySelector("textarea"), mode = row.querySelector("select");
-    editor.id = `opt-anki-template-${++nextTemplateId}`;
+    const label = row.querySelector(".field-label"), mode = row.querySelector("select");
+    const id = `opt-anki-template-${++nextTemplateId}`;
+    let record;
+    const combobox = createMarkerCombobox(document, id, field, value => editTemplate(record.field, { value }));
+    const editor = combobox.editor;
+    row.querySelector(".anki-template-mode").before(combobox.root);
     label.htmlFor = editor.id;
+    label.id = `${editor.id}-label`;
     label.textContent = field;
     mode.id = `${editor.id}-mode`;
     mode.setAttribute("aria-label", `On overwrite: ${field}`);
@@ -74,34 +415,31 @@ export function createAnkiSettingsController({
       append: "Append", prepend: "Prepend", overwrite: "Replace" };
     for (const value of ANKI_OVERWRITE_MODES) mode.add(new document.defaultView.Option(names[value], value));
     const remove = row.querySelector("button");
-    const record = { field, row, label, editor, mode, remove, modeLabel: mode.parentElement };
-    editor.addEventListener("input", () => editTemplate(record.field, { value: editor.value }));
+    remove.setAttribute("aria-label", `Remove unavailable field: ${field}`);
+    record = { field, row, label, editor, combobox, mode, remove, modeLabel: mode.parentElement };
     mode.addEventListener("change", () => editTemplate(record.field, { overwriteMode: mode.value }));
     remove.addEventListener("click", () => {
       const templates = materializeTemplates();
       delete templates[record.field];
       change({ fieldTemplates: templates });
-      element("opt-anki-advanced").focus();
+      element("anki-apply-preset").focus();
     });
     return record;
   }
 
-  function updateTemplateRow(row, template, advanced, showMode, unavailable) {
-    if (row.editor !== document.activeElement && row.editor.value !== template.value) row.editor.value = template.value;
+  function updateTemplateRow(row, template, showMode, unavailable) {
+    const errors = ankiTemplateErrors(template.value);
+    row.combobox.update({ value: template.value, label: row.field, errors });
     if (row.mode !== document.activeElement && row.mode.value !== template.overwriteMode) row.mode.value = template.overwriteMode;
-    if (row.editor.readOnly === advanced) row.editor.readOnly = !advanced;
-    if (row.mode.disabled === advanced) row.mode.disabled = !advanced;
     if (row.modeLabel.hidden === showMode) row.modeLabel.hidden = !showMode;
     if (row.remove.hidden === unavailable) row.remove.hidden = !unavailable;
+    if (row.row.dataset.ankiField !== row.field) row.row.dataset.ankiField = row.field;
   }
 
-  function renderTemplates(config, resolved) {
-    const templates = [...Object.entries(resolved.templates),
-      ...resolved.staleFields.map(field => [field, config.fieldTemplates[field]])];
+  function renderTemplates(config, presentation) {
+    const templates = presentation.entries;
     const retained = new Set(templates.map(([field]) => field));
-    const unavailable = new Set(resolved.staleFields);
-    const advanced = config.fieldTemplates !== null;
-    const showMode = advanced && config.duplicateBehavior === "overwrite";
+    const showMode = config.duplicateBehavior === "overwrite";
     const renamedRows = new Map([...templateRows].filter(([field]) => !retained.has(field))
       .map(([field, row]) => [field.toLowerCase(), row]));
     const container = element("anki-templates");
@@ -114,21 +452,18 @@ export function createAnkiSettingsController({
           previous.field = field;
           previous.label.textContent = field;
           previous.mode.setAttribute("aria-label", `On overwrite: ${field}`);
+          previous.remove.setAttribute("aria-label", `Remove unavailable field: ${field}`);
         }
         templateRows.set(field, previous || createTemplateRow(field));
       }
-      updateTemplateRow(templateRows.get(field), template, advanced, showMode, unavailable.has(field));
+      updateTemplateRow(templateRows.get(field), template, showMode, presentation.unavailable.has(field));
     }
     for (const [field, row] of templateRows) {
       if (!retained.has(field)) { row.row.remove(); templateRows.delete(field); }
     }
     reorderSettingsRows(container, templates.map(([field]) => templateRows.get(field).row));
-    if (element("anki-fields").hidden !== advanced) element("anki-fields").hidden = advanced;
-    element("opt-anki-advanced").checked = advanced;
     const canApply = !loading && currentFields().length > 0;
     if (element("anki-apply-preset").disabled === canApply) element("anki-apply-preset").disabled = !canApply;
-    const canEnter = advanced || canApply;
-    if (element("opt-anki-advanced").disabled === canEnter) element("opt-anki-advanced").disabled = !canEnter;
   }
 
   function selectChoices(id, names, value, placeholder, canonical = "") {
@@ -189,6 +524,7 @@ export function createAnkiSettingsController({
     setupSnapshot = null;
     setupRequestSequence += 1;
     findingSetup = false;
+    for (const row of templateRows.values()) row.combobox.close();
     element("anki-find-setup").disabled = false;
     setupStatus("");
   }
@@ -242,7 +578,6 @@ export function createAnkiSettingsController({
     loading = true;
     renderStatus(config);
     element("anki-apply-preset").disabled = true;
-    if (config.fieldTemplates === null) element("opt-anki-advanced").disabled = true;
     try {
       const reply = await send("hd_anki_discover", { model: config.model, apiKey: config.apiKey, url: config.url });
       if (sequence !== requestSequence || key !== connectionKey(readConfig())) return;
@@ -274,12 +609,6 @@ export function createAnkiSettingsController({
     ["duplicateScope", "opt-anki-duplicate-scope"], ["duplicateBehavior", "opt-anki-duplicate-behavior"],
     ["captureScreenshot", "opt-anki-screenshot"],
   ];
-  function renderBasicMappings(config, fields) {
-    if (config.fieldTemplates !== null) return;
-    const fieldNames = ankiFieldNames(fields);
-    for (const key of ANKI_FIELDS) selectChoices(`opt-anki-field-${key}`, fields, config.fields[key], "Disabled",
-      fieldNames.get(config.fields[key].toLowerCase()));
-  }
 
   function renderFormControls(config) {
     const values = { ...config, captureScreenshot: capabilities.screenshot && config.captureScreenshot };
@@ -306,34 +635,15 @@ export function createAnkiSettingsController({
     selectChoices("opt-anki-deck", discovery?.decks || [], config.deck, "Choose a deck");
     selectChoices("opt-anki-model", discovery?.models || [], config.model, "Choose a note type");
     renderDuplicateScope(config);
-    const fields = currentFields();
     const url = element("opt-anki-url");
     if (url !== document.activeElement && !url.validity.customError && url.value !== config.url) url.value = config.url;
-    renderBasicMappings(config, fields);
     renderFormControls(config);
-    const resolved = resolveAnkiTemplates(config, fields);
-    renderStatus(config, resolved);
-    renderTemplates(config, resolved);
+    const presentation = templatePresentation(config);
+    renderStatus(config, presentation.resolved);
+    renderTemplates(config, presentation);
     if (connectionKey(config) !== requestedKey) void refresh();
   }
 
-  const fieldLabels = {
-    captureAnimation: "Capture animation",
-    captureAudio: "Capture audio",
-    screenshot: "Page screenshot",
-  };
-  for (const key of ANKI_FIELDS) {
-    const label = document.createElement("label");
-    label.className = "field";
-    const text = document.createElement("span");
-    text.className = "field-label";
-    text.textContent = fieldLabels[key] ?? key[0].toUpperCase() + key.slice(1);
-    const select = document.createElement("select");
-    select.id = `opt-anki-field-${key}`;
-    select.addEventListener("change", () => change({ fields: { ...readConfig().fields, [key]: select.value } }));
-    label.append(text, select);
-    element("anki-fields").append(label);
-  }
   element("opt-anki-deck").addEventListener("change", event => change({ deck: event.target.value }));
   element("opt-anki-model").addEventListener("change", event => {
     if (event.target.value === readConfig().model) return;
@@ -377,10 +687,6 @@ export function createAnkiSettingsController({
     editConfig(applyAnkiPreset(readConfig(), currentFields(), element("anki-preset").value));
     render();
   });
-  element("opt-anki-advanced").addEventListener("change", event => {
-    change({ fieldTemplates: event.target.checked ? materializeTemplates() : null });
-  });
-  element("anki-markers").textContent = ANKI_TEMPLATE_MARKERS.map(marker => `{${marker}}`).join("  ");
   return { render, refresh };
 }
 

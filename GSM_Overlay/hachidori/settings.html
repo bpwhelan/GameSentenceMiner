@@ -977,10 +977,10 @@
         <section class="card" id="anki" aria-labelledby="anki-heading" hidden>
           <div class="section-heading">
             <div class="card-head">
-              <h1 id="anki-heading" tabindex="-1" data-search-keywords="deck note type field mapping Template templates tags API key flashcards AnkiConnect URL endpoint">Anki</h1>
+              <h1 id="anki-heading" tabindex="-1" data-search-keywords="deck note type field mapping marker combobox Template templates tags API key flashcards AnkiConnect URL endpoint"><span class="hd-icon" data-icon="document-add" aria-hidden="true"></span>Anki</h1>
               <p class="hint">Save words to Anki. Changes save automatically.</p>
             </div>
-            <button id="anki-refresh" type="button" class="ghost">Refresh connection</button>
+            <button id="anki-refresh" type="button" class="ghost"><span class="hd-icon" data-icon="arrow-clockwise" aria-hidden="true"></span>Refresh connection</button>
           </div>
           <div class="options-feedback-slot"></div>
           <div class="anki-connection-summary">
@@ -998,8 +998,8 @@
             <p class="field-hint">Checks <a href="https://github.com/bee-san/yomitan-audio-fast" target="_blank" rel="noopener noreferrer">Local Audio Server</a> on this device at 127.0.0.1:5050. Keep Anki open. Adding appends a Custom JSON source without changing your existing sources. For custom ports, use <a href="#audio">Audio settings</a>.</p>
             <output id="anki-audio-status" class="operational-status" aria-live="polite" aria-atomic="true"></output>
           </div>
-          <fieldset class="lookup-group anki-template-manager" id="anki-template-manager">
-            <legend>Templates</legend>
+          <fieldset class="lookup-group anki-panel anki-template-manager" id="anki-template-manager">
+            <legend><span class="hd-icon" data-icon="document-add" aria-hidden="true"></span>Templates</legend>
             <p class="field-hint">A Template keeps one Anki destination, note type, field mapping and duplicate policy together. The first Template powers the built-in Anki button.</p>
             <div class="anki-template-navigation">
               <button id="anki-template-previous" type="button" class="ghost" aria-label="Previous Template">
@@ -1021,36 +1021,37 @@
               <span class="field-hint">Custom Anki buttons choose Templates by this name.</span>
             </label>
             <div class="anki-template-actions">
-              <button id="anki-template-add" type="button" class="ghost">Add Template</button>
-              <button id="anki-template-duplicate" type="button" class="ghost">Duplicate</button>
-              <button id="anki-template-up" type="button" class="ghost">Move up</button>
-              <button id="anki-template-down" type="button" class="ghost">Move down</button>
-              <button id="anki-template-delete" type="button" class="ghost">Delete</button>
+              <button id="anki-template-add" type="button" class="ghost anki-primary-action"><span class="hd-icon" data-icon="add" aria-hidden="true"></span>Add Template</button>
+              <button id="anki-template-duplicate" type="button" class="ghost"><span class="hd-icon" data-icon="document-add" aria-hidden="true"></span>Duplicate</button>
+              <button id="anki-template-up" type="button" class="ghost"><span class="hd-icon" data-icon="arrow-up" aria-hidden="true"></span>Move up</button>
+              <button id="anki-template-down" type="button" class="ghost"><span class="hd-icon" data-icon="arrow-down" aria-hidden="true"></span>Move down</button>
+              <button id="anki-template-delete" type="button" class="ghost danger"><span class="hd-icon" data-icon="dismiss" aria-hidden="true"></span>Delete</button>
             </div>
             <output id="anki-template-status" class="is-error" aria-live="polite"></output>
           </fieldset>
-          <fieldset class="lookup-group">
-            <legend>Destination</legend>
+          <fieldset class="lookup-group anki-panel anki-destination">
+            <legend><span class="hd-icon" data-icon="arrow-right" aria-hidden="true"></span>Destination</legend>
             <div class="fields">
               <label class="field"><span class="field-label">Deck</span><select id="opt-anki-deck"></select></label>
               <label class="field"><span class="field-label">Note type</span><select id="opt-anki-model"></select><span class="field-hint">Kiku, Lapis and Senren fill their matching fields automatically.</span></label>
               <label class="field"><span class="field-label">Tags</span><input id="opt-anki-tags" type="text" spellcheck="false"><span class="field-hint">Separate tags with spaces.</span></label>
             </div>
           </fieldset>
-          <fieldset class="lookup-group">
-            <legend>Field mapping</legend>
-            <p class="field-hint">Blank fields stay disabled. Anki requires the first field to be filled.</p>
+          <fieldset class="lookup-group anki-panel" id="anki-field-mapping">
+            <legend><span class="hd-icon" data-icon="settings" aria-hidden="true"></span>Field mapping</legend>
+            <p class="field-hint">Each Anki field accepts markers, literal text, or both. Blank fields stay disabled. Anki requires the first field to be filled.</p>
             <div class="anki-preset-tools">
               <label class="anki-preset"><span class="field-label">Preset</span><select id="anki-preset"><option value="automatic">Automatic suggestions</option><option value="kiku">Kiku</option><option value="lapis">Lapis</option><option value="senren">Senren</option></select></label>
-              <button id="anki-apply-preset" class="ghost" type="button">Apply preset</button>
+              <button id="anki-apply-preset" class="ghost" type="button"><span class="hd-icon" data-icon="arrow-sync" aria-hidden="true"></span>Apply preset</button>
             </div>
-            <div id="anki-fields" class="fields"></div>
+            <p class="field-hint">Open a field’s marker list or start typing to filter it. Choosing a marker inserts it at the cursor; your other text and whitespace stay unchanged.</p>
+            <details class="anki-marker-reference"><summary>Dictionary-specific markers</summary><p class="field-hint">Replace <code>DICTIONARY</code> in <code>{single-glossary-DICTIONARY}</code>, <code>{single-frequency-DICTIONARY}</code> or <code>{single-frequency-number-DICTIONARY}</code> with the dictionary marker shown in its Details. Single-glossary variants also support <code>-brief</code>, <code>-no-dictionary</code>, <code>-plain</code> and <code>-plain-no-dictionary</code>. Empty, colliding or shadowed names can use <code>{single-glossary-id--PACKAGE-ID}</code>, where <code>PACKAGE-ID</code> is the dictionary's 32-character lowercase hexadecimal ID.</p></details>
+            <div id="anki-templates" class="anki-templates"></div>
+          </fieldset>
+          <fieldset class="lookup-group anki-panel anki-screenshot-options">
+            <legend><span class="hd-icon" data-icon="desktop" aria-hidden="true"></span>Screenshot options</legend>
             <label class="lookup-enable"><span>Screenshot the page when mining</span><input id="opt-anki-screenshot" type="checkbox" aria-describedby="anki-screenshot-help"></label>
             <p id="anki-screenshot-help" class="field-hint">Adds the visible page to fields using <code>{screenshot}</code>.</p>
-            <label class="lookup-enable"><span>Edit field templates directly</span><input id="opt-anki-advanced" type="checkbox"></label>
-            <p class="field-hint">Combine text with markers such as <code>{expression}</code> and <code>{glossary}</code>.</p>
-            <details class="anki-marker-reference"><summary>Available markers</summary><p id="anki-markers" class="anki-markers"></p><p class="field-hint">Dictionary-specific values also use <code>{single-glossary-DICTIONARY}</code>, <code>{single-frequency-DICTIONARY}</code> or <code>{single-frequency-number-DICTIONARY}</code>. A single-glossary marker uses the dictionary's Display name when that sanitized name is unique; current title-based markers and their suffix variants keep precedence. Display-name markers normalize Unicode, change spaces and underscores to hyphens, and remove other punctuation. Empty, colliding or shadowed names can use <code>{single-glossary-id--PACKAGE-ID}</code>, where <code>PACKAGE-ID</code> is the dictionary's 32-character lowercase hexadecimal ID shown in its Details.</p></details>
-            <div id="anki-templates" class="anki-templates"></div>
           </fieldset>
           <details class="anki-details">
             <summary>Duplicate handling</summary>

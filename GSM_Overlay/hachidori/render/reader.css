@@ -1882,7 +1882,7 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-entry-actions > .gsm-hoshidicts-external-link-button,
 .gsm-hoshidicts-entry-actions > .gsm-hoshidicts-custom-anki-button {
-  flex: 0 1 160px;
+  flex: 0 0 auto;
   min-width: 36px;
 }
 

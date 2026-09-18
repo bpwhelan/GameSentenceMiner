@@ -10,9 +10,83 @@ const CORE_MARKERS = ["expression", "reading", "furigana", "furigana-plain", "di
   "frequency", "frequencies", "frequency-harmonic-rank", "frequency-harmonic-occurrence", "frequency-average-rank",
   "frequency-average-occurrence", "pitch", "pitch-position", "pitch-accent-positions", "pitch-categories",
   "pitch-accent-categories", "audio", "capture-animation", "capture-audio", "screenshot"];
-export const ANKI_TEMPLATE_MARKERS = CORE_MARKERS;
 const MARKER_ALIASES = new Map([["pitch-accent", "pitch"], ["pitch-accents", "pitch"],
   ["pitch-accent-graphs", "pitch"], ["pitch-accent-graphs-jj", "pitch"]]);
+const MARKER_DESCRIPTIONS = {
+  expression: "Dictionary form of the selected term",
+  reading: "Reading of the selected term",
+  furigana: "Expression with ruby furigana",
+  "furigana-plain": "Expression with bracketed plain-text furigana",
+  dictionary: "Title of the first definition dictionary",
+  "dictionary-alias": "Display name of the first definition dictionary",
+  definition: "All definitions with dictionary names",
+  glossary: "All definitions with dictionary names",
+  "glossary-brief": "Brief definitions from every dictionary",
+  "glossary-no-dictionary": "All definitions without dictionary names",
+  "glossary-plain": "Plain-text definitions with dictionary names",
+  "glossary-plain-no-dictionary": "Plain-text definitions without dictionary names",
+  "glossary-first": "First available definition",
+  "glossary-first-brief": "Brief form of the first definition",
+  "glossary-first-no-dictionary": "First definition without its dictionary name",
+  "main-definition": "First available definition",
+  "jpmn-primary-definition": "First available definition",
+  conjugation: "Deinflection and conjugation path",
+  "part-of-speech": "Readable part-of-speech names",
+  "phonetic-transcriptions": "Available phonetic transcriptions",
+  tags: "Definition and term tags",
+  "popup-selection-text": "Text selected inside the lookup popup",
+  "search-query": "Text used for the lookup",
+  "document-title": "Title of the source page",
+  sentence: "Source sentence with the matched text emphasized",
+  "sentence-furigana": "Source sentence with furigana when available",
+  "sentence-furigana-plain": "Plain-text source sentence with furigana when available",
+  "cloze-prefix": "Sentence text before the match",
+  "cloze-body": "Matched sentence text",
+  "cloze-suffix": "Sentence text after the match",
+  frequency: "All available frequency values",
+  frequencies: "All available frequency values",
+  "frequency-harmonic-rank": "Harmonic mean of rank-based frequencies",
+  "frequency-harmonic-occurrence": "Harmonic mean of occurrence-based frequencies",
+  "frequency-average-rank": "Arithmetic mean of rank-based frequencies",
+  "frequency-average-occurrence": "Arithmetic mean of occurrence-based frequencies",
+  pitch: "Pitch accent patterns and transcriptions",
+  "pitch-position": "Pitch accent drop positions",
+  "pitch-accent-positions": "Pitch accent drop positions",
+  "pitch-categories": "Pitch accent categories",
+  "pitch-accent-categories": "Pitch accent categories",
+  audio: "Selected pronunciation audio",
+  "capture-animation": "Captured animated image",
+  "capture-audio": "Captured sentence audio",
+  screenshot: "Screenshot of the source page",
+};
+const DYNAMIC_MARKER_OPTIONS = [
+  ["single-glossary-DICTIONARY", "Definitions from one dictionary; replace DICTIONARY with its marker name"],
+  ["single-glossary-DICTIONARY-brief", "Brief definitions from one dictionary"],
+  ["single-glossary-DICTIONARY-no-dictionary", "Definitions from one dictionary without its name"],
+  ["single-glossary-DICTIONARY-plain", "Plain-text definitions from one dictionary"],
+  ["single-glossary-DICTIONARY-plain-no-dictionary", "Plain-text definitions from one dictionary without its name"],
+  ["single-glossary-id--PACKAGE-ID", "Definitions selected by the dictionary package ID"],
+  ["single-frequency-DICTIONARY", "Formatted values from one frequency dictionary"],
+  ["single-frequency-number-DICTIONARY", "Numeric value from one frequency dictionary"],
+];
+export const ANKI_TEMPLATE_MARKERS = Object.freeze([...CORE_MARKERS, ...MARKER_ALIASES.keys()]);
+export const ANKI_TEMPLATE_MARKER_OPTIONS = Object.freeze([
+  ...CORE_MARKERS.map(marker => Object.freeze({
+    marker,
+    value: `{${marker}}`,
+    description: MARKER_DESCRIPTIONS[marker],
+  })),
+  ...[...MARKER_ALIASES].map(([marker, canonical]) => Object.freeze({
+    marker,
+    value: `{${marker}}`,
+    description: `Legacy spelling of {${canonical}}`,
+  })),
+  ...DYNAMIC_MARKER_OPTIONS.map(([marker, description]) => Object.freeze({
+    marker,
+    value: `{${marker}}`,
+    description,
+  })),
+]);
 const MARKERS = new Set([...CORE_MARKERS, ...MARKER_ALIASES.keys()]);
 const DYNAMIC_PREFIXES = ["single-glossary-", "single-frequency-"];
 const MARKER_PATTERN = /\{([^{}]+)\}/gu;
