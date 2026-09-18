@@ -58,14 +58,14 @@ async function run(action) {
 function renderCapture(recording) {
   if (!HOST_CAPABILITIES.mediaCapture) {
     elements["record-screen"].classList.toggle("is-recording", false);
-    elements["record-screen"].title = "Screen recording is unavailable in this overlay";
-    elements["record-label"].textContent = "Recording unavailable";
+    elements["record-screen"].title = "Context capture is unavailable in this overlay";
+    elements["record-label"].textContent = "Context capture unavailable";
     return;
   }
   elements["record-screen"].classList.toggle("is-recording", recording);
-  elements["record-screen"].title = recording ? "Open recording controls"
-    : "Choose a screen, window, or tab to record";
-  elements["record-label"].textContent = recording ? "Recording" : "Record screen";
+  elements["record-screen"].title = recording ? "Open capture controls"
+    : "Capture a screen, window, or tab as context for your Japanese cards";
+  elements["record-label"].textContent = recording ? "Recording context" : "Record context for Anki";
 }
 
 // A linked install shows where its lookups go and whether that host answers.

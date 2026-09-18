@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Hachidori",
   "short_name": "Hachidori",
-  "version": "0.1.3",
-  "description": "Private Japanese hover lookups from your Yomitan dictionaries, entirely in Chrome.",
+  "version": "0.1.4",
+  "description": "Study Japanese vocabulary: look up words on any page and build Anki cards, optionally capturing on-screen context.",
   "minimum_chrome_version": "128",
   "icons": {
     "16": "icons/hachidori-16.png",

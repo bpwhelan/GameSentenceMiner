@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import asar from '@electron/asar';
 
 import { validateReleaseMetadata } from './sync-hachidori.mjs';
 
@@ -72,8 +73,11 @@ async function main() {
     path.join(overlayResourcesDir, 'yomitan', 'manifest.json'),
     path.join(overlayResourcesDir, 'hachidori', 'manifest.json'),
     path.join(overlayResourcesDir, 'hachidori', 'background.js'),
+    path.join(overlayResourcesDir, 'hachidori', 'embedded-speech-capture.js'),
     path.join(overlayResourcesDir, 'hachidori', 'offscreen.js'),
     path.join(overlayResourcesDir, 'hachidori', 'overlay-mode.js'),
+    path.join(overlayResourcesDir, 'hachidori', 'speech-capture.html'),
+    path.join(overlayResourcesDir, 'hachidori', 'speech-capture.js'),
     path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts.wasm'),
     path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts-threaded.wasm'),
     path.join(overlayResourcesDir, 'hachidori', 'LICENSE.hachidori'),
@@ -91,6 +95,24 @@ async function main() {
     throw new Error(`Packaged overlay is incomplete. Missing:\n${missing.map((item) => `  - ${item}`).join('\n')}`);
   }
 
+  const asarEntries = new Set(
+    asar.listPackage(path.join(overlayResourcesDir, 'app.asar'))
+      .map((entry) => entry.replaceAll('\\', '/').replace(/^\/+/u, ''))
+  );
+  const requiredAsarEntries = [
+    'hachidori_speech_capture.js',
+    'hachidori_speech_preload.js',
+    'hachidori_speech_synthesis.js',
+  ];
+  const missingAsarEntries = requiredAsarEntries.filter((entry) => !asarEntries.has(entry));
+  if (missingAsarEntries.length > 0) {
+    throw new Error(
+      `Packaged overlay app.asar is missing Hachidori speech host modules:\n${
+        missingAsarEntries.map((entry) => `  - ${entry}`).join('\n')
+      }`
+    );
+  }
+
   const hachidoriManifest = JSON.parse(
     await fs.readFile(path.join(overlayResourcesDir, 'hachidori', 'manifest.json'), 'utf8')
   );
@@ -101,6 +123,9 @@ async function main() {
   const hachidoriOverlayMode = await fs.readFile(path.join(overlayResourcesDir, 'hachidori', 'overlay-mode.js'), 'utf8');
   if (!hachidoriOverlayMode.includes('export const OVERLAY_MODE = true;')) {
     throw new Error('Packaged Hachidori does not run in overlay mode.');
+  }
+  if (!hachidoriOverlayMode.includes('export const EMBEDDED_SPEECH_CAPTURE = true;')) {
+    throw new Error('Packaged Hachidori does not enable byte-backed embedded speech capture.');
   }
 
   const hachidoriSource = JSON.parse(

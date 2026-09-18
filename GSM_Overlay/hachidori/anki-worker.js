@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { createAnkiMiningService } from "./anki-mining.js";
 import { enrichAnkiNote } from "./anki-enrichment.js";
+import { overwriteAnkiFields } from "./anki-duplicates.js";
 import { createAnkiMediaStore } from "./anki-media.js";
 import { ankiTemplateMarkerNames } from "./anki-templates.js";
 import {
@@ -49,6 +50,7 @@ export function createAnkiWorkerService({
   offscreen,
   capture = null,
   duplicateIndex,
+  requireAudioBeforeMutation = false,
 }) {
   const confirmedCaptureUploads = new Map();
   const linkedClientMedia = new WeakMap();
@@ -88,6 +90,28 @@ export function createAnkiWorkerService({
   };
   const render = (request, templates, audio, resources) => offscreen({ type: "hd_anki_fields", request, templates, audio,
     dictionaryPaths: resources.dictionaryPaths });
+
+  async function prepareRequiredAudio({
+    request,
+    config,
+    resources,
+    appliedFields,
+    appliedTemplates,
+    target,
+  }) {
+    if (!requireAudioBeforeMutation || resources.audioPrepared || config.audioSources.length === 0
+        || !Object.values(appliedTemplates).some(template =>
+          ankiTemplateMarkerNames(template.value).includes("audio"))) return;
+    const file = await audio(request, config);
+    resources.audioPrepared = true;
+    resources.audio = file;
+    const rendered = await render(request, appliedTemplates, `[sound:${file.filename}]`, resources);
+    const incoming = target
+      ? overwriteAnkiFields(rendered.fields, target.fields, appliedTemplates, { includeAudio: true })
+      : rendered.fields;
+    for (const field of Object.keys(appliedFields)) delete appliedFields[field];
+    Object.assign(appliedFields, incoming);
+  }
 
   async function captureRequest(type, fields) {
     if (typeof capture !== "function") throw new Error("The captured-media host is unavailable.");
@@ -192,6 +216,7 @@ export function createAnkiWorkerService({
   }
 
   async function prepareWrite(context) {
+    await prepareRequiredAudio(context);
     const captureResources = await prepareCapture(context);
     try {
       await ankiMediaStore.prepare({
