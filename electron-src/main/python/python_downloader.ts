@@ -1039,6 +1039,18 @@ export async function getOrInstallPython(): Promise<string> {
         return pythonPath;
     }
 
+    if (isPythonInstalled() && readVenvGeneration() === 'missing') {
+        const venvWorks = await verifyVenvPython();
+        if (venvWorks) {
+            const pythonPath = getPythonExecutablePath();
+            console.log(`Adopting externally-provisioned virtual environment at: ${pythonPath}`);
+            stampVenvGeneration();
+            markBootstrapStagesSkipped('Adopted externally-provisioned Python environment.');
+            return pythonPath;
+        }
+        console.log('Unstamped virtual environment failed verification; rebuilding.');
+    }
+
     if (isPythonInstalled()) {
         console.log(
             `Venv dependency generation is outdated (have ${readVenvGeneration()}, want ${VENV_GENERATION}). ` +

@@ -262,6 +262,45 @@ describe('getOrInstallPython', () => {
         expect(fileContents.get(path.join(VENV_DIR, '.gsm_venv_generation'))).toBe('2:3.13.2\n');
     });
 
+    it('adopts an unstamped but working externally-provisioned venv instead of rebuilding it', async () => {
+        existingPaths.add(VENV_DIR);
+        existingPaths.add(path.dirname(PYTHON_PATH));
+        existingPaths.add(PYTHON_PATH);
+        // No .gsm_venv_generation file, as with a venv built by hand per the
+        // manual macOS setup docs, or by an external tool such as nix.
+
+        const { getOrInstallPython } = await import('./python_downloader.js');
+
+        await expect(getOrInstallPython()).resolves.toBe(PYTHON_PATH);
+
+        expect(fsMock.rmSync).not.toHaveBeenCalledWith(VENV_DIR, { recursive: true, force: true });
+        expect(mockExecFileAsync).toHaveBeenCalledWith(PYTHON_PATH, ['--version']);
+        expect(fileContents.get(path.join(VENV_DIR, '.gsm_venv_generation'))).toBe('2:3.13.2\n');
+    });
+
+    it('rebuilds an unstamped venv that fails Python verification', async () => {
+        existingPaths.add(VENV_DIR);
+        existingPaths.add(path.dirname(PYTHON_PATH));
+        existingPaths.add(PYTHON_PATH);
+
+        const defaultExecFileAsync = mockExecFileAsync.getMockImplementation()!;
+        let adoptionCheckSeen = false;
+        mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
+            if (command === PYTHON_PATH && args[0] === '--version' && !adoptionCheckSeen) {
+                adoptionCheckSeen = true;
+                throw Object.assign(new Error(`spawn ${PYTHON_PATH} ENOENT`), { code: 'ENOENT' });
+            }
+            return defaultExecFileAsync(command, args);
+        });
+
+        const { getOrInstallPython } = await import('./python_downloader.js');
+
+        await expect(getOrInstallPython()).resolves.toBe(PYTHON_PATH);
+
+        expect(fsMock.rmSync).toHaveBeenCalledWith(VENV_DIR, { recursive: true, force: true });
+        expect(fileContents.get(path.join(VENV_DIR, '.gsm_venv_generation'))).toBe('2:3.13.2\n');
+    });
+
     it('reinstalls a cached uv binary when its version does not match the runtime lock tool', async () => {
         let uvVersionCheckCount = 0;
         mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
