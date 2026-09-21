@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // This page controls the offscreen recorder; closing it leaves capture running.
+import { extensionApi as chrome } from "./browser-api.js";
+
 const CAPTURE_TARGET = "hachidori-capture";
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map(node => [node.id, node]));
 let config;

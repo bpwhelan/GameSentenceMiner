@@ -150,6 +150,15 @@
       closeMenu();
       return request(record, "hd_audio_play", selection ? { selection } : {}, reply => {
         setStatus(record, reply.status === "no-result" ? "No pronunciation was returned. Check Audio Settings." : "");
+        // The pronunciation the user just heard is the one Add to Anki should
+        // attach, so a downloadable recording becomes the selection exactly as
+        // a menu choice would. Browser speech has no recording to pin.
+        if (!selection && reply.status === "success" && typeof reply.sourceKey === "string"
+            && typeof reply.candidate?.url === "string") {
+          selections.set(record.result, { sourceId: reply.sourceId, sourceKey: reply.sourceKey, ...record.term,
+            index: reply.candidate.index, url: reply.candidate.url, name: reply.candidate.name });
+          onSelectionChange(record.owner);
+        }
       });
     }
 

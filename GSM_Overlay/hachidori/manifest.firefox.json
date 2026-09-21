@@ -1,10 +1,9 @@
 {
-  "manifest_version": 3,
+  "manifest_version": 2,
   "name": "Hachidori",
   "short_name": "Hachidori",
   "version": "0.1.4",
   "description": "Study Japanese vocabulary: look up words on any page and build Anki cards, optionally capturing on-screen context.",
-  "minimum_chrome_version": "128",
   "icons": {
     "16": "icons/hachidori-16.png",
     "32": "icons/hachidori-32.png",
@@ -14,12 +13,8 @@
   "permissions": [
     "alarms",
     "downloads",
-    "offscreen",
     "storage",
     "unlimitedStorage",
-    "userScripts"
-  ],
-  "host_permissions": [
     "<all_urls>"
   ],
   "options_page": "settings.html",
@@ -73,13 +68,13 @@
       "description": "Look up the text at the selection"
     }
   },
-  "action": {
+  "browser_action": {
     "default_title": "Hachidori",
     "default_popup": "toolbar.html"
   },
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "page": "firefox-background.html",
+    "persistent": true
   },
   "content_scripts": [
     {
@@ -95,7 +90,6 @@
         "external-link-host.js",
         "audio-content.js",
         "anki-content.js",
-        "capture-content.js",
         "render/glossary.js",
         "render/popup.js",
         "content.js"
@@ -105,27 +99,22 @@
       ]
     }
   ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
-  },
-  "cross_origin_embedder_policy": {
-    "value": "require-corp"
-  },
-  "cross_origin_opener_policy": {
-    "value": "same-origin"
-  },
+  "content_security_policy": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
   "web_accessible_resources": [
-    {
-      "resources": [
-        "overlay-mode.js",
-        "browser-api.js",
-        "render/reader.css",
-        "icons.css"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
-    }
+    "overlay-mode.js",
+    "browser-api.js",
+    "render/reader.css",
+    "icons.css"
   ],
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3EBnBqP0Ma73KIk9Nx2ye+WFabltPVObI7QWPgYhdupw89RJ7J7xRUddIGszPDhpQNYnm37eLQupFXjqlSt0B1ltnltpzGynkRflAmRbtlqPWf19TWy6EowMm1SegxRR/YPxP5M93oQ/ojzfUPDQ4bhTE23vic/xY7sZttqcewAJou/TyCJTEjcoZgqDTD4PDnXyu1rB+bMJpu+uF/geKkkAOU4IRXHOEuE1JhJorvzmlZT07H01eqXGpmjR7ySbXryhN2gWb1arY+lCWd/qXWWUcIuyjak8D/6WgIaJwsBwoL/B/60gMoXDnDCRWi5kMWH68scx2QzF6g+FDykntwIDAQAB"
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "hachidori@bee-san",
+      "strict_min_version": "153.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
 }

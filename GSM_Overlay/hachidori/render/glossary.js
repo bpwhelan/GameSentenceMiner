@@ -960,20 +960,23 @@
     loadImage();
   }
 
+  // Yomitan writes `element.dataset["sc" + Key]`, so dictionary CSS is written
+  // against the attribute names the dataset setter derives: ASCII capitals
+  // become hyphen-lowercase and every other character, including Japanese
+  // keys such as 付録 or 外字, is kept as is (`data-sc付録`). A key the setter
+  // would reject (a hyphen before an ASCII lowercase letter) is dropped, as
+  // Yomitan drops it; setAttribute rejects the remaining invalid names.
   function structuredDataAttributeName(rawKey) {
     if (
       typeof rawKey !== "string" ||
       rawKey.length === 0 ||
-      rawKey.length > MAX_STRUCTURED_DATA_KEY_LENGTH ||
-      !/^[A-Za-z0-9_-]+$/u.test(rawKey)
+      rawKey.length > MAX_STRUCTURED_DATA_KEY_LENGTH
     ) {
       return null;
     }
-    const key = rawKey
-      .replace(/([a-z0-9])([A-Z])/gu, "$1-$2")
-      .replace(/_+/gu, "-")
-      .toLowerCase();
-    return key && !key.startsWith("-") ? `data-sc-${key}` : null;
+    const property = `sc${rawKey[0].toUpperCase()}${rawKey.slice(1)}`;
+    if (/-[a-z]/u.test(property)) return null;
+    return `data-${property.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`)}`;
   }
 
   function applyStructuredData(element, data) {
@@ -1001,7 +1004,11 @@
       ) {
         continue;
       }
-      element.setAttribute(attribute, value);
+      try {
+        element.setAttribute(attribute, value);
+      } catch {
+        continue;
+      }
       count += 1;
     }
   }

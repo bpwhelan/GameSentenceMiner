@@ -1,3 +1,6 @@
+import { extensionApi as chrome, IS_FIREFOX } from "./browser-api.js";
+import { ensureChromeOffscreen } from "./chrome-offscreen.js";
+import { waitForFirefoxOffscreen } from "./firefox-host.js";
 import "./reader-options.js";
 import { createAnkiGateway } from "./anki.js";
 import { detectAnkiSetup, verifyAnkiSetup } from "./anki-setup.js";
@@ -18,9 +21,10 @@ import {
   validAutomaticBackups,
 } from "./backup-automatic.js";
 import { SHARING_HOST_ALARM, SHARING_KEY, createSharingHost } from "./sharing-host.js";
+import { API_REQUESTS, createApiHost } from "./api-host.js";
 import { NOT_REACHABLE, SHARING_LOCAL_STATE_KEY, createSharingClient } from "./sharing-client.js";
 import {
-  FORWARDED_REQUESTS, LINKED_ANKI_CAPABILITY, LINKED_ANKI_UNSUPPORTED,
+  API_CAPABILITY, FORWARDED_REQUESTS, LINKED_ANKI_CAPABILITY, LINKED_ANKI_UNSUPPORTED, SHARING_CAPABILITIES,
   allowLinkedAnkiDiscoveryRequest, allowLinkedAnkiRequest, allowLinkedAnkiSetupRequest,
   browserName, forwardableRequest, mutatingForwardedRequest, parseLinkAddress,
 } from "./sharing-protocol.js";
@@ -57,11 +61,11 @@ import { sameJsonValue } from "./json-value.js";
 import {
   boundResponseFailure, responseFits, responseLimitError, validResponseRequestId,
 } from "./response-limits.js";
-import { HOST_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
+import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import {
   FIRST_INSTALL_OPTIONS, FIRST_INSTALL_SELECTIONS, OVERLAY_MODE_OPTIONS, SETUP_STATE_KEY, STARTUP_PAGE,
   RECOMMENDED_SELECTIONS_KEY, OVERLAY_LOCAL_OPTION_KEYS,
-  advanceSetupState, initialSetupState, normaliseSetupState, overlayAnkiOptions, recordSetupAnki, recordSetupDictionaries,
+  advanceSetupState, capabilityAnkiOptions, initialSetupState, normaliseSetupState, overlayAnkiOptions, recordSetupAnki, recordSetupDictionaries,
 } from "./setup-state.js";
 import { applyCustomJavaScript } from "./custom-javascript.js";
 
@@ -210,8 +214,23 @@ function getSharingHost() {
     sharedKey: key => SHARED_STATE_KEYS.includes(key) || key.startsWith(LOOKUP_STATS_ROW_PREFIX),
     version: chrome.runtime.getManifest().version,
     name: SHARING_NAME,
+    capabilities: [...SHARING_CAPABILITIES, API_CAPABILITY],
   });
   return sharingHost;
+}
+
+// The relay's API asks like a linked browser; its lookups and renders go
+// through the same engine and offscreen senders as Anki mining.
+let apiHost;
+function getApiHost() {
+  apiHost ??= createApiHost({
+    version: chrome.runtime.getManifest().version,
+    engine: fields => sendAnkiRequest(TARGET, fields),
+    render: fields => sendAnkiRequest("hachidori-anki-render", fields),
+    readDictionaries: async () => (await readDictionaryStorage()).state?.dictionaries ?? [],
+    readAudioSources: async () => (await readAnkiOptions()).audioSources.filter(source => source.enabled),
+  });
+  return apiHost;
 }
 
 // Client side: this install uses another Hachidori. `sharingLinked` is read
@@ -441,7 +460,11 @@ function forwardWorkerRequest(message) {
 
 async function readAnkiOptions() {
   const options = normaliseOptions((await chrome.storage.local.get(OPTIONS_KEY))[OPTIONS_KEY]);
-  return OVERLAY_MODE ? overlayAnkiOptions(options) : options;
+  return capabilityAnkiOptions(options, {
+    screenshot: MINING_CAPABILITIES.screenshot,
+    browserSpeech: MINING_CAPABILITIES.browserSpeech,
+    mediaCapture: HOST_CAPABILITIES.mediaCapture,
+  });
 }
 
 // Called within the background storage queue. Options and index invalidation
@@ -487,7 +510,6 @@ const RELAY_ATTEMPTS = 5;
 const RELAY_BACKOFF_MS = 40;
 const NOT_LISTENING = /Receiving end does not exist|Could not establish connection/i;
 
-let creating = null;
 // True after the offscreen document answered a relayed request; cleared when a
 // relay gets no reply, so the next attempt verifies the document again.
 let offscreenAnswered = false;
@@ -649,49 +671,16 @@ async function unlinkCaptureContent() {
   }
 }
 
-async function offscreenExists() {
-  const contexts = await chrome.runtime.getContexts({
-    contextTypes: ["OFFSCREEN_DOCUMENT"],
-    documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT)],
-  });
-  return contexts.length > 0;
-}
-
-async function createOffscreen() {
-  try {
-    await chrome.offscreen.createDocument({
-      url: OFFSCREEN_DOCUMENT,
-      reasons: ["DOM_SCRAPING", "AUDIO_PLAYBACK", "DISPLAY_MEDIA"],
-      justification:
-        "Runs the dictionary engine and pronunciation audio, and owns explicitly started local display capture across control-page closure.",
-    });
-  } catch (error) {
-    // Another extension context may have won the race; only a genuine absence
-    // is a failure.
-    if (!(await offscreenExists())) {
-      throw error;
-    }
-  } finally {
-    creating = null;
-  }
-}
-
 // createDocument() rejects when called while another call is in flight, so every
 // caller waits on the same promise.
 async function ensureOffscreen() {
-  if (typeof chrome.runtime.getContexts !== "function"
-      || typeof chrome.offscreen?.createDocument !== "function") {
-    // Some extension hosts keep this page alive themselves instead of exposing
-    // Chrome's offscreen-document lifecycle API.
+  if (IS_FIREFOX) {
+    await waitForFirefoxOffscreen();
     return;
   }
-  if (await offscreenExists()) {
-    return;
-  }
-  if (creating === null) {
-    creating = createOffscreen();
-  }
-  await creating;
+  // Some extension hosts keep this page alive themselves instead of exposing
+  // Chrome's offscreen-document lifecycle API.
+  await ensureChromeOffscreen(OFFSCREEN_DOCUMENT);
 }
 
 async function relay(message, stillCurrent = null) {
@@ -2084,11 +2073,12 @@ const ANKI_METHODS = { hd_anki_status: "status", hd_anki_view: "view", hd_anki_p
 // second waits once rather than losing its screenshot.
 const CAPTURE_VISIBLE_RETRY_MS = 600;
 
-// Startup messages can include or omit sender.tab. Chrome's live extension contexts
-// bind either shape to the same document before and after capture.
+// Startup messages can include or omit sender.tab. Chrome's live extension
+// contexts bind either shape to the same document; Firefox supplies the tab on
+// the extension-page sender and has no getContexts equivalent.
 async function screenshotOwnedTab(sender, startup) {
   let tabId = sender.tab?.id;
-  if (startup) {
+  if (startup && typeof chrome.runtime.getContexts === "function") {
     const [context] = await chrome.runtime.getContexts({ contextTypes: ["TAB"], documentIds: [sender.documentId] });
     if (!context) throw new Error("The reading document changed before the screenshot.");
     tabId = context.tabId;
@@ -2103,7 +2093,7 @@ async function screenshotOwnedTab(sender, startup) {
     // Address the exact content-script document, so a same-URL reload cannot
     // answer on its predecessor's behalf.
     const document = await chrome.tabs.sendMessage(tabId, {
-      target: CAPTURE_CONTENT_TARGET, type: "hd_capture_document",
+      target: "hachidori-anki-content", type: "hd_anki_document",
     }, { documentId: sender.documentId }).catch(() => null);
     if (document?.present !== true) throw new Error("The reading document changed before the screenshot.");
   }
@@ -2497,7 +2487,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== CAPTURE_TARGET || message.relayed === true) return false;
   let operation;
   if (!HOST_CAPABILITIES.mediaCapture) {
-    operation = Promise.reject(new Error("Media capture is unavailable in this overlay."));
+    operation = Promise.reject(new Error(
+      IS_FIREFOX ? "Media capture is unavailable in Firefox."
+        : "Media capture is unavailable in this overlay.",
+    ));
   } else if (["hd_capture_register", "hd_capture_host_stopped"].includes(message.type)
       || CAPTURE_CONTROL_TYPES.has(message.type)) {
     operation = handleCaptureControl(message, sender);
@@ -2557,13 +2550,15 @@ async function handleAnkiRequest(message, sender) {
   });
 }
 
+async function sendAnkiRequest(target, fields) {
+  const reply = await relay({ ...fields, target, requestId: `anki-${crypto.randomUUID()}` });
+  if (!reply?.ok) throw new Error(reply?.error || "Anki preparation did not complete.");
+  return reply;
+}
+
 function getAnkiMining() {
   if (!ankiMining) {
-    const send = async (target, fields) => {
-      const reply = await relay({ ...fields, target, requestId: `anki-${crypto.randomUUID()}` });
-      if (!reply?.ok) throw new Error(reply?.error || "Anki preparation did not complete.");
-      return reply;
-    };
+    const send = sendAnkiRequest;
     ankiGateway ??= createAnkiGateway();
     ankiMining = createAnkiWorkerService({ gateway: ankiGateway,
       readOptions: readAnkiOptions,
@@ -2867,7 +2862,7 @@ async function handleWorkerRequest(message, sender) {
     return failureReply(message, new Error(`unknown worker request type ${JSON.stringify(type)}`));
   }
   if (type === "hd_backup_download" && typeof chrome.downloads?.download !== "function") {
-    return failureReply(message, new Error("Chrome downloads are unavailable. Export the backup from Hachidori Settings."));
+    return failureReply(message, new Error("Browser downloads are unavailable. Export the backup from Hachidori Settings."));
   }
   if (type === "hd_open_external" && HOST_CAPABILITIES.externalLinkHost) {
     return failureReply(message, new Error(
@@ -2969,6 +2964,7 @@ async function dispatchSharedRequest(message, clientId, capabilities = []) {
   try {
     switch (message.target) {
       case TARGET:
+        if (API_REQUESTS.has(message.type)) return await getApiHost()(message);
         ordinary();
         return await relayEngineRequest(message);
       case WORKER_TARGET:

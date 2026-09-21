@@ -41,6 +41,7 @@
             <option value="keybinds">Keybinds</option>
             <option value="sharing">Sharing</option>
             <option value="backup">Backup &amp; restore</option>
+            <option value="advanced">Advanced</option>
           </select>
         </label>
         <output id="settings-navigation-status" class="compact-nav-status" aria-live="polite"></output>
@@ -80,6 +81,10 @@
           <div class="nav-item">
             <a href="#backup" aria-describedby="nav-status-backup">Backup &amp; restore</a>
             <output class="nav-status" id="nav-status-backup" aria-live="polite"></output>
+          </div>
+          <div class="nav-item">
+            <a href="#advanced" aria-describedby="nav-status-advanced">Advanced</a>
+            <output class="nav-status" id="nav-status-advanced" aria-live="polite"></output>
           </div>
         </nav>
         <a class="setup-resume" href="https://github.com/bee-san/hachidori/blob/main/docs/privacy.md" target="_blank" rel="noopener noreferrer">Privacy policy</a>
@@ -201,7 +206,7 @@
           >
             <div class="import-row">
               <label class="file-button">
-                <span>Choose ZIP files</span>
+                <span id="import-file-label">Choose ZIP files</span>
                 <input
                   id="import-file"
                   type="file"
@@ -806,14 +811,16 @@
                   <button id="reset-custom-css" type="button" class="ghost">Reset custom CSS</button>
                 </div>
                 <p class="field-hint">Invalid rules are ignored by the browser. Styles using URLs can request external resources.</p>
-                <label class="field-label" for="opt-custom-popup-javascript">Custom JavaScript</label>
-                <p class="field-hint" id="custom-javascript-warning">Do not paste Javascript here you do not understand, it is a security risk.</p>
-                <p class="field-hint">Enable user scripts for Hachidori on Chrome's Extensions page before using this.</p>
-                <textarea id="opt-custom-popup-javascript" rows="8" spellcheck="false" autocapitalize="off"
-                  aria-describedby="custom-javascript-warning custom-javascript-count"></textarea>
-                <div class="custom-css-footer">
-                  <span id="custom-javascript-count" class="field-hint">0 characters</span>
-                  <button id="reset-custom-javascript" type="button" class="ghost">Reset custom JavaScript</button>
+                <div id="custom-javascript">
+                  <label class="field-label" for="opt-custom-popup-javascript">Custom JavaScript</label>
+                  <p class="field-hint" id="custom-javascript-warning">Do not paste Javascript here you do not understand, it is a security risk.</p>
+                  <p class="field-hint">Enable user scripts for Hachidori on Chrome's Extensions page before using this.</p>
+                  <textarea id="opt-custom-popup-javascript" rows="8" spellcheck="false" autocapitalize="off"
+                    aria-describedby="custom-javascript-warning custom-javascript-count"></textarea>
+                  <div class="custom-css-footer">
+                    <span id="custom-javascript-count" class="field-hint">0 characters</span>
+                    <button id="reset-custom-javascript" type="button" class="ghost">Reset custom JavaScript</button>
+                  </div>
                 </div>
               </details>
               <button id="reset-design" type="button" class="ghost">Reset Design to defaults</button>
@@ -977,94 +984,126 @@
           <div class="section-heading">
             <div class="card-head">
               <h1 id="anki-heading" tabindex="-1" data-search-keywords="deck note type field mapping marker combobox Template templates tags API key flashcards AnkiConnect URL endpoint"><span class="hd-icon" data-icon="document-add" aria-hidden="true"></span>Anki</h1>
-              <p class="hint">Save words to Anki. Changes save automatically.</p>
+              <p class="hint">Direct AnkiConnect integration with automatic schema detection.</p>
             </div>
-            <button id="anki-refresh" type="button" class="ghost"><span class="hd-icon" data-icon="arrow-clockwise" aria-hidden="true"></span>Refresh connection</button>
           </div>
           <div class="options-feedback-slot"></div>
-          <div class="anki-connection-summary">
-            <output id="anki-status" class="operational-status" aria-live="polite" aria-atomic="true">Open Anki to discover your decks and note types.</output>
-            <p class="field-hint">Requires the <a href="https://ankiweb.net/shared/info/2055492159" target="_blank" rel="noopener noreferrer">AnkiConnect add-on</a> in Anki.</p>
-            <div class="sharing-actions">
+          <div class="anki-panel anki-card anki-connection-card">
+            <div class="anki-setting-row">
+              <div class="anki-setting-col anki-connection-fields">
+                <label class="field-label" for="opt-anki-url">AnkiConnect link</label>
+                <div class="anki-url-row">
+                  <input id="opt-anki-url" type="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8765" aria-describedby="anki-url-help anki-url-error">
+                  <button id="anki-api-key-toggle" type="button" class="ghost anki-icon-button" title="Configure optional API key" aria-controls="anki-api-key-panel" aria-expanded="false"><span class="hd-icon" data-icon="key" aria-hidden="true"></span><span class="anki-icon-button-label">API key</span></button>
+                </div>
+                <span id="anki-url-help" class="field-hint">The address where AnkiConnect is running. Shared by every Template.</span>
+                <output id="anki-url-error" class="field-hint is-error" aria-live="polite"></output>
+                <div id="anki-api-key-panel" class="anki-api-key-panel" hidden>
+                  <label class="field" for="opt-anki-api-key"><span class="field-label">AnkiConnect API key (optional)</span><input id="opt-anki-api-key" type="password" autocomplete="off"><span class="field-hint">Leave blank unless you configured an API key in AnkiConnect. Shared by every Template and stored locally in this browser.</span></label>
+                </div>
+              </div>
+              <div class="anki-connection-actions">
+                <output id="anki-status" class="operational-status anki-status-pill" data-state="offline" aria-live="polite" aria-atomic="true">Open Anki to discover your decks and note types.</output>
+                <button id="anki-refresh" type="button" class="ghost anki-icon-button" title="Refresh connection"><span class="hd-icon" data-icon="arrow-clockwise" aria-hidden="true"></span><span class="anki-icon-button-label">Refresh connection</span></button>
+              </div>
+            </div>
+            <div class="anki-setting-row anki-setup-row">
+              <div class="anki-setting-col">
+                <span class="field-label">Automatic setup detection</span>
+                <span class="field-hint">Find your most-used Kiku, Lapis or Senren setup, or check your saved mapping. Requires the <a href="https://ankiweb.net/shared/info/2055492159" target="_blank" rel="noopener noreferrer">AnkiConnect add-on</a> in Anki.</span>
+                <output id="anki-setup-status" class="operational-status" aria-live="polite" aria-atomic="true" hidden></output>
+              </div>
               <button id="anki-find-setup" type="button" class="ghost">Find existing setup</button>
-              <span class="field-hint">Find your most-used Kiku, Lapis or Senren setup, or check your saved mapping. Open Anki and retry if it was unavailable.</span>
             </div>
-            <output id="anki-setup-status" class="operational-status" aria-live="polite" aria-atomic="true" hidden></output>
-            <div class="sharing-actions">
-              <button id="anki-audio-check" type="button" class="ghost">Detect local audio</button>
-              <button id="anki-audio-add" type="button" class="ghost" hidden>Add detected audio source</button>
+            <div class="anki-setting-row anki-screenshot-options">
+              <div class="anki-setting-col">
+                <label class="field-label" for="opt-anki-screenshot">Screenshot page during card creation</label>
+                <span id="anki-screenshot-help" class="field-hint">Appends the visible browser page to fields using <code>{screenshot}</code>.</span>
+              </div>
+              <label class="anki-switch" aria-label="Screenshot page during card creation"><input id="opt-anki-screenshot" type="checkbox" aria-describedby="anki-screenshot-help"><span class="anki-switch-track" aria-hidden="true"></span></label>
             </div>
-            <p class="field-hint">Checks <a href="https://github.com/bee-san/yomitan-audio-fast" target="_blank" rel="noopener noreferrer">Local Audio Server</a> on this device at 127.0.0.1:5050. Keep Anki open. Adding appends a Custom JSON source without changing your existing sources. For custom ports, use <a href="#audio">Audio settings</a>.</p>
-            <output id="anki-audio-status" class="operational-status" aria-live="polite" aria-atomic="true"></output>
           </div>
-          <fieldset class="lookup-group anki-panel anki-template-manager" id="anki-template-manager">
+          <fieldset class="lookup-group anki-panel anki-card anki-template-manager" id="anki-template-manager">
             <legend><span class="hd-icon" data-icon="document-add" aria-hidden="true"></span>Templates</legend>
-            <p class="field-hint">A Template keeps one Anki destination, note type, field mapping and duplicate policy together. The first Template powers the built-in Anki button.</p>
-            <div class="anki-template-navigation">
-              <button id="anki-template-previous" type="button" class="ghost" aria-label="Previous Template">
-                <span aria-hidden="true">‹</span>
-              </button>
-              <label class="anki-template-picker">
-                <span class="field-label">Editing</span>
-                <select id="anki-template-select"></select>
+            <p class="field-hint">The first Template powers the built-in Anki button.</p>
+            <div class="anki-template-strip">
+              <div id="anki-template-pills" class="anki-template-pills"></div>
+              <button id="anki-template-add" type="button" class="ghost anki-template-new"><span class="hd-icon" data-icon="add" aria-hidden="true"></span>New Template</button>
+            </div>
+            <div class="anki-template-editor">
+              <label class="field anki-template-name">
+                <span class="field-label">Template name</span>
+                <input id="opt-anki-template-name" type="text" autocomplete="off" aria-describedby="anki-template-status">
+                <span class="field-hint">Custom Anki buttons choose Templates by this name.</span>
               </label>
-              <button id="anki-template-next" type="button" class="ghost" aria-label="Next Template">
-                <span aria-hidden="true">›</span>
-              </button>
+              <div class="anki-template-actions">
+                <button id="anki-template-set-builtin" type="button" class="ghost">Set built-in</button>
+                <button id="anki-template-duplicate" type="button" class="ghost"><span class="hd-icon" data-icon="document-add" aria-hidden="true"></span>Duplicate</button>
+                <button id="anki-template-delete" type="button" class="ghost danger"><span class="hd-icon" data-icon="dismiss" aria-hidden="true"></span>Delete</button>
+              </div>
+              <output id="anki-template-status" class="is-error" aria-live="polite"></output>
+            </div>
+            <div class="anki-template-navigation" aria-label="Template order controls">
+              <button id="anki-template-previous" type="button" class="ghost" aria-label="Previous Template"><span aria-hidden="true">‹</span></button>
+              <label class="anki-template-picker"><span class="field-label">Template order</span><select id="anki-template-select"></select></label>
+              <button id="anki-template-next" type="button" class="ghost" aria-label="Next Template"><span aria-hidden="true">›</span></button>
               <span id="anki-template-position" class="anki-template-position" aria-live="polite"></span>
               <span id="anki-template-role" class="anki-template-role">Built-in button</span>
-            </div>
-            <label class="field">
-              <span class="field-label">Template name</span>
-              <input id="opt-anki-template-name" type="text" autocomplete="off" aria-describedby="anki-template-status">
-              <span class="field-hint">Custom Anki buttons choose Templates by this name.</span>
-            </label>
-            <div class="anki-template-actions">
-              <button id="anki-template-add" type="button" class="ghost anki-primary-action"><span class="hd-icon" data-icon="add" aria-hidden="true"></span>Add Template</button>
-              <button id="anki-template-duplicate" type="button" class="ghost"><span class="hd-icon" data-icon="document-add" aria-hidden="true"></span>Duplicate</button>
               <button id="anki-template-up" type="button" class="ghost"><span class="hd-icon" data-icon="arrow-up" aria-hidden="true"></span>Move up</button>
               <button id="anki-template-down" type="button" class="ghost"><span class="hd-icon" data-icon="arrow-down" aria-hidden="true"></span>Move down</button>
-              <button id="anki-template-delete" type="button" class="ghost danger"><span class="hd-icon" data-icon="dismiss" aria-hidden="true"></span>Delete</button>
             </div>
-            <output id="anki-template-status" class="is-error" aria-live="polite"></output>
+            <div class="anki-destination">
+              <h2>Destination</h2>
+              <div class="anki-destination-grid">
+                <label class="anki-setting-col"><span class="field-label">Deck</span><select id="opt-anki-deck"></select></label>
+                <label class="anki-setting-col"><span class="field-label">Note type</span><select id="opt-anki-model"></select><span class="field-hint">Kiku, Lapis and Senren fill their matching fields automatically.</span></label>
+                <label class="anki-setting-col"><span class="field-label">Tags</span><input id="opt-anki-tags" type="text" spellcheck="false"><span class="field-hint">Separate tags with spaces.</span></label>
+              </div>
+            </div>
+            <div class="anki-setting-row anki-duplicate-row">
+              <div class="anki-setting-col">
+                <span class="field-label">Duplicate checking</span>
+                <span class="field-hint">Choose where to check for an existing note and what to do when one is found.</span>
+              </div>
+              <div class="anki-duplicate-controls">
+                <label class="anki-setting-col"><span class="field-label">Check within</span><select id="opt-anki-duplicate-scope"><option value="model">Configured note type</option><option value="deck">Configured deck and subdecks</option><option value="all">All of Anki</option></select></label>
+                <label class="anki-setting-col"><span class="field-label">When found</span><select id="opt-anki-duplicate-behavior"><option value="prevent">Prevent</option><option value="new">Add anyway</option><option value="overwrite">Overwrite</option></select></label>
+              </div>
+            </div>
           </fieldset>
-          <fieldset class="lookup-group anki-panel anki-destination">
-            <legend><span class="hd-icon" data-icon="arrow-right" aria-hidden="true"></span>Destination</legend>
-            <div class="fields">
-              <label class="field"><span class="field-label">Deck</span><select id="opt-anki-deck"></select></label>
-              <label class="field"><span class="field-label">Note type</span><select id="opt-anki-model"></select><span class="field-hint">Kiku, Lapis and Senren fill their matching fields automatically.</span></label>
-              <label class="field"><span class="field-label">Tags</span><input id="opt-anki-tags" type="text" spellcheck="false"><span class="field-hint">Separate tags with spaces.</span></label>
+          <section class="lookup-group anki-panel anki-card" id="anki-field-mapping" aria-labelledby="anki-field-mapping-title">
+            <div class="anki-mapping-header">
+              <div class="anki-setting-col">
+                <h2 id="anki-field-mapping-title"><span class="hd-icon" data-icon="settings" aria-hidden="true"></span>Field mapping</h2>
+                <p class="field-hint">Fields mapped in exact Anki model order.</p>
+              </div>
+              <div class="anki-preset-tools">
+                <label class="anki-preset"><span class="field-label">Preset</span><select id="anki-preset"><option value="automatic">Automatic suggestions</option><option value="kiku">Kiku</option><option value="lapis">Lapis</option><option value="senren">Senren</option></select></label>
+                <button id="anki-apply-preset" class="ghost" type="button"><span class="hd-icon" data-icon="arrow-sync" aria-hidden="true"></span>Apply preset</button>
+              </div>
             </div>
-          </fieldset>
-          <fieldset class="lookup-group anki-panel" id="anki-field-mapping">
-            <legend><span class="hd-icon" data-icon="settings" aria-hidden="true"></span>Field mapping</legend>
-            <p class="field-hint">Each Anki field accepts markers, literal text, or both. Blank fields stay disabled. Anki requires the first field to be filled.</p>
-            <div class="anki-preset-tools">
-              <label class="anki-preset"><span class="field-label">Preset</span><select id="anki-preset"><option value="automatic">Automatic suggestions</option><option value="kiku">Kiku</option><option value="lapis">Lapis</option><option value="senren">Senren</option></select></label>
-              <button id="anki-apply-preset" class="ghost" type="button"><span class="hd-icon" data-icon="arrow-sync" aria-hidden="true"></span>Apply preset</button>
+            <div class="anki-field-filter-bar">
+              <input id="anki-field-filter" type="search" autocomplete="off" placeholder="Filter fields by name…" aria-label="Filter fields by name">
+              <output id="anki-field-count" class="field-hint" aria-live="polite">Showing 0 fields</output>
             </div>
-            <p class="field-hint">Open a field’s marker list or start typing to filter it. Choosing a marker inserts it at the cursor; your other text and whitespace stay unchanged.</p>
-            <details class="anki-marker-reference"><summary>Dictionary-specific markers</summary><p class="field-hint">Replace <code>DICTIONARY</code> in <code>{single-glossary-DICTIONARY}</code>, <code>{single-frequency-DICTIONARY}</code> or <code>{single-frequency-number-DICTIONARY}</code> with the dictionary marker shown in its Details. Single-glossary variants also support <code>-brief</code>, <code>-no-dictionary</code>, <code>-plain</code> and <code>-plain-no-dictionary</code>. Empty, colliding or shadowed names can use <code>{single-glossary-id--PACKAGE-ID}</code>, where <code>PACKAGE-ID</code> is the dictionary's 32-character lowercase hexadecimal ID.</p></details>
+            <div class="anki-mapping-columns" aria-hidden="true"><span>Field name</span><span>Markers &amp; text</span><span>On overwrite</span></div>
             <div id="anki-templates" class="anki-templates"></div>
-          </fieldset>
-          <fieldset class="lookup-group anki-panel anki-screenshot-options">
-            <legend><span class="hd-icon" data-icon="desktop" aria-hidden="true"></span>Screenshot options</legend>
-            <label class="lookup-enable"><span>Screenshot the page when mining</span><input id="opt-anki-screenshot" type="checkbox" aria-describedby="anki-screenshot-help"></label>
-            <p id="anki-screenshot-help" class="field-hint">Adds the visible page to fields using <code>{screenshot}</code>.</p>
-          </fieldset>
-          <details class="anki-details">
-            <summary>Duplicate handling</summary>
-            <div class="fields lookup-group">
-              <label class="field"><span class="field-label">Check within</span><select id="opt-anki-duplicate-scope"><option value="model">Configured note type</option><option value="deck">Configured deck and subdecks</option><option value="all">All of Anki</option></select></label>
-              <label class="field"><span class="field-label">When a duplicate exists</span><select id="opt-anki-duplicate-behavior"><option value="prevent">Prevent</option><option value="new">Add anyway</option><option value="overwrite">Overwrite</option></select></label>
+            <details class="anki-marker-reference"><summary>Dictionary-specific markers</summary><p class="field-hint">Replace <code>DICTIONARY</code> in <code>{single-glossary-DICTIONARY}</code>, <code>{single-frequency-DICTIONARY}</code> or <code>{single-frequency-number-DICTIONARY}</code> with the dictionary marker shown in its Details. Single-glossary variants also support <code>-brief</code>, <code>-no-dictionary</code>, <code>-plain</code> and <code>-plain-no-dictionary</code>. Empty, colliding or shadowed names can use <code>{single-glossary-id--PACKAGE-ID}</code>, where <code>PACKAGE-ID</code> is the dictionary's 32-character lowercase hexadecimal ID.</p></details>
+          </section>
+          <div class="anki-panel anki-card anki-audio-card">
+            <div class="anki-setting-row">
+              <div class="anki-setting-col">
+                <span class="field-label">Local Audio Server Add-on</span>
+                <span class="field-hint">127.0.0.1:5050 · Detected offline pronunciation cache</span>
+                <div class="sharing-actions">
+                  <button id="anki-audio-check" type="button" class="ghost">Detect local audio</button>
+                  <button id="anki-audio-add" type="button" class="ghost" hidden>Add detected audio source</button>
+                </div>
+                <output id="anki-audio-status" class="field-hint anki-audio-status" aria-live="polite" aria-atomic="true"></output>
+              </div>
+              <span id="anki-audio-pill" class="anki-status-pill" data-state="offline">Not detected</span>
             </div>
-          </details>
-          <details class="anki-details">
-            <summary>Connection settings</summary>
-            <label class="field"><span class="field-label">AnkiConnect URL</span><input id="opt-anki-url" type="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8765" aria-describedby="anki-url-help anki-url-error"><span id="anki-url-help" class="field-hint">The address where AnkiConnect is running. Shared by every Template.</span></label>
-            <output id="anki-url-error" class="field-hint is-error" aria-live="polite"></output>
-            <label class="field"><span class="field-label">API key</span><input id="opt-anki-api-key" type="password" autocomplete="off"><span class="field-hint">Leave blank unless you configured an API key in AnkiConnect. Shared by every Template and stored locally in this browser.</span></label>
-          </details>
+          </div>
         </section>
         <section class="card" id="keybinds" aria-labelledby="keybinds-heading" hidden>
           <div class="card-head">
@@ -1197,6 +1236,19 @@
               <button id="backup-cancel" class="ghost" type="button">Cancel</button>
             </div>
           </div>
+        </section>
+        <section class="card" id="advanced" aria-labelledby="advanced-heading" hidden>
+          <div class="card-head">
+            <h1 id="advanced-heading" tabindex="-1" data-search-keywords="experimental beta labs flags preview">Advanced</h1>
+            <p class="hint">Features that are still changing. Changes save automatically.</p>
+          </div>
+          <div class="options-feedback-slot"></div>
+          <fieldset class="lookup-group" id="experimental-settings">
+            <legend>Experimental features</legend>
+            <p class="section-note">Experimental features may change or be removed in a later version. Turning one off hides it but keeps its settings for the next time you turn it on.</p>
+            <ul id="experimental-features" class="experimental-list"></ul>
+            <p id="experimental-empty" class="hint" hidden>No experimental features are available in this version.</p>
+          </fieldset>
         </section>
       </main>
     </div>

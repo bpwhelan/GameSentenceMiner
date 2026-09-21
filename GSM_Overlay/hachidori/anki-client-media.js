@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { MAX_ANIMATED_AVIF_BYTES } from "./avif-sequence.js";
-import { MAX_WAV_BYTES } from "./capture-buffer.js";
+import {
+  MAX_ANIMATED_AVIF_BYTES,
+  MAX_WAV_BYTES,
+} from "./media-limits.js";
 
 export const MAX_LINKED_SCREENSHOT_BYTES = 6 * 1024 * 1024;
 export const MAX_LINKED_SPEECH_BYTES = MAX_WAV_BYTES;

@@ -20,6 +20,10 @@ export const SHARING_CAPABILITIES = Object.freeze([
   LEGACY_LINKED_ANKI_CAPABILITY,
   LINKED_ANKI_CAPABILITY,
 ]);
+// The relay's own client for its Yomitan-compatible API (hachidori-anki
+// docs/host-contract.md). Never a remote computer, never a linked browser.
+export const API_CAPABILITY = "hoshidicts-api-v1";
+export const API_CLIENT_ORIGIN = "relay://yomitan-api";
 export const LINKED_ANKI_UNSUPPORTED = "The linked Hachidori does not support host-owned Anki mining. Update it and try again.";
 export const MAX_LINKED_ANKI_FRAME_BYTES = 16 * 1024 * 1024;
 const HOST_PATH = "/host";
@@ -111,7 +115,10 @@ export function parseLinkAddress(text) {
 // Chrome": the first brand that is not the placeholder and not plain Chromium.
 export function browserName(navigator) {
   const brands = (navigator?.userAgentData?.brands ?? []).map(entry => String(entry?.brand ?? "")).filter(brand => brand !== "" && !/not.?a.?brand/iu.test(brand));
-  return brands.find(brand => brand !== "Chromium") ?? brands[0] ?? "another browser";
+  const brand = brands.find(name => name !== "Chromium") ?? brands[0];
+  if (brand) return brand;
+  if (/\bFirefox\//u.test(String(navigator?.userAgent ?? ""))) return "Firefox";
+  return "another browser";
 }
 
 function parseJsonObject(text) {

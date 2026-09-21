@@ -1388,71 +1388,16 @@ html[data-hoshidicts-theme="girlypop"],
   align-items: baseline;
 }
 
-.gsm-hoshidicts-primary-frequencies-default {
-  box-sizing: border-box;
-  max-width: 100%;
-  padding: 3px 7px;
-  border: 1px solid var(--hoshidicts-border);
-  /* A pill on one line, a rounded box when its tags wrap. */
-  border-radius: 13px;
-  background: var(--hoshidicts-card-background);
-  color: var(--hoshidicts-text);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.35;
+/* The same Yomitan-like tags as the later entries' metadata rows. */
+.gsm-hoshidicts-primary-frequencies {
+  gap: 4px;
 }
 
-.gsm-hoshidicts-primary-frequency-label {
-  flex: 0 0 auto;
-  margin-right: 4px;
-  color: inherit;
-}
-
-.gsm-hoshidicts-primary-frequencies-default > .gsm-hoshidicts-tag-frequency {
-  line-height: inherit;
-}
-
-.gsm-hoshidicts-primary-metadata-capsule .gsm-hoshidicts-tag-frequency {
+.gsm-hoshidicts-primary-frequencies > .gsm-hoshidicts-tag-frequency {
   flex: 0 1 auto;
   min-width: max-content;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font-size: inherit;
 }
 
-.gsm-hoshidicts-primary-metadata-capsule .gsm-hoshidicts-frequency-source,
-.gsm-hoshidicts-primary-metadata-capsule .gsm-hoshidicts-frequency-body {
-  padding: 0;
-  background: transparent;
-}
-
-.gsm-hoshidicts-primary-metadata-capsule .gsm-hoshidicts-frequency-source {
-  flex: 0 1 auto;
-  min-width: 0;
-  margin-right: 4px;
-  color: var(--text-color-light1);
-  font-weight: 600;
-}
-
-.gsm-hoshidicts-primary-metadata-capsule .gsm-hoshidicts-frequency-body {
-  flex: 0 0 auto;
-  color: var(--text-color);
-  font-variant-numeric: tabular-nums;
-}
-
-.gsm-hoshidicts-primary-frequencies[data-average="true"] {
-  flex-wrap: wrap;
-  gap: 4px 8px;
-}
-
-.gsm-hoshidicts-primary-frequencies[data-average="true"] > .gsm-hoshidicts-tag-frequency::before {
-  display: none;
-}
-
-.gsm-hoshidicts-primary-frequencies > .gsm-hoshidicts-tag-frequency +
-  .gsm-hoshidicts-tag-frequency::before,
 .gsm-hoshidicts-primary-frequencies +
   .gsm-hoshidicts-primary-grammar::before,
 .gsm-hoshidicts-primary-grammar-tag +
@@ -2402,8 +2347,21 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 .gsm-hoshidicts-pitch-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 3px 5px;
   background: color-mix(in srgb, var(--hoshidicts-pitch) 8%, var(--hoshidicts-palette-base-100));
+}
+
+/* A badge draws the same mora contour as the header furigana at tag size. */
+.gsm-hoshidicts-pitch-body > .gsm-hoshidicts-pitch-contour {
+  color: inherit;
+}
+
+.gsm-hoshidicts-pitch-position {
+  color: var(--text-color-light1);
+  font-variant-numeric: tabular-nums;
 }
 
 .gsm-hoshidicts-glossary-grid {
@@ -2632,8 +2590,17 @@ html[data-hoshidicts-theme="girlypop"],
   max-width: 100%;
   overflow: hidden;
   background: transparent;
+  /* Yomitan sizes this box in em with 1em equal to one CSS pixel at its base
+     text size, and converted dictionaries write their gaiji rules against
+     that (`width: 15em` means 15px). The glossary text here is 16px, so the
+     same unit keeps dictionary CSS at the size its author saw. */
+  font-size: calc(1em / 16);
   line-height: 0;
   vertical-align: top;
+}
+
+.gloss-image-link[data-size-units="em"] .gloss-image-container {
+  font-size: 1em;
 }
 
 .gloss-image-link[data-background="true"] > .gloss-image-container {

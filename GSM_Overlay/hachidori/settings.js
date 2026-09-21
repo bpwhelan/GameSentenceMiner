@@ -4,19 +4,21 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { extensionApi as chrome, IS_FIREFOX } from "./browser-api.js";
 import "./reader-options.js";
 import { createAudioSettingsController } from "./audio-settings.js";
 import { createKeybindSettingsController } from "./keybind-settings.js";
 import { createAnkiTemplateSettingsController } from "./anki-settings.js";
 import { createLocalAudioSetup } from "./local-audio-setup.js";
 import { createBackupSettingsController } from "./backup-settings.js";
+import { createExperimentalSettings } from "./experimental-settings.js";
 import { downloadBlob } from "./blob-download.js";
 import { createSharingSettingsController } from "./sharing-settings.js";
 import { ANKI_ADDON_FILE_NAME, fetchAnkiAddon } from "./anki-addon.js";
 import { createLocalFileAccessController } from "./local-file-access.js";
 import { createSettingsSearch } from "./settings-search.js";
 import { applyPageTheme, setStatusOutput } from "./settings-dom.js";
-import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
+import { HOST_BROWSER, HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import { createRecommendedInstallClient } from "./recommended-install-client.js";
 import { createCustomButtonSettings } from "./custom-button-settings.js";
 import { createDictionaryNameDrafts, renameWithBaseline } from "./dictionary-name-drafts.js";
@@ -58,12 +60,20 @@ const AUDIO_TARGET = "hachidori-audio";
 const CAPTURE_TARGET = "hachidori-capture";
 const SHARING_TARGET = "hachidori-sharing";
 const BACKUP_LIFECYCLE_PORT = "hachidori-backup-settings";
-const OPTION_SECTIONS = { lookup: "Reading", design: "Design", audio: "Audio", media: "Media capture", anki: "Anki", keybinds: "Keybinds" };
+const OPTION_SECTIONS = {
+  lookup: "Reading",
+  design: "Design",
+  audio: "Audio",
+  ...(!IS_FIREFOX ? { media: "Media capture" } : {}),
+  anki: "Anki",
+  keybinds: "Keybinds",
+  advanced: "Advanced",
+};
 const LIBRARY_SECTIONS = new Set(["dictionaries", "add-dictionaries", "updates", "dictionary-groups", "custom-dictionary"]);
 const {
   DEFAULT_OPTIONS, LOOKUP_MODES, ACTIVATION_KEYS, FREQUENCY_ORDERS,
   POPUP_THEME_GROUPS, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS,
-  DEFINITION_BLUR_FREQUENCY_ORDERS,
+  DEFINITION_BLUR_FREQUENCY_ORDERS, EXPERIMENTAL_FEATURES,
   clampOption, normaliseCustomButtons, normaliseKanjiSelection, normaliseOptions, normaliseTexthookerUrl,
 } = globalThis.HDReaderOptions;
 const STATUS_POLL_MS = 1000;
@@ -173,6 +183,7 @@ let backupLifecyclePort = null;
 let backupLifecycleReconnectTimer = null;
 const backupLifecycleTokens = new Set();
 let customButtonController;
+let experimentalController;
 let backingUp = false;
 let mediaStatusEpoch = 0;
 let mediaRuntimeState = "unavailable";
@@ -194,6 +205,29 @@ const unseenSectionCompletions = new Set();
 
 function element(id) {
   return document.getElementById(id);
+}
+
+function configureBrowserUi() {
+  if (!HOST_CAPABILITIES.customJavaScript) {
+    const customJavascript = element("custom-javascript");
+    customJavascript.dataset.settingsUnavailable = "true";
+    customJavascript.hidden = true;
+  }
+  if (!IS_FIREFOX) return;
+  const media = element("media");
+  media.dataset.settingsUnavailable = "true";
+  media.hidden = true;
+  const mediaOption = element("settings-section").querySelector('option[value="media"]');
+  mediaOption.hidden = true;
+  mediaOption.disabled = true;
+  document.querySelector('.settings-nav a[href="#media"]').closest(".nav-item").hidden = true;
+
+  element("audio-mining-help").textContent =
+    "Firefox can play browser speech, but Hachidori does not record it into Anki. Add a downloadable pronunciation source to fill {audio} fields.";
+  const shortcutHelp = element("browser-shortcuts").querySelector(".field-hint");
+  shortcutHelp.textContent =
+    "Firefox runs these on any page. Popup actions need an open popup. Change them in Firefox’s Manage Extension Shortcuts page.";
+  element("browser-shortcuts-open").textContent = "Change in Firefox";
 }
 
 function sectionHasPendingWork(id) {
@@ -249,12 +283,35 @@ function setSectionStatus(id, message, tone, completed = false) {
   syncNavigationStatus(id);
 }
 
+// Whether an experimental flag that is off hides `section`.
+function sectionGated(section) {
+  return EXPERIMENTAL_FEATURES.some(feature => feature.section === section && !options.experimental[feature.id]);
+}
+
+function requestedSection() {
+  const fragment = window.location.hash.slice(1);
+  return fragment === "settings-content" ? activeSection : fragment;
+}
+
+// Sections the host browser cannot offer are marked by configureBrowserUi().
+function availableSections() {
+  return [...document.querySelectorAll("main > section:not([data-settings-unavailable='true'])")];
+}
+
+function sectionAvailable(id) {
+  return element(id)?.dataset.settingsUnavailable !== "true";
+}
+
+function resolveSection(requested) {
+  if (!availableSections().some((section) => section.id === requested)) return "dictionaries";
+  // A gated section leads to the switch that reveals it.
+  return sectionGated(requested) ? "advanced" : requested;
+}
+
 function showSettingsSection(focus = false) {
   settingsSearch?.clear();
-  const fragment = window.location.hash.slice(1);
-  const requested = fragment === "settings-content" ? activeSection : fragment;
-  const sections = [...document.querySelectorAll("main > section")];
-  activeSection = sections.some((section) => section.id === requested) ? requested : "dictionaries";
+  const sections = availableSections();
+  activeSection = resolveSection(requestedSection());
   pendingManagementFocus = null;
   for (const section of sections) section.hidden = section.id !== activeSection;
   element("settings-section").value = activeSection;
@@ -300,7 +357,7 @@ function showSettingsSection(focus = false) {
     customButtonController.render();
   }
   if (activeSection === "custom-dictionary" && !customEditorLoaded) void loadCustomDictionarySource();
-  if (fragment === "settings-content") element("settings-content").focus();
+  if (window.location.hash === "#settings-content") element("settings-content").focus();
   else if (focus) element(activeSection).querySelector("h1").focus();
 }
 
@@ -325,7 +382,11 @@ function updateKeybindSettings() {
     editKeybinds: keybinds => { options.keybinds = keybinds; writeOptions(); },
     readAudioSources: () => options.audioSources,
     getBrowserCommands: () => chrome.commands.getAll(),
-    openBrowserShortcuts: () => chrome.tabs.create({ url: "chrome://extensions/shortcuts" }),
+    // Firefox refuses tabs.create for privileged about: URLs, so it exposes
+    // the Manage Extension Shortcuts view through commands instead.
+    openBrowserShortcuts: () => (IS_FIREFOX
+      ? chrome.commands.openShortcutSettings()
+      : chrome.tabs.create({ url: "chrome://extensions/shortcuts" })),
     browserShortcutsAvailable: HOST_CAPABILITIES.browserShortcuts,
   });
   keybindController.render();
@@ -493,12 +554,57 @@ async function editMediaCapture(mutator, { immediate = false } = {}) {
   return true;
 }
 
+async function toggleExperimental(id, enabled) {
+  // Media capture keeps its own switch and settings; only the recorder itself
+  // must not stay active behind a hidden section.
+  if (id === "mediaMining" && !enabled && HOST_CAPABILITIES.mediaCapture && options.mediaCapture.enabled
+      && !await editMediaCapture(capture => { capture.enabled = false; })) {
+    renderExperimentalSettings();
+    return;
+  }
+  options.experimental = { ...options.experimental, [id]: enabled };
+  renderExperimentalSettings();
+  writeOptions();
+}
+
+function renderExperimentalSettings() {
+  // A flag whose section this browser cannot offer (Firefox has no media
+  // capture) is not listed, and a stored value cannot reveal that section.
+  const features = EXPERIMENTAL_FEATURES.filter(feature => !feature.section || sectionAvailable(feature.section));
+  experimentalController ??= createExperimentalSettings({
+    document, features, onToggle: (id, enabled) => { void toggleExperimental(id, enabled); },
+  });
+  experimentalController.render(options.experimental);
+  for (const feature of EXPERIMENTAL_FEATURES) {
+    if (!feature.section) continue;
+    const hidden = !options.experimental[feature.id] || !sectionAvailable(feature.section);
+    document.querySelector(`.settings-nav a[href="#${feature.section}"]`).parentElement.hidden = hidden;
+    element("settings-section").querySelector(`option[value="${feature.section}"]`).hidden = hidden;
+  }
+  renderImportPicker();
+  // A flag that changed elsewhere can hide the visible section, or reveal the
+  // one this page was opened on before the stored options arrived.
+  if (resolveSection(requestedSection()) !== activeSection) showSettingsSection();
+}
+
+// With the MDX dictionaries flag on, the picker and drop zone also take .mdx
+// and .mdd files; off, they take Yomitan ZIP files as before.
+function renderImportPicker() {
+  const mdx = options.experimental.mdxImport === true;
+  element("import-file").accept = mdx ? ".zip,application/zip,.mdx,.mdd" : ".zip,application/zip";
+  element("import-file-label").textContent = mdx ? "Choose dictionary files" : "Choose ZIP files";
+  element("import-drop-hint").textContent = mdx
+    ? "Or drag and drop Yomitan ZIP files, or an MDX dictionary with its MDD files, here."
+    : "Or drag and drop Yomitan ZIP files here.";
+}
+
 function updateBackupSettings() {
   if (activeSection !== "backup") return;
   backupController ??= createBackupSettingsController({
     document, send,
     download: typeof chrome.downloads?.download === "function"
       ? () => send("hd_backup_download", {}, WORKER_TARGET) : null,
+    browserName: HOST_BROWSER === "firefox" ? "Firefox" : "Chrome",
     listAutomatic: () => send("hd_backup_auto_list", {}, WORKER_TARGET),
     trackPreparation: trackBackupPreparation,
     cancelPreparation(token) {
@@ -1639,6 +1745,7 @@ function renderOptions() {
   renderCompactSummaryControls();
   renderPopupImageSources();
   renderMetadataControls();
+  renderExperimentalSettings();
   updateDesignPreview();
   updateAudioSettings();
   updateMediaSettings();
@@ -2675,11 +2782,83 @@ async function runImportBatch(items, importOne, singular, plural, describeItem) 
   }
 }
 
+// An MDX dictionary is one .mdx plus the .mdd resource files named after its
+// stem (`Dict.mdd`, `Dict.1.mdd`, ...; case does not matter), which the engine
+// discovers as siblings. Every other file imports as a Yomitan ZIP, and a .mdd
+// without its .mdx is reported rather than imported on its own.
+function isMddResourceOf(mdxName, name) {
+  const stem = mdxName.slice(0, -".mdx".length).toLowerCase();
+  const lower = name.toLowerCase();
+  return lower.startsWith(`${stem}.`) && /^(\d+\.)?mdd$/u.test(lower.slice(stem.length + 1));
+}
+
+function groupImportFiles(files) {
+  if (options.experimental.mdxImport !== true) {
+    return files.map((file) => ({ kind: "zip", file }));
+  }
+  const items = [];
+  const resourceFiles = files.filter((file) => /\.mdd$/iu.test(file.name));
+  const claimed = new Set();
+  for (const file of files) {
+    if (/\.mdd$/iu.test(file.name)) continue;
+    if (!/\.mdx$/iu.test(file.name)) {
+      items.push({ kind: "zip", file });
+      continue;
+    }
+    const resources = resourceFiles.filter((resource) => !claimed.has(resource) && isMddResourceOf(file.name, resource.name));
+    for (const resource of resources) claimed.add(resource);
+    items.push({ kind: "mdx", file, resources });
+  }
+  for (const resource of resourceFiles) {
+    if (!claimed.has(resource)) items.push({ kind: "orphan-mdd", file: resource });
+  }
+  return items;
+}
+
+async function importMdx(item, index, total) {
+  const { file, resources } = item;
+  const started = Date.now();
+  const urls = [file, ...resources].map((entry) => URL.createObjectURL(entry));
+  try {
+    return await importArchive({
+      blobUrl: urls[0],
+      fileName: file.name,
+      resources: resources.map((resource, position) => ({ fileName: resource.name, blobUrl: urls[position + 1] })),
+    }, index, total, file.name, started);
+  } finally {
+    for (const url of urls) URL.revokeObjectURL(url);
+  }
+}
+
+async function importGroupedItem(item, index, total) {
+  if (item.kind === "mdx") return importMdx(item, index, total);
+  if (item.kind === "orphan-mdd") {
+    updateImportResult(index, {
+      text: "Not imported: choose this .mdd together with the .mdx it belongs to.",
+      tone: "error",
+    });
+    return "failed";
+  }
+  return importFile(item.file, index, total);
+}
+
+function importItemPurpose(item) {
+  if (item.kind === "orphan-mdd") return "MDD resource file";
+  if (item.kind !== "mdx") return "Yomitan ZIP file";
+  const count = item.resources.length;
+  if (count === 0) return "MDX dictionary";
+  return `MDX dictionary with ${count} MDD ${count === 1 ? "file" : "files"}`;
+}
+
+function describeImportItem(item) {
+  return { name: item.file.name, purpose: importItemPurpose(item) };
+}
+
 function runImports(files) {
-  return runImportBatch(files, importFile, "archive", "archives", (file) => ({
-    name: file.name,
-    purpose: "Yomitan ZIP file",
-  }));
+  const items = groupImportFiles(files);
+  const onlyArchives = items.every((item) => item.kind === "zip");
+  return runImportBatch(items, importGroupedItem, onlyArchives ? "archive" : "file",
+    onlyArchives ? "archives" : "files", describeImportItem);
 }
 
 function hasDroppedFiles(event) {
@@ -3423,6 +3602,7 @@ function renderMiningCapabilityHelp() {
 }
 
 async function start() {
+  configureBrowserUi();
   renderMiningCapabilityHelp();
   element("custom-buttons-settings").disabled = false;
   element("custom-buttons-overlay-help").hidden = !HOST_CAPABILITIES.externalLinkHost;

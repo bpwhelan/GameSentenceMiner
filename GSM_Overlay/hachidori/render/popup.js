@@ -613,20 +613,38 @@
     group,
     dictionaryDisplayName,
     pitch,
-    reading
+    reading,
+    buildPitchAccentMorae
   ) {
-    const bodyText = [
-      `${reading ? `${reading} ` : ""}[${pitch.position}]`,
-      pitch.pattern,
-    ].filter(Boolean).join(" ");
-    return createPronunciationTag(documentRef, group, dictionaryDisplayName, bodyText, "pitch");
+    const positionText = [`[${pitch.position}]`, pitch.pattern].filter(Boolean).join(" ");
+    const bodyText = reading ? `${reading} ${positionText}` : positionText;
+    const tag = createPronunciationTag(documentRef, group, dictionaryDisplayName, bodyText, "pitch");
+    const morae = buildPitchAccentMorae(reading, pitch.position);
+    if (morae === null) return tag;
+    // The same contour the header furigana draws, so every dictionary's
+    // accent reads as a graph; the text stays in the title and aria-label.
+    const contour = documentRef.createElement("span");
+    contour.className = "gsm-hoshidicts-pitch-contour";
+    for (const mora of morae) {
+      const span = documentRef.createElement("span");
+      span.className = "gsm-hoshidicts-pitch-mora";
+      span.dataset.pitchLevel = mora.level;
+      if (mora.transition) span.dataset.pitchTransition = mora.transition;
+      span.textContent = mora.text;
+      contour.appendChild(span);
+    }
+    const position = documentRef.createElement("span");
+    position.className = "gsm-hoshidicts-pitch-position";
+    position.textContent = positionText;
+    tag.firstChild.replaceChildren(contour, position);
+    return tag;
   }
 
   function updatePronunciationLabel(tag, dictionaryDisplayName) {
     const dictionary = tag.dataset.dictionary;
     const source = dictionaryDisplayName !== dictionary && !dictionaryDisplayName.endsWith(` (${dictionary})`)
       ? `${dictionaryDisplayName} (${dictionary})` : dictionary;
-    const label = `${source}: ${tag.textContent}`;
+    const label = `${source}: ${tag.dataset.pronunciation}`;
     if (tag.title === label) return false;
     tag.title = label;
     tag.setAttribute("aria-label", label);
@@ -636,6 +654,7 @@
   function createPronunciationTag(documentRef, group, dictionaryDisplayName, bodyText, kind) {
     const tag = createTag(documentRef, "", "", kind);
     tag.dataset.dictionary = group.dictionary;
+    tag.dataset.pronunciation = bodyText;
 
     const body = documentRef.createElement("span");
     body.className = `gsm-hoshidicts-${kind}-body`;
@@ -2013,6 +2032,7 @@
       popup.appendChild(resizeHandle);
     }
     const appendExpressionRuby = options.appendExpressionRuby;
+    const buildPitchAccentMorae = options.buildPitchAccentMorae;
     const appendTextOnlyGlossary = options.appendTextOnlyGlossary;
     const appendStructuredImage = options.appendStructuredImage;
     const parseTagList = options.parseTagList;
@@ -2889,7 +2909,8 @@
                 group,
                 names.get(group.dictionary) || group.dictionary,
                 pitch,
-                reading
+                reading,
+                buildPitchAccentMorae
               ));
               count += 1;
             }
@@ -2989,16 +3010,6 @@
         if (frequencyTags.length > 0) {
           const frequencies = documentRef.createElement("span");
           frequencies.className = "gsm-hoshidicts-primary-frequencies";
-          frequencies.dataset.average = String(averageFrequency);
-          if (!averageFrequency && !showFrequencyDictionaryNames) {
-            frequencies.classList.add("gsm-hoshidicts-primary-frequencies-default");
-            const label = documentRef.createElement("span");
-            label.className = "gsm-hoshidicts-primary-frequency-label";
-            label.textContent = "Freq:";
-            label.setAttribute("aria-hidden", "true");
-            // Inside the first tag, so a wrap never leaves the label alone.
-            frequencyTags[0].prepend(label, " ");
-          }
           frequencies.append(...frequencyTags);
           capsule.prepend(frequencies);
         }

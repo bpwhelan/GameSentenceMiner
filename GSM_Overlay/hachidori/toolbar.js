@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { extensionApi as chrome } from "./browser-api.js";
 import "./reader-options.js";
-import { HOST_CAPABILITIES } from "./overlay-mode.js";
+import { HOST_BROWSER, HOST_CAPABILITIES } from "./overlay-mode.js";
 
 const { normaliseOptions } = globalThis.HDReaderOptions;
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map(node => [node.id, node]));
@@ -20,6 +21,7 @@ function adoptOptions(stored) {
 
 function render() {
   elements["lookup-toggle"].disabled = pending || !options;
+  elements["record-screen"].hidden = HOST_BROWSER === "firefox";
   elements["record-screen"].disabled = pending || !options || !HOST_CAPABILITIES.mediaCapture;
   if (!options) return;
   elements["lookup-toggle"].setAttribute("aria-checked", String(options.hoverEnabled));
@@ -58,7 +60,9 @@ async function run(action) {
 function renderCapture(recording) {
   if (!HOST_CAPABILITIES.mediaCapture) {
     elements["record-screen"].classList.toggle("is-recording", false);
-    elements["record-screen"].title = "Context capture is unavailable in this overlay";
+    elements["record-screen"].title = HOST_BROWSER === "firefox"
+      ? "Context capture is unavailable in Firefox"
+      : "Context capture is unavailable in this overlay";
     elements["record-label"].textContent = "Context capture unavailable";
     return;
   }

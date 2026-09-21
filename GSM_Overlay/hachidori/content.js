@@ -25,6 +25,13 @@
   const HOST_TAG = "hachidori-host";
   const POPUP_SHOWN_EVENT = "hachidori-popup-shown";
   const POPUP_HIDDEN_EVENT = "hachidori-popup-hidden";
+  const EXTENSION_PROTOCOL = (() => {
+    try {
+      return new URL(chrome.runtime.getURL("")).protocol;
+    } catch {
+      return "";
+    }
+  })();
 
   const {
     DEFAULT_OPTIONS,
@@ -114,7 +121,7 @@
   // link may leave the known heading fragment before the module loads or on
   // reload; query variants and every other internal page stay excluded.
   if (
-    location.protocol === "chrome-extension:" &&
+    location.protocol === EXTENSION_PROTOCOL &&
     location.href !== chrome.runtime.getURL("startup.html") &&
     location.href !== chrome.runtime.getURL("startup.html#setup-heading")
   ) {
@@ -297,6 +304,7 @@
         frequencyMode: entry.frequencyMode,
         pitchCount: nonnegativeCount(entry.pitchCount),
         kanjiCount: nonnegativeCount(entry.kanjiCount),
+        longKeyLength: nonnegativeCount(entry.longKeyLength),
       }];
     });
     return {
@@ -511,7 +519,7 @@
       if (isEditingElement(focused)) {
         // Startup is the only extension page allowed above. Its scene arrow
         // keeps keyboard focus without pausing the practice lookup.
-        if (location.protocol === "chrome-extension:" && focused.matches(".vn-next")) continue;
+        if (location.protocol === EXTENSION_PROTOCOL && focused.matches(".vn-next")) continue;
         return true;
       }
     }
@@ -691,6 +699,29 @@
     }
   }
 
+  // How many code points of page text a lookup is given. The engine scans
+  // options.scanLength of them as before, and reaches further only when the
+  // text begins like a dictionary key longer than that (hoshidicts long-key
+  // index; each package row carries the longest such key it lists). Eight more
+  // leaves room for an inflected ending, matching the engine. Dictionaries
+  // imported before the index existed report 0 and cost nothing extra. Off by
+  // default: Settings → Advanced → Experimental features → Long dictionary
+  // entries switches it on.
+  const LONG_KEY_INFLECTION_SLACK = 8;
+  const MAX_SCAN_WINDOW = 256;
+
+  function scanWindow() {
+    if (options.experimental.longKeyScan !== true) return options.scanLength;
+    let longest = 0;
+    for (const entry of dictionaries) {
+      if (entry.enabled !== false && entry.termCount > 0 && entry.longKeyLength > longest) {
+        longest = entry.longKeyLength;
+      }
+    }
+    if (longest === 0) return options.scanLength;
+    return Math.min(MAX_SCAN_WINDOW, Math.max(options.scanLength, longest + LONG_KEY_INFLECTION_SLACK));
+  }
+
   function collectScanEntries(startNode, startOffset, root, scanLength, styleCache) {
     const walker = createScanWalker(root, styleCache);
     walker.currentNode = startNode;
@@ -745,7 +776,7 @@
       startNode,
       Math.min(startOffset, (startNode.nodeValue || "").length),
       document.body,
-      options.scanLength,
+      scanWindow(),
       styleCache
     );
     if (entries.length === 0) {
@@ -843,7 +874,7 @@
       startNode,
       Math.min(caretRange.startOffset, (startNode.nodeValue || "").length),
       lookupText,
-      options.scanLength,
+      scanWindow(),
       styleCache
     );
     const linkBoundary = entries.findIndex((entry) =>
@@ -1905,6 +1936,7 @@
     level.highlighter = highlighter.scope(level);
     level.view = window.HDPopup.createPopupView({
       appendExpressionRuby: window.HDGlossary.appendExpressionRuby,
+      buildPitchAccentMorae: window.HDGlossary.buildPitchAccentMorae,
       appendTextOnlyGlossary: window.HDGlossary.appendTextOnlyGlossary,
       appendStructuredImage: window.HDGlossary.appendStructuredImage,
       document,

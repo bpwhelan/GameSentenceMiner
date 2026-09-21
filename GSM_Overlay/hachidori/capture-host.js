@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { extensionApi as chrome } from "./browser-api.js";
 import { createCaptureSession } from "./capture-session.js";
 import { createCaptureFrameEncoder } from "./capture-frame-client.js";
 import { recordCapturedSpeech } from "./capture-speech.js";

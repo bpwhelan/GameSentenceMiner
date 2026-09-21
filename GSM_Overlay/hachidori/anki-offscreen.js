@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { extensionApi } from "./browser-api.js";
 import { decodeBase64 } from "./base64.js";
 import { buildAnkiResourceFields } from "./anki-resources.js";
 import { exportAnkiAudio } from "./anki-audio.js";
+import { MINING_CAPABILITIES } from "./overlay-mode.js";
 
 // Resolve and parse the complete scoped note set away from the background and
 // engine request threads; only compact index rows cross back to the commit.
@@ -19,6 +21,9 @@ async function refreshAnkiIndex(window, source) {
 }
 
 async function recordSpeechAudio(...args) {
+  if (!MINING_CAPABILITIES.browserSpeech) {
+    throw new Error("Browser text-to-speech recording is unavailable in Firefox.");
+  }
   const capture = await import("./capture-host.js");
   return capture.recordSpeechAudio(...args);
 }
@@ -75,7 +80,7 @@ export function createAnkiOffscreenService(window, getAudioRepository, captureSp
     return buildAnkiResourceFields(message.request, message.templates, {
       document: window.document, dictionaryPaths: message.dictionaryPaths, audio: message.audio,
       styles: async () => {
-        const reply = await window.chrome.runtime.sendMessage({ target: "hoshidicts-offscreen", type: "hd_styles", requestId: message.requestId });
+        const reply = await extensionApi.runtime.sendMessage({ target: "hoshidicts-offscreen", type: "hd_styles", requestId: message.requestId });
         if (!reply.ok || reply.generation !== message.request.generation) throw new Error(reply.error || "Dictionary styles changed during Anki preparation.");
         return reply.styles;
       },

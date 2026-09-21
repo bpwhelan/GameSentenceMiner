@@ -1,7 +1,7 @@
 // Settings → Sharing: share this Hachidori with the person's other browsers
 // through Anki, or use another Hachidori instead of this one.
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { DEFAULT_SHARING_PORT, canDiscoverSharingHost } from "./sharing-protocol.js";
+import { API_CLIENT_ORIGIN, DEFAULT_SHARING_PORT, canDiscoverSharingHost } from "./sharing-protocol.js";
 
 const POLL_MS = 2000;
 // How long a copied address or a saved download outranks the derived status.
@@ -152,7 +152,7 @@ export function createSharingSettingsController({
 
   function clientsText() {
     if (!hosting()) return "";
-    const clients = sharing.clients ?? [];
+    const clients = (sharing.clients ?? []).filter(entry => entry.origin !== API_CLIENT_ORIGIN);
     if (clients.length === 0) return "No other browser is linked yet.";
     return `Linked: ${clients.map(clientLabel).join(", ")}.`;
   }

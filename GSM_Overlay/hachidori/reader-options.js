@@ -38,6 +38,19 @@
     texthooker: { enabled: false, url: "", format: "plain" },
     page: { nativeCues: true, domText: true, autoLearnArea: true },
   };
+  // Settings → Advanced → Experimental features. Each entry is one boolean flag
+  // under `options.experimental`; `section` names the Settings card the flag
+  // reveals. A feature's own settings live where they always did, so turning
+  // a flag off keeps them for the next time it is turned on.
+  const EXPERIMENTAL_FEATURES = [
+    { id: "mediaMining", label: "Media mining", section: "media",
+      description: "Record screen and audio clips from the page for Anki notes. Shows the Media capture section." },
+    { id: "longKeyScan", label: "Long dictionary entries",
+      description: "Find dictionary entries longer than the scan length. The reader collects more page text only when an installed dictionary lists such entries, and the engine reads further only when the text starts like one of them." },
+    { id: "mdxImport", label: "MDX dictionaries",
+      description: "Import MDict .mdx dictionaries, with their .mdd resource files, from Add dictionaries. Choose the .mdx and its .mdd files together." },
+  ];
+  const DEFAULT_EXPERIMENTAL = Object.fromEntries(EXPERIMENTAL_FEATURES.map(feature => [feature.id, false]));
   // yomitan-gsm hotkey actions that map onto existing Hachidori behaviour, in
   // Yomitan's menu order and with its labels. `argument` names the editor kind;
   // `scopes` are where Settings offers the action, as in Yomitan's controller.
@@ -103,6 +116,7 @@
     audioAutoplay: false,
     anki: DEFAULT_ANKI,
     mediaCapture: DEFAULT_MEDIA_CAPTURE,
+    experimental: DEFAULT_EXPERIMENTAL,
     popupWidthPx: 560,
     popupHeightPx: 420,
     popupScalePercent: 100,
@@ -287,6 +301,21 @@
     return sameMediaCapture(value, normalized)
       && (normalized.includeAnimation || normalized.includeCapturedAudio)
       && (!normalized.texthooker.enabled || Boolean(normalized.texthooker.url));
+  }
+
+  function normaliseExperimental(value) {
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const result = { ...DEFAULT_EXPERIMENTAL };
+    for (const id of Object.keys(DEFAULT_EXPERIMENTAL)) {
+      if (typeof source[id] === "boolean") result[id] = source[id];
+    }
+    return result;
+  }
+
+  function validExperimental(value, normalized) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const ids = Object.keys(DEFAULT_EXPERIMENTAL);
+    return Object.keys(value).every(id => ids.includes(id)) && sameFields(value, normalized, ids);
   }
 
   function normaliseAudioSources(value) {
@@ -624,6 +653,7 @@
       case "keybinds": return normaliseKeybinds(value);
       case "anki": return normaliseAnki(value);
       case "mediaCapture": return normaliseMediaCapture(value);
+      case "experimental": return normaliseExperimental(value);
       default: return typeof value === "string" ? value : "";
     }
   }
@@ -700,6 +730,7 @@
   function isValidOptionField(key, raw, normalized) {
     if (key === "anki") return validAnki(raw, normalized);
     if (key === "mediaCapture") return validMediaCapture(raw, normalized);
+    if (key === "experimental") return validExperimental(raw, normalized);
     if (key === "kanjiClickDictionary") return typeof raw === "string" || typeof normalized === "object";
     if (key === "popupImageSource") return raw === null || normalized !== null;
     if (key === "keybinds") return Array.isArray(raw) && raw.length === normalized.length
@@ -732,6 +763,10 @@
     }
     options.customLinks = customLinksFromButtons(options.customButtons);
     options.mediaCapture = cloneMediaCapture(options.mediaCapture);
+    options.experimental = { ...options.experimental };
+    // Media capture predates the flag. A profile that never saved an
+    // experimental record keeps the feature exactly as it was switched on.
+    if (!Object.hasOwn(source, "experimental")) options.experimental.mediaMining = options.mediaCapture.enabled;
     return options;
   }
 
@@ -770,9 +805,10 @@
     KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_SCOPES, KEYBIND_MODIFIERS, KEYBIND_MODIFIER_CODES, KEYBIND_TOGGLE_OPTIONS,
     AUDIO_SOURCE_TYPES, AUDIO_SOURCE_LABELS,
     MEDIA_TIMING_MODES, MEDIA_HISTORY_SECONDS, MEDIA_CLIP_SECONDS, MEDIA_VIDEO_PRESETS, MEDIA_TEXTHOOKER_FORMATS,
+    EXPERIMENTAL_FEATURES,
     clampOption, normaliseActivationKey, normaliseKanjiSelection, normaliseOptions,
     normaliseTexthookerUrl, normaliseAnkiConnectUrl, normaliseMediaCapture, normaliseAnki,
-    normaliseCustomButtons, ankiTemplateConfig,
+    normaliseCustomButtons, normaliseExperimental, ankiTemplateConfig,
     definitionBlurFrequencyEvidence, definitionBlurQualifies,
     DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS, DEFINITION_BLUR_FREQUENCY_ORDERS,
     projectStoredOptions, projectContentOptions, validateOptionsPatch,

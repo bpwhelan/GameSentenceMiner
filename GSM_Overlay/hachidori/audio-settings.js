@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { selectExtensionApi } from "./browser-api.js";
 import { reorderSettingsRows } from "./settings-dom.js";
 function labelControl(control, label) {
   if (control.getAttribute("aria-label") !== label) control.setAttribute("aria-label", label);
@@ -12,6 +13,7 @@ function setTesting(row, testing) {
 
 export function createAudioSettingsController({ document, readSources, editSources, send }) {
   const window = document.defaultView;
+  const extensionApi = selectExtensionApi(window);
   const list = document.getElementById("audio-source-list");
   const rows = new Map();
   const labels = window.HDReaderOptions.AUDIO_SOURCE_LABELS;
@@ -159,7 +161,7 @@ export function createAudioSettingsController({ document, readSources, editSourc
   const voiceListener = message => {
     if (message?.target === "hachidori-audio-ui" && message.type === "hd_audio_voices_changed") adoptVoices(message.voices);
   };
-  window.chrome.runtime.onMessage.addListener(voiceListener);
+  extensionApi.runtime.onMessage.addListener(voiceListener);
   const initialVersion = voiceVersion;
   void send("hd_audio_voices").then(reply => {
     if (reply.ok && voiceVersion === initialVersion) adoptVoices(reply.voices);
@@ -170,6 +172,6 @@ export function createAudioSettingsController({ document, readSources, editSourc
     render();
     rows.get(source.id).url.focus();
   });
-  window.addEventListener("pagehide", () => { stop(); window.chrome.runtime.onMessage.removeListener(voiceListener); }, { once: true });
+  window.addEventListener("pagehide", () => { stop(); extensionApi.runtime.onMessage.removeListener(voiceListener); }, { once: true });
   return { render, stop };
 }

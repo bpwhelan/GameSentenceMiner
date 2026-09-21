@@ -37,20 +37,33 @@ export const OVERLAY_LOCAL_OPTION_KEYS = Object.freeze([
   "sourceHighlightEnabled", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupColumns", "popupToolbarPosition", "popupNestingMaxDepth",
 ]);
 
-// What mining may use in an overlay host, whatever the stored options say.
-// Electron has no chrome.tabs.captureVisibleTab, and no capture host can record
-// browser text-to-speech, so only downloadable pronunciations reach Anki.
-export function overlayAnkiOptions(options) {
+// What mining may use in this host, whatever the stored options say. The
+// returned projection never changes the saved cross-browser configuration.
+export function capabilityAnkiOptions(options, {
+  screenshot = true,
+  browserSpeech = true,
+  mediaCapture = true,
+} = {}) {
   return {
     ...options,
     anki: {
       ...options.anki,
-      captureScreenshot: false,
-      templates: options.anki.templates.map(template => ({ ...template, captureScreenshot: false })),
+      captureScreenshot: screenshot && options.anki.captureScreenshot,
+      templates: screenshot
+        ? options.anki.templates
+        : options.anki.templates.map(template => ({ ...template, captureScreenshot: false })),
     },
-    audioSources: options.audioSources.filter(source => !source.type.startsWith("text-to-speech")),
-    mediaCapture: { ...options.mediaCapture, enabled: false },
+    audioSources: browserSpeech
+      ? options.audioSources
+      : options.audioSources.filter(source => !source.type.startsWith("text-to-speech")),
+    mediaCapture: { ...options.mediaCapture, enabled: mediaCapture && options.mediaCapture.enabled },
   };
+}
+
+// Electron has no chrome.tabs.captureVisibleTab, and no capture host can record
+// browser text-to-speech, so only downloadable pronunciations reach Anki.
+export function overlayAnkiOptions(options) {
+  return capabilityAnkiOptions(options, { screenshot: false, browserSpeech: false, mediaCapture: false });
 }
 
 // How each first-install option's value is built from a committed title.

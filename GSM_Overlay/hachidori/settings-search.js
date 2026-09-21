@@ -78,7 +78,9 @@ export function createSettingsSearch({ document, navigate }) {
     results.replaceChildren();
     panel.hidden = false;
     document.getElementById("library-navigation").hidden = true;
-    for (const section of document.querySelectorAll("main > section")) searchSection(section, words);
+    for (const section of document.querySelectorAll("main > section:not([data-settings-unavailable='true'])")) {
+      searchSection(section, words);
+    }
     const matches = results.childElementCount;
     const noun = matches === 1 ? "setting" : "settings";
     count.textContent = matches ? `${matches} ${noun} found` : "No settings found. Try another word.";
