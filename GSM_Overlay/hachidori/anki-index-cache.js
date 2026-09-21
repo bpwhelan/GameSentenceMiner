@@ -36,7 +36,12 @@ function cacheState(value) {
     rowRevision: Number.isInteger(state.rowRevision) ? state.rowRevision : 0,
     snapshot: typeof snapshot?.sourceKey === "string" && Number.isFinite(snapshot.refreshedAt) && rows !== null
       ? { sourceKey: snapshot.sourceKey, refreshedAt: snapshot.refreshedAt, rows } : null,
-    attempt: typeof attempt?.sourceKey === "string" && Number.isFinite(attempt.startedAt) ? attempt : null,
+    attempt: typeof attempt?.sourceKey === "string" && Number.isFinite(attempt.startedAt)
+      ? {
+        sourceKey: attempt.sourceKey,
+        startedAt: attempt.startedAt,
+        ...(Number.isFinite(attempt.finishedAt) ? { finishedAt: attempt.finishedAt } : {}),
+      } : null,
   };
 }
 
@@ -78,6 +83,10 @@ function normalizedLookup(value, wordKey) {
   };
 }
 
+function ownsAttempt(current, source, token) {
+  return current.attempt?.sourceKey === source.key && current.attempt.startedAt === token.startedAt;
+}
+
 export function createAnkiDuplicateIndex({
   fetchRows,
   lookupLive,
@@ -91,6 +100,11 @@ export function createAnkiDuplicateIndex({
   let snapshot = null;
   let rows = new Map();
   let active = null;
+  // The reservation this worker made most recently. A stored attempt that has
+  // no recorded outcome and was not reserved here belongs to a worker that
+  // stopped mid-pull (host torn down, worker restarted): it is due now rather
+  // than at its 30-minute mark, which no alarm may be armed to reach.
+  let ownStartedAt = null;
   let controlTail = Promise.resolve();
   let suspended = false;
   const liveLookups = new Map();
@@ -162,8 +176,7 @@ export function createAnkiDuplicateIndex({
           const currentSource = await sourceFor(options);
           if (current.configurationRevision !== token.configurationRevision
               || currentSource?.key !== source.key
-              || current.attempt?.sourceKey !== source.key
-              || current.attempt.startedAt !== token.startedAt) return;
+              || !ownsAttempt(current, source, token)) return;
           // A repaired miss or confirmed write after this pull began must not
           // be erased by a response that took its snapshot before that change.
           if (current.rowRevision !== token.rowRevision) {
@@ -174,18 +187,32 @@ export function createAnkiDuplicateIndex({
             ...current,
             rowRevision: current.rowRevision + 1,
             snapshot: { sourceKey: source.key, refreshedAt: now(), rows: nextRows },
+            attempt: { ...current.attempt, finishedAt: now() },
           };
         });
         if (committed) install(saved);
       });
     } catch (error) {
       reportError(error);
+      // A pull that ran to failure keeps its 30-minute backoff; only a pull
+      // that never records an outcome is retried by the next worker start.
+      await updateState(async ({ state: value }) => {
+        const current = cacheState(value);
+        if (!ownsAttempt(current, source, token) || current.attempt.finishedAt !== undefined) return;
+        return { ...current, attempt: { ...current.attempt, finishedAt: now() } };
+      }).catch(reportError);
     } finally {
       await control(() => { if (active?.token === token) active = null; });
       // A configuration or row change during the pull may require an immediate
       // replacement. A successful or failed current pull remains due in 30 min.
       void reconcile();
     }
+  }
+
+  function refreshDue(attempt, source) {
+    if (attempt?.sourceKey !== source.key) return 0;
+    if (attempt.finishedAt === undefined && attempt.startedAt !== ownStartedAt) return 0;
+    return attempt.startedAt + ANKI_INDEX_REFRESH_MS;
   }
 
   async function startDueRefresh() {
@@ -201,8 +228,7 @@ export function createAnkiDuplicateIndex({
     }
     if (active) return { promise: active.promise };
     const state = cacheState(await readState());
-    const due = state.attempt?.sourceKey === source.key
-      ? state.attempt.startedAt + ANKI_INDEX_REFRESH_MS : now();
+    const due = refreshDue(state.attempt, source);
     if (due > now()) {
       await schedule(due);
       return null;
@@ -214,14 +240,14 @@ export function createAnkiDuplicateIndex({
       const current = cacheState(value);
       const currentSource = await sourceFor(options);
       if (currentSource?.key !== source.key) return;
-      if (current.attempt?.sourceKey === source.key
-          && current.attempt.startedAt + ANKI_INDEX_REFRESH_MS > now()) return;
+      if (refreshDue(current.attempt, source) > now()) return;
       reserved = true;
       token.configurationRevision = current.configurationRevision;
       token.rowRevision = current.rowRevision;
       return { ...current, attempt: { sourceKey: source.key, startedAt: token.startedAt } };
     });
     if (!reserved) return null;
+    ownStartedAt = token.startedAt;
     await schedule(token.startedAt + ANKI_INDEX_REFRESH_MS);
     const promise = pull(source, token);
     active = { token, promise };
