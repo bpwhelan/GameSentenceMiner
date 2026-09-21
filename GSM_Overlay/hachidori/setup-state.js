@@ -38,9 +38,9 @@ export const OVERLAY_LOCAL_OPTION_KEYS = Object.freeze([
 ]);
 
 // What mining may use in an overlay host, whatever the stored options say.
-// Electron has no chrome.tabs.captureVisibleTab. Generic overlays also have no
-// byte-backed speech capture, while hosts that explicitly provide it keep TTS.
-export function overlayAnkiOptions(options, { browserSpeech = false } = {}) {
+// Electron has no chrome.tabs.captureVisibleTab, and no capture host can record
+// browser text-to-speech, so only downloadable pronunciations reach Anki.
+export function overlayAnkiOptions(options) {
   return {
     ...options,
     anki: {
@@ -48,9 +48,7 @@ export function overlayAnkiOptions(options, { browserSpeech = false } = {}) {
       captureScreenshot: false,
       templates: options.anki.templates.map(template => ({ ...template, captureScreenshot: false })),
     },
-    audioSources: browserSpeech
-      ? options.audioSources
-      : options.audioSources.filter(source => !source.type.startsWith("text-to-speech")),
+    audioSources: options.audioSources.filter(source => !source.type.startsWith("text-to-speech")),
     mediaCapture: { ...options.mediaCapture, enabled: false },
   };
 }

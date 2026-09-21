@@ -9,9 +9,9 @@ const CORE_MARKERS = ["expression", "reading", "furigana", "furigana-plain", "di
   "sentence", "sentence-furigana", "sentence-furigana-plain", "cloze-prefix", "cloze-body", "cloze-suffix",
   "frequency", "frequencies", "frequency-harmonic-rank", "frequency-harmonic-occurrence", "frequency-average-rank",
   "frequency-average-occurrence", "pitch", "pitch-position", "pitch-accent-positions", "pitch-categories",
-  "pitch-accent-categories", "audio", "capture-animation", "capture-audio", "screenshot"];
-const MARKER_ALIASES = new Map([["pitch-accent", "pitch"], ["pitch-accents", "pitch"],
-  ["pitch-accent-graphs", "pitch"], ["pitch-accent-graphs-jj", "pitch"]]);
+  "pitch-accent-categories", "pitch-accent-graphs", "pitch-accent-graphs-jj",
+  "audio", "capture-animation", "capture-audio", "screenshot"];
+const MARKER_ALIASES = new Map([["pitch-accent", "pitch"], ["pitch-accents", "pitch"]]);
 const MARKER_DESCRIPTIONS = {
   expression: "Dictionary form of the selected term",
   reading: "Reading of the selected term",
@@ -54,6 +54,8 @@ const MARKER_DESCRIPTIONS = {
   "pitch-accent-positions": "Pitch accent drop positions",
   "pitch-categories": "Pitch accent categories",
   "pitch-accent-categories": "Pitch accent categories",
+  "pitch-accent-graphs": "Japanese pitch accent SVG graphs",
+  "pitch-accent-graphs-jj": "Japanese pitch accent SVG graphs with kana labels (Jidoujisho style)",
   audio: "Selected pronunciation audio",
   "capture-animation": "Captured animated image",
   "capture-audio": "Captured sentence audio",

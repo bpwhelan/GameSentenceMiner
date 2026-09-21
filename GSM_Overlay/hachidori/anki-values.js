@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import "./render/glossary.js";
+import { ankiPitchGraphs } from "./anki-pitch.js";
 import { ankiTemplateMarkerNames, renderAnkiTemplate, escapeAnkiHtml as escape } from "./anki-templates.js";
 
 // Browser-native port of GSM PR #549's hoshidicts_mining.py marker values.
@@ -239,6 +240,8 @@ export async function buildAnkiFields(request, templates, { definition, audio = 
     "frequency-average-rank": () => frequencyAggregate(term, "rank-based", false),
     "frequency-average-occurrence": () => frequencyAggregate(term, "occurrence-based", false),
     pitch: () => pitchHtml(term), "pitch-position": () => [...new Set(term.pitches.flatMap(group => group.pitches.map(value => value.position)))].join(", "),
+    "pitch-accent-graphs": () => ankiPitchGraphs(term),
+    "pitch-accent-graphs-jj": () => ankiPitchGraphs(term, true),
     "pitch-accent-categories": () => pitchCategories(term), audio: () => audio,
     "capture-animation": () => request.capturePin?.animationFilename
       && !request.captureUnavailable?.includes("animation")

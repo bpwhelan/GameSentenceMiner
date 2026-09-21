@@ -852,7 +852,6 @@
             <p class="field-hint">URL templates accept <code>{term}</code>, <code>{expression}</code>, <code>{reading}</code> and <code>{language}</code>, URL-encoded. Yomitan JSON sources return an <code>audioSourceList</code>.</p>
             <p class="field-hint">Shift-click or right-click the popup's audio button to choose a pronunciation.</p>
             <p id="audio-speech-capture-help" class="field-hint">To add browser speech to Anki, start Media capture with shared audio.</p>
-            <p id="audio-embedded-speech-capture-help" class="field-hint" hidden>GameSentenceMiner records the selected browser voice when you mine and sends its WAV to Anki.</p>
             <p class="field-hint">Sources receive the word and reading. Remote URLs need HTTPS; localhost may use HTTP. Some system voices are online.</p>
           </details>
         </section>
@@ -1155,8 +1154,16 @@
             <div class="backup-action">
               <div>
                 <h2>Automatic backups</h2>
-                <p>Hachidori keeps the newest two daily snapshots on this device. They contain the same saved settings and personal data as an export, including your AnkiConnect API key if configured.</p>
+                <p>Hachidori takes one snapshot a day and keeps the newest ones on this device. They contain the same saved settings and personal data as an export, including your AnkiConnect API key if configured.</p>
               </div>
+              <label class="field">
+                <span class="field-label">Days kept</span>
+                <span class="input-suffix">
+                  <input id="opt-automatic-backup-days" type="number" min="1" max="30" step="1" inputmode="numeric" />
+                  <span class="suffix">days</span>
+                </span>
+                <span class="field-hint">Older snapshots are removed when the next daily snapshot is taken.</span>
+              </label>
             </div>
             <p id="automatic-backup-status" class="section-note" aria-live="polite"></p>
             <ul id="automatic-backup-list" class="automatic-backup-list"></ul>

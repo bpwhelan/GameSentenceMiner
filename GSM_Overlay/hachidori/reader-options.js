@@ -134,6 +134,7 @@
     kanjiClickDictionary: "",
     frequencyDictionary: "",
     frequencyOrder: "auto",
+    automaticBackupDays: 2,
     keybinds: DEFAULT_KEYBINDS,
   };
   const KEYBIND_TOGGLE_OPTIONS = Object.keys(DEFAULT_OPTIONS).filter(key => typeof DEFAULT_OPTIONS[key] === "boolean");
@@ -152,6 +153,9 @@
     definitionBlurThreshold: [1, 1000000],
     definitionBlurFrequencyThreshold: [1, Number.MAX_SAFE_INTEGER],
     definitionBlurDelayMs: [1000, 3600000],
+    // One snapshot per day, each a complete saved-state payload with lookup
+    // statistics rows: the cap bounds how many copies the profile stores.
+    automaticBackupDays: [1, 30],
   };
   // GSM PR #549 blurs at or above the threshold; Below is the issue #9 adaptation.
   const DEFINITION_BLUR_DIRECTIONS = ["atLeast", "below"];

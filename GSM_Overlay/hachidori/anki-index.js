@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { ankiMultiResults } from "./anki.js";
 import { ankiDigest } from "./anki-digest.js";
 import { ankiSetupFamily, ankiSetupTemplates } from "./anki-setup.js";
 import { escapeAnkiHtml, resolveAnkiTemplates } from "./anki-templates.js";
@@ -158,8 +159,14 @@ function returnedNoteIds(value, message = "AnkiConnect returned invalid note IDs
   return [...new Set(value)].sort((left, right) => left - right);
 }
 
-function matureNoteIds(value) {
-  return new Set(returnedNoteIds(value, "AnkiConnect returned invalid mature note IDs."));
+const matureQuery = query => `${query} is:review -is:learn prop:ivl>=21`;
+
+function matureNoteIds(value, candidates) {
+  const mature = new Set(returnedNoteIds(value, "AnkiConnect returned invalid mature note IDs."));
+  if ([...mature].some(noteId => !candidates.has(noteId))) {
+    throw new Error("AnkiConnect returned invalid mature note IDs.");
+  }
+  return mature;
 }
 
 function compactRows(notes, mature) {
@@ -182,28 +189,35 @@ export async function fetchAnkiIndex(invoke, source) {
   const models = await recognizedModels(invoke, source);
   const query = completeQuery(source, models);
   if (query === null) return [];
-  const [candidateResult, matureIds] = await Promise.all([
+  const [candidateResult, matureResult] = await Promise.all([
     invoke("findNotes", { query }, 25_000),
-    invoke("findNotes", { query: `${query} is:review -is:learn prop:ivl>=21` }, 25_000),
+    invoke("findNotes", { query: matureQuery(query) }, 25_000),
   ]);
   const candidateIds = returnedNoteIds(candidateResult);
-  const candidates = new Set(candidateIds);
-  const mature = matureNoteIds(matureIds);
-  if ([...mature].some(noteId => !candidates.has(noteId))) {
-    throw new Error("AnkiConnect returned invalid mature note IDs.");
-  }
+  const mature = matureNoteIds(matureResult, new Set(candidateIds));
   if (!candidateIds.length) return [];
   const infos = await invoke("notesInfo", { notes: candidateIds }, 25_000);
   return compactRows(indexedNotes(infos, models, candidateIds), mature);
 }
 
+// A popup cache miss waits on this, and each AnkiConnect request costs one
+// poll interval, so the candidate and maturity searches share one `multi`
+// round trip and `notesInfo` is the only other stage. Maturity is the scoped
+// query's mature subset intersected with the exactly matching notes: Anki
+// searches cards, so in deck scope a note counts as mature only through a
+// mature card inside the configured deck, exactly as the complete index does.
 export async function lookupAnkiIndex(invoke, source, expression) {
   const wordKey = ankiWordKey(expression);
   if (wordKey === null) return { wordKey, mature: false, noteIds: [] };
   const models = await recognizedModels(invoke, source);
   const query = lookupQuery(source, models, expression);
   if (query === null) return { wordKey, mature: false, noteIds: [] };
-  const candidateIds = returnedNoteIds(await invoke("findNotes", { query }));
+  const [candidateResult, matureResult] = ankiMultiResults(await invoke("multi", { actions: [
+    { action: "findNotes", params: { query } },
+    { action: "findNotes", params: { query: matureQuery(query) } },
+  ] }));
+  const candidateIds = returnedNoteIds(candidateResult);
+  const mature = matureNoteIds(matureResult, new Set(candidateIds));
   if (!candidateIds.length) return { wordKey, mature: false, noteIds: [] };
   const candidates = indexedNotes(await invoke("notesInfo", { notes: candidateIds }), models, candidateIds);
   const noteIds = [];
@@ -214,13 +228,6 @@ export async function lookupAnkiIndex(invoke, source, expression) {
   }
   noteIds.sort((left, right) => left - right);
   const unique = [...new Set(noteIds)];
-  if (!unique.length) return { wordKey, mature: false, noteIds: [] };
-  const mature = matureNoteIds(await invoke("findNotes", {
-    query: `nid:${unique.join(",")} is:review -is:learn prop:ivl>=21`,
-  }));
-  if ([...mature].some(noteId => !unique.includes(noteId))) {
-    throw new Error("AnkiConnect returned invalid mature note IDs.");
-  }
   return { wordKey, mature: unique.some(noteId => mature.has(noteId)), noteIds: unique };
 }
 

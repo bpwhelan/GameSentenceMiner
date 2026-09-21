@@ -84,6 +84,7 @@ const NUMBER_FIELDS = [
   { key: "popupHeightPx", id: "opt-popup-height", live: true },
   { key: "popupScalePercent", id: "opt-popup-scale", live: true },
   { key: "popupOpacityPercent", id: "opt-popup-opacity", live: true },
+  { key: "automaticBackupDays", id: "opt-automatic-backup-days" },
 ];
 const METADATA_FIELDS = [
   { key: "showLookupCounts", id: "opt-lookup-counts" },
@@ -2004,19 +2005,22 @@ function bindDictionaryOrder(row, entry, index) {
   const position = row.querySelector(".dict-position-input");
   const move = row.querySelector(".dict-move");
   // Read the live index and bounds so a reused row keeps working after the
-  // package moves; only the entry id is stable across reorders.
+  // package moves; only the entry id is stable across reorders. An
+  // out-of-range integer clamps to the nearest movable slot: with the managed
+  // dictionary pinned first, typing 1 means "as high as possible", so it lands
+  // on position 2 instead of being silently discarded.
   const moveToPosition = () => {
     if (isManagedCustomDictionary(entry)) return;
     const currentIndex = dictionaries.findIndex((candidate) => candidate.id === entry.id);
     const minimumIndex = isManagedCustomDictionary(dictionaries[0]) ? 1 : 0;
-    const target = Number(position.value);
-    if (Number.isInteger(target)
-        && target >= minimumIndex + 1
-        && target <= dictionaries.length) {
-      moveDictionary(entry.id, { position: target });
-    } else {
+    const requested = Number(position.value);
+    if (position.value.trim() === "" || !Number.isInteger(requested)) {
       position.value = String(currentIndex + 1);
+      return;
     }
+    const target = Math.min(dictionaries.length, Math.max(minimumIndex + 1, requested));
+    position.value = String(target);
+    moveDictionary(entry.id, { position: target });
   };
   position.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -3414,9 +3418,7 @@ async function flushOptionsUntilIdle() {
 
 function renderMiningCapabilityHelp() {
   element("audio-mining-help").hidden = MINING_CAPABILITIES.browserSpeech;
-  element("audio-speech-capture-help").hidden = !MINING_CAPABILITIES.browserSpeech
-    || MINING_CAPABILITIES.embeddedSpeechCapture;
-  element("audio-embedded-speech-capture-help").hidden = !MINING_CAPABILITIES.embeddedSpeechCapture;
+  element("audio-speech-capture-help").hidden = !MINING_CAPABILITIES.browserSpeech;
   element("media-overlay-help").hidden = HOST_CAPABILITIES.mediaCapture;
 }
 

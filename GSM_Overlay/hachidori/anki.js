@@ -14,6 +14,37 @@ export function isUndispatchedAnkiTransportError(error) {
   return error instanceof AnkiTransportError && error.dispatched === false;
 }
 
+// Every AnkiConnect API-v6 reply, including each sub-action reply inside a
+// `multi` batch, is exactly `{ result, error }` with a string or null error.
+const isEnvelope = payload => payload !== null && typeof payload === "object" && !Array.isArray(payload)
+  && Object.keys(payload).length === 2 && Object.hasOwn(payload, "result") && Object.hasOwn(payload, "error")
+  && (payload.error === null || typeof payload.error === "string");
+const invalidResponse = () => new Error("AnkiConnect returned an invalid response. Check the add-on and retry.");
+function unwrap(reply) {
+  if (reply.error !== null) {
+    throw new Error(/api key/iu.test(reply.error)
+      ? "AnkiConnect requires a valid API key. Enter the key from its add-on configuration."
+      : `AnkiConnect: ${reply.error}`);
+  }
+  return reply.result;
+}
+
+// Unwraps the sub-action replies of one `invoke("multi", …)` result, throwing
+// the first sub-action failure the way a direct request would.
+export function ankiMultiResults(replies) {
+  return replies.map(unwrap);
+}
+
+function names(action, reply) {
+  const result = unwrap(reply);
+  if (!Array.isArray(result) || result.some(name => typeof name !== "string" || name.trim() === "")) {
+    throw new Error(`AnkiConnect returned an invalid ${action} list.`);
+  }
+  // Exact names remain authoritative; model field order determines Anki's
+  // required first field. Never sort the returned list or truncate it.
+  return [...new Set(result)];
+}
+
 // GSM PR #549's API-v6 discovery, adapted to the MV3 worker. AnkiConnect
 // handles requests through Anki's UI loop, so each endpoint gets a small,
 // bounded set of transport lanes. Four lanes let a replacement Settings check
@@ -49,14 +80,8 @@ export function createAnkiGateway({ fetch = globalThis.fetch, timeoutMs = 10_000
         : `AnkiConnect returned HTTP ${response.status}.`);
       const payload = await response.json().catch(() => null);
       if (controller.signal.aborted) throw interrupted();
-      if (!payload || Object.keys(payload).length !== 2 || !Object.hasOwn(payload, "result")
-          || !Object.hasOwn(payload, "error") || (payload.error !== null && typeof payload.error !== "string")) {
-        throw new Error("AnkiConnect returned an invalid response. Check the add-on and retry.");
-      }
-      if (payload.error !== null) throw new Error(/api key/iu.test(payload.error)
-        ? "AnkiConnect requires a valid API key. Enter the key from its add-on configuration."
-        : `AnkiConnect: ${payload.error}`);
-      return payload.result;
+      if (!isEnvelope(payload)) throw invalidResponse();
+      return unwrap(payload);
     } finally {
       clearTimeout(timer);
       queue.controllers.delete(controller);
@@ -116,30 +141,47 @@ export function createAnkiGateway({ fetch = globalThis.fetch, timeoutMs = 10_000
     });
   }
 
+  // AnkiConnect's socket is polled on a timer, so every request costs one poll
+  // interval regardless of content and parallel requests serialise. A `multi`
+  // batch pays that once. AnkiConnect runs each sub-action through its ordinary
+  // handler, which checks the API key and picks the reply shape per sub-action,
+  // so every sub-action is bound to this conversation's key and API v6 here and
+  // the reply is an array of `{ result, error }` envelopes in request order.
   async function invoke(action, params, apiKey, requestTimeoutMs = timeoutMs,
     endpoint = globalThis.HDReaderOptions.DEFAULT_OPTIONS.anki.url) {
     const url = globalThis.HDReaderOptions.normaliseAnkiConnectUrl(endpoint);
     if (url === null) throw new Error("Enter a valid HTTP or HTTPS AnkiConnect URL in Settings, without a username or password.");
-    const body = JSON.stringify({ action, version: 6, params, ...(apiKey ? { key: apiKey } : {}) });
-    return enqueue({ url, body, requestTimeoutMs });
-  }
-
-  async function names(action, params, apiKey, url) {
-    const result = await invoke(action, params, apiKey, undefined, url);
-    if (!Array.isArray(result) || result.some(name => typeof name !== "string" || name.trim() === "")) {
-      throw new Error(`AnkiConnect returned an invalid ${action} list.`);
+    const key = apiKey ? { key: apiKey } : {};
+    // Sub-actions are rebuilt from their action and params so nothing else a
+    // caller passes reaches the wire.
+    const actions = action === "multi"
+      ? params.actions.map(entry => ({ action: entry.action, params: entry.params, version: 6, ...key })) : null;
+    const body = JSON.stringify({ action, version: 6, params: actions ? { actions } : params, ...key });
+    const result = await enqueue({ url, body, requestTimeoutMs });
+    if (actions && (!Array.isArray(result) || result.length !== actions.length || !result.every(isEnvelope))) {
+      throw invalidResponse();
     }
-    // Exact names remain authoritative; model field order determines Anki's
-    // required first field. Never sort the returned list or truncate it.
-    return [...new Set(result)];
+    return result;
   }
 
+  // One round trip: decks, note types and, speculatively, the configured note
+  // type's fields. The field reply is ignored when that note type is absent.
   async function discover({ model, apiKey = "", url }) {
     const errors = [];
     let connected = false;
-    async function read(action, params = {}) {
+    let replies;
+    try {
+      replies = await invoke("multi", { actions: [
+        { action: "deckNames", params: {} },
+        { action: "modelNames", params: {} },
+        { action: "modelFieldNames", params: { modelName: model } },
+      ] }, apiKey, undefined, url);
+    } catch (error) {
+      return { connected, model, decks: [], models: [], fields: [], errors: [error.message] };
+    }
+    function read(action, reply) {
       try {
-        const result = await names(action, params, apiKey, url);
+        const result = names(action, reply);
         connected = true;
         return result;
       } catch (error) {
@@ -147,8 +189,9 @@ export function createAnkiGateway({ fetch = globalThis.fetch, timeoutMs = 10_000
         return [];
       }
     }
-    const [decks, models] = await Promise.all([read("deckNames"), read("modelNames")]);
-    const fields = models.includes(model) ? await read("modelFieldNames", { modelName: model }) : [];
+    const decks = read("deckNames", replies[0]);
+    const models = read("modelNames", replies[1]);
+    const fields = models.includes(model) ? read("modelFieldNames", replies[2]) : [];
     return { connected, model, decks, models, fields, errors };
   }
   return { discover, invoke };

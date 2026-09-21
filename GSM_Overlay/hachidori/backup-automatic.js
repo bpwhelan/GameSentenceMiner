@@ -1,4 +1,4 @@
-// Two local automatic snapshots using the complete manual-backup payload.
+// Local daily automatic snapshots using the complete manual-backup payload.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { assertLookupStatsRows } from "./lookup-stats.js";
 import { assertBackupSnapshot } from "./backup-state.js";
@@ -6,7 +6,6 @@ import { assertBackupSnapshot } from "./backup-state.js";
 export const AUTOMATIC_BACKUPS_KEY = "automaticBackups";
 export const AUTOMATIC_BACKUP_ALARM = "hachidori-automatic-backup";
 export const AUTOMATIC_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
-export const AUTOMATIC_BACKUP_LIMIT = 2;
 export const AUTOMATIC_BACKUP_SCHEMA_VERSION = 1;
 
 export function emptyAutomaticBackupStore() {
@@ -91,7 +90,10 @@ export async function validAutomaticBackups(value) {
   return { backups, corruptCount };
 }
 
-export async function replaceAutomaticBackup(value, record) {
+// `limit` is the user's `automaticBackupDays` option: one snapshot per day, so
+// the retained count is the number of days kept. A lowered limit prunes when
+// the next snapshot is written, not when the option changes.
+export async function replaceAutomaticBackup(value, record, limit) {
   await assertAutomaticBackupRecord(record);
   const { backups } = await validAutomaticBackups(value);
   const retained = backups.filter(candidate => candidate.id !== record.id);
@@ -99,7 +101,7 @@ export async function replaceAutomaticBackup(value, record) {
   retained.sort(newestFirst);
   return {
     schemaVersion: AUTOMATIC_BACKUP_SCHEMA_VERSION,
-    backups: retained.slice(0, AUTOMATIC_BACKUP_LIMIT),
+    backups: retained.slice(0, limit),
   };
 }
 

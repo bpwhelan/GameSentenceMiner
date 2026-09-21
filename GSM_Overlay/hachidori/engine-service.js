@@ -1,3 +1,4 @@
+import { encodeBase64 } from "./base64.js";
 import {
   httpsUrl,
   assertRecommendedDictionary,
@@ -67,7 +68,6 @@ const MAX_MEDIA_DICTIONARY_BYTES = 1024;
 const MAX_MEDIA_PATH_BYTES = 4 * 1024;
 const UTF8 = new TextEncoder();
 
-const BASE64_CHUNK = 0x8000;
 const MEDIA_TYPES = {
   avif: "image/avif",
   webp: "image/webp",
@@ -275,7 +275,89 @@ function syncfs(populate) {
 
 async function persistFilesystem() {
   if (storageBackend === "idbfs") {
+    // Trim first: IDBFS stores each file as a view of its array, and a
+    // structured clone of a view carries the whole backing buffer.
+    trimMemfsFiles(DICT_ROOT);
     await syncfs(false);
+  }
+}
+
+// The classic FS keeps every file as a JavaScript array that grows by 12.5% per
+// write once it passes 1 MiB, so streaming an 80 MB blobs.bin copies about nine
+// times its size (expandFileStorage was 340 ms of a Jitendex import in
+// Electron). Doubling instead copies about twice its size; the slack is given
+// back by trimMemfsFiles before the import is persisted.
+function speedUpMemfsGrowth() {
+  const memfs = engine.FS?.filesystems?.MEMFS;
+  if (typeof memfs?.expandFileStorage !== "function"
+      || typeof memfs.getFileDataAsTypedArray !== "function") {
+    return;
+  }
+  memfs.expandFileStorage = (node, newCapacity) => {
+    const prevCapacity = node.contents.length;
+    if (prevCapacity >= newCapacity) return;
+    const capacity = Math.max(newCapacity, prevCapacity * 2, 256) >>> 0;
+    const oldContents = memfs.getFileDataAsTypedArray(node);
+    node.contents = new Uint8Array(capacity);
+    node.contents.set(oldContents);
+  };
+}
+
+// IDBFS persists each file as an IndexedDB record whose `contents` is a
+// Uint8Array. Chromium serialises such a value through the renderer on every
+// put and deserialises it on every get, and the cost grew with the size of the
+// database (Electron: 400, 630 and 880 ms for three imports of 70–100 MB).
+// A Blob value is handed to the browser's blob storage once and read back with
+// one copy; the same three imports persist in 230, 280 and 340 ms, and restart
+// to ready loses about 300 ms. Files under 1 MiB stay arrays. Records of either
+// shape load; Blobs are only written where FileReaderSync can read them back.
+const IDBFS_BLOB_THRESHOLD = 1024 * 1024;
+
+function storeLargeIdbfsFilesAsBlobs() {
+  const idbfs = engine.FS?.filesystems?.IDBFS;
+  if (typeof idbfs?.storeRemoteEntry !== "function" || typeof idbfs.loadRemoteEntry !== "function"
+      || typeof FileReaderSync !== "function" || typeof Blob !== "function") {
+    return;
+  }
+  const storeRemoteEntry = idbfs.storeRemoteEntry;
+  const loadRemoteEntry = idbfs.loadRemoteEntry;
+  idbfs.storeRemoteEntry = (store, path, entry, callback) => {
+    if (entry?.contents instanceof Uint8Array && entry.contents.byteLength >= IDBFS_BLOB_THRESHOLD) {
+      entry = { ...entry, contents: new Blob([entry.contents]) };
+    }
+    return storeRemoteEntry(store, path, entry, callback);
+  };
+  idbfs.loadRemoteEntry = (store, path, callback) => loadRemoteEntry(store, path, (error, entry) => {
+    if (!error && entry?.contents instanceof Blob) {
+      try {
+        entry.contents = new Uint8Array(new FileReaderSync().readAsArrayBuffer(entry.contents));
+      } catch (readError) {
+        callback(readError);
+        return;
+      }
+    }
+    callback(error, entry);
+  });
+}
+
+// Reallocate over-allocated classic-FS files under `root` to their exact size.
+function trimMemfsFiles(root) {
+  let node;
+  try {
+    node = engine.FS.lookupPath(root).node;
+  } catch {
+    return;
+  }
+  const stack = [node];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (engine.FS.isDir(current.mode)) {
+      for (const child of Object.values(current.contents ?? {})) stack.push(child);
+    } else if (engine.FS.isFile(current.mode)
+        && current.contents instanceof Uint8Array
+        && current.contents.length > current.usedBytes) {
+      current.contents = current.contents.slice(0, current.usedBytes);
+    }
   }
 }
 
@@ -1158,6 +1240,8 @@ async function boot() {
     loadedPackages = null;
     verifiedPackages.clear();
     if (storageBackend === "idbfs") {
+      speedUpMemfsGrowth();
+      storeLargeIdbfsFilesAsBlobs();
       if (!exists(DICT_ROOT)) {
         engine.FS.mkdir(DICT_ROOT);
       }
@@ -1553,14 +1637,6 @@ function rollbackImportedGeneration(generationRoot, failure) {
   return rollbackImportedGenerations([generationRoot], failure);
 }
 
-function toBase64(bytes) {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + BASE64_CHUNK));
-  }
-  return btoa(binary);
-}
-
 function mediaType(path) {
   const dot = path.lastIndexOf(".");
   const extension = dot < 0 ? "" : path.slice(dot + 1).toLowerCase();
@@ -1661,7 +1737,21 @@ function writeFileBytes(FS, path, data) {
 // The stream is collected and written once; the importer maps the whole file
 // into the heap anyway, so holding the bytes in JavaScript until the stream ends
 // does not change the largest archive that can be imported.
-export async function streamResponseToFile(FS, response, path, onProgress = null) {
+function concatenateParts(parts, byteLength) {
+  if (parts.length === 1) {
+    return parts[0];
+  }
+  const data = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const part of parts) {
+    data.set(part, offset);
+    offset += part.byteLength;
+  }
+  parts.length = 0;
+  return data;
+}
+
+async function collectResponse(response, onProgress = null) {
   const parts = [];
   let byteLength = 0;
   await consumeResponse(
@@ -1672,37 +1762,31 @@ export async function streamResponseToFile(FS, response, path, onProgress = null
     },
     onProgress,
   );
-  let data;
-  if (parts.length === 1) {
-    data = parts[0];
-  } else {
-    data = new Uint8Array(byteLength);
-    let offset = 0;
-    for (const part of parts) {
-      data.set(part, offset);
-      offset += part.byteLength;
-    }
-    parts.length = 0;
+  return { bytes: concatenateParts(parts, byteLength), byteLength };
+}
+
+// `source` is a Response, or bytes already collected by stageImportArchive.
+export async function streamResponseToFile(FS, source, path, onProgress = null) {
+  if (source instanceof Uint8Array) {
+    writeFileBytes(FS, path, source);
+    return source.byteLength;
   }
-  writeFileBytes(FS, path, data);
+  const { bytes, byteLength } = await collectResponse(source, onProgress);
+  writeFileBytes(FS, path, bytes);
   return byteLength;
 }
 
+// The archive is collected into one buffer outside the engine's serialised
+// section and handed to the import as-is. Staging it as a Blob instead cost
+// three more copies of the archive (chunk slices, the Blob, and reading the
+// Blob back) for about 70 ms on a Jitendex import, and the concatenated buffer
+// exists on the import path either way.
 export async function stageImportArchive(response, onProgress = null) {
-  const parts = [];
-  const byteLength = await consumeResponse(
-    response,
-    (bytes) => parts.push(bytes.slice()),
-    onProgress,
-  );
-  return {
-    blob: new Blob(parts, { type: "application/zip" }),
-    byteLength,
-  };
+  return collectResponse(response, onProgress);
 }
 
 async function importDictionaryArchive(
-  response,
+  archiveSource,
   archivePath,
   generationRoot,
   importLowRam,
@@ -1711,7 +1795,7 @@ async function importDictionaryArchive(
 ) {
   const FS = engine.FS;
   try {
-    const archiveBytes = await streamResponseToFile(FS, response, archivePath);
+    const archiveBytes = await streamResponseToFile(FS, archiveSource, archivePath);
     if (archiveBytes === 0) {
       throw new Error(`${fileName} is empty`);
     }
@@ -1936,7 +2020,7 @@ async function fetchImportArchive(request) {
 }
 
 async function runImportTransaction(
-  response,
+  archiveSource,
   fileName,
   importLowRam,
   commit,
@@ -1957,7 +2041,7 @@ async function runImportTransaction(
   let rollbackAttempted = false;
   try {
     report = await importDictionaryArchive(
-      response,
+      archiveSource,
       archivePath,
       generationRoot,
       importLowRam,
@@ -2597,7 +2681,7 @@ const HANDLERS = {
     }
     // Read HEAPU8 through the module: memory growth swaps the view out.
     const bytes = engine.HEAPU8.subarray(pointer, pointer + length);
-    return { dataUrl: `data:${mediaType(path)};base64,${toBase64(bytes)}` };
+    return { dataUrl: `data:${mediaType(path)};base64,${encodeBase64(bytes)}` };
   },
 
   async hd_custom_save(message) {
@@ -2674,7 +2758,7 @@ const HANDLERS = {
           totalBytes: staged.byteLength,
         });
         const report = await runImportTransaction(
-          new Response(staged.blob),
+          staged.bytes,
           fileName,
           importLowRam,
           (generationRoot, importedReport) =>

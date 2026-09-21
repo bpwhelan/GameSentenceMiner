@@ -43,7 +43,6 @@ export async function resolveSpeech(window, source, term, signal) {
   return {
     speech,
     utterance,
-    voice,
     candidate: { name: voice.name, text, voice: source.voice, index: 0 },
   };
 }

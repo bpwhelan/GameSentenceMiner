@@ -311,7 +311,6 @@ export function createAnkiMiningService({
       ...prepared,
       target,
       appliedFields: fields,
-      appliedTemplates: templates,
       capture,
     });
     // Failed media can restore a field's original value after preparation.

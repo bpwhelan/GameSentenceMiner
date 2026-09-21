@@ -3445,7 +3445,7 @@
                   }
                 );
               } catch (error) {
-                throw structuredContentRenderError(error, {
+                const contextual = structuredContentRenderError(error, {
                   definitionIndex,
                   dictionary,
                   dictionaryId: dictionaryStableId(
@@ -3455,6 +3455,13 @@
                   resultIndex,
                   term: result.term,
                 });
+                // A dictionary-authored glossary that exhausts the traversal
+                // budget must not hide healthy cards from the same lookup.
+                // Unexpected renderer failures still use the view-wide error
+                // boundary so programming errors are not silently swallowed.
+                if (contextual === error) throw error;
+                content.replaceChildren();
+                console.warn("hachidori: omitted dictionary definition after render failure", contextual);
               }
             };
             // Glossary bodies are most of a render. Only the first entry is
