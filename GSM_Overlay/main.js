@@ -49,13 +49,6 @@ const {
   hasLoadedHachidoriExtension,
 } = require('./hachidori_external_links');
 const {
-  installHachidoriSpeechCapture,
-} = require('./hachidori_speech_capture');
-const {
-  HACHIDORI_SPEECH_SYNTHESIS_CHANNEL,
-  createHachidoriSpeechSynthesisHandler,
-} = require('./hachidori_speech_synthesis');
-const {
   OVERLAY_SETTINGS_READY_CHANNEL,
   createOverlaySettingsReadyHandler,
 } = require('./overlay_settings_delivery');
@@ -766,9 +759,7 @@ let yomitanExt;
 let hachidoriExt;
 let dictionaryReader = DICTIONARY_READER_YOMITAN;
 let hachidoriEngineWindow = null;
-let hachidoriSpeechCaptureWindow = null;
 let hachidoriOwnedEngineWatcherInstalled = false;
-let uninstallHachidoriSpeechCapture = null;
 let jitenReaderExt;
 
 // Chromium's session.fetch can terminate the standalone Electron process on
@@ -3520,47 +3511,6 @@ async function createHachidoriEngineWindow() {
     console.error('[Hachidori] Failed to host offscreen.html:', error);
     if (!engineWindow.isDestroyed()) {
       engineWindow.destroy();
-    }
-    return false;
-  }
-}
-
-async function createHachidoriSpeechCaptureWindow() {
-  if (!hachidoriExt) {
-    return false;
-  }
-  if (hachidoriSpeechCaptureWindow && !hachidoriSpeechCaptureWindow.isDestroyed()) {
-    return true;
-  }
-
-  const captureWindow = new BrowserWindow({
-    show: false,
-    width: 1,
-    height: 1,
-    skipTaskbar: true,
-    webPreferences: {
-      session: getOverlaySession(),
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'hachidori_speech_preload.js'),
-      backgroundThrottling: false,
-    },
-  });
-  hachidoriSpeechCaptureWindow = captureWindow;
-  captureWindow.on('closed', () => {
-    if (hachidoriSpeechCaptureWindow === captureWindow) {
-      hachidoriSpeechCaptureWindow = null;
-    }
-  });
-
-  try {
-    await captureWindow.loadURL(`chrome-extension://${hachidoriExt.id}/speech-capture.html`);
-    console.log(`[Hachidori] Speech capture host ready (${hachidoriExt.id}).`);
-    return true;
-  } catch (error) {
-    console.error('[Hachidori] Failed to host speech-capture.html:', error);
-    if (!captureWindow.isDestroyed()) {
-      captureWindow.destroy();
     }
     return false;
   }
@@ -6855,22 +6805,6 @@ async function startOverlayAppImpl() {
     hachidoriExt = await loadExtension('hachidori');
     try { fs.writeFileSync(hachidoriCommitPath, JSON.stringify({ commit: currentCommit })); } catch {}
     if (hachidoriExt) {
-      if (fs.existsSync(path.join(hachidoriExtDir, 'speech-capture.html'))) {
-        uninstallHachidoriSpeechCapture?.();
-        uninstallHachidoriSpeechCapture = installHachidoriSpeechCapture(getOverlaySession(), {
-          getExtensionId: () => hachidoriExt?.id || '',
-          getCaptureFrame: () => (
-            hachidoriSpeechCaptureWindow?.isDestroyed() === false
-              ? hachidoriSpeechCaptureWindow.webContents.mainFrame
-              : null
-          ),
-          isHachidoriActive: () => (
-            dictionaryReader === DICTIONARY_READER_HACHIDORI
-            && hasLoadedHachidoriExtension(hachidoriExt)
-          ),
-        });
-        await createHachidoriSpeechCaptureWindow();
-      }
       await createHachidoriEngineWindow();
     }
   }
@@ -7313,14 +7247,6 @@ async function startOverlayAppImpl() {
       && hasLoadedHachidoriExtension(hachidoriExt)
     ),
     openExternal: (url) => electron.shell.openExternal(url),
-  }));
-  ipcMain.handle(HACHIDORI_SPEECH_SYNTHESIS_CHANNEL, createHachidoriSpeechSynthesisHandler({
-    getCaptureWindow: () => hachidoriSpeechCaptureWindow,
-    getExtensionId: () => hachidoriExt?.id || '',
-    isHachidoriActive: () => (
-      dictionaryReader === DICTIONARY_READER_HACHIDORI
-      && hasLoadedHachidoriExtension(hachidoriExt)
-    ),
   }));
   ipcMain.on(OVERLAY_SETTINGS_READY_CHANNEL, createOverlaySettingsReadyHandler({
     getMainWindow: () => mainWindow,
@@ -8612,10 +8538,6 @@ async function stopOverlayApp() {
       appHotkeyInputServerConnection.registry.clear();
       runOverlayCleanupStep('background tasks', () => bg.reset());
       runOverlayCleanupStep('pomodoro timer', () => clearPomodoroTicker());
-      runOverlayCleanupStep('Hachidori speech capture', () => {
-        uninstallHachidoriSpeechCapture?.();
-        uninstallHachidoriSpeechCapture = null;
-      });
 
       if (tray) {
         runOverlayCleanupStep('tray', () => tray.destroy());
@@ -8635,7 +8557,6 @@ async function stopOverlayApp() {
       settingsWindow = null;
       yomitanSettingsWindow = null;
       hachidoriEngineWindow = null;
-      hachidoriSpeechCaptureWindow = null;
       jitenReaderSettingsWindow = null;
       offsetHelperWindow = null;
       texthookerWindow = null;
