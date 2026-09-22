@@ -215,10 +215,9 @@ export class SocketConnection {
 							revision: Number(item.revision ?? 1),
 							recordState: item.state,
 						})),
-					requestedIds: lineData$
-						.getValue()
-						.filter((line) => line.gsmSessionId === sessionId)
-						.map((line) => line.id),
+					// A v2 snapshot covers only the retained replay window, not all
+					// persisted history. Missing local IDs must not be deleted.
+					requestedIds: [],
 				});
 				return;
 			}
