@@ -200,7 +200,9 @@ describe('live stats text overlap avoidance', () => {
       'createCheckboxBinding("hideLiveStatsOnTextOverlap", "#hideLiveStatsOnTextOverlap")',
     );
     expect(mainSource).toContain('"hideLiveStatsOnTextOverlap": true');
-    expect(overlayHtml).toContain('handleTextBoundsUpdate(renderedTextBounds)');
+    expect(overlayHtml).toMatch(
+      /handleTextBoundsUpdate\(\s*renderedTextBoxes\.map\(box => box\.getBoundingClientRect\(\)\)\s*\)/,
+    );
   });
 
   it('stays hidden after an overlap until a later non-overlapping text event', () => {
