@@ -3,7 +3,8 @@
 # Run this script from the repo root after restoring the texthook binaries
 # (e.g. git stash pop, or copying them back from a local build).
 # It computes SHA-256 hashes for every file in electron-src/assets/texthook/
-# and writes the manifest.json that you upload to S3.
+# and writes texthook_manifest.json for R2. The GitHub fallback is generated
+# separately from a published Git revision (see next steps below).
 #
 # Usage:
 #   cd C:\path\to\GameSentenceMiner
@@ -49,7 +50,9 @@ Write-Host ""
 Write-Host "Manifest written to: $OutFile"
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  1. Upload $OutFile to s3://your-bucket/texthook/manifest.json (public-read)"
+Write-Host "  1. Upload $OutFile to s3://your-bucket/texthook/texthook_manifest.json (public-read)"
 Write-Host "  2. Upload each file from electron-src/assets/texthook/ to s3://your-bucket/texthook/<path>"
 Write-Host "     keeping the same relative directory structure."
-Write-Host "  3. Verify: curl https://r2.gamesentenceminer.com/texthook/manifest.json"
+Write-Host "  3. Verify: curl https://r2.gamesentenceminer.com/texthook/texthook_manifest.json"
+Write-Host "  4. Commit/publish the manifest and binaries, then refresh the bundled backup:"
+Write-Host "     node scripts/generate-texthook-fallback.mjs <published-git-ref>"
