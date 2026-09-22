@@ -244,6 +244,23 @@ describe('App install-session integration', () => {
         (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
     });
 
+    it('makes anonymization visible on the log export action', async () => {
+        const { default: App } = await import('./App.js');
+        await act(async () => {
+            root.render(<App />);
+        });
+        const exportButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Export Anonymized Logs'
+        );
+        expect(exportButton).toBeDefined();
+        expect(exportButton?.title).toContain('redacted');
+        expect(exportButton?.title).toContain('Original logs are unchanged');
+        await act(async () => {
+            exportButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        expect(invokeMock).toHaveBeenCalledWith('logs.export');
+    });
+
     it('loads the stats tab from the configured GSM single port', async () => {
         const fetchMock = vi.fn(async () => ({ ok: true }));
         vi.stubGlobal('fetch', fetchMock);

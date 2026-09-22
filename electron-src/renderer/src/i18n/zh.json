@@ -150,8 +150,8 @@
     "console": {
       "openLogsFolder": "打开日志文件夹",
       "openLogsFolderTooltip": "打开日志文件夹",
-      "exportLogs": "导出日志",
-      "exportLogsTooltip": "将日志导出为 zip 压缩包",
+      "exportLogs": "导出匿名化日志",
+      "exportLogsTooltip": "导出 ZIP 前，自动隐藏检测到的用户名、主目录路径、计算机名、电子邮件/IP 地址及常见凭据。原始日志保持不变。分享前请检查内容。",
       "modeSimple": "模式：简单",
       "modeAdvanced": "模式：高级",
       "modeSimpleTooltip": "切换到高级日志（显示基本和后台日志）",

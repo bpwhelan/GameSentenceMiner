@@ -157,8 +157,8 @@
     "console": {
       "openLogsFolder": "ログフォルダを開く",
       "openLogsFolderTooltip": "ログフォルダを開く",
-      "exportLogs": "ログをエクスポート",
-      "exportLogsTooltip": "ログをzipアーカイブにエクスポート",
+      "exportLogs": "匿名化したログをエクスポート",
+      "exportLogsTooltip": "検出されたユーザー名、ホームパス、コンピューター名、メール・IPアドレス、一般的な認証情報を伏せたZIPを出力します。元のログは変更されません。共有前に内容を確認してください。",
       "modeSimple": "モード: シンプル",
       "modeAdvanced": "モード: 詳細",
       "modeSimpleTooltip": "詳細ログに切替（基本＋バックグラウンドログを表示）",
