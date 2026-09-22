@@ -517,7 +517,9 @@ def _build_field_grouping_note(
             if normalized_order == FIELD_GROUPING_ORDER_FRONT
             else [grouped_target, grouped_source]
         )
-        merged_fields[field_name] = "\n".join(value for value in ordered_values if value)
+        # Separators outside data-group-id elements become an empty Kiku context;
+        # sentence newline normalization would turn a separator newline into <br>.
+        merged_fields[field_name] = "".join(ordered_values)
 
     return {"id": target_note_id, "fields": merged_fields}
 

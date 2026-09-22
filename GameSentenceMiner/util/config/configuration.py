@@ -1021,7 +1021,7 @@ class Features:
     full_auto: bool = True
     notify_on_update: bool = True
     open_anki_edit: bool = False
-    open_anki_in_browser: bool = True
+    open_anki_in_browser: bool = False
     browser_query: str = ""
     generate_longplay: bool = False
 

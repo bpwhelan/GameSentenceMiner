@@ -363,23 +363,22 @@ def test_build_field_grouping_note_groups_images_and_context_fields_at_front():
     assert merged == {
         "id": 100,
         "fields": {
-            "Picture": '<img data-group-id="200" src="new.webp">\n<img data-group-id="100" src="old.webp">',
+            "Picture": '<img data-group-id="200" src="new.webp"><img data-group-id="100" src="old.webp">',
             "Sentence": (
-                '<span data-group-id="200">confirmed new sentence</span>\n'
+                '<span data-group-id="200">confirmed new sentence</span>'
                 '<span data-group-id="90">older sentence</span>'
                 '<span data-group-id="100">original sentence</span>'
             ),
             "SentenceAudio": (
-                '<span data-group-id="200">[sound:new.mp3]</span>\n<span data-group-id="100">[sound:old.mp3]</span>'
+                '<span data-group-id="200">[sound:new.mp3]</span><span data-group-id="100">[sound:old.mp3]</span>'
             ),
             "SentenceFurigana": (
-                '<span data-group-id="200">new furigana</span>\n<span data-group-id="100">old furigana</span>'
+                '<span data-group-id="200">new furigana</span><span data-group-id="100">old furigana</span>'
             ),
             "SentenceTranslation": (
-                '<span data-group-id="200">confirmed translation</span>\n'
-                '<span data-group-id="100">old translation</span>'
+                '<span data-group-id="200">confirmed translation</span><span data-group-id="100">old translation</span>'
             ),
-            "MiscInfo": ('<span data-group-id="200">new info</span>\n<span data-group-id="100">old info</span>'),
+            "MiscInfo": ('<span data-group-id="200">new info</span><span data-group-id="100">old info</span>'),
         },
     }
 
@@ -431,7 +430,7 @@ def test_build_field_grouping_note_places_new_context_after_every_existing_group
 
     assert merged["fields"]["Sentence"] == (
         '<span data-group-id="90">older</span>'
-        '<span data-group-id="100">original</span>\n'
+        '<span data-group-id="100">original</span>'
         '<span data-group-id="89">new</span>'
     )
 
@@ -484,8 +483,7 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
                     "id": 100,
                     "fields": {
                         "Sentence": (
-                            '<span data-group-id="200">confirmed new</span><br>'
-                            '<span data-group-id="100">original</span>'
+                            '<span data-group-id="200">confirmed new</span><span data-group-id="100">original</span>'
                         )
                     },
                 }
@@ -495,6 +493,65 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
         ("deleteNotes", {"notes": [200]}),
     ]
     assert anki.previous_note_ids == {100}
+
+
+@pytest.mark.parametrize("order", ["front", "back"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"], ids=["lf", "crlf", "cr"])
+def test_repeated_field_grouping_merges_keep_line_breaks_inside_contexts(monkeypatch, order, newline):
+    config = _base_config()
+    config.anki.sentence_furigana_field = "SentenceFurigana"
+    config.anki.field_grouping_additional_fields = ["SentenceTranslation", "MiscInfo"]
+
+    def context_fields(label):
+        return {
+            "Picture": f'<img src="{label}.webp">',
+            "Sentence": f"{label} first{newline}<b>{label} second</b><br>{label} third",
+            "SentenceFurigana": f"{label} first{newline}<ruby>漢字<rt>かんじ</rt></ruby>",
+            "SentenceAudio": f"[sound:{label}.mp3]",
+            "SentenceTranslation": f"{label} translation",
+            "MiscInfo": f"{label} info",
+        }
+
+    target = {"noteId": 100, "fields": context_fields("original")}
+    updates = []
+
+    def fake_invoke(action, **kwargs):
+        if action == "notesInfo":
+            return [target]
+        if action == "updateNoteFields":
+            updates.append(kwargs["note"])
+            target["fields"] = kwargs["note"]["fields"]
+            return None
+        raise AssertionError(action)
+
+    monkeypatch.setattr(anki, "invoke", fake_invoke)
+    contexts = [(100, "original")]
+    for note_id, label in [(200, "new"), (300, "newest")]:
+        source_fields = context_fields(label)
+        source = SimpleNamespace(noteId=note_id, get_field=source_fields.get)
+        anki._apply_field_grouping_merge(
+            source,
+            {"fields": {}},
+            [],
+            {"target_note_id": 100, "order": order, "delete_duplicate": False},
+            config,
+        )
+
+        if order == "front":
+            contexts.insert(0, (note_id, label))
+        else:
+            contexts.append((contexts[-1][0] - 1, label))
+        expected_fields = {name: "" for name in source_fields}
+        for group_id, context_label in contexts:
+            for name, value in context_fields(context_label).items():
+                if name == "Picture":
+                    expected_fields[name] += f'<img data-group-id="{group_id}" src="{context_label}.webp">'
+                else:
+                    value = value.replace(newline, "<br>")
+                    expected_fields[name] += f'<span data-group-id="{group_id}">{value}</span>'
+        assert updates[-1] == {"id": 100, "fields": expected_fields}
+
+    assert len(updates) == 2
 
 
 def test_normalize_for_signature_uses_html_strip_and_text_normalization(monkeypatch):

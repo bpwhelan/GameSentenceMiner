@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import importlib.resources as resources
+from importlib import resources
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
@@ -15,12 +16,13 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from typing import TYPE_CHECKING
 
+from GameSentenceMiner.ui.config.anki_setup import open_recommended_anki_setup
 from GameSentenceMiner.ui.config.safety import safe_config_call, safe_config_callback
-from ..labels import LabelColor
 from GameSentenceMiner.util.config.configuration import PACKAGE_NAME
 from GameSentenceMiner.util.docs import DOCS_URLS
+
+from ..labels import LabelColor
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
@@ -113,6 +115,11 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.update_anki_check,
     )
     layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "url"), window.anki_url_edit)
+    window.anki_recommended_setup_button = QPushButton("Set up recommended cards: Lapis, Kiku, Senren…")
+    window.anki_recommended_setup_button.clicked.connect(
+        safe_config_callback(lambda: open_recommended_anki_setup(window), name="anki.recommended_setup")
+    )
+    layout.addRow(window.anki_recommended_setup_button)
     layout.addRow(
         QLabel("Documentation:"),
         window._create_docs_links_widget([("Anki Guide", DOCS_URLS["anki_enhancement"])]),

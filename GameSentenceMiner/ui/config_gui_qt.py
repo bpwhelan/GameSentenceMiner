@@ -48,6 +48,7 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.ui import window_state_manager, WindowId
 
 # Config UI modules
+from GameSentenceMiner.ui.config.anki_setup import offer_recommended_field_mappings
 from GameSentenceMiner.ui.config.binding import BindingManager, ValueTransform
 from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
@@ -2658,12 +2659,12 @@ class ConfigWindow(QWidget):
             self.locale_combo.currentIndexChanged.disconnect()
             self.obs_scene_list.itemSelectionChanged.disconnect()
             self.ffmpeg_audio_preset_combo.currentTextChanged.disconnect()
-            self.anki_note_type_combo.currentIndexChanged.disconnect()
+            self.anki_note_type_combo.activated.disconnect()
             self.single_port_edit.editingFinished.disconnect()
             if self.anki_note_type_combo.lineEdit():
                 self.anki_note_type_combo.lineEdit().editingFinished.disconnect()
             if hasattr(self, "req_note_type_combo"):
-                self.req_note_type_combo.currentIndexChanged.disconnect()
+                self.req_note_type_combo.activated.disconnect()
                 if self.req_note_type_combo.lineEdit():
                     self.req_note_type_combo.lineEdit().editingFinished.disconnect()
             if hasattr(self, "anki_fields_refresh_button"):
@@ -2685,10 +2686,10 @@ class ConfigWindow(QWidget):
         self.obs_scene_list.itemSelectionChanged.connect(self._on_obs_scene_selection_changed)
         self.ffmpeg_audio_preset_combo.currentTextChanged.connect(self._on_ffmpeg_preset_changed)
         self.single_port_edit.editingFinished.connect(self._on_single_port_editing_finished)
-        self.anki_note_type_combo.currentIndexChanged.connect(
+        self.anki_note_type_combo.activated.connect(
             safe_config_callback(
                 lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()),
-                name="ConfigWindow.anki_note_type_current_changed",
+                name="ConfigWindow.anki_note_type_selected",
             )
         )
         if self.anki_note_type_combo.lineEdit():
@@ -2699,10 +2700,10 @@ class ConfigWindow(QWidget):
                 )
             )
         if hasattr(self, "req_note_type_combo"):
-            self.req_note_type_combo.currentIndexChanged.connect(
+            self.req_note_type_combo.activated.connect(
                 safe_config_callback(
                     lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText()),
-                    name="ConfigWindow.required_note_type_current_changed",
+                    name="ConfigWindow.required_note_type_selected",
                 )
             )
             if self.req_note_type_combo.lineEdit():
@@ -2986,14 +2987,20 @@ class ConfigWindow(QWidget):
         return fields
 
     def _on_anki_note_type_changed(self, note_type):
-        if self._suppress_anki_field_refresh:
+        if self._suppress_anki_field_refresh or self._autosave_suspended:
             return
-        if note_type == self._last_anki_note_type_refresh:
+        context = (self.settings.name, self.anki_url_edit.text().strip(), note_type)
+        if context == self._last_anki_note_type_refresh:
             return
-        self._last_anki_note_type_refresh = note_type
+        self._last_anki_note_type_refresh = None
         try:
             if note_type:
-                self._refresh_anki_fields_for_model(note_type, preserve_selection=True)
+                fields = self._refresh_anki_fields_for_model(note_type, preserve_selection=True)
+                if fields:
+                    # Mark successful refreshes before showing the prompt: opening it can
+                    # emit editingFinished from the selector, which must not prompt twice.
+                    self._last_anki_note_type_refresh = context
+                    offer_recommended_field_mappings(self, note_type, fields)
         except Exception as e:
             logger.debug(f"Failed to refresh Anki fields for model '{note_type}': {e}")
 
@@ -3204,6 +3211,7 @@ class ConfigWindow(QWidget):
         self.anki_field_grouping_overwrite_check.setChecked(bool(getattr(s.anki, "field_grouping_overwrite", False)))
         self._set_text_value(self.anki_url_edit, s.anki.url)
         self._suppress_anki_field_refresh = True
+        self._last_anki_note_type_refresh = None
         self.anki_note_type_combo.setCurrentText(s.anki.note_type)
         try:
             self._refresh_anki_model_list(preserve_selection=True)
