@@ -1038,7 +1038,8 @@ class ConfigWindow(QWidget):
                     use_vad_filter_for_whisper=self.use_vad_filter_for_whisper_check.isChecked(),
                     preload_vad_model=self.vad_preload_model_check.isChecked(),
                 ),
-                advanced=Advanced(
+                advanced=replace(
+                    self.settings.advanced,
                     audio_player_path=self.audio_player_path_edit.text(),
                     video_player_path=self.video_player_path_edit.text(),
                     multi_line_line_break=self.multi_line_line_break_edit.text(),
@@ -1158,6 +1159,14 @@ class ConfigWindow(QWidget):
                 config.audio.custom_encode_settings = self.audio_ffmpeg_reencode_options_edit.text()
 
             # Perform the save operation
+            from GameSentenceMiner.util.cloud_sync.settings import preserve_synced_settings
+
+            sync_groups = config.advanced.cloud_sync_settings_groups
+            if sync_groups and config.advanced.cloud_sync_protocol == "relay-v2":
+                latest_default = configuration.get_master_config().get_default_config()
+                baseline_default = self.master_config.get_default_config()
+                edited_default = config if self.settings.name == DEFAULT_CONFIG else baseline_default
+                preserve_synced_settings(baseline_default, edited_default, latest_default, sync_groups)
             prev_config = self.master_config.get_config()
             self.master_config.switch_to_default_if_not_found = self.switch_to_default_if_not_found_check.isChecked()
             current_profile_name = target_profile_name or self.settings.name or self.profile_combo.currentText()

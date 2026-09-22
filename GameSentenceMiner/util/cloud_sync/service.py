@@ -1,14 +1,15 @@
+import copy
 import hashlib
-import socket
 import threading
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 import requests
 
 from GameSentenceMiner.util.config.configuration import (
     get_config,
+    get_master_config,
     gsm_state,
     is_gsm_cloud_preview_enabled,
     logger,
@@ -25,12 +26,15 @@ class CloudSyncService:
     _worker_safe_server_changes = 5000
 
     def __init__(self):
+        # A fresh writer identity also handles database backups copied to a
+        # second machine without cloning the conflict-resolution identity.
+        self._writer_id = uuid.uuid4().hex
         self._sync_lock = threading.Lock()
         self._status_lock = threading.Lock()
         self._rollup_lock = threading.Lock()
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-        self._last_result: Dict[str, Any] = {
+        self._thread: threading.Thread | None = None
+        self._last_result: dict[str, Any] = {
             "status": "never_ran",
             "last_started_at": None,
             "last_finished_at": None,
@@ -92,7 +96,7 @@ class CloudSyncService:
             commit=True,
         )
 
-    def _state_get(self, key: str) -> Optional[str]:
+    def _state_get(self, key: str) -> str | None:
         self._ensure_state_table()
         row = GameLinesTable._db.fetchone(
             f"SELECT value FROM {self._state_table} WHERE key=?",
@@ -141,13 +145,11 @@ class CloudSyncService:
         if configured_device_id:
             return configured_device_id
 
-        raw_identity = f"{uuid.getnode()}|{socket.gethostname()}"
-        digest = hashlib.sha256(raw_identity.encode("utf-8")).hexdigest()
-        return f"gsm-{digest[:20]}"
+        return self._writer_id
 
-    def _load_runtime_config(self) -> Dict[str, Any]:
+    def _load_runtime_config(self) -> dict[str, Any]:
         preview_enabled = bool(is_gsm_cloud_preview_enabled())
-        if not preview_enabled:
+        if not preview_enabled and get_config().advanced.cloud_sync_protocol == "legacy":
             return {
                 "preview_enabled": False,
                 "enabled": False,
@@ -161,6 +163,7 @@ class CloudSyncService:
                 "push_batch_size": self._worker_safe_push_batch_size,
                 "max_server_changes": self._worker_safe_server_changes,
                 "timeout_seconds": 20,
+                "protocol": "legacy",
             }
 
         current = get_config()
@@ -178,7 +181,7 @@ class CloudSyncService:
         gsm_cloud_access_token = str(ai.gsm_cloud_access_token or "").strip()
         resolved_api_token = legacy_api_token or gsm_cloud_access_token
 
-        resolved_enabled = bool(advanced.cloud_sync_enabled or (resolved_api_url and resolved_api_token))
+        resolved_enabled = bool(advanced.cloud_sync_enabled)
         try:
             configured_push_batch_size = int(advanced.cloud_sync_push_batch_size or 0)
         except (TypeError, ValueError):
@@ -204,13 +207,18 @@ class CloudSyncService:
 
         return {
             "preview_enabled": preview_enabled,
+            "protocol": advanced.cloud_sync_protocol,
+            "sync_key": advanced.cloud_sync_key,
+            "settings_groups": list(advanced.cloud_sync_settings_groups),
             "enabled": resolved_enabled,
             "auto_sync": bool(advanced.cloud_sync_auto_sync),
             "api_url": resolved_api_url,
             "email": legacy_email,
             "state_identity": state_identity,
             "api_token": resolved_api_token,
-            "device_id": self._derive_device_id(str(advanced.cloud_sync_device_id or "")),
+            "device_id": self._writer_id
+            if advanced.cloud_sync_protocol == "relay-v2"
+            else self._derive_device_id(str(advanced.cloud_sync_device_id or "")),
             "interval_seconds": max(60, int(advanced.cloud_sync_interval_seconds or 900)),
             "push_batch_size": max(
                 1,
@@ -229,14 +237,67 @@ class CloudSyncService:
             "timeout_seconds": max(5, min(120, configured_timeout_seconds)),
         }
 
-    def _is_configured(self, cfg: Dict[str, Any]) -> bool:
+    def _is_configured(self, cfg: dict[str, Any]) -> bool:
+        if cfg.get("protocol") == "relay-v2":
+            return bool(cfg["api_url"] and cfg["api_token"] and cfg.get("sync_key"))
         return bool(cfg["api_url"] and (cfg["email"] or cfg["api_token"]))
 
-    def _set_last_result(self, result: Dict[str, Any]) -> None:
+    def purge_relay(self):
+        if not self._sync_lock.acquire(blocking=False):
+            return {"status": "skipped", "reason": "Wait for the current sync to finish."}
+        try:
+            cfg = self._load_runtime_config()
+            if cfg.get("protocol") != "relay-v2" or not self._is_configured(cfg):
+                raise ValueError("Configure encrypted sync before removing its relay data.")
+            self._relay_client(cfg).request("", method="DELETE")
+            master = get_master_config()
+            for profile in master.configs.values():
+                profile.advanced.cloud_sync_enabled = False
+                profile.advanced.cloud_sync_auto_sync = False
+            master.save()
+            self._stop_event.set()
+            return {"status": "success", "relay_deleted": True}
+        except Exception as exc:
+            return {"status": "error", "last_error": str(exc)}
+        finally:
+            self._sync_lock.release()
+
+    def _relay_client(self, cfg):
+        from GameSentenceMiner.util.cloud_sync.crypto import SyncCipher
+        from GameSentenceMiner.util.cloud_sync.relay_client import RelayClient, validate_relay_url
+        from GameSentenceMiner.util.cloud_sync.settings import apply_portable_settings, export_portable_settings
+        from GameSentenceMiner.util.cloud_sync.store import RelayStore
+
+        cipher = SyncCipher(cfg["sync_key"])
+        api_url = validate_relay_url(cfg["api_url"])
+        scope = hashlib.sha256(f"{api_url}|{cfg['state_identity']}|{cipher.room}".encode()).hexdigest()
+        store = RelayStore(GameLinesTable._db, scope, cfg["device_id"])
+
+        def preferences():
+            return export_portable_settings(get_master_config().get_default_config(), cfg["settings_groups"])
+
+        def apply_preferences(values):
+            master = get_master_config()
+            profile = master.get_default_config()
+            sections = {key.split(".")[0] for key in values}
+            previous = {name: copy.deepcopy(getattr(profile, name)) for name in sections}
+            try:
+                apply_portable_settings(profile, values, cfg["settings_groups"])
+                master.save()
+            except Exception:
+                for name, value in previous.items():
+                    setattr(profile, name, value)
+                raise
+
+        return RelayClient(
+            store, cipher, api_url, cfg["api_token"], min(cfg["timeout_seconds"], 60), preferences, apply_preferences
+        )
+
+    def _set_last_result(self, result: dict[str, Any]) -> None:
         with self._status_lock:
             self._last_result = result
 
-    def _get_last_result(self) -> Dict[str, Any]:
+    def _get_last_result(self) -> dict[str, Any]:
         with self._status_lock:
             return dict(self._last_result)
 
@@ -245,6 +306,7 @@ class CloudSyncService:
         if not (cfg["enabled"] and cfg["auto_sync"]):
             return False
 
+        self._stop_event.clear()
         if self._thread and self._thread.is_alive():
             return True
 
@@ -265,7 +327,8 @@ class CloudSyncService:
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
-        self._thread = None
+        if not self._thread or not self._thread.is_alive():
+            self._thread = None
 
     def refresh_background_loop(self) -> None:
         cfg = self._load_runtime_config()
@@ -286,6 +349,9 @@ class CloudSyncService:
             self._stop_event.wait(wait_seconds)
 
     def queue_existing_lines(self) -> int:
+        cfg = self._load_runtime_config()
+        if cfg.get("protocol") == "relay-v2":
+            return self._relay_client(cfg).store.capture_lines(seed=True)
         if not is_gsm_cloud_preview_enabled():
             return 0
         return GameLinesTable.queue_all_lines_for_sync()
@@ -300,13 +366,25 @@ class CloudSyncService:
         text = str(response_text or "").lower()
         return "too many api requests by single worker invocation" in text
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         cfg = self._load_runtime_config()
         configured = self._is_configured(cfg)
         since_seq = self._get_since_seq(cfg["state_identity"]) if configured else 0
         pending = self._get_pending_count()
+        relay_error = None
+        if configured and cfg.get("protocol") == "relay-v2":
+            try:
+                store = self._relay_client(cfg).store
+                since_seq = store.state().get("cursor", 0)
+                pending = store.pending_count()
+            except ValueError as exc:
+                configured = False
+                relay_error = str(exc)
 
         return {
+            "protocol": cfg.get("protocol", "relay-v2"),
+            "settings_groups": cfg.get("settings_groups", []),
+            "configuration_error": relay_error,
             "enabled": cfg["enabled"],
             "auto_sync": cfg["auto_sync"],
             "configured": configured,
@@ -328,8 +406,10 @@ class CloudSyncService:
         self,
         manual: bool = False,
         include_existing: bool = False,
-        max_rounds: Optional[int] = 5,
-    ) -> Dict[str, Any]:
+        max_rounds: int | None = 5,
+        publish_snapshot: bool = False,
+        reseed: bool = False,
+    ) -> dict[str, Any]:
         started_at = time.time()
         if not self._sync_lock.acquire(blocking=False):
             result = {
@@ -378,6 +458,32 @@ class CloudSyncService:
                 self._set_last_result(result)
                 return result
 
+            if cfg.get("protocol") == "relay-v2":
+                client = self._relay_client(cfg)
+                result = client.sync(max_rounds=max_rounds, publish_snapshot=publish_snapshot, reseed=reseed)
+                finished_at = time.time()
+                result.update(
+                    manual=manual,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    last_started_at=started_at,
+                    last_finished_at=finished_at,
+                    last_success_at=finished_at
+                    if result["status"] == "success"
+                    else self._get_last_result().get("last_success_at"),
+                    last_error=None,
+                )
+                if result["applied_remote_upserts"]:
+                    from GameSentenceMiner.util.database.games_table import GamesTable
+
+                    GamesTable.link_game_lines()
+                if manual and (result["applied_remote_upserts"] or result["applied_remote_deletes"]):
+                    result["stats_rollup_triggered"] = self._trigger_stats_rollup_after_sync()
+                self._set_last_result(result)
+                return result
+            if cfg.get("protocol") != "legacy":
+                raise ValueError("Unknown cloud sync protocol.")
+
             queued_existing = 0
             if include_existing:
                 queued_existing = self.queue_existing_lines()
@@ -409,7 +515,7 @@ class CloudSyncService:
             effective_push_batch_size = max(1, int(cfg["push_batch_size"]))
             effective_server_changes = max(1, int(cfg["max_server_changes"]))
             max_request_retries = 6
-            round_limit: Optional[int] = None
+            round_limit: int | None = None
             if max_rounds is not None:
                 try:
                     round_limit = max(1, int(max_rounds))

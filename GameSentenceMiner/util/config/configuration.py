@@ -1303,6 +1303,9 @@ class Advanced:
     mute_game_on_minimize: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
+    cloud_sync_protocol: str = "relay-v2"
+    cloud_sync_key: str = ""
+    cloud_sync_settings_groups: List[str] = field(default_factory=list)
     cloud_sync_api_url: str = ""
     cloud_sync_email: str = ""
     cloud_sync_api_token: str = ""
@@ -1336,7 +1339,7 @@ class Advanced:
         self.cloud_sync_push_batch_size = max(1, min(5000, int(self.cloud_sync_push_batch_size or 5000)))
         self.cloud_sync_max_server_changes = max(1, min(5000, int(self.cloud_sync_max_server_changes or 5000)))
         self.cloud_sync_timeout_seconds = max(5, min(120, int(self.cloud_sync_timeout_seconds or 20)))
-        if not is_gsm_cloud_preview_enabled():
+        if not is_gsm_cloud_preview_enabled() and self.cloud_sync_protocol == "legacy":
             self.cloud_sync_enabled = False
             self.cloud_sync_auto_sync = False
 
@@ -2329,6 +2332,9 @@ class Config:
             self.sync_shared_field(config.advanced, profile.advanced, "longest_sleep_time")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_enabled")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_auto_sync")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_protocol")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_key")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_settings_groups")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_api_url")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_email")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_api_token")

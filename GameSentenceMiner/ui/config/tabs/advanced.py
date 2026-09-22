@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QLabel, QWidget
+from PyQt6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QLabel, QPushButton, QWidget
 from typing import TYPE_CHECKING
 
 from GameSentenceMiner.util.config.configuration import is_windows
@@ -16,6 +16,18 @@ def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout = QFormLayout(widget)
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
+
+    sync_button = QPushButton("Encrypted device sync…")
+
+    def open_sync():
+        from GameSentenceMiner.ui.sync_settings_dialog import SyncSettingsDialog
+
+        window._flush_pending_auto_save()
+        if window.save_settings(show_indicator=False, immediate_reload=True):
+            SyncSettingsDialog(window).exec()
+
+    sync_button.clicked.connect(open_sync)
+    layout.addRow("Device sync", sync_button)
 
     note_label = QLabel(tabs_i18n.get("advanced", {}).get("player_note", "..."))
     note_label.setStyleSheet("color: red;")

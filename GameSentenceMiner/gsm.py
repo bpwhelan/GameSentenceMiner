@@ -1464,7 +1464,7 @@ class GSMApplication:
 
         if is_gsm_cloud_preview_enabled():
             gsm_cloud_auth_cache_service.start_background_loop()
-            cloud_sync_service.start_background_loop()
+        cloud_sync_service.start_background_loop()
         self._start_thread(_get_run_text_hooker_page(), "texthooker-page")
 
     def handle_ipc_command(self, cmd: dict) -> None:
