@@ -693,6 +693,7 @@
           tokens.push({
             lineIndex, text: currentLines[lineIndex].text, start, end,
             states, highlighted: getSegmentClassesForSpan(span) !== null,
+            iPlusOne: span.classList.contains('i-plus-one'),
           });
         }
       }

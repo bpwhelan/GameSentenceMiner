@@ -149,6 +149,18 @@ test('highlight offsets include whitespace and supplementary characters', async 
   assert.deepEqual(Array.from(api.getNavigationTokens(), token => [token.start, token.end]), [[0, 2], [4, 5]]);
 });
 
+test('navigation exposes i+1 markers independently of learning state and visibility', async t => {
+  const { api, tick, paragraphs, complete } = setup(t, [{ text: '猫は犬を見る' }]);
+  api.requestParse([{ text: '猫は犬を見る' }]);
+  tick(0);
+  paragraphs()[0].innerHTML = '<span class="jiten-word new">猫</span>は<span class="jiten-word young i-plus-one">犬</span>を<span class="jiten-word mature">見る</span>';
+  await complete();
+  assert.deepEqual(Array.from(api.getNavigationTokens(), token => [token.start, token.iPlusOne]),
+    [[0, false], [2, true], [4, false]]);
+  paragraphs()[0].querySelector('.i-plus-one').classList.remove('i-plus-one');
+  assert.equal(api.getNavigationTokens()[1].iPlusOne, false);
+});
+
 test('grouping changes reparse unchanged lines and refresh keeps the detected blocks', async t => {
   const lines = [{ text: '図書' }, { text: '館' }];
   const { api, tick, parses, paragraphs, readerTexts, complete } = setup(t, lines);

@@ -539,6 +539,8 @@ class GamepadHandler {
       mineButton: options.mineButton ?? 0, // A button to mine the current dictionary entry
       nextEntryButton: options.nextEntryButton ?? 7, // RT trigger - navigate to next dictionary entry
       prevEntryButton: options.prevEntryButton ?? 6, // LT trigger - navigate to previous dictionary entry
+      prevJitenWordButton: options.prevJitenWordButton ?? -1, // Disabled - previous new or i+1 Jiten word
+      nextJitenWordButton: options.nextJitenWordButton ?? -1, // Disabled - next new or i+1 Jiten word
       
       // D-Pad buttons
       dpadUp: 12,
@@ -614,6 +616,8 @@ class GamepadHandler {
       keyboardTokenModeToggleKey: options.keyboardTokenModeToggleKey || null,
       keyboardNextEntryKey: options.keyboardNextEntryKey || null,
       keyboardPrevEntryKey: options.keyboardPrevEntryKey || null,
+      keyboardPrevJitenWordKey: options.keyboardPrevJitenWordKey || null,
+      keyboardNextJitenWordKey: options.keyboardNextJitenWordKey || null,
       keyboardNavigateUp: options.keyboardNavigateUp || 'ArrowUp',
       keyboardNavigateDown: options.keyboardNavigateDown || 'ArrowDown',
       keyboardNavigateLeft: options.keyboardNavigateLeft || 'ArrowLeft',
@@ -1426,6 +1430,8 @@ class GamepadHandler {
       mineButton: normalizeGamepadBindingValue(this.config.mineButton, 0),
       nextEntryButton: normalizeGamepadBindingValue(this.config.nextEntryButton, 7),
       prevEntryButton: normalizeGamepadBindingValue(this.config.prevEntryButton, 6),
+      prevJitenWordButton: normalizeGamepadBindingValue(this.config.prevJitenWordButton, -1),
+      nextJitenWordButton: normalizeGamepadBindingValue(this.config.nextJitenWordButton, -1),
     };
   }
 
@@ -1445,6 +1451,8 @@ class GamepadHandler {
       tokenModeToggleKey: normalizeKeyboardBindingValue(this.config.keyboardTokenModeToggleKey),
       nextEntryKey: normalizeKeyboardBindingValue(this.config.keyboardNextEntryKey),
       prevEntryKey: normalizeKeyboardBindingValue(this.config.keyboardPrevEntryKey),
+      prevJitenWordKey: normalizeKeyboardBindingValue(this.config.keyboardPrevJitenWordKey),
+      nextJitenWordKey: normalizeKeyboardBindingValue(this.config.keyboardNextJitenWordKey),
       navigateUp: normalizeKeyboardBindingValue(this.config.keyboardNavigateUp, 'ArrowUp'),
       navigateDown: normalizeKeyboardBindingValue(this.config.keyboardNavigateDown, 'ArrowDown'),
       navigateLeft: normalizeKeyboardBindingValue(this.config.keyboardNavigateLeft, 'ArrowLeft'),
@@ -2815,6 +2823,14 @@ class GamepadHandler {
 
     // Directional navigation
     if (this.shouldProcessKeyboardNavigation()) {
+      if (keyboardEventMatchesBinding(kb.prevJitenWordKey, keyName, keys, mods)) {
+        this.navigateJitenWord(-1);
+        return;
+      }
+      if (keyboardEventMatchesBinding(kb.nextJitenWordKey, keyName, keys, mods)) {
+        this.navigateJitenWord(1);
+        return;
+      }
       let navigated = false;
       this.hideVirtualMouseCursorForDpadNavigation();
 
@@ -3005,8 +3021,16 @@ class GamepadHandler {
       }
     }
 
-    // Handle D-Pad navigation
+    // Handle word jumps and D-Pad navigation using the same activation rules.
     if (this.shouldProcessNavigation(device)) {
+      if (this.matchesButtonBindingDown(this.buttonBindings.prevJitenWordButton, device, buttonIndex)) {
+        this.navigateJitenWord(-1);
+        return;
+      }
+      if (this.matchesButtonBindingDown(this.buttonBindings.nextJitenWordButton, device, buttonIndex)) {
+        this.navigateJitenWord(1);
+        return;
+      }
       this.handleDPadNavigation(buttonIndex, device);
     }
   }
@@ -5340,7 +5364,9 @@ class GamepadHandler {
         }
       }
     });
-    return targets.sort((a, b) => a.blockIndex - b.blockIndex || a.charIndex - b.charIndex);
+    // Block grouping and DOM insertion can interleave source lines. Follow the
+    // Reader's line/offset order, finishing each line before advancing to the next.
+    return targets.sort((a, b) => a.lineIndex - b.lineIndex || a.start - b.start);
   }
 
   getCharactersForNavigationBlock(blockIndex) {
@@ -5383,13 +5409,19 @@ class GamepadHandler {
     return this.selectNavigationCharacterTarget(target);
   }
 
-  navigateJitenTarget(direction) {
-    const mode = this.config.holdNavigation;
-    if (!['new', 'highlighted', 'status-change'].includes(mode)) return false;
+  navigateJitenWord(direction) {
+    this.hideVirtualMouseCursorForDpadNavigation();
+    return this.navigateJitenTarget(direction, 'new-or-i-plus-one');
+  }
+
+  navigateJitenTarget(direction, mode = this.config.holdNavigation) {
+    if (!['new', 'new-or-i-plus-one', 'highlighted', 'status-change'].includes(mode)) return false;
     const anchor = this.getCurrentAnchorCharIndex();
+    const lineIndex = Number(this.characters[anchor]?.dataset?.lineIndex);
+    if (!Number.isInteger(lineIndex)) return false;
     let targets = this.getJitenNavigationTargets();
     const current = targets.find(target => target.blockIndex === this.currentBlockIndex &&
-      anchor >= target.charIndex && anchor < target.charEnd);
+      target.lineIndex === lineIndex && anchor >= target.charIndex && anchor < target.charEnd);
     if (this.config.horizontalWrap === 'line' || this.config.horizontalWrap === 'block') {
       targets = targets.filter(target => target.blockIndex === this.currentBlockIndex &&
         (this.config.horizontalWrap !== 'line' ||
@@ -5397,11 +5429,12 @@ class GamepadHandler {
     }
     const stateKey = target => target.states.slice().sort().join('|');
     targets = targets.filter(target => mode === 'new' ? target.states.includes('new') :
+      mode === 'new-or-i-plus-one' ? target.states.includes('new') || target.iPlusOne :
       mode === 'highlighted' ? target.highlighted : !current || stateKey(target) !== stateKey(current));
     // No suitable data: ordinary navigation stays available without a network wait.
     if (!targets.length) return false;
     if (direction < 0) targets.reverse();
-    const target = targets.find(target => direction * (target.blockIndex - this.currentBlockIndex ||
+    const target = targets.find(target => direction * (target.lineIndex - lineIndex ||
       target.charIndex - anchor) > 0 && target !== current) || targets[0];
     return this.selectNavigationCharacterTarget(target);
   }

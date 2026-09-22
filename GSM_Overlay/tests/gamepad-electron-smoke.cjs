@@ -82,13 +82,49 @@ app.whenReady().then(async () => {
         handler.getTargetCharForLookup().targetChar.textContent]);
     }
     handler.navigateCursorRight(true);
+    const jitenBindingsDisabled = handler.buttonBindings.prevJitenWordButton.disabled &&
+      handler.buttonBindings.nextJitenWordButton.disabled;
+    handler.config.prevJitenWordButton = 'LB';
+    handler.config.nextJitenWordButton = 'RB';
+    handler.config.holdNavigation = 'repeat';
+    handler.refreshButtonBindings();
+    p.querySelector('.mature').className = 'jiten-word young i-plus-one';
+    const jitenWordSelections = [];
+    for (const button of [4, 5]) {
+      handler.onButtonEvent({ device: 'smoke-pad', button, pressed: true });
+      handler.onButtonEvent({ device: 'smoke-pad', button, pressed: false });
+      jitenWordSelections.push([handler.currentBlockIndex, handler.getCurrentAnchorCharIndex(),
+        handler.getTargetCharForLookup().targetChar.textContent]);
+    }
+    document.querySelector('p[data-line-index="0"]').innerHTML =
+      '<span class="jiten-word new">猫</span>だ。<span class="jiten-word new">犬</span>だ！<span class="jiten-word mature">鳥</span>？';
+    document.querySelector('p[data-line-index="1"]').innerHTML =
+      '<span class="jiten-word new">右</span>の<span class="jiten-word young i-plus-one">文章</span>';
+    // DOM/block order differs from line order; screen coordinates stay fixed.
+    const originalBlocks = [...handler.textBlocks];
+    document.body.insertBefore(originalBlocks[2], originalBlocks[1]);
+    handler.refreshTextBlocks();
+    handler.selectNavigationCharacterTarget({ blockIndex: 0, charIndex: 0 });
+    const readingOrderNext = [], readingOrderPrevious = [];
+    for (const [button, selections] of [[5, readingOrderNext], [4, readingOrderPrevious]]) {
+      for (let i = 0; i < 6; i++) {
+        handler.onButtonEvent({ device: 'smoke-pad', button, pressed: true });
+        handler.onButtonEvent({ device: 'smoke-pad', button, pressed: false });
+        const char = handler.getTargetCharForLookup().targetChar;
+        selections.push([Number(char.dataset.lineIndex), char.textContent]);
+      }
+    }
+    originalBlocks.forEach(block => document.body.appendChild(block));
+    handler.refreshTextBlocks();
+    handler.selectNavigationCharacterTarget({ blockIndex: 2, charIndex: 2 });
     api.applyCardState(42, 0, ['mature']);
-    const graded = api.getNavigationTokens()[1].states.includes('new');
+    const graded = api.getNavigationTokens().find(token => token.lineIndex === 2 && token.start === 4).states.includes('new');
     api.requestParse([{ text: '違う文章' }]);
     const staleCount = api.getNavigationTokens().length;
     api.setEnabled(false);
     return { sentenceCharacter, spatialBlock, trailResult, ranges, newCharacter, newIndex,
-      resumedSelections, graded, staleCount, lookups };
+      resumedSelections, jitenBindingsDisabled, jitenWordSelections, readingOrderNext,
+      readingOrderPrevious, graded, staleCount, lookups };
   })()`);
   assert.equal(result.sentenceCharacter, '犬');
   assert.equal(result.spatialBlock, 2);
@@ -99,6 +135,10 @@ app.whenReady().then(async () => {
   assert.equal(result.newCharacter, '猫');
   assert.equal(result.newIndex, 2);
   assert.deepEqual(result.resumedSelections, [[2, 1, 'は'], [2, 1, 'は']]);
+  assert.equal(result.jitenBindingsDisabled, true);
+  assert.deepEqual(result.jitenWordSelections, [[2, 0, '𠮷'], [2, 2, '猫']]);
+  assert.deepEqual(result.readingOrderNext, [[0, '犬'], [1, '右'], [1, '文'], [2, '𠮷'], [2, '猫'], [0, '猫']]);
+  assert.deepEqual(result.readingOrderPrevious, [[2, '猫'], [2, '𠮷'], [1, '文'], [1, '右'], [0, '犬'], [0, '猫']]);
   assert.equal(result.graded, false);
   assert.equal(result.staleCount, 0);
   assert.equal(result.lookups.at(-1), '猫');
@@ -119,6 +159,14 @@ app.whenReady().then(async () => {
 
   // Render the actual settings markup/styles for visual QA without IPC or a server.
   const settings = fs.readFileSync(path.join(__dirname, '../settings.html'), 'utf8');
+  const bindingStart = settings.lastIndexOf('<label>', settings.indexOf('Previous New / i+1 Jiten Word'));
+  const bindingEnd = settings.lastIndexOf('<label>', settings.indexOf('Token Mode Toggle', bindingStart));
+  await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
+    '<!doctype html><meta charset="utf-8">' + settings.match(/<style>[\s\S]*?<\/style>/)[0] +
+    '<div class="container"><div class="setting-group">' + settings.slice(bindingStart, bindingEnd) + '</div></div>'
+  ));
+  assert.equal(await view.webContents.executeJavaScript('document.documentElement.scrollWidth > innerWidth'), false);
+  fs.writeFileSync(path.join(directory, 'jiten-word-bindings.png'), (await view.webContents.capturePage()).toPNG());
   const start = settings.lastIndexOf('<h5', settings.indexOf('>Navigation Experiments</h5>'));
   const end = settings.lastIndexOf('<h5', settings.indexOf('>Activation Methods</h5>', start));
   await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(

@@ -1698,6 +1698,17 @@
       </label>
       <label>
         <span class="label-text">
+          Adaptive OCR Retries (Experimental)
+          <div class="hotkey-info">
+            Retry almost immediately while text is clearly expanding, and gradually wait longer when progress
+            is uncertain. May use more CPU while text appears. Off by default; applies to local OCR retries
+            when Text Appears Instantly is off.
+          </div>
+        </span>
+        <input type="checkbox" id="adaptive_ocr_retries" />
+      </label>
+      <label>
+        <span class="label-text">
           Image Scaling
           <div class="hotkey-info">
             Scale screenshots before OCR. Lower values scan faster and use less CPU; higher values improve accuracy
@@ -2397,6 +2408,23 @@
       </label>
       <label>
         <span class="label-text">
+          Previous New / i+1 Jiten Word
+          <div class="hotkey-info">While navigating, jump to the previous new or i+1 Jiten word (for example, bind to LB)</div>
+        </span>
+        <input type="text" id="gamepadPrevJitenWordButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardPrevJitenWordKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Next New / i+1 Jiten Word
+          <div class="hotkey-info">While navigating, jump to the next new or i+1 Jiten word (for example, bind to RB)</div>
+        </span>
+        <input type="text" id="gamepadNextJitenWordButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardNextJitenWordKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <div class="hotkey-info">These word jumps need Jiten Reader highlighting and follow the Left/Right at an Edge setting. With no matching word, the selection stays put.</div>
+      <label>
+        <span class="label-text">
           Token Mode Toggle
           <div class="hotkey-info">Press to switch between character and token navigation</div>
         </span>
@@ -2870,6 +2898,8 @@
       gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Button", fallbackValue: 0 },
       gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button", fallbackValue: 7 },
       gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
+      gamepadPrevJitenWordButton: { settingKey: "gamepadPrevJitenWordButton", label: "Previous New / i+1 Jiten Word", fallbackValue: -1 },
+      gamepadNextJitenWordButton: { settingKey: "gamepadNextJitenWordButton", label: "Next New / i+1 Jiten Word", fallbackValue: -1 },
     };
 
     const KEYBOARD_BINDING_INPUT_CONFIG = {
@@ -2887,6 +2917,8 @@
       keyboardTokenModeToggleKey: { settingKey: "keyboardTokenModeToggleKey", label: "Keyboard Token Toggle Key", fallbackValue: null },
       keyboardNextEntryKey: { settingKey: "keyboardNextEntryKey", label: "Keyboard Next Entry Key", fallbackValue: null },
       keyboardPrevEntryKey: { settingKey: "keyboardPrevEntryKey", label: "Keyboard Prev Entry Key", fallbackValue: null },
+      keyboardPrevJitenWordKey: { settingKey: "keyboardPrevJitenWordKey", label: "Keyboard Previous New / i+1 Jiten Word", fallbackValue: null },
+      keyboardNextJitenWordKey: { settingKey: "keyboardNextJitenWordKey", label: "Keyboard Next New / i+1 Jiten Word", fallbackValue: null },
       keyboardNavigateUp: { settingKey: "keyboardNavigateUp", label: "Keyboard Navigate Up", fallbackValue: "ArrowUp" },
       keyboardNavigateDown: { settingKey: "keyboardNavigateDown", label: "Keyboard Navigate Down", fallbackValue: "ArrowDown" },
       keyboardNavigateLeft: { settingKey: "keyboardNavigateLeft", label: "Keyboard Navigate Left", fallbackValue: "ArrowLeft" },
@@ -3599,6 +3631,8 @@
         "gamepadMineButton",
         "gamepadNextEntryButton",
         "gamepadPrevEntryButton",
+        "gamepadPrevJitenWordButton",
+        "gamepadNextJitenWordButton",
         "gamepadTokenMode",
         "gamepadAutoConfirmSelection",
         "gamepadFocusOverlayOnEntry",
@@ -3807,6 +3841,7 @@
       }),
       createCheckboxBinding("scan_on_overlay_activation", "#scan_on_overlay_activation"),
       createCheckboxBinding("text_appears_instantly", "#text_appears_instantly"),
+      createCheckboxBinding("adaptive_ocr_retries", "#adaptive_ocr_retries"),
       createNumberBinding("base_scale", "#base_scale", {
         fallback: 0.75,
         min: 0.5,
@@ -4064,6 +4099,8 @@
       createGamepadBindingSetting("gamepadMineButton"),
       createGamepadBindingSetting("gamepadNextEntryButton"),
       createGamepadBindingSetting("gamepadPrevEntryButton"),
+      createGamepadBindingSetting("gamepadPrevJitenWordButton"),
+      createGamepadBindingSetting("gamepadNextJitenWordButton"),
       createKeyboardBindingSetting("keyboardModifierKey"),
       createKeyboardBindingSetting("keyboardToggleKey"),
       createKeyboardBindingSetting("keyboardConfirmKey"),
@@ -4078,6 +4115,8 @@
       createKeyboardBindingSetting("keyboardTokenModeToggleKey"),
       createKeyboardBindingSetting("keyboardNextEntryKey"),
       createKeyboardBindingSetting("keyboardPrevEntryKey"),
+      createKeyboardBindingSetting("keyboardPrevJitenWordKey"),
+      createKeyboardBindingSetting("keyboardNextJitenWordKey"),
       createKeyboardBindingSetting("keyboardNavigateUp"),
       createKeyboardBindingSetting("keyboardNavigateDown"),
       createKeyboardBindingSetting("keyboardNavigateLeft"),

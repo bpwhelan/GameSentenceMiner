@@ -1052,6 +1052,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadMineButton": 0, // A button - mines the current Yomitan entry
   "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
   "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
+  "gamepadPrevJitenWordButton": -1, // Disabled - previous new or i+1 Jiten word
+  "gamepadNextJitenWordButton": -1, // Disabled - next new or i+1 Jiten word
   "gamepadAutoConfirmSelection": true,
   "gamepadFocusOverlayOnEntry": true,
   "gamepadShowModeIndicator": true,
@@ -8073,6 +8075,8 @@ async function startOverlayAppImpl() {
       case "gamepadMineButton":
       case "gamepadNextEntryButton":
       case "gamepadPrevEntryButton":
+      case "gamepadPrevJitenWordButton":
+      case "gamepadNextJitenWordButton":
       case "gamepadAutoConfirmSelection":
       case "gamepadFocusOverlayOnEntry":
       case "gamepadShowModeIndicator":

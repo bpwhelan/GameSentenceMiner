@@ -81,6 +81,15 @@ const GamepadHandler = legacyGamepad.GamepadHandler;
 const legacyGamepadContext = legacyGamepad.context;
 
 describe("legacy gamepad startup settings", () => {
+  it("restores dedicated Jiten word bindings, including explicit disabled values", () => {
+    expect(loadStartupGamepadSettings({
+      gamepadPrevJitenWordButton: "LB", gamepadNextJitenWordButton: "RB"
+    })).toMatchObject({ prevJitenWordButton: "LB", nextJitenWordButton: "RB" });
+    expect(loadStartupGamepadSettings({
+      gamepadPrevJitenWordButton: "Disabled", gamepadNextJitenWordButton: -1
+    })).toMatchObject({ prevJitenWordButton: "Disabled", nextJitenWordButton: -1 });
+  });
+
   it("loads saved navigation experiments before initialization", () => {
     expect(loadStartupGamepadSettings({
       gamepadHoldNavigation: "sentence", gamepadHorizontalWrap: "line",

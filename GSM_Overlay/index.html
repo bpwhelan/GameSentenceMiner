@@ -4807,6 +4807,12 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadPrevEntryButton !== undefined) {
       gamepadSettings.prevEntryButton = newsettings.gamepadPrevEntryButton;
     }
+    if (newsettings.gamepadPrevJitenWordButton !== undefined) {
+      gamepadSettings.prevJitenWordButton = newsettings.gamepadPrevJitenWordButton;
+    }
+    if (newsettings.gamepadNextJitenWordButton !== undefined) {
+      gamepadSettings.nextJitenWordButton = newsettings.gamepadNextJitenWordButton;
+    }
     if (newsettings.gamepadRepeatDelay !== undefined) {
       gamepadSettings.repeatDelay = newsettings.gamepadRepeatDelay;
     }
@@ -5578,6 +5584,8 @@ background: rgba(202, 12, 12, 0.692);
     mineButton: 0, // A
     nextEntryButton: 7, // RT trigger - navigate to next Yomitan entry
     prevEntryButton: 6, // LT trigger - navigate to previous Yomitan entry
+    prevJitenWordButton: -1, // Disabled
+    nextJitenWordButton: -1, // Disabled
     repeatDelay: 400,
     repeatRate: 150,
     holdNavigation: 'repeat',
@@ -5616,6 +5624,8 @@ background: rgba(202, 12, 12, 0.692);
     keyboardTokenModeToggleKey: null,
     keyboardNextEntryKey: null,
     keyboardPrevEntryKey: null,
+    keyboardPrevJitenWordKey: null,
+    keyboardNextJitenWordKey: null,
     keyboardNavigateUp: 'ArrowUp',
     keyboardNavigateDown: 'ArrowDown',
     keyboardNavigateLeft: 'ArrowLeft',
@@ -5630,6 +5640,7 @@ background: rgba(202, 12, 12, 0.692);
     'keyboardForwardClickKey',
     'keyboardManualOverlayScanKey', 'keyboardPauseToggleKey', 'keyboardTokenModeToggleKey',
     'keyboardNextEntryKey', 'keyboardPrevEntryKey',
+    'keyboardPrevJitenWordKey', 'keyboardNextJitenWordKey',
     'keyboardNavigateUp', 'keyboardNavigateDown', 'keyboardNavigateLeft', 'keyboardNavigateRight',
     'keyboardMineButton',
   ];
@@ -5687,6 +5698,8 @@ background: rgba(202, 12, 12, 0.692);
       mineButton: gamepadSettings.mineButton,
       nextEntryButton: gamepadSettings.nextEntryButton,
       prevEntryButton: gamepadSettings.prevEntryButton,
+      prevJitenWordButton: gamepadSettings.prevJitenWordButton,
+      nextJitenWordButton: gamepadSettings.nextJitenWordButton,
       repeatDelay: gamepadSettings.repeatDelay,
       repeatRate: gamepadSettings.repeatRate,
       holdNavigation: gamepadSettings.holdNavigation,
@@ -5725,6 +5738,8 @@ background: rgba(202, 12, 12, 0.692);
       keyboardTokenModeToggleKey: gamepadSettings.keyboardTokenModeToggleKey,
       keyboardNextEntryKey: gamepadSettings.keyboardNextEntryKey,
       keyboardPrevEntryKey: gamepadSettings.keyboardPrevEntryKey,
+      keyboardPrevJitenWordKey: gamepadSettings.keyboardPrevJitenWordKey,
+      keyboardNextJitenWordKey: gamepadSettings.keyboardNextJitenWordKey,
       keyboardNavigateUp: gamepadSettings.keyboardNavigateUp,
       keyboardNavigateDown: gamepadSettings.keyboardNavigateDown,
       keyboardNavigateLeft: gamepadSettings.keyboardNavigateLeft,
@@ -6133,6 +6148,14 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (updatedSettings.gamepadPrevEntryButton !== undefined) {
       gamepadSettings.prevEntryButton = updatedSettings.gamepadPrevEntryButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadPrevJitenWordButton !== undefined) {
+      gamepadSettings.prevJitenWordButton = updatedSettings.gamepadPrevJitenWordButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadNextJitenWordButton !== undefined) {
+      gamepadSettings.nextJitenWordButton = updatedSettings.gamepadNextJitenWordButton;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadTokenMode !== undefined) {

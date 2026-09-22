@@ -90,7 +90,77 @@ function loadOverlaySettingsPage() {
   return { dom, ready, sent, listeners };
 }
 
+describe("overlay adaptive OCR retry settings", () => {
+  it("defaults off, sends edits, and follows the active GSM profile", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: {}, defaultSettings: {},
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      const control = page.dom.window.document.getElementById("adaptive_ocr_retries");
+      expect(control.checked).toBe(false);
+      expect(control.closest('[data-tab="capture"]')).not.toBeNull();
+
+      control.checked = true;
+      control.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "adaptive_ocr_retries", value: true
+      });
+
+      page.listeners.get("settings-updated")?.(null, { adaptive_ocr_retries: false });
+      await nextTick();
+      expect(control.checked).toBe(false);
+      page.listeners.get("settings-updated")?.(null, { adaptive_ocr_retries: true });
+      await nextTick();
+      expect(control.checked).toBe(true);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+});
+
 describe("overlay settings keyboard binding capture", () => {
+  it("loads unbound Jiten word actions, restores saved bumpers, and clears bindings", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: { gamepadEnabled: true }, defaultSettings: {},
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      const doc = page.dom.window.document;
+      for (const id of ["gamepadPrevJitenWordButton", "gamepadNextJitenWordButton",
+        "keyboardPrevJitenWordKey", "keyboardNextJitenWordKey"]) {
+        expect(doc.getElementById(id)?.value).toBe("Disabled");
+      }
+      page.listeners.get("settings-updated")?.(null, {
+        gamepadPrevJitenWordButton: "LB", gamepadNextJitenWordButton: "RB"
+      });
+      await nextTick();
+      for (const [id, label] of [["gamepadPrevJitenWordButton", "LB"], ["gamepadNextJitenWordButton", "RB"]]) {
+        const input = doc.getElementById(id);
+        expect(input.value).toBe(label);
+        input.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+        await nextTick();
+        expect(input.value).toBe("Disabled");
+        expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+          key: id, value: "Disabled"
+        });
+      }
+      page.listeners.get("settings-updated")?.(null, { gamepadEnabled: false });
+      await nextTick();
+      expect(doc.getElementById("gamepadPrevJitenWordButton").disabled).toBe(true);
+      expect(doc.getElementById("gamepadNextJitenWordButton").disabled).toBe(true);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
   it("loads, edits, and restores navigation experiment settings through IPC", async () => {
     const page = loadOverlaySettingsPage();
     try {
