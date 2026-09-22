@@ -1,7 +1,7 @@
 ﻿{
     "manifest_version":  3,
     "name":  "Jiten Reader for GSM Overlay",
-    "version":  "1.3.0",
+    "version":  "1.3.3",
     "description":  "Japanese text parsing with Jiten",
     "minimum_chrome_version":  "116",
     "background":  {

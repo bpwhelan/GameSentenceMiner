@@ -246,6 +246,7 @@ const DEFAULT_CONFIGURATION = Object.freeze({
     //#endregion
     skipReleaseNotes: true,
     enableDebugMode: false,
+    exposePageEvents: true,
 });
 
 
