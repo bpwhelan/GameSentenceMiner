@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { extensionApi as chrome } from "./browser-api.js";
 import { createCaptureSession } from "./capture-session.js";
 import { createCaptureFrameEncoder } from "./capture-frame-client.js";
 import { recordCapturedSpeech } from "./capture-speech.js";
@@ -613,7 +614,11 @@ function linkCaptureReader(message) {
   return session.status();
 }
 
+// Kept inline (test/capture-routing.test.mjs evaluates this file's source in
+// a vm context without its imports). Uint8Array.prototype.toBase64 does the
+// megabyte in half a millisecond where the loop takes about forty.
 function bytesToBase64(data) {
+  if (typeof data.toBase64 === "function") return data.toBase64();
   let binary = "";
   for (let offset = 0; offset < data.length; offset += 0x8000) {
     binary += String.fromCodePoint(...data.subarray(offset, offset + 0x8000));

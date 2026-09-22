@@ -4,21 +4,23 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { extensionApi as chrome, IS_FIREFOX } from "./browser-api.js";
 import "./reader-options.js";
 import { createAudioSettingsController } from "./audio-settings.js";
 import { createKeybindSettingsController } from "./keybind-settings.js";
-import { createAnkiSettingsController } from "./anki-settings.js";
+import { createAnkiTemplateSettingsController } from "./anki-settings.js";
 import { createLocalAudioSetup } from "./local-audio-setup.js";
 import { createBackupSettingsController } from "./backup-settings.js";
+import { createExperimentalSettings } from "./experimental-settings.js";
 import { downloadBlob } from "./blob-download.js";
 import { createSharingSettingsController } from "./sharing-settings.js";
 import { ANKI_ADDON_FILE_NAME, fetchAnkiAddon } from "./anki-addon.js";
 import { createLocalFileAccessController } from "./local-file-access.js";
 import { createSettingsSearch } from "./settings-search.js";
 import { applyPageTheme, setStatusOutput } from "./settings-dom.js";
-import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
+import { HOST_BROWSER, HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import { createRecommendedInstallClient } from "./recommended-install-client.js";
-import { createCustomLinkSettings } from "./custom-link-settings.js";
+import { createCustomButtonSettings } from "./custom-button-settings.js";
 import { createDictionaryNameDrafts, renameWithBaseline } from "./dictionary-name-drafts.js";
 import {
   createDictionaryProgressList,
@@ -44,6 +46,12 @@ import {
   parseCustomDictionary,
 } from "./custom-dictionary.js";
 import { SETUP_STATE_KEY, normaliseSetupState, setupIncomplete } from "./setup-state.js";
+import { readDictionaryArchiveIdentity } from "./dictionary-import-archive.js";
+import {
+  describeRevisionComparison,
+  dictionaryImportMatches,
+  dictionaryImportTarget,
+} from "./dictionary-import.js";
 
 const TARGET = "hoshidicts-offscreen";
 const WORKER_TARGET = "hoshidicts-worker";
@@ -52,13 +60,21 @@ const AUDIO_TARGET = "hachidori-audio";
 const CAPTURE_TARGET = "hachidori-capture";
 const SHARING_TARGET = "hachidori-sharing";
 const BACKUP_LIFECYCLE_PORT = "hachidori-backup-settings";
-const OPTION_SECTIONS = { lookup: "Reading", design: "Design", audio: "Audio", media: "Media capture", anki: "Anki", keybinds: "Keybinds" };
+const OPTION_SECTIONS = {
+  lookup: "Reading",
+  design: "Design",
+  audio: "Audio",
+  ...(!IS_FIREFOX ? { media: "Media capture" } : {}),
+  anki: "Anki",
+  keybinds: "Keybinds",
+  advanced: "Advanced",
+};
 const LIBRARY_SECTIONS = new Set(["dictionaries", "add-dictionaries", "updates", "dictionary-groups", "custom-dictionary"]);
 const {
   DEFAULT_OPTIONS, LOOKUP_MODES, ACTIVATION_KEYS, FREQUENCY_ORDERS,
   POPUP_THEME_GROUPS, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS,
-  DEFINITION_BLUR_FREQUENCY_ORDERS,
-  clampOption, normaliseKanjiSelection, normaliseOptions, normaliseTexthookerUrl,
+  DEFINITION_BLUR_FREQUENCY_ORDERS, EXPERIMENTAL_FEATURES,
+  clampOption, normaliseCustomButtons, normaliseKanjiSelection, normaliseOptions, normaliseTexthookerUrl,
 } = globalThis.HDReaderOptions;
 const STATUS_POLL_MS = 1000;
 // Slower than the boot poll: a failing poll may be failing for a while, and the
@@ -68,7 +84,6 @@ const STATUS_RETRY_MS = 5000;
 const NUMBER_FIELDS = [
   { key: "scanLength", id: "opt-scan-length" },
   { key: "maxResults", id: "opt-max-results" },
-  { key: "hoverDelayMs", id: "opt-hover-delay" },
   { key: "popupHideDelayMs", id: "opt-hide-delay" },
   { key: "popupNestingMaxDepth", id: "opt-popup-nesting-depth" },
   { key: "popupColumns", id: "opt-popup-columns" },
@@ -79,6 +94,7 @@ const NUMBER_FIELDS = [
   { key: "popupHeightPx", id: "opt-popup-height", live: true },
   { key: "popupScalePercent", id: "opt-popup-scale", live: true },
   { key: "popupOpacityPercent", id: "opt-popup-opacity", live: true },
+  { key: "automaticBackupDays", id: "opt-automatic-backup-days" },
 ];
 const METADATA_FIELDS = [
   { key: "showLookupCounts", id: "opt-lookup-counts" },
@@ -166,7 +182,8 @@ let backupController;
 let backupLifecyclePort = null;
 let backupLifecycleReconnectTimer = null;
 const backupLifecycleTokens = new Set();
-let customLinkController;
+let customButtonController;
+let experimentalController;
 let backingUp = false;
 let mediaStatusEpoch = 0;
 let mediaRuntimeState = "unavailable";
@@ -188,6 +205,29 @@ const unseenSectionCompletions = new Set();
 
 function element(id) {
   return document.getElementById(id);
+}
+
+function configureBrowserUi() {
+  if (!HOST_CAPABILITIES.customJavaScript) {
+    const customJavascript = element("custom-javascript");
+    customJavascript.dataset.settingsUnavailable = "true";
+    customJavascript.hidden = true;
+  }
+  if (!IS_FIREFOX) return;
+  const media = element("media");
+  media.dataset.settingsUnavailable = "true";
+  media.hidden = true;
+  const mediaOption = element("settings-section").querySelector('option[value="media"]');
+  mediaOption.hidden = true;
+  mediaOption.disabled = true;
+  document.querySelector('.settings-nav a[href="#media"]').closest(".nav-item").hidden = true;
+
+  element("audio-mining-help").textContent =
+    "Firefox can play browser speech, but Hachidori does not record it into Anki. Add a downloadable pronunciation source to fill {audio} fields.";
+  const shortcutHelp = element("browser-shortcuts").querySelector(".field-hint");
+  shortcutHelp.textContent =
+    "Firefox runs these on any page. Popup actions need an open popup. Change them in Firefox’s Manage Extension Shortcuts page.";
+  element("browser-shortcuts-open").textContent = "Change in Firefox";
 }
 
 function sectionHasPendingWork(id) {
@@ -243,12 +283,35 @@ function setSectionStatus(id, message, tone, completed = false) {
   syncNavigationStatus(id);
 }
 
+// Whether an experimental flag that is off hides `section`.
+function sectionGated(section) {
+  return EXPERIMENTAL_FEATURES.some(feature => feature.section === section && !options.experimental[feature.id]);
+}
+
+function requestedSection() {
+  const fragment = window.location.hash.slice(1);
+  return fragment === "settings-content" ? activeSection : fragment;
+}
+
+// Sections the host browser cannot offer are marked by configureBrowserUi().
+function availableSections() {
+  return [...document.querySelectorAll("main > section:not([data-settings-unavailable='true'])")];
+}
+
+function sectionAvailable(id) {
+  return element(id)?.dataset.settingsUnavailable !== "true";
+}
+
+function resolveSection(requested) {
+  if (!availableSections().some((section) => section.id === requested)) return "dictionaries";
+  // A gated section leads to the switch that reveals it.
+  return sectionGated(requested) ? "advanced" : requested;
+}
+
 function showSettingsSection(focus = false) {
   settingsSearch?.clear();
-  const fragment = window.location.hash.slice(1);
-  const requested = fragment === "settings-content" ? activeSection : fragment;
-  const sections = [...document.querySelectorAll("main > section")];
-  activeSection = sections.some((section) => section.id === requested) ? requested : "dictionaries";
+  const sections = availableSections();
+  activeSection = resolveSection(requestedSection());
   pendingManagementFocus = null;
   for (const section of sections) section.hidden = section.id !== activeSection;
   element("settings-section").value = activeSection;
@@ -280,15 +343,21 @@ function showSettingsSection(focus = false) {
   updateKeybindSettings();
   updateBackupSettings();
   updateSharingSettings();
-  if (activeSection === "design" && HOST_CAPABILITIES.customLinks) {
-    customLinkController ??= createCustomLinkSettings({ document,
-      readLinks: () => options.customLinks,
-      saveLinks: links => { options.customLinks = links; writeOptions(); },
+  if (activeSection === "design") {
+    customButtonController ??= createCustomButtonSettings({ document,
+      readButtons: () => options.customButtons,
+      readTemplates: () => options.anki.templates,
+      saveButtons: buttons => {
+        options.customButtons = normaliseCustomButtons(buttons);
+        options.customLinks = options.customButtons.filter(button => button.type === "link")
+          .map(({ label, url }) => ({ label, url }));
+        writeOptions();
+      },
     });
-    customLinkController.render();
+    customButtonController.render();
   }
   if (activeSection === "custom-dictionary" && !customEditorLoaded) void loadCustomDictionarySource();
-  if (fragment === "settings-content") element("settings-content").focus();
+  if (window.location.hash === "#settings-content") element("settings-content").focus();
   else if (focus) element(activeSection).querySelector("h1").focus();
 }
 
@@ -313,7 +382,11 @@ function updateKeybindSettings() {
     editKeybinds: keybinds => { options.keybinds = keybinds; writeOptions(); },
     readAudioSources: () => options.audioSources,
     getBrowserCommands: () => chrome.commands.getAll(),
-    openBrowserShortcuts: () => chrome.tabs.create({ url: "chrome://extensions/shortcuts" }),
+    // Firefox refuses tabs.create for privileged about: URLs, so it exposes
+    // the Manage Extension Shortcuts view through commands instead.
+    openBrowserShortcuts: () => (IS_FIREFOX
+      ? chrome.commands.openShortcutSettings()
+      : chrome.tabs.create({ url: "chrome://extensions/shortcuts" })),
     browserShortcutsAvailable: HOST_CAPABILITIES.browserShortcuts,
   });
   keybindController.render();
@@ -321,9 +394,14 @@ function updateKeybindSettings() {
 
 function updateAnkiSettings() {
   if (activeSection !== "anki" || optionsRevision < 0) return;
-  ankiController ??= createAnkiSettingsController({ document, readConfig: () => options.anki,
+  ankiController ??= createAnkiTemplateSettingsController({ document, readAnki: () => options.anki,
     capabilities: MINING_CAPABILITIES,
-    editConfig: config => { options.anki = config; writeOptions(); },
+    readButtons: () => options.customButtons,
+    editAnki: anki => {
+      options.anki = anki;
+      customButtonController?.render();
+      writeOptions();
+    },
     send: async (type, fields) => {
       // Linked checks cannot forward draft endpoint credentials or mappings.
       // Commit them to the host first, then let the host read its saved copy.
@@ -343,6 +421,7 @@ function updateAnkiSettings() {
 
 // While linked, archives and backups belong to the host; the notices say so.
 function renderSharingLink(value) {
+  const wasLinked = sharingLinkedAddress !== null;
   sharingLinkedAddress = typeof value?.client?.address === "string" ? value.client.address : null;
   const linked = sharingLinkedAddress !== null;
   localAudioSetup?.render();
@@ -351,6 +430,10 @@ function renderSharingLink(value) {
   element("sharing-backup-notice").hidden = !linked;
   element("import-drop-zone").hidden = linked;
   for (const node of document.querySelectorAll("#backup > .backup-action, #backup > .section-note")) node.hidden = linked;
+  element("automatic-backups").hidden = linked;
+  if (wasLinked && !linked) {
+    void backupController?.refreshAutomaticBackups();
+  }
 }
 
 // Save the pinned release through a blob download, including in Electron hosts.
@@ -471,12 +554,58 @@ async function editMediaCapture(mutator, { immediate = false } = {}) {
   return true;
 }
 
+async function toggleExperimental(id, enabled) {
+  // Media capture keeps its own switch and settings; only the recorder itself
+  // must not stay active behind a hidden section.
+  if (id === "mediaMining" && !enabled && HOST_CAPABILITIES.mediaCapture && options.mediaCapture.enabled
+      && !await editMediaCapture(capture => { capture.enabled = false; })) {
+    renderExperimentalSettings();
+    return;
+  }
+  options.experimental = { ...options.experimental, [id]: enabled };
+  renderExperimentalSettings();
+  writeOptions();
+}
+
+function renderExperimentalSettings() {
+  // A flag whose section this browser cannot offer (Firefox has no media
+  // capture) is not listed, and a stored value cannot reveal that section.
+  const features = EXPERIMENTAL_FEATURES.filter(feature => !feature.section || sectionAvailable(feature.section));
+  experimentalController ??= createExperimentalSettings({
+    document, features, onToggle: (id, enabled) => { void toggleExperimental(id, enabled); },
+  });
+  experimentalController.render(options.experimental);
+  for (const feature of EXPERIMENTAL_FEATURES) {
+    if (!feature.section) continue;
+    const hidden = !options.experimental[feature.id] || !sectionAvailable(feature.section);
+    document.querySelector(`.settings-nav a[href="#${feature.section}"]`).parentElement.hidden = hidden;
+    element("settings-section").querySelector(`option[value="${feature.section}"]`).hidden = hidden;
+  }
+  renderImportPicker();
+  // A flag that changed elsewhere can hide the visible section, or reveal the
+  // one this page was opened on before the stored options arrived.
+  if (resolveSection(requestedSection()) !== activeSection) showSettingsSection();
+}
+
+// With the MDX dictionaries flag on, the picker and drop zone also take .mdx
+// and .mdd files; off, they take Yomitan ZIP files as before.
+function renderImportPicker() {
+  const mdx = options.experimental.mdxImport === true;
+  element("import-file").accept = mdx ? ".zip,application/zip,.mdx,.mdd" : ".zip,application/zip";
+  element("import-file-label").textContent = mdx ? "Choose dictionary files" : "Choose ZIP files";
+  element("import-drop-hint").textContent = mdx
+    ? "Or drag and drop Yomitan ZIP files, or an MDX dictionary with its MDD files, here."
+    : "Or drag and drop Yomitan ZIP files here.";
+}
+
 function updateBackupSettings() {
   if (activeSection !== "backup") return;
   backupController ??= createBackupSettingsController({
     document, send,
     download: typeof chrome.downloads?.download === "function"
       ? () => send("hd_backup_download", {}, WORKER_TARGET) : null,
+    browserName: HOST_BROWSER === "firefox" ? "Firefox" : "Chrome",
+    listAutomatic: () => send("hd_backup_auto_list", {}, WORKER_TARGET),
     trackPreparation: trackBackupPreparation,
     cancelPreparation(token) {
       if (backupLifecycleTokens.has(token)) postBackupLifecycle({ type: "cancel", token });
@@ -485,7 +614,8 @@ function updateBackupSettings() {
       if (importing || installingRecommended || updating || removing || committing || customLoading || customSaving || pendingDictionaryCommits > 0) {
         throw new Error("Wait for the current dictionary operation to finish, then try again.");
       }
-      if (customDictionaryDirty() || customLinkController?.dirty() || savingOptions !== null || optionsEditRevision !== null
+      if (customDictionaryDirty() || customButtonController?.dirty() || ankiController?.dirty()
+          || savingOptions !== null || optionsEditRevision !== null
           || Object.keys(pendingOptions).length > 0 || savingSchedule !== null || pendingSchedule !== null
           || nameDrafts.hasPendingChanges()) {
         throw new Error("Save or discard your pending changes before working with a backup.");
@@ -576,8 +706,7 @@ function updateDesignPreview() {
   }
   if (frame.style.width !== `${options.popupWidthPx * options.popupScalePercent / 100 + 96}px`
       || frame.style.height !== `${options.popupHeightPx * options.popupScalePercent / 100 + 216}px`) resizeDesignPreview();
-  const previewOptions = HOST_CAPABILITIES.customLinks ? options : { ...options, customLinks: [] };
-  frame.contentWindow.HDDesignPreview?.update(previewOptions, dictionaryState);
+  frame.contentWindow.HDDesignPreview?.update(options, dictionaryState);
 }
 
 function resizeDesignPreview() {
@@ -671,6 +800,7 @@ function normaliseDictionary(row) {
   }
   const sourceId = nonemptyString(row?.sourceId);
   return {
+    ...(row && typeof row === "object" && !Array.isArray(row) ? row : {}),
     id: stringValue(row?.id),
     title,
     displayName: displayName(row?.displayName),
@@ -1599,7 +1729,7 @@ function renderOptions() {
   renderThemeChoices();
   renderCustomCss();
   renderCustomJavascript();
-  customLinkController?.render();
+  customButtonController?.render();
   const toolbar = element("opt-popup-toolbar");
   if (toolbar !== document.activeElement) toolbar.value = options.popupToolbarPosition;
   const mode = element("opt-lookup-mode");
@@ -1615,6 +1745,7 @@ function renderOptions() {
   renderCompactSummaryControls();
   renderPopupImageSources();
   renderMetadataControls();
+  renderExperimentalSettings();
   updateDesignPreview();
   updateAudioSettings();
   updateMediaSettings();
@@ -1645,7 +1776,7 @@ function dictionaryMetadata(entry) {
       details.push(`Imported ${installed.toLocaleString()}`);
     }
   }
-  details.push(isUpdateCheckable(entry) ? "Update source available" : "Local archive");
+  details.push(`Package ID ${entry.id}`, isUpdateCheckable(entry) ? "Update source available" : "Local archive");
   return details.join(" · ");
 }
 
@@ -1981,19 +2112,22 @@ function bindDictionaryOrder(row, entry, index) {
   const position = row.querySelector(".dict-position-input");
   const move = row.querySelector(".dict-move");
   // Read the live index and bounds so a reused row keeps working after the
-  // package moves; only the entry id is stable across reorders.
+  // package moves; only the entry id is stable across reorders. An
+  // out-of-range integer clamps to the nearest movable slot: with the managed
+  // dictionary pinned first, typing 1 means "as high as possible", so it lands
+  // on position 2 instead of being silently discarded.
   const moveToPosition = () => {
     if (isManagedCustomDictionary(entry)) return;
     const currentIndex = dictionaries.findIndex((candidate) => candidate.id === entry.id);
     const minimumIndex = isManagedCustomDictionary(dictionaries[0]) ? 1 : 0;
-    const target = Number(position.value);
-    if (Number.isInteger(target)
-        && target >= minimumIndex + 1
-        && target <= dictionaries.length) {
-      moveDictionary(entry.id, { position: target });
-    } else {
+    const requested = Number(position.value);
+    if (position.value.trim() === "" || !Number.isInteger(requested)) {
       position.value = String(currentIndex + 1);
+      return;
     }
+    const target = Math.min(dictionaries.length, Math.max(minimumIndex + 1, requested));
+    position.value = String(target);
+    moveDictionary(entry.id, { position: target });
   };
   position.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -2423,10 +2557,109 @@ function summariseReport(report) {
   return counts.length === 0 ? "no entries" : counts.join(", ");
 }
 
-async function importFile(file, index, total, request = {}, label = file.name, started = Date.now()) {
+function revisionLabel(value) {
+  return value === null || value === "" ? "(missing)" : value;
+}
+
+function chooseDictionaryImport(identity, matches) {
+  const dialog = element("import-decision-dialog");
+  const target = element("import-decision-target");
+  const imported = element("import-decision-imported");
+  const installed = element("import-decision-installed");
+  const description = element("import-decision-description");
+  target.replaceChildren(...matches.map(({ dictionary }, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    const name = dictionary.displayName
+      ? `${dictionary.displayName} (${dictionary.title})`
+      : dictionary.title;
+    option.textContent = `${name} — revision ${revisionLabel(dictionary.revision)}`
+      + ` · ID ${dictionary.id.slice(0, 8)}`;
+    return option;
+  }));
+  element("import-decision-target-row").hidden = matches.length === 1;
+  imported.textContent = `${identity.title} — revision ${revisionLabel(identity.revision)}`;
+
+  const renderTarget = () => {
+    const match = matches[Number(target.value) || 0];
+    installed.textContent = `${match.dictionary.displayName || match.dictionary.title}`
+      + ` — revision ${revisionLabel(match.dictionary.revision)}`;
+    description.textContent = describeRevisionComparison(
+      identity.revision,
+      match.dictionary.revision,
+    );
+  };
+  target.value = "0";
+  target.onchange = renderTarget;
+  renderTarget();
+  dialog.returnValue = "";
+
+  return new Promise((resolve) => {
+    const finish = () => {
+      dialog.removeEventListener("cancel", cancel);
+      const action = ["replace", "separate"].includes(dialog.returnValue)
+        ? dialog.returnValue
+        : "cancel";
+      const match = matches[Number(target.value) || 0];
+      target.onchange = null;
+      resolve(action === "cancel" ? null : {
+        action,
+        identity,
+        matchKind: match.kind,
+        target: dictionaryImportTarget(match.dictionary),
+      });
+    };
+    const cancel = (event) => {
+      event.preventDefault();
+      dialog.close("cancel");
+    };
+    dialog.addEventListener("close", finish, { once: true });
+    dialog.addEventListener("cancel", cancel, { once: true });
+    dialog.showModal();
+  });
+}
+
+async function importFile(file, index, total, request = {}, label = file.name) {
+  updateImportResult(index, { text: "Reading dictionary metadata…", progress: { value: null } });
+  let identity;
+  try {
+    identity = await readDictionaryArchiveIdentity(file);
+  } catch (error) {
+    updateImportResult(index, {
+      text: `Failed before import: ${describe(error)}`,
+      tone: "error",
+    });
+    return "failed";
+  }
+
+  const matches = dictionaryImportMatches(identity, dictionaries);
+  let importDecision = {
+    action: "install",
+    identity,
+    matchKind: null,
+    target: null,
+  };
+  if (matches.length > 0) {
+    importDecision = await chooseDictionaryImport(identity, matches);
+    if (importDecision === null) {
+      updateImportResult(index, {
+        text: "Cancelled before import. Existing dictionary unchanged.",
+      });
+      return "cancelled";
+    }
+  }
+
+  // The decision happens before this URL exists, so Cancel cannot start a
+  // native import, create a generation, or mutate persistent storage.
+  const started = Date.now();
   const blobUrl = URL.createObjectURL(file);
   try {
-    return await importArchive({ blobUrl, fileName: file.name, ...request }, index, total, label, started);
+    return await importArchive({
+      blobUrl,
+      fileName: file.name,
+      ...request,
+      importDecision,
+    }, index, total, label, started);
   } finally {
     // The offscreen document has read the bytes by now; holding the URL any
     // longer just pins the file.
@@ -2454,7 +2687,7 @@ async function importArchive(request, index, total, label, started) {
         text: `Imported ${report.title} in ${importDuration(started)}: ${summariseReport(report)}.`,
         tone: "ok",
       });
-      return true;
+      return "imported";
     }
     const reason = reply.error ?? report.error ?? "The engine gave no reason.";
     updateImportResult(index, {
@@ -2469,7 +2702,7 @@ async function importArchive(request, index, total, label, started) {
   } finally {
     clearInterval(ticker);
   }
-  return false;
+  return "failed";
 }
 
 function renderRecommendedInstallation() {
@@ -2518,16 +2751,26 @@ async function runImportBatch(items, importOne, singular, plural, describeItem) 
   })));
 
   let imported = 0;
+  let cancelled = 0;
   try {
     for (const [index, item] of items.entries()) {
-      if (await importOne(item, index, items.length)) {
+      const outcome = await importOne(item, index, items.length);
+      if (outcome === "imported") {
         imported += 1;
-      }
+        // A later archive in the same batch must decide against the state the
+        // previous archive actually committed, not a delayed storage event.
+        await reloadDictionaries();
+      } else if (outcome === "cancelled") cancelled += 1;
     }
-    const failed = items.length - imported;
+    const failed = items.length - imported - cancelled;
     const itemLabel = items.length === 1 ? singular : plural;
+    const outcomes = [
+      `${imported} imported`,
+      ...(cancelled === 0 ? [] : [`${cancelled} cancelled`]),
+      `${failed} failed`,
+    ].join(", ");
     setImportState(
-      `Finished ${items.length} of ${items.length} ${itemLabel} — ${imported} imported, ${failed} failed.`,
+      `Finished ${items.length} of ${items.length} ${itemLabel} — ${outcomes}.`,
       failed === 0 ? "ready" : "error",
     );
     await reloadDictionaries();
@@ -2539,11 +2782,83 @@ async function runImportBatch(items, importOne, singular, plural, describeItem) 
   }
 }
 
+// An MDX dictionary is one .mdx plus the .mdd resource files named after its
+// stem (`Dict.mdd`, `Dict.1.mdd`, ...; case does not matter), which the engine
+// discovers as siblings. Every other file imports as a Yomitan ZIP, and a .mdd
+// without its .mdx is reported rather than imported on its own.
+function isMddResourceOf(mdxName, name) {
+  const stem = mdxName.slice(0, -".mdx".length).toLowerCase();
+  const lower = name.toLowerCase();
+  return lower.startsWith(`${stem}.`) && /^(\d+\.)?mdd$/u.test(lower.slice(stem.length + 1));
+}
+
+function groupImportFiles(files) {
+  if (options.experimental.mdxImport !== true) {
+    return files.map((file) => ({ kind: "zip", file }));
+  }
+  const items = [];
+  const resourceFiles = files.filter((file) => /\.mdd$/iu.test(file.name));
+  const claimed = new Set();
+  for (const file of files) {
+    if (/\.mdd$/iu.test(file.name)) continue;
+    if (!/\.mdx$/iu.test(file.name)) {
+      items.push({ kind: "zip", file });
+      continue;
+    }
+    const resources = resourceFiles.filter((resource) => !claimed.has(resource) && isMddResourceOf(file.name, resource.name));
+    for (const resource of resources) claimed.add(resource);
+    items.push({ kind: "mdx", file, resources });
+  }
+  for (const resource of resourceFiles) {
+    if (!claimed.has(resource)) items.push({ kind: "orphan-mdd", file: resource });
+  }
+  return items;
+}
+
+async function importMdx(item, index, total) {
+  const { file, resources } = item;
+  const started = Date.now();
+  const urls = [file, ...resources].map((entry) => URL.createObjectURL(entry));
+  try {
+    return await importArchive({
+      blobUrl: urls[0],
+      fileName: file.name,
+      resources: resources.map((resource, position) => ({ fileName: resource.name, blobUrl: urls[position + 1] })),
+    }, index, total, file.name, started);
+  } finally {
+    for (const url of urls) URL.revokeObjectURL(url);
+  }
+}
+
+async function importGroupedItem(item, index, total) {
+  if (item.kind === "mdx") return importMdx(item, index, total);
+  if (item.kind === "orphan-mdd") {
+    updateImportResult(index, {
+      text: "Not imported: choose this .mdd together with the .mdx it belongs to.",
+      tone: "error",
+    });
+    return "failed";
+  }
+  return importFile(item.file, index, total);
+}
+
+function importItemPurpose(item) {
+  if (item.kind === "orphan-mdd") return "MDD resource file";
+  if (item.kind !== "mdx") return "Yomitan ZIP file";
+  const count = item.resources.length;
+  if (count === 0) return "MDX dictionary";
+  return `MDX dictionary with ${count} MDD ${count === 1 ? "file" : "files"}`;
+}
+
+function describeImportItem(item) {
+  return { name: item.file.name, purpose: importItemPurpose(item) };
+}
+
 function runImports(files) {
-  return runImportBatch(files, importFile, "archive", "archives", (file) => ({
-    name: file.name,
-    purpose: "Yomitan ZIP file",
-  }));
+  const items = groupImportFiles(files);
+  const onlyArchives = items.every((item) => item.kind === "zip");
+  return runImportBatch(items, importGroupedItem, onlyArchives ? "archive" : "file",
+    onlyArchives ? "archives" : "files", describeImportItem);
 }
 
 function hasDroppedFiles(event) {
@@ -2871,7 +3186,7 @@ function attachHandlers() {
   });
   element("reset-design").addEventListener("click", () => {
     for (const key of DESIGN_OPTION_KEYS) options[key] = DEFAULT_OPTIONS[key];
-    customLinkController?.reset();
+    customButtonController?.reset();
     renderCustomCss(true);
     renderCustomJavascript(true);
     renderOptions();
@@ -3083,7 +3398,7 @@ function attachHandlers() {
   window.addEventListener("beforeunload", (event) => {
     if (!importing && !backingUp && savingOptions === null && optionsEditRevision === null
         && Object.keys(pendingOptions).length === 0 && savingSchedule === null && pendingSchedule === null
-        && !nameDrafts.hasPendingChanges() && !customLinkController?.dirty()) {
+        && !nameDrafts.hasPendingChanges() && !customButtonController?.dirty() && !ankiController?.dirty()) {
       return;
     }
     // Leaving can revoke an import's blob URL or discard a queued settings draft.
@@ -3183,6 +3498,9 @@ function handleStorageChange(changes, area) {
   if (changes.dictionaryUpdates) {
     if (adoptUpdateSettings(changes.dictionaryUpdates.newValue)) renderUpdateControls();
   }
+  if (changes.automaticBackups) {
+    void backupController?.refreshAutomaticBackups();
+  }
 }
 
 function setOptionsStatus(message, completed = false) {
@@ -3277,12 +3595,17 @@ async function flushOptionsUntilIdle() {
   }
 }
 
-async function start() {
+function renderMiningCapabilityHelp() {
   element("audio-mining-help").hidden = MINING_CAPABILITIES.browserSpeech;
   element("audio-speech-capture-help").hidden = !MINING_CAPABILITIES.browserSpeech;
   element("media-overlay-help").hidden = HOST_CAPABILITIES.mediaCapture;
-  element("custom-links-settings").disabled = !HOST_CAPABILITIES.customLinks;
-  element("custom-links-overlay-help").hidden = HOST_CAPABILITIES.customLinks;
+}
+
+async function start() {
+  configureBrowserUi();
+  renderMiningCapabilityHelp();
+  element("custom-buttons-settings").disabled = false;
+  element("custom-buttons-overlay-help").hidden = !HOST_CAPABILITIES.externalLinkHost;
   if (HOST_CAPABILITIES.localFileAccessPrompt) {
     createLocalFileAccessController({ document, container: element("settings-local-file-access") });
   }

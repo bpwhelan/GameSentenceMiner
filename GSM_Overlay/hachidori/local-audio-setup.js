@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { audioSourceUrl, parseAudioSourceList } from "./audio-sources.js";
-import { LOCAL_AUDIO_SOURCE_URL, createLocalAudioSource } from "./local-audio-source.js";
+import { LOCAL_AUDIO_SOURCE_URL, createLocalAudioSource, findLocalAudioSource } from "./local-audio-source.js";
 
 const UNAVAILABLE = "No compatible local audio service found. Open Anki with Local Audio Server enabled and retry. For a custom port, add its URL in Audio settings.";
 
@@ -8,6 +8,7 @@ export function createLocalAudioSetup({ document, readSources, editSources, isLi
   const check = document.getElementById("anki-audio-check");
   const add = document.getElementById("anki-audio-add");
   const status = document.getElementById("anki-audio-status");
+  const pill = document.getElementById("anki-audio-pill");
   let detected = null;
   let active = null;
 
@@ -22,6 +23,10 @@ export function createLocalAudioSetup({ document, readSources, editSources, isLi
     check.disabled = linked;
     const existing = readSources().find(source => source.type === "custom-json" && source.url === detected);
     add.hidden = !detected || Boolean(existing);
+    // Detected now, or already configured and enabled in Audio settings.
+    const ready = Boolean(detected) || findLocalAudioSource(readSources())?.enabled === true;
+    pill.textContent = ready ? "Ready" : "Not detected";
+    pill.dataset.state = ready ? "connected" : "offline";
     check.textContent = active ? "Cancel audio check" : "Detect local audio";
     if (linked) status.textContent = "Detect local audio in Anki settings on your Hachidori host.";
     else if (existing) status.textContent = existing.enabled

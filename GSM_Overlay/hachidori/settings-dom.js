@@ -1,6 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+const PAGE_THEMES = new WeakMap();
+
 export function applyPageTheme(document, options) {
-  document.documentElement.dataset.hoshidictsTheme = options.popupTheme;
+  let state = PAGE_THEMES.get(document);
+  if (!state) {
+    const media = document.defaultView?.matchMedia?.("(prefers-color-scheme: dark)")
+      ?? { matches: false, addEventListener() {} };
+    state = { media, theme: options.popupTheme };
+    media.addEventListener("change", () => {
+      if (state.theme === "auto") document.documentElement.dataset.hoshidictsTheme = media.matches ? "dark" : "light";
+    });
+    PAGE_THEMES.set(document, state);
+  }
+  state.theme = options.popupTheme;
+  let resolvedTheme = state.theme;
+  if (resolvedTheme === "auto") resolvedTheme = state.media.matches ? "dark" : "light";
+  document.documentElement.dataset.hoshidictsTheme = resolvedTheme;
 }
 
 const STATUS_CLASSES = {

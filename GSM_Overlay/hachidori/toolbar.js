@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { extensionApi as chrome } from "./browser-api.js";
 import "./reader-options.js";
-import { HOST_CAPABILITIES } from "./overlay-mode.js";
+import { HOST_BROWSER, HOST_CAPABILITIES } from "./overlay-mode.js";
 
 const { normaliseOptions } = globalThis.HDReaderOptions;
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map(node => [node.id, node]));
@@ -20,6 +21,7 @@ function adoptOptions(stored) {
 
 function render() {
   elements["lookup-toggle"].disabled = pending || !options;
+  elements["record-screen"].hidden = HOST_BROWSER === "firefox";
   elements["record-screen"].disabled = pending || !options || !HOST_CAPABILITIES.mediaCapture;
   if (!options) return;
   elements["lookup-toggle"].setAttribute("aria-checked", String(options.hoverEnabled));
@@ -58,14 +60,16 @@ async function run(action) {
 function renderCapture(recording) {
   if (!HOST_CAPABILITIES.mediaCapture) {
     elements["record-screen"].classList.toggle("is-recording", false);
-    elements["record-screen"].title = "Screen recording is unavailable in this overlay";
-    elements["record-label"].textContent = "Recording unavailable";
+    elements["record-screen"].title = HOST_BROWSER === "firefox"
+      ? "Context capture is unavailable in Firefox"
+      : "Context capture is unavailable in this overlay";
+    elements["record-label"].textContent = "Context capture unavailable";
     return;
   }
   elements["record-screen"].classList.toggle("is-recording", recording);
-  elements["record-screen"].title = recording ? "Open recording controls"
-    : "Choose a screen, window, or tab to record";
-  elements["record-label"].textContent = recording ? "Recording" : "Record screen";
+  elements["record-screen"].title = recording ? "Open capture controls"
+    : "Capture a screen, window, or tab as context for your Japanese cards";
+  elements["record-label"].textContent = recording ? "Recording context" : "Record context for Anki";
 }
 
 // A linked install shows where its lookups go and whether that host answers.

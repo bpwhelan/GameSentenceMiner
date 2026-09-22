@@ -26,10 +26,11 @@ function relayAddresses(entries) {
     .filter(entry => entry.address !== "");
 }
 
-// `dispatch(message, clientId)` answers a forwarded request with the same
-// reply object a runtime sender would receive. `readSnapshot()` returns the
-// shared storage keys as stored. `sharedKey(key)` says whether a storage
-// change belongs to the mirror. `name` is what linked browsers call this one.
+// `dispatch(message, clientId, capabilities)` answers a forwarded request
+// with the same reply object a runtime sender would receive. `readSnapshot()`
+// returns the shared storage keys as stored. `sharedKey(key)` says whether a
+// storage change belongs to the mirror. `name` is what linked browsers call
+// this one.
 export function createSharingHost({
   WebSocket, alarms, dispatch, readSnapshot, sharedKey, version, name, capabilities = SHARING_CAPABILITIES,
 }) {
@@ -100,7 +101,7 @@ export function createSharingHost({
       return;
     }
     if (frame.kind === "request") {
-      const response = await dispatch(frame.message, clientId);
+      const response = await dispatch(frame.message, clientId, [...client.capabilities]);
       sendTo(target, clientId, client, { kind: "reply", id: frame.id, response });
     }
   }

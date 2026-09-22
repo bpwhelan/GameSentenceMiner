@@ -40,9 +40,19 @@ const {
 } = require('./hotkey_routing');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const {
+  DICTIONARY_READER_HACHIDORI,
   DICTIONARY_READER_YOMITAN,
   resolveDictionaryReaderFromConfigData,
 } = require('./dictionary_reader');
+const {
+  HACHIDORI_EXTERNAL_LINK_CHANNEL,
+  createHachidoriExternalLinkHandler,
+  hasLoadedHachidoriExtension,
+} = require('./hachidori_external_links');
+const {
+  OVERLAY_SETTINGS_READY_CHANNEL,
+  createOverlaySettingsReadyHandler,
+} = require('./overlay_settings_delivery');
 const { URL } = require('url');
 
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
@@ -7250,6 +7260,19 @@ async function startOverlayAppImpl() {
     child.loadURL(url);
     return { action: 'deny' };
   });
+
+  ipcMain.handle(HACHIDORI_EXTERNAL_LINK_CHANNEL, createHachidoriExternalLinkHandler({
+    getMainWindow: () => mainWindow,
+    isHachidoriActive: () => (
+      dictionaryReader === DICTIONARY_READER_HACHIDORI
+      && hasLoadedHachidoriExtension(hachidoriExt)
+    ),
+    openExternal: (url) => electron.shell.openExternal(url),
+  }));
+  ipcMain.on(OVERLAY_SETTINGS_READY_CHANNEL, createOverlaySettingsReadyHandler({
+    getMainWindow: () => mainWindow,
+    buildPayload: buildOverlaySettingsPayload,
+  }));
 
   // Set bounds again to fix potential issue with wrong size on start
   setTimeout(() => {

@@ -1,7 +1,7 @@
 {
   "name": "Hachidori",
   "repository": "https://github.com/bee-san/hachidori",
-  "commit": "979c24ffaff4662ce96579718020488131fb1b4b",
+  "commit": "603e818a376697a9d8afc3d83f29fd53f5fd0545",
   "sourceDirectory": "extension",
   "license": "GPL-3.0-or-later",
   "modifications": [
@@ -12,6 +12,6 @@
   ],
   "gsmIntegration": {
     "version": 1,
-    "sha256": "61c7177cf5951d39850b8c8ff642e7df094b38ac9443a8dc42c03c49022ca873"
+    "sha256": "2b8a8de7730a60db15c07b3e88de3dfb1d89c50d3c2d5d88423547f3a56e4478"
   }
 }

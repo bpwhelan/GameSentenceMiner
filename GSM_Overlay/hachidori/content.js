@@ -25,6 +25,13 @@
   const HOST_TAG = "hachidori-host";
   const POPUP_SHOWN_EVENT = "hachidori-popup-shown";
   const POPUP_HIDDEN_EVENT = "hachidori-popup-hidden";
+  const EXTENSION_PROTOCOL = (() => {
+    try {
+      return new URL(chrome.runtime.getURL("")).protocol;
+    } catch {
+      return "";
+    }
+  })();
 
   const {
     DEFAULT_OPTIONS,
@@ -114,7 +121,7 @@
   // link may leave the known heading fragment before the module loads or on
   // reload; query variants and every other internal page stay excluded.
   if (
-    location.protocol === "chrome-extension:" &&
+    location.protocol === EXTENSION_PROTOCOL &&
     location.href !== chrome.runtime.getURL("startup.html") &&
     location.href !== chrome.runtime.getURL("startup.html#setup-heading")
   ) {
@@ -188,7 +195,7 @@
   // A drag the reader selects itself, glyph by glyph, in an overlay host.
   let dragSelection = null;
   let overlayMode = false;
-  let hostCapabilities = { customLinks: true, mediaCapture: true };
+  let hostCapabilities = { linkButtons: true, externalLinkHost: false, mediaCapture: true };
   let hostAttentionPublished = false;
   let hostAttentionHold = 0;
 
@@ -238,13 +245,18 @@
     try {
       const module = await import(chrome.runtime.getURL("overlay-mode.js"));
       overlayMode = module.OVERLAY_MODE === true;
-      hostCapabilities = { ...hostCapabilities, ...module.HOST_CAPABILITIES };
+      const advertised = module.HOST_CAPABILITIES ?? {};
+      hostCapabilities = { ...hostCapabilities, ...advertised };
+      if (!Object.hasOwn(advertised, "linkButtons") && Object.hasOwn(advertised, "customLinks")) {
+        hostCapabilities.linkButtons = advertised.customLinks;
+      }
       const next = applyHostCapabilities(options);
-      const customLinksChanged = JSON.stringify(next.customLinks) !== JSON.stringify(options.customLinks);
-      const miningChanged = JSON.stringify(next.mediaCapture) !== JSON.stringify(options.mediaCapture);
+      const customButtonsChanged = JSON.stringify(next.customButtons) !== JSON.stringify(options.customButtons);
+      const miningChanged = customButtonsChanged
+        || JSON.stringify(next.mediaCapture) !== JSON.stringify(options.mediaCapture);
       options = next;
-      if (customLinksChanged) {
-        for (const level of levels) level.view?.setCustomLinks(options.customLinks);
+      if (customButtonsChanged) {
+        for (const level of levels) level.view?.setCustomButtons(options.customButtons);
       }
       if (miningChanged) mining?.update(options, optionsStorageRevision >= 0);
     } catch {
@@ -256,7 +268,11 @@
     if (!hostCapabilities.mediaCapture) {
       projected = { ...projected, mediaCapture: { ...projected.mediaCapture, enabled: false } };
     }
-    if (!hostCapabilities.customLinks) projected = { ...projected, customLinks: [] };
+    if (!hostCapabilities.linkButtons) projected = {
+      ...projected,
+      customLinks: [],
+      customButtons: projected.customButtons.filter(button => button.type !== "link"),
+    };
     return projected;
   }
 
@@ -290,6 +306,7 @@
         frequencyMode: entry.frequencyMode,
         pitchCount: nonnegativeCount(entry.pitchCount),
         kanjiCount: nonnegativeCount(entry.kanjiCount),
+        longKeyLength: nonnegativeCount(entry.longKeyLength),
       }];
     });
     return {
@@ -312,6 +329,7 @@
     return dictionaries
       .filter((entry) => entry.enabled !== false)
       .map((entry) => ({
+        id: entry.id,
         title: entry.title,
         favorite: entry.favorite,
         frequencyMode: entry.frequencyMode,
@@ -503,7 +521,7 @@
       if (isEditingElement(focused)) {
         // Startup is the only extension page allowed above. Its scene arrow
         // keeps keyboard focus without pausing the practice lookup.
-        if (location.protocol === "chrome-extension:" && focused.matches(".vn-next")) continue;
+        if (location.protocol === EXTENSION_PROTOCOL && focused.matches(".vn-next")) continue;
         return true;
       }
     }
@@ -683,6 +701,29 @@
     }
   }
 
+  // How many code points of page text a lookup is given. The engine scans
+  // options.scanLength of them as before, and reaches further only when the
+  // text begins like a dictionary key longer than that (hoshidicts long-key
+  // index; each package row carries the longest such key it lists). Eight more
+  // leaves room for an inflected ending, matching the engine. Dictionaries
+  // imported before the index existed report 0 and cost nothing extra. Off by
+  // default: Settings → Advanced → Experimental features → Long dictionary
+  // entries switches it on.
+  const LONG_KEY_INFLECTION_SLACK = 8;
+  const MAX_SCAN_WINDOW = 256;
+
+  function scanWindow() {
+    if (options.experimental.longKeyScan !== true) return options.scanLength;
+    let longest = 0;
+    for (const entry of dictionaries) {
+      if (entry.enabled !== false && entry.termCount > 0 && entry.longKeyLength > longest) {
+        longest = entry.longKeyLength;
+      }
+    }
+    if (longest === 0) return options.scanLength;
+    return Math.min(MAX_SCAN_WINDOW, Math.max(options.scanLength, longest + LONG_KEY_INFLECTION_SLACK));
+  }
+
   function collectScanEntries(startNode, startOffset, root, scanLength, styleCache) {
     const walker = createScanWalker(root, styleCache);
     walker.currentNode = startNode;
@@ -737,7 +778,7 @@
       startNode,
       Math.min(startOffset, (startNode.nodeValue || "").length),
       document.body,
-      options.scanLength,
+      scanWindow(),
       styleCache
     );
     if (entries.length === 0) {
@@ -835,7 +876,7 @@
       startNode,
       Math.min(caretRange.startOffset, (startNode.nodeValue || "").length),
       lookupText,
-      options.scanLength,
+      scanWindow(),
       styleCache
     );
     const linkBoundary = entries.findIndex((entry) =>
@@ -1491,6 +1532,15 @@
 
   function lookupFailureState(error, request = null) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error?.code === "dictionary-structured-content-limit") {
+      return {
+        kind: "render",
+        title: typeof error.userTitle === "string"
+          ? error.userTitle
+          : "Dictionary content could not be rendered.",
+        detail: typeof error.userDetail === "string" ? error.userDetail : message,
+      };
+    }
     if (error?.code === "engine-mutating" || message === "the dictionary engine is busy mutating") {
       return {
         kind: "updating",
@@ -1545,7 +1595,9 @@
 
   function handleLookupFailure(token, error, level = rootLevel, request = null, preserveView = false) {
     if (disposed || level.retired || token !== level.lookupToken) return false;
-    console.debug("hachidori: lookup failed", error);
+    if (error?.code !== "dictionary-structured-content-limit") {
+      console.debug("hachidori: lookup failed", error);
+    }
     const state = lookupFailureState(error, request);
     if (state === null) {
       if (!preserveView) hide(level);
@@ -1570,6 +1622,16 @@
     }, { preserveView });
     positionPopup(level);
     return false;
+  }
+
+  function handleRenderFailure(token, error, request, level = rootLevel) {
+    if (disposed || level.retired || token !== level.lookupToken) return false;
+    if (error?.cause instanceof Error) {
+      console.warn("hachidori: could not render results", error, "caused by", error.cause);
+    } else {
+      console.warn("hachidori: could not render results", error);
+    }
+    return handleLookupFailure(token, error, level, request);
   }
 
   function retainProtectedReplay(request, token, level, replayOptions) {
@@ -1879,6 +1941,7 @@
     level.highlighter = highlighter.scope(level);
     level.view = window.HDPopup.createPopupView({
       appendExpressionRuby: window.HDGlossary.appendExpressionRuby,
+      buildPitchAccentMorae: window.HDGlossary.buildPitchAccentMorae,
       appendTextOnlyGlossary: window.HDGlossary.appendTextOnlyGlossary,
       appendStructuredImage: window.HDGlossary.appendStructuredImage,
       document,
@@ -1888,7 +1951,7 @@
       onResizeStart: event => startPopupResize(event, level),
       onResizeMove: movePopupResize,
       onResizeEnd: stopPopupResize,
-      customLinks: options.customLinks,
+      customButtons: options.customButtons,
       highlightName: HIGHLIGHT_NAME,
       idPrefix: level === rootLevel ? "hoshidicts" : `hoshidicts-${nextLevelId += 1}`,
       onAddCustomEntry: (entry) => appendCustomEntry(entry, level),
@@ -1961,6 +2024,7 @@
         documentTitle: document.title, audioSelection: audio.selectionFor(result) ?? undefined,
         capturePin: rootLevel.capturePin ?? undefined,
         dictionaryAliases: Object.fromEntries(dictionaries.filter(item => item.displayName).map(item => [item.title, item.displayName])),
+        dictionaryIds: Object.fromEntries(dictionaries.map(item => [item.title, item.id])),
         frequencyDictionaries: dictionaries.filter(item => item.enabled && item.frequencyCount > 0).map(item => item.title),
       };
     } });
@@ -2451,6 +2515,12 @@
   }
 
   function openExternalLink({ url, active }) {
+    if (hostCapabilities.externalLinkHost) {
+      void window.HDExternalLinkHost.open(window, { url, active }).catch((error) => {
+        console.debug("hachidori: overlay host could not open external link", error);
+      });
+      return;
+    }
     // A lost reply may follow a successful open, so never retry navigation.
     void sendRequest("hd_open_external", { url, active }, "hoshidicts-worker").catch((error) => {
       console.debug("hachidori: external link could not be opened", error);
@@ -2592,13 +2662,12 @@
         isCurrentRequest: () => !disposed && !level.retired && token === level.lookupToken,
         isCurrentView: () => !disposed && !level.retired && level.currentViewRequest === request
           && (token === level.lookupToken || level.retainedView),
-        onRenderError(error) { handleLookupFailure(token, error, level); },
+        onRenderError(error) { handleRenderFailure(token, error, request, level); },
         ...dictionarySelectionContext(request),
       });
     } catch (error) {
       // A malformed result must cost one hover, not the whole content script.
-      console.warn("hachidori: could not render results", error);
-      hide(level);
+      handleRenderFailure(token, error, request, level);
       return false;
     }
     level.activeHighlightText = matchedText;
@@ -3181,6 +3250,11 @@
     }
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) {
+      if (!activationAllowed()) {
+        cancelCandidateScan();
+        schedulePointerHide();
+        return;
+      }
       const selected = resolveSelectedLookupCandidate(selection);
       if (selected) startSelectionLookup(selected);
       else {
@@ -3301,7 +3375,7 @@
       scheduleScan();
       return;
     }
-    if (!activationAllowed() && window.getSelection()?.isCollapsed !== false) {
+    if (!activationAllowed()) {
       cancelCandidateScan();
       schedulePointerHide();
       return;
@@ -3364,6 +3438,7 @@
       return;
     }
     if (isOurNode(event.target) || pointInsidePopup(event.clientX, event.clientY)) return;
+    updateModifierState(event);
     if (event.button === 0 && options.hoverEnabled
         && isScannableElement(selectionBoundaryElement(event.target), new Map())) {
       // A press on text may start a selection, so the popup stays until release
@@ -3433,12 +3508,14 @@
       node && (node === host || node.getRootNode() === shadow))) return;
     const candidate = resolveSelectedLookupCandidate(selection);
     if (!candidate && !activeSelectionCandidate) return;
-    if (candidate) startSelectionLookup(candidate);
+    if (candidate && !activationAllowed()) hide();
+    else if (candidate) startSelectionLookup(candidate);
     else hide();
   }
 
   function onMouseUp(event) {
     if (disposed || event.button !== 0 || !selectionDragActive) return;
+    updateModifierState(event);
     finishSelectionDrag({ dismissClick: true });
   }
 
@@ -3493,11 +3570,20 @@
     return true;
   }
 
+  function scanSelectedText() {
+    if (disposed || !options.hoverEnabled) return false;
+    const candidate = resolveSelectedLookupCandidate();
+    if (!candidate) return false;
+    startSelectionLookup(candidate);
+    return true;
+  }
+
   function runKeybindAction({ action, argument }, event) {
     if (action === "close") return closeFromKeybind(event);
     if (action === "scanSelectedText" || action === "scanTextAtSelection") {
       if (!options.hoverEnabled) return false;
-      const candidate = action === "scanSelectedText" ? resolveSelectedLookupCandidate() : resolveSelectionScanCandidate();
+      if (action === "scanSelectedText") return scanSelectedText();
+      const candidate = resolveSelectionScanCandidate();
       if (!candidate) return false;
       startSelectionLookup(candidate);
       return true;
@@ -3810,7 +3896,7 @@
     // A simultaneous dictionary replacement must invalidate the old view first.
     const countsChanged = next.showLookupCounts !== options.showLookupCounts;
     const ankiChanged = JSON.stringify(next.anki) !== JSON.stringify(options.anki);
-    const customLinksChanged = JSON.stringify(next.customLinks) !== JSON.stringify(options.customLinks);
+    const customButtonsChanged = JSON.stringify(next.customButtons) !== JSON.stringify(options.customButtons);
     if (ankiChanged || next.definitionBlurAnkiMature !== options.definitionBlurAnkiMature) ankiMaturityEpoch++;
     const blurChanged = ankiChanged || next.showLookupCounts !== options.showLookupCounts || DEFINITION_BLUR_KEYS
       .some(key => next[key] !== options[key]);
@@ -3823,8 +3909,8 @@
     }
     optionsStorageRevision = revision;
     options = next;
-    if (customLinksChanged) {
-      for (const level of levels) level.view?.setCustomLinks(options.customLinks);
+    if (customButtonsChanged) {
+      for (const level of levels) level.view?.setCustomButtons(options.customButtons);
     }
     if (countsChanged) {
       for (const level of levels) {
@@ -3914,7 +4000,10 @@
     void loadOverlayMode();
     // Startup awaits this snapshot before demonstrating its first selection.
     let storageReady;
-    globalThis.HDReaderReady = new Promise(resolve => { storageReady = resolve; });
+    const reader = Object.freeze({ scanSelectedText });
+    globalThis.HDReaderReady = new Promise(resolve => {
+      storageReady = () => { resolve(reader); };
+    });
     try {
       chrome.storage.onChanged.addListener(onStorageChanged);
       // Optional like the worker's commands API: reader smoke hosts have no runtime messages.

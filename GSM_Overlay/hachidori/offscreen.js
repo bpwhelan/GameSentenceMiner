@@ -1,12 +1,16 @@
 /*
- * Bridges Chrome runtime messages to the Hoshidicts engine.
+ * Bridges extension runtime messages to the Hoshidicts engine.
  *
- * Browsers with pthread and OPFS support use the dedicated worker. Other
- * browsers use the single-thread IDBFS compatibility runtime.
+ * Browsers with pthread and OPFS support use the dedicated worker on direct
+ * OPFS. Hosts with pthread support but no OPFS access handles (Electron) use
+ * the dedicated worker on IDBFS. Other browsers use the single-thread IDBFS
+ * compatibility runtime on this document.
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { extensionApi as chrome, expectedBackgroundUrl } from "./browser-api.js";
+import { announceFirefoxOffscreen } from "./firefox-host.js";
 import { boundResponseFailure } from "./response-limits.js";
 
 const TARGET = "hoshidicts-offscreen";
@@ -18,7 +22,7 @@ let captureService;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== "hachidori-capture-page" || message.relayed !== true
-      || sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL("background.js")
+      || sender.id !== chrome.runtime.id || sender.url !== expectedBackgroundUrl(chrome)
       || sender.tab !== undefined) return false;
   captureService ??= import("./capture-host.js");
   captureService.then(module => module.handleCaptureMessage(message)).then(
@@ -43,6 +47,8 @@ const MUTATION_TYPES = new Set([
   "hd_custom_save",
   "hd_backup_export",
   "hd_backup_prepare",
+  "hd_backup_auto_prepare",
+  "hd_backup_auto_cleanup",
   "hd_backup_restore",
   "hd_backup_cancel",
 ]);
@@ -54,6 +60,8 @@ const IMPORT_READ_TYPES = new Set([
   "hd_styles",
   "hd_media",
   "hd_backup_release",
+  "hd_api_dictionary_read",
+  "hd_api_dictionary_close",
 ]);
 const STAGED_MUTATION_READ_TYPES = new Set([
   "hd_lookup",
@@ -61,6 +69,8 @@ const STAGED_MUTATION_READ_TYPES = new Set([
   "hd_kanji",
   "hd_styles",
   "hd_media",
+  "hd_api_dictionary_read",
+  "hd_api_dictionary_close",
 ]);
 
 function supportsSharedWasmMemory() {
@@ -187,20 +197,26 @@ function probeDirectOpfs() {
   });
 }
 
-async function shouldUseThreadedEngine() {
-  if (!CAN_THREAD || typeof globalThis.Worker !== "function"
-      || typeof navigator.storage?.getDirectory !== "function") {
-    return false;
+// "opfs": pthread worker on direct OPFS; "threaded-idbfs": pthread worker on
+// IDBFS; "local": single-thread IDBFS runtime on this document.
+async function selectEngine() {
+  if (!CAN_THREAD || typeof globalThis.Worker !== "function") {
+    return "local";
+  }
+  if (typeof navigator.storage?.getDirectory !== "function") {
+    console.warn("hoshidicts: the origin private file system is unavailable, using threaded IDBFS");
+    return "threaded-idbfs";
   }
   const result = await probeDirectOpfs();
   if (!result.ok) {
-    console.warn(`hoshidicts: direct OPFS is unavailable, using IDBFS: ${result.error}`);
+    console.warn(`hoshidicts: direct OPFS is unavailable, using threaded IDBFS: ${result.error}`);
+    return "threaded-idbfs";
   }
-  return result.ok;
+  return "opfs";
 }
 
-function startWorkerEngine() {
-  worker = new Worker(new URL("./engine-worker.js", import.meta.url), {
+function startWorkerEngine(script) {
+  worker = new Worker(new URL(script, import.meta.url), {
     type: "module",
     name: "hoshidicts-engine",
   });
@@ -258,10 +274,11 @@ function startLocalEngine() {
   });
 }
 
-const engineSelection = shouldUseThreadedEngine().then((threaded) => {
-  lastEngineStatus.storageBackend = threaded ? "opfs" : "idbfs";
-  lastEngineStatus.threaded = threaded;
-  return threaded ? startWorkerEngine() : startLocalEngine();
+const engineSelection = selectEngine().then((mode) => {
+  lastEngineStatus.storageBackend = mode === "opfs" ? "opfs" : "idbfs";
+  lastEngineStatus.threaded = mode !== "local";
+  if (mode === "local") return startLocalEngine();
+  return startWorkerEngine(mode === "opfs" ? "./engine-worker.js" : "./engine-worker-idbfs.js");
 }).catch(failEngine);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -375,3 +392,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   );
   return true;
 });
+
+try {
+  await announceFirefoxOffscreen();
+} catch (error) {
+  failEngine(error);
+}

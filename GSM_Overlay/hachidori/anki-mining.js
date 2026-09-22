@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { ankiAvailability } from "./anki.js";
+import { ankiAvailability, isUndispatchedAnkiTransportError } from "./anki.js";
 import { ankiCaptureRequirements, resolveAnkiTemplates } from "./anki-templates.js";
 import { ankiDigest } from "./anki-digest.js";
 import { ankiSetupFamily } from "./anki-setup.js";
@@ -178,18 +178,31 @@ export function createAnkiMiningService({
   duplicateIndex,
   now = Date.now,
 }) {
-  let cached = null;
+  const cached = new Map();
   let mutations = Promise.resolve();
   const invokeFor = config => (action, params, timeoutMs) => gateway.invoke(action, params, config.apiKey, timeoutMs, config.url);
 
-  async function configuration(fresh = false) {
-    const config = await readConfig();
+  async function identity(templateId) {
+    const config = await readConfig(templateId);
+    if (!config) throw new Error("The selected Anki Template is no longer available.");
     const configJson = JSON.stringify(config);
-    if (!fresh && cached?.key === configJson && now() < cached.expires) return cached.promise;
+    const configKey = await ankiDigest(new TextEncoder().encode(JSON.stringify({
+      templateId: templateId ?? null,
+      config,
+    })));
+    return { config, configJson, configKey, templateId: templateId ?? null };
+  }
+
+  async function configuration(templateId, fresh = false) {
+    const current = await identity(templateId);
+    const { config, configJson } = current;
+    const cacheKey = templateId ?? "";
+    const previous = cached.get(cacheKey);
+    if (!fresh && previous?.key === configJson && now() < previous.expires) return previous.promise;
     const promise = (async () => {
       // Correlate reader requests without returning the saved API key/source
       // credentials in a serialized configuration string to each content script.
-      const configKey = await ankiDigest(new TextEncoder().encode(configJson));
+      const { configKey } = current;
       if (!config.model) return { config, configKey, configJson, errors: ["Choose an Anki note type in Settings."] };
       const discovery = await gateway.discover(config);
       const resolved = resolveAnkiTemplates(config, discovery.fields);
@@ -197,17 +210,40 @@ export function createAnkiMiningService({
     })();
     // GSM's two-second status cache, sharing concurrent callers as well. Only
     // read-only preparation may use it; each submission refreshes discovery.
-    cached = { key: configJson, expires: now() + 2000, promise };
+    cached.set(cacheKey, { key: configJson, expires: now() + 2000, promise });
     return promise;
   }
 
-  async function status() {
-    const current = await configuration();
+  async function status(templateId) {
+    const current = await configuration(templateId);
     return { available: current.errors.length === 0, configKey: current.configKey, error: current.errors.join("\n") };
   }
 
+  async function view(request) {
+    const current = await identity(request?.templateId);
+    const expression = request?.term?.expression ?? request?.expression;
+    const unknown = {
+      state: "unknown",
+      canAdd: false,
+      noteIds: [],
+      configKey: current.configKey,
+      cached: false,
+    };
+    if (current.config.duplicateBehavior !== "prevent") return unknown;
+    const duplicate = await duplicateIndex.peek(current.config, expression);
+    if (!duplicate.noteIds.length) return unknown;
+    return {
+      state: "duplicate",
+      canAdd: false,
+      noteIds: duplicate.noteIds,
+      mature: duplicate.mature,
+      configKey: current.configKey,
+      cached: true,
+    };
+  }
+
   async function prepare(request, fresh) {
-    const configured = await configuration(fresh);
+    const configured = await configuration(request?.templateId, fresh);
     const current = requestConfiguration(configured, request);
     if (request.configKey !== current.configKey) throw new Error(CONFIG_CHANGED);
     if (current.errors.length) throw new Error(current.errors.join("\n"));
@@ -269,7 +305,7 @@ export function createAnkiMiningService({
     const { fields, target, templates } = fieldsForDecision(prepared, checked);
     const capture = captureForApplication(request, templates);
     if (capture) await validateCapture({ request, prepared, capture });
-    if (JSON.stringify(await readConfig()) !== configJson) throw new Error(CONFIG_CHANGED);
+    if (JSON.stringify(await readConfig(request?.templateId)) !== configJson) throw new Error(CONFIG_CHANGED);
     const writeResources = await beforeWrite({
       request,
       ...prepared,
@@ -284,7 +320,7 @@ export function createAnkiMiningService({
     // An uncertain write keeps it: the note may exist in Anki after all.
     const releaseRejected = () => afterRejected({ request, ...prepared, writeResources })
       .catch(() => undefined);
-    if (JSON.stringify(await readConfig()) !== configJson) {
+    if (JSON.stringify(await readConfig(request?.templateId)) !== configJson) {
       await releaseRejected();
       throw new Error(CONFIG_CHANGED);
     }
@@ -310,6 +346,13 @@ export function createAnkiMiningService({
             : (await duplicateIndex.repair(config, expression, invoke)).noteIds;
         } catch { /* The duplicate result is definitive even if browse discovery fails. */ }
         return { state: "duplicate", error: "This note already exists in Anki.", noteIds };
+      }
+      if (isUndispatchedAnkiTransportError(error)) {
+        // A failed endpoint generation rejected this queued mutation before it
+        // entered fetch. Its note cannot exist, so release request-owned media
+        // and return a definitive retryable failure instead of uncertainty.
+        await releaseRejected();
+        throw error;
       }
       // A lost acknowledgement may follow a completed write. Neither this
       // worker nor the reader retries it automatically, including append modes.
@@ -350,7 +393,7 @@ export function createAnkiMiningService({
         warnings.push(error.message);
       }
     }
-    cached = null;
+    cached.delete(request?.templateId ?? "");
     return { state: target ? "updated" : "added", noteId, warnings };
   }
 
@@ -361,25 +404,31 @@ export function createAnkiMiningService({
   }
 
   async function browse(request) {
-    const config = await readConfig();
     const value = typeof request === "string" ? { expression: request } : request;
+    const config = await readConfig(value?.templateId);
+    if (!config) throw new Error("The selected Anki Template is no longer available.");
     if (typeof value?.configKey === "string") {
-      const configKey = await ankiDigest(new TextEncoder().encode(JSON.stringify(config)));
+      const configKey = await ankiDigest(new TextEncoder().encode(JSON.stringify({
+        templateId: value?.templateId ?? null,
+        config,
+      })));
       if (value.configKey !== configKey) throw new Error(CONFIG_CHANGED);
     }
-    const query = Array.isArray(value?.noteIds) && value.noteIds.length
-      ? ankiNoteIdsQuery(value.noteIds) : ankiBrowseQuery(value?.expression ?? "");
     const invoke = invokeFor(config);
-    const opened = await invoke("guiBrowse", { query });
-    if (Array.isArray(value?.noteIds) && value.noteIds.length && Array.isArray(opened)
-        && value.noteIds.some(noteId => !opened.includes(noteId))) {
-      const repaired = await duplicateIndex.repair(config, value.expression ?? "", invoke);
-      if (repaired.noteIds.length) {
-        await invoke("guiBrowse", { query: ankiNoteIdsQuery(repaired.noteIds) });
-      }
+    const supplied = Array.isArray(value?.noteIds) && value.noteIds.length;
+    let noteIds = supplied ? [...value.noteIds] : [];
+    let repaired = false;
+    if (supplied && typeof value?.expression === "string" && value.expression
+        && await duplicateIndex.source(config) !== null) {
+      const refreshed = await duplicateIndex.repair(config, value.expression, invoke);
+      noteIds = refreshed.noteIds;
+      if (!noteIds.length) return { opened: false, noteIds: [], repaired: true };
+      repaired = true;
     }
-    return { opened: true };
+    const query = noteIds.length ? ankiNoteIdsQuery(noteIds) : ankiBrowseQuery(value?.expression ?? "");
+    await invoke("guiBrowse", { query }, 30_000);
+    return { opened: true, noteIds, repaired };
   }
 
-  return { status, preflight, submit, browse };
+  return { status, view, preflight, submit, browse };
 }

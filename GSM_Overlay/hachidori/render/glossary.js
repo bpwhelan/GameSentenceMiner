@@ -28,8 +28,8 @@
   const MAX_TEXT_LENGTH = 128 * 1024;
   const MAX_LOOKUP_TEXT_BYTES = 4 * 1024;
   const MAX_MEDIA_DISPLAY_SIZE = 1024;
-  const MAX_STRUCTURED_DEPTH = 24;
   const MAX_STRUCTURED_NODES = 1_048_576;
+  const MAX_STRUCTURED_LOCATION_SEGMENTS = 64;
   const MAX_STRUCTURED_DATA_ATTRIBUTES = 64;
   const MAX_STRUCTURED_DATA_KEY_LENGTH = 64;
   const MAX_STRUCTURED_DATA_VALUE_LENGTH = 4096;
@@ -141,6 +141,38 @@
 
   function boundedString(value, maxLength = MAX_TEXT_LENGTH) {
     return typeof value === "string" ? value.slice(0, maxLength) : "";
+  }
+
+  function structuredContentLocation(path) {
+    const omitted = Math.max(0, path.length - MAX_STRUCTURED_LOCATION_SEGMENTS);
+    const segments = omitted > 0
+      ? [...path.slice(0, MAX_STRUCTURED_LOCATION_SEGMENTS / 2),
+          `[${omitted} path segments omitted]`,
+          ...path.slice(-MAX_STRUCTURED_LOCATION_SEGMENTS / 2)]
+      : path;
+    let location = "";
+    for (const segment of segments) {
+      if (typeof segment === "string" && segment.startsWith("[")) {
+        location += segment;
+        continue;
+      }
+      location += typeof segment === "number"
+        ? `[${segment}]`
+        : `${location ? "." : ""}${segment}`;
+    }
+    return location || "structuredContent";
+  }
+
+  function structuredContentLimitError(kind, actual, limit, path) {
+    const error = new RangeError(
+      `Structured content ${kind} ${actual} exceeds limit ${limit} at ${structuredContentLocation(path)}`
+    );
+    error.code = "structured-content-limit";
+    error.structuredContentActual = actual;
+    error.structuredContentLimit = limit;
+    error.structuredContentLimitKind = kind;
+    error.structuredContentLocation = structuredContentLocation(path);
+    return error;
   }
 
   function toHiragana(text) {
@@ -928,20 +960,23 @@
     loadImage();
   }
 
+  // Yomitan writes `element.dataset["sc" + Key]`, so dictionary CSS is written
+  // against the attribute names the dataset setter derives: ASCII capitals
+  // become hyphen-lowercase and every other character, including Japanese
+  // keys such as 付録 or 外字, is kept as is (`data-sc付録`). A key the setter
+  // would reject (a hyphen before an ASCII lowercase letter) is dropped, as
+  // Yomitan drops it; setAttribute rejects the remaining invalid names.
   function structuredDataAttributeName(rawKey) {
     if (
       typeof rawKey !== "string" ||
       rawKey.length === 0 ||
-      rawKey.length > MAX_STRUCTURED_DATA_KEY_LENGTH ||
-      !/^[A-Za-z0-9_-]+$/u.test(rawKey)
+      rawKey.length > MAX_STRUCTURED_DATA_KEY_LENGTH
     ) {
       return null;
     }
-    const key = rawKey
-      .replace(/([a-z0-9])([A-Z])/gu, "$1-$2")
-      .replace(/_+/gu, "-")
-      .toLowerCase();
-    return key && !key.startsWith("-") ? `data-sc-${key}` : null;
+    const property = `sc${rawKey[0].toUpperCase()}${rawKey.slice(1)}`;
+    if (/-[a-z]/u.test(property)) return null;
+    return `data-${property.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`)}`;
   }
 
   function applyStructuredData(element, data) {
@@ -969,7 +1004,11 @@
       ) {
         continue;
       }
-      element.setAttribute(attribute, value);
+      try {
+        element.setAttribute(attribute, value);
+      } catch {
+        continue;
+      }
       count += 1;
     }
   }
@@ -1018,163 +1057,199 @@
     return element.isConnected && (typeof isCurrent !== "function" || isCurrent());
   }
 
-  function appendStructuredValue(documentRef, parent, value, state, depth) {
-    if (state.nodes >= MAX_STRUCTURED_NODES || depth > MAX_STRUCTURED_DEPTH) {
-      throw new RangeError("Structured content exceeds its node or depth limit");
-    }
-    // Bound traversal work, including containers and values that render no DOM.
-    state.nodes += 1;
-    if (typeof value === "string") {
-      parent.appendChild(documentRef.createTextNode(value));
-      return;
-    }
-    if (typeof value === "number" || typeof value === "boolean") {
-      parent.appendChild(documentRef.createTextNode(String(value)));
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const child of value) {
-        appendStructuredValue(documentRef, parent, child, state, depth + 1);
+  function appendStructuredValue(
+    documentRef,
+    parent,
+    value,
+    state,
+    _depth,
+    path = ["structuredContent"]
+  ) {
+    const currentPath = [...path];
+    const stack = [{ kind: "value", parent, value }];
+    const pushChild = (childParent, childValue, segment) => {
+      stack.push({ kind: "leave" });
+      stack.push({ kind: "value", parent: childParent, value: childValue });
+      stack.push({ kind: "enter", segment });
+    };
+    while (stack.length > 0) {
+      const frame = stack.pop();
+      if (frame.kind === "enter") {
+        currentPath.push(frame.segment);
+        continue;
       }
-      return;
-    }
-    if (!isRecord(value)) {
-      return;
-    }
-
-    if (value.type === "structured-content") {
-      appendStructuredValue(documentRef, parent, value.content, state, depth + 1);
-      return;
-    }
-    if (value.type === "text") {
-      appendStructuredValue(
-        documentRef,
-        parent,
-        Object.prototype.hasOwnProperty.call(value, "text") ? value.text : value.content,
-        state,
-        depth + 1
-      );
-      return;
-    }
-    if (value.type === "image") {
-      value = { ...value, tag: "img" };
-    }
-
-    const tag = typeof value.tag === "string" ? value.tag.toLowerCase() : "";
-    if (IGNORED_STRUCTURED_TAGS.has(tag)) {
-      return;
-    }
-    if (!ALLOWED_STRUCTURED_TAGS.has(tag)) {
-      if (Object.prototype.hasOwnProperty.call(value, "content")) {
-        appendStructuredValue(documentRef, parent, value.content, state, depth + 1);
+      if (frame.kind === "leave") {
+        currentPath.pop();
+        continue;
       }
-      return;
-    }
+      if (frame.kind === "array") {
+        if (frame.index < frame.value.length) {
+          stack.push({ ...frame, index: frame.index + 1 });
+          pushChild(frame.parent, frame.value[frame.index], frame.index);
+        }
+        continue;
+      }
+      if (frame.kind === "append-external-icon") {
+        const icon = documentRef.createElement("span");
+        icon.className = "gloss-link-external-icon";
+        icon.setAttribute("aria-hidden", "true");
+        frame.element.appendChild(icon);
+        continue;
+      }
 
-    if (tag === "img") {
-      appendStructuredImage(documentRef, parent, value, state);
-      return;
-    }
+      if (state.nodes >= MAX_STRUCTURED_NODES) {
+        throw structuredContentLimitError(
+          "node count",
+          state.nodes + 1,
+          MAX_STRUCTURED_NODES,
+          currentPath
+        );
+      }
+      // Bound traversal work, including containers and values that render no DOM.
+      state.nodes += 1;
+      value = frame.value;
+      parent = frame.parent;
+      if (typeof value === "string") {
+        parent.appendChild(documentRef.createTextNode(value));
+        continue;
+      }
+      if (typeof value === "number" || typeof value === "boolean") {
+        parent.appendChild(documentRef.createTextNode(String(value)));
+        continue;
+      }
+      if (Array.isArray(value)) {
+        stack.push({ kind: "array", parent, value, index: 0 });
+        continue;
+      }
+      if (!isRecord(value)) {
+        continue;
+      }
 
-    const element = documentRef.createElement(tag);
-    element.classList.add(`gloss-sc-${tag}`);
-    applyStructuredStyle(element, value.style);
-    applyStructuredData(element, value.data);
-    if (
-      typeof value.lang === "string" &&
-      /^[A-Za-z0-9-]{1,35}$/u.test(value.lang)
-    ) {
-      element.setAttribute("lang", value.lang);
-    }
-    if (tag === "td" || tag === "th") {
-      for (const [property, attribute] of [
-        ["colSpan", "colspan"],
-        ["rowSpan", "rowspan"],
-      ]) {
-        const span = Number(value[property]);
-        if (Number.isInteger(span) && span >= 1 && span <= 32) {
-          element.setAttribute(attribute, String(span));
+      if (value.type === "structured-content") {
+        pushChild(parent, value.content, "content");
+        continue;
+      }
+      if (value.type === "text") {
+        const property = Object.prototype.hasOwnProperty.call(value, "text") ? "text" : "content";
+        pushChild(parent, value[property], property);
+        continue;
+      }
+      if (value.type === "image") {
+        value = { ...value, tag: "img" };
+      }
+
+      const tag = typeof value.tag === "string" ? value.tag.toLowerCase() : "";
+      if (IGNORED_STRUCTURED_TAGS.has(tag)) {
+        continue;
+      }
+      if (!ALLOWED_STRUCTURED_TAGS.has(tag)) {
+        if (Object.prototype.hasOwnProperty.call(value, "content")) {
+          pushChild(parent, value.content, "content");
+        }
+        continue;
+      }
+
+      if (tag === "img") {
+        appendStructuredImage(documentRef, parent, value, state);
+        continue;
+      }
+
+      const element = documentRef.createElement(tag);
+      element.classList.add(`gloss-sc-${tag}`);
+      applyStructuredStyle(element, value.style);
+      applyStructuredData(element, value.data);
+      if (
+        typeof value.lang === "string" &&
+        /^[A-Za-z0-9-]{1,35}$/u.test(value.lang)
+      ) {
+        element.setAttribute("lang", value.lang);
+      }
+      if (tag === "td" || tag === "th") {
+        for (const [property, attribute] of [
+          ["colSpan", "colspan"],
+          ["rowSpan", "rowspan"],
+        ]) {
+          const span = Number(value[property]);
+          if (Number.isInteger(span) && span >= 1 && span <= 32) {
+            element.setAttribute(attribute, String(span));
+          }
         }
       }
-    }
-    if (tag === "details" && typeof state.onLayoutChange === "function") {
-      element.addEventListener("toggle", state.onLayoutChange);
-    }
-    if (typeof value.title === "string" && value.title.length <= 4096) {
-      element.title = value.title;
-    }
-    if (tag === "details" && value.open === true) {
-      element.open = true;
-    }
-    if (tag === "a") {
-      element.classList.add("gloss-link", "gsm-hoshidicts-structured-link");
-      const link = parseStructuredLink(value.href);
-      if (link?.internal) {
-        element.setAttribute("href", "#");
-        element.dataset.hoshidictsQuery = link.query;
-        if (link.primaryReading) {
-          element.dataset.hoshidictsReading = link.primaryReading;
-        }
-        element.addEventListener("click", (event) => {
-          if (event.defaultPrevented) return;
-          event.preventDefault();
-          event.stopPropagation();
-          if (ownsStructuredLink(element, state) && typeof state.onInternalLink === "function") {
-            state.onInternalLink({
-              anchor: element,
-              focusChild: event.detail === 0,
-              primaryReading: link.primaryReading,
-              query: link.query,
-            });
-          }
-        });
-      } else if (link) {
-        element.href = link.href;
-        element.target = "_blank";
-        element.rel = "noopener noreferrer";
-        element.dataset.external = "true";
-        const activate = (event) => {
-          if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
-          event.preventDefault();
-          event.stopPropagation();
-          if (!ownsStructuredLink(element, state)) return;
-          if (typeof state.onExternalLink === "function") {
-            state.onExternalLink({
-              url: link.href,
-              active: event.shiftKey || !(event.button === 1 || event.ctrlKey || event.metaKey),
-            });
-          }
-        };
-        element.addEventListener("click", activate);
-        element.addEventListener("auxclick", activate);
+      if (tag === "details" && typeof state.onLayoutChange === "function") {
+        element.addEventListener("toggle", state.onLayoutChange);
       }
-    }
-    let contentParent = element;
-    if (tag === "a") {
-      contentParent = documentRef.createElement("span");
-      contentParent.className = "gloss-link-text";
-      element.appendChild(contentParent);
-    }
-    if (
-      !STRUCTURED_TAGS_WITHOUT_CONTENT.has(tag) &&
-      Object.prototype.hasOwnProperty.call(value, "content")
-    ) {
-      appendStructuredValue(documentRef, contentParent, value.content, state, depth + 1);
-    }
-    if (tag === "a" && element.dataset.external === "true") {
-      const icon = documentRef.createElement("span");
-      icon.className = "gloss-link-external-icon";
-      icon.setAttribute("aria-hidden", "true");
-
-      element.appendChild(icon);
-    }
-    if (tag === "table") {
-      const container = documentRef.createElement("div");
-      container.className = "gloss-sc-table-container";
-      container.appendChild(element);
-      parent.appendChild(container);
-    } else {
-      parent.appendChild(element);
+      if (typeof value.title === "string" && value.title.length <= 4096) {
+        element.title = value.title;
+      }
+      if (tag === "details" && value.open === true) {
+        element.open = true;
+      }
+      if (tag === "a") {
+        element.classList.add("gloss-link", "gsm-hoshidicts-structured-link");
+        const link = parseStructuredLink(value.href);
+        if (link?.internal) {
+          element.setAttribute("href", "#");
+          element.dataset.hoshidictsQuery = link.query;
+          if (link.primaryReading) {
+            element.dataset.hoshidictsReading = link.primaryReading;
+          }
+          element.addEventListener("click", (event) => {
+            if (event.defaultPrevented) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (ownsStructuredLink(element, state) && typeof state.onInternalLink === "function") {
+              state.onInternalLink({
+                anchor: element,
+                focusChild: event.detail === 0,
+                primaryReading: link.primaryReading,
+                query: link.query,
+              });
+            }
+          });
+        } else if (link) {
+          element.href = link.href;
+          element.target = "_blank";
+          element.rel = "noopener noreferrer";
+          element.dataset.external = "true";
+          const activate = (event) => {
+            if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (!ownsStructuredLink(element, state)) return;
+            if (typeof state.onExternalLink === "function") {
+              state.onExternalLink({
+                url: link.href,
+                active: event.shiftKey || !(event.button === 1 || event.ctrlKey || event.metaKey),
+              });
+            }
+          };
+          element.addEventListener("click", activate);
+          element.addEventListener("auxclick", activate);
+        }
+      }
+      let contentParent = element;
+      if (tag === "a") {
+        contentParent = documentRef.createElement("span");
+        contentParent.className = "gloss-link-text";
+        element.appendChild(contentParent);
+      }
+      if (tag === "table") {
+        const container = documentRef.createElement("div");
+        container.className = "gloss-sc-table-container";
+        container.appendChild(element);
+        parent.appendChild(container);
+      } else {
+        parent.appendChild(element);
+      }
+      if (tag === "a" && element.dataset.external === "true") {
+        stack.push({ kind: "append-external-icon", element });
+      }
+      if (
+        !STRUCTURED_TAGS_WITHOUT_CONTENT.has(tag) &&
+        Object.prototype.hasOwnProperty.call(value, "content")
+      ) {
+        pushChild(contentParent, value.content, "content");
+      }
     }
   }
 
@@ -1228,15 +1303,15 @@
         : null,
     };
     if (items.length === 1) {
-      appendStructuredValue(documentRef, parent, items[0], state, 0);
+      appendStructuredValue(documentRef, parent, items[0], state, 0, ["glossary", 0]);
       return;
     }
     const list = documentRef.createElement("ul");
     list.className = "gloss-list";
-    for (const item of items) {
+    for (let index = 0; index < items.length; index += 1) {
       const listItem = documentRef.createElement("li");
       listItem.className = "gloss-item";
-      appendStructuredValue(documentRef, listItem, item, state, 0);
+      appendStructuredValue(documentRef, listItem, items[index], state, 0, ["glossary", index]);
       list.appendChild(listItem);
     }
     parent.appendChild(list);

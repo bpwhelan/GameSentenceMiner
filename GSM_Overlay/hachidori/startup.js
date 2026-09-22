@@ -10,6 +10,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { extensionApi as chrome } from "./browser-api.js";
 import "./reader-options.js";
 import "./visual-novel.js";
 import {

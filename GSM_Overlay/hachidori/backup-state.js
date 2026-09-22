@@ -19,7 +19,9 @@ export function backupRevisions(snapshot) {
 
 export function restoredBackupSnapshot(current, archived, dictionaries) {
   return Object.fromEntries(Object.entries(backupRevisions(current)).map(([key, revision]) => [key, {
-    ...archived[key],
+    ...(key === "options"
+      ? globalThis.HDReaderOptions.projectStoredOptions(archived[key])
+      : archived[key]),
     ...(key === "state" ? { dictionaries } : {}),
     ...(key === "lookupStats" ? { generation: crypto.randomUUID() } : {}),
     revision: revision + 1,
@@ -66,6 +68,27 @@ function assertGroups(groups, dictionaries) {
   }
 }
 
+function validBackupReaderOptions(options) {
+  if (!options || typeof options !== "object" || Array.isArray(options)) return false;
+  const allowed = new Set([...Object.keys(globalThis.HDReaderOptions.DEFAULT_OPTIONS), "modifier"]);
+  if (Object.keys(options).some(key => !allowed.has(key))) return false;
+  let projected;
+  try {
+    projected = globalThis.HDReaderOptions.validateOptionsPatch(options);
+  } catch {
+    return false;
+  }
+  // A legacy backup may have only `customLinks`, and its singleton Anki
+  // object has no `templates`. If the richer fields are present, however, they
+  // must already be canonical instead of relying on migration to resolve two
+  // conflicting representations.
+  if (Object.hasOwn(options, "customButtons") && Object.hasOwn(options, "customLinks")
+      && !sameJsonValue(options.customLinks, projected.customLinks)) return false;
+  if (options.anki && Object.hasOwn(options.anki, "templates")
+      && !sameJsonValue(options.anki, projected.anki)) return false;
+  return true;
+}
+
 export async function assertBackupSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)
       || ["state", "options", "document", "updates"].some(key =>
@@ -83,7 +106,7 @@ export async function assertBackupSnapshot(snapshot) {
   assertCustomSourceState(snapshot.state.dictionaries, semanticRevision, entries.length);
   const { revision, ...options } = snapshot.options ?? {};
   if (!Number.isSafeInteger(revision) || revision < 0
-      || !sameJsonValue(options, globalThis.HDReaderOptions.validateOptionsPatch(options))) {
+      || !validBackupReaderOptions(options)) {
     throw new Error("The backup contains invalid reader settings.");
   }
   if (!sameJsonValue(snapshot.updates, normaliseUpdateSettings(snapshot.updates))) {

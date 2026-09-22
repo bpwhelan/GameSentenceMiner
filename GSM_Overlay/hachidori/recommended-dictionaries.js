@@ -95,7 +95,7 @@ export const RECOMMENDED_DICTIONARIES = Object.freeze(
     {
       sourceId: "sankoku8-eng",
       name: "Sankoku 8 English",
-      description: "AI-translated English definitions",
+      description: "Japanese monolingual dictionary, translated to English",
       publisherUrl: "https://github.com/shoui520/sankoku8-eng",
       downloadUrl:
         "https://github.com/shoui520/sankoku8-eng/releases/download/latest/en.zip",

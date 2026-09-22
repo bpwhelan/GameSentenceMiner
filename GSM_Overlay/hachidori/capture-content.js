@@ -684,7 +684,6 @@
     if (message?.target !== CONTENT_TARGET) return false;
     Promise.resolve().then(async () => {
       switch (message.type) {
-        case "hd_capture_document": return { present: true };
         case "hd_capture_link": return link(message.mediaCapture, message.captureSessionId);
         case "hd_capture_recover": return { linked, documentId: linkedDocumentId };
         case "hd_capture_video_select": {

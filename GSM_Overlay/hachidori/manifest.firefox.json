@@ -1,0 +1,120 @@
+{
+  "manifest_version": 2,
+  "name": "Hachidori",
+  "short_name": "Hachidori",
+  "version": "0.1.4",
+  "description": "Study Japanese vocabulary: look up words on any page and build Anki cards, optionally capturing on-screen context.",
+  "icons": {
+    "16": "icons/hachidori-16.png",
+    "32": "icons/hachidori-32.png",
+    "48": "icons/hachidori-48.png",
+    "128": "icons/hachidori-128.png"
+  },
+  "permissions": [
+    "alarms",
+    "downloads",
+    "storage",
+    "unlimitedStorage",
+    "<all_urls>"
+  ],
+  "options_page": "settings.html",
+  "commands": {
+    "toggleTextScanning": {
+      "suggested_key": {
+        "default": "Alt+Delete"
+      },
+      "description": "Turn Japanese lookups on or off"
+    },
+    "openSettingsPage": {
+      "description": "Open Hachidori settings"
+    },
+    "close": {
+      "description": "Close the popup"
+    },
+    "addNote": {
+      "description": "Add the current popup entry to Anki"
+    },
+    "viewNotes": {
+      "description": "View the current popup entry in Anki"
+    },
+    "playAudio": {
+      "description": "Play the current popup entry's audio"
+    },
+    "nextEntry": {
+      "description": "Go to the next popup entry"
+    },
+    "previousEntry": {
+      "description": "Go to the previous popup entry"
+    },
+    "firstEntry": {
+      "description": "Go to the first popup entry"
+    },
+    "lastEntry": {
+      "description": "Go to the last popup entry"
+    },
+    "nextEntryDifferentDictionary": {
+      "description": "Go to the next dictionary in the popup"
+    },
+    "previousEntryDifferentDictionary": {
+      "description": "Go to the previous dictionary in the popup"
+    },
+    "historyBackward": {
+      "description": "Go back in the popup's history"
+    },
+    "scanSelectedText": {
+      "description": "Look up the selected text"
+    },
+    "scanTextAtSelection": {
+      "description": "Look up the text at the selection"
+    }
+  },
+  "browser_action": {
+    "default_title": "Hachidori",
+    "default_popup": "toolbar.html"
+  },
+  "background": {
+    "page": "firefox-background.html",
+    "persistent": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "reader-options.js",
+        "dictionary-group-state.js",
+        "lookup-stats-identity.js",
+        "external-links.js",
+        "external-link-host.js",
+        "audio-content.js",
+        "anki-content.js",
+        "render/glossary.js",
+        "render/popup.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ]
+    }
+  ],
+  "content_security_policy": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+  "web_accessible_resources": [
+    "overlay-mode.js",
+    "browser-api.js",
+    "render/reader.css",
+    "icons.css"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "hachidori@bee-san",
+      "strict_min_version": "153.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}

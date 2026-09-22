@@ -1,3 +1,4 @@
+import { encodeBase64 } from "./base64.js";
 import {
   httpsUrl,
   assertRecommendedDictionary,
@@ -25,6 +26,10 @@ import {
   responseLimitError,
   validResponseRequestId,
 } from "./response-limits.js";
+import {
+  dictionaryArchiveIdentity,
+  dictionaryImportTarget,
+} from "./dictionary-import.js";
 
 /*
  * Owns the single hoshidicts engine instance inside a dedicated Web Worker.
@@ -43,17 +48,22 @@ const REMOVAL_ROOT = `${DICT_ROOT}/.hdw-remove`;
 const GENERATION_PREFIX = ".hdw-generation-";
 const GENERATION_NAME = /^\.hdw-generation-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const IMPORT_ZIP = "/.hdw-archive.zip";
+// An MDX dictionary is staged under its own file name because the engine finds
+// its MDD resource files as siblings named after the .mdx stem and falls back
+// to that stem when the header has no title.
+const IMPORT_MDX_DIR = "/.hdw-mdx";
 const OPFS_IMPORT_ZIP = `${DICT_ROOT}/.hdw-archive.zip`;
 
 // Index into this array is the `kind` argument of hdw_add_dict.
 const KINDS = ["term", "freq", "pitch", "kanji"];
 
 // A directory holding one of these is an imported dictionary; anything else
-// under /dicts is debris. _4 means the importer trained a zstd dictionary for
-// the term banks and wrote a dict.zstd alongside; _3 means it did not, which is
-// also how every dictionary imported by an older engine looks. Both load, so the
-// presence of dict.zstd is deliberately not part of the test.
-const MARKER_FILES = [".hoshidicts_4", ".hoshidicts_3", ".hoshidicts_2", ".hoshidicts_1"];
+// under /dicts is debris. _6 and _4 mean the importer trained a zstd dictionary
+// for the term banks and wrote a dict.zstd alongside; _5 and _3 mean it did not,
+// which is also how every dictionary imported by an older engine looks. _5 and
+// _6 store the term score as a double, _4 and older as an int32. All load, so
+// the presence of dict.zstd is deliberately not part of the test.
+const MARKER_FILES = [".hoshidicts_6", ".hoshidicts_5", ".hoshidicts_4", ".hoshidicts_3", ".hoshidicts_2", ".hoshidicts_1"];
 
 const FREQUENCY_ORDERS = ["auto", "ascending", "descending", "disabled"];
 const DEFAULT_MAX_RESULTS = 32;
@@ -63,7 +73,6 @@ const MAX_MEDIA_DICTIONARY_BYTES = 1024;
 const MAX_MEDIA_PATH_BYTES = 4 * 1024;
 const UTF8 = new TextEncoder();
 
-const BASE64_CHUNK = 0x8000;
 const MEDIA_TYPES = {
   avif: "image/avif",
   webp: "image/webp",
@@ -77,7 +86,9 @@ const MEDIA_TYPES = {
 // Status and release do not touch the loaded dictionaries. Imports stage their
 // network body outside the engine queue, then explicitly serialize only the
 // revalidation and native installation phase.
-const UNQUEUED = new Set(["hd_status", "hd_backup_release", "hd_import"]);
+// Dictionary download reads serve an archive already built by its open, so
+// they need no turn in the queue either.
+const UNQUEUED = new Set(["hd_status", "hd_backup_release", "hd_import", "hd_api_dictionary_read", "hd_api_dictionary_close"]);
 
 // A storage read-modify-write spans two messages, so another context can write
 // in between; the worker refuses the write when that happens and the change is
@@ -103,6 +114,8 @@ let hostRequest = null;
 let started = false;
 let createHoshidicts = null;
 let storageBackend = "memory";
+// The single-thread runtime imports on one thread with small read-ahead; the
+// pthread runtimes (OPFS or IDBFS) use the bounded worker group.
 let lowRam = true;
 // Optional sink for import download/installation phases, keyed by request ID.
 let reportProgress = null;
@@ -269,7 +282,89 @@ function syncfs(populate) {
 
 async function persistFilesystem() {
   if (storageBackend === "idbfs") {
+    // Trim first: IDBFS stores each file as a view of its array, and a
+    // structured clone of a view carries the whole backing buffer.
+    trimMemfsFiles(DICT_ROOT);
     await syncfs(false);
+  }
+}
+
+// The classic FS keeps every file as a JavaScript array that grows by 12.5% per
+// write once it passes 1 MiB, so streaming an 80 MB blobs.bin copies about nine
+// times its size (expandFileStorage was 340 ms of a Jitendex import in
+// Electron). Doubling instead copies about twice its size; the slack is given
+// back by trimMemfsFiles before the import is persisted.
+function speedUpMemfsGrowth() {
+  const memfs = engine.FS?.filesystems?.MEMFS;
+  if (typeof memfs?.expandFileStorage !== "function"
+      || typeof memfs.getFileDataAsTypedArray !== "function") {
+    return;
+  }
+  memfs.expandFileStorage = (node, newCapacity) => {
+    const prevCapacity = node.contents.length;
+    if (prevCapacity >= newCapacity) return;
+    const capacity = Math.max(newCapacity, prevCapacity * 2, 256) >>> 0;
+    const oldContents = memfs.getFileDataAsTypedArray(node);
+    node.contents = new Uint8Array(capacity);
+    node.contents.set(oldContents);
+  };
+}
+
+// IDBFS persists each file as an IndexedDB record whose `contents` is a
+// Uint8Array. Chromium serialises such a value through the renderer on every
+// put and deserialises it on every get, and the cost grew with the size of the
+// database (Electron: 400, 630 and 880 ms for three imports of 70–100 MB).
+// A Blob value is handed to the browser's blob storage once and read back with
+// one copy; the same three imports persist in 230, 280 and 340 ms, and restart
+// to ready loses about 300 ms. Files under 1 MiB stay arrays. Records of either
+// shape load; Blobs are only written where FileReaderSync can read them back.
+const IDBFS_BLOB_THRESHOLD = 1024 * 1024;
+
+function storeLargeIdbfsFilesAsBlobs() {
+  const idbfs = engine.FS?.filesystems?.IDBFS;
+  if (typeof idbfs?.storeRemoteEntry !== "function" || typeof idbfs.loadRemoteEntry !== "function"
+      || typeof FileReaderSync !== "function" || typeof Blob !== "function") {
+    return;
+  }
+  const storeRemoteEntry = idbfs.storeRemoteEntry;
+  const loadRemoteEntry = idbfs.loadRemoteEntry;
+  idbfs.storeRemoteEntry = (store, path, entry, callback) => {
+    if (entry?.contents instanceof Uint8Array && entry.contents.byteLength >= IDBFS_BLOB_THRESHOLD) {
+      entry = { ...entry, contents: new Blob([entry.contents]) };
+    }
+    return storeRemoteEntry(store, path, entry, callback);
+  };
+  idbfs.loadRemoteEntry = (store, path, callback) => loadRemoteEntry(store, path, (error, entry) => {
+    if (!error && entry?.contents instanceof Blob) {
+      try {
+        entry.contents = new Uint8Array(new FileReaderSync().readAsArrayBuffer(entry.contents));
+      } catch (readError) {
+        callback(readError);
+        return;
+      }
+    }
+    callback(error, entry);
+  });
+}
+
+// Reallocate over-allocated classic-FS files under `root` to their exact size.
+function trimMemfsFiles(root) {
+  let node;
+  try {
+    node = engine.FS.lookupPath(root).node;
+  } catch {
+    return;
+  }
+  const stack = [node];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (engine.FS.isDir(current.mode)) {
+      for (const child of Object.values(current.contents ?? {})) stack.push(child);
+    } else if (engine.FS.isFile(current.mode)
+        && current.contents instanceof Uint8Array
+        && current.contents.length > current.usedBytes) {
+      current.contents = current.contents.slice(0, current.usedBytes);
+    }
   }
 }
 
@@ -499,9 +594,51 @@ async function stableDictionaryId(title) {
   return Array.from(digest.subarray(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function packageFromIndex(path) {
+// Longest key, in code points, that the dictionary's long-key scan index
+// records: the importer lists every key longer than 16 code points by its
+// first eight, and the engine extends a lookup past its scan length only when
+// the text begins like one of them (hoshidicts src/scan_index.hpp). The reader
+// adds this to the page text it collects so such a key can be seen at all.
+// Header: u32 magic "HDSI", u32 version, u32 count, u16 longest key. 0 for a
+// dictionary imported before the index existed or with no long key.
+const SCAN_INDEX_MAGIC = 0x49534448;
+const SCAN_INDEX_VERSION = 1;
+const SCAN_INDEX_HEADER_BYTES = 16;
+
+function longKeyLengthFromScanIndex(path) {
+  const file = `${path}/scan.idx`;
+  if (!exists(file)) return 0;
+  const header = new Uint8Array(SCAN_INDEX_HEADER_BYTES);
+  let read = 0;
+  try {
+    const stream = engine.FS.open(file, "r");
+    try {
+      read = engine.FS.read(stream, header, 0, SCAN_INDEX_HEADER_BYTES, 0);
+    } finally {
+      engine.FS.close(stream);
+    }
+  } catch {
+    // An unreadable index only costs the long-key window; the dictionary
+    // itself still loads and lookups stay at the configured scan length.
+    return 0;
+  }
+  if (read < SCAN_INDEX_HEADER_BYTES) return 0;
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  if (view.getUint32(0, true) !== SCAN_INDEX_MAGIC || view.getUint32(4, true) !== SCAN_INDEX_VERSION) return 0;
+  return view.getUint16(12, true);
+}
+
+function readDictionaryIndex(path) {
   const json = new TextDecoder().decode(engine.FS.readFile(`${path}/index.json`));
-  const index = parseJson(json, `${path}/index.json`);
+  return parseJson(json, `${path}/index.json`);
+}
+
+function importedIdentityFromIndex(path) {
+  return dictionaryArchiveIdentity(readDictionaryIndex(path));
+}
+
+async function packageFromIndex(path) {
+  const index = readDictionaryIndex(path);
   const title = text(index?.title);
   if (title === "") {
     throw new Error(`${path}/index.json has no dictionary title`);
@@ -524,6 +661,7 @@ async function packageFromIndex(path) {
     pitchCount: count(index?.counts?.termMeta?.pitch) + count(index?.counts?.termMeta?.ipa),
     kanjiCount: count(index?.counts?.kanji?.total),
     mediaCount: count(index?.counts?.media?.total),
+    longKeyLength: longKeyLengthFromScanIndex(path),
     installedAt: installedAt(index?.importDate, path),
     lastUpdateCheck: null,
   };
@@ -789,6 +927,9 @@ async function commitDictionaryCandidate(buildCandidate) {
 function withStoredPresentation(generated, stored) {
   const sourceId = optionalText(stored?.sourceId);
   return {
+    // Preserve fields introduced by newer Hachidori versions or integrations.
+    // Generated engine metadata below replaces only values owned by this import.
+    ...stored,
     ...generated,
     id: optionalText(stored?.id) ?? generated.id,
     displayName: typeof stored?.displayName === "string" ? stored.displayName : null,
@@ -916,11 +1057,92 @@ function addDictionaries(dictionaries, includeDisabled) {
 // never published unless it does, but one already at a `committed` path that
 // stops loading is left out and reported in `loadFailures`: otherwise a single
 // broken package would stop lookups in every other dictionary.
+//
+// Loading a package copies its files into the wasm heap (about 1 ms per MB, so
+// 100-150 ms for Jitendex or Pixiv), and the engine cannot reorder or drop a
+// loaded package on its own, so the first version of this rebuilt the whole
+// set on every change. `loadedPackages` and `verifiedPackages` let a change
+// that only reorders, disables, or re-enables packages this session already
+// loaded be applied in place through hdw_remove_dict / hdw_add_dict /
+// hdw_set_dict_order instead. Package paths are generation-scoped and their
+// files never change once loaded, so a package that loaded once this session
+// loads again; anything else falls back to the full rebuild below, which also
+// discards whatever an interrupted incremental step left behind.
+let loadedPackages = null;
+const verifiedPackages = new Map();
+
+function packageKinds(dictionary) {
+  return kindsForPackage(dictionary).join(",");
+}
+
+function resetEngine() {
+  engine.ccall("hdw_reset", null, [], []);
+  loadedPackages = null;
+}
+
+function trackLoaded(dictionaries) {
+  loadedPackages = dictionaries.map((dictionary) => ({
+    path: dictionary.path,
+    kinds: packageKinds(dictionary),
+  }));
+  for (const entry of loadedPackages) verifiedPackages.set(entry.path, entry.kinds);
+}
+
+function retainVerified(dictionaries) {
+  const requested = new Set(dictionaries.map((dictionary) => dictionary.path));
+  for (const path of [...verifiedPackages.keys()]) {
+    if (!requested.has(path)) verifiedPackages.delete(path);
+  }
+}
+
+function isVerified(dictionary) {
+  return verifiedPackages.get(dictionary.path) === packageKinds(dictionary);
+}
+
+// Returns the loaded count, or null when the change needs the full rebuild.
+function loadDictionariesIncrementally(dictionaries) {
+  if (loadedPackages === null || !dictionaries.every(isVerified)) {
+    return null;
+  }
+  const enabled = dictionaries.filter((dictionary) => dictionary.enabled !== false);
+  const wanted = new Map(enabled.map((dictionary) => [dictionary.path, packageKinds(dictionary)]));
+  const present = new Map(loadedPackages.map((entry) => [entry.path, entry.kinds]));
+  try {
+    for (const entry of loadedPackages) {
+      if (wanted.get(entry.path) === entry.kinds) continue;
+      if (!engine.ccall("hdw_remove_dict", "number", ["string"], [entry.path])) return null;
+      present.delete(entry.path);
+    }
+    for (const dictionary of enabled) {
+      if (present.has(dictionary.path)) continue;
+      addDictionaries([dictionary], true);
+      present.set(dictionary.path, packageKinds(dictionary));
+    }
+    const order = JSON.stringify(enabled.map((dictionary) => dictionary.path));
+    if (!engine.ccall("hdw_set_dict_order", "number", ["string"], [order])) return null;
+  } catch (error) {
+    if (!(error instanceof DictionaryLoadError)) throw error;
+    return null;
+  } finally {
+    // Until the rebuild below or trackLoaded() describes it, the loaded set is
+    // unknown; the fast path must not trust an interrupted step.
+    loadedPackages = null;
+  }
+  trackLoaded(enabled);
+  retainVerified(dictionaries);
+  loadFailures = [];
+  return enabled.reduce((count, dictionary) => count + kindsForPackage(dictionary).length, 0);
+}
+
 function loadDictionaries(dictionaries, { committed = [] } = {}) {
   for (const dictionary of dictionaries) {
     if (dictionaryRoot(dictionary) === null) {
       throw new Error(`refusing to load an invalid dictionary path: ${text(dictionary?.path)}`);
     }
+  }
+  const incremental = loadDictionariesIncrementally(dictionaries);
+  if (incremental !== null) {
+    return incremental;
   }
   const tolerated = new Set(committed.map((dictionary) => text(dictionary?.path)));
   const failed = [];
@@ -937,12 +1159,13 @@ function loadDictionaries(dictionaries, { committed = [] } = {}) {
     });
   };
   for (const dictionary of dictionaries) {
-    if (dictionary.enabled !== false) {
+    if (dictionary.enabled !== false || isVerified(dictionary)) {
       continue;
     }
-    engine.ccall("hdw_reset", null, [], []);
+    resetEngine();
     try {
       addDictionaries([dictionary], true);
+      verifiedPackages.set(dictionary.path, packageKinds(dictionary));
     } catch (error) {
       recordFailure(error);
     }
@@ -950,13 +1173,13 @@ function loadDictionaries(dictionaries, { committed = [] } = {}) {
   // An enabled package can fail after some of its kinds were added, so reload
   // without it rather than keep part of it.
   for (;;) {
-    engine.ccall("hdw_reset", null, [], []);
+    resetEngine();
+    const candidates = dictionaries.filter((dictionary) => !skipped.has(dictionary.path));
     try {
-      const loadedCount = addDictionaries(
-        dictionaries.filter((dictionary) => !skipped.has(dictionary.path)),
-        false,
-      );
+      const loadedCount = addDictionaries(candidates, false);
       loadFailures = failed;
+      trackLoaded(candidates.filter((dictionary) => dictionary.enabled !== false));
+      retainVerified(dictionaries);
       return loadedCount;
     } catch (error) {
       recordFailure(error);
@@ -964,9 +1187,32 @@ function loadDictionaries(dictionaries, { committed = [] } = {}) {
   }
 }
 
+// The first hdw_lookup after the module starts runs 15-30x slower than the
+// steady state (about 7 ms against 0.3-0.5 ms for Jitendex: V8 tiers the wasm
+// up on first execution). Spend it here, still inside the serialised load, so a
+// reader's first hover after a browser start or an import gets a warm engine.
+// Best effort: the engine's failure fallback for a lookup is shape-valid.
+const WARM_LOOKUP_TEXT = "食べました";
+
+function warmLookup() {
+  try {
+    engine.ccall(
+      "hdw_lookup",
+      "string",
+      ["string", "number", "number", "string"],
+      [WARM_LOOKUP_TEXT, 1, 4, ""],
+    );
+  } catch {
+    // A failed warm-up only forfeits the speedup; the next lookup reports it.
+  }
+}
+
 function publishLoadedDictionaries(loadedCount) {
   dictionaryCount = loadedCount;
   generation += 1;
+  if (loadedCount > 0) {
+    warmLookup();
+  }
 }
 
 async function restoreCommittedDictionaries(state = null, { publish = true } = {}) {
@@ -1033,7 +1279,11 @@ async function boot() {
       throw new Error("the engine service has no WASM factory");
     }
     engine = await createHoshidicts();
+    loadedPackages = null;
+    verifiedPackages.clear();
     if (storageBackend === "idbfs") {
+      speedUpMemfsGrowth();
+      storeLargeIdbfsFilesAsBlobs();
       if (!exists(DICT_ROOT)) {
         engine.FS.mkdir(DICT_ROOT);
       }
@@ -1055,6 +1305,8 @@ async function boot() {
       // canonical-path importer; persist native recovery before reconciliation.
       await persistFilesystem();
     } else if (storageBackend === "opfs") {
+      // Earlier versions staged the archive in OPFS; remove one left by an
+      // interrupted import there.
       try {
         engine.FS.unlink(OPFS_IMPORT_ZIP);
       } catch {
@@ -1168,9 +1420,6 @@ function importReplacementIndex(stored, generated, recommendedSource, managedSou
     existingIndex = stored.findIndex((dictionary) =>
       optionalText(dictionary?.sourceId) === recommendedSource.sourceId);
   }
-  if (existingIndex < 0 && generated.indexUrl !== null) {
-    existingIndex = stored.findIndex((dictionary) => dictionary?.indexUrl === generated.indexUrl);
-  }
   if (existingIndex < 0) {
     existingIndex = stored.findIndex((dictionary) =>
       dictionary?.id === generated.id || text(dictionary?.title) === generated.title);
@@ -1224,13 +1473,119 @@ function withImport(stored, generated, recommendedSource, managedSource) {
   return next;
 }
 
+function sameImportedIdentity(left, right) {
+  return left.title === right.title
+    && left.revision === right.revision
+    && left.indexUrl === right.indexUrl
+    && left.downloadUrl === right.downloadUrl;
+}
+
+function interactiveTargetIndex(stored, decision) {
+  const existingIndex = stored.findIndex(dictionary => dictionary?.id === decision.target.id);
+  const existing = stored[existingIndex];
+  if (existingIndex < 0
+      || !sameJsonValue(dictionaryImportTarget(existing), decision.target)) {
+    throw new Error("the chosen dictionary changed while the archive was being imported");
+  }
+  if (decision.matchKind === "title") {
+    if (existing.title !== decision.identity.title) {
+      throw new Error("the chosen dictionary no longer matches the imported title");
+    }
+  } else {
+    if (decision.identity.indexUrl === null
+        || optionalText(existing.indexUrl) !== decision.identity.indexUrl
+        || stored.some(dictionary => dictionary?.title === decision.identity.title)) {
+      throw new Error("the chosen dictionary no longer matches the imported source");
+    }
+  }
+  return existingIndex;
+}
+
+function storedImportIdentityIndex(stored, identity) {
+  const titleIndex = stored.findIndex(dictionary => dictionary?.title === identity.title);
+  if (titleIndex >= 0 || identity.indexUrl === null) return titleIndex;
+  return stored.findIndex(dictionary => optionalText(dictionary?.indexUrl) === identity.indexUrl);
+}
+
+function withInteractiveReplacement(stored, generated, existingIndex) {
+  const current = stored[existingIndex];
+  const collision = stored.some((dictionary, index) =>
+    index !== existingIndex
+      && (dictionary?.id === current.id || dictionary?.title === generated.title));
+  if (collision) {
+    throw new Error(`a dictionary named ${generated.title} is already installed`);
+  }
+  const replacement = {
+    ...withStoredPresentation(generated, current),
+    // A local archive cannot acquire or redirect update ownership while
+    // replacing a package. Keep the target's source contract verbatim.
+    isUpdatable: current?.isUpdatable === true,
+    indexUrl: optionalText(current?.indexUrl),
+    downloadUrl: optionalText(current?.downloadUrl),
+    lastUpdateCheck: null,
+  };
+  if (current?.sourceId === undefined) delete replacement.sourceId;
+  const next = [...stored];
+  next[existingIndex] = replacement;
+  return next;
+}
+
+async function separateDictionaryTitle(title, stored) {
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${title} (${suffix})`;
+    if (!usableDictionaryTitle(candidate)
+        || stored.some(dictionary => dictionary?.title === candidate)) {
+      continue;
+    }
+    const id = await stableDictionaryId(candidate);
+    if (!stored.some(dictionary => dictionary?.id === id)) return candidate;
+  }
+}
+
+function retitleImportedPackage(generationRoot, currentTitle, nextTitle) {
+  if (currentTitle === nextTitle) return;
+  if (!usableDictionaryTitle(nextTitle)) {
+    throw new Error("the separate dictionary title cannot be used as a filesystem path");
+  }
+  const currentPath = `${generationRoot}/${currentTitle}`;
+  const nextPath = `${generationRoot}/${nextTitle}`;
+  if (!exists(currentPath) || exists(nextPath)) {
+    throw new Error("the staged dictionary title changed unexpectedly");
+  }
+  const index = readDictionaryIndex(currentPath);
+  if (index?.title !== currentTitle) {
+    throw new Error("the staged dictionary index does not match its directory");
+  }
+  moveDictionaryFiles(currentPath, nextPath, true);
+  index.title = nextTitle;
+  const indexPath = `${nextPath}/index.json`;
+  // WasmFS's OPFS writeFile does not reliably truncate an existing file. This
+  // serialized rewrite can be shorter than the engine-generated index, leaving
+  // trailing JSON bytes if it overwrites the moved file in place.
+  engine.FS.unlink(indexPath);
+  engine.FS.writeFile(indexPath, new TextEncoder().encode(JSON.stringify(index)));
+}
+
 async function cleanupCommittedDictionaries() {
   try {
     const { state } = await readDictionaryStorage();
     if (state === null) {
       return;
     }
-    await cleanupUnreferencedDictionaries(state.dictionaries);
+    const retained = await ask("hd_backup_auto_roots");
+    if (!retained.ok) throw new Error(retained.error || "Could not read automatic backup roots.");
+    if (retained.complete !== true) {
+      console.warn("hoshidicts: automatic backup metadata is corrupt; retaining unreferenced dictionary generations");
+      return;
+    }
+    if (!Array.isArray(retained.dictionaries)) {
+      throw new TypeError("The automatic backup root list is invalid.");
+    }
+    await cleanupUnreferencedDictionaries([
+      ...state.dictionaries,
+      ...retained.dictionaries,
+      ...(preparedBackup?.dictionaries ?? []),
+    ]);
   } catch (error) {
     console.warn(`hoshidicts: could not remove unreferenced dictionaries: ${describe(error)}`);
   }
@@ -1242,10 +1597,16 @@ async function commitImportedGeneration(
   recommendedSource,
   managedSource,
   expectedRevision,
+  importDecision,
 ) {
-  const generated = await packageFromIndex(`${generationRoot}/${report.title}`);
+  let generated = await packageFromIndex(`${generationRoot}/${report.title}`);
   if (generated.title !== report.title) {
     throw new Error("the imported dictionary title changed while it was being committed");
+  }
+  const importedIdentity = importedIdentityFromIndex(generated.path);
+  if (importDecision !== null
+      && !sameImportedIdentity(importedIdentity, importDecision.identity)) {
+    throw new Error("the imported dictionary metadata did not match the reviewed archive");
   }
   if (expectedRevision !== null && generated.revision !== expectedRevision) {
     throw new Error("the downloaded dictionary revision did not match its update index");
@@ -1257,13 +1618,35 @@ async function commitImportedGeneration(
   if (recommendedSource !== null) {
     validateRecommendedImport(recommendedSource, report, generated);
   }
-  const committed = await commitDictionaryCandidate((snapshot) =>
-    withImport(
-      snapshot.state?.dictionaries ?? [],
-      generated,
-      recommendedSource,
-      managedSource,
-    ));
+  if (generated.title === CUSTOM_DICTIONARY_TITLE) {
+    throw new Error(`${CUSTOM_DICTIONARY_TITLE} is reserved for the managed custom dictionary`);
+  }
+  let candidateTitle = generated.title;
+  const committed = await commitDictionaryCandidate(async (snapshot) => {
+    const stored = snapshot.state?.dictionaries ?? [];
+    if (importDecision === null) {
+      return withImport(stored, generated, recommendedSource, managedSource);
+    }
+    if (importDecision.action === "install") {
+      if (storedImportIdentityIndex(stored, importDecision.identity) >= 0) {
+        throw new Error("the dictionary library changed; review this import again");
+      }
+      return [...stored, generated];
+    }
+    const existingIndex = interactiveTargetIndex(stored, importDecision);
+    if (importDecision.action === "replace") {
+      return withInteractiveReplacement(stored, generated, existingIndex);
+    }
+    const nextTitle = await separateDictionaryTitle(importDecision.identity.title, stored);
+    if (candidateTitle !== nextTitle) {
+      retitleImportedPackage(generationRoot, candidateTitle, nextTitle);
+      candidateTitle = nextTitle;
+      await persistFilesystem();
+      generated = await packageFromIndex(`${generationRoot}/${candidateTitle}`);
+    }
+    return [...stored, generated];
+  });
+  report.title = generated.title;
   publishLoadedDictionaries(committed.loadedCount);
   reloadError = null;
   await cleanupCommittedDictionaries();
@@ -1296,12 +1679,27 @@ function rollbackImportedGeneration(generationRoot, failure) {
   return rollbackImportedGenerations([generationRoot], failure);
 }
 
-function toBase64(bytes) {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + BASE64_CHUNK));
+// The engine matches a term bank `path` to a ZIP entry name byte for byte.
+// Archives built on macOS store decomposed (NFD) Japanese names while the
+// term bank keeps the composed (NFC) form, and some converters percent-encode
+// the path; in both cases the same file is meant. Try the spelled path first,
+// then those equivalents. Names in another byte encoding cannot be recovered
+// here.
+function mediaPathCandidates(path) {
+  const candidates = [path];
+  let decoded = path;
+  if (path.includes("%")) {
+    try {
+      decoded = decodeURIComponent(path);
+      candidates.push(decoded);
+    } catch {
+      // Not percent-encoded; keep the raw path only.
+    }
   }
-  return btoa(binary);
+  for (const source of new Set([path, decoded])) {
+    candidates.push(source.normalize("NFC"), source.normalize("NFD"));
+  }
+  return [...new Set(candidates)];
 }
 
 function mediaType(path) {
@@ -1357,49 +1755,150 @@ async function consumeResponse(response, consume, onProgress = null) {
   return received;
 }
 
-export async function streamResponseToFile(FS, response, path, onProgress = null) {
-  const output = FS.open(path, "w");
+const PROT_READ_WRITE = 0x1 | 0x2;
+const MAP_SHARED = 0x01;
+
+// Writes one buffer as the whole file. WasmFS's FS.write copies from JavaScript
+// one byte at a time (about 25 ns per byte: a full second for the 39 MiB
+// Jitendex archive), and its FS.writeFile on the OPFS backend appends to an
+// existing file and leaves it undeletable until the next start. A shared
+// writable mapping gives a single typed-array copy and one write-back through
+// the OPFS proxy. The legacy FS (single-thread IDBFS build) has no munmap and
+// its FS.write is already a typed-array copy, so it takes the direct path.
+function writeFileBytes(FS, path, data) {
+  const stream = FS.open(path, "w+");
   try {
-    return await consumeResponse(
-      response,
-      (bytes) => FS.write(output, bytes, 0, bytes.byteLength),
-      onProgress,
-    );
+    if (data.byteLength === 0 || typeof FS.mmap !== "function" || typeof FS.munmap !== "function") {
+      for (let offset = 0; offset < data.byteLength;) {
+        const written = FS.write(stream, data, offset, data.byteLength - offset);
+        if (!(written > 0)) {
+          throw new Error(`could not write ${path}`);
+        }
+        offset += written;
+      }
+      return;
+    }
+    FS.ftruncate(stream.fd, data.byteLength);
+    const mapping = FS.mmap(stream, data.byteLength, 0, PROT_READ_WRITE, MAP_SHARED);
+    try {
+      // Module.HEAPU8 is swapped out after memory growth only once some glue
+      // touches the heap; FS.stat does, so a view too short for the mapping is
+      // refreshed before the copy.
+      let heap = engine.HEAPU8;
+      if (heap.byteLength < mapping.ptr + data.byteLength) {
+        FS.stat(path);
+        heap = engine.HEAPU8;
+      }
+      heap.set(data, mapping.ptr);
+      FS.msync(stream, mapping.ptr, 0, data.byteLength, MAP_SHARED);
+    } finally {
+      FS.munmap(mapping.ptr, data.byteLength);
+    }
   } finally {
-    FS.close(output);
+    FS.close(stream);
   }
 }
 
-export async function stageImportArchive(response, onProgress = null) {
+// The stream is collected and written once; the importer maps the whole file
+// into the heap anyway, so holding the bytes in JavaScript until the stream ends
+// does not change the largest archive that can be imported.
+function concatenateParts(parts, byteLength) {
+  if (parts.length === 1) {
+    return parts[0];
+  }
+  const data = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const part of parts) {
+    data.set(part, offset);
+    offset += part.byteLength;
+  }
+  parts.length = 0;
+  return data;
+}
+
+async function collectResponse(response, onProgress = null) {
   const parts = [];
-  const byteLength = await consumeResponse(
+  let byteLength = 0;
+  await consumeResponse(
     response,
-    (bytes) => parts.push(bytes.slice()),
+    (bytes) => {
+      parts.push(bytes);
+      byteLength += bytes.byteLength;
+    },
     onProgress,
   );
+  return { bytes: concatenateParts(parts, byteLength), byteLength };
+}
+
+// `source` is a Response, or bytes already collected by stageImportArchive.
+export async function streamResponseToFile(FS, source, path, onProgress = null) {
+  if (source instanceof Uint8Array) {
+    writeFileBytes(FS, path, source);
+    return source.byteLength;
+  }
+  const { bytes, byteLength } = await collectResponse(source, onProgress);
+  writeFileBytes(FS, path, bytes);
+  return byteLength;
+}
+
+// The archive is collected into one buffer outside the engine's serialised
+// section and handed to the import as-is. Staging it as a Blob instead cost
+// three more copies of the archive (chunk slices, the Blob, and reading the
+// Blob back) for about 70 ms on a Jitendex import, and the concatenated buffer
+// exists on the import path either way.
+export async function stageImportArchive(response, onProgress = null) {
+  return collectResponse(response, onProgress);
+}
+
+function removeStagedFile(FS, path) {
+  try {
+    FS.unlink(path);
+  } catch (error) {
+    // Never written, or already gone.
+  }
+}
+
+// Where the archive is staged. A Yomitan ZIP has a fixed scratch name; an MDX
+// keeps its own name inside IMPORT_MDX_DIR with its MDD files beside it.
+function importStagingPaths(fileName, resources) {
+  if (resources.length === 0 && !isMdxFileName(fileName)) {
+    return { directory: null, archivePath: IMPORT_ZIP, resourcePaths: [] };
+  }
   return {
-    blob: new Blob(parts, { type: "application/zip" }),
-    byteLength,
+    directory: IMPORT_MDX_DIR,
+    archivePath: `${IMPORT_MDX_DIR}/${fileName}`,
+    resourcePaths: resources.map((resource) => `${IMPORT_MDX_DIR}/${resource.fileName}`),
   };
 }
 
 async function importDictionaryArchive(
-  response,
-  archivePath,
+  archiveSource,
   generationRoot,
   importLowRam,
   fileName,
   expectedArchiveBytes = null,
+  resources = [],
 ) {
   const FS = engine.FS;
+  const { directory, archivePath, resourcePaths } = importStagingPaths(fileName, resources);
   try {
-    const archiveBytes = await streamResponseToFile(FS, response, archivePath);
+    if (directory !== null) {
+      try {
+        FS.mkdir(directory);
+      } catch (error) {
+        // Left by an interrupted import; its files are overwritten below.
+      }
+    }
+    const archiveBytes = await streamResponseToFile(FS, archiveSource, archivePath);
     if (archiveBytes === 0) {
       throw new Error(`${fileName} is empty`);
     }
     if (expectedArchiveBytes !== null && archiveBytes !== expectedArchiveBytes) {
       throw new Error(`${fileName} changed while it was staged`);
     }
+    resources.forEach((resource, index) => {
+      writeFileBytes(FS, resourcePaths[index], resource.bytes);
+    });
     return normaliseReport(
       parseJson(
         engine.ccall(
@@ -1412,10 +1911,14 @@ async function importDictionaryArchive(
       ),
     );
   } finally {
-    try {
-      FS.unlink(archivePath);
-    } catch (error) {
-      // Never written, or already gone.
+    removeStagedFile(FS, archivePath);
+    for (const path of resourcePaths) removeStagedFile(FS, path);
+    if (directory !== null) {
+      try {
+        FS.rmdir(directory);
+      } catch (error) {
+        // Never created, or already gone.
+      }
     }
   }
 }
@@ -1463,6 +1966,117 @@ function validateLocalImportRequest(message, managedSource, recommendedSource) {
   }
 }
 
+function plainFileName(value) {
+  return typeof value === "string" && value !== "" && value !== "." && value !== ".."
+    && !/[/\\\0]/u.test(value);
+}
+
+function isMdxFileName(fileName) {
+  return /\.mdx$/iu.test(fileName);
+}
+
+// The MDD resource files chosen with an .mdx: staged next to it under their own
+// names so the engine's sibling discovery (`<stem>.mdd`, `<stem>.1.mdd`, ...)
+// sees them. Only an ordinary local import of an .mdx can carry them.
+function importResources(message, remote, fileName) {
+  const value = message.resources;
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new TypeError("the import request carried an invalid resource list");
+  }
+  if (value.length === 0) return [];
+  if (remote || !isMdxFileName(fileName)) {
+    throw new Error("only a local .mdx import can carry resource files");
+  }
+  const names = new Set([fileName]);
+  return value.map((resource) => {
+    const name = resource?.fileName;
+    const blobUrl = text(resource?.blobUrl);
+    if (!plainFileName(name) || !/\.mdd$/iu.test(name) || blobUrl === "") {
+      throw new Error("the import request carried an invalid resource file");
+    }
+    if (names.has(name)) {
+      throw new Error(`the import request lists ${name} twice`);
+    }
+    names.add(name);
+    return { fileName: name, blobUrl };
+  });
+}
+
+function exactNullableString(value, label, { empty = false } = {}) {
+  if (value === null) return null;
+  if (typeof value !== "string" || (!empty && value === "")) {
+    throw new Error(`the import decision carried an invalid ${label}`);
+  }
+  return value;
+}
+
+function exactRequiredString(value, label) {
+  if (typeof value !== "string" || value === "") {
+    throw new Error(`the import decision carried an invalid ${label}`);
+  }
+  return value;
+}
+
+function importDecisionIdentity(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("the import decision carried no archive identity");
+  }
+  return {
+    title: exactRequiredString(value.title, "dictionary title"),
+    revision: exactNullableString(value.revision, "dictionary revision", { empty: true }),
+    indexUrl: exactNullableString(value.indexUrl, "dictionary index URL"),
+    downloadUrl: exactNullableString(value.downloadUrl, "dictionary download URL"),
+  };
+}
+
+function importDecisionTarget(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+      || typeof value.id !== "string" || value.id === ""
+      || typeof value.title !== "string" || value.title === ""
+      || typeof value.path !== "string" || value.path === ""
+      || typeof value.revision !== "string"
+      || !["string", "object"].includes(typeof value.sourceId)
+      || !["string", "object"].includes(typeof value.indexUrl)
+      || !["string", "object"].includes(typeof value.downloadUrl)
+      || typeof value.isUpdatable !== "boolean") {
+    throw new Error("the import decision carried an invalid replacement target");
+  }
+  return {
+    ...dictionaryImportTarget(value),
+    sourceId: exactNullableString(value.sourceId, "target source ID"),
+    indexUrl: exactNullableString(value.indexUrl, "target index URL"),
+    downloadUrl: exactNullableString(value.downloadUrl, "target download URL"),
+  };
+}
+
+function interactiveImportDecision(value, remote, managedSource, recommendedSource) {
+  if (value === undefined) return null;
+  if (remote || managedSource !== null || recommendedSource !== null) {
+    throw new Error("only an ordinary local import can carry an interactive decision");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)
+      || !["install", "replace", "separate"].includes(value.action)) {
+    throw new Error("the import decision carried an invalid action");
+  }
+  const identity = importDecisionIdentity(value.identity);
+  if (value.action === "install") {
+    if (value.target !== null || value.matchKind !== null) {
+      throw new Error("a new import decision cannot name a replacement target");
+    }
+    return { action: value.action, identity, target: null, matchKind: null };
+  }
+  if (!["title", "source"].includes(value.matchKind)) {
+    throw new Error("the import decision carried an invalid target match");
+  }
+  return {
+    action: value.action,
+    identity,
+    target: importDecisionTarget(value.target),
+    matchKind: value.matchKind,
+  };
+}
+
 // A remote import is either a checked managed update or a first install of a
 // recommended source, which downloads only its catalogue-pinned archive.
 function validateRemoteImportRequest(message, managedSource, recommendedSource, expectedRevision) {
@@ -1494,14 +2108,23 @@ async function prepareImportRequest(message) {
   } else {
     validateLocalImportRequest(message, managedSource, recommendedSource);
   }
+  const importDecision = interactiveImportDecision(
+    message.importDecision,
+    remote,
+    managedSource,
+    recommendedSource,
+  );
+  const fileName = text(message.fileName) || recommendedSource?.archiveName || "the archive";
   return {
     archiveUrl,
     expectedRevision,
-    fileName: text(message.fileName) || recommendedSource?.archiveName || "the archive",
+    fileName,
+    importDecision,
     importLowRam,
     managedSource,
     recommendedSource,
     remote,
+    resources: importResources(message, remote, fileName),
   };
 }
 
@@ -1511,6 +2134,8 @@ function samePreparedImport(left, right) {
     && left.fileName === right.fileName
     && left.importLowRam === right.importLowRam
     && left.remote === right.remote
+    && JSON.stringify(left.importDecision) === JSON.stringify(right.importDecision)
+    && JSON.stringify(left.resources) === JSON.stringify(right.resources)
     && left.recommendedSource?.sourceId === right.recommendedSource?.sourceId
     && left.managedSource?.checkedAt === right.managedSource?.checkedAt
     && JSON.stringify(left.managedSource?.fingerprint ?? null)
@@ -1535,30 +2160,52 @@ async function fetchImportArchive(request) {
   return response;
 }
 
+// The MDD files are read like the archive, one at a time, and held as bytes
+// until the import stages them next to the .mdx.
+async function stageImportResources(request) {
+  const staged = [];
+  for (const resource of request.resources) {
+    const response = await fetch(resource.blobUrl, { credentials: "omit" });
+    if (!response.ok) {
+      throw new Error(`could not read ${resource.fileName}: HTTP ${response.status}`);
+    }
+    const { bytes, byteLength } = await collectResponse(response);
+    if (byteLength === 0) {
+      throw new Error(`${resource.fileName} is empty`);
+    }
+    staged.push({ fileName: resource.fileName, bytes });
+  }
+  return staged;
+}
+
 async function runImportTransaction(
-  response,
+  archiveSource,
   fileName,
   importLowRam,
   commit,
   expectedArchiveBytes = null,
+  resources = [],
 ) {
   const generationRoot = createGenerationRoot();
   // Unload before importing: the loaded dictionaries are mapped into the same
   // 32-bit address space the importer needs. Public count/generation state is
   // not changed until either the candidate or the committed state is loaded.
-  engine.ccall("hdw_reset", null, [], []);
+  resetEngine();
 
-  const archivePath = storageBackend === "opfs" ? OPFS_IMPORT_ZIP : IMPORT_ZIP;
+  // The archive is scratch: staging it in MEMFS instead of OPFS saves the
+  // proxied write, read-back mapping, and unlink (about 50 ms of hdw_import for
+  // Jitendex) and writes nothing to disk that the importer does not keep. The
+  // heap holds one extra copy of the archive for the duration of the import.
   let report;
   let rollbackAttempted = false;
   try {
     report = await importDictionaryArchive(
-      response,
-      archivePath,
+      archiveSource,
       generationRoot,
       importLowRam,
       fileName,
       expectedArchiveBytes,
+      resources,
     );
     if (report.success && report.title === "") {
       // hdw_import refuses a title it cannot use as a folder name, so this is
@@ -1799,6 +2446,8 @@ async function saveCustomDictionary(snapshot, source) {
 
 let preparedBackup = null;
 const backupUrls = new Set();
+const dictionaryDownloads = new Map();
+let dictionaryDownloadCounter = 0;
 
 async function readBackupStorage(raw = false) {
   const reply = await ask(raw ? "hd_backup_base_read" : "hd_backup_read");
@@ -1844,6 +2493,7 @@ async function discardPreparedBackup() {
   const previous = preparedBackup;
   preparedBackup = null;
   if (previous) await discardGenerations(previous.roots);
+  if (previous?.retained === true) await cleanupCommittedDictionaries();
 }
 
 async function discardGenerations(roots) {
@@ -1863,7 +2513,7 @@ async function stageBackupFiles(prepared, roots) {
     const root = createGenerationRoot();
     roots.push(root);
     const next = { ...dictionary, path: `${root}/${dictionary.title}` };
-    if (dictionaryRoot(next) === null) throw new Error("The backup contains an invalid dictionary title.");
+    assertBackupDictionaryPath(next, "The backup contains an invalid dictionary title.");
     return next;
   });
   for (const file of prepared.files) {
@@ -1874,12 +2524,22 @@ async function stageBackupFiles(prepared, roots) {
     engine.FS.mkdirTree(path.slice(0, path.lastIndexOf("/")));
     await streamResponseToFile(engine.FS, new Response(file.data), path);
   }
-  for (const dictionary of dictionaries) await validateBackupDictionary(dictionary);
+  for (const dictionary of dictionaries) await validateBackupDictionaryFiles(dictionary);
   await persistFilesystem();
   return dictionaries;
 }
 
-async function validateBackupDictionary(dictionary) {
+function assertBackupDictionaryPath(dictionary, message = "The backup contains an invalid dictionary path.") {
+  if (dictionaryRoot(dictionary) === null) {
+    throw new Error(message);
+  }
+}
+
+function assertBackupDictionaryPaths(dictionaries) {
+  for (const dictionary of dictionaries) assertBackupDictionaryPath(dictionary);
+}
+
+async function validateBackupDictionaryFiles(dictionary) {
   const generated = await packageFromIndex(dictionary.path);
   const keys = ["title", "revision", "termCount", "frequencyCount", "pitchCount", "kanjiCount", "mediaCount"];
   if (keys.some(key => generated[key] !== dictionary[key]) || !hasDictionaryMarker(dictionary.path)) {
@@ -1990,6 +2650,50 @@ const HANDLERS = {
     return {};
   },
 
+  // The relay's dictionary download: one dictionary as the backup archive the
+  // host's own restore accepts, built while this turn holds the queue so no
+  // cleanup can remove the generation under it, then served by offset.
+  async hd_api_dictionary_open(message) {
+    await ensureLoaded();
+    const [{ createBackupArchive, assertBackupPath }, { assertBackupSnapshot }, { emptyCustomDictionaryDocument }] = await Promise.all([
+      import("./backup-archive.js"), import("./backup-state.js"), import("./custom-dictionary.js"),
+    ]);
+    const { snapshot } = await readBackupStorage();
+    const dictionary = snapshot.state.dictionaries.find(entry => entry?.id === message.id);
+    if (!dictionary) throw new Error("unknown dictionary");
+    if (dictionaryRoot(dictionary) === null) throw new Error("Cannot export an invalid dictionary path.");
+    const single = {
+      ...snapshot,
+      state: { ...snapshot.state, dictionaries: [dictionary],
+        groups: globalThis.HDDictionaryGroups.normaliseDictionaryGroups(snapshot.state.groups, [dictionary]) },
+      document: dictionary.id === CUSTOM_DICTIONARY_ID ? snapshot.document : emptyCustomDictionaryDocument(),
+    };
+    await assertBackupSnapshot(single);
+    const files = [];
+    collectBackupFiles(dictionary.path, "dictionaries/0", assertBackupPath, files);
+    const archive = await createBackupArchive(single, files, []);
+    const token = `dl-${++dictionaryDownloadCounter}`;
+    dictionaryDownloads.set(token, archive);
+    return { token, size: archive.size };
+  },
+
+  async hd_api_dictionary_read(message) {
+    const archive = dictionaryDownloads.get(message.token);
+    if (!archive) throw new Error("unknown download token");
+    const offset = Number(message.offset), length = Number(message.length);
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 0) {
+      throw new Error("a dictionary read needs a non-negative offset and length");
+    }
+    const end = Math.min(archive.size, offset + length);
+    const bytes = new Uint8Array(await archive.slice(offset, end).arrayBuffer());
+    return { data: encodeBase64(bytes), eof: end >= archive.size };
+  },
+
+  hd_api_dictionary_close(message) {
+    dictionaryDownloads.delete(message.token);
+    return {};
+  },
+
   async hd_backup_cancel(message) {
     if (preparedBackup?.token === message.token) await discardPreparedBackup();
     return {};
@@ -2037,6 +2741,67 @@ const HANDLERS = {
       await discardGenerations(roots);
       throw error;
     }
+  },
+
+  async hd_backup_auto_prepare(message) {
+    requireEngine();
+    if (typeof message.token !== "string" || message.token === "") {
+      throw new Error("Automatic backup preparation requires its Settings cancellation token.");
+    }
+    if (typeof message.id !== "string" || message.id === "") {
+      throw new Error("Choose an automatic backup to restore.");
+    }
+    await discardPreparedBackup();
+    const current = (await readBackupStorage(true)).snapshot;
+    const [{ backup: prepared }, { assertBackupSnapshot }] = await Promise.all([
+      ask("hd_backup_auto_get", { id: message.id }),
+      import("./backup-state.js"),
+    ]);
+    if (!prepared) throw new Error("This automatic backup is corrupt or no longer retained.");
+    await assertBackupSnapshot(prepared.snapshot);
+    const dictionaries = prepared.snapshot.state.dictionaries;
+    assertBackupDictionaryPaths(dictionaries);
+    try {
+      for (const dictionary of dictionaries) await validateBackupDictionaryFiles(dictionary);
+      loadDictionaries(dictionaries);
+      let warning = null;
+      try {
+        await restoreCommittedDictionaries(null, { publish: false });
+        if (loadFailures.length > 0) {
+          warning = "Some current dictionaries cannot be loaded. This validated backup can replace them.";
+        }
+      } catch (error) {
+        reloadError = asError(error);
+        warning = "The current dictionaries cannot be loaded. This validated backup can replace them.";
+      }
+      const token = message.token;
+      preparedBackup = {
+        token,
+        current,
+        retained: true,
+        roots: [],
+        dictionaries,
+        snapshot: prepared.snapshot,
+        lookupStatsRows: prepared.lookupStatsRows,
+      };
+      return {
+        token,
+        warning,
+        createdAt: prepared.createdAt,
+        dictionaries: dictionaries.map(({ title, enabled }) => ({ title, enabled })),
+        customEntryCount: parseCustomDictionary(prepared.snapshot.document.text).entries.length,
+      };
+    } catch (error) {
+      try { await restoreCommittedDictionaries(null, { publish: false }); }
+      catch (restoreError) { reloadError = asError(restoreError); }
+      throw error;
+    }
+  },
+
+  async hd_backup_auto_cleanup() {
+    requireEngine();
+    await cleanupCommittedDictionaries();
+    return {};
   },
 
   hd_backup_restore: restoreBackup,
@@ -2107,8 +2872,12 @@ const HANDLERS = {
     if (dictionary === "" || path === "") {
       return { dataUrl: null };
     }
-    const length = engine.ccall("hdw_media", "number", ["string", "string"], [dictionary, path]);
-    throwIfEngineFailed("hdw_media");
+    let length = 0;
+    for (const candidate of mediaPathCandidates(path)) {
+      length = engine.ccall("hdw_media", "number", ["string", "string"], [dictionary, candidate]);
+      throwIfEngineFailed("hdw_media");
+      if (length > 0) break;
+    }
     if (length <= 0) {
       return { dataUrl: null };
     }
@@ -2121,7 +2890,7 @@ const HANDLERS = {
     }
     // Read HEAPU8 through the module: memory growth swaps the view out.
     const bytes = engine.HEAPU8.subarray(pointer, pointer + length);
-    return { dataUrl: `data:${mediaType(path)};base64,${toBase64(bytes)}` };
+    return { dataUrl: `data:${mediaType(path)};base64,${encodeBase64(bytes)}` };
   },
 
   async hd_custom_save(message) {
@@ -2173,6 +2942,7 @@ const HANDLERS = {
       if (staged.byteLength === 0) {
         throw new Error(`${stagedRequest.fileName} is empty`);
       }
+      const stagedResources = await stageImportResources(stagedRequest);
 
       return await serialise(async () => {
         requireEngine();
@@ -2183,6 +2953,7 @@ const HANDLERS = {
         const {
           expectedRevision,
           fileName,
+          importDecision,
           importLowRam,
           managedSource,
           recommendedSource,
@@ -2197,7 +2968,7 @@ const HANDLERS = {
           totalBytes: staged.byteLength,
         });
         const report = await runImportTransaction(
-          new Response(staged.blob),
+          staged.bytes,
           fileName,
           importLowRam,
           (generationRoot, importedReport) =>
@@ -2207,8 +2978,10 @@ const HANDLERS = {
               recommendedSource,
               managedSource,
               expectedRevision,
+              importDecision,
             ),
           staged.byteLength,
+          stagedResources,
         );
 
         if (!report.success) {
@@ -2370,7 +3143,7 @@ const HANDLERS = {
       failedDictionaries: loadFailures,
       generation,
       storageBackend,
-      threaded: storageBackend === "opfs",
+      threaded: !lowRam,
     };
   },
 };

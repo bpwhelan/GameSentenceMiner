@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { CAPTURE_SAMPLE_RATE } from "./capture-buffer.js";
+import {
+  CAPTURE_SAMPLE_RATE,
+  MAX_ANIMATED_AVIF_BYTES,
+} from "./media-limits.js";
 
-export const MAX_ANIMATED_AVIF_BYTES = 4 * 1024 * 1024;
+export { MAX_ANIMATED_AVIF_BYTES };
 export const AVIF_TIMESCALE = CAPTURE_SAMPLE_RATE;
 
 function encoderError(module, handle) {

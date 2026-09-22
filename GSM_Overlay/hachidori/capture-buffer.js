@@ -1,10 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-export const MAX_LIVE_FRAME_BYTES = 64 * 1024 * 1024;
-export const MAX_PINNED_FRAME_BYTES = 32 * 1024 * 1024;
-export const MAX_FRAME_BYTES = 256 * 1024;
-export const MAX_WAV_BYTES = 1024 * 1024;
-export const CAPTURE_SAMPLE_RATE = 48_000;
+import {
+  CAPTURE_SAMPLE_RATE,
+  MAX_FRAME_BYTES,
+  MAX_LIVE_FRAME_BYTES,
+  MAX_PINNED_FRAME_BYTES,
+  MAX_WAV_BYTES,
+} from "./media-limits.js";
+
+export {
+  CAPTURE_SAMPLE_RATE,
+  MAX_FRAME_BYTES,
+  MAX_LIVE_FRAME_BYTES,
+  MAX_PINNED_FRAME_BYTES,
+  MAX_WAV_BYTES,
+};
 
 function finiteTime(value, label) {
   if (!Number.isFinite(value)) throw new Error(`${label} must be finite`);

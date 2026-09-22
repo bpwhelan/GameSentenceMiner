@@ -14,20 +14,17 @@ function pronunciationFields(incoming, current, appliedFields, existingFields, w
   return fields;
 }
 
-export async function enrichAnkiNote(context, { audio, render, media }) {
+export async function enrichAnkiNote(context, { audio, render, store }) {
   const { request, invoke, noteId, appliedFields, existingFields, resolved, resources } = context;
   const warnings = [];
-  async function store(file) {
-    const filename = await invoke("storeMediaFile", { filename: file.filename, data: file.data, deleteExisting: false }, 30_000);
-    if (filename !== file.filename) throw new Error("Anki stored media under a different filename. The checked note fields were left unchanged.");
+  const confirmed = new Set(Array.isArray(resources.confirmedMedia) ? resources.confirmedMedia : []);
+  async function ensure(file, kind) {
+    if (confirmed.has(file.filename)) return;
+    await store(file, kind);
+    confirmed.add(file.filename);
   }
-  // Only fetch images actually referenced by committed fields, not images in
-  // an overwrite field whose policy preserved a different existing value.
-  for (const item of resources.media) {
-    if (!Object.values(appliedFields).some(value => value.includes(item.filename))) continue;
-    try { await store({ ...item, data: await media(item, request.generation) }); }
-    catch (error) { warnings.push(`Dictionary image ${item.path}: ${error.message}`); }
-  }
+  // Dictionary media and any first-field pronunciation have already been
+  // confirmed before the note mutation. Only deferred pronunciation remains.
   const canonical = existingFields ? canonicalAnkiFields({}, resolved.templates, existingFields).templates : resolved.templates;
   const templates = Object.fromEntries(Object.entries(canonical).filter(([field, template]) => {
     if (!ankiTemplateMarkerNames(template.value).includes("audio")) return false;
@@ -38,7 +35,7 @@ export async function enrichAnkiNote(context, { audio, render, media }) {
   if (!Object.keys(templates).length || (!resources.audioPrepared && !context.config.audioSources.length)) return warnings;
   try {
     const file = resources.audioPrepared ? resources.audio : await audio(request, context.config);
-    await store(file);
+    await ensure(file, "pronunciation");
     const rendered = await render(request, templates, `[sound:${file.filename}]`, resources);
     const incoming = existingFields ? overwriteAnkiFields(rendered.fields, existingFields, templates, { includeAudio: true }) : rendered.fields;
     // Audio work may have taken seconds. Re-read just before updating; never

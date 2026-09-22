@@ -78,10 +78,23 @@
       highlightSheet.cssRules[0].style.setProperty("background-color", mix);
     }
 
+    const colorScheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+    function applyTheme(theme = current.popupTheme) {
+      let resolvedTheme = theme;
+      if (resolvedTheme === "auto") resolvedTheme = colorScheme?.matches ? "dark" : "light";
+      host.dataset.hoshidictsTheme = resolvedTheme;
+    }
+    const colorSchemeChanged = () => {
+      if (current.popupTheme !== "auto") return;
+      applyTheme();
+      refreshHighlight();
+    };
+    colorScheme?.addEventListener("change", colorSchemeChanged);
+
     return {
       update(options) {
         const themeChanged = current.popupTheme !== options.popupTheme;
-        if (themeChanged) host.dataset.hoshidictsTheme = options.popupTheme;
+        if (themeChanged) applyTheme(options.popupTheme);
         // Only CSS hides the button: it stays bound, so autoplay and keybinds still play.
         if (options.showPopupAudioButton === false) host.dataset.hoshidictsAudioButton = "hidden";
         else delete host.dataset.hoshidictsAudioButton;
@@ -98,6 +111,7 @@
       },
       refreshHighlight,
       destroy() {
+        colorScheme?.removeEventListener("change", colorSchemeChanged);
         if (highlightSheet) document.adoptedStyleSheets = document.adoptedStyleSheets.filter(sheet => sheet !== highlightSheet);
       },
     };
@@ -175,6 +189,7 @@
   const DEINFLECTION_TEXT_MAX_BYTES = 4096;
   const DEINFLECTION_STEP_MAX_COUNT = 31;
   const DEINFLECTION_OMITTED_MARKER = "…";
+  const RENDER_DIAGNOSTIC_TEXT_MAX_BYTES = 512;
 
   function utf8Length(value) {
     return typeof TextEncoder === "function"
@@ -198,6 +213,50 @@
       ? low - 1
       : low;
     return value.slice(0, end);
+  }
+
+  function diagnosticText(value, fallback = "unknown") {
+    return typeof value === "string" && value
+      ? truncateUtf8(value, RENDER_DIAGNOSTIC_TEXT_MAX_BYTES)
+      : fallback;
+  }
+
+  function dictionaryStableId(title, presentation) {
+    const dictionary = Array.isArray(presentation)
+      ? presentation.find((entry) => entry?.title === title)
+      : null;
+    return diagnosticText(dictionary?.id);
+  }
+
+  function structuredContentRenderError(error, {
+    definitionIndex,
+    dictionary,
+    dictionaryId,
+    resultIndex,
+    term,
+  }) {
+    if (error?.code !== "structured-content-limit") return error;
+    const title = diagnosticText(dictionary);
+    const id = diagnosticText(dictionaryId);
+    const expression = diagnosticText(term?.expression, "");
+    const reading = diagnosticText(term?.reading, "");
+    const entry = `entry ${resultIndex + 1}, definition ${definitionIndex + 1}`;
+    const word = expression
+      ? `, term ${JSON.stringify(expression)}${reading ? `, reading ${JSON.stringify(reading)}` : ""}`
+      : "";
+    const message = `Dictionary ${JSON.stringify(title)} (stable ID ${JSON.stringify(id)}) could not render ${entry}${word}: ${error.message}`;
+    const contextual = new RangeError(message, { cause: error });
+    contextual.code = "dictionary-structured-content-limit";
+    contextual.definitionIndex = definitionIndex;
+    contextual.dictionaryId = id;
+    contextual.dictionaryTitle = title;
+    contextual.entryIndex = resultIndex;
+    contextual.originalStack = error.stack;
+    contextual.termExpression = expression;
+    contextual.termReading = reading;
+    contextual.userDetail = message;
+    contextual.userTitle = "Dictionary content could not be rendered.";
+    return contextual;
   }
 
   function deinflectionSteps(result) {
@@ -554,20 +613,38 @@
     group,
     dictionaryDisplayName,
     pitch,
-    reading
+    reading,
+    buildPitchAccentMorae
   ) {
-    const bodyText = [
-      `${reading ? `${reading} ` : ""}[${pitch.position}]`,
-      pitch.pattern,
-    ].filter(Boolean).join(" ");
-    return createPronunciationTag(documentRef, group, dictionaryDisplayName, bodyText, "pitch");
+    const positionText = [`[${pitch.position}]`, pitch.pattern].filter(Boolean).join(" ");
+    const bodyText = reading ? `${reading} ${positionText}` : positionText;
+    const tag = createPronunciationTag(documentRef, group, dictionaryDisplayName, bodyText, "pitch");
+    const morae = buildPitchAccentMorae(reading, pitch.position);
+    if (morae === null) return tag;
+    // The same contour the header furigana draws, so every dictionary's
+    // accent reads as a graph; the text stays in the title and aria-label.
+    const contour = documentRef.createElement("span");
+    contour.className = "gsm-hoshidicts-pitch-contour";
+    for (const mora of morae) {
+      const span = documentRef.createElement("span");
+      span.className = "gsm-hoshidicts-pitch-mora";
+      span.dataset.pitchLevel = mora.level;
+      if (mora.transition) span.dataset.pitchTransition = mora.transition;
+      span.textContent = mora.text;
+      contour.appendChild(span);
+    }
+    const position = documentRef.createElement("span");
+    position.className = "gsm-hoshidicts-pitch-position";
+    position.textContent = positionText;
+    tag.firstChild.replaceChildren(contour, position);
+    return tag;
   }
 
   function updatePronunciationLabel(tag, dictionaryDisplayName) {
     const dictionary = tag.dataset.dictionary;
     const source = dictionaryDisplayName !== dictionary && !dictionaryDisplayName.endsWith(` (${dictionary})`)
       ? `${dictionaryDisplayName} (${dictionary})` : dictionary;
-    const label = `${source}: ${tag.textContent}`;
+    const label = `${source}: ${tag.dataset.pronunciation}`;
     if (tag.title === label) return false;
     tag.title = label;
     tag.setAttribute("aria-label", label);
@@ -577,6 +654,7 @@
   function createPronunciationTag(documentRef, group, dictionaryDisplayName, bodyText, kind) {
     const tag = createTag(documentRef, "", "", kind);
     tag.dataset.dictionary = group.dictionary;
+    tag.dataset.pronunciation = bodyText;
 
     const body = documentRef.createElement("span");
     body.className = `gsm-hoshidicts-${kind}-body`;
@@ -1954,6 +2032,7 @@
       popup.appendChild(resizeHandle);
     }
     const appendExpressionRuby = options.appendExpressionRuby;
+    const buildPitchAccentMorae = options.buildPitchAccentMorae;
     const appendTextOnlyGlossary = options.appendTextOnlyGlossary;
     const appendStructuredImage = options.appendStructuredImage;
     const parseTagList = options.parseTagList;
@@ -2010,7 +2089,13 @@
     let currentToolbar = null;
     let currentFeedback = null;
     let currentLookupFailure = null;
-    let customLinks = options.customLinks || [];
+    let customButtons = Array.isArray(options.customButtons)
+      ? options.customButtons
+      : (options.customLinks || []).map((link, index) => ({
+        id: `legacy-link-${index + 1}`,
+        type: "link",
+        ...link,
+      }));
     let currentNoteControls = null;
     let renderRevision = 0;
     let currentResultPanel = null;
@@ -2380,6 +2465,26 @@
     }
     popup.addEventListener("focusout", onPresentationFocusOut);
 
+    function configureEntryActions(actions, label) {
+      actions.className = "gsm-hoshidicts-entry-actions";
+      actions.setAttribute("role", "group");
+      actions.setAttribute("aria-label", label);
+      actions.addEventListener("focusin", event => {
+        const item = [...actions.children].find(child =>
+          child === event.target || child.contains(event.target));
+        if (!item || actions.scrollWidth <= actions.clientWidth) return;
+        const padding = 2;
+        const left = item.offsetLeft;
+        const right = left + item.offsetWidth;
+        if (left < actions.scrollLeft + padding) {
+          actions.scrollLeft = Math.max(0, left - padding);
+        } else if (right > actions.scrollLeft + actions.clientWidth - padding) {
+          actions.scrollLeft = right - actions.clientWidth + padding;
+        }
+      });
+      return actions;
+    }
+
     function runRenderAction(isCurrent, renderContext, action) {
       if (!isCurrent()) return;
       try {
@@ -2419,46 +2524,78 @@
       button.appendChild(icon);
 
       const actions = documentRef.createElement("div");
-      actions.className = "gsm-hoshidicts-entry-actions";
+      configureEntryActions(actions, "Lookup actions");
       actions.appendChild(button);
-      const linkButtons = [];
+      const buttonNodes = new Map();
 
-      function updateLinks() {
-        customLinks.forEach((link, index) => {
-          let linkButton = linkButtons[index];
-          if (!linkButton) {
-            linkButton = documentRef.createElement("button");
-            linkButton.type = "button";
-            linkButton.className = "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button";
-            const activate = event => {
-              if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
-              event.preventDefault();
-              event.stopPropagation();
-              if (!linkButton.isConnected || popup.hidden || currentNoteControls?.actions !== actions
-                  || renderContext.isCurrentRequest?.() === false) return;
-              const prefill = readPrefill() || {};
-              const url = windowRef.HDExternalLinks.expandCustomLinkUrl(customLinks[index].url, {
-                word: prefill.term, reading: prefill.reading, sentence: prefill.sentence,
-              });
-              if (url) options.onCustomLinkClick?.({ url,
-                active: event.shiftKey || !(event.button === 1 || event.ctrlKey || event.metaKey) });
-            };
-            linkButton.addEventListener("click", activate);
-            linkButton.addEventListener("auxclick", activate);
-            linkButtons.push(linkButton);
-            actions.appendChild(linkButton);
+      function createCustomButton(value) {
+        const custom = documentRef.createElement("button");
+        custom.type = "button";
+        custom.dataset.customButtonId = value.id;
+        const label = documentRef.createElement("span");
+        label.className = "gsm-hoshidicts-text-action-label";
+        custom.appendChild(label);
+        if (value.type === "link") {
+          custom.className = "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button";
+          const activate = event => {
+            if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const link = customButtons.find(candidate =>
+              candidate.id === custom.dataset.customButtonId && candidate.type === "link");
+            if (!link || !custom.isConnected || popup.hidden || currentNoteControls?.actions !== actions
+                || renderContext.isCurrentRequest?.() === false) return;
+            const prefill = readPrefill() || {};
+            const url = windowRef.HDExternalLinks.expandCustomLinkUrl(link.url, {
+              word: prefill.term, reading: prefill.reading, sentence: prefill.sentence,
+            });
+            if (url) options.onCustomLinkClick?.({ url,
+              active: event.shiftKey || !(event.button === 1 || event.ctrlKey || event.metaKey) });
+          };
+          custom.addEventListener("click", activate);
+          custom.addEventListener("auxclick", activate);
+        } else {
+          custom.className = "gsm-hoshidicts-custom-anki-button gsm-hoshidicts-text-action-button";
+          custom.disabled = true;
+        }
+        return custom;
+      }
+
+      function updateButtons() {
+        const retained = new Set();
+        const ordered = [];
+        for (const value of customButtons) {
+          let custom = buttonNodes.get(value.id);
+          const expectedType = value.type === "anki" ? "anki" : "link";
+          if (custom && custom.dataset.customButtonType !== expectedType) {
+            custom.remove();
+            buttonNodes.delete(value.id);
+            custom = null;
           }
-          linkButton.textContent = link.label;
-          linkButton.title = link.label;
-          linkButton.setAttribute("aria-label", link.label);
-        });
-        for (const removed of linkButtons.splice(customLinks.length)) {
+          if (!custom) {
+            custom = createCustomButton(value);
+            custom.dataset.customButtonType = expectedType;
+            buttonNodes.set(value.id, custom);
+          }
+          custom.firstElementChild.textContent = value.label;
+          custom.dataset.customButtonLabel = value.label;
+          custom.title = value.type === "anki" ? `Send to Anki with ${value.label}` : value.label;
+          custom.setAttribute("aria-label", custom.title);
+          if (value.type === "anki") custom.dataset.ankiTemplateId = value.templateId;
+          else delete custom.dataset.ankiTemplateId;
+          retained.add(value.id);
+          ordered.push(custom);
+        }
+        for (const [id, removed] of buttonNodes) {
+          if (retained.has(id)) continue;
           const focused = popup.getRootNode().activeElement === removed;
           removed.remove();
+          buttonNodes.delete(id);
           if (focused) button.focus();
         }
+        actions.append(...ordered);
       }
-      updateLinks();
+      updateButtons();
 
       let editor = null;
       button.addEventListener("click", () => {
@@ -2473,18 +2610,26 @@
         actions,
         button,
         close: (restoreFocus) => editor?.close(restoreFocus) ?? false,
-        updateLinks,
+        updateButtons,
         setPrefillReader(value, context) { readPrefill = value; renderContext = context; },
         get form() { return editor?.form ?? null; },
       };
     }
 
-    function setCustomLinks(value) {
+    function setCustomButtons(value) {
       const next = value || [];
-      if (JSON.stringify(customLinks) === JSON.stringify(next)) return;
-      customLinks = next;
-      currentNoteControls?.updateLinks();
+      if (JSON.stringify(customButtons) === JSON.stringify(next)) return;
+      customButtons = next;
+      currentNoteControls?.updateButtons();
       positionPopup();
+    }
+
+    function setCustomLinks(value) {
+      setCustomButtons((value || []).map((link, index) => ({
+        id: `legacy-link-${index + 1}`,
+        type: "link",
+        ...link,
+      })));
     }
 
     function createNoteForm(button, readPrefill) {
@@ -2764,7 +2909,8 @@
                 group,
                 names.get(group.dictionary) || group.dictionary,
                 pitch,
-                reading
+                reading,
+                buildPitchAccentMorae
               ));
               count += 1;
             }
@@ -2864,16 +3010,6 @@
         if (frequencyTags.length > 0) {
           const frequencies = documentRef.createElement("span");
           frequencies.className = "gsm-hoshidicts-primary-frequencies";
-          frequencies.dataset.average = String(averageFrequency);
-          if (!averageFrequency && !showFrequencyDictionaryNames) {
-            frequencies.classList.add("gsm-hoshidicts-primary-frequencies-default");
-            const label = documentRef.createElement("span");
-            label.className = "gsm-hoshidicts-primary-frequency-label";
-            label.textContent = "Freq:";
-            label.setAttribute("aria-hidden", "true");
-            // Inside the first tag, so a wrap never leaves the label alone.
-            frequencyTags[0].prepend(label, " ");
-          }
           frequencies.append(...frequencyTags);
           capsule.prepend(frequencies);
         }
@@ -3017,29 +3153,28 @@
         deinflection.addEventListener("toggle", onDeinflectionToggle);
         headword.appendChild(deinflection);
       }
+      let navigationAction = null;
       if (primary && (typeof onBack === "function" || typeof onClose === "function")) {
-        const navigation = documentRef.createElement("div");
-        navigation.className = "gsm-hoshidicts-kanji-navigation";
-        const back = documentRef.createElement("button");
-        back.type = "button";
+        navigationAction = documentRef.createElement("button");
+        navigationAction.type = "button";
         if (typeof onClose === "function") {
-          back.className = "gsm-hoshidicts-popup-close";
-          back.setAttribute("aria-label", "Close lookup");
-          back.addEventListener("click", onClose);
+          navigationAction.className = "gsm-hoshidicts-popup-close";
+          navigationAction.setAttribute("aria-label", "Close lookup");
+          navigationAction.addEventListener("click", onClose);
         } else {
-          back.className = "gsm-hoshidicts-kanji-back";
-          back.textContent = "Back";
-          back.setAttribute("aria-label", "Back to previous results");
-          back.addEventListener("click", onBack);
+          navigationAction.className = "gsm-hoshidicts-kanji-back";
+          navigationAction.textContent = "Back";
+          navigationAction.setAttribute("aria-label", "Back to previous results");
+          navigationAction.addEventListener("click", onBack);
         }
-        navigation.append(back, headword);
-        header.appendChild(navigation);
-      } else {
-        header.appendChild(headword);
       }
+      header.appendChild(headword);
       const actions = primary && noteControls ? noteControls.actions : documentRef.createElement("div");
-      actions.className = "gsm-hoshidicts-entry-actions";
+      if (!primary || !noteControls) configureEntryActions(actions, "Entry actions");
       if (primary && noteControls) actions.querySelector(".gsm-hoshidicts-audio-control")?.remove();
+      for (const previous of actions.querySelectorAll(
+        ":scope > .gsm-hoshidicts-popup-close, :scope > .gsm-hoshidicts-kanji-back"
+      )) previous.remove();
       const audio = documentRef.createElement("div");
       audio.className = "gsm-hoshidicts-audio-control";
       const button = documentRef.createElement("button");
@@ -3051,6 +3186,9 @@
       button.setAttribute("aria-expanded", "false");
       audio.append(button);
       actions.prepend(audio);
+      const existingMiningAction = actions.querySelector(":scope > .gsm-hoshidicts-mine-button");
+      if (existingMiningAction) actions.prepend(existingMiningAction);
+      if (navigationAction) actions.prepend(navigationAction);
       header.append(actions);
       return { element: header, audio: { button, result }, mining: { actions, feedback, result },
         updateRuby(context) {
@@ -3279,7 +3417,7 @@
             definitions.classList.add("gsm-hoshidicts-definitions-single");
           }
           applyDefinitionBlurState(definitions);
-          for (const glossary of glossaries) {
+          for (const [definitionIndex, glossary] of glossaries.entries()) {
             const definition = documentRef.createElement("li");
             const definitionTags = parseTagList(glossary.definitionTags);
             if (definitionTags.length > 0) {
@@ -3295,26 +3433,48 @@
             const content = documentRef.createElement("div");
             content.className = "gsm-hoshidicts-glossary-content";
             content.dataset.hoshidictsDictionary = dictionary;
-            const fillContent = () => appendTextOnlyGlossary(
-              documentRef,
-              content,
-              glossary.glossary,
-              {
-                dictionary,
-                generation: renderContext.generation,
-                isCurrent,
-                isCurrentLink,
-                onExternalLink: renderContext.onExternalLink,
-                onInternalLink: renderContext.onInternalLink,
-                onLayoutChange: positionIfCurrent,
-                requestImagePreview,
-                refreshImagePreview,
-                hideImagePreview,
-                imageContext,
-                onImageCreated,
-                resolveMedia: typeof imageContext.resolveMedia === "function" ? resolveImage : null,
+            const fillContent = () => {
+              try {
+                appendTextOnlyGlossary(
+                  documentRef,
+                  content,
+                  glossary.glossary,
+                  {
+                    dictionary,
+                    generation: renderContext.generation,
+                    isCurrent,
+                    isCurrentLink,
+                    onExternalLink: renderContext.onExternalLink,
+                    onInternalLink: renderContext.onInternalLink,
+                    onLayoutChange: positionIfCurrent,
+                    requestImagePreview,
+                    refreshImagePreview,
+                    hideImagePreview,
+                    imageContext,
+                    onImageCreated,
+                    resolveMedia: typeof imageContext.resolveMedia === "function" ? resolveImage : null,
+                  }
+                );
+              } catch (error) {
+                const contextual = structuredContentRenderError(error, {
+                  definitionIndex,
+                  dictionary,
+                  dictionaryId: dictionaryStableId(
+                    dictionary,
+                    imageContext.dictionaryPresentation
+                  ),
+                  resultIndex,
+                  term: result.term,
+                });
+                // A dictionary-authored glossary that exhausts the traversal
+                // budget must not hide healthy cards from the same lookup.
+                // Unexpected renderer failures still use the view-wide error
+                // boundary so programming errors are not silently swallowed.
+                if (contextual === error) throw error;
+                content.replaceChildren();
+                console.warn("hachidori: omitted dictionary definition after render failure", contextual);
               }
-            );
+            };
             // Glossary bodies are most of a render. Only the first entry is
             // visible in the popup, so fill the rest after it has painted.
             if (resultIndex === 0) {
@@ -3532,19 +3692,23 @@
         "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
       const navigation = documentRef.createElement("div");
       navigation.className = "gsm-hoshidicts-kanji-navigation";
+      let back = null;
       if (typeof renderOptions.onBack === "function") {
-        const back = documentRef.createElement("button");
+        back = documentRef.createElement("button");
         back.type = "button";
         back.className = "gsm-hoshidicts-kanji-back";
         back.textContent = "Back";
         back.setAttribute("aria-label", "Back to previous results");
         back.addEventListener("click", renderOptions.onBack);
-        navigation.appendChild(back);
       }
       const glyph = documentRef.createElement("div");
       glyph.className = "gsm-hoshidicts-kanji-glyph";
       glyph.textContent = kanji.character;
       navigation.appendChild(glyph);
+      for (const previous of noteControls.actions.querySelectorAll(
+        ":scope > .gsm-hoshidicts-popup-close, :scope > .gsm-hoshidicts-kanji-back"
+      )) previous.remove();
+      if (back) noteControls.actions.prepend(back);
       primaryHeader.append(navigation, noteControls.actions);
       const toolbar = createResultChrome(primaryHeader);
 
@@ -4004,6 +4168,7 @@
       setDefinitionBlurState,
       setLookupStats,
       setSourceHighlightEnabled,
+      setCustomButtons,
       setCustomLinks,
       setToolbarPosition,
       scheduleMasonry,
