@@ -450,6 +450,7 @@ _auto_resume_thread: Optional[threading.Thread] = None
 _suspended_pids_file: Optional[Path] = None
 _overlay_pause_request_sources: Set[str] = set()
 _overlay_pause_request_pid: Optional[int] = None
+_ANKI_CONFIRMATION_PAUSE_SOURCE = "anki_confirmation"
 _last_process_pausing_activity_ts: float = 0.0
 
 
@@ -515,13 +516,12 @@ def _load_suspended_pids():
             _last_process_pausing_activity_ts = 0.0
 
 
-@process_pausing_feature()
 def _save_suspended_pids():
-    """Save currently suspended PIDs to disk."""
+    """Persist tracking even if pausing was disabled while a pause request was active."""
     try:
         with _suspended_pids_lock:
             entries = [{"pid": pid, **info} for pid, info in _suspended_pids.items()]
-        pids_file = _get_suspended_pids_file()
+        pids_file = _get_suspended_pids_file_path()
         pids_file.parent.mkdir(parents=True, exist_ok=True)
         with open(pids_file, "w") as f:
             json.dump({"pids": entries}, f)
@@ -1694,6 +1694,23 @@ def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Op
     if normalized_action == "pause":
         return _handle_overlay_pause_request(normalized_source, hwnd)
     return _handle_overlay_resume_request(normalized_source, hwnd)
+
+
+def request_anki_confirmation_process_pause(paused: bool) -> bool:
+    """Hold the game's shared pause for the lifetime of the Anki confirmation dialog."""
+    if paused:
+        process_cfg = getattr(get_config(), "process_pausing", None)
+        if not getattr(process_cfg, "anki_confirmation_requests_pause", False):
+            return False
+        return request_overlay_process_pause("pause", source=_ANKI_CONFIRMATION_PAUSE_SOURCE)
+
+    # Always release an acquired hold, even if settings or the active profile changed.
+    # A hotkey or recovery action may already have cleared it; do not resume a
+    # subsequent, unrelated pause in that case.
+    with _suspended_pids_lock:
+        if _ANKI_CONFIRMATION_PAUSE_SOURCE not in _overlay_pause_request_sources:
+            return True
+        return _handle_overlay_resume_request(_ANKI_CONFIRMATION_PAUSE_SOURCE, None)
 
 
 _PAUSE_HOTKEY_CTX = "Pause hotkey"

@@ -152,6 +152,38 @@ def test_exec_routes_to_modal_exec_when_focus_enabled():
     assert probe.calls == ["apply", "with"]
 
 
+@pytest.mark.parametrize("focus_on_show", [False, True])
+@pytest.mark.parametrize("pause_succeeded", [False, True])
+@pytest.mark.parametrize("raises", [False, True])
+def test_confirmation_exec_releases_only_acquired_game_pause(monkeypatch, focus_on_show, pause_succeeded, raises):
+    probe = _ExecRoutingProbe(focus_on_show=focus_on_show)
+
+    def request_pause(paused):
+        probe.calls.append(("pause", paused))
+        return pause_succeeded
+
+    def run_dialog():
+        probe.calls.append("dialog")
+        if raises:
+            raise RuntimeError("Dialog failed")
+        return "confirmed"
+
+    monkeypatch.setattr(anki_confirmation_qt, "request_anki_confirmation_process_pause", request_pause)
+    probe._exec_with_activation = run_dialog
+    probe._exec_without_activation = run_dialog
+
+    if raises:
+        with pytest.raises(RuntimeError, match="Dialog failed"):
+            anki_confirmation_qt.AnkiConfirmationDialog.exec(probe)
+    else:
+        assert anki_confirmation_qt.AnkiConfirmationDialog.exec(probe) == "confirmed"
+
+    expected = ["apply", ("pause", True), "dialog"]
+    if pause_succeeded:
+        expected.append(("pause", False))
+    assert probe.calls == expected
+
+
 @pytest.fixture
 def focus_confirmation_dialog(monkeypatch):
     app = QApplication.instance() or QApplication([])
@@ -168,6 +200,33 @@ def focus_confirmation_dialog(monkeypatch):
         dialog.hide()
         dialog.deleteLater()
         app.processEvents()
+
+
+@pytest.mark.parametrize("focus_on_show", [False, True])
+@pytest.mark.parametrize("finish", ["accept", "reject", "close"])
+def test_confirmation_game_pause_lasts_until_dialog_finishes(
+    focus_confirmation_dialog, monkeypatch, focus_on_show, finish
+):
+    dialog, config = focus_confirmation_dialog
+    config.anki.confirmation_focus_on_show = focus_on_show
+    calls = []
+    visible_when_finished = []
+    monkeypatch.setattr(anki_confirmation_qt, "activate_window", lambda _window: True)
+    monkeypatch.setattr(
+        anki_confirmation_qt, "request_anki_confirmation_process_pause", lambda paused: calls.append(paused) or True
+    )
+    monkeypatch.setattr(dialog, "_confirm_exit_and_apply_result", lambda: True)
+
+    def finish_dialog():
+        visible_when_finished.append(dialog.isVisible())
+        calls.append("finish")
+        getattr(dialog, finish)()
+
+    QTimer.singleShot(20, finish_dialog)
+    dialog.exec()
+
+    assert visible_when_finished == [True]
+    assert calls == [True, "finish", False]
 
 
 @pytest.mark.parametrize("failures_before_focus", [0, 2])

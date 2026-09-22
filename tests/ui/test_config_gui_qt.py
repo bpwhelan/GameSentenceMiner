@@ -130,6 +130,37 @@ def test_anki_confirmation_gamepad_support_is_opt_in() -> None:
     assert Anki().confirmation_gamepad_enabled is False
 
 
+def test_anki_confirmation_game_pause_can_be_saved_and_reloaded(monkeypatch) -> None:
+    from GameSentenceMiner.util.config import configuration
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", lambda: "test-version")
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_schedule_runtime_reload", lambda self: None)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
+    window = ConfigWindow()
+    try:
+        checkbox = window.process_pausing_anki_confirmation_requests_pause_check
+        assert checkbox.parentWidget() is not None
+        for enabled in (True, False):
+            checkbox.setChecked(enabled)
+            assert window.save_settings(show_indicator=False)
+            saved = configuration.Config.load().get_config().process_pausing
+            assert saved.anki_confirmation_requests_pause is enabled
+            window._auto_save_timer.stop()
+            with QSignalBlocker(checkbox):
+                checkbox.setChecked(not enabled)
+            window.reload_settings(force_refresh=True)
+            assert checkbox.isChecked() is enabled
+    finally:
+        window._auto_save_timer.stop()
+        window.close()
+        app.processEvents()
+
+
 def test_confirmation_edit_gamepad_bindings_can_be_saved_and_reloaded(monkeypatch) -> None:
     from GameSentenceMiner.util.config import configuration
 

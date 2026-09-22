@@ -1046,6 +1046,7 @@ class ProcessPausing:
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
     overlay_gamepad_navigation_requests_pause: bool = False
+    anki_confirmation_requests_pause: bool = False
     # Linux only: process name of the game to suspend (e.g. "eldenring.exe" under
     # Proton, or a native binary name). Linux has no window handle to resolve a PID
     # from, so the game is matched by process name. Mainly for Wayland users — leave

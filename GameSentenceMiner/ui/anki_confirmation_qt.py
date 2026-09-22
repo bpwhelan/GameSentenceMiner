@@ -48,6 +48,7 @@ from GameSentenceMiner.util.platform.gamepad_hotkey import (
     GamepadInputClient,
     parse_gamepad_binding,
 )
+from GameSentenceMiner.util.platform.window_state_monitor import request_anki_confirmation_process_pause
 
 
 # -------------------------------------------------------------------------
@@ -2597,9 +2598,14 @@ class AnkiConfirmationDialog(QDialog):
 
     def exec(self):
         self._apply_window_behavior_preferences()
-        if self._should_focus_on_show():
-            return self._exec_with_activation()
-        return self._exec_without_activation()
+        pause_requested = request_anki_confirmation_process_pause(True)
+        try:
+            if self._should_focus_on_show():
+                return self._exec_with_activation()
+            return self._exec_without_activation()
+        finally:
+            if pause_requested:
+                request_anki_confirmation_process_pause(False)
 
 
 def show_anki_confirmation(

@@ -313,6 +313,18 @@ def build_game_pausing_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(
             tabs_i18n,
             "game_pausing",
+            "anki_confirmation_requests_pause",
+            default_tooltip=(
+                "Pause the game while the Anki confirmation window is open. Requires Game Pausing to be enabled. "
+                "The game resumes when the window closes, unless another pause request is still active."
+            ),
+        ),
+        window.process_pausing_anki_confirmation_requests_pause_check,
+    )
+    process_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "game_pausing",
             "auto_resume_seconds",
             default_tooltip="Auto-resume suspended processes after this many seconds.",
         ),
