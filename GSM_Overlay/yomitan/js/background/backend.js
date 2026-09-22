@@ -191,6 +191,7 @@ export class Backend {
             ['getLanguageSummaries',         this._onApiGetLanguageSummaries.bind(this)],
             ['heartbeat',                    this._onApiHeartbeat.bind(this)],
             ['forceSync',                    this._onApiForceSync.bind(this)],
+            ['fetchLocalAudioData',          this._onApiFetchLocalAudioData.bind(this)],
         ]);
 
         /** @type {import('api').PmApiMap} */
@@ -206,6 +207,7 @@ export class Backend {
             ['openInfoPage', this._onCommandOpenInfoPage.bind(this)],
             ['openSettingsPage', this._onCommandOpenSettingsPage.bind(this)],
             ['openSearchPage', this._onCommandOpenSearchPage.bind(this)],
+            ['openSearchPageCurrentTab', this._onCommandOpenSearchPageCurrentTab.bind(this)],
             ['openPopupWindow', this._onCommandOpenPopupWindow.bind(this)],
         ]));
 
@@ -476,7 +478,7 @@ export class Backend {
 
 
     /**
-     * @param {chrome.tabs.ZoomChangeInfo} event
+     * @param {chrome.tabs.OnZoomChangeInfo} event
      */
     _onZoomChange({tabId, oldZoomFactor, newZoomFactor}) {
         this._sendMessageTabIgnoreResponse(tabId, {action: 'applicationZoomChanged', params: {oldZoomFactor, newZoomFactor}}, {});
@@ -1342,6 +1344,29 @@ export class Backend {
         return void 0;
     }
 
+    /** @type {import('api').ApiHandler<'fetchLocalAudioData'>} */
+    async _onApiFetchLocalAudioData({url}) {
+        const response = await fetch(url);
+        if (!response.ok) {
+            log.error(`Local server responded with HTTP status code ${response.status}`);
+            return null;
+        }
+
+        const contentType = response.headers.get('content-type') || 'audio/mpeg';
+        const arrayBuffer = await response.arrayBuffer();
+
+        let binary = '';
+        const bytes = new Uint8Array(arrayBuffer);
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+
+        return {
+            data: btoa(binary),
+            contentType: contentType,
+        };
+    }
+
     // Command handlers
 
     /**
@@ -1373,7 +1398,8 @@ export class Backend {
             const parsedUrl = new URL(url);
             const parsedBaseUrl = `${parsedUrl.origin}${parsedUrl.pathname}`;
             const parsedMode = parsedUrl.searchParams.get('mode');
-            return parsedBaseUrl === baseUrl && (parsedMode === mode || (!parsedMode && mode === 'existingOrNewTab'));
+            const modeIsNotSpecial = mode === 'existingOrNewTab' || mode === 'existingOrCurrentTab';
+            return parsedBaseUrl === baseUrl && (parsedMode === mode || (!parsedMode && modeIsNotSpecial));
         };
 
         const openInTab = async () => {
@@ -1401,12 +1427,32 @@ export class Backend {
                 }
                 await this._createTab(queryUrl);
                 return;
+            case 'existingOrCurrentTab':
+                try {
+                    if (await openInTab()) { return; }
+                } catch (e) {
+                    // NOP
+                }
+                await this._updateTab(queryUrl);
+                return;
             case 'newTab':
                 await this._createTab(queryUrl);
                 return;
             case 'popup':
                 return;
         }
+    }
+
+    /**
+     * @param {undefined|{mode: import('backend').Mode, query?: string}} params
+     */
+    async _onCommandOpenSearchPageCurrentTab(params) {
+        /** @type {{mode: import('backend').Mode, query?: string}} */
+        const newParams = {mode: 'existingOrCurrentTab'};
+        if (typeof params === 'object' && params !== null) {
+            newParams.query = params.query;
+        }
+        await this._onCommandOpenSearchPage(newParams);
     }
 
     /**
@@ -1876,7 +1922,8 @@ export class Backend {
             const codePoint = /** @type {number} */ (text.codePointAt(i));
             const character = String.fromCodePoint(codePoint);
             const substring = text.substring(i, i + scanLength);
-            const cacheKey = `${optionsContext.index}:${substring}`;
+            const metadataMode = useAllFrequencyDictionaries === true ? 1 : 0;
+            const cacheKey = `${optionsContext.index}:${metadataMode}:${substring}`;
             let cached = this._textParseCache.get(cacheKey);
             if (typeof cached === 'undefined') {
                 const {dictionaryEntries, originalTextLength} = await this._translator.findTerms(
@@ -1908,7 +1955,15 @@ export class Backend {
                                     if (src.matchType !== 'exact') { continue; }
                                     validSources.push(src);
                                 }
-                                if (validSources.length > 0) { validHeadwords.push({term: headword.term, reading: headword.reading, sources: validSources, frequencies: dictionaryEntry.frequencies.filter((f) => f.headwordIndex === headword.headwordIndex)}); }
+                                if (validSources.length > 0) {
+                                    validHeadwords.push({
+                                        term: headword.term,
+                                        reading: headword.reading,
+                                        sources: validSources,
+                                        frequencies: dictionaryEntry.frequencies.filter((f) => f.headwordIndex === headword.headwordIndex),
+                                        pronunciations: dictionaryEntry.pronunciations.filter((p) => p.headwordIndex === headword.headwordIndex),
+                                    });
+                                }
                             }
                             if (validHeadwords.length > 0) { trimmedHeadwords.push(validHeadwords); }
                         }
@@ -3045,6 +3100,23 @@ export class Backend {
     }
 
     /**
+     * @param {string} url
+     * @returns {Promise<chrome.tabs.Tab>}
+     */
+    _updateTab(url) {
+        return new Promise((resolve, reject) => {
+            chrome.tabs.update({url}, (tab) => {
+                const e = chrome.runtime.lastError;
+                if (e || !tab) {
+                    reject(new Error(e ? e.message : 'No active tab to update.'));
+                } else {
+                    resolve(tab);
+                }
+            });
+        });
+    }
+
+    /**
      * @param {number} tabId
      * @returns {Promise<chrome.tabs.Tab>}
      */
@@ -3134,6 +3206,7 @@ export class Backend {
     _normalizeOpenSettingsPageMode(mode, defaultValue) {
         switch (mode) {
             case 'existingOrNewTab':
+            case 'existingOrCurrentTab':
             case 'newTab':
             case 'popup':
                 return mode;
