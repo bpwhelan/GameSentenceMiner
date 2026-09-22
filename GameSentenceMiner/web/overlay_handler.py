@@ -60,7 +60,11 @@ class OverlayRequestHandler:
 
             logger.background(f"Received overlay message of type: {message_type}")
 
-            if message_type == "translate-request":
+            if message_type == "anki-setup-yomitan-result":
+                from GameSentenceMiner.util.anki_yomitan import accept_yomitan_setup_result
+
+                accept_yomitan_setup_result(message)
+            elif message_type == "translate-request":
                 await self.handle_translation_request(message)
             elif message_type == "manual-overlay-scan-request":
                 await self.handle_manual_overlay_scan_request(message)

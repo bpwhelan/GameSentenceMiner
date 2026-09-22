@@ -14,6 +14,7 @@ const https = require('https');
 const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
+const { configureYomitan, createSetupHandler } = require('./anki_setup');
 const { createMagpieState } = require('./magpie');
 const { JitenParseCache, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
 const { installJitenSessionBroker, JitenFrameRequests } = require('./jiten_session');
@@ -2337,6 +2338,11 @@ function publishOverlaySocketData(type, data) {
   sendOffsetHelperData();
 }
 
+const handleAnkiSetup = createSetupHandler(
+  (input, deadline) => configureYomitan(BrowserWindow, yomitanExt, input, deadline),
+  (response) => { if (backend?.connected) backend.send(response); },
+);
+
 function handleOverlayWebSocketControlMessage(type, data) {
   if ((type !== "ws2" && type !== "backend-connector") || data === "True" || data === "False") {
     return false;
@@ -2355,6 +2361,11 @@ function handleOverlayWebSocketControlMessage(type, data) {
 
   if (!message || typeof message !== "object") {
     return false;
+  }
+
+  if (message.type === "anki-setup-yomitan") {
+    void handleAnkiSetup(message);
+    return true;
   }
 
   if (message.type === "live_stats_update") {
@@ -7742,6 +7753,11 @@ async function startOverlayAppImpl() {
       root_tab_key: "profiles",
     });
   });
+  ipcMain.on("open-ai-settings", (event) => {
+    if (mainWindow && event.sender === mainWindow.webContents && backend?.connected) {
+      backend.send({ type: "open-gsm-settings", root_tab_key: "ai", subtab_key: "general" });
+    }
+  });
   ipcMain.on("gamepad-input-test-active", (event, payload) => {
     gamepadInputTestActive = !!(payload && payload.active);
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -8253,7 +8269,7 @@ async function startOverlayAppImpl() {
       }
       if (shouldTranslate) {
         translationRequested = true;
-        mainWindow?.webContents.send('request-block-translation');
+        mainWindow?.webContents.send('request-block-translation', { automatic: true });
       }
     }
 
