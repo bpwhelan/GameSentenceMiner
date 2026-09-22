@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from functools import lru_cache
 
 import regex
 from rapidfuzz import fuzz
+
+from GameSentenceMiner.native import text as native_text
 
 punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
 
@@ -199,17 +200,7 @@ def _matching_block_stats(
 def _matching_block_stats_cached(reference: str, candidate: str, min_block_size: int) -> tuple[float, int]:
     # Both controllers and filtering can ask about the same recent pair. Keep
     # the original matching algorithm and cache only its immutable statistics.
-    matcher = SequenceMatcher(None, reference, candidate, autojunk=False)
-    covered = 0
-    longest = 0
-
-    for _, _, size in matcher.get_matching_blocks():
-        if size > longest:
-            longest = size
-        if size >= min_block_size:
-            covered += size
-
-    return covered / len(candidate), longest
+    return native_text.matching_block_stats(reference, candidate, min_block_size)
 
 
 def _chunk_is_covered_by_previous(

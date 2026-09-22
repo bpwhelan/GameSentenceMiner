@@ -77,6 +77,26 @@ def test_preview_text_processing_request_uses_text_processing_config_dict():
     assert result == {"result": "bar"}
 
 
+@pytest.mark.parametrize("mode", ["python", "native", "shadow"])
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("ええ……。", "ええ……。"),
+        ("いい", "いい"),
+        ("ええいい", "ええいい"),
+        ("日日日本本本", "日本"),
+        ("AAAABBBBCCCC", "ABC"),
+        ("ええ日日日本本本語語語", "ええ日本語"),
+    ],
+)
+def test_repeated_character_autodetection_requires_three_in_processing_and_preview(monkeypatch, mode, text, expected):
+    monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", mode)
+    config = TextProcessing(remove_repeated_chars=True)
+
+    assert apply_text_processing(text, config) == expected
+    assert preview_text_processing_request({"text": text, "config": config.to_dict()}) == {"result": expected}
+
+
 def test_extract_bracketed_text_returns_text_between_japanese_quotes():
     text = "前「おやおや～？　寂しいのかな～？\n泊まって欲しいのかな～？\nも～、にぃにったらシスコン～」"
 

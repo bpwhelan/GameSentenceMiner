@@ -223,7 +223,7 @@ def test_matching_block_cache_preserves_settings_and_reuses_repeated_pairs(monke
     from GameSentenceMiner.ocr import compare
 
     compare._matching_block_stats_cached.cache_clear()
-    original = compare.SequenceMatcher
+    original = compare.native_text.matching_block_stats
     calls = 0
 
     def matcher(*args, **kwargs):
@@ -231,7 +231,7 @@ def test_matching_block_cache_preserves_settings_and_reuses_repeated_pairs(monke
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(compare, "SequenceMatcher", matcher)
+    monkeypatch.setattr(compare.native_text, "matching_block_stats", matcher)
     assert compare._matching_block_stats("abcde", "axcye") == (0.0, 1)
     assert compare._matching_block_stats("abcde", "axcye") == (0.0, 1)
     custom = compare.OCRCompareSettings(matching_block_default_min_size=1)

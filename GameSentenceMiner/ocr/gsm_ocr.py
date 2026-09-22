@@ -21,13 +21,13 @@ import time
 from PIL import Image
 from dataclasses import dataclass, field
 from datetime import datetime
-from difflib import SequenceMatcher
 from pathlib import Path
 from time import perf_counter
 import multiprocessing as mp
 import sys
 from typing import Any, Callable, Protocol, runtime_checkable
 
+from GameSentenceMiner.native.text import sequence_ratio
 from GameSentenceMiner.ocr.compare import (
     OCRCompareSettings,
     compare_ocr_results,
@@ -1315,7 +1315,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         candidate_normalized = _v2_normalized_text(candidate_text)
         similarity = (
             round(
-                SequenceMatcher(None, previous_normalized, candidate_normalized, autojunk=False).ratio() * 100,
+                sequence_ratio(previous_normalized, candidate_normalized) * 100,
                 3,
             )
             if previous_normalized and candidate_normalized
@@ -1987,7 +1987,7 @@ def _v2_texts_stable(prev_text: str, new_text: str, duplicate_threshold: int) ->
         return False
 
     threshold = max(90, int(duplicate_threshold or 90))
-    return (SequenceMatcher(None, prev_norm, new_norm, autojunk=False).ratio() * 100) >= threshold
+    return (sequence_ratio(prev_norm, new_norm) * 100) >= threshold
 
 
 def _v2_text_is_evolving(prev_text: str, new_text: str, settings: OCRCompareSettings | None = None) -> bool:
