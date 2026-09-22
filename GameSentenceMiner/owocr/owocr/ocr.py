@@ -6,6 +6,7 @@ import functools
 import importlib
 import io
 import json
+import locale
 import logging
 import numpy as np
 import os
@@ -15,20 +16,25 @@ import re
 import regex
 import struct
 import sys
+import threading
 import time
 import urllib.request
 import jaconv
 from PIL import Image, ImageOps, UnidentifiedImageError
+from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, asdict
 from math import sqrt, floor, sin, cos, atan2
 from pathlib import Path
-from typing import List, Optional
+from typing import ClassVar, List, Optional
 from urllib.parse import urlparse, parse_qs, urlencode
+from tzlocal import get_localzone_name
 
 from GameSentenceMiner.ocr import SharedMeikiOCRModel
+from GameSentenceMiner.ocr.debug_logging import emit_ocr_debug
 from .screen_ai_downloader import ensure_screen_ai_resources
 from GameSentenceMiner.util.config.electron_config import (
     get_ocr_language,
+    get_ocr_advanced_debug_logging,
     get_furigana_filter_sensitivity,
 )
 from GameSentenceMiner.util.config.configuration import (
@@ -1611,6 +1617,15 @@ class GoogleLens:
     manual_language = False
     coordinate_support = True
     threading_support = True
+    _timing_infos: ClassVar[dict[str, curl_cffi.CurlInfo]] = {
+        # These are cumulative milestones since the transfer started, not
+        # independent phase durations. Zero connect/TLS time is normal on reuse.
+        "dns_finished_ms": curl_cffi.CurlInfo.NAMELOOKUP_TIME,
+        "connect_finished_ms": curl_cffi.CurlInfo.CONNECT_TIME,
+        "tls_finished_ms": curl_cffi.CurlInfo.APPCONNECT_TIME,
+        "first_byte_ms": curl_cffi.CurlInfo.STARTTRANSFER_TIME,
+        "transfer_total_ms": curl_cffi.CurlInfo.TOTAL_TIME,
+    }
     capabilities = EngineCapabilities(
         words=True,
         word_bounding_boxes=True,
@@ -1627,6 +1642,10 @@ class GoogleLens:
         self.initial_lang = lang
         self.punctuation_regex = regex.compile(r"[\p{P}\p{S}]")
         self.get_furigana_sens_from_file = get_furigana_sens_from_file
+        self._region, self._time_zone = self._get_locale_metadata()
+        self._session_lock = threading.Lock()
+        self._idle_sessions = []
+        self._closed = False
         self._lens_proto_deps = _load_lens_proto_dependencies()
         self._message_to_dict = _load_message_to_dict()
         if self._lens_proto_deps is None or self._message_to_dict is None:
@@ -1634,6 +1653,88 @@ class GoogleLens:
         else:
             self.available = True
             logger.info("Google Lens ready")
+
+    @staticmethod
+    def _get_locale_metadata():
+        region = ""
+        time_zone = ""
+        try:
+            if sys.platform == "win32":
+                # locale.getlocale() may return legacy names such as
+                # "Japanese_Japan" on Windows. Request a BCP-47 name instead.
+                buffer = ctypes.create_unicode_buffer(85)  # LOCALE_NAME_MAX_LENGTH
+                if ctypes.windll.kernel32.GetUserDefaultLocaleName(buffer, len(buffer)):
+                    locale_name = buffer.value
+                else:
+                    locale_name = ""
+            else:
+                locale_name = locale.getlocale()[0] or ""
+            locale_parts = re.split("[-_]", locale_name.split(".")[0].split("@")[0])
+            region = next(
+                (part.upper() for part in locale_parts[1:] if re.fullmatch(r"[A-Za-z]{2}|[0-9]{3}", part)), ""
+            )
+        except (AttributeError, OSError, ValueError):
+            pass
+        try:
+            time_zone = get_localzone_name() or ""
+        except (OSError, ValueError, KeyError, RuntimeError):
+            # Optional metadata must not prevent OCR on an unconfigured system.
+            pass
+        return region, time_zone
+
+    @contextmanager
+    def _request_session(self):
+        # Lease each handle exclusively, so both persistent workers and fresh
+        # manual-scan threads can reuse connections without sharing an active curl.
+        with self._session_lock:
+            if self._closed:
+                raise RuntimeError("Google Lens is closed")
+            session = (
+                self._idle_sessions.pop()
+                if self._idle_sessions
+                else curl_cffi.Session(use_thread_local_curl=False, discard_cookies=True)
+            )
+        try:
+            yield session
+        finally:
+            with self._session_lock:
+                close_session = self._closed
+                if not close_session:
+                    self._idle_sessions.append(session)
+            if close_session:
+                session.close()
+
+    def close(self):
+        with self._session_lock:
+            self._closed = True
+            self.available = False
+            sessions, self._idle_sessions = self._idle_sessions, []
+        for session in sessions:
+            session.close()
+        # In-flight requests close their own sessions when they return the lease.
+
+    def _log_request_timing(self, response, error, image_data, payload_size, encode_ms, request_ms):
+        infos = getattr(response, "infos", {})
+        timings = {name: round(infos[info] * 1000, 3) for name, info in self._timing_infos.items() if info in infos}
+        upload_finished = infos.get(curl_cffi.CurlInfo.POSTTRANSFER_TIME_T)
+        if upload_finished is not None:
+            timings["upload_finished_ms"] = round(upload_finished / 1000, 3)
+        emit_ocr_debug(
+            True,
+            "google_lens.request",
+            image_size=image_data[1:],
+            image_bytes=len(image_data[0]),
+            payload_bytes=payload_size,
+            encode_ms=round(encode_ms, 3),
+            request_ms=round(request_ms, 3),
+            status_code=getattr(response, "status_code", None),
+            http_version=getattr(response, "http_version", None),
+            server_ip=getattr(response, "primary_ip", None),
+            new_connections=infos.get(curl_cffi.CurlInfo.NUM_CONNECTS),
+            error_type=type(error).__name__ if error is not None else None,
+            curl_error_code=getattr(error, "code", None),
+            **timings,
+        )
 
     @staticmethod
     def _is_timeout_error(exc):
@@ -1698,16 +1799,19 @@ class GoogleLens:
             request.objects_request.request_context.client_context.platform = self._lens_proto_deps["PLATFORM_WEB"]
             request.objects_request.request_context.client_context.surface = self._lens_proto_deps["SURFACE_CHROMIUM"]
 
-            request.objects_request.request_context.client_context.locale_context.language = "ja"
-            request.objects_request.request_context.client_context.locale_context.region = "Asia/Tokyo"
-            request.objects_request.request_context.client_context.locale_context.time_zone = ""  # not set by chromium
+            request.objects_request.request_context.client_context.locale_context.language = lang.replace("_", "-")
+            request.objects_request.request_context.client_context.locale_context.region = self._region
+            request.objects_request.request_context.client_context.locale_context.time_zone = self._time_zone
 
             request.objects_request.request_context.client_context.app_id = ""  # not set by chromium
 
             request_filter = request.objects_request.request_context.client_context.client_filters.filter.add()
             request_filter.filter_type = self._lens_proto_deps["AUTO_FILTER"]
 
+            debug_enabled = get_ocr_advanced_debug_logging()
+            encode_start = time.perf_counter()
             image_data = self._preprocess(img)
+            encode_ms = (time.perf_counter() - encode_start) * 1000
             request.objects_request.image_data.payload.image_bytes = image_data[0]
             request.objects_request.image_data.image_metadata.width = image_data[1]
             request.objects_request.image_data.image_metadata.height = image_data[2]
@@ -1715,30 +1819,50 @@ class GoogleLens:
             payload = request.SerializeToString()
 
             headers = {
-                "Host": "lensfrontend-pa.googleapis.com",
-                "Connection": "keep-alive",
                 "Content-Type": "application/x-protobuf",
                 "X-Goog-Api-Key": "AIzaSyDr2UxVnv_U85AbhhY8XSHSIavUW0DC-sY",
                 "Sec-Fetch-Mode": "no-cors",
                 "Sec-Fetch-Dest": "empty",
             }
 
+            res = None
+            error = None
+            request_start = time.perf_counter()
             try:
-                res = curl_cffi.post(
-                    "https://lensfrontend-pa.googleapis.com/v1/crupload",
-                    data=payload,
-                    headers=headers,
-                    impersonate="chrome",
-                    timeout=20,
-                )
+                with self._request_session() as session:
+                    session.curl_infos = (
+                        [
+                            *self._timing_infos.values(),
+                            curl_cffi.CurlInfo.NUM_CONNECTS,
+                            curl_cffi.CurlInfo.POSTTRANSFER_TIME_T,
+                        ]
+                        if debug_enabled
+                        else []
+                    )
+                    res = session.post(
+                        "https://lensfrontend-pa.googleapis.com/v1/crupload",
+                        data=payload,
+                        headers=headers,
+                        impersonate="chrome",
+                        timeout=20,
+                    )
             except Exception as e:
+                error = e
+                res = getattr(e, "response", None)
+                logger.warning(f"Google Lens request failed: {type(e).__name__} (curl code {getattr(e, 'code', None)})")
                 if self._is_timeout_error(e):
                     return (False, "Request timeout!")
                 if self._is_connection_error(e):
                     return (False, "Connection error!")
                 return (False, "Unknown error!")
+            finally:
+                if debug_enabled:
+                    self._log_request_timing(
+                        res, error, image_data, len(payload), encode_ms, (time.perf_counter() - request_start) * 1000
+                    )
 
             if res.status_code != 200:
+                logger.warning(f"Google Lens request failed: HTTP {res.status_code}")
                 return (False, "Unknown error!")
 
             response_proto = self._lens_proto_deps["LensOverlayServerResponsePb2"]()
