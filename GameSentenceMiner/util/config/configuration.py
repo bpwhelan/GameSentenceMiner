@@ -1558,6 +1558,7 @@ class Overlay:
     scan_on_mouse_move: bool = True  # only scan on a periodic tick when the cursor moved and is over the game window
     scan_on_overlay_activation: bool = False  # scan when Push to Show/navigation makes the overlay interactive
     text_appears_instantly: bool = False  # send the first overlay OCR pass without waiting for stabilization
+    adaptive_ocr_retries: bool = False  # experimental: retry quickly while overlay text is expanding
     base_scale: float = 0.75  # screenshot scale used before OCR (50% fast -> 100% highest quality)
     inject_scanned_lines: bool = False  # not recommended: persist overlay scans to the log (pollutes stats/texthooker)
     minimum_character_size: int = 0
@@ -1643,6 +1644,7 @@ GSM_OWNED_OVERLAY_FIELDS: Dict[str, GsmOwnedOverlayField] = {
     "scan_on_mouse_move": GsmOwnedOverlayField("scan_on_mouse_move", _coerce_overlay_bool),
     "scan_on_overlay_activation": GsmOwnedOverlayField("scan_on_overlay_activation", _coerce_overlay_bool),
     "text_appears_instantly": GsmOwnedOverlayField("text_appears_instantly", _coerce_overlay_bool),
+    "adaptive_ocr_retries": GsmOwnedOverlayField("adaptive_ocr_retries", _coerce_overlay_bool),
     "base_scale": GsmOwnedOverlayField("base_scale", lambda v: max(0.5, min(1.0, float(v)))),
     "inject_scanned_lines": GsmOwnedOverlayField("inject_scanned_lines", _coerce_overlay_bool),
     "minimum_character_size": GsmOwnedOverlayField("minimum_character_size", int),

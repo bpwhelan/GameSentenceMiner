@@ -956,7 +956,16 @@ background: rgba(202, 12, 12, 0.692);
         </div>
       </div>
       <button class="control-btn" id="btn-pin">⬤</button>
-      <button class="control-btn" id="btn-translate-toolbar">🌐</button>
+      <button class="control-btn" id="btn-translate-toolbar" title="Translate (opens AI setup if needed)">🌐</button>
+      <select class="control-btn" id="ai-help-toolbar" aria-label="AI sentence help" title="Explain the detected game text" style="max-width: 150px; font-size: 13px;">
+        <option value="">Explain…</option>
+        <option value="sentence">Sentence breakdown</option>
+        <option value="grammar">Grammar</option>
+        <option value="vocabulary">Vocabulary</option>
+        <option value="nuance">Nuance and tone</option>
+        <option value="context">Scene summary</option>
+        <option value="setup">AI setup…</option>
+      </select>
       <button class="control-btn" id="btn-settings">⚙</button>
       <button class="control-btn" id="btn-yomitan" title="Dictionary settings"><img src="yomitan-icon.svg"></button>
       <button class="control-btn" id="btn-minimize">➖</button>
@@ -1608,6 +1617,7 @@ background: rgba(202, 12, 12, 0.692);
     detectTextBlocks,
     getMedianValue,
     insertBlockSeparatorAfter,
+    prepareTextLines,
   } = BlockDetection;
   const recentBlockHistory = createRecentBlockHistory();
   try {
@@ -2828,6 +2838,7 @@ background: rgba(202, 12, 12, 0.692);
   // the image, so convert spreads to pixels before comparing. Defaults to
   // horizontal when ambiguous (single glyph, no boxes).
   function isOverlayLineVertical(line) {
+    if (typeof line.isVertical === 'boolean') return line.isVertical;
     const words = Array.isArray(line.words)
       ? line.words.filter((w) => w && w.bounding_rect && typeof w.text === 'string' && w.text.length)
       : [];
@@ -2868,7 +2879,7 @@ background: rgba(202, 12, 12, 0.692);
     const isBlockEnd = lineIdx === boundaries.end;
     const wordList = [];
     const useLexicalWordBoxes = shouldPreserveLexicalWordBoxes(line.text);
-    // Lexical (non-CJK) lines are always horizontal; only CJK lines can be vertical.
+    // Spaced languages, including Korean, use horizontal word boxes.
     const isVertical = !useLexicalWordBoxes && isOverlayLineVertical(line);
 
     if (useLexicalWordBoxes) {
@@ -2957,17 +2968,26 @@ background: rgba(202, 12, 12, 0.692);
 
   function getOverlayTextRenderSignature(lines, lineBlocks, blockBoundaries, blockCount) {
     const signature = [];
+    const linePlans = [];
     let textBoxCount = 0;
 
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
       const linePlan = buildOverlayLineRenderUnits(lines[lineIdx], lineIdx, lineBlocks, blockBoundaries, blockCount);
+      linePlans.push(linePlan);
       textBoxCount += linePlan.wordList.length;
-      signature.push(JSON.stringify(linePlan.wordList.map((word) => String(word.text || ''))));
+      signature.push(JSON.stringify([
+        linePlan.blockId,
+        linePlan.boundaries.start,
+        linePlan.boundaries.end,
+        linePlan.isVertical,
+        linePlan.wordList.map((word) => String(word.text || '')),
+      ]));
     }
 
     return {
       signature: signature.join('|'),
       textBoxCount,
+      linePlans,
     };
   }
 
@@ -3186,7 +3206,16 @@ background: rgba(202, 12, 12, 0.692);
 
           const renderGeneration = isSupplemental ? overlayRenderGeneration : ++overlayRenderGeneration;
           
-          // FIRST PASS: Detect blocks by "general area" (y-first with soft x guards)
+          const blockLayoutOptions = {
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+          };
+          // Rebuild visual lines from word geometry before grouping. Keep the
+          // authoritative payload intact while rendering, translation, and
+          // enrichment all use the same prepared text and line indexes.
+          data = { ...data, data: prepareTextLines(data.data, blockLayoutOptions) };
+
+          // FIRST PASS: Group the prepared lines using local text spacing.
           // OCR retries for one line may grow from partial to complete text. The
           // line ID lets history replace that retry's snapshot without matching
           // the partial text against itself.
@@ -3200,6 +3229,7 @@ background: rgba(202, 12, 12, 0.692);
             undefined,
             isSupplemental ? null : recentBlockHistory,
             {
+              ...blockLayoutOptions,
               resultKey: data.line_id != null ? String(data.line_id) : null,
               latestText: !isSupplemental && typeof data.latest_text === 'string'
                 ? data.latest_text
@@ -3249,7 +3279,14 @@ background: rgba(202, 12, 12, 0.692);
           // SECOND PASS: Process lines with block awareness
           const blockContainers = new Map(); // Map from block ID to container div
           const blockIndicatorBounds = new Map();
-          const renderedTextBounds = [];
+          const renderedTextBoxes = [];
+          const pendingLineLayouts = [];
+          const blockTranslationLines = new Map();
+          data.data.forEach((line, index) => {
+            const blockId = lineBlocks.get(index);
+            if (!blockTranslationLines.has(blockId)) blockTranslationLines.set(blockId, []);
+            blockTranslationLines.get(blockId).push(line.text);
+          });
           let reusableTextBoxIndex = 0;
           
           for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
@@ -3257,7 +3294,7 @@ background: rgba(202, 12, 12, 0.692);
             console.log("Processing line:", line);
             
             // Check if this is the start or end of a block
-            const linePlan = buildOverlayLineRenderUnits(line, lineIdx, lineBlocks, blockBoundaries, currentBlockId);
+            const linePlan = renderSignatureInfo.linePlans[lineIdx];
             const { blockId, boundaries, isBlockStart, isBlockEnd, wordList, isVertical } = linePlan;
             
             // Create a container paragraph for this block if it's the start
@@ -3270,9 +3307,7 @@ background: rgba(202, 12, 12, 0.692);
               }
               blockContainer.className = 'text-block-container';
               blockContainer.setAttribute('data-block-id', blockId);
-              blockContainer.dataset.translationSource = data.data
-                .filter((_, index) => lineBlocks.get(index) === blockId)
-                .map(item => item.text).join('\n');
+              blockContainer.dataset.translationSource = blockTranslationLines.get(blockId).join('\n');
               blockContainer.setAttribute('data-line-start', boundaries.start);
               blockContainer.setAttribute('data-line-end', boundaries.end);
               const metadata = blockMetadata.get(blockId) || { role: 'text' };
@@ -3359,13 +3394,6 @@ background: rgba(202, 12, 12, 0.692);
                 document.body.appendChild(box);
               }
 
-              const boundBox = box.getBoundingClientRect();
-              const hiddenByMainBox = pinned && isTextInMainBox(boundBox, mainBoxBounds);
-              if (hiddenByMainBox) {
-                console.log("Text inside main box, hiding:", word.text);
-                box.style.display = 'none';
-              }
-
               lineWordBoxes.push({
                 box,
                 text: word.text,
@@ -3374,89 +3402,10 @@ background: rgba(202, 12, 12, 0.692);
                 x1,
                 y1,
                 y3,
-                boundBox,
-                hiddenByMainBox,
               });
             }
 
-            for (const lineWordBox of lineWordBoxes) {
-              if (lineWordBox.hiddenByMainBox) {
-                continue;
-              }
-              const fontSize = estimateFontSize(
-                lineWordBox.text,
-                lineWordBox.widthPercent,
-                lineWordBox.heightPercent,
-                lineWordBox.boundBox,
-                isVertical
-              );
-              lineWordBox.estimatedFontSize = fontSize;
-            }
-
-            // Use the median font-size across non-punctuation characters on the line.
-            // OCR bounding boxes are tight ink bounds with measurement noise, so
-            // individual characters get slightly different widths even at the same
-            // game font-size. The median normalizes this for consistent rendering.
-            const surroundingBoxes = lineWordBoxes.filter((lineWordBox) => (
-              !lineWordBox.hiddenByMainBox
-              && !isContextSizedPunctuationMarker(lineWordBox.text)
-              && Number.isFinite(lineWordBox.estimatedFontSize)
-              && lineWordBox.estimatedFontSize > 0
-            ));
-            const visibleBoxes = lineWordBoxes.filter((lineWordBox) => (
-              !lineWordBox.hiddenByMainBox
-              && Number.isFinite(lineWordBox.estimatedFontSize)
-              && lineWordBox.estimatedFontSize > 0
-            ));
-            const fontReferenceBoxes = surroundingBoxes.length > 0 ? surroundingBoxes : visibleBoxes;
-            const lineFontSize = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.estimatedFontSize));
-
-            // Clamp every character box on the line to a single uniform size on
-            // the cross-axis (the max across reference glyphs) anchored at a
-            // shared edge, so the boxes line up evenly instead of each tracking
-            // its own ink-tight extent (which makes punctuation/kana boxes
-            // shorter than kanji). The along-text axis stays per-character.
-            //   - Horizontal lines: unify top + height, vary left per-character.
-            //   - Vertical lines:   unify left + width, vary top per-character.
-            const sizeReferenceBoxes = fontReferenceBoxes.length > 0 ? fontReferenceBoxes : visibleBoxes;
-            let uniformStartPercent = null;
-            let uniformExtentPercent = null;
-            if (sizeReferenceBoxes.length > 0) {
-              if (isVertical) {
-                uniformStartPercent = Math.min(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.x1));
-                uniformExtentPercent = Math.max(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.widthPercent));
-              } else {
-                uniformStartPercent = Math.min(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.y1));
-                uniformExtentPercent = Math.max(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
-              }
-            }
-
-            // Apply consistent font-size and uniform cross-axis size to all characters on the line.
-            // Actual punctuation keeps its natural OCR-tight box and size instead of being clamped
-            // up to the line's uniform glyph extent, so it stays a small, hard-to-hover lookup target.
-            for (const lineWordBox of lineWordBoxes) {
-              if (lineWordBox.hiddenByMainBox) {
-                continue;
-              }
-              const keepNaturalSize = isStandalonePunctuation(lineWordBox.text);
-              const effectiveFontSize = (!keepNaturalSize && lineFontSize > 0)
-                ? Math.round(lineFontSize)
-                : lineWordBox.estimatedFontSize;
-              lineWordBox.box.style.fontSize = `${effectiveFontSize}px`;
-
-              if (!keepNaturalSize && uniformExtentPercent > 0) {
-                const clampedStart = Math.max(0, Math.min(100 - uniformExtentPercent, uniformStartPercent));
-                if (isVertical) {
-                  lineWordBox.box.style.left = `${clampedStart + offsetX}%`;
-                  lineWordBox.box.style.width = `${uniformExtentPercent}%`;
-                } else {
-                  lineWordBox.box.style.top = `${clampedStart + offsetY}%`;
-                  lineWordBox.box.style.height = `${uniformExtentPercent}%`;
-                }
-              }
-
-              renderedTextBounds.push(lineWordBox.box.getBoundingClientRect());
-            }
+            pendingLineLayouts.push({ lineWordBoxes, isVertical });
 
             // Line indicator bounds use the rendered (possibly Magpie-scaled) coordinates
             // so they visually surround the text boxes.
@@ -3496,13 +3445,29 @@ background: rgba(202, 12, 12, 0.692);
             document.body.appendChild(bigInteractiveArea);
           }
 
+          // Attach every character before measuring any of them. These boxes
+          // are positioned absolutely, so sizing one line cannot move another.
+          for (const { lineWordBoxes } of pendingLineLayouts) {
+            for (const lineWordBox of lineWordBoxes) {
+              lineWordBox.boundBox = lineWordBox.box.getBoundingClientRect();
+              lineWordBox.hiddenByMainBox = pinned && isTextInMainBox(lineWordBox.boundBox, mainBoxBounds);
+            }
+          }
+          for (const { lineWordBoxes, isVertical } of pendingLineLayouts) {
+            applyOverlayLineWordSizes(lineWordBoxes, isVertical, renderedTextBoxes);
+          }
+
           if (
             !isSupplemental
             && !stalePresenceAction
             && window.GSMLiveStatsWidget
             && typeof window.GSMLiveStatsWidget.handleTextBoundsUpdate === 'function'
           ) {
-            window.GSMLiveStatsWidget.handleTextBoundsUpdate(renderedTextBounds);
+            // Final bounds are needed only by the stats widget. Read them after
+            // every line has received its final font size and glyph extent.
+            window.GSMLiveStatsWidget.handleTextBoundsUpdate(
+              renderedTextBoxes.map(box => box.getBoundingClientRect())
+            );
           }
 
           if (isRecalibration) {
@@ -3615,7 +3580,7 @@ background: rgba(202, 12, 12, 0.692);
           }
         }
 
-        if (renderedTextPayload && shouldShowReadyIndicator && !(data && data.supplemental)) {
+        if (renderedTextPayload && data?.is_final === true && shouldShowReadyIndicator && !data.supplemental) {
           showReadyIndicator();
         }
         if (manualMode && !manualHotkeyPressed) {
@@ -3687,7 +3652,10 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function shouldPreserveLexicalWordBoxes(lineText) {
-    return !CJK_LEXICAL_REGEX.test(String(lineText || ''));
+    const text = String(lineText || '');
+    // Hangul uses word spaces, including in lines mixed with Hanja or Latin text.
+    // Keep it in CJK_LEXICAL_REGEX for glyph sizing, but preserve word boundaries.
+    return /\p{Script_Extensions=Hangul}/u.test(text) || !CJK_LEXICAL_REGEX.test(text);
   }
 
   function normalizeLexicalFragmentText(text) {
@@ -3738,6 +3706,25 @@ background: rgba(202, 12, 12, 0.692);
           && word.bounding_rect
         ))
       : [];
+    if (/\p{Script_Extensions=Hangul}/u.test(String(lineText || ''))) {
+      // Korean OCR boxes can contain words or individual syllables. Use the
+      // line's separators so mixed fragments never turn 파일 into 파 일.
+      const source = String(lineText);
+      const visible = Array.from(source.matchAll(/\S/gu), match => match.index);
+      const compactWords = normalizedWords.map(word => normalizeLexicalFragmentText(word.text));
+      if (compactWords.join('') === normalizeLexicalFragmentText(source)) {
+        let start = 0, offset = 0;
+        const spacedWords = normalizedWords.flatMap((word, index) => {
+          if (!compactWords[index]) return [];
+          offset += Array.from(compactWords[index]).length;
+          const end = offset < visible.length ? visible[offset] : source.length;
+          const text = source.slice(start, end);
+          start = end;
+          return [{ ...word, text }];
+        });
+        return buildKoreanGlyphRenderUnits(spacedWords, appendTrailingSpace);
+      }
+    }
     const multiCharWordCount = normalizedWords.filter((word) => (
       normalizeLexicalFragmentText(word.text).length > 1
     )).length;
@@ -3761,6 +3748,34 @@ background: rgba(202, 12, 12, 0.692);
     }
 
     return finalizeLexicalWordRenderUnits(normalizedWords, appendTrailingSpace, false);
+  }
+
+  function buildKoreanGlyphRenderUnits(words, appendTrailingSpace) {
+    const units = [];
+    words.forEach((word, index) => {
+      const rect = word.bounding_rect;
+      const glyphs = Array.from(word.text.trimEnd());
+      const edges = distributeGlyphWidths(glyphs, rect.x1, rect.x3);
+      glyphs.forEach((text, glyphIndex) => units.push({
+        text,
+        bounding_rect: {
+          x1: edges[glyphIndex], y1: rect.y1,
+          x3: glyphIndex + 1 < glyphs.length ? edges[glyphIndex + 1] : rect.x3, y3: rect.y3,
+        },
+      }));
+      const separator = word.text.slice(word.text.trimEnd().length)
+        || (index === words.length - 1 && appendTrailingSpace ? ' ' : '');
+      if (separator) {
+        // Put the separator in the gap; including it in the glyph's box would
+        // shrink or shift the hover target for the last syllable of the word.
+        const nextRect = words[index + 1]?.bounding_rect;
+        const gapEnd = nextRect ? Math.max(rect.x3, nextRect.x1) : rect.x3;
+        units.push({ text: separator, bounding_rect: {
+          x1: rect.x3, y1: rect.y1, x3: gapEnd, y3: rect.y3,
+        } });
+      }
+    });
+    return units;
   }
 
   function finalizeLexicalWordRenderUnits(words, appendTrailingSpace = false, trustProvidedText = false) {
@@ -3816,6 +3831,89 @@ background: rgba(202, 12, 12, 0.692);
       width: right - left,
       height: bottom - top,
     };
+  }
+
+  function applyOverlayLineWordSizes(lineWordBoxes, isVertical, renderedTextBoxes) {
+    for (const lineWordBox of lineWordBoxes) {
+      if (lineWordBox.hiddenByMainBox) {
+        console.log("Text inside main box, hiding:", lineWordBox.text);
+        lineWordBox.box.style.display = 'none';
+        continue;
+      }
+      const fontSize = estimateFontSize(
+        lineWordBox.text,
+        lineWordBox.widthPercent,
+        lineWordBox.heightPercent,
+        lineWordBox.boundBox,
+        isVertical
+      );
+      lineWordBox.estimatedFontSize = fontSize;
+    }
+
+    // Use the median font-size across non-punctuation characters on the line.
+    // OCR bounding boxes are tight ink bounds with measurement noise, so
+    // individual characters get slightly different widths even at the same
+    // game font-size. The median normalizes this for consistent rendering.
+    const surroundingBoxes = lineWordBoxes.filter((lineWordBox) => (
+      !lineWordBox.hiddenByMainBox
+      && !isContextSizedPunctuationMarker(lineWordBox.text)
+      && Number.isFinite(lineWordBox.estimatedFontSize)
+      && lineWordBox.estimatedFontSize > 0
+    ));
+    const visibleBoxes = lineWordBoxes.filter((lineWordBox) => (
+      !lineWordBox.hiddenByMainBox
+      && Number.isFinite(lineWordBox.estimatedFontSize)
+      && lineWordBox.estimatedFontSize > 0
+    ));
+    const fontReferenceBoxes = surroundingBoxes.length > 0 ? surroundingBoxes : visibleBoxes;
+    const lineFontSize = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.estimatedFontSize));
+
+    // Clamp every character box on the line to a single uniform size on
+    // the cross-axis (the max across reference glyphs) anchored at a
+    // shared edge, so the boxes line up evenly instead of each tracking
+    // its own ink-tight extent (which makes punctuation/kana boxes
+    // shorter than kanji). The along-text axis stays per-character.
+    //   - Horizontal lines: unify top + height, vary left per-character.
+    //   - Vertical lines:   unify left + width, vary top per-character.
+    const sizeReferenceBoxes = fontReferenceBoxes.length > 0 ? fontReferenceBoxes : visibleBoxes;
+    let uniformStartPercent = null;
+    let uniformExtentPercent = null;
+    if (sizeReferenceBoxes.length > 0) {
+      if (isVertical) {
+        uniformStartPercent = Math.min(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.x1));
+        uniformExtentPercent = Math.max(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.widthPercent));
+      } else {
+        uniformStartPercent = Math.min(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.y1));
+        uniformExtentPercent = Math.max(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
+      }
+    }
+
+    // Apply consistent font-size and uniform cross-axis size to all characters on the line.
+    // Actual punctuation keeps its natural OCR-tight box and size instead of being clamped
+    // up to the line's uniform glyph extent, so it stays a small, hard-to-hover lookup target.
+    for (const lineWordBox of lineWordBoxes) {
+      if (lineWordBox.hiddenByMainBox) {
+        continue;
+      }
+      const keepNaturalSize = isStandalonePunctuation(lineWordBox.text);
+      const effectiveFontSize = (!keepNaturalSize && lineFontSize > 0)
+        ? Math.round(lineFontSize)
+        : lineWordBox.estimatedFontSize;
+      lineWordBox.box.style.fontSize = `${effectiveFontSize}px`;
+
+      if (!keepNaturalSize && uniformExtentPercent > 0) {
+        const clampedStart = Math.max(0, Math.min(100 - uniformExtentPercent, uniformStartPercent));
+        if (isVertical) {
+          lineWordBox.box.style.left = `${clampedStart + offsetX}%`;
+          lineWordBox.box.style.width = `${uniformExtentPercent}%`;
+        } else {
+          lineWordBox.box.style.top = `${clampedStart + offsetY}%`;
+          lineWordBox.box.style.height = `${uniformExtentPercent}%`;
+        }
+      }
+
+      renderedTextBoxes.push(lineWordBox.box);
+    }
   }
 
   function estimateFontSize(word, widthPercent, heightPercent, rect, isVerticalOverride = null) {
@@ -5221,12 +5319,57 @@ background: rgba(202, 12, 12, 0.692);
     getRevision: () => overlayRenderGeneration,
     send: payload => ipcRenderer.send('translate-blocks', payload),
     showLegacy: showTranslation,
-    showError: error => {
+    showAnalysis: showAIHelp,
+    onStart: mode => { if (mode !== 'translation') showAIHelp('Explaining…'); },
+    showError: (error, mode) => {
       ipcRenderer.send('translation-request-failed');
-      showTranslation('Translation failed: ' + error);
+      if (mode && mode !== 'translation') showAIHelp(error);
+      else showTranslation('Translation failed: ' + error);
     },
   });
-  ipcRenderer.on('request-block-translation', () => blockTranslation.request());
+  ipcRenderer.on('request-block-translation', (event, options) => blockTranslation.request(options));
+  document.getElementById('ai-help-toolbar').addEventListener('change', event => {
+    const mode = event.target.value;
+    event.target.value = '';
+    if (mode === 'setup') ipcRenderer.send('open-ai-settings');
+    else if (mode) blockTranslation.request({ mode });
+  });
+
+  function showAIHelp(text) {
+    document.getElementById('ai-help-display')?.remove();
+    const panel = document.createElement('section');
+    panel.id = 'ai-help-display';
+    panel.className = 'interactive';
+    panel.setAttribute('aria-label', 'AI sentence help');
+    Object.assign(panel.style, {
+      position: 'fixed', right: '24px', bottom: '24px', width: 'min(560px, 85vw)', maxHeight: '65vh',
+      overflowY: 'auto', padding: '16px', boxSizing: 'border-box', background: 'rgba(20, 24, 29, 0.98)',
+      color: '#eee', border: '1px solid #638ac5', borderRadius: '10px', zIndex: '10002',
+      font: '16px/1.55 system-ui, sans-serif', pointerEvents: 'auto', userSelect: 'text', writingMode: 'horizontal-tb',
+    });
+    const header = document.createElement('div');
+    Object.assign(header.style, { display: 'flex', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' });
+    const title = document.createElement('strong');
+    title.textContent = 'AI sentence help';
+    const setup = document.createElement('button');
+    setup.textContent = 'AI setup';
+    setup.onclick = () => ipcRenderer.send('open-ai-settings');
+    const close = document.createElement('button');
+    close.textContent = 'Close';
+    close.onclick = () => {
+      blockTranslation.dismissAnalysis();
+      panel.remove();
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    };
+    header.append(title, setup, close);
+    const content = document.createElement('div');
+    Object.assign(content.style, { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' });
+    content.textContent = text;
+    panel.append(header, content);
+    panel.addEventListener('mouseenter', () => ipcRenderer.send('set-ignore-mouse-events', false));
+    panel.addEventListener('mouseleave', () => ipcRenderer.send('set-ignore-mouse-events', true, { forward: true }));
+    document.body.appendChild(panel);
+  }
   ipcRenderer.on('translation-received', (event, translation) => {
     console.log('Translation received:', translation);
     blockTranslation.receive(translation);

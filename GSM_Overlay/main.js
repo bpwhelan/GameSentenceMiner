@@ -314,6 +314,7 @@ const GSM_OWNED_OVERLAY_FIELD_MAP = {
   scan_on_mouse_move: "scan_on_mouse_move",
   scan_on_overlay_activation: "scan_on_overlay_activation",
   text_appears_instantly: "text_appears_instantly",
+  adaptive_ocr_retries: "adaptive_ocr_retries",
   base_scale: "base_scale",
   inject_scanned_lines: "inject_scanned_lines",
   minimum_character_size: "minimum_character_size",

@@ -348,6 +348,86 @@ describe("overlay block detection", () => {
     });
   });
 
+  it.each([0.046, 0.050, 0.054])(
+    "splits the reported nameplate above one dialogue line with name height %s",
+    (nameHeight) => {
+      // Approximate normalized bounds from the screenshot, allowing for OCR
+      // boxes that give the name and dialogue similar text heights.
+      const dialogue = "【03】と【01】が発見されたわけだから、当然……";
+      const lines: OverlayLine[] = [
+        makeLine("ファイ", 0.119, 0.730 - nameHeight, 0.191, 0.730),
+        makeLine(dialogue, 0.119, 0.780, 0.787, 0.830),
+      ];
+
+      const result = detectTextBlocks(lines, undefined, null, { latestText: dialogue });
+      const nameBlockId = result.lineBlocks.get(0);
+      const dialogueBlockId = result.lineBlocks.get(1);
+
+      expect(result.blockCount).toBe(2);
+      expect(nameBlockId).not.toBe(dialogueBlockId);
+      expect(result.blockMetadata.get(nameBlockId)).toEqual({
+        role: "character-name",
+        relatedBlockId: dialogueBlockId
+      });
+      expect(result.blockMetadata.get(dialogueBlockId)).toEqual({
+        role: "dialogue",
+        relatedBlockId: nameBlockId,
+        isLatestLine: true
+      });
+    }
+  );
+
+  it("keeps a short first line above one dialogue line at normal paragraph spacing", () => {
+    const lines: OverlayLine[] = [
+      makeLine("でも", 0.119, 0.680, 0.167, 0.730),
+      makeLine("この先に何があるのか確かめてみたいんだ", 0.119, 0.748, 0.787, 0.798),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+    expect(result.blockMetadata.get(result.lineBlocks.get(0))).toEqual({ role: "text" });
+  });
+
+  it("keeps a wider first dialogue line despite a nameplate-sized vertical gap", () => {
+    const lines: OverlayLine[] = [
+      makeLine("この向こうには", 0.119, 0.680, 0.400, 0.730),
+      makeLine("何があるのか確かめてみたいんだ", 0.119, 0.780, 0.787, 0.830),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+  });
+
+  it("keeps a short first dialogue line when a multiline paragraph has uniformly large gaps", () => {
+    const lines: OverlayLine[] = [
+      makeLine("でも", 0.119, 0.680, 0.167, 0.730),
+      makeLine("この先に何があるのか", 0.119, 0.780, 0.500, 0.830),
+      makeLine("確かめてみたいんだ", 0.119, 0.880, 0.450, 0.930),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+    expect(result.lineBlocks.get(1)).toBe(result.lineBlocks.get(2));
+  });
+
+  it("keeps a punctuated first dialogue line despite a narrow width and large gap", () => {
+    const lines: OverlayLine[] = [
+      makeLine("そうか。", 0.119, 0.680, 0.215, 0.730),
+      makeLine("それならこの先へ進んでみよう", 0.119, 0.780, 0.787, 0.830),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+  });
+
   it("does not treat a short first dialogue line as a name without a strong width difference", () => {
     const lines: OverlayLine[] = [
       makeLine("そうか。", 0.10, 0.72, 0.26, 0.79),

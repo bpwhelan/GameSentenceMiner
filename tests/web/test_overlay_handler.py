@@ -199,6 +199,7 @@ def test_overlay_config_accepts_batch_with_coercion(monkeypatch):
                 "periodic": True,
                 "scan_on_overlay_activation": "true",
                 "text_appears_instantly": "true",
+                "adaptive_ocr_retries": "true",
                 "engine_v2": "lens",
             },
         },
@@ -208,11 +209,13 @@ def test_overlay_config_accepts_batch_with_coercion(monkeypatch):
     assert current_config.overlay.periodic is True
     assert current_config.overlay.scan_on_overlay_activation is True
     assert current_config.overlay.text_appears_instantly is True
+    assert current_config.overlay.adaptive_ocr_retries is True
     assert current_config.overlay.engine_v2 == "lens"
     assert saved_configs  # saved once
     assert len(sent_messages) == 1
     assert sent_messages[0][1]["settings"]["scan_on_overlay_activation"] is True
     assert sent_messages[0][1]["settings"]["text_appears_instantly"] is True
+    assert sent_messages[0][1]["settings"]["adaptive_ocr_retries"] is True
 
 
 def test_overlay_config_applies_runtime_monitor_identity_before_saving(monkeypatch):
