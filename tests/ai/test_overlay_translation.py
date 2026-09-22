@@ -54,3 +54,23 @@ def test_rejects_unmappable_or_incomplete_output(response):
 def test_rejects_invalid_input_blocks(blocks):
     with pytest.raises(ValueError):
         translation.validate_blocks(blocks)
+
+
+def test_provider_failure_is_not_reported_as_a_json_format_problem(monkeypatch):
+    from GameSentenceMiner.ai.contracts import AIError
+
+    class Service:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_raw_prompt(self, *args, **kwargs):
+            return "Processing failed: 429 quota reached"
+
+    config = SimpleNamespace(
+        ai=SimpleNamespace(dialogue_context_length=0, use_canned_translation_prompt=True),
+        general=SimpleNamespace(get_native_language_name=lambda: "English"),
+    )
+    monkeypatch.setattr(translation, "get_config", lambda: config)
+    monkeypatch.setattr(translation, "_get_ai_service_components", lambda: (Service, lambda *args: None))
+    with pytest.raises(AIError, match="quota"):
+        translation.translate_overlay_blocks([], BLOCKS, "Game")

@@ -6,7 +6,10 @@ import asyncio
 import json
 from typing import Optional
 
-from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
+from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result, get_sentence_analysis
+from GameSentenceMiner.ai.setup import ai_setup_required, ai_error_message
+from GameSentenceMiner.ai.prompts.presets import STUDY_TASKS
+from GameSentenceMiner.ai.prompts.templates import build_translation_prompt
 from GameSentenceMiner.ai.overlay_translation import translate_overlay_blocks, validate_blocks
 from GameSentenceMiner.obs import get_current_game, get_current_scene
 from GameSentenceMiner.util.config.configuration import (
@@ -117,7 +120,37 @@ class OverlayRequestHandler:
 
             # Check if AI is enabled
             if not get_config().ai.is_configured():
-                await self.send_error("AI translation is not enabled in GSM settings", request_id)
+                await websocket_manager.send(
+                    ID_OVERLAY,
+                    {
+                        "type": "translation-error",
+                        "request_id": request_id,
+                        **ai_setup_required(automatic=(message or {}).get("automatic") is True),
+                    },
+                )
+                return
+
+            mode = (message or {}).get("mode", "translation")
+            if mode != "translation":
+                if not isinstance(mode, str) or mode not in STUDY_TASKS:
+                    await self.send_error("Choose a valid sentence analysis mode.", request_id)
+                    return
+                blocks = validate_blocks((message or {}).get("blocks", []))
+                lines = get_all_lines()
+                try:
+                    result = await asyncio.to_thread(
+                        get_sentence_analysis,
+                        lines,
+                        "\n".join(block["text"] for block in blocks),
+                        None,
+                        get_current_game(sanitize=False, update=False) or "Unknown Game",
+                        mode,
+                    )
+                    if not result:
+                        raise ValueError("Empty AI response")
+                    await self.send_translation({"request_id": request_id, "text": result, "mode": mode})
+                except Exception as exc:
+                    await self.send_error(ai_error_message(exc), request_id)
                 return
 
             if message is not None and "blocks" in message and get_config().ai.provider != AI_DEEPL:
@@ -171,9 +204,12 @@ class OverlayRequestHandler:
                 last_line,
                 game_title,
                 False,
-                None,
+                build_translation_prompt(get_config().general.get_native_language_name()),
             )
 
+            if not translation or translation.startswith("Processing failed:"):
+                await self.send_error(ai_error_message(translation), request_id)
+                return
             translation = remove_html_and_cloze_tags(translation)
 
             if translation and translation.strip():

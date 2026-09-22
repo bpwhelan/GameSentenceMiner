@@ -3,6 +3,8 @@ from __future__ import annotations
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from GameSentenceMiner.util.config.configuration import (
+    DEFAULT_GROQ_BACKUP_MODEL,
+    DEFAULT_GROQ_MODEL,
     get_config,
     logger,
     normalize_gemini_model_name,
@@ -10,11 +12,8 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.database.db import AIModelsTable
 
 RECOMMENDED_GROQ_MODELS = [
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "llama-3.1-8b-instant",
-    "qwen/qwen3-32b",
-    "openai/gpt-oss-120b",
+    DEFAULT_GROQ_MODEL,
+    DEFAULT_GROQ_BACKUP_MODEL,
 ]
 RECOMMENDED_GEMINI_MODELS = [
     "gemini-3-flash-preview",

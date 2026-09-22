@@ -127,6 +127,7 @@ from GameSentenceMiner.util.config.configuration import (
     get_current_version,
     AI_GEMINI,
     AI_GROQ,
+    AI_ZAI,
     AI_OPENAI,
     AI_OLLAMA,
     AI_LM_STUDIO,
@@ -1071,6 +1072,10 @@ class ConfigWindow(QWidget):
                     gemini_api_key=self.gemini_api_key_edit.text(),
                     api_key=self.gemini_api_key_edit.text(),
                     groq_api_key=self.groq_api_key_edit.text(),
+                    zai_api_key=self.zai_api_key_edit.text(),
+                    zai_model=self.zai_model_combo.currentText(),
+                    zai_backup_model=self.zai_backup_model_combo.currentText(),
+                    prompt_preset=self.ai_prompt_preset_combo.currentData() or "",
                     anki_field=self.ai_anki_field_edit.currentText(),
                     open_ai_api_key=self.open_ai_api_key_edit.text(),
                     open_ai_model=self.open_ai_model_edit.text(),
@@ -1631,6 +1636,7 @@ class ConfigWindow(QWidget):
         # AI Provider Groups
         self.gemini_settings_group = QGroupBox()
         self.groq_settings_group = QGroupBox()
+        self.zai_settings_group = QGroupBox()
         self.openai_settings_group = QGroupBox()
         self.gsm_cloud_settings_group = QGroupBox()
         self.ollama_settings_group = QGroupBox()
@@ -1695,6 +1701,13 @@ class ConfigWindow(QWidget):
         self.groq_model_combo = QComboBox()
         self.groq_backup_model_combo = QComboBox()
         self.groq_api_key_edit = QLineEdit()
+        self.zai_api_key_edit = QLineEdit()
+        self.zai_model_combo = QComboBox()
+        self.zai_model_combo.setEditable(True)
+        self.zai_model_combo.addItems(["glm-4.7-flash", "glm-4.5-flash", "glm-4.7", "glm-4.7-flashx"])
+        self.zai_backup_model_combo = QComboBox()
+        self.zai_backup_model_combo.setEditable(True)
+        self.zai_backup_model_combo.addItems([OFF, "glm-4.7-flash", "glm-4.5-flash"])
         self.open_ai_url_edit = QLineEdit()
         self.open_ai_model_edit = QLineEdit()
         self.open_ai_backup_model_edit = QLineEdit()
@@ -1730,6 +1743,15 @@ class ConfigWindow(QWidget):
         self.custom_prompt_textedit = QTextEdit()
         self.custom_texthooker_prompt_textedit = QTextEdit()
         self.custom_full_prompt_textedit = QTextEdit()
+        self.ai_prompt_preset_combo = QComboBox()
+        self.ai_prompt_preset_combo.addItem("Use existing canned / custom prompt settings", "")
+        from GameSentenceMiner.ai.prompts.presets import PROMPT_PRESETS
+
+        for key, (label, description) in PROMPT_PRESETS.items():
+            self.ai_prompt_preset_combo.addItem(label, key)
+            self.ai_prompt_preset_combo.setItemData(
+                self.ai_prompt_preset_combo.count() - 1, description, Qt.ItemDataRole.ToolTipRole
+            )
 
         # GSM Cloud
         self.gsm_cloud_status_label = QLabel("Not authenticated")
@@ -2148,6 +2170,9 @@ class ConfigWindow(QWidget):
             providers = [AI_GEMINI]
 
         desired_provider = str(preferred_provider or self.ai_provider_combo.currentText() or "").strip()
+        # Preserve a saved Z.ai selection without offering it to new profiles.
+        if desired_provider == AI_ZAI and self.settings.ai.provider == AI_ZAI:
+            providers.append(AI_ZAI)
         if desired_provider not in providers:
             desired_provider = AI_GEMINI if AI_GEMINI in providers else providers[0]
 
@@ -3359,13 +3384,21 @@ class ConfigWindow(QWidget):
         self.gemini_backup_model_combo.addItems([OFF] + RECOMMENDED_GEMINI_MODELS)
         self.gemini_backup_model_combo.setCurrentText(s.ai.gemini_backup_model or OFF)
         self._set_text_value(self.gemini_api_key_edit, s.ai.gemini_api_key)
+        groq_models = list(RECOMMENDED_GROQ_MODELS)
+        for selected in (s.ai.groq_model, s.ai.groq_backup_model):
+            if selected and selected not in groq_models:
+                groq_models.append(selected)
         self.groq_model_combo.clear()
-        self.groq_model_combo.addItems(RECOMMENDED_GROQ_MODELS)
+        self.groq_model_combo.addItems(groq_models)
         self.groq_model_combo.setCurrentText(s.ai.groq_model)
         self.groq_backup_model_combo.clear()
-        self.groq_backup_model_combo.addItems([OFF] + RECOMMENDED_GROQ_MODELS)
+        self.groq_backup_model_combo.addItems([OFF] + groq_models)
         self.groq_backup_model_combo.setCurrentText(s.ai.groq_backup_model or OFF)
         self._set_text_value(self.groq_api_key_edit, s.ai.groq_api_key)
+        self._set_text_value(self.zai_api_key_edit, s.ai.zai_api_key)
+        self.zai_model_combo.setCurrentText(s.ai.zai_model)
+        self.zai_backup_model_combo.setCurrentText(s.ai.zai_backup_model or OFF)
+        self.ai_prompt_preset_combo.setCurrentIndex(max(0, self.ai_prompt_preset_combo.findData(s.ai.prompt_preset)))
         self._set_text_value(self.open_ai_url_edit, s.ai.open_ai_url)
         self._set_text_value(self.open_ai_model_edit, s.ai.open_ai_model)
         self._set_text_value(self.open_ai_backup_model_edit, s.ai.open_ai_backup_model)
@@ -3798,6 +3831,7 @@ class ConfigWindow(QWidget):
         provider = self.ai_provider_combo.currentText()
         self.gemini_settings_group.setVisible(provider == AI_GEMINI)
         self.groq_settings_group.setVisible(provider == AI_GROQ)
+        self.zai_settings_group.setVisible(provider == AI_ZAI)
         self.openai_settings_group.setVisible(provider == AI_OPENAI)
         self.gsm_cloud_settings_group.setVisible(provider == AI_GSM_CLOUD)
         self.ollama_settings_group.setVisible(provider == AI_OLLAMA)
@@ -4258,6 +4292,9 @@ class ConfigWindow(QWidget):
             AIModelsTable.update_models(gemini_models, None, None, None)
         elif provider == "groq":
             groq_models = self.model_fetcher._get_groq_models()
+            for selected in (current_groq, current_groq_backup):
+                if selected and selected != OFF and selected not in groq_models:
+                    groq_models.append(selected)
             self.groq_model_combo.clear()
             self.groq_model_combo.addItems(groq_models)
             self.groq_model_combo.setCurrentText(current_groq)
@@ -4358,7 +4395,18 @@ class ConfigWindow(QWidget):
             return ordered
 
         gemini_models = _unique(gemini_models)
-        groq_models = _unique(groq_models)
+        # Cached lists can carry an older recommendation section. Replace it with
+        # the current models while keeping API-discovered models after OTHER.
+        groq_models = list(groq_models or [])
+        other_index = groq_models.index("OTHER") if "OTHER" in groq_models else -1
+        available_groq_models = groq_models[other_index + 1 :] if other_index >= 0 else groq_models[:]
+        selected_groq_models = [self.settings.ai.groq_model, self.settings.ai.groq_backup_model]
+        if preserve_selection:
+            selected_groq_models.extend([current_groq, current_groq_backup])
+        for selected in selected_groq_models:
+            if selected and selected not in {OFF, "RECOMMENDED", "OTHER"}:
+                available_groq_models.append(selected)
+        groq_models = _unique(["RECOMMENDED", *RECOMMENDED_GROQ_MODELS, "OTHER", *available_groq_models])
         ollama_models = _unique(ollama_models)
         lm_studio_models = _unique(lm_studio_models)
 

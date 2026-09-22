@@ -32,6 +32,7 @@
 		updateScroll,
 	} from '../util';
 	import Icon from './Icon.svelte';
+	import AIHelp from './AIHelp.svelte';
 	import { getGSMEndpoint } from '../gsm';
 
 	export let line: LineItem;
@@ -70,6 +71,7 @@
 	let actionsMenuButton: HTMLButtonElement;
 	let actionsMenuPopover: HTMLElement;
 	let actionsMenuStyle = 'visibility: hidden;';
+	let aiError = '';
 	$: isAudioLine = audioLineId === line.id;
 	$: isAudioPending = audioPendingLineId === line.id;
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
@@ -85,7 +87,7 @@
 		Number(line.revision ?? 0) > autoTranslationRevision
 	) {
 		autoTranslationRevision = Number(line.revision ?? 0);
-		handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
+		handleAction(line.id, 'TL', $blurAutoTranslatedLines$, true);
 	}
 
 	onMount(() => {
@@ -287,8 +289,9 @@
 		}
 	}
 
-	function handleAction(id: string, action: string, blurTranslate: boolean = false) {
+	function handleAction(id: string, action: string, blurTranslate: boolean = false, automatic: boolean = false) {
 		closeActionsMenu();
+		if (action === 'TL') aiError = '';
 		const endpoints: Record<string, string> = {
 			TL: '/translate-line',
 			Screenshot: '/get-screenshot',
@@ -300,11 +303,12 @@
 		fetch(getGSMEndpoint(endpoint), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ id, text: line.text }),
+			body: JSON.stringify({ id, text: line.text, automatic }),
 		})
-			.then((response) => {
+			.then(async (response) => {
 				if (!response.ok) {
-					throw new Error(`HTTP error! Status: ${response.status}`);
+					const data = await response.json().catch(() => ({}));
+					throw new Error(data.error || `Request failed (HTTP ${response.status}).`);
 				}
 				return response.json();
 			})
@@ -356,6 +360,7 @@
 				}
 			})
 			.catch((error) => {
+				if (action === 'TL') aiError = error.message || 'Translation failed. Check that GSM is running and retry.';
 				console.error(`Error performing ${action} action for event ID: ${id}`, error);
 			});
 	}
@@ -562,6 +567,14 @@
 		</div>
 	</div>
 {/key}
+{#if aiError}
+	<p role="alert" class="mx-4 text-sm">{aiError} <a class="underline" href="https://docs.gamesentenceminer.com/docs/features/ai-features" target="_blank" rel="noreferrer">AI setup guide</a></p>
+{/if}
+{#if line.id && (isActiveGSMLine || isTimedOutGSMLine || line.gsmStatus === 'external') && !$settingsOpen$}
+	{#key `${line.id}:${line.text.trim()}`}
+		<AIHelp id={line.id} text={line.text} />
+	{/key}
+{/if}
 {@html newLineCharacter}
 {#if $milestoneLines$.has(line.id)}
 	<div

@@ -611,7 +611,7 @@ class GSMApplication:
         )
 
     def _ensure_settings_window(self):
-        """Create the heavy ConfigWindow only when something needs to show it."""
+        """Return the shared ConfigWindow, creating it on the GUI thread if needed."""
         lock = getattr(self, "_settings_window_lock", None)
         if lock is None:
             lock = threading.Lock()
@@ -1956,11 +1956,9 @@ class GSMApplication:
 
         qt_main = _get_qt_main_module()
         qt_main.get_qt_app()
-        gsm_state.config_app = self.state.settings_window
         gsm_state.config_app_factory = self._ensure_settings_window
+        self._ensure_settings_window()
         open_config_on_startup = get_config().general.open_config_on_startup
-        if open_config_on_startup:
-            self._ensure_settings_window()
 
         self.start_background_threads()
         self.register_hotkeys()

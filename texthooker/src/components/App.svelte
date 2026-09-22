@@ -1316,9 +1316,13 @@
 				const result = await response.text();
 				// Add the translation result as a normal websocket event without adding to lineIDs
 				newLine$.next([result, LineType.TL, '']);
+			} else {
+				const data = await response.json().catch(() => ({}));
+				$openDialog$ = { type: 'error', message: data.error || 'Translation failed. Check AI / Translation settings.', showCancel: false };
 			}
 		} catch (error) {
 			console.error('Translation failed:', error);
+			$openDialog$ = { type: 'error', message: 'Could not reach GSM. Check that it is running and retry.', showCancel: false };
 		}
 	}
 </script>

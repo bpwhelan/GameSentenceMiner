@@ -15,7 +15,9 @@ from flask import jsonify, render_template, request, send_file, send_from_direct
 from waitress import create_server
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
+from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result, get_sentence_analysis
+from GameSentenceMiner.ai.prompts.presets import STUDY_TASKS
+from GameSentenceMiner.ai.setup import AI_SETUP_DOCS_URL, ai_setup_required, ai_error_message, open_ai_settings
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.config.configuration import (
     get_config,
@@ -72,7 +74,7 @@ _waitress_servers = []
 _waitress_threads = []
 _waitress_lock = threading.RLock()
 _ws_invalid_upgrade_filter_installed = False
-AI_TRANSLATION_SETUP_DOCS_URL = "https://docs.gamesentenceminer.com/docs/guides/ai-features"
+AI_TRANSLATION_SETUP_DOCS_URL = AI_SETUP_DOCS_URL
 
 app = flask.Flask(__name__, static_folder="static", static_url_path="/static")
 
@@ -1227,9 +1229,9 @@ def translate_line():
       400:
         description: Invalid request or AI not configured
     """
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     event_id = data.get("id")
-    text = data.get("text", "").strip()
+    text = str(data.get("text") or "").strip()
     if event_id is None:
         return jsonify({"error": "Missing id"}), 400
 
@@ -1251,15 +1253,7 @@ def translate_line():
         """)
 
     if not get_config().ai.is_configured():
-        return jsonify(
-            {
-                "error": (
-                    'AI translation is not set up yet. Configure it in the "AI / Translation" '
-                    "tab of Config, then try again."
-                ),
-                "href": AI_TRANSLATION_SETUP_DOCS_URL,
-            }
-        ), 400
+        return jsonify(ai_setup_required(automatic=data.get("automatic") is True)), 400
     line = get_event_line_by_id(event_id)
     if line is None:
         return jsonify({"error": "Invalid id"}), 400
@@ -1271,6 +1265,8 @@ def translate_line():
         get_current_game(),
         custom_prompt=prompt,
     )
+    if not translation or translation.startswith("Processing failed:"):
+        return jsonify({"error": ai_error_message(translation), "code": "ai_request_failed"}), 502
     line.set_TL(translation)
     return jsonify({"TL": translation}), 200
 
@@ -1304,23 +1300,17 @@ def translate_multiple():
       500:
         description: Translation failed
     """
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     event_ids = data.get("ids", [])
     if not event_ids:
         return jsonify({"error": "Missing ids"}), 400
 
     if not get_config().ai.is_configured():
-        return jsonify(
-            {
-                "error": (
-                    'AI translation is not set up yet. Configure it in the "AI / Translation" '
-                    "tab of Config, then try again."
-                ),
-                "href": AI_TRANSLATION_SETUP_DOCS_URL,
-            }
-        ), 400
+        return jsonify(ai_setup_required(automatic=data.get("automatic") is True)), 400
 
     lines = [line for event_id in event_ids if (line := get_event_line_by_id(event_id)) is not None]
+    if not lines:
+        return jsonify({"error": "No matching lines found"}), 400
 
     text = "\n".join(line.text for line in lines)
 
@@ -1348,7 +1338,42 @@ def translate_multiple():
         custom_prompt=translate_multiple_lines_prompt,
     )
 
+    if not translation or translation.startswith("Processing failed:"):
+        return jsonify({"error": ai_error_message(translation), "code": "ai_request_failed"}), 502
     return translation, 200
+
+
+@app.route("/ai/open-settings", methods=["POST"])
+def open_ai_setup():
+    opened = open_ai_settings()
+    return jsonify({"settings_opened": opened, "href": AI_TRANSLATION_SETUP_DOCS_URL}), 200
+
+
+@app.route("/analyze-line", methods=["POST"])
+def analyze_line():
+    data = request.get_json(silent=True) or {}
+    event_id = data.get("id")
+    mode = data.get("mode", "sentence")
+    question = data.get("question", "")
+    if event_id is None or not isinstance(mode, str) or mode not in {*STUDY_TASKS, "custom"}:
+        return jsonify({"error": "Choose a sentence and a valid analysis mode."}), 400
+    if not isinstance(question, str) or len(question) > 4000 or (mode == "custom" and not question.strip()):
+        return jsonify({"error": "Enter a question of 1–4000 characters."}), 400
+    if not get_config().ai.is_configured():
+        return jsonify(ai_setup_required(automatic=data.get("automatic") is True)), 400
+    line = get_event_line_by_id(event_id)
+    if line is None:
+        return jsonify({"error": "Invalid id"}), 400
+    text = data.get("text") or line.text
+    if not isinstance(text, str) or not text.strip():
+        return jsonify({"error": "No sentence available to explain."}), 400
+    try:
+        result = get_sentence_analysis(get_all_lines(), text, line, get_current_game(), mode=mode, question=question)
+        if not result:
+            raise ValueError("Empty AI response")
+        return jsonify({"analysis": result, "mode": mode}), 200
+    except Exception as exc:
+        return jsonify({"error": ai_error_message(exc), "code": "ai_request_failed"}), 502
 
 
 @app.route("/get_status", methods=["GET"])

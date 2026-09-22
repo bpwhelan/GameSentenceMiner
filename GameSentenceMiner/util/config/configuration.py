@@ -39,12 +39,15 @@ WHISPER_TURBO = "turbo"
 
 AI_GEMINI = "Gemini"
 AI_GROQ = "Groq"
+AI_ZAI = "Z.ai"
 AI_OPENAI = "OpenAI"
 AI_OLLAMA = "Ollama"
 AI_LM_STUDIO = "LM Studio"
 AI_GSM_CLOUD = "GSM Cloud"
 AI_DEEPL = "DeepL"
 
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+DEFAULT_GROQ_BACKUP_MODEL = "openai/gpt-oss-20b"
 GSM_CLOUD_DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
 GSM_CLOUD_PREVIEW_ENV = "GSM_CLOUD_PREVIEW"
 GSM_CLOUD_AI_PREVIEW_ENV = "GSM_CLOUD_AI_PREVIEW"
@@ -1355,11 +1358,14 @@ class Ai:
     provider: str = AI_GEMINI
     gemini_model: str = "gemma-3-27b-it"
     gemini_backup_model: str = ""
-    groq_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
-    groq_backup_model: str = ""
+    groq_model: str = DEFAULT_GROQ_MODEL
+    groq_backup_model: str = DEFAULT_GROQ_BACKUP_MODEL
     gemini_api_key: str = ""
     api_key: str = ""  # Legacy support, will be moved to gemini_api_key if provider is gemini
     groq_api_key: str = ""
+    zai_api_key: str = ""
+    zai_model: str = "glm-4.7-flash"
+    zai_backup_model: str = ""
     open_ai_url: str = ""
     open_ai_model: str = ""
     open_ai_backup_model: str = ""
@@ -1384,6 +1390,7 @@ class Ai:
     custom_prompt: str = ""
     custom_texthooker_prompt: str = ""
     custom_full_prompt: str = ""
+    prompt_preset: str = ""  # Empty preserves the legacy canned/custom prompt selection.
     dialogue_context_length: int = 10
     temperature: float = 0.3
     max_output_tokens: int = 4096
@@ -1393,6 +1400,8 @@ class Ai:
         provider_alias_map = {
             "gemini": AI_GEMINI,
             "groq": AI_GROQ,
+            "z.ai": AI_ZAI,
+            "zai": AI_ZAI,
             "openai": AI_OPENAI,
             "ollama": AI_OLLAMA,
             "deepl": AI_DEEPL,
@@ -1414,8 +1423,10 @@ class Ai:
         if self.gemini_backup_model in ["RECOMMENDED", "OTHER", OFF]:
             self.gemini_backup_model = ""
         if self.groq_model in ["RECOMMENDED", "OTHER"]:
-            self.groq_model = "meta-llama/llama-4-scout-17b-16e-instruct"
-        if self.groq_backup_model in ["RECOMMENDED", "OTHER", OFF]:
+            self.groq_model = DEFAULT_GROQ_MODEL
+        if self.groq_backup_model == "RECOMMENDED":
+            self.groq_backup_model = DEFAULT_GROQ_BACKUP_MODEL
+        if self.groq_backup_model in ["OTHER", OFF]:
             self.groq_backup_model = ""
         if self.open_ai_backup_model == OFF:
             self.open_ai_backup_model = ""
@@ -1430,6 +1441,11 @@ class Ai:
             self.add_to_anki = True
 
         self.groq_model = str(self.groq_model or "").strip()
+        self.zai_api_key = str(self.zai_api_key or "").strip()
+        self.zai_model = str(self.zai_model or "").strip() or "glm-4.7-flash"
+        self.zai_backup_model = str(self.zai_backup_model or "").strip()
+        if self.zai_backup_model in {OFF, self.zai_model}:
+            self.zai_backup_model = ""
         self.groq_backup_model = str(self.groq_backup_model or "").strip()
         self.open_ai_model = str(self.open_ai_model or "").strip()
         self.open_ai_backup_model = str(self.open_ai_backup_model or "").strip()
@@ -1474,6 +1490,8 @@ class Ai:
         if self.provider == AI_GEMINI and self.gemini_api_key and self.gemini_model:
             return True
         if self.provider == AI_GROQ and self.groq_api_key and self.groq_model:
+            return True
+        if self.provider == AI_ZAI and self.zai_api_key.strip() and self.zai_model.strip():
             return True
         if self.provider == AI_OPENAI and self.open_ai_api_key and self.open_ai_model and self.open_ai_url:
             return True
@@ -2353,6 +2371,8 @@ class Config:
             self.sync_shared_field(config.ai, profile.ai, "gemini_backup_model")
             self.sync_shared_field(config.ai, profile.ai, "groq_api_key")
             self.sync_shared_field(config.ai, profile.ai, "groq_backup_model")
+            self.sync_shared_field(config.ai, profile.ai, "zai_api_key")
+            self.sync_shared_field(config.ai, profile.ai, "zai_backup_model")
             self.sync_shared_field(config.ai, profile.ai, "open_ai_backup_model")
             self.sync_shared_field(config.ai, profile.ai, "ollama_url")
             self.sync_shared_field(config.ai, profile.ai, "ollama_model")

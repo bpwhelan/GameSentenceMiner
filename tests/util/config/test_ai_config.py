@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from GameSentenceMiner.ai.ai_prompting import ai_config_changed
+from GameSentenceMiner.ui.config.services.ai_models import RECOMMENDED_GROQ_MODELS, AIModelFetcher
 from GameSentenceMiner.util.config.configuration import (
     AI_GEMINI,
     AI_GROQ,
@@ -34,6 +35,23 @@ def test_ai_clears_backup_model_when_same_as_primary():
     )
 
     assert cfg.gemini_backup_model == ""
+
+
+def test_groq_defaults_use_gpt_oss_primary_and_backup():
+    cfg = Ai(provider=AI_GROQ)
+
+    assert cfg.groq_model == "openai/gpt-oss-120b"
+    assert cfg.groq_backup_model == "openai/gpt-oss-20b"
+    assert Ai(groq_model="RECOMMENDED").groq_model == cfg.groq_model
+    assert Ai(groq_backup_model="RECOMMENDED").groq_backup_model == cfg.groq_backup_model
+    assert Ai(groq_backup_model="OFF").groq_backup_model == ""
+
+
+def test_groq_recommendations_only_include_current_production_text_models():
+    expected = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+
+    assert RECOMMENDED_GROQ_MODELS == expected
+    assert AIModelFetcher("")._get_groq_models() == ["RECOMMENDED", *expected, "OTHER"]
 
 
 def test_ai_config_changed_detects_gemini_backup_model_updates():
