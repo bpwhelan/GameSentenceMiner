@@ -975,6 +975,9 @@ class ConfigWindow(QWidget):
                         quality=max(0, min(10, self.animated_quality_spin.value())),
                         max_width=max(0, min(3840, self.animated_max_width_spin.value())),
                         adaptive_avif=self.animated_adaptive_avif_check.isChecked(),
+                        target_size_kb=self.animated_target_size_spin.value(),
+                        size_priority=self.animated_size_priority_combo.currentData() or "balanced",
+                        only_when_voice=self.animated_only_when_voice_check.isChecked(),
                         faststart=self.animated_faststart_check.isChecked(),
                         encoder_fallback=self.animated_encoder_fallback_check.isChecked(),
                     ),
@@ -1618,9 +1621,15 @@ class ConfigWindow(QWidget):
         self.animated_quality_spin = QSpinBox()
         self.animated_quality_spin.setRange(0, 10)
         self.animated_adaptive_avif_check = QCheckBox()
+        self.animated_target_size_spin = QSpinBox()
+        self.animated_target_size_spin.setRange(0, 102400)
+        self.animated_target_size_spin.setSingleStep(50)
+        self.animated_size_priority_combo = QComboBox()
+        self.animated_only_when_voice_check = QCheckBox()
         self.animated_faststart_check = QCheckBox()
         self.animated_encoder_fallback_check = QCheckBox()
         self.animated_settings_group = QGroupBox()
+        self.animated_target_size_spin.valueChanged.connect(self._update_animated_settings_visibility)
 
         # Discord Settings
         self.discord_enabled_check = QCheckBox()
@@ -2836,6 +2845,12 @@ class ConfigWindow(QWidget):
         """Shows/hides animated screenshot settings based on animated checkbox or video field."""
         should_show = self.animated_screenshot_check.isChecked() or bool(self.video_field_edit.currentText().strip())
         self.animated_settings_group.setVisible(should_show)
+        animated = self.animated_screenshot_check.isChecked()
+        has_target = self.animated_target_size_spin.value() > 0
+        self.animated_target_size_spin.setEnabled(animated)
+        self.animated_size_priority_combo.setEnabled(animated and has_target)
+        self.animated_only_when_voice_check.setEnabled(animated)
+        self.animated_adaptive_avif_check.setEnabled(not (animated and has_target))
 
     def _update_discord_settings_visibility(self):
         """Shows/hides Discord settings based on enabled checkbox."""
@@ -3308,6 +3323,26 @@ class ConfigWindow(QWidget):
         self.animated_quality_spin.setValue(max(0, min(10, s.screenshot.animated_settings.quality)))
         self.animated_adaptive_avif_check.setChecked(
             bool(getattr(s.screenshot.animated_settings, "adaptive_avif", False))
+        )
+        self.animated_target_size_spin.setValue(getattr(s.screenshot.animated_settings, "target_size_kb", 0))
+        priority_i18n = self.i18n.get("tabs", {}).get("screenshot", {}).get("animated_size_priority", {})
+        self.animated_size_priority_combo.clear()
+        for key, fallback in (
+            ("balanced", "Balanced"),
+            ("prefer_fps", "Prefer FPS"),
+            ("prefer_quality", "Prefer quality"),
+        ):
+            self.animated_size_priority_combo.addItem(priority_i18n.get("options", {}).get(key, fallback), key)
+        self.animated_size_priority_combo.setCurrentIndex(
+            max(
+                0,
+                self.animated_size_priority_combo.findData(
+                    getattr(s.screenshot.animated_settings, "size_priority", "balanced")
+                ),
+            )
+        )
+        self.animated_only_when_voice_check.setChecked(
+            bool(getattr(s.screenshot.animated_settings, "only_when_voice", False))
         )
         self.animated_faststart_check.setChecked(bool(getattr(s.screenshot.animated_settings, "faststart", True)))
         self.animated_encoder_fallback_check.setChecked(

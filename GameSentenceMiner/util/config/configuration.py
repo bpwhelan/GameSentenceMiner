@@ -1090,6 +1090,9 @@ class AnimatedScreenshotSettings:
     quality: int = 8  # 0-10
     max_width: int = 960  # 0 disables scaling
     adaptive_avif: bool = False
+    target_size_kb: int = 0  # Approximate AVIF size in KiB; 0 keeps existing sizing.
+    size_priority: str = "balanced"
+    only_when_voice: bool = False
     faststart: bool = True
     encoder_fallback: bool = True
     scaled_quality: int = 10  # 0-90 for webp, encoder-specific CRF for avif
@@ -1101,6 +1104,13 @@ class AnimatedScreenshotSettings:
         self.quality = max(0, min(10, int(self.quality or 0)))
         self.max_width = max(0, min(3840, int(self.max_width or 0)))
         self.adaptive_avif = bool(self.adaptive_avif)
+        try:
+            self.target_size_kb = max(0, min(102400, int(self.target_size_kb or 0)))
+        except (TypeError, ValueError, OverflowError):
+            self.target_size_kb = 0
+        if self.size_priority not in ("prefer_fps", "prefer_quality", "balanced"):
+            self.size_priority = "balanced"
+        self.only_when_voice = bool(self.only_when_voice)
         self.faststart = bool(self.faststart)
         self.encoder_fallback = bool(self.encoder_fallback)
         if self.codec not in ANIMATED_SCREENSHOT_CODECS:

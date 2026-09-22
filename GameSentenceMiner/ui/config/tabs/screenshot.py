@@ -82,6 +82,18 @@ def build_screenshot_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     animated_layout.addRow(QLabel("Max width:"), window.animated_max_width_spin)
     animated_layout.addRow(QLabel("Codec:"), window.animated_codec_combo)
     animated_layout.addRow(QLabel("Quality (0-10):"), window.animated_quality_spin)
+    screenshot_i18n = tabs_i18n.get("screenshot", {})
+    window.animated_target_size_spin.setSpecialValueText(
+        screenshot_i18n.get("animated_target_size", {}).get("disabled", "Off")
+    )
+    for key, control in (
+        ("animated_target_size", window.animated_target_size_spin),
+        ("animated_size_priority", window.animated_size_priority_combo),
+        ("animated_only_when_voice", window.animated_only_when_voice_check),
+    ):
+        label = window._create_labeled_widget(tabs_i18n, "screenshot", key)
+        control.setToolTip(label.toolTip())
+        animated_layout.addRow(label, control)
     animated_layout.addRow(QLabel("Adaptive compact AVIF:"), window.animated_adaptive_avif_check)
     animated_layout.addRow(QLabel("AVIF faststart:"), window.animated_faststart_check)
     animated_layout.addRow(QLabel("Retry with fallback encoder:"), window.animated_encoder_fallback_check)

@@ -87,6 +87,19 @@ def _animated_screenshot_codec(settings) -> str:
     return getattr(settings, "codec", ANIMATED_SCREENSHOT_CODEC_DEFAULT)
 
 
+def _should_animate_screenshot(config, vad_result) -> bool:
+    if not config.screenshot.animated:
+        return False
+    if not getattr(config.screenshot.animated_settings, "only_when_voice", False):
+        return True
+    return bool(
+        vad_result
+        and getattr(vad_result, "voice_detected", getattr(vad_result, "success", False))
+        and not getattr(vad_result, "tts_used", False)
+        and getattr(vad_result, "model", None) not in ("No VAD", "OFF", "")
+    )
+
+
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
@@ -891,7 +904,7 @@ def _generate_media_files(
 
     # --- Generate new media files ---
     if _field_is_active("picture_field") and config.screenshot.enabled:
-        if config.screenshot.animated:
+        if _should_animate_screenshot(config, vad_result):
             # Defer animated screenshot generation until after confirmation
             logger.info("Animated screenshot will be generated after confirmation...")
             assets.pending_animated = True
@@ -1278,12 +1291,26 @@ def _synchronize_deferred_media_metadata(
     video_path: str,
     start_time: float,
     vad_result: Any,
+    use_voice: bool | None = None,
 ):
     if not assets:
         return
 
     if video_path:
         assets.source_video_path = video_path
+
+    config = get_config()
+    if getattr(config.screenshot.animated_settings, "only_when_voice", False):
+        # The screenshot preview is fetched before VAD finishes. Recheck once
+        # speech is known, and after the confirmation dialog changes the audio.
+        assets.pending_animated = bool(
+            _should_animate_screenshot(config, vad_result)
+            and use_voice is not False
+            and config.screenshot.enabled
+            and _field_is_active("picture_field")
+            and not assets.screenshot_in_anki
+            and not assets.reused_screenshot
+        )
 
     if assets.pending_animated:
         assets.animated_video_path = video_path
@@ -1683,6 +1710,10 @@ def update_anki_card(
                 vad_result,
                 dialog_state,
             )
+            if getattr(config.screenshot.animated_settings, "only_when_voice", False):
+                _synchronize_deferred_media_metadata(
+                    assets, video_path, start_time, vad_result, use_voice=bool(use_voice)
+                )
             _apply_confirmed_animated_timing(assets, dialog_state)
             _apply_confirmed_sentence_fields(note, last_note, sentence)
         if translation_future is not None and dialog_state.get("translation_pending", False):
@@ -2028,6 +2059,10 @@ def _trim_prefetched_animated_screenshot(
         return ""
 
     settings = config.screenshot.animated_settings
+    if getattr(settings, "target_size_kb", 0) > 0:
+        # A different duration needs a fresh estimate from the original frames.
+        # Re-encoding the already reduced prefetch can inflate FPS and file size.
+        return ""
     start_offset = max(0.0, target_window[0] - prefetch_window[0])
     duration = target_window[1] - target_window[0]
     logger.info(

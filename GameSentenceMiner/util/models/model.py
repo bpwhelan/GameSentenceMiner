@@ -260,6 +260,8 @@ class VADResult:
         tts_used: bool = False,
     ):
         self.success = success
+        # Audio fallbacks can later change success; retain whether the game had speech.
+        self.voice_detected = bool(success and model and model not in ("No VAD", "OFF") and not tts_used)
         self.start = start
         self.end = end
         self.model = model

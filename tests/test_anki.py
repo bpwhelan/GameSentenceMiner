@@ -2517,6 +2517,140 @@ def test_process_animated_screenshot_regenerates_when_target_expands_past_prefet
     assert note["fields"]["Picture"] == '<img src="regenerated-in-anki.avif">'
 
 
+@pytest.mark.parametrize(
+    "vad, expected",
+    [
+        (None, False),
+        (SimpleNamespace(success=False), False),
+        (SimpleNamespace(success=True, voice_detected=True), True),
+        (SimpleNamespace(success=True, voice_detected=False), False),
+        (SimpleNamespace(success=True, tts_used=True), False),
+        (SimpleNamespace(success=True, model="No VAD"), False),
+    ],
+)
+def test_voice_only_animation_uses_detected_speech(monkeypatch, vad, expected):
+    cfg = _base_config()
+    cfg.screenshot.animated = True
+    cfg.screenshot.animated_settings.only_when_voice = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki.ffmpeg, "get_raw_screenshot", lambda *_args: "still.png")
+    if vad is not None:
+        vad.start, vad.end = 0.5, 2.0
+    assets = anki._generate_media_files(False, None, "replay.mp4", 1.0, 0.0, vad, [])
+    assert assets.pending_animated is expected
+    assert assets.screenshot_path == "still.png"
+
+
+def test_voice_only_prefetch_waits_for_vad_and_rechecks_confirmation(monkeypatch):
+    cfg = _base_config()
+    cfg.screenshot.animated = True
+    cfg.screenshot.animated_settings.only_when_voice = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki.ffmpeg, "get_raw_screenshot", lambda *_args: "still.png")
+    assets = anki.prefetch_media_assets_for_card(None, "replay.mp4", 1.0, [])
+    assert assets.pending_animated is False
+
+    voiced = SimpleNamespace(success=True, voice_detected=True, start=0.5, end=2.0)
+    anki._synchronize_deferred_media_metadata(assets, "replay.mp4", 10.0, voiced)
+    assert assets.pending_animated is True
+    assert (assets.animated_start_time, assets.animated_vad_start, assets.animated_vad_end) == (10.0, 0.5, 2.0)
+
+    anki._synchronize_deferred_media_metadata(assets, "replay.mp4", 10.0, voiced, use_voice=False)
+    assert assets.pending_animated is False
+    assert assets.screenshot_path == "still.png"
+
+    silent = SimpleNamespace(success=False, start=0.0, end=3.0)
+    anki._synchronize_deferred_media_metadata(assets, "replay.mp4", 10.0, silent, use_voice=True)
+    assert assets.pending_animated is False
+
+
+def test_unvoiced_card_uploads_a_still_with_animation_enabled(monkeypatch):
+    cfg = _base_config()
+    cfg.screenshot.animated = True
+    cfg.screenshot.animated_settings.only_when_voice = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki.ffmpeg, "get_raw_screenshot", lambda *_args: "still.png")
+    encoded = []
+    monkeypatch.setattr(
+        anki, "_encode_and_replace_raw_image", lambda path, **_kwargs: encoded.append(path) or "still.avif"
+    )
+    monkeypatch.setattr(anki, "store_media_file", lambda *_args, **_kwargs: "still-in-anki.avif")
+    assets = anki._generate_media_files(
+        False, None, "replay.mp4", 1.0, 0.0, SimpleNamespace(success=False, start=0, end=3), []
+    )
+    note = {"fields": {}}
+    anki._process_screenshot(assets, note, cfg, update_picture_flag=True, use_existing_files=False)
+    assert encoded == ["still.png"]
+    assert note["fields"]["Picture"] == '<img src="still-in-anki.avif">'
+    assert assets.animated is False
+
+
+@pytest.mark.parametrize("keep_audio", [False, True])
+def test_confirmation_audio_choice_controls_voice_only_animation(monkeypatch, keep_audio):
+    cfg = _base_config()
+    cfg.screenshot.animated = True
+    cfg.screenshot.animated_settings.only_when_voice = True
+    cfg.anki.show_update_confirmation_dialog_v2 = True
+    cfg.anki.previous_image_field = ""
+    cfg.audio.ffmpeg_reencode_options_to_use = ""
+    cfg.paths.remove_video = False
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+    qt_main_stub.launch_anki_confirmation = lambda *args, **_kwargs: (
+        keep_audio,
+        args[1],
+        args[5],
+        args[2],
+        args[3],
+        False,
+        None,
+        {"audio_edit_range": (11.0, 12.0)},
+    )
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+    captured = []
+    monkeypatch.setattr(anki, "check_and_update_note", lambda *_args, **_kwargs: captured.append(True))
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn: fn())
+    assets = anki.MediaAssets(screenshot_path="still.png")
+    assert anki.update_anki_card(
+        SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note={"id": 10, "fields": {"Sentence": "sentence"}},
+        audio_path="voice.opus",
+        video_path="replay.mp4",
+        tango="word",
+        should_update_audio=True,
+        game_line=SimpleNamespace(id="voice-line", text="line", TL="", prev=None),
+        selected_lines=[],
+        start_time=10.0,
+        vad_result=SimpleNamespace(start=1.0, end=2.0, success=True, voice_detected=True),
+        precomputed_assets=assets,
+    )
+    assert captured
+    assert assets.pending_animated is keep_audio
+    if keep_audio:
+        assert anki._animated_target_window(assets) == (11.0, 12.0)
+    else:
+        assert assets.screenshot_path == "still.png"
+
+
+def test_size_target_regenerates_from_source_when_confirmed_range_changes(monkeypatch):
+    cfg = _base_config()
+    cfg.screenshot.animated_settings.target_size_kb = 500
+    assets = anki.MediaAssets(animated_prefetch_start=10.0, animated_prefetch_end=15.0)
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "trim_animation",
+        lambda *_args, **_kwargs: pytest.fail("Size-controlled clips must be estimated again from the source"),
+        raising=False,
+    )
+    assert anki._trim_prefetched_animated_screenshot("prefetched.avif", assets, cfg, (11.0, 13.0)) == ""
+    assert anki._trim_prefetched_animated_screenshot("prefetched.avif", assets, cfg, (10.0, 15.0)) == "prefetched.avif"
+
+
 def test_process_audio_with_existing_files_and_external_tool(monkeypatch):
     cfg = _base_config()
     cfg.audio.external_tool = "tool.exe"

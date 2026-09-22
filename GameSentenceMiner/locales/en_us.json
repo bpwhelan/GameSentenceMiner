@@ -507,7 +507,25 @@
           },
           "animated": {
             "label": "Animated:",
-            "tooltip": "Enable to create an animated screenshot. Will be a webm file encoded with AV1. All settings under this are not applicable with this ON."
+            "tooltip": "Create an animated AVIF using Animated Screenshot Settings. Unvoiced lines can use the normal still screenshot settings."
+          },
+          "animated_target_size": {
+            "label": "Target size (KB):",
+            "disabled": "Off",
+            "tooltip": "Approximate animated AVIF size; 1 KB = 1,024 bytes. 0 keeps existing sizing. Samples the selected clip and crop, then reduces FPS, quality, or width as needed. Overrides Adaptive compact AVIF. Sampling takes extra time and final size may vary."
+          },
+          "animated_size_priority": {
+            "label": "Size preference:",
+            "tooltip": "Prefer FPS reduces quality and width first. Prefer quality reduces FPS first. Balanced reduces all three together. Very small targets may reduce all settings.",
+            "options": {
+              "balanced": "Balanced",
+              "prefer_fps": "Prefer FPS",
+              "prefer_quality": "Prefer quality"
+            }
+          },
+          "animated_only_when_voice": {
+            "label": "Only animate voiced lines:",
+            "tooltip": "Use an animated screenshot only when voice detection finds speech in the game audio and the audio is kept. Otherwise use a still screenshot. Requires voice detection; TTS and raw audio fallback do not count as detected speech."
           },
           "ffmpeg_options": {
             "label": "FFmpeg Reencode Options:",
@@ -951,6 +969,10 @@
           "overlay_gamepad_navigation_requests_pause": {
             "label": "Overlay Gamepad Navigation Requests Pause:",
             "tooltip": "When enabled, overlay gamepad navigation requests pause on enter and resume on exit."
+          },
+          "anki_confirmation_requests_pause": {
+            "label": "Pause While Anki Confirmation Is Open:",
+            "tooltip": "Pause the game while the Anki confirmation window is open. Requires Game Pausing to be enabled. The game resumes when the window closes, unless another pause request is still active."
           },
           "auto_resume_seconds": {
             "label": "Auto Resume (Seconds):",

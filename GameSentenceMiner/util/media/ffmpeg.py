@@ -1,10 +1,12 @@
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Tuple, Optional, Any
 
@@ -32,6 +34,12 @@ from GameSentenceMiner.util.gsm_utils import (
 )
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.text_log import initial_time, TextSource
+from GameSentenceMiner.util.media.avif_sizing import (
+    AvifParameters,
+    choose_size_parameters,
+    sample_ranges,
+    size_candidates,
+)
 
 
 supported_formats = {
@@ -332,6 +340,101 @@ def _run_av1_command_with_fallback(
         return FFmpegHelper.run(fallback_command, check=True)
 
 
+def _timestamp_seconds(value: str | float | None) -> float:
+    seconds = 0.0
+    for part in str(value or 0).split(":"):
+        seconds = seconds * 60 + float(part)
+    if not math.isfinite(seconds):
+        raise ValueError("Animation start must be finite")
+    return max(0.0, seconds)
+
+
+def _run_size_target_avif(
+    input_path: Path,
+    output_path: Path,
+    start: float,
+    duration: float,
+    caps: AvifParameters,
+    target_bytes: int,
+    priority: str,
+    av1_encoder: str,
+    fallback_enabled: bool,
+    output_args: list[str],
+    build_command: Callable[[int, int, float, float], list[str]],
+) -> None:
+    if output_path.exists():
+        raise FileExistsError(f"Animation output already exists: {output_path}")
+    info = FFmpegHelper.get_probe_json(str(input_path), "stream=width,avg_frame_rate:format=duration", "v:0") or {}
+    stream = next(iter(info.get("streams", [])), {})
+    source_width = _coerce_int(stream.get("width"), 0)
+    source_fps = _fraction_to_float(stream.get("avg_frame_rate"))
+    width = caps.width or source_width
+    if source_width > 0:
+        width = min(width, source_width)
+    if width <= 0:
+        raise ValueError("Cannot estimate AVIF size without a source width or configured maximum width")
+    fps = min(caps.fps, max(1, math.floor(source_fps))) if source_fps > 0 else caps.fps
+    caps = AvifParameters(max(1, fps), max(2, width // 2 * 2), max(0, min(63, caps.crf)))
+    source_duration = _coerce_float((info.get("format") or {}).get("duration"), 0.0)
+    if source_duration > 0:
+        duration = min(duration, source_duration - start)
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("Animation window must overlap the source video")
+
+    candidates = size_candidates(caps, priority)
+    encoders = [_normalize_av1_encoder(av1_encoder)]
+    if fallback_enabled:
+        encoders.append(_fallback_av1_encoder(av1_encoder))
+
+    def encode_with_encoder(encoder):
+        # Each search has its own scratch directory, including concurrent card prefetches.
+        with tempfile.TemporaryDirectory(prefix="gsm-avif-size-", dir=get_temporary_directory()) as directory:
+            sample_path = Path(directory) / "sample.avif"
+
+            def encode(parameters: AvifParameters, clip_start: float, clip_duration: float, path: Path):
+                command = build_command(parameters.fps, parameters.width, clip_start, clip_duration)
+                command += ["-abort_on", "empty_output"]
+                if path == sample_path:
+                    command += ["-y"]  # Reuse only our temporary sample, with stdin disabled.
+                command += _av1_encoder_args(encoder, parameters.crf) + output_args + [str(path)]
+                FFmpegHelper.run(command, check=True)
+
+            def estimate(parameters: AvifParameters) -> int:
+                total_bytes = 0
+                sampled_duration = 0.0
+                for sample_start, sample_duration in sample_ranges(start, duration):
+                    encode(parameters, sample_start, sample_duration, sample_path)
+                    sample_bytes = sample_path.stat().st_size
+                    if not sample_bytes:
+                        raise RuntimeError("AVIF size sample was empty")
+                    total_bytes += sample_bytes
+                    sampled_duration += sample_duration
+                # Container/keyframe overhead makes this conservative; motion and scene
+                # changes mean the target remains an estimate, not a strict maximum.
+                return math.ceil(total_bytes * duration / sampled_duration)
+
+            parameters, estimated_bytes = choose_size_parameters(candidates, target_bytes, estimate)
+            logger.info(
+                f"AVIF target {target_bytes / 1024:.0f} KB: estimated {estimated_bytes / 1024:.0f} KB, "
+                f"{parameters.fps} FPS, width {parameters.width}, CRF {parameters.crf} ({priority}, {encoder})"
+            )
+            if estimated_bytes > target_bytes:
+                logger.warning("AVIF size target is below the estimate at minimum settings; using minimum settings.")
+            encode(parameters, start, duration, output_path)
+
+    for index, encoder in enumerate(encoders):
+        try:
+            encode_with_encoder(encoder)
+            return
+        except Exception as error:
+            if index == len(encoders) - 1:
+                raise
+            logger.warning(
+                f"AVIF size encoding with {encoder} failed; re-estimating with {encoders[index + 1]}: {error}"
+            )
+            output_path.unlink(missing_ok=True)
+
+
 class FFmpegHelper:
     """Helper class to encapsulate reusable FFmpeg operations."""
 
@@ -514,6 +617,8 @@ def video_to_anim(
     adaptive_avif: bool | None = None,
     avif_faststart: bool | None = None,
     av1_encoder_fallback: bool | None = None,
+    target_size_kb: int | None = None,
+    size_priority: str | None = None,
 ) -> Path:
     """Convert video to efficient animated WebP/AVIF or WebM with audio using ffmpeg."""
 
@@ -547,56 +652,75 @@ def video_to_anim(
         avif_faststart = bool(getattr(animated_settings, "faststart", True))
     if av1_encoder_fallback is None:
         av1_encoder_fallback = bool(getattr(animated_settings, "encoder_fallback", True))
+    if target_size_kb is None:
+        target_size_kb = getattr(animated_settings, "target_size_kb", 0)
+    if size_priority is None:
+        size_priority = getattr(animated_settings, "size_priority", "balanced")
+    use_size_target = codec == "avif" and not audio and target_size_kb > 0
 
     if duration is None or duration == 0:
         duration = 15.0
-    if codec == "avif" and not audio and adaptive_avif:
+    if codec == "avif" and not audio and adaptive_avif and not use_size_target:
         fps, max_width, quality = _adaptive_avif_encode_settings(duration, fps, max_width, quality)
 
-    # Build filter chain
-    vf_parts = []
-
+    crop_filters = []
     if get_config().screenshot.trim_black_bars_wip:
-        timestamp_for_detection = float(start) if start else 0
+        timestamp_for_detection = _timestamp_seconds(start)
         crop_filter = find_black_bars(str(input_path), timestamp_for_detection)
         if crop_filter:
-            vf_parts.append(crop_filter)
+            crop_filters.append(crop_filter)
 
-    if fps:
-        vf_parts.append(f"fps={fps}")
-    if crop:
-        vf_parts.append(f"crop={crop}")
-
-    # Scale logic
-    if max_width and max_height:
-        vf_parts.append(f"scale='min({max_width},iw)':min({max_height},ih):force_original_aspect_ratio=decrease")
-    elif max_width:
-        vf_parts.append(f"scale={max_width}:-1")
-    elif max_height:
-        vf_parts.append(f"scale=-1:{max_height}")
-
-    vf_parts.append("pad=ceil(iw/2)*2:ceil(ih/2)*2")  # ensure even dimensions
-    if extra_vf:
-        vf_parts.extend(extra_vf)
-
-    # Build command
-    cmd = ffmpeg_base_command_list.copy()
-    if start:
-        cmd += ["-ss", str(start)]
-
+    hwaccel_args = []
     if codec == "avif":
         hwaccel_args = FFmpegHelper.extract_hwaccel_args(get_config().screenshot.custom_ffmpeg_settings)
-        if hwaccel_args:
-            cmd += hwaccel_args
 
-    cmd += ["-i", str(input_path)]
+    def build_command(encode_fps, encode_width, clip_start, clip_duration):
+        vf_parts = crop_filters.copy()
+        if encode_fps:
+            # A seek between source frames must still produce a frame in very
+            # short, low-FPS samples instead of an empty AVIF container.
+            rounding = ":round=up:start_time=0" if use_size_target else ""
+            vf_parts.append(f"fps={encode_fps}{rounding}")
+        if crop:
+            vf_parts.append(f"crop={crop}")
+        if encode_width and max_height:
+            vf_parts.append(f"scale='min({encode_width},iw)':min({max_height},ih):force_original_aspect_ratio=decrease")
+        elif encode_width:
+            if use_size_target:
+                vf_parts.append(f"scale='2*trunc(min({encode_width},iw)/2)':-2")
+            else:
+                vf_parts.append(f"scale={encode_width}:-1")
+        elif max_height:
+            vf_parts.append(f"scale=-1:{max_height}")
+        vf_parts.append("pad=ceil(iw/2)*2:ceil(ih/2)*2")
+        if extra_vf:
+            vf_parts.extend(extra_vf)
 
-    cmd += ["-t", str(duration)]
+        command = ffmpeg_base_command_list.copy()
+        if clip_start is not None:
+            command += ["-ss", str(clip_start)]
+        command += hwaccel_args + ["-i", str(input_path), "-t", str(clip_duration), "-vf", ",".join(vf_parts)]
+        if not audio:
+            command += ["-an"]
+        return command
 
-    cmd += ["-vf", ",".join(vf_parts)]
+    if use_size_target:
+        _run_size_target_avif(
+            input_path,
+            output_path,
+            _timestamp_seconds(start),
+            duration,
+            AvifParameters(_coerce_int(fps, 15), _coerce_int(max_width, 0), _coerce_int(quality, 28)),
+            target_size_kb * 1024,
+            size_priority,
+            av1_encoder,
+            av1_encoder_fallback,
+            ["-movflags", "+faststart"] if avif_faststart else [],
+            build_command,
+        )
+        return str(output_path)
 
-    if not audio:
-        cmd += ["-an"]
+    cmd = build_command(fps, max_width, start, duration)
 
     # Codec settings
     if audio:
@@ -1106,8 +1230,8 @@ def find_black_bars(video_file, screenshot_timing):
                 # source can lose one pixel even when only pillarboxing is removed.
                 is_pillarbox_only_crop = crop_height >= orig_height - 2
 
-                if area_ratio > 0.95:
-                    logger.info("Detected crop would only remove minimal area. Skipping.")
+                if crop_width == orig_width and crop_height == orig_height:
+                    logger.info("cropdetect suggests no cropping is needed.")
                     return None
 
                 if area_ratio < 0.25 and not is_pillarbox_only_crop:
