@@ -123,7 +123,6 @@
   const MAX_COMPACT_DEFINITION_SUMMARY_COUNT = 6;
   const COMPACT_DEFINITION_MAX_CHARACTERS = 240;
   const COMPACT_DEFINITION_MAX_NODES = 512;
-  const COMPACT_DEFINITION_MAX_DEPTH = 16;
   const COMPACT_DEFINITION_LETTER = /[A-Za-zぁ-ゟァ-ヿ㐀-鿿Ａ-Ｚａ-ｚ]/u;
   const COMPACT_DEFINITION_JAPANESE = /[ぁ-ゟァ-ヿ㐀-鿿]/u;
   const COMPACT_DEFINITION_BLOCK_TAGS = new Set([
@@ -1220,9 +1219,9 @@
     }
 
     // Each source's text when its candidate was first painted. A pointer scan's
-    // sources are the sentence's text nodes, so the match is located through
-    // this snapshot and only the sources it covers have to be unchanged; text
-    // edited elsewhere in the sentence leaves the highlight in place.
+    // sources are the text nodes around the match, so the match is located
+    // through this snapshot and only the sources it covers have to be unchanged;
+    // text edited elsewhere in those nodes leaves the highlight in place.
     const sourceSnapshots = new WeakMap();
 
     function createMatchRanges(candidate, matchedText) {
@@ -1230,8 +1229,8 @@
       if (matchLength <= 0 || !Array.isArray(candidate.sourceElements)) {
         return null;
       }
-      const startOffset = Math.max(0, candidate.matchOffset);
-      const endOffset = Math.min(candidate.sentence.length, startOffset + matchLength);
+      const startOffset = Math.max(0, candidate.sourceOffset);
+      const endOffset = Math.min(candidate.sourceText.length, startOffset + matchLength);
       if (endOffset <= startOffset) {
         return null;
       }
@@ -1244,7 +1243,7 @@
       let snapshot = sourceSnapshots.get(candidate);
       if (!snapshot) {
         snapshot = sourceElements.map((element) => element.textContent || "");
-        if (snapshot.join("") !== candidate.sentence) {
+        if (snapshot.join("") !== candidate.sourceText) {
           return null;
         }
         sourceSnapshots.set(candidate, snapshot);
@@ -1516,18 +1515,50 @@
         ...selection, dictionaries: new Set(members),
       };
     }
+    const dictionaryTab = (dictionary) => tab(
+      dictionaryDisplayNames.get(dictionary) || dictionary,
+      dictionary, { dictionary }, [dictionary], "dictionary",
+    );
+    // A clicked-kanji group compares its members side by side: every member
+    // with an entry is its own tab in group order, instead of the reader's
+    // group and favourite tabs.
+    if (Array.isArray(renderContext.dictionaryTabScope)) {
+      const tabs = [
+        tab("All", "All dictionaries", null, [], "tab"),
+        ...renderContext.dictionaryTabScope.filter((title) => available.has(title)).map(dictionaryTab),
+      ];
+      return { tabs, dictionaryDisplayNames };
+    }
     const tabs = [
       tab("All", "All dictionaries", null, [], "tab"),
       ...availableGroups.map((group) => tab(
         group.name, `Tab group: ${group.name}`,
         { groupId: group.id }, group.dictionaries, "group",
       )),
-      ...favourites.map((dictionary) => tab(
-        dictionaryDisplayNames.get(dictionary) || dictionary,
-        dictionary, { dictionary }, [dictionary], "dictionary",
-      )),
+      ...favourites.map(dictionaryTab),
     ];
     return { tabs, dictionaryDisplayNames };
+  }
+
+  // A native kanji entry as one structured-content glossary, so a clicked-kanji
+  // group can lay it out beside its term dictionaries' cards.
+  function kanjiEntryGlossary(entry) {
+    const tokens = (value) => Array.isArray(value) ? value : String(value || "").split(/\s+/u).filter(Boolean);
+    const tags = tokens(entry.tags);
+    const readings = [["On", tokens(entry.onyomi)], ["Kun", tokens(entry.kunyomi)]]
+      .filter(([, values]) => values.length > 0)
+      .map(([label, values]) => ({ tag: "div", data: { content: "reading" },
+        content: [{ tag: "strong", content: label }, ` ${values.join(" · ")}`] }));
+    const definitions = Array.isArray(entry.definitions) ? entry.definitions : [];
+    const stats = Array.isArray(entry.stats) ? entry.stats : [];
+    return JSON.stringify([{ type: "structured-content", content: [
+      ...(tags.length > 0 ? [{ tag: "div", data: { content: "tags" }, content: tags.join(" ") }] : []),
+      ...readings,
+      ...(definitions.length > 0 ? [{ tag: "ol", content: definitions.map((content) => ({ tag: "li", content })) }] : []),
+      ...(stats.length > 0 ? [{ tag: "details", content: [{ tag: "summary", content: "Details" },
+        { tag: "table", content: stats.map((stat) => ({ tag: "tr", content: [
+          { tag: "th", content: String(stat.name) }, { tag: "td", content: String(stat.value) }] })) }] }] : []),
+    ] }]);
   }
 
   function isRecord(value) {
@@ -1645,90 +1676,98 @@
     return isRecord(value) && COMPACT_DEFINITION_BLOCK_TAGS.has(compactDefinitionTag(value));
   }
 
-  function* collectCompactDefinitionText(value, state, depth = 0) {
-    if (
-      state.nodes >= COMPACT_DEFINITION_MAX_NODES ||
-      depth > COMPACT_DEFINITION_MAX_DEPTH
-    ) {
-      return;
-    }
-    state.nodes += 1;
-    if (typeof value === "string" || typeof value === "number" ||
-        typeof value === "boolean") {
-      const text = String(value);
-      if (text) yield text;
-      return;
-    }
-    if (Array.isArray(value)) {
-      let hasText = false;
-      let previousWasBlock = false;
-      for (const child of value) {
-        if (state.nodes >= COMPACT_DEFINITION_MAX_NODES) break;
-        let childIsBlock = false;
-        let childHasText = false;
-        for (const text of collectCompactDefinitionText(child, state, depth + 1)) {
-          if (!childHasText) {
-            childIsBlock = isCompactDefinitionBlock(child);
-            if (hasText && (previousWasBlock || childIsBlock)) yield " ";
-          }
-          childHasText = true;
-          yield text;
-        }
-        if (childHasText) {
-          hasText = true;
-          previousWasBlock = childIsBlock;
-        }
+  // The compact walkers use explicit frames like the glossary renderer, so
+  // nesting depth is never a failure condition; the node budget bounds the work.
+  function* collectCompactDefinitionText(root, state) {
+    const stack = [{ kind: "value", value: root }];
+    // Enclosing arrays, outermost first. A child's first text decides its
+    // block separator, so empty inline children never need a block check.
+    const arrays = [];
+    const separators = () => {
+      let count = 0;
+      for (let index = arrays.length - 1; index >= 0 && !arrays[index].childHasText; index -= 1) {
+        const array = arrays[index];
+        array.childIsBlock = isCompactDefinitionBlock(array.value[array.index - 1]);
+        if (array.hasText && (array.previousWasBlock || array.childIsBlock)) count += 1;
+        array.childHasText = true;
       }
-      return;
+      return count;
+    };
+    while (stack.length > 0) {
+      const frame = stack.pop();
+      if (frame.kind === "array") {
+        if (frame.childHasText) {
+          frame.hasText = true;
+          frame.previousWasBlock = frame.childIsBlock;
+        }
+        if (frame.index < frame.value.length && state.nodes < COMPACT_DEFINITION_MAX_NODES) {
+          frame.childHasText = false;
+          stack.push(frame, { kind: "value", value: frame.value[frame.index] });
+          frame.index += 1;
+        } else {
+          arrays.pop();
+        }
+        continue;
+      }
+      if (state.nodes >= COMPACT_DEFINITION_MAX_NODES) continue;
+      state.nodes += 1;
+      const { value } = frame;
+      let text = "";
+      if (typeof value === "string" || typeof value === "number" ||
+          typeof value === "boolean") {
+        text = String(value);
+      } else if (Array.isArray(value)) {
+        const array = { kind: "array", value, index: 0,
+          hasText: false, previousWasBlock: false, childHasText: false, childIsBlock: false };
+        arrays.push(array);
+        stack.push(array);
+        continue;
+      } else {
+        if (!isRecord(value) || isIgnoredCompactDefinitionSection(value)) continue;
+        const tag = compactDefinitionTag(value);
+        if (COMPACT_DEFINITION_IGNORED_TAGS.has(tag)) continue;
+        if (tag !== "br") {
+          const content = compactDefinitionContent(value);
+          if (content !== undefined) stack.push({ kind: "value", value: content });
+          continue;
+        }
+        text = " ";
+      }
+      if (!text) continue;
+      for (let count = separators(); count > 0; count -= 1) yield " ";
+      yield text;
     }
-    if (!isRecord(value) || isIgnoredCompactDefinitionSection(value)) {
-      return;
-    }
-    const tag = compactDefinitionTag(value);
-    if (COMPACT_DEFINITION_IGNORED_TAGS.has(tag)) {
-      return;
-    }
-    if (tag === "br") {
-      yield " ";
-      return;
-    }
-    const content = compactDefinitionContent(value);
-    if (content !== undefined) yield* collectCompactDefinitionText(content, state, depth + 1);
   }
 
-  function findCompactDefinitionNodes(value, predicate, state, depth = 0) {
-    if (
-      state.nodes >= COMPACT_DEFINITION_MAX_NODES ||
-      depth > COMPACT_DEFINITION_MAX_DEPTH
-    ) {
-      return [];
-    }
-    state.nodes += 1;
-    if (Array.isArray(value)) {
-      const matches = [];
-      for (const child of value) {
-        matches.push(...findCompactDefinitionNodes(
-          child,
-          predicate,
-          state,
-          depth + 1
-        ));
-        if (state.nodes >= COMPACT_DEFINITION_MAX_NODES) break;
+  function findCompactDefinitionNodes(root, predicate, state) {
+    const matches = [];
+    const stack = [{ kind: "value", value: root }];
+    while (stack.length > 0 && state.nodes < COMPACT_DEFINITION_MAX_NODES) {
+      const frame = stack.pop();
+      if (frame.kind === "array") {
+        if (frame.index < frame.value.length) {
+          stack.push(frame, { kind: "value", value: frame.value[frame.index] });
+          frame.index += 1;
+        }
+        continue;
       }
-      return matches;
+      state.nodes += 1;
+      const { value } = frame;
+      if (Array.isArray(value)) {
+        stack.push({ kind: "array", value, index: 0 });
+        continue;
+      }
+      if (!isRecord(value) || isIgnoredCompactDefinitionSection(value)) continue;
+      const tag = compactDefinitionTag(value);
+      if (tag === "br" || COMPACT_DEFINITION_IGNORED_TAGS.has(tag)) continue;
+      if (predicate(value, tag)) {
+        matches.push(value);
+        continue;
+      }
+      const content = compactDefinitionContent(value);
+      if (content !== undefined) stack.push({ kind: "value", value: content });
     }
-    if (!isRecord(value) || isIgnoredCompactDefinitionSection(value)) {
-      return [];
-    }
-    const tag = compactDefinitionTag(value);
-    if (tag === "br" || COMPACT_DEFINITION_IGNORED_TAGS.has(tag)) return [];
-    if (predicate(value, tag)) {
-      return [value];
-    }
-    const content = compactDefinitionContent(value);
-    return content !== undefined
-      ? findCompactDefinitionNodes(content, predicate, state, depth + 1)
-      : [];
+    return matches;
   }
 
   function isCompactDefinitionList(_value, tag) {
@@ -1890,22 +1929,35 @@
 
   // null means no visible content; false means text or another non-image lead.
   // Stop at that first meaningful token, not at an image later in a definition.
-  function leadingCompactDefinitionImage(value, state, depth = 0) {
-    if (state.nodes >= COMPACT_DEFINITION_MAX_NODES || depth > COMPACT_DEFINITION_MAX_DEPTH) return false;
-    state.nodes += 1;
-    if (Array.isArray(value)) {
-      for (const child of value) {
-        const leading = leadingCompactDefinitionImage(child, state, depth + 1);
-        if (leading !== null) return leading;
+  function leadingCompactDefinitionImage(root, state) {
+    const stack = [{ kind: "value", value: root }];
+    while (stack.length > 0) {
+      const frame = stack.pop();
+      if (frame.kind === "array") {
+        if (frame.index < frame.value.length) {
+          stack.push(frame, { kind: "value", value: frame.value[frame.index] });
+          frame.index += 1;
+        }
+        continue;
       }
-      return null;
+      if (state.nodes >= COMPACT_DEFINITION_MAX_NODES) return false;
+      state.nodes += 1;
+      const { value } = frame;
+      if (Array.isArray(value)) {
+        stack.push({ kind: "array", value, index: 0 });
+        continue;
+      }
+      if (!isRecord(value)) {
+        if (value != null && /\S/u.test(String(value))) return false;
+        continue;
+      }
+      if (isIgnoredCompactDefinitionSection(value)) continue;
+      const tag = compactDefinitionTag(value);
+      if (tag === "img") return value;
+      if (tag === "br" || COMPACT_DEFINITION_IGNORED_TAGS.has(tag)) continue;
+      stack.push({ kind: "value", value: compactDefinitionContent(value) });
     }
-    if (!isRecord(value)) return value != null && /\S/u.test(String(value)) ? false : null;
-    if (isIgnoredCompactDefinitionSection(value)) return null;
-    const tag = compactDefinitionTag(value);
-    if (tag === "img") return value;
-    if (tag === "br" || COMPACT_DEFINITION_IGNORED_TAGS.has(tag)) return null;
-    return leadingCompactDefinitionImage(compactDefinitionContent(value), state, depth + 1);
+    return null;
   }
 
   function extractCompactDefinitionSummary(
@@ -1980,7 +2032,10 @@
     return pageZoom * 100 / scalePercent;
   }
 
-  function calculatePopupPosition(anchorRect, popupSize, viewport, { gap = 4, padding = 6, vertical = false } = {}) {
+  // Roots prefer the space above the word; nested panes prefer below it, as
+  // Yomitan places a child. Either falls back to the side that fits, then to
+  // the roomier side.
+  function calculatePopupPosition(anchorRect, popupSize, viewport, { gap = 4, padding = 6, vertical = false, preferBelow = false } = {}) {
     const width = Math.min(popupSize.width, Math.max(1, viewport.width - padding * 2));
     const height = Math.min(popupSize.height, Math.max(1, viewport.height - padding * 2));
     const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(value, maximum));
@@ -1998,7 +2053,8 @@
     } else {
       const spaceBelow = Math.max(0, viewport.height - padding - anchorRect.bottom - gap);
       const spaceAbove = Math.max(0, anchorRect.top - gap - padding);
-      const placeAbove = spaceAbove >= height || (spaceBelow < height && spaceAbove >= spaceBelow);
+      const preferred = (space, other) => space >= height || (other < height && space >= other);
+      const placeAbove = preferBelow ? !preferred(spaceBelow, spaceAbove) : preferred(spaceAbove, spaceBelow);
       top = placeAbove ? anchorRect.top - gap - height : anchorRect.bottom + gap;
       left = anchorRect.left;
       placement = placeAbove ? "above" : "below";
@@ -4096,7 +4152,9 @@
             && context.popupImageSources !== imageContext.popupImageSources;
           if ((imagesChanged || summaryChanged) && ownsView() && options.canUpdateCompactSummary?.() === false) return true;
           const focused = popup.getRootNode().activeElement;
-          const next = createDictionaryTabs(dictionaries, context);
+          // Presentation updates carry the reader's inventory, not this view's
+          // clicked-kanji scope, which stays with the render that chose it.
+          const next = createDictionaryTabs(dictionaries, { ...renderContext, ...context });
           const previous = tabDescriptors;
           const selectedKey = previous[selectedIndex].key;
           let index = next.tabs.findIndex(tab => tab.key === selectedKey);
@@ -4227,6 +4285,7 @@
     extractCompactDefinitionSummary,
     formatCompactFrequencyNumber,
     formatFrequencyValue,
+    kanjiEntryGlossary,
     metadataOptions,
   };
 }));

@@ -92,22 +92,6 @@ export const RECOMMENDED_DICTIONARIES = Object.freeze(
       topic: "grammar",
       firstInstallOption: null,
     },
-    {
-      sourceId: "sankoku8-eng",
-      name: "Sankoku 8 English",
-      description: "Japanese monolingual dictionary, translated to English",
-      publisherUrl: "https://github.com/shoui520/sankoku8-eng",
-      downloadUrl:
-        "https://github.com/shoui520/sankoku8-eng/releases/download/latest/en.zip",
-      indexUrl: null,
-      archiveName: "en.zip",
-      githubRepository: "shoui520/sankoku8-eng",
-      githubRepositoryId: "1371843420",
-      requiredCapability: "term",
-      titlePattern: String.raw`^sankoku8-gpt-5\.6-luna$`,
-      topic: "translated definitions",
-      firstInstallOption: null,
-    },
   ].map((entry) => Object.freeze(entry)),
 );
 

@@ -48,7 +48,11 @@ export function canonicalAnkiFields(fields, templates, existing) {
   const canonicalTemplates = [], incoming = [];
   for (const [field, template] of Object.entries(templates)) {
     const name = Object.hasOwn(existing, field) ? field : names.get(field.toLowerCase());
-    if (name === undefined) throw new Error("Anki model fields changed. Refresh before overwriting this note.");
+    if (name === undefined) {
+      const existingNames = Object.keys(existing).map(field => `“${field}”`).join(", ");
+      throw new Error(`Anki's note has no field “${field}” to overwrite; its fields are ${existingNames || "unknown"}. `
+        + "The note type's fields changed. Refresh fields in Anki Settings before overwriting this note.");
+    }
     canonicalTemplates.push([name, template]);
     incoming.push([name, fields[field]]);
   }

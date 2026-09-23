@@ -1,7 +1,13 @@
 {
   "name": "Hachidori",
   "repository": "https://github.com/bee-san/hachidori",
-  "commit": "603e818a376697a9d8afc3d83f29fd53f5fd0545",
+  "commit": "23710ccd0dfaaea5ceb97dabe3a50aede1822c42",
+  "release": {
+    "tag": "0.1.6",
+    "id": 394352215,
+    "publishedAt": "2026-09-23T06:34:02Z",
+    "url": "https://github.com/bee-san/hachidori/releases/tag/0.1.6"
+  },
   "sourceDirectory": "extension",
   "license": "GPL-3.0-or-later",
   "modifications": [

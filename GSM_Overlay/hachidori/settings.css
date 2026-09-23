@@ -171,6 +171,10 @@
   box-sizing: border-box;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -179,6 +183,16 @@ body {
     14px/1.5 system-ui,
     sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * settings-theme.js marks the root until the saved theme is read. Nothing of
+ * the interface paints before then, including the canvas: a transparent body
+ * leaves the browser's own page background instead of the preference palette.
+ */
+:root[data-hoshidicts-theme-pending] body {
+  visibility: hidden;
+  background: transparent;
 }
 
 a {
@@ -299,6 +313,25 @@ button,
   color: var(--text-dim);
   font-size: var(--font-caption);
   overflow-wrap: anywhere;
+}
+.engine-status-failures {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0 0 0 12px;
+  border-left: 3px solid var(--error);
+  list-style: none;
+  color: var(--text-dim);
+  font-size: var(--font-caption);
+  overflow-wrap: anywhere;
+}
+.engine-status-failure-title,
+.engine-status-failure-error {
+  display: block;
+}
+.engine-status-failure-title {
+  color: var(--text);
+  font-weight: var(--weight-medium);
 }
 
 .engine-status.is-ready,
@@ -892,7 +925,7 @@ input[type="checkbox"] {
 }
 .dict-row {
   display: grid;
-  grid-template-columns: 16px 30px minmax(0, 1fr) auto;
+  grid-template-columns: 16px minmax(30px, max-content) minmax(0, 1fr) auto;
   align-items: start;
   gap: 4px 12px;
   padding: var(--row-padding) 0;
@@ -930,6 +963,8 @@ input[type="checkbox"] {
 .dict-rank {
   font-size: var(--font-caption);
   font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  text-align: end;
 }
 .dict-main {
   min-width: 0;
@@ -954,6 +989,7 @@ input[type="checkbox"] {
 .dict-canonical,
 .dict-pinned,
 .dict-metadata,
+.dict-memory,
 .dict-update-status,
 .dict-badge {
   color: var(--text-dim);
@@ -981,7 +1017,8 @@ input[type="checkbox"] {
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
 }
-.dict-metadata {
+.dict-metadata,
+.dict-memory {
   flex-basis: 100%;
 }
 .dict-schedule {
@@ -2041,6 +2078,10 @@ textarea {
     grid-column: 1 / -1;
     padding-top: 10px;
   }
+  .engine-status-failures {
+    grid-column: 1 / -1;
+    margin-top: 0;
+  }
   .page {
     min-height: calc(100vh - 148px);
     padding: 28px 24px 60px;
@@ -2081,7 +2122,7 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
   .dict-row {
-    grid-template-columns: 16px 24px minmax(0, 1fr);
+    grid-template-columns: 16px minmax(24px, max-content) minmax(0, 1fr);
     gap: 10px;
     padding: 14px 0;
   }

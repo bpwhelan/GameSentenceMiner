@@ -12,6 +12,7 @@ import { createAnkiTemplateSettingsController } from "./anki-settings.js";
 import { createLocalAudioSetup } from "./local-audio-setup.js";
 import { createBackupSettingsController } from "./backup-settings.js";
 import { createExperimentalSettings } from "./experimental-settings.js";
+import { createMemorySettings } from "./memory-settings.js";
 import { downloadBlob } from "./blob-download.js";
 import { createSharingSettingsController } from "./sharing-settings.js";
 import { ANKI_ADDON_FILE_NAME, fetchAnkiAddon } from "./anki-addon.js";
@@ -155,6 +156,9 @@ let updating = false;
 let removing = false;
 let committing = false;
 let pendingDictionaryCommits = 0;
+let pendingDictionaryReorders = 0;
+let pendingDictionaryOrder = null;
+let dictionaryReorderEpoch = 0;
 let dictionaryCommitTail = Promise.resolve();
 let dictionaryCommitFailed = false;
 let dictionaryRenderDeferred = false;
@@ -184,6 +188,7 @@ let backupLifecycleReconnectTimer = null;
 const backupLifecycleTokens = new Set();
 let customButtonController;
 let experimentalController;
+let memoryController;
 let backingUp = false;
 let mediaStatusEpoch = 0;
 let mediaRuntimeState = "unavailable";
@@ -343,6 +348,7 @@ function showSettingsSection(focus = false) {
   updateKeybindSettings();
   updateBackupSettings();
   updateSharingSettings();
+  if (activeSection === "advanced") refreshMemorySettings();
   if (activeSection === "design") {
     customButtonController ??= createCustomButtonSettings({ document,
       readButtons: () => options.customButtons,
@@ -585,6 +591,30 @@ function renderExperimentalSettings() {
   // A flag that changed elsewhere can hide the visible section, or reveal the
   // one this page was opened on before the stored options arrived.
   if (resolveSection(requestedSection()) !== activeSection) showSettingsSection();
+}
+
+// Low memory mode recycles the engine worker, so it needs the threaded engine:
+// not Firefox, and not a browser where the offscreen document runs the local
+// engine (hd_status.threaded false). The memory readout stays either way.
+function renderLowMemoryMode() {
+  const available = HOST_CAPABILITIES.lowMemoryMode && lastEngineStatus?.threaded !== false;
+  element("low-memory-mode").hidden = !available;
+  element("opt-low-memory-mode-help").hidden = !available;
+  element("low-memory-mode-unavailable").hidden = available;
+  element("opt-low-memory-mode").checked = options.lowMemoryMode;
+}
+
+function memorySettings() {
+  memoryController ??= createMemorySettings({ document, numberFormat, readMemory: () => send("hd_memory") });
+  return memoryController;
+}
+
+// The readout is asked for on demand, not polled: when Advanced is shown or
+// the engine publishes a new generation while it is shown, and when a Library
+// row's Details opens. Nothing is requested while the Library is being worked
+// on: a rebuilt row shows the last reading.
+function refreshMemorySettings() {
+  void memorySettings().refresh();
 }
 
 // With the MDX dictionaries flag on, the picker and drop zone also take .mdx
@@ -846,13 +876,30 @@ function normaliseDictionaryState(value) {
   };
 }
 
+// A key-order-independent serialization for comparing two normalised package
+// records: the stored state and the page produce the same values in a
+// different key sequence, so JSON.stringify order cannot decide equality.
+function canonicalDictionary(entry) {
+  return JSON.stringify(entry, Object.keys(entry).sort((a, b) => a.localeCompare(b)));
+}
+
 function adoptDictionaryState(value) {
   const next = normaliseDictionaryState(value);
   if (next.revision <= dictionaryState.revision) {
     return false;
   }
+  if (reorderReuseHint) {
+    // Only the order may differ for a reuse: compare each package's fields
+    // independent of key order, since the stored state and the page normalise
+    // the same values in a different key sequence.
+    const previous = new Map(dictionaries.map(entry => [entry.id, canonicalDictionary(entry)]));
+    reorderReuseHint = next.dictionaries.length === previous.size
+      && next.dictionaries.every(entry => previous.get(entry.id) === canonicalDictionary(entry));
+  }
   dictionaryState = next;
-  dictionaries = dictionaryState.dictionaries;
+  // Keep the newest local order visible across storage events and older
+  // acknowledgements. The final settlement adopts the authoritative snapshot.
+  if (pendingDictionaryReorders === 0) dictionaries = dictionaryState.dictionaries;
   pruneDictionarySelection();
   return true;
 }
@@ -867,7 +914,7 @@ function adoptUpdateSettings(value) {
 }
 
 function pruneDictionarySelection() {
-  const installedIds = new Set(dictionaries.map((dictionary) => dictionary.id));
+  const installedIds = new Set(dictionaryState.dictionaries.map((dictionary) => dictionary.id));
   for (const id of selectedDictionaryIds) {
     if (!installedIds.has(id)) {
       selectedDictionaryIds.delete(id);
@@ -950,7 +997,12 @@ function selectedDefinitionBlurFrequencyDictionary(title = options.definitionBlu
 function normaliseDictionarySelections() {
   let changed = false;
   const kanjiSelection = selectionParts(options.kanjiClickDictionary);
-  if (kanjiSelection) {
+  if (kanjiSelection?.kind === "tabGroup") {
+    if (!dictionaryState.groups.some((group) => group.id === kanjiSelection.id)) {
+      options.kanjiClickDictionary = "";
+      changed = true;
+    }
+  } else if (kanjiSelection) {
     const selected = dictionaries.find((entry) => entry.title === kanjiSelection.title);
     const requestedKind = kanjiSelection.kind || (selected && hasCapability(selected, "kanji") ? "kanji" : "term");
     if (!selected || selected.enabled === false || !hasCapability(selected, requestedKind)) {
@@ -964,11 +1016,39 @@ function normaliseDictionarySelections() {
   return changed;
 }
 
-function setStatus(message, tone) {
+function setStatus(message, tone, failures = []) {
   const status = element("engine-status");
   status.textContent = message;
   status.classList.toggle("is-error", tone === "error");
   status.classList.toggle("is-ready", tone === "ready");
+  renderStatusFailures(failures);
+}
+
+// One entry per package the engine could not load, its title and raw load error
+// as literal text. Unchanged records keep their nodes across status polls.
+function renderStatusFailures(failures) {
+  const list = element("engine-status-failures");
+  list.hidden = failures.length === 0;
+  if (list.childElementCount === failures.length
+      && failures.every(({ title, error }, index) => {
+        const [renderedTitle, renderedError] = list.children[index].children;
+        return renderedTitle.textContent === title && renderedError.textContent === error;
+      })) {
+    return;
+  }
+  const items = document.createDocumentFragment();
+  for (const { title, error } of failures) {
+    const item = document.createElement("li");
+    const titleText = document.createElement("span");
+    titleText.className = "engine-status-failure-title";
+    titleText.textContent = title;
+    const errorText = document.createElement("span");
+    errorText.className = "engine-status-failure-error";
+    errorText.textContent = error;
+    item.append(titleText, errorText);
+    items.appendChild(item);
+  }
+  list.replaceChildren(items);
 }
 
 function setImportState(message, tone) {
@@ -1369,9 +1449,16 @@ async function refreshStatus() {
     scheduleStatusPoll(STATUS_RETRY_MS);
     return;
   }
+  const previousGeneration = lastEngineStatus?.generation;
+  const previousUpdating = lastEngineStatus?.updating?.id ?? null;
   lastEngineStatus = reply;
   renderEngineStatus();
-  if (!reply.ready || reply.loading) {
+  renderUpdatingRows(previousUpdating, reply.updating?.id ?? null);
+  renderLowMemoryMode();
+  if (activeSection === "advanced" && reply.ready && !reply.loading && reply.generation !== previousGeneration) {
+    refreshMemorySettings();
+  }
+  if (!reply.ready || reply.loading || updating) {
     scheduleStatusPoll();
   }
 }
@@ -1382,8 +1469,8 @@ function renderEngineStatus() {
   const failed = Array.isArray(lastEngineStatus.failedDictionaries) ? lastEngineStatus.failedDictionaries : [];
   if (lastEngineStatus.ready && failed.length > 0) {
     const subject = failed.length === 1 ? "1 dictionary" : `${numberFormat.format(failed.length)} dictionaries`;
-    const detail = failed.map(({ title, error }) => `${title} (${error})`).join("; ");
-    setStatus(`Could not load ${subject}: ${detail}. Re-import or remove it; the other dictionaries still work.`, "error");
+    const pronoun = failed.length === 1 ? "it" : "them";
+    setStatus(`Could not load ${subject}. Re-import or remove ${pronoun}; the other dictionaries still work.`, "error", failed);
     return;
   }
   if (lastEngineStatus.ready) {
@@ -1644,12 +1731,26 @@ function appendStaleKanjiChoice(select, previousSelection, selectedValue, availa
   }
   const stale = document.createElement("option");
   stale.value = selectedValue;
-  stale.textContent = `${previousSelection.title} (not available)`;
+  stale.textContent = `${previousSelection.kind === "tabGroup" ? "Group" : previousSelection.title} (not available)`;
   select.appendChild(stale);
+}
+
+function appendKanjiGroupChoices(select, availableValues) {
+  if (dictionaryState.groups.length === 0) return;
+  const optgroup = document.createElement("optgroup");
+  optgroup.label = "Groups";
+  for (const group of dictionaryState.groups) {
+    const option = new Option(group.name, selectionValue({ kind: "tabGroup", id: group.id }));
+    availableValues.add(option.value);
+    optgroup.appendChild(option);
+  }
+  select.appendChild(optgroup);
 }
 
 function renderKanjiChoices() {
   const select = element("opt-kanji-dictionary");
+  // Inventory updates wait for focusout, as the Image source chooser does.
+  if (select === document.activeElement) return;
   const previousSelection = selectionParts(options.kanjiClickDictionary);
   select.textContent = "";
 
@@ -1677,6 +1778,7 @@ function renderKanjiChoices() {
   for (const group of groups) {
     appendKanjiGroup(select, enabled, group, availableValues);
   }
+  appendKanjiGroupChoices(select, availableValues);
 
   const selectedValue = selectedKanjiValue(previousSelection, withKanji, withTerms);
   appendStaleKanjiChoice(select, previousSelection, selectedValue, availableValues);
@@ -1723,6 +1825,7 @@ function renderOptions() {
   }
   element("opt-hover-enabled").checked = options.hoverEnabled;
   element("opt-japanese-only").checked = options.onlyScanJapaneseText;
+  element("opt-no-result-notice").checked = options.showNoResultNotice;
   element("opt-source-highlight").checked = options.sourceHighlightEnabled;
   element("opt-popup-audio-button").checked = options.showPopupAudioButton;
   element("opt-audio-autoplay").checked = options.audioAutoplay;
@@ -1746,6 +1849,7 @@ function renderOptions() {
   renderPopupImageSources();
   renderMetadataControls();
   renderExperimentalSettings();
+  renderLowMemoryMode();
   updateDesignPreview();
   updateAudioSettings();
   updateMediaSettings();
@@ -1781,6 +1885,13 @@ function dictionaryMetadata(entry) {
 }
 
 function dictionaryUpdateStatus(entry) {
+  const engineUpdating = lastEngineStatus?.updating;
+  if (engineUpdating?.id === entry.id) {
+    return {
+      text: engineUpdating.fallback === "memory" ? "Updating… lookups pause until it finishes" : "Updating…",
+      tone: "busy",
+    };
+  }
   if (!isUpdateCheckable(entry)) {
     return { text: "Not update-checkable", tone: "" };
   }
@@ -1799,14 +1910,37 @@ function dictionaryUpdateStatus(entry) {
   return { text: "Not checked", tone: "" };
 }
 
-function bindDictionaryUpdate(row, entry) {
+function renderDictionaryUpdateStatus(row, entry) {
   const status = dictionaryUpdateStatus(entry);
   const output = row.querySelector(".dict-update-status");
   output.textContent = status.text;
-  output.hidden = !entry.lastUpdateCheck;
+  output.hidden = !entry.lastUpdateCheck && status.tone !== "busy";
   output.classList.toggle("is-ready", status.tone === "ready");
   output.classList.toggle("is-available", status.tone === "available");
   output.classList.toggle("is-error", status.tone === "error");
+}
+
+// hd_status.updating names the package an import is replacing; only that row
+// (and the one a previous poll named) changes.
+function renderUpdatingRows(previousId, currentId) {
+  for (const id of new Set([previousId, currentId])) {
+    const entry = id === null ? undefined : dictionaries.find((dictionary) => dictionary.id === id);
+    const row = entry === undefined ? null
+      : element("dict-list").querySelector(`.dict-row[data-dictionary-id="${CSS.escape(id)}"]`);
+    if (row !== null) renderDictionaryUpdateStatus(row, entry);
+  }
+}
+
+function bindDictionaryUpdate(row, entry) {
+  renderDictionaryUpdateStatus(row, entry);
+
+  const check = row.querySelector(".dict-update-check");
+  check.hidden = !isUpdateCheckable(entry);
+  check.setAttribute("aria-label", `Check for updates to ${dictionaryLabel(entry)}`);
+  check.title = `Check for updates to ${dictionaryLabel(entry)}`;
+  check.addEventListener("click", () => {
+    void runManagedUpdate("hd_updates_check", [entry.id]);
+  });
 
   const update = row.querySelector(".dict-update");
   update.hidden = entry.lastUpdateCheck?.status !== "update-available" || !isUpdateCheckable(entry);
@@ -1917,6 +2051,7 @@ function focusedManagementControl() {
       "dict-down",
       "dict-position-input",
       "dict-move",
+      "dict-update-check",
       "dict-update",
       "dict-update-schedule",
       "dict-remove",
@@ -2076,6 +2211,8 @@ function refreshDictionaryOrder(row, entry, index) {
   down.title = `Move ${entry.title} down`;
   up.dataset.pinnedDisabled = String(fixed || index <= minimumIndex);
   down.dataset.pinnedDisabled = String(fixed || index === dictionaries.length - 1);
+  up.disabled = up.dataset.pinnedDisabled === "true";
+  down.disabled = down.dataset.pinnedDisabled === "true";
 
   const position = row.querySelector(".dict-position-input");
   const move = row.querySelector(".dict-move");
@@ -2141,8 +2278,13 @@ function bindDictionaryOrder(row, entry, index) {
 function renderDictionaryRow(template, entry, index) {
   const row = template.content.firstElementChild.cloneNode(true);
   row.dataset.dictionaryId = entry.id;
-  row.querySelector(".dict-details").open = expandedDictionaryIds.has(entry.id);
-  row.querySelector(".dict-details-toggle").setAttribute("aria-label", `Details for ${entry.title}`);
+  const details = row.querySelector(".dict-details");
+  details.open = expandedDictionaryIds.has(entry.id);
+  const toggle = row.querySelector(".dict-details-toggle");
+  toggle.setAttribute("aria-label", `Details for ${entry.title}`);
+  // A reader opening Details asks for the In memory line; a rebuilt row that
+  // is already open shows the last reading.
+  toggle.addEventListener("click", () => { if (!details.open) refreshMemorySettings(); });
   row.querySelector(".dict-pinned").hidden = !isManagedCustomDictionary(entry);
   row.classList.toggle("is-off", !entry.enabled);
   bindDictionarySelection(row, entry);
@@ -2193,19 +2335,20 @@ function dictionaryRowsMatch(list, visible) {
   return domIds.size === visible.length && visible.every((entry) => domIds.has(entry.id));
 }
 
-function renderDictionaries(reuseRows = false) {
-  // A queued reorder changes only the order and the index-dependent controls,
-  // so its rows can be reappended in the new order and refreshed instead of
-  // rebuilt from the template. The hint is single-use per render.
-  const reorderReuse = reorderReuseHint;
-  reorderReuseHint = false;
+function renderDictionaryOrder() {
   const list = element("dict-list");
-  const visible = visibleDictionaries();
-  // A failed or conflicting commit can restore a different set than the one
-  // being reordered, so only reuse when the rows on screen still match the
-  // packages about to be shown (the same visible set, only reordered).
-  const reorderReuseSafe = reorderReuse && dictionaryRowsMatch(list, visible);
-  reuseRows = reuseRows || reorderReuseSafe;
+  const rows = new Map([...list.children].map(row => [row.dataset.dictionaryId, row]));
+  let visibleIndex = 0;
+  dictionaries.forEach((entry, index) => {
+    const row = rows.get(entry.id);
+    if (!row) return;
+    if (list.children[visibleIndex] !== row) list.insertBefore(row, list.children[visibleIndex]);
+    visibleIndex += 1;
+    if (row.querySelector(".dict-rank").textContent !== String(index + 1)) refreshDictionaryOrder(row, entry, index);
+  });
+}
+
+function collectReusableDictionaryRows(list, reuseRows) {
   const reusableRows = new Map();
   // Retain disclosure state by package identity, including temporarily filtered rows.
   for (const row of list.children) {
@@ -2219,6 +2362,27 @@ function renderDictionaries(reuseRows = false) {
   for (const id of expandedDictionaryIds) {
     if (!installedIds.has(id)) expandedDictionaryIds.delete(id);
   }
+  return reusableRows;
+}
+
+function renderDictionaries(reuseRows = false) {
+  // A queued reorder changes only the order and the index-dependent controls,
+  // so its rows can be reappended in the new order and refreshed instead of
+  // rebuilt from the template. The hint is single-use per render.
+  const reorderReuse = reorderReuseHint;
+  reorderReuseHint = false;
+  const list = element("dict-list");
+  const visible = visibleDictionaries();
+  // A failed or conflicting commit can restore a different set than the one
+  // being reordered, so only reuse when the rows on screen still match the
+  // packages about to be shown (the same visible set, only reordered).
+  const reorderReuseSafe = reorderReuse && dictionaryRowsMatch(list, visible);
+  if (reorderReuseSafe && !dictionaryRenderDeferred) {
+    renderDictionaryOrder();
+    return;
+  }
+  reuseRows = reuseRows || reorderReuseSafe;
+  const reusableRows = collectReusableDictionaryRows(list, reuseRows);
   const template = element("dict-row-template");
   const visibleIds = new Set(visible.map((dictionary) => dictionary.id));
   draggedDictionaryId = null;
@@ -2253,6 +2417,7 @@ function renderDictionaries(reuseRows = false) {
   if (!element("engine-status").classList.contains("is-error")) renderEngineStatus();
   renderDictionarySelection(visible);
   setControlsDisabled(importing);
+  memorySettings().renderRows();
 }
 
 function dictionaryMoveTarget(current, index, move) {
@@ -2266,13 +2431,36 @@ function dictionaryMoveTarget(current, index, move) {
 }
 
 function moveDictionary(id, move) {
-  void commitDictionaries((current) => {
-    const index = current.findIndex((entry) => entry.id === id);
-    if (index < 0 || isManagedCustomDictionary(current[index])) return null;
-    const minimumIndex = isManagedCustomDictionary(current[0]) ? 1 : 0;
-    const target = Math.max(minimumIndex, dictionaryMoveTarget(current, index, move));
-    return moveListItem(current, index, target);
-  }, true, { reorder: true });
+  const index = dictionaries.findIndex(entry => entry.id === id);
+  if (index < 0 || isManagedCustomDictionary(dictionaries[index])) return;
+  const minimumIndex = isManagedCustomDictionary(dictionaries[0]) ? 1 : 0;
+  const target = Math.max(minimumIndex, dictionaryMoveTarget(dictionaries, index, move));
+  const next = moveListItem(dictionaries, index, target);
+  if (next === null) return;
+  const focus = focusedManagementControl();
+  dictionaries = next;
+  renderDictionaryOrder();
+  if (focus) restoreManagementFocus(focus);
+
+  if (pendingDictionaryOrder === null) {
+    const batch = { ids: [], epoch: dictionaryReorderEpoch, timer: null };
+    batch.ready = new Promise(resolve => { batch.release = resolve; });
+    pendingDictionaryOrder = batch;
+    void queueDictionaryStateChange(current => {
+      const byId = new Map(current.dictionaries.map(entry => [entry.id, entry]));
+      return { ...current, dictionaries: batch.ids.map(id => byId.get(id)) };
+    }, true, { orderBatch: batch });
+  }
+  pendingDictionaryOrder.ids = next.map(entry => entry.id);
+  clearTimeout(pendingDictionaryOrder.timer);
+  pendingDictionaryOrder.timer = setTimeout(flushDictionaryOrder, 150);
+}
+
+function flushDictionaryOrder() {
+  if (pendingDictionaryOrder === null) return;
+  clearTimeout(pendingDictionaryOrder.timer);
+  pendingDictionaryOrder.release();
+  pendingDictionaryOrder = null;
 }
 
 async function restoreAuthoritativeState(reply) {
@@ -2355,12 +2543,12 @@ function renderDictionaryState() {
   if (focus) restoreManagementFocus(focus);
 }
 
-async function commitDictionaryStateChange(update, reloadEngine) {
-  const next = update(dictionaryState);
+async function commitDictionaryStateChange(update, reloadEngine, baseState = dictionaryState) {
+  const next = update(baseState);
   if (next === null) {
-    return { ok: true, state: dictionaryState };
+    return { ok: true, state: baseState };
   }
-  const baseRevision = dictionaryState.revision;
+  const baseRevision = baseState.revision;
   try {
     const target = reloadEngine ? TARGET : WORKER_TARGET;
     const type = reloadEngine ? "hd_apply_state" : "hd_state_cas";
@@ -2376,6 +2564,7 @@ async function commitDictionaryStateChange(update, reloadEngine) {
       await restoreAuthoritativeState(reply);
       reorderReuseHint = false;
       dictionaryCommitFailed = true;
+      dictionaryReorderEpoch += 1;
       setStatus(`Dictionary change was not saved: ${reply.error ?? "the state changed elsewhere"}`, "error");
       return reply;
     }
@@ -2390,12 +2579,19 @@ async function commitDictionaryStateChange(update, reloadEngine) {
     }
     reorderReuseHint = false;
     dictionaryCommitFailed = true;
+    dictionaryReorderEpoch += 1;
     setStatus(`Dictionary change was not saved: ${describe(error)}`, "error");
     return { ok: false, error: describe(error) };
   }
 }
 
-function queueDictionaryStateChange(update, reloadEngine, { reorder = false } = {}) {
+function queueDictionaryStateChange(update, reloadEngine, { orderBatch = null } = {}) {
+  const reorder = orderBatch !== null;
+  // A different edit ends the current burst, so later moves cannot jump ahead
+  // of an enable, alias, favourite, or group edit in the existing CAS queue.
+  if (!reorder) flushDictionaryOrder();
+  const queuedBehindChange = pendingDictionaryCommits > 0;
+  const baseState = dictionaryState;
   if (pendingDictionaryCommits === 0) {
     dictionaryCommitFailed = false;
   }
@@ -2404,37 +2600,45 @@ function queueDictionaryStateChange(update, reloadEngine, { reorder = false } = 
   // controls, while any other change can alter per-package metadata.
   reorderReuseHint = reorder && (pendingDictionaryCommits === 0 || reorderReuseHint);
   pendingDictionaryCommits += 1;
+  if (reorder) pendingDictionaryReorders += 1;
   committing = true;
   pendingManagementFocus = focusedManagementControl() ?? pendingManagementFocus;
   setControlsDisabled(importing);
 
-  const run = dictionaryCommitTail.then(
-    () => commitDictionaryStateChange(update, reloadEngine),
-    () => commitDictionaryStateChange(update, reloadEngine),
-  );
+  const run = dictionaryCommitTail.then(async previous => {
+    if (orderBatch === null) return commitDictionaryStateChange(update, reloadEngine);
+    await orderBatch.ready;
+    // Every failed commit bumps the epoch after restoring the authoritative
+    // state, so a batch drafted before that rollback is stale and dropped.
+    if (orderBatch.epoch !== dictionaryReorderEpoch) return { ok: false, state: dictionaryState };
+    // Advance only through this page's preceding successful commit. Adopting
+    // another page's revision here would silently overwrite its winning order.
+    return commitDictionaryStateChange(update, reloadEngine, queuedBehindChange ? previous.state : baseState);
+  });
   const settled = run.finally(async () => {
     pendingDictionaryCommits -= 1;
+    if (reorder) pendingDictionaryReorders -= 1;
     if (pendingDictionaryCommits > 0) {
       return;
     }
     committing = false;
     renderChangedDictionaryState();
-    if (!dictionaryCommitFailed) {
+    if (!dictionaryCommitFailed && !reorder) {
       await refreshStatus();
     }
   });
   dictionaryCommitTail = settled.then(
-    () => undefined,
-    () => undefined,
+    reply => reply,
+    error => ({ ok: false, error: describe(error) }),
   );
   return settled;
 }
 
-function commitDictionaries(update, reloadEngine, options) {
+function commitDictionaries(update, reloadEngine) {
   return queueDictionaryStateChange((current) => {
     const dictionaries = update(current.dictionaries);
     return dictionaries === null ? null : { ...current, dictionaries };
-  }, reloadEngine, options);
+  }, reloadEngine);
 }
 
 function commitGroups(update) {
@@ -2939,6 +3143,9 @@ async function runManagedUpdate(type, dictionaryIds = null) {
   updating = true;
   setControlsDisabled(true);
   setUpdateState(type === "hd_updates_check" ? "Checking managed dictionaries…" : "Updating dictionaries…");
+  // The engine names the package it is replacing (hd_status.updating); polls
+  // continue while this operation runs so that row can say so.
+  scheduleStatusPoll(0);
   try {
     const fields = dictionaryIds === null ? {} : { dictionaryIds };
     const reply = await send(type, fields, UPDATE_TARGET);
@@ -3230,6 +3437,14 @@ function attachHandlers() {
     options.onlyScanJapaneseText = event.target.checked;
     writeOptions();
   });
+  element("opt-no-result-notice").addEventListener("change", (event) => {
+    options.showNoResultNotice = event.target.checked;
+    writeOptions();
+  });
+  element("opt-low-memory-mode").addEventListener("change", (event) => {
+    options.lowMemoryMode = event.target.checked;
+    writeOptions();
+  });
   element("opt-audio-autoplay").addEventListener("change", (event) => {
     options.audioAutoplay = event.target.checked;
     writeOptions();
@@ -3367,6 +3582,7 @@ function attachHandlers() {
       if (event.target.id === "opt-frequency-dictionary") renderFrequencyChoices();
       if (event.target.id === "opt-blur-frequency-dictionary") renderDefinitionBlurFrequencyChoices();
       if (event.target.id === "opt-image-source") renderPopupImageSources();
+      if (event.target.id === "opt-kanji-dictionary") renderKanjiChoices();
       if (event.target.id === "opt-pitch-dictionary") renderMetadataControls();
       if (event.target.closest("#definition-blur-settings")) {
         renderDefinitionBlurControls();
@@ -3396,7 +3612,7 @@ function attachHandlers() {
   });
 
   window.addEventListener("beforeunload", (event) => {
-    if (!importing && !backingUp && savingOptions === null && optionsEditRevision === null
+    if (!importing && !backingUp && pendingDictionaryCommits === 0 && savingOptions === null && optionsEditRevision === null
         && Object.keys(pendingOptions).length === 0 && savingSchedule === null && pendingSchedule === null
         && !nameDrafts.hasPendingChanges() && !customButtonController?.dirty() && !ankiController?.dirty()) {
       return;
@@ -3426,6 +3642,16 @@ function renderChangedDictionaryState() {
   renderDictionaryState();
 }
 
+// A scheduled update records that an update is available immediately before
+// installing it; that write is the page's cue to start polling hd_status so
+// the row can show which package is being replaced.
+function updateAvailabilityRecorded(previous, next) {
+  const before = new Map((previous?.dictionaries ?? []).map((entry) => [entry?.id, JSON.stringify(entry?.lastUpdateCheck ?? null)]));
+  return (next?.dictionaries ?? []).some((entry) =>
+    entry?.lastUpdateCheck?.status === "update-available"
+      && before.get(entry.id) !== JSON.stringify(entry.lastUpdateCheck));
+}
+
 function handleDictionaryStateChange(change) {
   let adopted;
   try {
@@ -3436,6 +3662,7 @@ function handleDictionaryStateChange(change) {
   }
   if (adopted) {
     renderChangedDictionaryState();
+    if (updateAvailabilityRecorded(change.oldValue, change.newValue)) scheduleStatusPoll(0);
   }
   return true;
 }

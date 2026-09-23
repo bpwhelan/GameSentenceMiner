@@ -5,6 +5,7 @@ import { reorderSettingsRows } from "./settings-dom.js";
 export const KEYBIND_OPTION_LABELS = {
   hoverEnabled: "Enable hover lookups",
   onlyScanJapaneseText: "Japanese text only",
+  showNoResultNotice: "Show a popup when a selection has no definition",
   audioAutoplay: "Automatically play the first lookup result",
   sourceHighlightEnabled: "Highlight the word on the page",
   showPopupAudioButton: "Show the audio button",

@@ -41,11 +41,17 @@ export async function readAnkiNoteFields(invoke, noteId) {
 
 export async function verifyAnkiFields(invoke, noteId, expected) {
   const fields = await readAnkiNoteFields(invoke, noteId);
+  const missing = [], changed = [];
   for (const [field, value] of Object.entries(expected)) {
-    if (typeof fields[field] !== "string" || fields[field].normalize("NFC") !== value.normalize("NFC")) {
-      throw new Error("Anki's saved fields differ from the submitted values. Inspect the note in Anki.");
-    }
+    if (typeof fields[field] !== "string") missing.push(field);
+    else if (fields[field].normalize("NFC") !== value.normalize("NFC")) changed.push(field);
   }
+  if (missing.length === 0 && changed.length === 0) return;
+  const list = names => names.map(name => `“${name}”`).join(", ");
+  const parts = [];
+  if (missing.length) parts.push(`${missing.length === 1 ? "field" : "fields"} ${list(missing)} ${missing.length === 1 ? "is" : "are"} missing from note ${noteId}`);
+  if (changed.length) parts.push(`${changed.length === 1 ? "field" : "fields"} ${list(changed)} ${changed.length === 1 ? "was" : "were"} saved with different content`);
+  throw new Error(`Anki's saved note differs from the submitted values: ${parts.join("; ")}. Inspect note ${noteId} in Anki.`);
 }
 
 async function addableDecision(prepared) {
@@ -151,6 +157,13 @@ function captureForApplication(request, templates) {
   };
 }
 
+// Names the looked-up word in an error, so a reader mining several results
+// can tell which one Anki refused.
+function describeRequestTerm(request) {
+  const expression = request?.term?.expression ?? request?.expression;
+  return typeof expression === "string" && expression.trim() ? `“${expression}”` : "this result";
+}
+
 async function writeAnkiNote(invoke, note, target, fields) {
   let noteId;
   if (target) {
@@ -158,10 +171,31 @@ async function writeAnkiNote(invoke, note, target, fields) {
     if (reply !== null) throw new Error("Anki returned an invalid field-update acknowledgement.");
     noteId = target.noteId;
   } else {
-    noteId = await invoke("addNote", { note }, 10_000);
+    try {
+      noteId = await invoke("addNote", { note }, 10_000);
+    } catch (error) {
+      throw addNoteContext(error, note);
+    }
   }
-  if (!Number.isSafeInteger(noteId) || noteId <= 0) throw new Error("Anki did not return a valid note ID.");
+  if (!Number.isSafeInteger(noteId) || noteId <= 0) {
+    throw new Error(`Anki did not return a valid note ID for the ${target ? "updated" : "added"} note in deck “${note.deckName}”. Check the note in Anki.`);
+  }
   return noteId;
+}
+
+// AnkiConnect's "empty" refusal names neither the note nor the field; Anki
+// strips HTML before judging, so a first field this side considered filled
+// can still be refused. A duplicate refusal is described by the caller.
+function addNoteContext(error, note) {
+  const message = error?.message ?? String(error);
+  const [firstField] = Object.keys(note.fields ?? {});
+  const firstValue = firstField === undefined ? "" : String(note.fields[firstField] ?? "");
+  const context = `deck “${note.deckName}”, note type “${note.modelName}”`;
+  if (!/cannot create note because it is empty/iu.test(message)) return error;
+  const detail = `Anki refused the note for ${context} because its first field “${firstField}” is empty`
+    + `${firstValue.trim() ? " once Anki stripped its formatting" : ""}.`;
+  const raw = (/\(AnkiConnect: (.+)\)$/u.exec(message)?.[1] ?? message).replace(/^AnkiConnect: /u, "");
+  return new Error(`${detail} (AnkiConnect: ${raw})`, { cause: error });
 }
 
 export function createAnkiMiningService({
@@ -250,7 +284,11 @@ export function createAnkiMiningService({
     const resources = await buildFields(request, current, { preflight: !fresh });
     const { fields } = resources;
     const firstField = current.discovery.fields[0];
-    if (!fields[firstField]?.trim()) throw new Error(`The first Anki field, “${firstField}”, is empty for this result.`);
+    if (!fields[firstField]?.trim()) {
+      const template = current.resolved.templates[firstField]?.value ?? "";
+      throw new Error(`The first field of note type “${current.config.model}”, “${firstField}”, is empty for this result`
+        + `${template ? `: its template ${template} produced nothing for ${describeRequestTerm(request)}` : ""}. Anki requires it.`);
+    }
     const note = { deckName: current.config.deck, modelName: current.config.model, fields,
       options: ankiNoteOptions(current.config), tags: [...new Set(current.config.tags)] };
     return { ...current, note, resources, firstField, invoke: invokeFor(current.config) };
@@ -345,7 +383,10 @@ export function createAnkiMiningService({
             ? (await findAnkiDuplicateNotes(invoke, note, firstField, config)).map(match => match.noteId)
             : (await duplicateIndex.repair(config, expression, invoke)).noteIds;
         } catch { /* The duplicate result is definitive even if browse discovery fails. */ }
-        return { state: "duplicate", error: "This note already exists in Anki.", noteIds };
+        const firstValue = String(fields[firstField] ?? note.fields[firstField] ?? "").trim();
+        return { state: "duplicate", noteIds,
+          error: `Anki already has a note in deck “${note.deckName}” (note type “${note.modelName}”) whose first field “${firstField}” is `
+            + `${firstValue ? `“${firstValue}”` : "empty"}.` };
       }
       if (isUndispatchedAnkiTransportError(error)) {
         // A failed endpoint generation rejected this queued mutation before it

@@ -618,7 +618,10 @@
     return {
       documentEpoch,
       lookup: {
-        lookupText: String(candidate.sentence || candidate.query || "").slice(0, MAX_TEXT_LENGTH),
+        // The timeline matches this against whole texthooker lines and page
+        // paragraphs, so it is the raw source text rather than the sentence cut
+        // out of it for Anki.
+        lookupText: String(candidate.sourceText || candidate.sentence || candidate.query || "").slice(0, MAX_TEXT_LENGTH),
         lookupTimeMs,
         ...occurrence,
       },

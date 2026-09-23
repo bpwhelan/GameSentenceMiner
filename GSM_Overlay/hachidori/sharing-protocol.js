@@ -41,7 +41,7 @@ export const LINKED_ANKI_REQUESTS = new Set([
 // in the reading browser; the host owns every Anki and generation decision.
 export const FORWARDED_REQUESTS = {
   "hoshidicts-offscreen": new Set([
-    "hd_lookup", "hd_lookup_dictionary", "hd_kanji", "hd_styles", "hd_media", "hd_status",
+    "hd_lookup", "hd_lookup_dictionary", "hd_kanji", "hd_styles", "hd_media", "hd_status", "hd_memory",
     "hd_custom_append", "hd_custom_save", "hd_apply_state", "hd_reload", "hd_remove", "hd_import",
   ]),
   "hoshidicts-worker": new Set([

@@ -10,10 +10,12 @@
  */
 
 import { extensionApi as chrome, expectedBackgroundUrl } from "./browser-api.js";
+import { ENGINE_WORKER_NAME, LOW_MEMORY_WORKER_NAME, createEngineRecycler } from "./engine-recycler.js";
 import { announceFirefoxOffscreen } from "./firefox-host.js";
 import { boundResponseFailure } from "./response-limits.js";
 
 const TARGET = "hoshidicts-offscreen";
+const WORKER_TARGET = "hoshidicts-worker";
 const AUDIO_TARGET = "hachidori-audio";
 const ANKI_TARGET = "hachidori-anki-render";
 const SETUP_TARGET = "hachidori-setup";
@@ -53,12 +55,14 @@ const MUTATION_TYPES = new Set([
   "hd_backup_cancel",
 ]);
 const STAGED_MUTATION_TYPES = new Set(["hd_custom_append"]);
+const POLL_TYPES = new Set(["hd_status", "hd_memory"]);
 const IMPORT_READ_TYPES = new Set([
   "hd_lookup",
   "hd_lookup_dictionary",
   "hd_kanji",
   "hd_styles",
   "hd_media",
+  "hd_memory",
   "hd_backup_release",
   "hd_api_dictionary_read",
   "hd_api_dictionary_close",
@@ -69,6 +73,7 @@ const STAGED_MUTATION_READ_TYPES = new Set([
   "hd_kanji",
   "hd_styles",
   "hd_media",
+  "hd_memory",
   "hd_api_dictionary_read",
   "hd_api_dictionary_close",
 ]);
@@ -90,12 +95,16 @@ function supportsSharedWasmMemory() {
 const CAN_THREAD = supportsSharedWasmMemory();
 
 let worker = null;
+let workerScript = null;
 let localEngine = null;
 let nextRequestId = 0;
 let engineError = null;
 let activeMutationRequestId = null;
 let activeStagedMutationRequestId = null;
 let activeImportRequestId = null;
+// The phase of the import this bridge is running, reported by hd_status while
+// the engine's own status is not consulted.
+let importPhase = null;
 let lastEngineStatus = {
   ok: true,
   error: null,
@@ -106,6 +115,20 @@ let lastEngineStatus = {
   generation: 0,
 };
 const pending = new Map();
+// Engine-side state one request leaves for a later one to consume: a prepared
+// backup, an exported archive URL, a dictionary download. A worker restart
+// would lose it, so the recycler waits until it is released.
+const held = new Set();
+
+// Low memory mode (docs/memory.md): the worker is replaced when idle after a
+// dictionary change, or when the stored option no longer matches the worker.
+const recycler = createEngineRecycler({
+  isIdle: () => pending.size === 0 && held.size === 0,
+  restart: (lowMemory) => {
+    worker.terminate();
+    startWorkerEngine(workerScript, lowMemory);
+  },
+});
 
 function describe(error) {
   return error instanceof Error ? error.message || String(error) : String(error);
@@ -121,13 +144,57 @@ function failedResponse(message, error, errorCode = null) {
   });
 }
 
+function trackHeldState(message, response) {
+  const ok = response?.ok === true;
+  switch (message.type) {
+    case "hd_backup_prepare":
+    case "hd_backup_auto_prepare":
+      // Preparing discards any earlier prepared backup first.
+      for (const key of held) {
+        if (key.startsWith("backup:")) held.delete(key);
+      }
+      if (ok) held.add(`backup:${response.token}`);
+      break;
+    case "hd_backup_restore":
+    case "hd_backup_cancel":
+      held.delete(`backup:${message.token}`);
+      break;
+    case "hd_backup_export":
+      if (ok) held.add(`export:${response.blobUrl}`);
+      break;
+    case "hd_backup_release":
+      held.delete(`export:${message.blobUrl}`);
+      break;
+    case "hd_api_dictionary_open":
+      if (ok) held.add(`download:${response.token}`);
+      break;
+    case "hd_api_dictionary_close":
+      held.delete(`download:${message.token}`);
+      break;
+    default:
+      break;
+  }
+}
+
 function finishRequest(id, response) {
   const request = pending.get(id);
   if (request === undefined) return;
   pending.delete(id);
+  const mutated = id === activeMutationRequestId || id === activeStagedMutationRequestId || id === activeImportRequestId;
   if (id === activeMutationRequestId) activeMutationRequestId = null;
   if (id === activeStagedMutationRequestId) activeStagedMutationRequestId = null;
   if (id === activeImportRequestId) activeImportRequestId = null;
+  if (request.message.type === "hd_import") importPhase = null;
+  trackHeldState(request.message, response);
+  // A successful native reorder allocates no dictionary/import high-water
+  // mark. Keep an already pending import or mode-change recycle's idle window,
+  // but do not schedule a fresh worker rebuild for ordering alone.
+  const orderOnly = request.message.type === "hd_apply_state" && response?.ok === true
+    && response.loadPath === "order-only";
+  if (mutated && !orderOnly) recycler.noteMutationSettled();
+  // A status or memory poll is not activity; only requests that touch the
+  // dictionaries keep the idle window open.
+  if (!POLL_TYPES.has(request.message.type)) recycler.noteIdle();
   if (response?.type === "hd_status_result") {
     lastEngineStatus = {
       ...lastEngineStatus,
@@ -144,17 +211,31 @@ function finishRequest(id, response) {
 }
 
 function adoptEngineProgress(progress) {
-  const id = activeImportRequestId;
+  const id = activeImportRequestId ?? activeMutationRequestId;
   const request = pending.get(id);
-  if (request === undefined || request.message.requestId !== progress?.requestId) {
+  if (request?.message.type !== "hd_import" || request.message.requestId !== progress?.requestId) {
     return false;
   }
-  if (progress.phase === "installing") {
+  importPhase = { phase: progress.phase, fallback: progress.fallback ?? null };
+  // An isolated import leaves the committed dictionaries loaded and answering.
+  // An import inside the live engine unloads them first, so from here until the
+  // import commits or rolls back, reads must fail busy rather than answer that
+  // no dictionary is installed.
+  if (progress.phase === "installing" && progress.fallback === "memory") {
     activeImportRequestId = null;
     activeMutationRequestId = id;
   }
   setupInstaller?.then((installer) => installer.progress(progress));
   return true;
+}
+
+// hd_status.updating: the import this bridge is running, with the package it
+// replaces (a managed update's fingerprint or a reviewed replacement's target).
+function updatingStatus() {
+  const request = pending.get(activeImportRequestId) ?? pending.get(activeMutationRequestId);
+  if (importPhase === null || request?.message.type !== "hd_import") return null;
+  const { managedFingerprint, importDecision } = request.message;
+  return { id: managedFingerprint?.id ?? importDecision?.target?.id ?? null, ...importPhase };
 }
 
 function failEngine(error) {
@@ -215,11 +296,15 @@ async function selectEngine() {
   return "opfs";
 }
 
-function startWorkerEngine(script) {
+// The name tells engine-worker-runtime.js which pthread pool and import
+// threading to start with; see docs/memory.md.
+function startWorkerEngine(script, lowMemory) {
+  workerScript = script;
   worker = new Worker(new URL(script, import.meta.url), {
     type: "module",
-    name: "hoshidicts-engine",
+    name: lowMemory ? LOW_MEMORY_WORKER_NAME : ENGINE_WORKER_NAME,
   });
+  recycler.setRunning(lowMemory);
   worker.addEventListener("error", (event) => failEngine(event.error || event.message));
   worker.addEventListener("messageerror", () => failEngine("the engine worker sent an unreadable message"));
   worker.onmessage = (event) => {
@@ -274,12 +359,40 @@ function startLocalEngine() {
   });
 }
 
-const engineSelection = selectEngine().then((mode) => {
+// The stored option, read once so the first worker already starts in the
+// right mode; the service worker pushes later changes.
+async function readEngineConfig() {
+  try {
+    const reply = await chrome.runtime.sendMessage({ target: WORKER_TARGET, type: "hd_engine_config" });
+    return reply?.ok === true && reply.lowMemoryMode === true;
+  } catch (error) {
+    console.warn(`hoshidicts: could not read the engine configuration: ${describe(error)}`);
+    return false;
+  }
+}
+
+// A pushed change can arrive while either startup read is still pending.
+let pushedLowMemoryMode = null;
+const engineSelection = Promise.all([selectEngine(), readEngineConfig()]).then(([mode, storedLowMemory]) => {
+  const lowMemory = pushedLowMemoryMode ?? storedLowMemory;
   lastEngineStatus.storageBackend = mode === "opfs" ? "opfs" : "idbfs";
   lastEngineStatus.threaded = mode !== "local";
   if (mode === "local") return startLocalEngine();
-  return startWorkerEngine(mode === "opfs" ? "./engine-worker.js" : "./engine-worker-idbfs.js");
+  recycler.setDesired(lowMemory);
+  return startWorkerEngine(mode === "opfs" ? "./engine-worker.js" : "./engine-worker-idbfs.js", lowMemory);
 }).catch(failEngine);
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target !== TARGET || message.type !== "hd_engine_config" || message.relayed !== true
+      || sender.id !== chrome.runtime.id || sender.url !== expectedBackgroundUrl(chrome)
+      || sender.tab !== undefined) return false;
+  // With the local engine there is no worker to replace, and the recycler never
+  // learns of a running one; Settings hides the switch when threaded is false.
+  pushedLowMemoryMode = message.lowMemoryMode === true;
+  recycler.setDesired(pushedLowMemoryMode);
+  sendResponse({ type: "hd_engine_config_result", requestId: message.requestId ?? null, ok: true });
+  return true;
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (![AUDIO_TARGET, ANKI_TARGET].includes(message?.target) || message.relayed !== true) return false;
@@ -319,6 +432,7 @@ function dispatchEngine(message, sendResponse) {
         || activeStagedMutationRequestId !== null
         || activeImportRequestId !== null
         || lastEngineStatus.loading,
+      updating: updatingStatus(),
     });
     return;
   }
@@ -352,8 +466,10 @@ function dispatchEngine(message, sendResponse) {
   // Reserve before engine selection or module loading can retain the payload.
   const id = ++nextRequestId;
   pending.set(id, { message, sendResponse });
-  if (message.type === "hd_import") activeImportRequestId = id;
-  else if (MUTATION_TYPES.has(message.type)) activeMutationRequestId = id;
+  if (message.type === "hd_import") {
+    activeImportRequestId = id;
+    importPhase = { phase: "downloading", fallback: null };
+  } else if (MUTATION_TYPES.has(message.type)) activeMutationRequestId = id;
   else if (STAGED_MUTATION_TYPES.has(message.type)) activeStagedMutationRequestId = id;
   engineSelection.then(() => {
     if (!pending.has(id)) return undefined;
@@ -366,7 +482,7 @@ function dispatchEngine(message, sendResponse) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.target !== TARGET || message.relayed !== true) {
+  if (message?.target !== TARGET || message.relayed !== true || message.type === "hd_engine_config") {
     return false;
   }
   dispatchEngine(message, sendResponse);
