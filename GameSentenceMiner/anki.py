@@ -342,6 +342,11 @@ def _extract_group_ids(value: str) -> set[int]:
     return {int(match.group(2)) for match in _DATA_GROUP_ID_RE.finditer(str(value or ""))}
 
 
+def _has_group_markup(value: str) -> bool:
+    """True when an HTML tag in the value carries a data-group-id attribute."""
+    return any(_DATA_GROUP_ID_RE.search(tag) for tag in _HTML_TOKEN_RE.findall(str(value or "")))
+
+
 def _replace_group_ids(value: str, replacements: Dict[int, int]) -> str:
     def replace(match: re.Match) -> str:
         old_id = int(match.group(2))
@@ -824,7 +829,8 @@ def _normalize_anki_sentence_line_breaks(note: Dict, anki_cfg=None) -> Dict:
 
     for sentence_field in sentence_fields:
         sentence = fields.get(sentence_field)
-        if isinstance(sentence, str):
+        # Skip grouped fields: their newlines separate data-group-id groups.
+        if isinstance(sentence, str) and not _has_group_markup(sentence):
             fields[sentence_field] = sentence.replace("\r\n", "<br>").replace("\r", "<br>").replace("\n", "<br>")
 
     return note

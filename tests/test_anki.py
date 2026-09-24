@@ -484,8 +484,7 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
                     "id": 100,
                     "fields": {
                         "Sentence": (
-                            '<span data-group-id="200">confirmed new</span><br>'
-                            '<span data-group-id="100">original</span>'
+                            '<span data-group-id="200">confirmed new</span>\n<span data-group-id="100">original</span>'
                         )
                     },
                 }
@@ -495,6 +494,124 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
         ("deleteNotes", {"notes": [200]}),
     ]
     assert anki.previous_note_ids == {100}
+
+
+@pytest.mark.parametrize(
+    ("sentence", "expected"),
+    [
+        ("first line\nsecond line", "first line<br>second line"),
+        ("first line\r\nsecond line\rthird line", "first line<br>second line<br>third line"),
+        ('mentions "data-group-id" in text\nsecond line', 'mentions "data-group-id" in text<br>second line'),
+        (
+            "お前が<b>感傷的</b>になって殴りかかったからじゃないか？\n直前の台詞。",
+            "お前が<b>感傷的</b>になって殴りかかったからじゃないか？<br>直前の台詞。",
+        ),
+    ],
+)
+def test_normalize_anki_sentence_line_breaks_converts_plain_sentences(sentence, expected):
+    config = _base_config()
+    note = {"fields": {"Sentence": sentence}}
+
+    anki._normalize_anki_sentence_line_breaks(note, anki_cfg=config.anki)
+
+    assert note["fields"]["Sentence"] == expected
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        '<span data-group-id="10">お前が<b>感傷的</b>になって殴りかかったからじゃないか？</span>\n直前の台詞。',
+        "<span data-group-id=10>first\nline</span>\nplain",
+        "<span data-group-id='10'>first\nline</span>",
+        '<img data-group-id="10" src="new.webp" />\n<img src="old.webp" />',
+    ],
+)
+def test_normalize_anki_sentence_line_breaks_keeps_grouped_field_newlines(sentence):
+    config = _base_config()
+    note = {"fields": {"Sentence": sentence}}
+
+    anki._normalize_anki_sentence_line_breaks(note, anki_cfg=config.anki)
+
+    assert note["fields"]["Sentence"] == sentence
+
+
+def test_apply_field_grouping_merge_groups_kiku_fields_for_previously_merged_note(monkeypatch):
+    config = _base_config()
+    config.anki.sentence_furigana_field = "SentenceFurigana"
+    config.anki.field_grouping_additional_fields = []
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    source_values = {
+        "Sentence": "お前が<b>感傷的</b>になって殴りかかったからじゃないか？<br>直前の台詞。",
+        "SentenceFurigana": "お前[まえ]が感傷的[かんしょうてき]になって殴[なぐ]りかかったからじゃないか？",
+        "SentenceAudio": "[sound:new.mp3]",
+        "Picture": '<img src="new.webp">',
+    }
+    source = SimpleNamespace(
+        noteId=200,
+        tags=["GSM"],
+        fields={name: SimpleNamespace(value=value) for name, value in source_values.items()},
+        get_field=lambda field: source_values[field],
+    )
+    target = {
+        "noteId": 100,
+        "tags": ["old"],
+        "fields": {
+            "Sentence": {
+                "value": '<span data-group-id="90">直前の台詞。</span>\n<span data-group-id="100">お前が<b>感傷的</b>になって殴りかかったからじゃないか？</span>'
+            },
+            "SentenceFurigana": {
+                "value": "お前[まえ]が感傷的[かんしょうてき]になって殴[なぐ]りかかったからじゃないか？"
+            },
+            "SentenceAudio": {"value": "[sound:old.mp3]"},
+            "Picture": {"value": '<img data-group-id="100" src="old.webp">'},
+        },
+    }
+    calls = []
+
+    def fake_invoke(action, **kwargs):
+        calls.append((action, kwargs))
+        if action == "notesInfo":
+            return [target]
+        return None
+
+    monkeypatch.setattr(anki, "invoke", fake_invoke)
+
+    merged_target = anki._apply_field_grouping_merge(
+        source,
+        {"fields": {}},
+        ["GSM"],
+        {"target_note_id": 100, "order": "front", "delete_duplicate": False},
+        config,
+    )
+
+    assert merged_target.noteId == 100
+    assert calls == [
+        ("notesInfo", {"notes": [100]}),
+        (
+            "updateNoteFields",
+            {
+                "note": {
+                    "id": 100,
+                    "fields": {
+                        "Picture": '<img data-group-id="200" src="new.webp">\n<img data-group-id="100" src="old.webp">',
+                        "Sentence": (
+                            '<span data-group-id="200">お前が<b>感傷的</b>になって殴りかかったからじゃないか？<br>直前の台詞。</span>\n'
+                            '<span data-group-id="90">直前の台詞。</span>\n'
+                            '<span data-group-id="100">お前が<b>感傷的</b>になって殴りかかったからじゃないか？</span>'
+                        ),
+                        "SentenceAudio": (
+                            '<span data-group-id="200">[sound:new.mp3]</span>\n<span data-group-id="100">[sound:old.mp3]</span>'
+                        ),
+                        "SentenceFurigana": (
+                            '<span data-group-id="200">お前[まえ]が感傷的[かんしょうてき]になって殴[なぐ]りかかったからじゃないか？</span>\n'
+                            '<span data-group-id="100">お前[まえ]が感傷的[かんしょうてき]になって殴[なぐ]りかかったからじゃないか？</span>'
+                        ),
+                    },
+                }
+            },
+        ),
+        ("addTags", {"tags": "GSM", "notes": [100]}),
+    ]
 
 
 def test_normalize_for_signature_uses_html_strip_and_text_normalization(monkeypatch):
