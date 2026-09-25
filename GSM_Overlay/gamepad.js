@@ -542,11 +542,11 @@ class GamepadHandler {
       prevJitenWordButton: options.prevJitenWordButton ?? -1, // Disabled - previous new or i+1 Jiten word
       nextJitenWordButton: options.nextJitenWordButton ?? -1, // Disabled - next new or i+1 Jiten word
       
-      // D-Pad buttons
-      dpadUp: 12,
-      dpadDown: 13,
-      dpadLeft: 14,
-      dpadRight: 15,
+      // Navigation bindings default to the standard D-pad, but also accept raw inputs/combos.
+      dpadUp: options.dpadUp ?? 12,
+      dpadDown: options.dpadDown ?? 13,
+      dpadLeft: options.dpadLeft ?? 14,
+      dpadRight: options.dpadRight ?? 15,
       
       // Navigation settings
       repeatDelay: options.repeatDelay || 400, // Initial delay before repeat
@@ -594,6 +594,7 @@ class GamepadHandler {
       onConfirm: options.onConfirm || null,
       onCancel: options.onCancel || null,
       onConnectionChange: options.onConnectionChange || null,
+      isOverlayReady: options.isOverlayReady || null,
       
       // Activation control
       controllerEnabled: options.controllerEnabled !== false, // Enable controller button activation
@@ -671,6 +672,8 @@ class GamepadHandler {
     this.pendingTokenizationByBlock = new Map(); // blockIndex -> text
     this.pendingTokenizationStartedWhileNavigationActive = new Map(); // blockIndex -> boolean
     this.navigationActivationInProgress = false;
+    this.pendingNavigationActivation = false;
+    this.pendingJitenEntryPosition = null;
     
     // Button state tracking
     this.buttonStates = new Map(); // device -> {button: pressed}
@@ -757,6 +760,9 @@ class GamepadHandler {
     // Keep overlays in sync with new text even without controller input
     this.setupTextObserver();
     this.setupDictionaryPopupTracking();
+    this.stopJitenNavigationTracking = window.GsmJitenHighlight?.subscribeNavigationTokens?.(
+      () => this.retryPendingJitenEntryPosition(),
+    );
     
     console.log('[GamepadHandler] Initialized with config:', this.getConfigForLogging());
   }
@@ -814,6 +820,9 @@ class GamepadHandler {
   }
 
   destroy() {
+    this.pendingNavigationActivation = false;
+    this.pendingJitenEntryPosition = null;
+    this.stopJitenNavigationTracking?.();
     this.publishNavigationActiveState(false);
     this.releaseOverlayFocus();
     this.clearPendingMineCandidate();
@@ -1146,6 +1155,7 @@ class GamepadHandler {
         const cacheEntry = this.tokenCacheByBlock.get(blockIndex);
 
         if (cacheEntry && cacheEntry.text === currentText) {
+          const anchorCharIndex = this.getCurrentAnchorCharIndex();
           this.tokens = cacheEntry.tokens || [];
           this.tokensBlockIndex = blockIndex;
           console.log(`[GamepadHandler] Received ${this.tokens.length} tokens for block ${blockIndex}:`,
@@ -1161,7 +1171,6 @@ class GamepadHandler {
             if (syncedFromMouse) {
               this.syncVirtualMouseToCurrentSelection();
             } else {
-              const anchorCharIndex = this.getCurrentAnchorCharIndex();
               this.currentCursorIndex = this.charIndexToTokenIndex(anchorCharIndex >= 0 ? anchorCharIndex : 0);
               this.currentLineIndex = this.getLineIndexForCursor();
               this.updateVisuals();
@@ -1432,6 +1441,10 @@ class GamepadHandler {
       prevEntryButton: normalizeGamepadBindingValue(this.config.prevEntryButton, 6),
       prevJitenWordButton: normalizeGamepadBindingValue(this.config.prevJitenWordButton, -1),
       nextJitenWordButton: normalizeGamepadBindingValue(this.config.nextJitenWordButton, -1),
+      dpadUp: normalizeGamepadBindingValue(this.config.dpadUp, 12),
+      dpadDown: normalizeGamepadBindingValue(this.config.dpadDown, 13),
+      dpadLeft: normalizeGamepadBindingValue(this.config.dpadLeft, 14),
+      dpadRight: normalizeGamepadBindingValue(this.config.dpadRight, 15),
     };
   }
 
@@ -3138,12 +3151,13 @@ class GamepadHandler {
   }
   
   isDPadButton(buttonIndex) {
-    return [
-      this.config.dpadUp,
-      this.config.dpadDown,
-      this.config.dpadLeft,
-      this.config.dpadRight,
-    ].includes(buttonIndex);
+    return ['dpadUp', 'dpadDown', 'dpadLeft', 'dpadRight'].some(key =>
+      this.bindingContainsButton(this.buttonBindings[key], buttonIndex));
+  }
+
+  getDPadDirection(buttonIndex, device) {
+    return ['dpadUp', 'dpadDown', 'dpadLeft', 'dpadRight'].find(key =>
+      this.matchesButtonBindingDown(this.buttonBindings[key], device, buttonIndex));
   }
   
   handleDPadNavigation(buttonIndex, device) {
@@ -3151,20 +3165,20 @@ class GamepadHandler {
     let navigated = false;
     this.hideVirtualMouseCursorForDpadNavigation();
     
-    switch (buttonIndex) {
-      case this.config.dpadUp:
+    switch (this.getDPadDirection(buttonIndex, device)) {
+      case 'dpadUp':
         this.navigateBlockUp();
         navigated = true;
         break;
-      case this.config.dpadDown:
+      case 'dpadDown':
         this.navigateBlockDown();
         navigated = true;
         break;
-      case this.config.dpadLeft:
+      case 'dpadLeft':
         this.navigateCursorLeft();
         navigated = true;
         break;
-      case this.config.dpadRight:
+      case 'dpadRight':
         this.navigateCursorRight();
         navigated = true;
         break;
@@ -3193,20 +3207,21 @@ class GamepadHandler {
     const repeat = () => {
       // Check if button is still pressed
       const buttonStates = this.buttonStates.get(device);
-      if (buttonStates && buttonStates[buttonIndex] && this.shouldProcessNavigation(device)) {
+      const direction = this.getDPadDirection(buttonIndex, device);
+      if (buttonStates && buttonStates[buttonIndex] && direction && this.shouldProcessNavigation(device)) {
         this.hideVirtualMouseCursorForDpadNavigation();
         // Execute navigation
-        switch (buttonIndex) {
-          case this.config.dpadUp:
+        switch (direction) {
+          case 'dpadUp':
             this.navigateBlockUp();
             break;
-          case this.config.dpadDown:
+          case 'dpadDown':
             this.navigateBlockDown();
             break;
-          case this.config.dpadLeft:
+          case 'dpadLeft':
             this.navigateCursorLeft(true);
             break;
-          case this.config.dpadRight:
+          case 'dpadRight':
             this.navigateCursorRight(true);
             break;
         }
@@ -3286,6 +3301,7 @@ class GamepadHandler {
     const dx = x * speedPxPerSecond * (dtMs / 1000);
     const dy = y * speedPxPerSecond * (dtMs / 1000);
 
+    this.pendingJitenEntryPosition = null;
     this.virtualMouse.movedByAnalog = true;
     this.setVirtualMousePosition(this.virtualMouse.x + dx, this.virtualMouse.y + dy, true);
     this.virtualMouse.lastMoveTime = Date.now();
@@ -3493,22 +3509,44 @@ class GamepadHandler {
   activateNavigation() {
     if (this.isActive) return;
 
-    this.navigationActivationInProgress = true;
     this.isActive = true;
+    this.pendingNavigationActivation = true;
+    this.pendingJitenEntryPosition = null;
     this.publishNavigationActiveState(true);
+    this.virtualMouse.movedByAnalog = false;
+    this.virtualMouse.lastMoveTime = 0;
+
+    // Manual mode reveals through a main-process round trip (and possibly a
+    // frozen-frame capture). Request that reveal before selecting or looking up.
+    if (this.config.onModeChange) {
+      this.config.onModeChange({ active: true });
+    }
+    this.syncOverlayFocusState();
+    this.completeNavigationActivation();
+
+    window.dispatchEvent(new CustomEvent('gsm-gamepad-navigation-active', {
+      detail: { active: true }
+    }));
+    console.log('[GamepadHandler] Navigation activated');
+  }
+
+  isOverlayReady() {
+    return this.config.isOverlayReady?.() !== false;
+  }
+
+  completeNavigationActivation() {
+    if (!this.isActive || !this.pendingNavigationActivation || !this.isOverlayReady()) return false;
+
+    this.navigationActivationInProgress = true;
     try {
       this.refreshTextBlocks();
     } finally {
       this.navigationActivationInProgress = false;
     }
-    this.virtualMouse.movedByAnalog = false;
-    this.virtualMouse.lastMoveTime = 0;
-    
-    // Select first block if none selected
-    if (this.currentBlockIndex < 0 && this.textBlocks.length > 0) {
-      this.currentBlockIndex = this.findFirstSelectableBlockIndex();
-      this.currentCursorIndex = 0;
-    }
+    // OCR may arrive after the reveal. Keep the entry pending until it supplies
+    // selectable text; ordinary redraws after entry must never reopen a lookup.
+    if (!this.characters.length) return false;
+    this.pendingNavigationActivation = false;
 
     if (!this.restoreDeactivatedSelection()) {
       this.applyPreferredEntryPosition();
@@ -3517,24 +3555,14 @@ class GamepadHandler {
     
     this.updateVisuals();
     this.showModeIndicator(true);
-    this.syncOverlayFocusState();
-    
-    // Auto-confirm selection when navigation is activated
     this.autoConfirmSelection();
-    
-    if (this.config.onModeChange) {
-      this.config.onModeChange({ active: true });
-    }
-    
-    // Dispatch event
-    window.dispatchEvent(new CustomEvent('gsm-gamepad-navigation-active', {
-      detail: { active: true }
-    }));
-    
-    console.log('[GamepadHandler] Navigation activated');
+    return true;
   }
   
   deactivateNavigation() {
+    const entryWasPending = this.pendingNavigationActivation;
+    this.pendingNavigationActivation = false;
+    this.pendingJitenEntryPosition = null;
     if (!this.isActive) {
       // Exit requests can still happen while already inactive (state drift);
       // always attempt to dismiss any lingering dictionary popup.
@@ -3543,13 +3571,17 @@ class GamepadHandler {
       return;
     }
     
-    this.deactivatedSelection = this.config.initialPosition === 'first-new' && this.characters.length > 0
-      ? {
-        blockIndex: this.currentBlockIndex,
-        text: this.getBlockText(this.currentBlockIndex, true),
-        charIndex: this.getCurrentAnchorCharIndex(),
-      }
-      : null;
+    // Cancelling before reveal must not replace the last usable selection with
+    // an empty/hidden character cache.
+    if (!entryWasPending) {
+      this.deactivatedSelection = this.config.initialPosition === 'first-new' && this.characters.length > 0
+        ? {
+          blockIndex: this.currentBlockIndex,
+          text: this.getBlockText(this.currentBlockIndex, true),
+          charIndex: this.getCurrentAnchorCharIndex(),
+        }
+        : null;
+    }
 
     this.closeDictionaryPopups();
     this.isActive = false;
@@ -4034,6 +4066,11 @@ class GamepadHandler {
     this.virtualMouse.lastMoveTime = 0;
     this.updateVirtualMouseCursor();
 
+    if (this.pendingNavigationActivation) {
+      this.completeNavigationActivation();
+      return;
+    }
+
     this.refreshTextBlocks();
     const focusedLatestLine = options.focusLatestLine === true && this.focusLatestLineBlock();
     if (!focusedLatestLine && preserveSelection && snapshot) {
@@ -4063,6 +4100,10 @@ class GamepadHandler {
   }
 
   refreshOnTextChange() {
+    if (this.pendingNavigationActivation) {
+      this.completeNavigationActivation();
+      return;
+    }
     const navigationActive = this.isNavigationActive();
     const preserveSelection = this.preserveSelectionOnNextTextRefresh === true;
     const selectionSnapshot = preserveSelection
@@ -5062,6 +5103,7 @@ class GamepadHandler {
   // ==================== Navigation Methods ====================
 
   dismissLookupForNavigation() {
+    this.pendingJitenEntryPosition = null;
     this.clearPendingMineCandidate();
 
     if (this.lookupDismissTimer) {
@@ -5487,6 +5529,7 @@ class GamepadHandler {
   }
 
   applyPreferredEntryPosition(origin = null) {
+    this.pendingJitenEntryPosition = null;
     const mode = this.config.initialPosition;
     if (!['start', 'middle', 'first-new', 'nearest'].includes(mode)) return;
     if (mode === 'nearest' && !origin) return;
@@ -5502,10 +5545,34 @@ class GamepadHandler {
       if (target) {
         this.lineNavPrefersCharacters = true;
         this.currentCursorIndex = target.charIndex;
+      } else if (this.isActive && window.GsmJitenHighlight?.isParsePending?.()) {
+        this.pendingJitenEntryPosition = {
+          blockIndex: this.currentBlockIndex,
+          text: this.getBlockText(this.currentBlockIndex, true),
+          charIndex: this.getCurrentAnchorCharIndex(),
+        };
       }
     }
     this.currentLineIndex = this.getLineIndexForCursor();
     this.syncVirtualMouseToCurrentSelection();
+  }
+
+  retryPendingJitenEntryPosition() {
+    const pending = this.pendingJitenEntryPosition;
+    if (!pending || !this.isActive || !this.isOverlayReady()) return;
+    if (pending.blockIndex !== this.currentBlockIndex ||
+      pending.text !== this.getBlockText(this.currentBlockIndex, true) ||
+      pending.charIndex !== this.getCurrentAnchorCharIndex() ||
+      this.config.initialPosition !== 'first-new') {
+      this.pendingJitenEntryPosition = null;
+      return;
+    }
+    if (window.GsmJitenHighlight?.isParsePending?.()) return;
+
+    this.pendingJitenEntryPosition = null;
+    const target = this.getJitenNavigationTargets().find(target =>
+      target.blockIndex === this.currentBlockIndex && target.states.includes('new'));
+    if (target) this.selectNavigationCharacterTarget(target);
   }
 
   navigateCursorLeft(isRepeat = false) {
@@ -6199,6 +6266,8 @@ class GamepadHandler {
   }
   
   confirmSelection() {
+    this.pendingJitenEntryPosition = null;
+    if (this.pendingNavigationActivation || !this.isOverlayReady()) return;
     if (this.confirmDictionaryPopupActionSelection()) {
       console.log('[GamepadHandler] Confirm routed to selected dictionary popup action');
       return;
@@ -6240,6 +6309,7 @@ class GamepadHandler {
   autoConfirmSelection() {
     // Automatically trigger dictionary lookup when cursor moves
     if (this.config.autoConfirmSelection === false) return;
+    if (this.pendingNavigationActivation || !this.isOverlayReady()) return;
     
     this.clearPendingMineCandidate();
     
@@ -7127,6 +7197,7 @@ class GamepadHandler {
   }
   
   setTokenMode(enabled) {
+    if (this.tokenMode !== enabled) this.pendingJitenEntryPosition = null;
     const anchorCharIndex = this.getCurrentAnchorCharIndex();
     const normalizedAnchorCharIndex = this.characters.length > 0
       ? Math.max(0, Math.min(anchorCharIndex >= 0 ? anchorCharIndex : 0, this.characters.length - 1))

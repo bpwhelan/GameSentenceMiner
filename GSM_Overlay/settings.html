@@ -1701,8 +1701,9 @@
           Adaptive OCR Retries (Experimental)
           <div class="hotkey-info">
             Retry almost immediately while text is clearly expanding, and gradually wait longer when progress
-            is uncertain. May use more CPU while text appears. Off by default; applies to local OCR retries
-            when Text Appears Instantly is off.
+            is uncertain. After finding text, focus later local scans on a padded area around it, with a periodic
+            full-source scan and an immediate full-source retry if the text moves or disappears. Off by default;
+            applies when Text Appears Instantly is off.
           </div>
         </span>
         <input type="checkbox" id="adaptive_ocr_retries" />
@@ -1797,7 +1798,8 @@
           Check Whether the Last OCR Text Is Still Visible
           <div class="hotkey-info">
             Starts a background image check after each overlay result and compares only the tightly cropped
-            last-sent text area. No extra OCR request is made. Experimental and off by default.
+            last-sent text area. If similarity is too low, a local OCR scan checks whether the text moved
+            before removing it and refreshes its position when found. Experimental and off by default.
           </div>
         </span>
         <input type="checkbox" id="last_sent_ocr_presence_check" />
@@ -2080,6 +2082,32 @@
         </span>
         <button type="button" id="openJitenReaderSettings" class="guide-button">Open Settings</button>
       </label>
+    </div>
+
+    <div class="setting-group" data-tab="reading">
+      <h4>Local vocabulary</h4>
+      <label>
+        <span class="label-text">Parse highlighting locally
+          <div class="hotkey-info">Use Sudachi and a saved word list for the highlighting below. Works offline after the dictionary and word list are downloaded. Jiten Reader is optional. Includes parsing corrections adapted from Jiten by Sirush and contributors (Apache-2.0).</div>
+        </span>
+        <input type="checkbox" id="localVocabularyEnabled" />
+      </label>
+      <label>
+        <span class="label-text">Word list source
+          <div class="hotkey-info">Refreshes every 15 minutes while enabled. With both sources, Jiten takes precedence for matching words. Anki imports stay local.</div>
+        </span>
+        <select id="localVocabularySource">
+          <option value="jiten">Jiten</option><option value="anki">Anki</option><option value="both">Jiten and Anki</option>
+        </select>
+      </label>
+      <label><span class="label-text">Anki search<div class="hotkey-info">Optional Anki search, such as deck:Japanese. Blank includes all cards.</div></span>
+        <input type="text" id="localVocabularyAnkiQuery" placeholder="All cards" /></label>
+      <label><span class="label-text">Anki word field<div class="hotkey-info">Blank uses the word field configured in GSM.</div></span>
+        <input type="text" id="localVocabularyAnkiWordField" placeholder="GSM word field" /></label>
+      <label><span class="label-text">Anki reading field<div class="hotkey-info">Optional kana field to distinguish words with the same spelling.</div></span>
+        <input type="text" id="localVocabularyAnkiReadingField" placeholder="Optional" /></label>
+      <label><span class="label-text">Saved word list<div id="localVocabularyStatus" class="hotkey-info" role="status">Local vocabulary is disabled.</div></span>
+        <button type="button" id="localVocabularySync" class="guide-button">Sync now</button></label>
     </div>
 
     <div class="setting-group" data-tab="reading">
@@ -2439,33 +2467,38 @@
         <input type="text" id="gamepadMineButton" class="gamepad-binding-input" value="A" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardMineButton" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
-      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Keyboard Navigation</h5>
+      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Navigation Bindings</h5>
+      <div class="hotkey-info">Click a controller field, press an input or combo, then release to save. Generic controllers may show numbered buttons. Unmapped axis directions can also be assigned.</div>
       <label>
         <span class="label-text">
           Navigate Up
-          <div class="hotkey-info">Key to move to the previous text block</div>
+          <div class="hotkey-info">Move to the previous text block</div>
         </span>
+        <input type="text" id="gamepadNavigateUp" class="gamepad-binding-input" value="DPad Up" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardNavigateUp" class="keyboard-binding-input" value="↑" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
           Navigate Down
-          <div class="hotkey-info">Key to move to the next text block</div>
+          <div class="hotkey-info">Move to the next text block</div>
         </span>
+        <input type="text" id="gamepadNavigateDown" class="gamepad-binding-input" value="DPad Down" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardNavigateDown" class="keyboard-binding-input" value="↓" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
           Navigate Left
-          <div class="hotkey-info">Key to move cursor left</div>
+          <div class="hotkey-info">Move cursor left</div>
         </span>
+        <input type="text" id="gamepadNavigateLeft" class="gamepad-binding-input" value="DPad Left" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardNavigateLeft" class="keyboard-binding-input" value="←" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
           Navigate Right
-          <div class="hotkey-info">Key to move cursor right</div>
+          <div class="hotkey-info">Move cursor right</div>
         </span>
+        <input type="text" id="gamepadNavigateRight" class="gamepad-binding-input" value="DPad Right" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardNavigateRight" class="keyboard-binding-input" value="→" placeholder="Click and press a key" readonly />
       </label>
       <label>
@@ -2613,7 +2646,7 @@
       <label>
         <span class="label-text">
           Starting Position
-          <div class="hotkey-info">On activation and entry into another block. First new uses available Jiten results, otherwise the start. Nearest point applies on block entry and uses the position you just left.</div>
+          <div class="hotkey-info">On activation and entry into another block. First new starts at the first unknown Jiten word and resumes your cursor when reopening unchanged text. If Jiten is still parsing, it starts at the beginning and jumps when results arrive, unless you have navigated. Nearest point applies on block entry and uses the position you just left.</div>
         </span>
         <select id="gamepadInitialPosition">
           <option value="remember">Resume on activation; block start on entry (default)</option>
@@ -2900,6 +2933,10 @@
       gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
       gamepadPrevJitenWordButton: { settingKey: "gamepadPrevJitenWordButton", label: "Previous New / i+1 Jiten Word", fallbackValue: -1 },
       gamepadNextJitenWordButton: { settingKey: "gamepadNextJitenWordButton", label: "Next New / i+1 Jiten Word", fallbackValue: -1 },
+      gamepadNavigateUp: { settingKey: "gamepadNavigateUp", label: "Navigate Up", fallbackValue: 12 },
+      gamepadNavigateDown: { settingKey: "gamepadNavigateDown", label: "Navigate Down", fallbackValue: 13 },
+      gamepadNavigateLeft: { settingKey: "gamepadNavigateLeft", label: "Navigate Left", fallbackValue: 14 },
+      gamepadNavigateRight: { settingKey: "gamepadNavigateRight", label: "Navigate Right", fallbackValue: 15 },
     };
 
     const KEYBOARD_BINDING_INPUT_CONFIG = {
@@ -3576,7 +3613,8 @@
       ].forEach((id) => {
         const control = document.getElementById(id);
         if (control) {
-          control.disabled = !isEnabled;
+          control.disabled = !isEnabled && !(['jitenHighlightingEnabled', 'jitenHighlightOffsetY'].includes(id)
+            && document.getElementById('localVocabularyEnabled')?.checked);
         }
       });
     }
@@ -3633,6 +3671,10 @@
         "gamepadPrevEntryButton",
         "gamepadPrevJitenWordButton",
         "gamepadNextJitenWordButton",
+        "gamepadNavigateUp",
+        "gamepadNavigateDown",
+        "gamepadNavigateLeft",
+        "gamepadNavigateRight",
         "gamepadTokenMode",
         "gamepadAutoConfirmSelection",
         "gamepadFocusOverlayOnEntry",
@@ -4070,6 +4112,15 @@
         afterApply: () => syncJitenReaderUi(),
       }),
       createCheckboxBinding("jitenHighlightingEnabled", "#jitenHighlightingEnabled"),
+      createCheckboxBinding("localVocabularyEnabled", "#localVocabularyEnabled", {
+        afterApply: () => { syncJitenReaderUi(); void refreshLocalVocabularyStatus(); },
+      }),
+      createSelectBinding("localVocabularySource", "#localVocabularySource", {
+        normalize: value => ['jiten', 'anki', 'both'].includes(value) ? value : 'jiten',
+      }),
+      createTextBinding("localVocabularyAnkiQuery", "#localVocabularyAnkiQuery"),
+      createTextBinding("localVocabularyAnkiWordField", "#localVocabularyAnkiWordField"),
+      createTextBinding("localVocabularyAnkiReadingField", "#localVocabularyAnkiReadingField"),
       createCheckboxBinding("showJitenGradingButtons", "#showJitenGradingButtons"),
       createHotkeyBinding("toggleFuriganaHotkey", "#toggleFuriganaHotkey"),
       createHotkeyBinding("toggleWindowHotkey", "#toggleWindowHotkey"),
@@ -4101,6 +4152,10 @@
       createGamepadBindingSetting("gamepadPrevEntryButton"),
       createGamepadBindingSetting("gamepadPrevJitenWordButton"),
       createGamepadBindingSetting("gamepadNextJitenWordButton"),
+      createGamepadBindingSetting("gamepadNavigateUp"),
+      createGamepadBindingSetting("gamepadNavigateDown"),
+      createGamepadBindingSetting("gamepadNavigateLeft"),
+      createGamepadBindingSetting("gamepadNavigateRight"),
       createKeyboardBindingSetting("keyboardModifierKey"),
       createKeyboardBindingSetting("keyboardToggleKey"),
       createKeyboardBindingSetting("keyboardConfirmKey"),
@@ -4317,6 +4372,27 @@
       acknowledgeMainBoxStartupWarning();
     });
 
+    async function refreshLocalVocabularyStatus(sync = false) {
+      const status = document.getElementById('localVocabularyStatus');
+      const button = document.getElementById('localVocabularySync');
+      if (!document.getElementById('localVocabularyEnabled').checked) {
+        status.textContent = 'Local vocabulary is disabled.'; button.disabled = true; return;
+      }
+      button.disabled = true;
+      if (sync) status.textContent = 'Syncing vocabulary…';
+      try {
+        const result = await ipcRenderer.invoke(sync ? 'gsm-local-vocabulary-sync' : 'gsm-local-vocabulary-status');
+        const count = result.sources.reduce((total, source) => total + source.count, 0);
+        const times = result.sources.map(source => source.syncedAt).filter(Boolean);
+        status.textContent = `${count.toLocaleString()} saved words. ` + (times.length
+          ? `Last refreshed ${new Date(Math.min(...times) * 1000).toLocaleString()}.` : 'Choose a source and sync to import your words.')
+          + (result.errors?.length ? ' A refresh failed; saved words remain available.' : '');
+      } catch (error) {
+        status.textContent = `Sync unavailable. ${error.message}`;
+      } finally { button.disabled = !document.getElementById('localVocabularyEnabled').checked; }
+    }
+    document.getElementById('localVocabularySync').addEventListener('click', () => { void refreshLocalVocabularyStatus(true); });
+    ipcRenderer.on('local-vocabulary-changed', () => { void refreshLocalVocabularyStatus(); });
     document.getElementById("openJitenReaderSettings").addEventListener("click", () => {
       ipcRenderer.send("open-jiten-reader-settings");
     });
@@ -4525,6 +4601,7 @@
           return lockedGamepad;
         }
         capture.lockedGamepadIndex = null;
+        capture.capturedButtons = null;
       }
 
       const activeGamepad = connectedGamepads.find((gamepad) => getPressedGamepadButtons(gamepad).length > 0);
@@ -4559,35 +4636,37 @@
       setOverlayGamepadBindingCaptureSuppression(true);
       addGamepadInputConsoleLine(`Capturing ${config.label}...`);
 
-      activeGamepadBindingCapture.intervalId = setInterval(() => {
-        const capture = activeGamepadBindingCapture;
-        if (!capture || capture.inputId !== inputId) {
+      activeGamepadBindingCapture.intervalId = setInterval(pollGamepadBindingCapture, GAMEPAD_BINDING_CAPTURE_POLL_MS);
+    }
+
+    function pollGamepadBindingCapture() {
+      const capture = activeGamepadBindingCapture;
+      if (!capture) return;
+
+      const targetGamepad = getCaptureTargetGamepad(capture);
+      if (!targetGamepad) {
+        capture.lockedGamepadIndex = null;
+        capture.capturedButtons = null;
+        capture.input.value = "Waiting for controller...";
+        return;
+      }
+
+      const pressedButtons = getPressedGamepadButtons(targetGamepad);
+      if (pressedButtons.length === 0) {
+        if (capture.capturedButtons && capture.capturedButtons.length > 0) {
+          commitGamepadBindingCapture();
           return;
         }
 
-        const targetGamepad = getCaptureTargetGamepad(capture);
-        if (!targetGamepad) {
-          capture.input.value = "Waiting for controller...";
-          return;
-        }
+        capture.input.value = "Listening for controller input...";
+        return;
+      }
 
-        const pressedButtons = getPressedGamepadButtons(targetGamepad);
-        if (pressedButtons.length === 0) {
-          if (capture.capturedButtons && capture.capturedButtons.length > 0) {
-            commitGamepadBindingCapture();
-            return;
-          }
-
-          capture.input.value = "Listening for controller input...";
-          return;
-        }
-
-        capture.lockedGamepadIndex = targetGamepad.index;
-        if (!capture.capturedButtons || pressedButtons.length >= capture.capturedButtons.length) {
-          capture.capturedButtons = pressedButtons;
-        }
-        capture.input.value = createGamepadBindingDescriptor(capture.capturedButtons, true).label;
-      }, GAMEPAD_BINDING_CAPTURE_POLL_MS);
+      capture.lockedGamepadIndex = targetGamepad.index;
+      if (!capture.capturedButtons || pressedButtons.length >= capture.capturedButtons.length) {
+        capture.capturedButtons = pressedButtons;
+      }
+      capture.input.value = createGamepadBindingDescriptor(capture.capturedButtons, true).label;
     }
 
     function commitGamepadBindingCapture() {
@@ -5374,6 +5453,7 @@
     let overlayInputSuppressed = false;
     const activeGamepadSuppressionReasons = new Set();
     const serverReportedGamepads = new Set();
+    const serverGamepadStates = new Map();
 
     function updateTokenizerBackendFieldState() {
       const backend = normalizeTokenizerBackendValue(
@@ -5704,6 +5784,7 @@
       }
       gamepadDeviceBlacklist.add(normalized);
       serverReportedGamepads.delete(normalized);
+      serverGamepadStates.delete(normalized);
       setGamepadDeviceBlacklist(getSortedGamepadDeviceBlacklist(), { persist: true });
       addGamepadInputConsoleLine(`Ignored device: ${getDisplayControllerLabel(normalized)}`);
     }
@@ -5814,7 +5895,8 @@
     }
 
     function getGamepadAxisLabel(index) {
-      return GAMEPAD_AXIS_LABELS[index] || `Axis ${index}`;
+      const serverLabels = { left_x: "LS-X", left_y: "LS-Y", right_x: "RS-X", right_y: "RS-Y", lt: "LT", rt: "RT" };
+      return serverLabels[index] || GAMEPAD_AXIS_LABELS[index] || `Axis ${index}`;
     }
 
     function getGamepadButtonSortKey(index) {
@@ -6000,9 +6082,9 @@
 
     function getPressedGamepadButtons(gamepad) {
       const pressedButtons = [];
-      (gamepad?.buttons || []).forEach((button, index) => {
-        if (button && (button.pressed || button.value > 0.5)) {
-          pressedButtons.push(index);
+      Object.entries(gamepad?.buttons || {}).forEach(([index, button]) => {
+        if (button === true || (button && (button.pressed || button.value > 0.5))) {
+          pressedButtons.push(Number(index));
         }
       });
       return normalizeGamepadButtonList(pressedButtons);
@@ -6033,9 +6115,53 @@
     }
 
     function getConnectedGamepads() {
+      // Capture exactly the IDs used by navigation. Chromium's raw layout can
+      // differ from gilrs and may not expose the device at all.
+      if (gamepadStatusSocket?.readyState === WebSocket.OPEN) {
+        return Array.from(serverGamepadStates.values()).filter(g => !isGamepadDeviceBlacklisted(g.id));
+      }
       if (!navigator.getGamepads) return [];
       const gamepads = navigator.getGamepads();
       return Array.from(gamepads).filter(g => g !== null && !isGamepadDeviceBlacklisted(g.id));
+    }
+
+    function updateServerGamepadState(data) {
+      const device = data.device;
+      if (typeof device !== "string" || !device) return;
+      if (data.type === "gamepad_disconnected") {
+        serverReportedGamepads.delete(device);
+        serverGamepadStates.delete(device);
+        pollGamepadBindingCapture();
+        return;
+      }
+      if (isGamepadDeviceBlacklisted(device)) return;
+      if (!["gamepad_connected", "gamepad_state", "button", "axis"].includes(data.type)) return;
+      serverReportedGamepads.add(device);
+      let gamepad = serverGamepadStates.get(device);
+      if (!gamepad || data.type === "gamepad_connected") {
+        gamepad = { id: device, index: `server:${device}`, buttons: {}, axes: {} };
+        serverGamepadStates.set(device, gamepad);
+      }
+      if (data.type === "gamepad_connected" || data.type === "gamepad_state") {
+        const state = data.type === "gamepad_connected" ? data.state : data;
+        gamepad.buttons = { ...state?.buttons };
+        gamepad.axes = { ...state?.axes };
+      } else if (data.type === "button" && Number.isSafeInteger(data.button) && data.button >= 0) {
+        gamepad.buttons[data.button] = data.pressed === true;
+      } else if (data.type === "axis" && typeof data.axis === "string" && Number.isFinite(data.value)) {
+        gamepad.axes[data.axis] = data.value;
+      }
+      // Poll on edges as well as on the timer so a quick tap is never missed.
+      pollGamepadBindingCapture();
+    }
+
+    function clearServerGamepadState() {
+      serverReportedGamepads.clear();
+      serverGamepadStates.clear();
+      if (activeGamepadBindingCapture) {
+        activeGamepadBindingCapture.lockedGamepadIndex = null;
+        activeGamepadBindingCapture.capturedButtons = null;
+      }
     }
     
     function updateGamepadStatus() {
@@ -6097,7 +6223,7 @@
       }
 
       gamepadStatusSocketPort = targetPort;
-      serverReportedGamepads.clear();
+      clearServerGamepadState();
       updateGamepadStatus();
 
       let ws = null;
@@ -6122,6 +6248,7 @@
       };
 
       ws.onmessage = (event) => {
+        if (gamepadStatusSocket !== ws) return;
         if (!event || typeof event.data !== "string") return;
 
         let data = null;
@@ -6131,6 +6258,8 @@
           return;
         }
 
+        if (!data || typeof data !== "object") return;
+        updateServerGamepadState(data);
         const deviceName = typeof data.device === "string" ? data.device : "";
         switch (data.type) {
           case "gamepad_connected":
@@ -6178,7 +6307,7 @@
       ws.onclose = () => {
         if (gamepadStatusSocket !== ws) return;
         gamepadStatusSocket = null;
-        serverReportedGamepads.clear();
+        clearServerGamepadState();
         updateGamepadStatus();
         scheduleGamepadStatusSocketReconnect();
       };
@@ -6195,7 +6324,7 @@
 
     function buildGamepadInputSnapshot(gamepad) {
       const activeAxes = {};
-      (gamepad.axes || []).forEach((value, index) => {
+      Object.entries(gamepad.axes || {}).forEach(([index, value]) => {
         const rounded = Number((Number(value) || 0).toFixed(2));
         if (Math.abs(rounded) >= 0.12) {
           activeAxes[index] = rounded;
@@ -6216,7 +6345,7 @@
         : "buttons=[]";
       const axisEntries = Object.entries(snapshot.axes || {});
       const axisPart = axisEntries.length
-        ? `axes=${axisEntries.map(([axis, value]) => `${getGamepadAxisLabel(Number(axis))}:${value}`).join(" ")}`
+        ? `axes=${axisEntries.map(([axis, value]) => `${getGamepadAxisLabel(axis)}:${value}`).join(" ")}`
         : "axes=idle";
       return `${getDisplayControllerLabel(snapshot.id)} | ${buttonPart} | ${axisPart}`;
     }

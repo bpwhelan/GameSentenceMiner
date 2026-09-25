@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { between } = require('./helpers/overlay-startup.cjs');
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-gamepad-smoke-'));
 app.setPath('userData', path.join(directory, 'profile'));
 app.disableHardwareAcceleration();
@@ -157,8 +158,92 @@ app.whenReady().then(async () => {
   })()`);
   assert.deepEqual(cleanup, { afterExit: 0, reducedMotion: 0 });
 
+  // Manual activation uses the real renderer reveal and real Chromium layout.
+  // Hold the reveal as a frozen background would, then let vocabulary arrive.
+  const overlayHtml = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
+    '<!doctype html><meta charset="utf-8">' +
+    [...overlayHtml.matchAll(/<style[^>]*>[\s\S]*?<\/style>/g)].map(match => match[0]).join('') + '<body></body>'
+  ));
+  for (const filename of ['dictionary_navigation.js', 'gamepad.js', 'jiten_highlight.js']) {
+    await view.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname, '..', filename), 'utf8') + '\nvoid 0;');
+  }
+  const manualResult = await view.webContents.executeJavaScript(`(async () => {
+    const furiganaLayer = null;
+    const updateFuriganaVisibilityState = () => {};
+    const ipcRenderer = { send() {} };
+    let manualHotkeyPressed = false;
+    let gamepadHandler;
+    ${between(overlayHtml, '  function hideTextBoxes()', '  let resizeMode = false;')}
+    const block = document.createElement('div');
+    block.className = 'text-block-container';
+    block.style.cssText = 'left:100px;top:100px;width:240px;height:40px';
+    Array.from('猫は犬を見る').forEach((glyph, index) => {
+      const box = document.createElement('span');
+      box.className = 'text-box'; box.dataset.lineIndex = '0'; box.textContent = glyph;
+      box.style.cssText = 'left:' + (index * 40) + 'px;top:0;width:40px;height:40px';
+      block.appendChild(box);
+    });
+    document.body.appendChild(block);
+    const lookups = [], controls = [];
+    gamepadHandler = new GamepadHandler({ connectToServer: false, keyboardEnabled: false,
+      focusOverlayOnEntry: false, initialPosition: 'first-new',
+      isOverlayReady: () => manualHotkeyPressed && !pendingManualRevealForBackground });
+    gamepadHandler.requestTokenizationForBlock = () => {};
+    gamepadHandler.sendDictionaryControlMessage = (action, payload) => {
+      controls.push(action);
+      if (action === 'lookup-point') {
+        const target = document.querySelector('[data-gsm-yomitan-lookup-target="' + payload.targetId + '"]');
+        lookups.push(target?.textContent || gamepadHandler.getTargetCharForLookup().targetChar.textContent);
+      }
+    };
+    let resolveParse;
+    GsmJitenHighlight.setLocalParser(() => new Promise(resolve => { resolveParse = resolve; }));
+    GsmJitenHighlight.requestParse([{ text: '猫は犬を見る' }]);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    hideTextBoxes();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    gamepadHandler.activateNavigation();
+    manualHotkeyPressed = true;
+    armDeferredManualReveal();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const beforeReveal = lookups.slice();
+    finishDeferredManualReveal();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const afterReveal = lookups.slice();
+    resolveParse({ tokens: [[
+      { word: '猫', headword: '猫', start: 0, end: 1, knownState: [2] },
+      { word: '犬', headword: '犬', start: 2, end: 3, knownState: [0] },
+    ]] });
+    await new Promise(resolve => setTimeout(resolve, 40));
+    const selected = gamepadHandler.getTargetCharForLookup();
+    const result = { beforeReveal, afterReveal, lookups: lookups.slice(),
+      anchor: gamepadHandler.getCurrentAnchorCharIndex(),
+      visible: selected.targetChar.getClientRects().length > 0,
+      dismissedAfterLookup: controls.slice(controls.lastIndexOf('lookup-point') + 1).includes('hide-popup') };
+    gamepadHandler.destroy();
+    return result;
+  })()`);
+  assert.deepEqual(manualResult.beforeReveal, []);
+  assert.deepEqual(manualResult.afterReveal, ['猫']);
+  assert.deepEqual(manualResult.lookups, ['猫', '犬']);
+  assert.equal(manualResult.anchor, 2);
+  assert.equal(manualResult.visible, true);
+  assert.equal(manualResult.dismissedAfterLookup, false);
+
   // Render the actual settings markup/styles for visual QA without IPC or a server.
   const settings = fs.readFileSync(path.join(__dirname, '../settings.html'), 'utf8');
+  const navigationStart = settings.lastIndexOf('<h5', settings.indexOf('>Navigation Bindings</h5>'));
+  const navigationEnd = settings.lastIndexOf('<label>', settings.indexOf('Token Navigation Mode', navigationStart));
+  await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
+    '<!doctype html><meta charset="utf-8">' + settings.match(/<style>[\s\S]*?<\/style>/)[0] +
+    '<div class="container"><div class="setting-group">' + settings.slice(navigationStart, navigationEnd) + '</div></div>'
+  ));
+  assert.deepEqual(await view.webContents.executeJavaScript(
+    '[...document.querySelectorAll(".gamepad-binding-input")].map(input => input.value)'
+  ), ['DPad Up', 'DPad Down', 'DPad Left', 'DPad Right']);
+  assert.equal(await view.webContents.executeJavaScript('document.documentElement.scrollWidth > innerWidth'), false);
+  fs.writeFileSync(path.join(directory, 'navigation-bindings.png'), (await view.webContents.capturePage()).toPNG());
   const bindingStart = settings.lastIndexOf('<label>', settings.indexOf('Previous New / i+1 Jiten Word'));
   const bindingEnd = settings.lastIndexOf('<label>', settings.indexOf('Token Mode Toggle', bindingStart));
   await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
@@ -176,6 +261,18 @@ app.whenReady().then(async () => {
   const overflow = await view.webContents.executeJavaScript('document.documentElement.scrollWidth > innerWidth');
   assert.equal(overflow, false);
   fs.writeFileSync(path.join(directory, 'settings.png'), (await view.webContents.capturePage()).toPNG());
+
+  const manualCardCss = fs.readFileSync(path.join(__dirname, '../components/manual-mode-card.css'), 'utf8');
+  await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
+    '<!doctype html><meta charset="utf-8">' + settings.match(/<style>[\s\S]*?<\/style>/)[0] +
+    '<style>' + manualCardCss + '</style><div class="container"><div id="manual-card" class="setting-group gsm-mm-card"></div></div>'
+  ));
+  await view.webContents.executeJavaScript(
+    fs.readFileSync(path.join(__dirname, '../components/manual-mode-card.js'), 'utf8') +
+    '\nGSMManualModeCard.renderInto(document.getElementById("manual-card"));'
+  );
+  assert.equal(await view.webContents.executeJavaScript('document.documentElement.scrollWidth > innerWidth'), false);
+  fs.writeFileSync(path.join(directory, 'manual-mode.png'), (await view.webContents.capturePage()).toPNG());
   console.log('Gamepad Electron smoke passed. Screenshots:', directory);
   clearTimeout(timeout);
   view.destroy();

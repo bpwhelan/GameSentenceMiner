@@ -520,6 +520,7 @@ test('the D-pad sends an ordinary tap, a held jump after the delay, and stops on
   context.clearTimeout = id => timers.delete(id);
   handler.repeatTimers = new Map();
   handler.buttonStates = new Map([['pad', { 15: true }]]);
+  handler.refreshButtonBindings();
   handler.hideVirtualMouseCursorForDpadNavigation = () => {};
   handler.shouldProcessNavigation = () => true;
   handler.closeDictionaryPopups = () => {};
@@ -535,6 +536,33 @@ test('the D-pad sends an ordinary tap, a held jump after the delay, and stops on
   handler.onButtonUp(15, 'pad');
   assert.equal(timers.size, 0);
   assert.equal(handler.repeatTimers.size, 0);
+});
+
+test('navigation directions accept raw buttons, combos and explicit disabled bindings', () => {
+  const { handler, context } = setupJitenBindings({ dpadLeft: 'Button 803 + Button 806', dpadRight: 'Disabled' });
+  const moves = [];
+  const timers = new Map();
+  context.setTimeout = callback => { timers.set(1, callback); return 1; };
+  context.clearTimeout = id => timers.delete(id);
+  handler.navigateCursorLeft = () => moves.push('left');
+  handler.navigateCursorRight = () => moves.push('right');
+  handler.shouldProcessNavigation = () => true;
+  handler.closeDictionaryPopups = () => {};
+  handler.hideVirtualMouseCursorForDpadNavigation = () => {};
+  const input = (button, pressed) => handler.onButtonEvent({ device: 'pad', button, pressed });
+  input(803, true);
+  assert.deepEqual(moves, []);
+  input(806, true);
+  assert.deepEqual(moves, ['left']);
+  const repeat = timers.get(1);
+  assert.equal(typeof repeat, 'function');
+  input(803, false);
+  repeat();
+  assert.deepEqual(moves, ['left']);
+  input(806, false);
+  input(14, true);
+  input(15, true);
+  assert.deepEqual(moves, ['left']);
 });
 
 test('left-stick curve keeps gentle tilts precise and makes full tilt faster', () => {

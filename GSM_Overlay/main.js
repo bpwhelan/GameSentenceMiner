@@ -18,6 +18,7 @@ const { configureYomitan, createSetupHandler } = require('./anki_setup');
 const { createMagpieState } = require('./magpie');
 const { JitenParseCache, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
 const { installJitenSessionBroker, JitenFrameRequests } = require('./jiten_session');
+const { LocalVocabulary, VocabularyConnection } = require('./local_vocabulary');
 const { forceForegroundWindow } = require('./win_foreground');
 const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
@@ -806,7 +807,7 @@ function fetchJitenUpstream(input, init = {}) {
       let bytes = 0;
       response.on('data', (chunk) => {
         bytes += chunk.length;
-        if (bytes > 8 * 1024 * 1024) {
+        if (bytes > (init.maxResponseBytes || 8 * 1024 * 1024)) {
           response.destroy();
           finishError(new Error('Jiten response too large'));
           return;
@@ -846,6 +847,7 @@ function fetchJitenUpstream(input, init = {}) {
 
 // IPC and Reader extension requests share batching, cache, and backpressure.
 const jitenParseCache = new JitenParseCache({
+  onMutation: (args) => { void refreshLocalJitenState(args); },
   fetch: async (input, init) => {
     recordOverlayDiagnostic('jiten-transport-start');
     const response = await fetchJitenUpstream(input, init);
@@ -855,6 +857,82 @@ const jitenParseCache = new JitenParseCache({
 });
 const jitenFrameRequests = new JitenFrameRequests(jitenParseCache);
 let uninstallJitenSessionBroker = null;
+
+const vocabularyConnection = new VocabularyConnection({ WebSocket,
+  ensureServer: () => startGamepadServer('local-vocabulary'),
+  getPort: () => MANAGED_INPUT_SERVER_PORT || userSettings.gamepadServerPort,
+});
+const localVocabulary = new LocalVocabulary({
+  request: request => vocabularyConnection.request(request), fetch: fetchJitenUpstream,
+});
+let vocabularySyncInterval = null;
+let vocabularySyncTimer = null;
+let lastVocabularySyncAt = 0;
+function localVocabularyConfig() {
+  const profile = getCurrentGSMProfileSettings();
+  return { enabled: userSettings.localVocabularyEnabled === true,
+    source: ['jiten', 'anki', 'both'].includes(userSettings.localVocabularySource) ? userSettings.localVocabularySource : 'jiten',
+    apiKey: userSettings.gamepadJitenApiKey,
+    ankiUrl: profile.anki?.url, profile: getCurrentGSMProfileName(),
+    ankiQuery: userSettings.localVocabularyAnkiQuery,
+    wordField: userSettings.localVocabularyAnkiWordField || profile.anki?.word?.name || profile.anki?.word_field || 'Expression',
+    readingField: userSettings.localVocabularyAnkiReadingField,
+  };
+}
+function notifyLocalVocabularyChanged() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('local-vocabulary-changed');
+  if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('local-vocabulary-changed');
+}
+function scheduleLocalVocabularySync(delay = 1000) {
+  if (!userSettings.localVocabularyEnabled) return;
+  clearTimeout(vocabularySyncTimer);
+  vocabularySyncTimer = setTimeout(async () => {
+    vocabularySyncTimer = null;
+    if (!userSettings.localVocabularyEnabled) return;
+    lastVocabularySyncAt = Date.now();
+    try { await localVocabulary.sync(localVocabularyConfig()); } catch { /* Status UI exposes failure; keep offline data. */ }
+    notifyLocalVocabularyChanged();
+  }, delay);
+}
+function syncLocalVocabularyRuntime() {
+  localVocabulary.cancel();
+  clearInterval(vocabularySyncInterval); vocabularySyncInterval = null;
+  clearTimeout(vocabularySyncTimer); vocabularySyncTimer = null;
+  if (userSettings.localVocabularyEnabled) {
+    scheduleLocalVocabularySync();
+    vocabularySyncInterval = setInterval(() => scheduleLocalVocabularySync(), 15 * 60_000);
+  } else vocabularyConnection.close();
+}
+async function refreshLocalJitenState(args) {
+  if (!userSettings.localVocabularyEnabled) return;
+  // Invalidate an in-flight snapshot before asking for authoritative new states.
+  try {
+    await localVocabulary.updateJitenStates(args, []);
+    const pairs = args.body?.wordId ? [[args.body.wordId, args.body.readingIndex || 0]] : [];
+    if (pairs.length) {
+      const state = await jitenParseCache.lookupVocabulary({ ...args, words: pairs, force: true });
+      await localVocabulary.updateJitenStates(args, pairs.map(([wordId, readingIndex], i) => ({ wordId, readingIndex, knownState: state.result[i] })));
+      notifyLocalVocabularyChanged();
+    }
+  } catch { /* A successful remote grade must stay successful if the mirror is offline. */ }
+  // A full export contains review history. Coalesce new-word refreshes instead
+  // of downloading that backup for every grade in a study session.
+  scheduleLocalVocabularySync(Math.max(2000, 60_000 - (Date.now() - lastVocabularySyncAt)));
+}
+ipcMain.handle('gsm-local-vocabulary-parse', (_event, { texts } = {}) => {
+  if (!userSettings.localVocabularyEnabled) throw new Error('Local vocabulary is disabled');
+  return localVocabulary.parse(texts, localVocabularyConfig());
+});
+ipcMain.handle('gsm-local-vocabulary-status', () => {
+  if (!userSettings.localVocabularyEnabled) return { sources: [], errors: [] };
+  return localVocabulary.status(localVocabularyConfig());
+});
+ipcMain.handle('gsm-local-vocabulary-sync', async () => {
+  if (!userSettings.localVocabularyEnabled) throw new Error('Enable local vocabulary first');
+  lastVocabularySyncAt = Date.now();
+  try { return await localVocabulary.sync(localVocabularyConfig()); }
+  finally { notifyLocalVocabularyChanged(); }
+});
 
 // Renderer-process bridge to the cache. The overlay's gamepad/furigana
 // pipeline calls this instead of fetching directly, so cache hits skip
@@ -1042,6 +1120,11 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "enableJitenReader": true,
   // Jiten Reader style SRS highlighting on the overlay text
   "jitenHighlightingEnabled": false,
+  "localVocabularyEnabled": false,
+  "localVocabularySource": "jiten",
+  "localVocabularyAnkiQuery": "",
+  "localVocabularyAnkiWordField": "",
+  "localVocabularyAnkiReadingField": "",
   "jitenHighlightOpacity": 0.7,
   "jitenHighlightOffsetY": 3, // px to nudge the SRS underline down from the glyph baseline
   // Jiten SRS grading buttons at the top of the Yomitan popup
@@ -1065,6 +1148,10 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
   "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
   "gamepadPrevJitenWordButton": -1, // Disabled - previous new or i+1 Jiten word
+  "gamepadNavigateUp": 12,
+  "gamepadNavigateDown": 13,
+  "gamepadNavigateLeft": 14,
+  "gamepadNavigateRight": 15,
   "gamepadNextJitenWordButton": -1, // Disabled - next new or i+1 Jiten word
   "gamepadAutoConfirmSelection": true,
   "gamepadFocusOverlayOnEntry": true,
@@ -2633,6 +2720,7 @@ function resolveGamepadServerExecutable() {
 }
 
 function shouldRunInputServer(settings = userSettings) {
+  if (settings.localVocabularyEnabled === true) return true;
   if (settings.gamepadEnabled) {
     return true;
   }
@@ -5197,7 +5285,9 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   requestOverlayPauseForSource(pauseSource);
 
   if (isOverlayVisible) {
-    if (keepManualActivationFocusNeutral) {
+    // Controller entry sends navigation-state followed by a focus request. The
+    // second show must preserve the focus deliberately acquired by the first.
+    if (keepManualActivationFocusNeutral && !userSettings.manualModeDisableInteractionFocusOverlay) {
       showOverlayWithoutFocusForManualVisibleMode(`manual-show-already-visible:${triggerSource}`);
     }
     console.log("[OverlayActivation] Blocked: Overlay is already visible.");
@@ -5777,6 +5867,7 @@ function registerTexthookerHotkey(oldHotkey) {
 
       console.log("[TexthookerMode] ACTION: Forcing Focus");
       texthookerWindow.show(); // Call show again to force focus like manual mode
+      forceForegroundWindow(texthookerWindow);
 
       // Hide main window to avoid interference
       mainWindow.hide();
@@ -6904,6 +6995,13 @@ async function startOverlayAppImpl() {
       console.log(`[YomitanHotReload] Detected yomitan update (version: ${newVersion}). Reloading extension...`);
 
       try {
+        if (!await canLoadYomitan()) {
+          if (yomitanExt && yomitanExt.id) {
+            getExtensionSessionApi().removeExtension(yomitanExt.id);
+            yomitanExt = null;
+          }
+          return;
+        }
         // Clear stale service worker cache before reloading
         await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
         const extensionApi = getExtensionSessionApi();
@@ -7113,6 +7211,7 @@ async function startOverlayAppImpl() {
   registerGamepadKeyboardHotkey();
 
   reconfigureOverlayRuntimeForSettingsChange = (previousSettings = {}, reason = "unknown") => {
+    syncLocalVocabularyRuntime();
     const previous = previousSettings || {};
     const changed = (key) => previous[key] !== userSettings[key];
     const profileSwitchReconfigure = String(reason || "").startsWith("overlay-profile:");
@@ -7211,6 +7310,7 @@ async function startOverlayAppImpl() {
 
   // Start the shared Rust input server if any current feature requires it.
   syncGamepadServerState("app-whenReady");
+  syncLocalVocabularyRuntime();
 
   // If route-all-hotkeys is already enabled at launch, open the app-hotkey socket
   // (the register* calls above populated the registry).
@@ -8141,6 +8241,10 @@ async function startOverlayAppImpl() {
       case "gamepadPrevEntryButton":
       case "gamepadPrevJitenWordButton":
       case "gamepadNextJitenWordButton":
+      case "gamepadNavigateUp":
+      case "gamepadNavigateDown":
+      case "gamepadNavigateLeft":
+      case "gamepadNavigateRight":
       case "gamepadAutoConfirmSelection":
       case "gamepadFocusOverlayOnEntry":
       case "gamepadShowModeIndicator":
@@ -8180,6 +8284,10 @@ async function startOverlayAppImpl() {
         registerGamepadKeyboardHotkey(oldValue);
         syncGamepadServerState(`setting-changed:${key}`);
         break;
+    }
+    if (key.startsWith('localVocabulary') || key === 'gamepadJitenApiKey') {
+      syncGamepadServerState('local-vocabulary-settings');
+      syncLocalVocabularyRuntime();
     }
     // GSM-owned OCR-capture settings are persisted by the backend, not the overlay profile.
     if (GSM_OWNED_OVERLAY_FIELD_MAP[key]) {
@@ -8583,6 +8691,10 @@ async function stopOverlayApp() {
 
       runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());
       runOverlayCleanupStep('Jiten requests', () => {
+        localVocabulary.cancel();
+        clearInterval(vocabularySyncInterval);
+        clearTimeout(vocabularySyncTimer);
+        vocabularyConnection.close();
         jitenFrameRequests.dispose();
         jitenParseCache.dispose();
         uninstallJitenSessionBroker?.();

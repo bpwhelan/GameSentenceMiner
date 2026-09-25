@@ -1842,6 +1842,22 @@ background: rgba(202, 12, 12, 0.692);
   }
   // Jiten SRS Highlighting state (mirror approach)
   let jitenHighlightingEnabled = true;
+  let localVocabularyEnabled = false;
+  function setLocalVocabularyEnabled(value) {
+    localVocabularyEnabled = value === true;
+    window.GsmJitenHighlight?.setLocalParser(localVocabularyEnabled
+      ? texts => ipcRenderer.invoke('gsm-local-vocabulary-parse', { texts }) : null);
+    if (localVocabularyEnabled) {
+      window.GsmJitenHighlight?.setEnabled(jitenHighlightingEnabled);
+      window.GsmJitenHighlight?.setAvailable(jitenHighlightingEnabled);
+      applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
+    } else syncJitenSettings('local-vocabulary-disabled', true);
+  }
+  ipcRenderer.on('local-vocabulary-changed', () => {
+    if (!localVocabularyEnabled) return;
+    window.GsmJitenHighlight?.refresh();
+    applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
+  });
   // Most recent OCR lines, kept even while highlighting is off so toggling on can
   // re-parse current text instead of waiting for new OCR.
   let lastJitenHighlightLines = null;
@@ -2077,10 +2093,10 @@ background: rgba(202, 12, 12, 0.692);
   // Ask the Jiten Reader extension to parse the current lines and mirror SRS
   // highlights (the extension's content script does the parsing).
   function applyJitenHighlightingForLines(lines, meta, lineBlocks) {
-    if (!jitenHighlightingEnabled || !jitenReaderEnabled) return;
+    if (!jitenHighlightingEnabled || (!jitenReaderEnabled && !localVocabularyEnabled)) return;
     // Not verified parseable yet → kick a throttled re-check so a freshly-added
     // key / unpause resumes on its own, then bail.
-    if (!jitenHighlightAvailable) {
+    if (!jitenHighlightAvailable && !localVocabularyEnabled) {
       if (Date.now() - lastJitenSettingsSyncAt > JITEN_SETTINGS_RESYNC_THROTTLE_MS) {
         syncJitenSettings('lines-while-unavailable');
       }
@@ -2127,6 +2143,7 @@ background: rgba(202, 12, 12, 0.692);
   // only refreshes when availability actually flips, so a stale `true` would
   // suppress the refresh until an overlay restart.
   function markJitenUnavailable() {
+    if (localVocabularyEnabled && jitenHighlightingEnabled) return;
     jitenHighlightAvailable = false;
     const api = window.GsmJitenHighlight;
     if (!api) return;
@@ -2140,6 +2157,11 @@ background: rgba(202, 12, 12, 0.692);
     const was = jitenHighlightingEnabled;
     jitenHighlightingEnabled = value !== false;
     if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
+    if (localVocabularyEnabled) {
+      window.GsmJitenHighlight?.setAvailable(jitenHighlightingEnabled);
+      if (jitenHighlightingEnabled) applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
+      return;
+    }
     if (jitenHighlightingEnabled && !was) syncJitenSettings('enable-highlighting');
     else if (!jitenHighlightingEnabled && was) markJitenUnavailable();
   }
@@ -2169,6 +2191,7 @@ background: rgba(202, 12, 12, 0.692);
   // available means highlighting + the reader are on, an API key is present, and
   // parsing isn't paused. When it flips on, re-highlight what's already on screen.
   function applyVerifiedJitenAvailability(hasApiKey, parsingPaused) {
+    if (localVocabularyEnabled) return;
     const wasAvailable = jitenHighlightAvailable;
     const nowAvailable = jitenReaderEnabled && jitenHighlightingEnabled && !!hasApiKey && !parsingPaused;
     jitenHighlightAvailable = nowAvailable;
@@ -4540,8 +4563,8 @@ background: rgba(202, 12, 12, 0.692);
       furiganaLayer.style.display = 'none';
     }
 
-    // Token highlights are overlay boxes over the text; hide them with it.
-    if (window.GsmJitenHighlight) window.GsmJitenHighlight.clearJitenHighlighting();
+    // Preserve vocabulary states and in-flight parsing for the next activation.
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.setVisible(false);
 
     // Don't remove translation-display here if you want it to persist,
     // but DO remove it if you're getting new text.
@@ -4646,12 +4669,17 @@ background: rgba(202, 12, 12, 0.692);
     updateFuriganaVisibilityState();
 
     // Re-draw token highlights over the now-visible boxes.
-    if (window.GsmJitenHighlight) window.GsmJitenHighlight.reposition();
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.setVisible(true);
 
     // Don't remove translation-display here if you want it to persist,
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.style.display = 'block';
+
+    // Reveal can arrive after navigation activation, or after a frozen frame.
+    if (gamepadHandler?.pendingNavigationActivation) {
+      gamepadHandler.handleOverlayTextRenderComplete();
+    }
   }
 
   let resizeMode = false;
@@ -4767,6 +4795,9 @@ background: rgba(202, 12, 12, 0.692);
       pinyinTone5Color: newsettings.pinyinTone5Color,
     });
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
+    if (Object.prototype.hasOwnProperty.call(newsettings, "localVocabularyEnabled")) {
+      setLocalVocabularyEnabled(newsettings.localVocabularyEnabled);
+    }
     hideFuriganaAfterSeconds = clampNumber(newsettings.hideFuriganaAfterSeconds, 0, 0, 60);
     if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightingEnabled")) {
       setJitenHighlightingEnabled(newsettings.jitenHighlightingEnabled);
@@ -5034,6 +5065,16 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "showReadyIndicator":
           shouldShowReadyIndicator = value !== false;
+          break;
+        case "localVocabularyEnabled":
+          setLocalVocabularyEnabled(value);
+          break;
+        case "localVocabularySource":
+        case "localVocabularyAnkiQuery":
+        case "localVocabularyAnkiWordField":
+        case "localVocabularyAnkiReadingField":
+        case "gamepadJitenApiKey":
+          if (localVocabularyEnabled) setLocalVocabularyEnabled(true);
           break;
         case "jitenHighlightingEnabled":
           setJitenHighlightingEnabled(value);
@@ -5627,6 +5668,10 @@ background: rgba(202, 12, 12, 0.692);
   let gamepadStatusHideTimeout = null;
   let wasGamepadConnected = false;
   const GAMEPAD_NAVIGATION_OPTIONS = [
+    ['gamepadNavigateUp', 'dpadUp'],
+    ['gamepadNavigateDown', 'dpadDown'],
+    ['gamepadNavigateLeft', 'dpadLeft'],
+    ['gamepadNavigateRight', 'dpadRight'],
     ['gamepadHoldNavigation', 'holdNavigation'],
     ['gamepadHorizontalWrap', 'horizontalWrap'],
     ['gamepadVerticalNavigation', 'verticalNavigation'],
@@ -5654,6 +5699,10 @@ background: rgba(202, 12, 12, 0.692);
     nextEntryButton: 7, // RT trigger - navigate to next Yomitan entry
     prevEntryButton: 6, // LT trigger - navigate to previous Yomitan entry
     prevJitenWordButton: -1, // Disabled
+    dpadUp: 12,
+    dpadDown: 13,
+    dpadLeft: 14,
+    dpadRight: 15,
     nextJitenWordButton: -1, // Disabled
     repeatDelay: 400,
     repeatRate: 150,
@@ -5768,6 +5817,10 @@ background: rgba(202, 12, 12, 0.692);
       nextEntryButton: gamepadSettings.nextEntryButton,
       prevEntryButton: gamepadSettings.prevEntryButton,
       prevJitenWordButton: gamepadSettings.prevJitenWordButton,
+      dpadUp: gamepadSettings.dpadUp,
+      dpadDown: gamepadSettings.dpadDown,
+      dpadLeft: gamepadSettings.dpadLeft,
+      dpadRight: gamepadSettings.dpadRight,
       nextJitenWordButton: gamepadSettings.nextJitenWordButton,
       repeatDelay: gamepadSettings.repeatDelay,
       repeatRate: gamepadSettings.repeatRate,
@@ -5792,6 +5845,7 @@ background: rgba(202, 12, 12, 0.692);
       showModeIndicator: gamepadSettings.showModeIndicator !== false,
       connectToServer: shouldConnectGamepadServer(),
       inputSuppressed: gamepadInputSuppressed === true,
+      isOverlayReady: () => !isManualInteractionSuppressed() && !pendingManualRevealForBackground,
       // Keyboard bindings
       keyboardModifierKey: gamepadSettings.keyboardModifierKey,
       keyboardToggleKey: gamepadSettings.keyboardToggleKey,

@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - GSM_Overlay/input_server/**
+      - .cargo/config.toml
       - .github/workflows/build_overlay_server.yml
   workflow_dispatch:
 

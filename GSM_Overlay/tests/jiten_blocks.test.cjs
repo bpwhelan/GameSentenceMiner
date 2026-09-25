@@ -86,6 +86,44 @@ const line = (text, y, x = 0.1, width = 0.6) => ({
   text, bounding_rect: { x1: x, y1: y, x3: x + width, y3: y + 0.04 },
 });
 
+test('local highlights preserve UTF-16 offsets and work without invoking Reader', async t => {
+  const lines = [line('😀 猫は図書', 0.6), line('館にいる。', 0.66)];
+  const { api, tick, parses, paragraphs, complete } = setup(t, lines);
+  const calls = [];
+  api.setLocalParser(async texts => {
+    calls.push(texts);
+    return { tokens: [[
+      { word: '猫', headword: '猫', start: 3, end: 4, knownState: [5], wordId: 1, readingIndex: 0 },
+      { word: '図書館', headword: '図書館', start: 5, end: 8, knownState: [0] },
+    ]] };
+  });
+  api.requestParse(lines, new Map([[0, 0], [1, 0]]));
+  tick(0);
+  await new Promise(setImmediate);
+  await complete();
+  assert.deepEqual(calls.map(texts => Array.from(texts)), [['😀 猫は図書館にいる。']]);
+  assert.equal(parses(), 0, 'local mode must not send text to the Reader');
+  assert.equal(paragraphs()[0].textContent, '😀 猫は図書館にいる。');
+  const tokens = api.getNavigationTokens();
+  assert.ok(tokens.length, paragraphs()[0].outerHTML);
+  assert.deepEqual(Array.from(tokens, token => [token.lineIndex, token.start, token.end, token.iPlusOne]),
+    [[0, 3, 4, false], [0, 5, 7, true], [1, 0, 1, true]]);
+  assert.equal(paragraphs()[0].querySelectorAll('[wordId]').length, 1, 'unmapped words must not get fake Jiten IDs');
+});
+
+test('changing a local source discards an in-flight parse from the old account', async t => {
+  const { api, tick, paragraphs, complete } = setup(t, [line('猫', 0.6)]);
+  let finishOld;
+  api.setLocalParser(() => new Promise(resolve => { finishOld = resolve; }));
+  api.requestParse([line('猫', 0.6)]); tick(0);
+  api.setLocalParser(async () => ({ tokens: [[{ headword: '猫', start: 0, end: 1, knownState: [0] }]] }));
+  api.refresh(); tick(0); await complete();
+  finishOld({ tokens: [[{ headword: '猫', start: 0, end: 1, knownState: [5] }]] });
+  await complete();
+  assert.ok(paragraphs()[0].querySelector('.new'));
+  assert.equal(paragraphs()[0].querySelector('.mastered'), null);
+});
+
 test('detected multiline blocks reuse exact cached TextFeed paragraphs', async t => {
   const lines = [line('猫は図書', 0.6), line('設定', 0.02, 0.8, 0.1), line('館にいる。', 0.66)];
   const { lineBlocks } = detectTextBlocks(lines);

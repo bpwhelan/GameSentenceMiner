@@ -81,6 +81,15 @@ const GamepadHandler = legacyGamepad.GamepadHandler;
 const legacyGamepadContext = legacyGamepad.context;
 
 describe("legacy gamepad startup settings", () => {
+  it("restores generic controller navigation bindings and disabled directions", () => {
+    expect(loadStartupGamepadSettings({
+      gamepadNavigateUp: "Button 803", gamepadNavigateDown: "Button 806 + Button 809",
+      gamepadNavigateLeft: "Disabled", gamepadNavigateRight: 196642,
+    })).toMatchObject({
+      dpadUp: "Button 803", dpadDown: "Button 806 + Button 809",
+      dpadLeft: "Disabled", dpadRight: 196642,
+    });
+  });
   it("restores dedicated Jiten word bindings, including explicit disabled values", () => {
     expect(loadStartupGamepadSettings({
       gamepadPrevJitenWordButton: "LB", gamepadNextJitenWordButton: "RB"
@@ -222,6 +231,7 @@ describe("legacy gamepad token refreshes", () => {
     handler.getBlockText = () => "日本語";
     handler.shouldTokenizeText = () => true;
     handler.isNavigationActive = () => true;
+    handler.getCurrentAnchorCharIndex = () => 1;
     handler.autoConfirmSelection = vi.fn();
     handler.syncSelectionFromVirtualMouse = vi.fn(
       (_sourceElement: unknown, options: { autoConfirm?: boolean } = {}) => {

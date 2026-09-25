@@ -250,6 +250,7 @@ test('Jiten availability recovery preserves authoritative OCR metadata', () => {
   const calls = [];
   const context = vm.createContext({
     jitenHighlightAvailable: false,
+    localVocabularyEnabled: false,
     jitenReaderEnabled: true,
     jitenHighlightingEnabled: true,
     lastJitenHighlightLines: [{ text: '途中' }],
@@ -276,9 +277,24 @@ test('Jiten availability recovery preserves authoritative OCR metadata', () => {
 });
 
 test('all overlay inline scripts remain syntactically valid', () => {
-  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
-    if (/\bsrc\s*=|type\s*=\s*["'](?:module|application\/json)/i.test(match[1])) continue;
-    new vm.Script(match[2]);
+  for (const file of ['index.html', 'settings.html']) {
+    const html = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+      if (/\bsrc\s*=|type\s*=\s*["'](?:module|application\/json)/i.test(match[1])) continue;
+      new vm.Script(match[2]);
+    }
   }
+});
+
+test('local highlighting remains available without the Reader or API key', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const start = html.indexOf('function applyVerifiedJitenAvailability');
+  const end = html.indexOf('function jitenSettingTruthy', start);
+  const calls = [];
+  const context = vm.createContext({ localVocabularyEnabled: true, jitenHighlightAvailable: false,
+    jitenReaderEnabled: false, jitenHighlightingEnabled: true,
+    window: { GsmJitenHighlight: { setAvailable: value => calls.push(value) } } });
+  vm.runInContext(`${html.slice(start, end)}\nglobalThis.applyAvailability = applyVerifiedJitenAvailability;`, context);
+  context.applyAvailability(false, true);
+  assert.deepEqual(calls, [], 'Reader availability must not disable the independent local parser');
 });

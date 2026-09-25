@@ -29,6 +29,18 @@ test('Reader write IDs coalesce retries but preserve separate intentional grades
   assert.equal(calls.length, 2);
 });
 
+test('local mirror notifications occur once per acknowledged write and cannot fail a review', async t => {
+  const notifications = [];
+  const { cache, calls } = setup(t, { onMutation: args => { notifications.push(args); throw new Error('mirror offline'); } },
+    () => Response.json({ ok: true }));
+  const args = { ...auth, action: 'srs/review', body: { wordId: 1, readingIndex: 0, rating: 3 }, requestId: 'mirror-test' };
+  assert.deepEqual(await cache.request(args), { ok: true });
+  await cache.request(args);
+  assert.equal(calls.length, 1);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].apiKey, auth.apiKey);
+});
+
 test('failed Reader write receipts survive the service cooldown', async (t) => {
   const { cache, calls } = setup(t, {}, () => new Response('', { status: 503 }));
   const args = { ...auth, action: 'srs/review', body: { wordId: 1 }, requestId: 'failed-operation' };

@@ -1,7 +1,8 @@
 /**
  * GSM Overlay - Jiten Reader SRS Highlighting (Mirror Approach)
  *
- * We mirror the Jiten Reader extension's own parsing to get SRS states: insert
+ * With local vocabulary enabled, Rust supplies tokens and states directly.
+ * Otherwise we mirror the Jiten Reader extension's parsing: insert
  * text into an off-screen parse container, trigger a parse via synthetic Alt+P,
  * observe the .jiten-word spans it creates, then draw one overlay highlight box
  * per token over the union rect of its character boxes (like gamepad.js).
@@ -50,8 +51,64 @@
   let lastParseFinishedAt = 0;
   let parseTimeoutId = null;
   let enabled = true;
+  let visible = true;
+  const navigationListeners = new Set();
   let lastParsedSignature = null;
   let configuredVisibleClasses = null;
+  let localParser = null;
+  let localParseGeneration = 0;
+  const LOCAL_STATE_CLASSES = ['new', 'young', 'mature', 'blacklisted', 'due', 'mastered', 'redundant', 'suspended'];
+
+  function setLocalParser(parser) {
+    localParser = typeof parser === 'function' ? parser : null;
+    localParseGeneration++;
+    clearTimeout(runningParseTimer);
+    clearTimeout(parseTimeoutId);
+    runningSignature = null;
+    lastParsedSignature = null;
+    containerSignature = null;
+    hideAllSegments();
+  }
+
+  async function parseLocally(blocks) {
+    const generation = ++localParseGeneration;
+    try {
+      const result = await localParser(blocks.map(block => block.text));
+      if (generation !== localParseGeneration || !enabled || !available) return;
+      if (!Array.isArray(result?.tokens) || result.tokens.length !== blocks.length) throw new Error('Invalid local parse');
+      const paragraphs = parseContainer.querySelectorAll('p[data-line-index]');
+      for (let i = 0; i < blocks.length; i++) {
+        const p = paragraphs[i];
+        const text = blocks[i].text;
+        const tokens = result.tokens[i];
+        const unknown = new Set(tokens.filter(token => !(token.knownState || []).some(state => [2, 3, 5, 6].includes(state)))
+          .map(token => token.headword));
+        p.textContent = '';
+        let offset = 0;
+        for (const token of tokens) {
+          if (!Number.isInteger(token.start) || !Number.isInteger(token.end) || token.start < offset
+              || token.end <= token.start || token.end > text.length) throw new Error('Invalid local token offsets');
+          p.appendChild(document.createTextNode(text.slice(offset, token.start)));
+          const span = document.createElement('span');
+          span.className = 'jiten-word ' + (token.knownState || [0]).map(state => LOCAL_STATE_CLASSES[state]).filter(Boolean).join(' ');
+          if (unknown.size === 1 && unknown.has(token.headword)) span.classList.add('i-plus-one');
+          if (Number.isSafeInteger(token.wordId) && token.wordId > 0) {
+            span.setAttribute('wordId', String(token.wordId));
+            span.setAttribute('readingIndex', String(token.readingIndex || 0));
+          }
+          span.textContent = text.slice(token.start, token.end);
+          p.appendChild(span);
+          offset = token.end;
+        }
+        p.appendChild(document.createTextNode(text.slice(offset)));
+      }
+    } catch {
+      // Keep the OCR text usable if the dictionary/server is unavailable.
+      if (generation === localParseGeneration) console.warn('[LocalVocabulary] Local parsing unavailable; check vocabulary sync status.');
+    } finally {
+      if (generation === localParseGeneration) onParseComplete();
+    }
+  }
 
   // Whether Jiten can parse right now. The overlay verifies this via the settings
   // bridge and pushes it in through setAvailable(); optimistic by default so the
@@ -112,6 +169,7 @@
   }
 
   function onParseContainerMutation() {
+    if (localParser) return; // Local parsing completes explicitly, including empty results.
     if (!parseContainer) return;
     // An all-unparsed response is still a completed Reader parse. Waiting only
     // for parsed words leaves the queue locked until the watchdog whenever Jiten
@@ -135,6 +193,7 @@
     runningSignature = null;
     restoreOverlayElements(); // defensive; requestParse normally restores synchronously
     mirrorHighlights();
+    notifyNavigationTokens();
     schedulePendingParse();
   }
 
@@ -174,6 +233,7 @@
     if (signature === lastParsedSignature && Date.now() - lastParseFinishedAt < 300_000) {
       // Text unchanged, just re-draw over the (possibly re-laid-out) boxes.
       mirrorHighlights();
+      notifyNavigationTokens();
       return Promise.resolve();
     }
 
@@ -238,12 +298,13 @@
     if (!currentBlocks.some((block) => containsJapanese(block.text))) {
       lastParsedSignature = containerSignature;
       lastParseFinishedAt = Date.now();
+      notifyNavigationTokens();
       return;
     }
     runningSignature = containerSignature;
     // Empty parses and extension failures may produce no word mutations. This
     // timeout releases the next frame without repeatedly retrying the same one.
-    runningParseTimer = setTimeout(onParseComplete, 30_000);
+    if (!localParser) runningParseTimer = setTimeout(onParseComplete, 30_000);
 
     // One Reader paragraph per detected block. Keep every line in a Japanese
     // block, including punctuation/Latin-only lines that affect its cache key.
@@ -255,6 +316,11 @@
       p.textContent = block.text;
       containerBlocks.set(firstLineIndex, block);
       parseContainer.appendChild(p);
+    }
+
+    if (localParser) {
+      void parseLocally(currentBlocks.filter(block => containsJapanese(block.text)));
+      return;
     }
 
     // Make parse container renderable (move on-screen temporarily for Jiten).
@@ -303,7 +369,7 @@
   // Read Jiten-parsed spans and draw one overlay box per token over the union
   // rect of its .text-box glyphs.
   function mirrorHighlights() {
-    if (!enabled || !available || !parseContainer || !currentLines || containerSignature !== currentSignature) {
+    if (!visible || !enabled || !available || !parseContainer || !currentLines || containerSignature !== currentSignature) {
       hideAllSegments();
       return;
     }
@@ -613,7 +679,31 @@
     }
   }
 
+  // Manual-mode visibility must not discard the parse used by gamepad navigation
+  // or cancel a pending local parse. Content invalidation still clears it below.
+  function setVisible(value) {
+    visible = !!value;
+    mirrorHighlights();
+  }
+
+  function subscribeNavigationTokens(listener) {
+    navigationListeners.add(listener);
+    return () => navigationListeners.delete(listener);
+  }
+
+  function notifyNavigationTokens() {
+    for (const listener of navigationListeners) listener();
+  }
+
+  function isParsePending() {
+    return enabled && available && (!currentLines || currentSignature !== lastParsedSignature);
+  }
+
   function clearAllHighlights() {
+    if (localParser) {
+      localParseGeneration++;
+      runningSignature = null;
+    }
     hideAllSegments();
     clearTimeout(pendingParseTimer);
     pendingParseTimer = null;
@@ -628,6 +718,7 @@
     if (!enabled) {
       clearAllHighlights();
       lastParsedSignature = null;
+      notifyNavigationTokens();
     }
   }
 
@@ -639,6 +730,7 @@
     if (!available) {
       clearAllHighlights();
       lastParsedSignature = null;
+      notifyNavigationTokens();
     }
   }
 
@@ -702,6 +794,10 @@
   }
 
   const api = {
+    setLocalParser,
+    setVisible,
+    subscribeNavigationTokens,
+    isParsePending,
     getNavigationTokens,
     init,
     requestParse,

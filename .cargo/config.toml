@@ -1,0 +1,4 @@
+[env]
+# sdl2-sys bundles SDL 2.26, whose CMake minimum predates CMake 4's policy floor.
+# This also applies when building the input server with --manifest-path here.
+CMAKE_POLICY_VERSION_MINIMUM = { value = "3.5", force = false }
