@@ -538,11 +538,13 @@ def test_normalize_anki_sentence_line_breaks_keeps_grouped_field_newlines(senten
 def test_apply_field_grouping_merge_groups_kiku_fields_for_previously_merged_note(monkeypatch):
     config = _base_config()
     config.anki.sentence_furigana_field = "SentenceFurigana"
-    config.anki.field_grouping_additional_fields = []
+    config.anki.field_grouping_additional_fields = ["SentenceTranslation"]
     monkeypatch.setattr(anki, "get_config", lambda: config)
     source_values = {
         "Sentence": "お前が<b>感傷的</b>になって殴りかかったからじゃないか？<br>直前の台詞。",
         "SentenceFurigana": "お前[まえ]が感傷的[かんしょうてき]になって殴[なぐ]りかかったからじゃないか？",
+        # The new note was merged before its translation finished.
+        "SentenceTranslation": "",
         "SentenceAudio": "[sound:new.mp3]",
         "Picture": '<img src="new.webp">',
     }
@@ -562,6 +564,7 @@ def test_apply_field_grouping_merge_groups_kiku_fields_for_previously_merged_not
             "SentenceFurigana": {
                 "value": "お前[まえ]が感傷的[かんしょうてき]になって殴[なぐ]りかかったからじゃないか？"
             },
+            "SentenceTranslation": {"value": "old translation"},
             "SentenceAudio": {"value": "[sound:old.mp3]"},
             "Picture": {"value": '<img data-group-id="100" src="old.webp">'},
         },
@@ -593,19 +596,20 @@ def test_apply_field_grouping_merge_groups_kiku_fields_for_previously_merged_not
                 "note": {
                     "id": 100,
                     "fields": {
-                        "Picture": '<img data-group-id="200" src="new.webp">\n<img data-group-id="100" src="old.webp">',
                         "Sentence": (
                             '<span data-group-id="200">お前が<b>感傷的</b>になって殴りかかったからじゃないか？<br>直前の台詞。</span>\n'
                             '<span data-group-id="90">直前の台詞。</span>\n'
                             '<span data-group-id="100">お前が<b>感傷的</b>になって殴りかかったからじゃないか？</span>'
                         ),
-                        "SentenceAudio": (
-                            '<span data-group-id="200">[sound:new.mp3]</span>\n<span data-group-id="100">[sound:old.mp3]</span>'
-                        ),
                         "SentenceFurigana": (
                             '<span data-group-id="200">お前[まえ]が感傷的[かんしょうてき]になって殴[なぐ]りかかったからじゃないか？</span>\n'
                             '<span data-group-id="100">お前[まえ]が感傷的[かんしょうてき]になって殴[なぐ]りかかったからじゃないか？</span>'
                         ),
+                        "SentenceTranslation": '<span data-group-id="100">old translation</span>',
+                        "SentenceAudio": (
+                            '<span data-group-id="200">[sound:new.mp3]</span>\n<span data-group-id="100">[sound:old.mp3]</span>'
+                        ),
+                        "Picture": '<img data-group-id="200" src="new.webp">\n<img data-group-id="100" src="old.webp">',
                     },
                 }
             },
