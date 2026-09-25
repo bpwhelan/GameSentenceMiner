@@ -134,6 +134,47 @@ def test_add_wildcards():
     assert anki.add_wildcards("abc") == "*a*b*c*"
 
 
+@pytest.mark.parametrize("missing", ["Word", "Sentence", "SentenceAudio", "Picture"])
+def test_new_card_with_missing_fields_offers_setup_before_mining(monkeypatch, missing):
+    config = _base_config()
+    config.name = "Mining profile"
+    config.audio.enabled = True
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    fields = {"Word": "語", "Sentence": "例文", "SentenceAudio": "", "Picture": ""}
+    del fields[missing]
+    card = SimpleNamespace(noteId=42, tags=[], modelName="Custom cards", fields=fields, get_field=fields.__getitem__)
+    offered = []
+    monkeypatch.setattr(anki.gsm_state, "dialog_manager", SimpleNamespace(offer_anki_setup=offered.append))
+    mined_line = SimpleNamespace(id="mismatch-test-line", text="例文")
+    monkeypatch.setattr(anki, "_resolve_mined_line_for_card", lambda *_args: mined_line)
+    queued = []
+    monkeypatch.setattr(anki, "queue_card_for_processing", lambda *args, **_kwargs: queued.append(args))
+
+    anki.update_single_card(card)
+
+    assert len(offered) == 1
+    assert [name for _, name in offered[0].missing_fields] == [missing]
+    assert bool(queued) == (missing in {"SentenceAudio", "Picture"})
+
+
+def test_tag_filtered_note_does_not_offer_template_setup(monkeypatch):
+    config = _base_config()
+    config.anki.tags_to_check = ["mine"]
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    offered = []
+    monkeypatch.setattr(anki.gsm_state, "dialog_manager", SimpleNamespace(offer_anki_setup=offered.append))
+    card = SimpleNamespace(noteId=42, tags=[], modelName="Unrelated cards", fields={})
+    anki.update_single_card(card)
+    assert offered == []
+
+
+def test_missing_required_fields_without_gui_do_not_crash_mining(monkeypatch):
+    monkeypatch.setattr(anki, "get_config", _base_config)
+    monkeypatch.setattr(anki.gsm_state, "dialog_manager", None)
+    card = SimpleNamespace(noteId=42, tags=[], modelName="Custom cards", fields={})
+    anki.update_single_card(card)
+
+
 def test_find_field_grouping_candidates_uses_find_notes_and_filters_exact_matches(monkeypatch):
     config = _base_config()
     config.anki.field_grouping_enabled = True
@@ -363,23 +404,22 @@ def test_build_field_grouping_note_groups_images_and_context_fields_at_front():
     assert merged == {
         "id": 100,
         "fields": {
-            "Picture": '<img data-group-id="200" src="new.webp">\n<img data-group-id="100" src="old.webp">',
+            "Picture": '<img data-group-id="200" src="new.webp"><img data-group-id="100" src="old.webp">',
             "Sentence": (
-                '<span data-group-id="200">confirmed new sentence</span>\n'
+                '<span data-group-id="200">confirmed new sentence</span>'
                 '<span data-group-id="90">older sentence</span>'
                 '<span data-group-id="100">original sentence</span>'
             ),
             "SentenceAudio": (
-                '<span data-group-id="200">[sound:new.mp3]</span>\n<span data-group-id="100">[sound:old.mp3]</span>'
+                '<span data-group-id="200">[sound:new.mp3]</span><span data-group-id="100">[sound:old.mp3]</span>'
             ),
             "SentenceFurigana": (
-                '<span data-group-id="200">new furigana</span>\n<span data-group-id="100">old furigana</span>'
+                '<span data-group-id="200">new furigana</span><span data-group-id="100">old furigana</span>'
             ),
             "SentenceTranslation": (
-                '<span data-group-id="200">confirmed translation</span>\n'
-                '<span data-group-id="100">old translation</span>'
+                '<span data-group-id="200">confirmed translation</span><span data-group-id="100">old translation</span>'
             ),
-            "MiscInfo": ('<span data-group-id="200">new info</span>\n<span data-group-id="100">old info</span>'),
+            "MiscInfo": ('<span data-group-id="200">new info</span><span data-group-id="100">old info</span>'),
         },
     }
 
@@ -431,7 +471,7 @@ def test_build_field_grouping_note_places_new_context_after_every_existing_group
 
     assert merged["fields"]["Sentence"] == (
         '<span data-group-id="90">older</span>'
-        '<span data-group-id="100">original</span>\n'
+        '<span data-group-id="100">original</span>'
         '<span data-group-id="89">new</span>'
     )
 
@@ -484,8 +524,7 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
                     "id": 100,
                     "fields": {
                         "Sentence": (
-                            '<span data-group-id="200">confirmed new</span><br>'
-                            '<span data-group-id="100">original</span>'
+                            '<span data-group-id="200">confirmed new</span><span data-group-id="100">original</span>'
                         )
                     },
                 }
@@ -495,6 +534,65 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
         ("deleteNotes", {"notes": [200]}),
     ]
     assert anki.previous_note_ids == {100}
+
+
+@pytest.mark.parametrize("order", ["front", "back"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"], ids=["lf", "crlf", "cr"])
+def test_repeated_field_grouping_merges_keep_line_breaks_inside_contexts(monkeypatch, order, newline):
+    config = _base_config()
+    config.anki.sentence_furigana_field = "SentenceFurigana"
+    config.anki.field_grouping_additional_fields = ["SentenceTranslation", "MiscInfo"]
+
+    def context_fields(label):
+        return {
+            "Picture": f'<img src="{label}.webp">',
+            "Sentence": f"{label} first{newline}<b>{label} second</b><br>{label} third",
+            "SentenceFurigana": f"{label} first{newline}<ruby>漢字<rt>かんじ</rt></ruby>",
+            "SentenceAudio": f"[sound:{label}.mp3]",
+            "SentenceTranslation": f"{label} translation",
+            "MiscInfo": f"{label} info",
+        }
+
+    target = {"noteId": 100, "fields": context_fields("original")}
+    updates = []
+
+    def fake_invoke(action, **kwargs):
+        if action == "notesInfo":
+            return [target]
+        if action == "updateNoteFields":
+            updates.append(kwargs["note"])
+            target["fields"] = kwargs["note"]["fields"]
+            return None
+        raise AssertionError(action)
+
+    monkeypatch.setattr(anki, "invoke", fake_invoke)
+    contexts = [(100, "original")]
+    for note_id, label in [(200, "new"), (300, "newest")]:
+        source_fields = context_fields(label)
+        source = SimpleNamespace(noteId=note_id, get_field=source_fields.get)
+        anki._apply_field_grouping_merge(
+            source,
+            {"fields": {}},
+            [],
+            {"target_note_id": 100, "order": order, "delete_duplicate": False},
+            config,
+        )
+
+        if order == "front":
+            contexts.insert(0, (note_id, label))
+        else:
+            contexts.append((contexts[-1][0] - 1, label))
+        expected_fields = {name: "" for name in source_fields}
+        for group_id, context_label in contexts:
+            for name, value in context_fields(context_label).items():
+                if name == "Picture":
+                    expected_fields[name] += f'<img data-group-id="{group_id}" src="{context_label}.webp">'
+                else:
+                    value = value.replace(newline, "<br>")
+                    expected_fields[name] += f'<span data-group-id="{group_id}">{value}</span>'
+        assert updates[-1] == {"id": 100, "fields": expected_fields}
+
+    assert len(updates) == 2
 
 
 def test_normalize_for_signature_uses_html_strip_and_text_normalization(monkeypatch):
@@ -2458,6 +2556,140 @@ def test_process_animated_screenshot_regenerates_when_target_expands_past_prefet
     assert assets.screenshot_path == str(regenerated)
     assert assets.screenshot_in_anki == "regenerated-in-anki.avif"
     assert note["fields"]["Picture"] == '<img src="regenerated-in-anki.avif">'
+
+
+@pytest.mark.parametrize(
+    "vad, expected",
+    [
+        (None, False),
+        (SimpleNamespace(success=False), False),
+        (SimpleNamespace(success=True, voice_detected=True), True),
+        (SimpleNamespace(success=True, voice_detected=False), False),
+        (SimpleNamespace(success=True, tts_used=True), False),
+        (SimpleNamespace(success=True, model="No VAD"), False),
+    ],
+)
+def test_voice_only_animation_uses_detected_speech(monkeypatch, vad, expected):
+    cfg = _base_config()
+    cfg.screenshot.animated = True
+    cfg.screenshot.animated_settings.only_when_voice = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki.ffmpeg, "get_raw_screenshot", lambda *_args: "still.png")
+    if vad is not None:
+        vad.start, vad.end = 0.5, 2.0
+    assets = anki._generate_media_files(False, None, "replay.mp4", 1.0, 0.0, vad, [])
+    assert assets.pending_animated is expected
+    assert assets.screenshot_path == "still.png"
+
+
+def test_voice_only_prefetch_waits_for_vad_and_rechecks_confirmation(monkeypatch):
+    cfg = _base_config()
+    cfg.screenshot.animated = True
+    cfg.screenshot.animated_settings.only_when_voice = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki.ffmpeg, "get_raw_screenshot", lambda *_args: "still.png")
+    assets = anki.prefetch_media_assets_for_card(None, "replay.mp4", 1.0, [])
+    assert assets.pending_animated is False
+
+    voiced = SimpleNamespace(success=True, voice_detected=True, start=0.5, end=2.0)
+    anki._synchronize_deferred_media_metadata(assets, "replay.mp4", 10.0, voiced)
+    assert assets.pending_animated is True
+    assert (assets.animated_start_time, assets.animated_vad_start, assets.animated_vad_end) == (10.0, 0.5, 2.0)
+
+    anki._synchronize_deferred_media_metadata(assets, "replay.mp4", 10.0, voiced, use_voice=False)
+    assert assets.pending_animated is False
+    assert assets.screenshot_path == "still.png"
+
+    silent = SimpleNamespace(success=False, start=0.0, end=3.0)
+    anki._synchronize_deferred_media_metadata(assets, "replay.mp4", 10.0, silent, use_voice=True)
+    assert assets.pending_animated is False
+
+
+def test_unvoiced_card_uploads_a_still_with_animation_enabled(monkeypatch):
+    cfg = _base_config()
+    cfg.screenshot.animated = True
+    cfg.screenshot.animated_settings.only_when_voice = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki.ffmpeg, "get_raw_screenshot", lambda *_args: "still.png")
+    encoded = []
+    monkeypatch.setattr(
+        anki, "_encode_and_replace_raw_image", lambda path, **_kwargs: encoded.append(path) or "still.avif"
+    )
+    monkeypatch.setattr(anki, "store_media_file", lambda *_args, **_kwargs: "still-in-anki.avif")
+    assets = anki._generate_media_files(
+        False, None, "replay.mp4", 1.0, 0.0, SimpleNamespace(success=False, start=0, end=3), []
+    )
+    note = {"fields": {}}
+    anki._process_screenshot(assets, note, cfg, update_picture_flag=True, use_existing_files=False)
+    assert encoded == ["still.png"]
+    assert note["fields"]["Picture"] == '<img src="still-in-anki.avif">'
+    assert assets.animated is False
+
+
+@pytest.mark.parametrize("keep_audio", [False, True])
+def test_confirmation_audio_choice_controls_voice_only_animation(monkeypatch, keep_audio):
+    cfg = _base_config()
+    cfg.screenshot.animated = True
+    cfg.screenshot.animated_settings.only_when_voice = True
+    cfg.anki.show_update_confirmation_dialog_v2 = True
+    cfg.anki.previous_image_field = ""
+    cfg.audio.ffmpeg_reencode_options_to_use = ""
+    cfg.paths.remove_video = False
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+    qt_main_stub.launch_anki_confirmation = lambda *args, **_kwargs: (
+        keep_audio,
+        args[1],
+        args[5],
+        args[2],
+        args[3],
+        False,
+        None,
+        {"audio_edit_range": (11.0, 12.0)},
+    )
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+    captured = []
+    monkeypatch.setattr(anki, "check_and_update_note", lambda *_args, **_kwargs: captured.append(True))
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn: fn())
+    assets = anki.MediaAssets(screenshot_path="still.png")
+    assert anki.update_anki_card(
+        SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note={"id": 10, "fields": {"Sentence": "sentence"}},
+        audio_path="voice.opus",
+        video_path="replay.mp4",
+        tango="word",
+        should_update_audio=True,
+        game_line=SimpleNamespace(id="voice-line", text="line", TL="", prev=None),
+        selected_lines=[],
+        start_time=10.0,
+        vad_result=SimpleNamespace(start=1.0, end=2.0, success=True, voice_detected=True),
+        precomputed_assets=assets,
+    )
+    assert captured
+    assert assets.pending_animated is keep_audio
+    if keep_audio:
+        assert anki._animated_target_window(assets) == (11.0, 12.0)
+    else:
+        assert assets.screenshot_path == "still.png"
+
+
+def test_size_target_regenerates_from_source_when_confirmed_range_changes(monkeypatch):
+    cfg = _base_config()
+    cfg.screenshot.animated_settings.target_size_kb = 500
+    assets = anki.MediaAssets(animated_prefetch_start=10.0, animated_prefetch_end=15.0)
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "trim_animation",
+        lambda *_args, **_kwargs: pytest.fail("Size-controlled clips must be estimated again from the source"),
+        raising=False,
+    )
+    assert anki._trim_prefetched_animated_screenshot("prefetched.avif", assets, cfg, (11.0, 13.0)) == ""
+    assert anki._trim_prefetched_animated_screenshot("prefetched.avif", assets, cfg, (10.0, 15.0)) == "prefetched.avif"
 
 
 def test_process_audio_with_existing_files_and_external_tool(monkeypatch):

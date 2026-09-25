@@ -639,4 +639,50 @@
     background: var(--border-color);
 }
 
+/* Keep date/time controls readable in the goal modal on narrow screens. */
+.goal-date-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+}
 
+.goal-date-fields input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 14px;
+}
+
+.goal-date-shortcut {
+    margin-top: 8px;
+    padding: 5px 9px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.goal-date-shortcut:hover {
+    border-color: var(--primary-color);
+    background: var(--bg-tertiary);
+}
+
+.goal-date-help {
+    grid-column: 1 / -1;
+    color: var(--text-tertiary);
+    font-size: 12px;
+}
+
+@media (max-width: 600px) {
+    .goal-date-fields {
+        grid-template-columns: 1fr;
+    }
+}

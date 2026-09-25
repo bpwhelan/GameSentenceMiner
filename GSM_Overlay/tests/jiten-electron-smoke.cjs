@@ -157,6 +157,7 @@ app.whenReady().then(async () => {
   const hostPath = path.join(directory, 'grading-host.html');
   fs.writeFileSync(hostPath, '<!doctype html><body></body>');
   await gradingWindow.loadFile(hostPath);
+  await gradingWindow.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname, '../dictionary_navigation.js'), 'utf8') + '\nvoid 0;');
   await gradingWindow.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname, '../gamepad.js'), 'utf8') + '\nvoid 0;');
   const gradeResult = await gradingWindow.webContents.executeJavaScript(`
     const ipcRenderer = require('electron').ipcRenderer;
@@ -168,7 +169,7 @@ app.whenReady().then(async () => {
     const applyOptimisticHighlightState = () => {};
     ${handlerSource}
     const handler = Object.create(GamepadHandler.prototype);
-    Object.assign(handler, {yomitanPopupVisible: true, popupActionSelectionActive: true, thumbstickLatch: new Map()});
+    Object.assign(handler, {dictionaryPopupVisible: true, popupActionSelectionActive: true, thumbstickLatch: new Map()});
     const selections = [];
     new Promise(resolve => {
       window.addEventListener('message', event => {
@@ -176,13 +177,13 @@ app.whenReady().then(async () => {
         if(event.data.type === 'gsm-test-selection') selections.push(event.data);
         if(event.data.type === 'gsm-test-done') resolve({ tone: event.data.tone, text: event.data.text, selections });
         if(event.data.type === 'gsm-test-ready') {
-          handler.resetYomitanPopupActionSelection();
-          handler.navigateYomitanNextEntry();
-          handler.navigateYomitanPrevEntry();
-          handler.navigateYomitanPrevEntry();
-          handler.navigateYomitanPrevEntry();
-          handler.navigateYomitanNextEntry();
-          handler.navigateYomitanPrevEntry();
+          handler.resetDictionaryPopupActionSelection();
+          handler.navigateDictionaryNextEntry();
+          handler.navigateDictionaryPrevEntry();
+          handler.navigateDictionaryPrevEntry();
+          handler.navigateDictionaryPrevEntry();
+          handler.navigateDictionaryNextEntry();
+          handler.navigateDictionaryPrevEntry();
           handler.processRightStickHorizontalForPopup(-1, 0.6);
           handler.processRightStickHorizontalForPopup(0, 0.6);
           handler.processRightStickHorizontalForPopup(1, 0.6);

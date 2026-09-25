@@ -3,6 +3,10 @@
 Last updated: 2026-02-14  
 Repository: `https://github.com/bpwhelan/GameSentenceMiner`
 
+For a clean restart after changes, see [Agent restart workflow](AGENT_RESTART.md).
+`npm run agent:restart -- --build --reason "Changes ready to try"` warns the user,
+restarts the full app, and waits for the replacement backend to be ready.
+
 ## 1. What GSM is
 
 GameSentenceMiner is a desktop app for language learners that captures in-game text, matches it to replay/audio/screenshot context, and updates Anki cards with rich media and metadata.

@@ -263,7 +263,7 @@ describe("OCRTab", () => {
       await flushAsyncWork();
     });
 
-    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(5);
+    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(6);
     expect((container.querySelector("#manual-hotkey") as HTMLInputElement).value).toBe(
       "Ctrl+Shift+M"
     );
@@ -311,7 +311,7 @@ describe("OCRTab", () => {
     expect(columns?.textContent).toContain("Action");
     expect(columns?.textContent).toContain("Keyboard");
     expect(columns?.textContent).toContain("Gamepad");
-    expect(container.querySelectorAll(".ocr-hotkey-item")).toHaveLength(5);
+    expect(container.querySelectorAll(".ocr-hotkey-item")).toHaveLength(6);
     expect(
       container.querySelector(".ocr-hotkey-item > .ocr-hotkey-run")
     ).toBeInstanceOf(HTMLButtonElement);
@@ -348,7 +348,55 @@ describe("OCRTab", () => {
     });
 
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(5);
+    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(6);
+  });
+
+  it("runs Add new area and saves or clears its keyboard binding", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-running-state") return { isRunning: true, isManual: false };
+      return null;
+    });
+    await act(async () => {
+      root.render(<OCRTab active />);
+      await flushAsyncWork();
+    });
+
+    const binding = container.querySelector<HTMLInputElement>("#add-area-hotkey")!;
+    const row = binding.closest(".ocr-hotkey-item")!;
+    expect(binding.value).toBe("Alt+Shift+N");
+    expect(row.textContent).toContain("Add new area");
+    await act(async () => {
+      row.querySelector<HTMLButtonElement>(".ocr-hotkey-run")!.click();
+    });
+    expect(sendMock).toHaveBeenCalledWith("ocr.add-area");
+
+    for (const [key, altKey, expected] of [["n", true, "Alt+N"], ["Escape", false, ""]] as const) {
+      await act(async () => {
+        binding.dispatchEvent(new KeyboardEvent("keydown", { key, altKey, bubbles: true }));
+        await flushAsyncWork();
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+        await flushAsyncWork();
+      });
+      expect(sendMock).toHaveBeenCalledWith("ocr.save-ocr-config", expect.objectContaining({
+        addAreaOcrHotkey: expected,
+        addAreaOcrGamepad: ""
+      }));
+    }
+  });
+
+  it("loads a saved Add new area binding and gamepad mapping", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") return { addAreaOcrHotkey: "", addAreaOcrGamepad: "4" };
+      return null;
+    });
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+    expect(container.querySelector<HTMLInputElement>("#add-area-hotkey")!.value).toBe("");
+    expect(container.querySelector<HTMLSelectElement>("#add-area-gamepad-hotkey")!.value).toBe("4");
   });
 
   it("loads and saves the manual green-area delay options", async () => {

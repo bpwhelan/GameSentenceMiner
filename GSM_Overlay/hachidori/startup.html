@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Set up Hachidori</title>
+    <link rel="stylesheet" href="icons.css" />
+    <link rel="stylesheet" href="render/reader.css" />
+    <link rel="stylesheet" href="settings.css" />
+    <link rel="stylesheet" href="dictionary-progress.css" />
+    <link rel="stylesheet" href="visual-novel.css" />
+    <link rel="stylesheet" href="startup.css" />
+    <!-- The practice step loads the reader itself; its page styles come with the page. -->
+    <link rel="stylesheet" href="content.css" />
+  </head>
+  <body class="startup-page">
+    <a class="skip-link" href="#setup-heading">Skip to setup</a>
+    <main class="startup-main">
+      <header class="startup-header">
+        <div class="startup-brand">
+          <img src="icons/hachidori-128.png" width="48" height="48" alt="" />
+          <div>
+            <h1>Hachidori</h1>
+            <p class="startup-tagline">Blazing fast, feature rich Japanese dictionary by Bee</p>
+          </div>
+        </div>
+        <a class="startup-settings-link" href="settings.html">Open Settings</a>
+      </header>
+      <ol class="setup-steps" id="setup-steps" aria-label="Setup progress">
+        <li class="setup-step" data-stage="dictionaries">
+          <span class="setup-step-number" aria-hidden="true">1</span><span>Dictionaries</span>
+        </li>
+        <li class="setup-step" data-stage="anki">
+          <span class="setup-step-number" aria-hidden="true">2</span><span>Anki <small>Optional</small></span>
+        </li>
+        <li class="setup-step" data-stage="practice">
+          <span class="setup-step-number" aria-hidden="true">3</span><span>Try it</span>
+        </li>
+      </ol>
+      <section class="setup-card" id="setup-card" aria-labelledby="setup-heading">
+        <h2 id="setup-heading" tabindex="-1">Loading setup&hellip;</h2>
+        <div class="setup-body" id="setup-body"><p class="hint">Restoring your setup progress…</p></div>
+        <div class="setup-actions" id="setup-actions"></div>
+        <output class="setup-status" id="setup-status" aria-live="polite"></output>
+      </section>
+      <footer class="startup-footer">
+        <p>
+          Made by Bee
+          <span aria-hidden="true">·</span>
+          <a href="https://github.com/bee-san" target="_blank" rel="noopener noreferrer">bee-san on GitHub</a>
+          <span aria-hidden="true">·</span>
+          <a href="https://skerritt.blog" target="_blank" rel="noopener noreferrer">skerritt.blog</a>
+        </p>
+        <a class="startup-star-link" href="https://github.com/bee-san/hachidori" target="_blank" rel="noopener noreferrer">
+          <span class="hd-icon" data-icon="star" aria-hidden="true"></span>
+          Star Hachidori on GitHub
+        </a>
+      </footer>
+    </main>
+    <script type="module" src="startup.js"></script>
+  </body>
+</html>

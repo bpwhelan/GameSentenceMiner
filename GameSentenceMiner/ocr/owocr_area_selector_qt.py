@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QButtonGroup,
     QFrame,
+    QLabel,
     QMenu,
     QProgressDialog,
     QMessageBox,
@@ -166,6 +167,17 @@ class SelectorToolbar(QWidget):
 
         layout.addWidget(self._separator())
 
+        if sel.single_area_mode:
+            hint = QLabel("Draw one box to save and close")
+            hint.setStyleSheet("color: white;")
+            layout.addWidget(hint)
+            if sel.use_obs_screenshot:
+                self._add_action(layout, "⟳ Refresh", sel.refresh_screenshot)
+            self._add_action(layout, "ℹ Help", sel.toggle_instructions)
+            layout.addStretch(1)
+            self._add_action(layout, "Cancel", sel.close)
+            return
+
         # --- Actions ---
         self._add_action(layout, "↶ Undo", sel.undo)
         self._add_action(layout, "↷ Redo", sel.redo)
@@ -229,6 +241,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         monitor_index=None,
         overlay_config_mode=False,
         live_mode=False,
+        single_area_mode=False,
     ):
         super().__init__()
         logger.debug("Initializing OWOCRAreaSelectorWidget...")
@@ -248,7 +261,11 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.select_monitor_area = select_monitor_area
         self.target_monitor_index = monitor_index
         self.overlay_config_mode = overlay_config_mode
-        self.live_mode = live_mode
+        self.single_area_mode = single_area_mode
+        self.live_mode = live_mode and not single_area_mode
+        self._single_area_saved = False
+        self._pending_rectangle = None
+        self._single_area_config_path = None
         self.quit_app_on_close = False
 
         self.scale_factor_w = 1.0
@@ -734,6 +751,9 @@ class OWOCRAreaSelectorWidget(QWidget):
             return
 
         config_path = get_scene_ocr_config_path(self.use_window_as_config, self.window_name)
+        if self.single_area_mode:
+            # Keep the capture tied to the scene that was open when invoked.
+            self._single_area_config_path = config_path
         win_geom = self.target_window_geometry
         win_w, win_h, win_l, win_t = (
             win_geom["width"],
@@ -1008,7 +1028,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
         # Set window title
-        self.setWindowTitle("OCR Area Selector")
+        self.setWindowTitle("OCR — Add new area" if self.single_area_mode else "OCR Area Selector")
         self.setWindowIcon(QIcon(get_pickaxe_png_path()))
 
         # Create the toolbar first so we know how tall a strip to reserve for it;
@@ -1323,7 +1343,18 @@ class OWOCRAreaSelectorWidget(QWidget):
         y_offset = panel_y + 55
         line_height = 20
 
-        if self.overlay_config_mode:
+        if self.single_area_mode:
+            instructions = [
+                "Add new area:",
+                "• Draw one box to save and close",
+                "• Existing areas are kept",
+                "• Normal (green): Automatic OCR",
+                "• Secondary (purple): Menu OCR hotkey",
+                "• Ctrl + Drag: Draw a secondary area",
+                "• Choose other area types in the toolbar",
+                "• Esc: Cancel without saving",
+            ]
+        elif self.overlay_config_mode:
             instructions = [
                 f"Overlay Area Selection Mode (Monitor {self.target_monitor_index}):",
                 "• Left Click + Drag: Create selection area (green)",
@@ -1379,6 +1410,8 @@ class OWOCRAreaSelectorWidget(QWidget):
         painter.restore()
 
     def mousePressEvent(self, event):
+        if self.single_area_mode and event.button() != Qt.MouseButton.LeftButton:
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             # Clamp to window, then store in base coords (window may be resized).
             base_pos = self._to_base_point(self._clamp_position(event.pos()))
@@ -1417,8 +1450,9 @@ class OWOCRAreaSelectorWidget(QWidget):
 
             # Start long-press timer (1 second)
             self.long_press_pos = event.pos()
-            self.long_press_active = True
-            self.long_press_timer.start(1000)
+            self.long_press_active = not self.single_area_mode
+            if self.long_press_active:
+                self.long_press_timer.start(1000)
 
             self.update()
         elif event.button() == Qt.MouseButton.MiddleButton:
@@ -1515,7 +1549,10 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.redo_stack.clear()
 
                 logger.info(f"Added rectangle: {new_rect}")
-                self._schedule_live_save()
+                if self.single_area_mode:
+                    self._pending_rectangle = new_rect
+                else:
+                    self._schedule_live_save()
             else:
                 logger.warning(f"Rectangle too small: {w}x{h}")
 
@@ -1527,6 +1564,8 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.drawing_exclusive = False
                 self.drawing_black_hole = False
             self.update()
+            if self.single_area_mode and self._pending_rectangle is not None:
+                self.save_and_quit()
 
     def _delete_rectangle_at(self, pos):
         """Delete the first rectangle covering the given (base-coord) position."""
@@ -1735,6 +1774,8 @@ class OWOCRAreaSelectorWidget(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         """Handle double-click to save."""
+        if self.single_area_mode:
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             # Check if double-clicking on empty space (not on a rectangle)
             base_pos = self._to_base_point(event.pos())
@@ -1752,6 +1793,8 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.save_and_quit()
 
     def keyPressEvent(self, event):
+        if self.single_area_mode and event.key() not in (Qt.Key.Key_Escape, Qt.Key.Key_R, Qt.Key.Key_I):
+            return
         if event.key() == Qt.Key.Key_Escape:
             logger.info("Area selector cancelled")
             self.close()
@@ -1930,6 +1973,20 @@ class OWOCRAreaSelectorWidget(QWidget):
 
     def save_and_quit(self):
         """Save rectangles and quit."""
+        if self.single_area_mode:
+            if self._pending_rectangle is None or self._single_area_saved:
+                return
+            if not self._write_config_to_disk():
+                self.rectangles.pop()
+                self.undo_stack.pop()
+                self._pending_rectangle = None
+                self.update()
+                QMessageBox.critical(self, "Could not add OCR area", "The area could not be saved. Please try again.")
+                return
+            self._single_area_saved = True
+            print(LIVE_AREA_SAVED_MARKER, flush=True)
+            self.close()
+            return
         logger.info("Saving rectangles...")
         self._write_config_to_disk()
         self.close()
@@ -2009,7 +2066,7 @@ class OWOCRAreaSelectorWidget(QWidget):
 
         # Convert rectangles to percentage-based coordinates
         output_rectangles = []
-        for rect in self.rectangles:
+        for rect in [self._pending_rectangle] if self.single_area_mode else self.rectangles:
             # Convert back from widget to original capture coords
             x_abs = int(rect["x"] * self.scale_factor_w + self.bounding_box_original["left"])
             y_abs = int(rect["y"] * self.scale_factor_h + self.bounding_box_original["top"])
@@ -2044,17 +2101,32 @@ class OWOCRAreaSelectorWidget(QWidget):
             "rectangles": output_rectangles,
             "window_geometry": win_geom,
         }
-        config_data.update(read_overlay_scene_settings())
+        if not self.single_area_mode:
+            config_data.update(read_overlay_scene_settings())
 
         print(config_data)
 
-        if self.overlay_config_mode:
+        if self.single_area_mode:
+            config_path = self._single_area_config_path
+        elif self.overlay_config_mode:
             scene = sanitize_filename(self.scene or "Default")
             config_path = os.path.join(get_ocr_config_path(), f"{scene}_overlay.json")
         else:
             config_path = get_scene_ocr_config_path(self.use_window_as_config, self.window_name)
 
         try:
+            if self.single_area_mode:
+                # Append to the latest disk contents so existing coordinates,
+                # settings, and edits made while the selector was open survive.
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        existing_config = json.load(f)
+                except FileNotFoundError:
+                    existing_config = {}
+                if existing_config and existing_config.get("coordinate_system") != COORD_SYSTEM_PERCENTAGE:
+                    raise ValueError("Existing OCR areas must use percentage coordinates")
+                config_data.update(existing_config)
+                config_data["rectangles"] = existing_config.get("rectangles", []) + output_rectangles
             write_ocr_config(config_path, config_data)
             logger.success(f"Saved {len(output_rectangles)} rectangles to {config_path}")
         except Exception as e:
@@ -2123,6 +2195,8 @@ class OWOCRAreaSelectorWidget(QWidget):
 
     def set_live_mode(self, enabled: bool):
         """Enable/disable live OCR auto-send. Applies current areas at once."""
+        if self.single_area_mode:
+            return
         self.live_mode = bool(enabled)
         logger.info(f"Live OCR auto-send: {self.live_mode}")
         if self.toolbar and self.toolbar.auto_send_btn.isChecked() != self.live_mode:
@@ -2161,12 +2235,17 @@ class OWOCRAreaSelectorWidget(QWidget):
     def closeEvent(self, event):
         self.live_save_timer.stop()
         self.auto_refresh_timer.stop()
+        self.long_press_timer.stop()
         # Flush a final write so any pending edits are applied before exit.
         if self.live_mode:
             self._do_live_save()
         if self.toolbar:
             self.toolbar.close()
             self.toolbar = None
+
+        if self.single_area_mode and not self._single_area_saved and self.on_complete:
+            self.on_complete(None)
+            self.on_complete = None
 
         if self.on_complete:
             # Return the rectangles in the expected format
@@ -2245,6 +2324,7 @@ def show_area_selector(
     on_complete=None,
     overlay_config_mode=False,
     live_mode=False,
+    single_area_mode=False,
 ):
     """
     Displays a Qt-based area selector for OCR configuration.
@@ -2281,6 +2361,7 @@ def show_area_selector(
             on_complete,
             overlay_config_mode=overlay_config_mode,
             live_mode=live_mode,
+            single_area_mode=single_area_mode,
         )
         _selector.quit_app_on_close = created_app
         logger.info("OWOCRAreaSelectorWidget created successfully")
@@ -2386,9 +2467,12 @@ if __name__ == "__main__":
             action="store_true",
             help="Start in live mode: apply each change to the running OCR without closing",
         )
+        parser.add_argument("--add-area", action="store_true", help="Append one area, save, and close immediately")
 
         logger.info("Parsing command line arguments...")
         args = parser.parse_args()
+        if args.add_area and (args.overlay_config or args.monitor is not None):
+            parser.error("--add-area is only supported for OCR scene areas")
         logger.info(
             "Parsed arguments: "
             f"window_name='{args.window_name}', "
@@ -2403,7 +2487,7 @@ if __name__ == "__main__":
         logger.info("DPI awareness set successfully")
 
         def on_complete(rectangles):
-            logger.info(f"Completed with {len(rectangles)} rectangles")
+            logger.info(f"Completed with {len(rectangles or [])} rectangles")
 
         if args.monitor is not None:
             logger.info(f"Starting monitor selection mode for monitor index: {args.monitor}")
@@ -2421,6 +2505,7 @@ if __name__ == "__main__":
                 on_complete,
                 overlay_config_mode=args.overlay_config,
                 live_mode=args.live,
+                single_area_mode=args.add_area,
             )
 
         logger.success("OCR Area Selector completed successfully")

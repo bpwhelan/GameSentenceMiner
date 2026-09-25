@@ -5,9 +5,9 @@ import json
 import re
 import sys
 import unicodedata
-from collections import Counter
 from typing import Any, Iterable
 
+from GameSentenceMiner.native.text import remove_repeated_chars, remove_repeated_lines
 from GameSentenceMiner.util.config.configuration import (
     StringReplacement,
     TextProcessing,
@@ -153,79 +153,6 @@ def _normalize_regex_replacement(replacement: str) -> str:
     return DOLLAR_CAPTURE_GROUP_PATTERN.sub(r"\\g<\1>", replacement)
 
 
-# --- Remove Repeated Characters (AAAABBBBCCCC -> ABC) ---
-
-
-def remove_repeated_chars(text: str, repeat_count: int = 1, keep_non_repeated: bool = True) -> str:
-    if not text:
-        return text
-
-    if repeat_count >= 2:
-        guess_times = repeat_count
-    else:
-        # Auto-detect repetition count
-        dump_time: Counter[int] = Counter()
-        cnt = 1
-        last_c = None
-        for c in list(text) + [None]:  # type: ignore[list-item]
-            if c != last_c:
-                dump_time[cnt] += 1
-                last_c = c
-                cnt = 1
-            else:
-                cnt += 1
-        if not dump_time:
-            return text
-        max_freq = max(dump_time.values())
-        candidates = sorted(k for k, v in dump_time.items() if v == max_freq)
-        if candidates[0] == 1 and len(candidates) > 1:
-            candidates = candidates[1:]
-        guess_times = candidates[0]
-
-    if guess_times <= 1:
-        return text
-
-    if keep_non_repeated:
-        new_line = ""
-        i = 0
-        while i < len(text):
-            new_line += text[i]
-            segment = text[i : i + guess_times]
-            if len(segment) == guess_times and len(set(segment)) == 1:
-                i += guess_times
-            else:
-                i += 1
-        return new_line
-    else:
-        return "".join(text[i * guess_times] for i in range(len(text) // guess_times))
-
-
-# --- Remove Repeated Lines (ABCDABCDABCD -> ABCD) ---
-
-
-def remove_repeated_lines(text: str, repeat_count: int = 1) -> str:
-    if not text:
-        return text
-
-    if repeat_count >= 2:
-        guess_times = repeat_count
-    else:
-        # Auto-detect: find smallest repeating unit
-        guess_times = len(text)
-        while guess_times >= 1:
-            unit_len = len(text) // guess_times
-            if unit_len > 0 and text[:unit_len] * guess_times == text:
-                break
-            guess_times -= 1
-        if guess_times <= 0:
-            return text
-
-    unit_len = len(text) // guess_times
-    if unit_len <= 0:
-        return text
-    return text[:unit_len]
-
-
 # --- Remove Control Characters ---
 
 
@@ -251,7 +178,7 @@ def remove_non_japanese(text: str) -> str:
 
 
 def remove_newlines(text: str) -> str:
-    return " ".join(segment for segment in text.splitlines() if segment)
+    return "".join(text.splitlines())
 
 
 # --- Remove Numbers ---

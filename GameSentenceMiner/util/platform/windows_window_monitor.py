@@ -1468,6 +1468,11 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         elif now - self.last_hwnd_refresh_time > self.hwnd_revalidate_interval:
             should_refresh_hwnd = True
 
+        # Minimized exclusive-fullscreen windows can disappear from EnumWindows.
+        # Keep a still-valid iconic HWND until it is restored or destroyed.
+        if should_refresh_hwnd and self.target_hwnd and user32.IsWindow(self.target_hwnd):
+            should_refresh_hwnd = not bool(user32.IsIconic(self.target_hwnd))
+
         if should_refresh_hwnd:
             self.target_hwnd = self.find_target_hwnd()
             self.retry_find_count = 0
@@ -1493,12 +1498,12 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         current_rect = None
         is_fullscreen = False
 
-        if not user32.IsWindowVisible(self.target_hwnd):
-            self.target_hwnd = None
-            current_state = "closed"
-        elif user32.IsIconic(self.target_hwnd):
+        if user32.IsIconic(self.target_hwnd):
             current_state = "minimized"
             self._zorder_dirty = False  # no point checking Z-order while minimized
+        elif not user32.IsWindowVisible(self.target_hwnd):
+            self.target_hwnd = None
+            current_state = "closed"
         else:
             foreground_hwnd = user32.GetForegroundWindow()
             if foreground_hwnd == self.target_hwnd:
@@ -1629,6 +1634,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_window_rect = current_rect
 
     def _spawn_reprocess_last_results(self) -> None:
+        if not websocket_manager.has_clients(ID_OVERLAY):
+            return
         task = asyncio.create_task(self.overlay_processor.reprocess_and_send_last_results())
         self._reprocess_tasks.add(task)
         task.add_done_callback(self._reprocess_tasks.discard)

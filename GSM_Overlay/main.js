@@ -14,9 +14,11 @@ const https = require('https');
 const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
+const { configureYomitan, createSetupHandler } = require('./anki_setup');
 const { createMagpieState } = require('./magpie');
 const { JitenParseCache, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
 const { installJitenSessionBroker, JitenFrameRequests } = require('./jiten_session');
+const { LocalVocabulary, VocabularyConnection } = require('./local_vocabulary');
 const { forceForegroundWindow } = require('./win_foreground');
 const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
@@ -38,6 +40,21 @@ const {
   isWaylandSession,
 } = require('./hotkey_routing');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
+const {
+  DICTIONARY_READER_HACHIDORI,
+  DICTIONARY_READER_YOMITAN,
+  resolveDictionaryReaderFromConfigData,
+} = require('./dictionary_reader');
+const {
+  HACHIDORI_EXTERNAL_LINK_CHANNEL,
+  createHachidoriExternalLinkHandler,
+  hasLoadedHachidoriExtension,
+} = require('./hachidori_external_links');
+const { checkYomitanDiskSpace } = require('./yomitan_disk_space');
+const {
+  OVERLAY_SETTINGS_READY_CHANNEL,
+  createOverlaySettingsReadyHandler,
+} = require('./overlay_settings_delivery');
 const { URL } = require('url');
 
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
@@ -310,6 +327,7 @@ const GSM_OWNED_OVERLAY_FIELD_MAP = {
   scan_on_mouse_move: "scan_on_mouse_move",
   scan_on_overlay_activation: "scan_on_overlay_activation",
   text_appears_instantly: "text_appears_instantly",
+  adaptive_ocr_retries: "adaptive_ocr_retries",
   base_scale: "base_scale",
   inject_scanned_lines: "inject_scanned_lines",
   minimum_character_size: "minimum_character_size",
@@ -343,6 +361,7 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "gamepadJitenApiKey",
   "gamepadJpdbApiKey",
   "gamepadYomitanApiUrl",
+  "dictionaryReaderSelection",
 ]);
 
 function getPackagedResourcesPath() {
@@ -742,6 +761,11 @@ let lastManualActivity = Date.now();
 let activityTimer = null;
 let isDev = false;
 let yomitanExt;
+let yomitanBlockedByLowDisk = false;
+let hachidoriExt;
+let activeDictionaryReader = DICTIONARY_READER_YOMITAN;
+let hachidoriEngineWindow = null;
+let hachidoriOwnedEngineWatcherInstalled = false;
 let jitenReaderExt;
 
 // Chromium's session.fetch can terminate the standalone Electron process on
@@ -784,7 +808,7 @@ function fetchJitenUpstream(input, init = {}) {
       let bytes = 0;
       response.on('data', (chunk) => {
         bytes += chunk.length;
-        if (bytes > 8 * 1024 * 1024) {
+        if (bytes > (init.maxResponseBytes || 8 * 1024 * 1024)) {
           response.destroy();
           finishError(new Error('Jiten response too large'));
           return;
@@ -824,6 +848,7 @@ function fetchJitenUpstream(input, init = {}) {
 
 // IPC and Reader extension requests share batching, cache, and backpressure.
 const jitenParseCache = new JitenParseCache({
+  onMutation: (args) => { void refreshLocalJitenState(args); },
   fetch: async (input, init) => {
     recordOverlayDiagnostic('jiten-transport-start');
     const response = await fetchJitenUpstream(input, init);
@@ -833,6 +858,82 @@ const jitenParseCache = new JitenParseCache({
 });
 const jitenFrameRequests = new JitenFrameRequests(jitenParseCache);
 let uninstallJitenSessionBroker = null;
+
+const vocabularyConnection = new VocabularyConnection({ WebSocket,
+  ensureServer: () => startGamepadServer('local-vocabulary'),
+  getPort: () => MANAGED_INPUT_SERVER_PORT || userSettings.gamepadServerPort,
+});
+const localVocabulary = new LocalVocabulary({
+  request: request => vocabularyConnection.request(request), fetch: fetchJitenUpstream,
+});
+let vocabularySyncInterval = null;
+let vocabularySyncTimer = null;
+let lastVocabularySyncAt = 0;
+function localVocabularyConfig() {
+  const profile = getCurrentGSMProfileSettings();
+  return { enabled: userSettings.localVocabularyEnabled === true,
+    source: ['jiten', 'anki', 'both'].includes(userSettings.localVocabularySource) ? userSettings.localVocabularySource : 'jiten',
+    apiKey: userSettings.gamepadJitenApiKey,
+    ankiUrl: profile.anki?.url, profile: getCurrentGSMProfileName(),
+    ankiQuery: userSettings.localVocabularyAnkiQuery,
+    wordField: userSettings.localVocabularyAnkiWordField || profile.anki?.word?.name || profile.anki?.word_field || 'Expression',
+    readingField: userSettings.localVocabularyAnkiReadingField,
+  };
+}
+function notifyLocalVocabularyChanged() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('local-vocabulary-changed');
+  if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('local-vocabulary-changed');
+}
+function scheduleLocalVocabularySync(delay = 1000) {
+  if (!userSettings.localVocabularyEnabled) return;
+  clearTimeout(vocabularySyncTimer);
+  vocabularySyncTimer = setTimeout(async () => {
+    vocabularySyncTimer = null;
+    if (!userSettings.localVocabularyEnabled) return;
+    lastVocabularySyncAt = Date.now();
+    try { await localVocabulary.sync(localVocabularyConfig()); } catch { /* Status UI exposes failure; keep offline data. */ }
+    notifyLocalVocabularyChanged();
+  }, delay);
+}
+function syncLocalVocabularyRuntime() {
+  localVocabulary.cancel();
+  clearInterval(vocabularySyncInterval); vocabularySyncInterval = null;
+  clearTimeout(vocabularySyncTimer); vocabularySyncTimer = null;
+  if (userSettings.localVocabularyEnabled) {
+    scheduleLocalVocabularySync();
+    vocabularySyncInterval = setInterval(() => scheduleLocalVocabularySync(), 15 * 60_000);
+  } else vocabularyConnection.close();
+}
+async function refreshLocalJitenState(args) {
+  if (!userSettings.localVocabularyEnabled) return;
+  // Invalidate an in-flight snapshot before asking for authoritative new states.
+  try {
+    await localVocabulary.updateJitenStates(args, []);
+    const pairs = args.body?.wordId ? [[args.body.wordId, args.body.readingIndex || 0]] : [];
+    if (pairs.length) {
+      const state = await jitenParseCache.lookupVocabulary({ ...args, words: pairs, force: true });
+      await localVocabulary.updateJitenStates(args, pairs.map(([wordId, readingIndex], i) => ({ wordId, readingIndex, knownState: state.result[i] })));
+      notifyLocalVocabularyChanged();
+    }
+  } catch { /* A successful remote grade must stay successful if the mirror is offline. */ }
+  // A full export contains review history. Coalesce new-word refreshes instead
+  // of downloading that backup for every grade in a study session.
+  scheduleLocalVocabularySync(Math.max(2000, 60_000 - (Date.now() - lastVocabularySyncAt)));
+}
+ipcMain.handle('gsm-local-vocabulary-parse', (_event, { texts } = {}) => {
+  if (!userSettings.localVocabularyEnabled) throw new Error('Local vocabulary is disabled');
+  return localVocabulary.parse(texts, localVocabularyConfig());
+});
+ipcMain.handle('gsm-local-vocabulary-status', () => {
+  if (!userSettings.localVocabularyEnabled) return { sources: [], errors: [] };
+  return localVocabulary.status(localVocabularyConfig());
+});
+ipcMain.handle('gsm-local-vocabulary-sync', async () => {
+  if (!userSettings.localVocabularyEnabled) throw new Error('Enable local vocabulary first');
+  lastVocabularySyncAt = Date.now();
+  try { return await localVocabulary.sync(localVocabularyConfig()); }
+  finally { notifyLocalVocabularyChanged(); }
+});
 
 // Renderer-process bridge to the cache. The overlay's gamepad/furigana
 // pipeline calls this instead of fetching directly, so cache hits skip
@@ -937,6 +1038,7 @@ ipcMain.handle('overlay-get-active-goals', async () => {
 });
 
 const DEFAULT_USER_SETTINGS = Object.freeze({
+  "dictionaryReaderSelection": "yomitan",
   "fontSize": 42,
   "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
   "weburl2": DEFAULT_ENFORCED_OVERLAY_WS_URL,
@@ -1020,6 +1122,11 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "enableJitenReader": true,
   // Jiten Reader style SRS highlighting on the overlay text
   "jitenHighlightingEnabled": false,
+  "localVocabularyEnabled": false,
+  "localVocabularySource": "jiten",
+  "localVocabularyAnkiQuery": "",
+  "localVocabularyAnkiWordField": "",
+  "localVocabularyAnkiReadingField": "",
   "jitenHighlightOpacity": 0.7,
   "jitenHighlightOffsetY": 3, // px to nudge the SRS underline down from the glyph baseline
   // Jiten SRS grading buttons at the top of the Yomitan popup
@@ -1042,6 +1149,12 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadMineButton": 0, // A button - mines the current Yomitan entry
   "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
   "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
+  "gamepadPrevJitenWordButton": -1, // Disabled - previous new or i+1 Jiten word
+  "gamepadNavigateUp": 12,
+  "gamepadNavigateDown": 13,
+  "gamepadNavigateLeft": 14,
+  "gamepadNavigateRight": 15,
+  "gamepadNextJitenWordButton": -1, // Disabled - next new or i+1 Jiten word
   "gamepadAutoConfirmSelection": true,
   "gamepadFocusOverlayOnEntry": true,
   "gamepadShowModeIndicator": true,
@@ -1084,7 +1197,11 @@ const CONFIGURED_HOTKEY_SETTING_KEYS = Object.freeze([
 ]);
 const CONFIGURED_HOTKEY_SETTING_KEY_SET = new Set(CONFIGURED_HOTKEY_SETTING_KEYS);
 
-let userSettings = { ...DEFAULT_USER_SETTINGS, [OVERLAY_PROFILE_SETTINGS_KEY]: {} };
+let userSettings = {
+  ...DEFAULT_USER_SETTINGS,
+  dictionaryReaderSelection: resolveDictionaryReaderFromConfigData(getGSMSettings()),
+  [OVERLAY_PROFILE_SETTINGS_KEY]: {},
+};
 let shouldMigrateLegacyOverlayActivationScan = false;
 let reconfigureOverlayRuntimeForSettingsChange = () => {};
 let liveStatsVisibilityMode = "all";
@@ -1150,6 +1267,11 @@ function seedOverlayProfileSettings(profileName, sourceSettings = userSettings) 
 
 function normalizeOverlaySettingsProfiles(reason = "unknown") {
   let changed = false;
+  // Local vocabulary is not ready for production, including previously enabled profiles.
+  if (userSettings.localVocabularyEnabled !== false) {
+    userSettings.localVocabularyEnabled = false;
+    changed = true;
+  }
   userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] = userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] === true;
   userSettings[OVERLAY_ACTIVE_PROFILE_KEY] = normalizeOverlayProfileName(userSettings[OVERLAY_ACTIVE_PROFILE_KEY]);
   const profiles = getOverlayProfileSettingsContainer();
@@ -1174,6 +1296,10 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
       } else {
         changed = true;
       }
+    }
+    if (cleanedSettings.localVocabularyEnabled !== false) {
+      cleanedSettings.localVocabularyEnabled = false;
+      changed = true;
     }
     if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideCompletedGoals")) {
       cleanedSettings.hideCompletedGoals = DEFAULT_USER_SETTINGS.hideCompletedGoals;
@@ -1224,6 +1350,9 @@ function persistOverlaySettingForActiveProfile(key, value) {
 }
 
 function setOverlaySettingValue(key, value) {
+  if (key === "localVocabularyEnabled") {
+    value = false;
+  }
   userSettings[key] = value;
   persistOverlaySettingForActiveProfile(key, value);
 }
@@ -1593,6 +1722,7 @@ function getLiveStatsVisibilityCycleModes(settings = userSettings, goalsAvailabl
 function buildOverlaySettingsPayload() {
   return {
     ...userSettings,
+    dictionaryReader: activeDictionaryReader,
     liveStatsVisibilityMode: normalizeLiveStatsVisibilityMode(liveStatsVisibilityMode),
   };
 }
@@ -2327,6 +2457,11 @@ function publishOverlaySocketData(type, data) {
   sendOffsetHelperData();
 }
 
+const handleAnkiSetup = createSetupHandler(
+  (input, deadline) => configureYomitan(BrowserWindow, yomitanExt, input, deadline),
+  (response) => { if (backend?.connected) backend.send(response); },
+);
+
 function handleOverlayWebSocketControlMessage(type, data) {
   if ((type !== "ws2" && type !== "backend-connector") || data === "True" || data === "False") {
     return false;
@@ -2345,6 +2480,11 @@ function handleOverlayWebSocketControlMessage(type, data) {
 
   if (!message || typeof message !== "object") {
     return false;
+  }
+
+  if (message.type === "anki-setup-yomitan") {
+    void handleAnkiSetup(message);
+    return true;
   }
 
   if (message.type === "live_stats_update") {
@@ -2598,6 +2738,7 @@ function resolveGamepadServerExecutable() {
 }
 
 function shouldRunInputServer(settings = userSettings) {
+  if (settings.localVocabularyEnabled === true) return true;
   if (settings.gamepadEnabled) {
     return true;
   }
@@ -3427,6 +3568,76 @@ async function loadExtension(name) {
   }
 }
 
+// hoshidicts keeps dictionaries in OPFS behind exclusive sync access handles, so a
+// second engine context on the same origin makes imports fail with "FS error". The
+// hosted window below is only for hosts without Chrome's offscreen-document lifecycle
+// API; once Hachidori creates its own offscreen document, ours is redundant.
+function watchForHachidoriOwnedEngine() {
+  if (!hachidoriExt || hachidoriOwnedEngineWatcherInstalled) {
+    return;
+  }
+  hachidoriOwnedEngineWatcherInstalled = true;
+  const engineUrl = `chrome-extension://${hachidoriExt.id}/offscreen.html`;
+  app.on('web-contents-created', (_event, contents) => {
+    const yieldHostedEngine = () => {
+      const hosted = hachidoriEngineWindow;
+      try {
+        if (contents.isDestroyed() || contents.getURL() !== engineUrl) return;
+        if (!hosted || hosted.isDestroyed() || hosted.webContents.id === contents.id) return;
+      } catch {
+        return;
+      }
+      console.log('[Hachidori] Extension owns its dictionary engine; releasing the redundant hosted one.');
+      hachidoriEngineWindow = null;
+      hosted.destroy();
+    };
+    contents.once('did-finish-load', yieldHostedEngine);
+    contents.once('did-navigate', yieldHostedEngine);
+  });
+}
+
+async function createHachidoriEngineWindow() {
+  if (!hachidoriExt) {
+    return false;
+  }
+  if (hachidoriEngineWindow && !hachidoriEngineWindow.isDestroyed()) {
+    return true;
+  }
+
+  watchForHachidoriOwnedEngine();
+
+  const engineWindow = new BrowserWindow({
+    show: false,
+    width: 1,
+    height: 1,
+    skipTaskbar: true,
+    webPreferences: {
+      session: getOverlaySession(),
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false,
+    },
+  });
+  hachidoriEngineWindow = engineWindow;
+  engineWindow.on('closed', () => {
+    if (hachidoriEngineWindow === engineWindow) {
+      hachidoriEngineWindow = null;
+    }
+  });
+
+  try {
+    await engineWindow.loadURL(`chrome-extension://${hachidoriExt.id}/offscreen.html`);
+    console.log(`[Hachidori] Hosted dictionary engine ready (${hachidoriExt.id}).`);
+    return true;
+  } catch (error) {
+    console.error('[Hachidori] Failed to host offscreen.html:', error);
+    if (!engineWindow.isDestroyed()) {
+      engineWindow.destroy();
+    }
+    return false;
+  }
+}
+
 function readExtensionVersions() {
   if (!fs.existsSync(extensionVersionsPath)) {
     return {};
@@ -3453,7 +3664,14 @@ function readExtensionPackageVersion(dirPath) {
   try {
     const data = fs.readFileSync(pkgPath, 'utf-8');
     const pkg = JSON.parse(data);
-    return pkg && pkg.version ? String(pkg.version) : null;
+    if (!pkg || !pkg.version) {
+      return null;
+    }
+    // Both upstream updates and GSM-only integration edits invalidate cached copies.
+    const sourcePath = path.join(dirPath, 'SOURCE.json');
+    const source = fs.existsSync(sourcePath) ? JSON.parse(fs.readFileSync(sourcePath, 'utf-8')) : null;
+    const revision = [source?.commit, source?.gsmIntegration?.sha256].filter(Boolean).join('.');
+    return revision ? `${pkg.version}+${revision}` : String(pkg.version);
   } catch (e) {
     console.warn(`Failed to read manifest.json at ${pkgPath}`, e);
     return null;
@@ -4316,6 +4534,10 @@ if (hasPersistedOverlaySettings) {
       throw new TypeError("settings.json must contain a JSON object");
     }
     userSettings = { ...DEFAULT_USER_SETTINGS, ...userSettings, ...oldUserSettings };
+    userSettings.dictionaryReaderSelection = resolveDictionaryReaderFromConfigData(getGSMSettings(), oldUserSettings);
+    if (oldUserSettings.dictionaryReaderSelection !== userSettings.dictionaryReaderSelection) {
+      shouldPersistOverlaySettings = true;
+    }
 
     // Consolidate the old Push-to-Show-only toggle into the GSM-owned activation
     // setting. Only carry it forward when the new config key does not exist yet,
@@ -5085,7 +5307,9 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   requestOverlayPauseForSource(pauseSource);
 
   if (isOverlayVisible) {
-    if (keepManualActivationFocusNeutral) {
+    // Controller entry sends navigation-state followed by a focus request. The
+    // second show must preserve the focus deliberately acquired by the first.
+    if (keepManualActivationFocusNeutral && !userSettings.manualModeDisableInteractionFocusOverlay) {
       showOverlayWithoutFocusForManualVisibleMode(`manual-show-already-visible:${triggerSource}`);
     }
     console.log("[OverlayActivation] Blocked: Overlay is already visible.");
@@ -5303,9 +5527,61 @@ function saveSettings() {
     const persistedUserSettings = { ...userSettings };
     delete persistedUserSettings.showRecycledIndicator;
     fs.writeFileSync(settingsPath, JSON.stringify(persistedUserSettings, null, 2), "utf-8");
+    return true;
   } catch (e) {
     console.error(`[Settings] Failed to save settings to ${settingsPath}:`, e);
+    return false;
   }
+}
+
+let dictionaryReaderSwitchPromise = null;
+
+function changeDictionaryReader(value) {
+  if (dictionaryReaderSwitchPromise) return dictionaryReaderSwitchPromise;
+  if (![DICTIONARY_READER_YOMITAN, DICTIONARY_READER_HACHIDORI].includes(value)) return Promise.resolve();
+  if (value === userSettings.dictionaryReaderSelection && value === activeDictionaryReader) return Promise.resolve();
+
+  dictionaryReaderSwitchPromise = Promise.resolve().then(async () => {
+    const previous = userSettings.dictionaryReaderSelection;
+    userSettings.dictionaryReaderSelection = value;
+    if (!saveSettings()) {
+      userSettings.dictionaryReaderSelection = previous;
+      publishOverlaySettingsSnapshot('dictionary-save-failed');
+      throw new Error('The dictionary choice could not be saved. Check available disk space and try again.');
+    }
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send('dictionary-reader-switching', true);
+    }
+    if (IN_PROCESS_OVERLAY) {
+      const host = globalThis[OVERLAY_HOST_SYMBOL];
+      if (typeof host?.requestRestart !== 'function') {
+        throw new Error('Restart GSM once to enable automatic dictionary switching.');
+      }
+      await host.requestRestart('system');
+    } else {
+      const args = process.argv.slice(1).filter(arg => !arg.startsWith('--gsm-overlay-settings-tab='));
+      args.push('--gsm-overlay-settings-tab=system');
+      // Keep standalone Electron alive while its last window is destroyed.
+      const keepAlive = () => {};
+      app.on('window-all-closed', keepAlive);
+      try {
+        await stopOverlayApp();
+        app.relaunch({ args });
+      } finally {
+        app.removeListener('window-all-closed', keepAlive);
+      }
+      app.quit();
+    }
+  }).catch(error => {
+    console.error('[DictionaryReader] Could not switch dictionary:', error);
+    dialog.showErrorBox('Could not switch dictionary', error.message || String(error));
+  }).finally(() => {
+    dictionaryReaderSwitchPromise = null;
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send('dictionary-reader-switching', false);
+    }
+  });
+  return dictionaryReaderSwitchPromise;
 }
 
 let isOverlayVisible = false; // Internal tracking to prevent redundant calls
@@ -5665,6 +5941,7 @@ function registerTexthookerHotkey(oldHotkey) {
 
       console.log("[TexthookerMode] ACTION: Forcing Focus");
       texthookerWindow.show(); // Call show again to force focus like manual mode
+      forceForegroundWindow(texthookerWindow);
 
       // Hide main window to avoid interference
       mainWindow.hide();
@@ -5854,7 +6131,17 @@ function resetActivityTimer() {
   // }, userSettings.afkTimer * 60 * 1000);
 }
 
-function openSettings() {
+let requestedSettingsTab = null;
+
+function sendRequestedSettingsTab(window) {
+  if (requestedSettingsTab && !window.isDestroyed() && !window.webContents.isLoadingMainFrame()) {
+    window.webContents.send('select-settings-tab', requestedSettingsTab);
+    requestedSettingsTab = null;
+  }
+}
+
+function openSettings(tab) {
+  if (tab === 'system') requestedSettingsTab = tab;
   refreshOverlayTransportSettingsFromGSM("openSettings");
   syncGsmOwnedOverlaySettingsFromGSM("openSettings");
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -5864,6 +6151,7 @@ function openSettings() {
     settingsWindow.setAlwaysOnTop(false);
     settingsWindow.show();
     settingsWindow.focus();
+    sendRequestedSettingsTab(settingsWindow);
     return;
   }
 
@@ -5922,6 +6210,7 @@ function openSettings() {
       runtimeSettings: getManualHotkeyRuntimeStatus(),
       profileState: getOverlayProfileState(),
     });
+    sendRequestedSettingsTab(openedSettingsWindow);
     // Populate the OCR/Capture monitor dropdown, then ask the backend to refresh it.
     openedSettingsWindow.webContents.send("gsm-overlay-monitors", gsmOverlayMonitors);
     if (backend) {
@@ -5953,9 +6242,21 @@ function openYomitanSettings() {
     yomitanSettingsWindow.focus();
     return;
   }
+  const dictionaryExtension = hachidoriExt || yomitanExt;
+  if (!dictionaryExtension) {
+    if (yomitanBlockedByLowDisk) {
+      dialog.showErrorBox('Yomitan paused: low disk space', 'Free at least 1 GiB on the drive holding the overlay data, then restart the overlay to load Yomitan.');
+    } else {
+      dialog.showErrorBox('Error', 'The selected dictionary reader is not loaded. Restart the overlay and try again.');
+    }
+    return;
+  }
+  // Hachidori's Design section shows its controls beside the live preview only
+  // in windows wider than 1100px, so open as wide as its layout when the screen allows.
+  const workArea = screen.getPrimaryDisplay().workAreaSize;
   yomitanSettingsWindow = new BrowserWindow({
-    width: 1100,
-    height: 800,
+    width: hachidoriExt ? Math.min(1440, workArea.width) : 1100,
+    height: hachidoriExt ? Math.min(900, workArea.height) : 800,
     icon: getOverlayAppIconPath(),
     webPreferences: {
       preload: FIND_IN_PAGE_PRELOAD_PATH,
@@ -5971,7 +6272,7 @@ function openYomitanSettings() {
   });
 
   yomitanSettingsWindow.removeMenu()
-  yomitanSettingsWindow.loadURL(`chrome-extension://${yomitanExt.id}/settings.html`);
+  yomitanSettingsWindow.loadURL(`chrome-extension://${dictionaryExtension.id}/settings.html`);
   yomitanSettingsWindow.show();
   // Force a repaint to fix blank/transparent window issue
   setTimeout(() => {
@@ -6467,6 +6768,46 @@ function updateTrayMenu() {
 
 
 async function startOverlayAppImpl() {
+  isDev = !app.isPackaged;
+  // Renderer routing changes only after the selected extension is loaded on restart.
+  activeDictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings(), userSettings);
+  const dictionaryReader = activeDictionaryReader;
+  let yomitanLowDiskWarningShown = false;
+  const canLoadYomitan = async () => {
+    const diskSpace = checkYomitanDiskSpace(dataPath);
+    if (!diskSpace) {
+      console.warn('[YomitanStartup] Could not check free space on the Chromium storage volume.');
+      yomitanBlockedByLowDisk = false;
+      return true;
+    }
+    if (!diskSpace.isLow) {
+      yomitanBlockedByLowDisk = false;
+      return true;
+    }
+
+    yomitanBlockedByLowDisk = true;
+    const storageVolume = path.parse(path.resolve(dataPath)).root || dataPath;
+    const freeMiB = Math.floor(diskSpace.freeBytes / (1024 ** 2));
+    console.warn(`[YomitanStartup] Skipping Yomitan: ${freeMiB} MiB free on ${storageVolume}.`);
+    if (!yomitanLowDiskWarningShown) {
+      yomitanLowDiskWarningShown = true;
+      try {
+        await dialog.showMessageBox({
+          type: 'warning',
+          buttons: ['Continue without Yomitan'],
+          defaultId: 0,
+          title: 'Yomitan paused: low disk space',
+          message: 'Yomitan was not loaded because its storage drive is nearly full.',
+          detail: `${storageVolume} has ${freeMiB} MiB free. Chromium may corrupt or lose Yomitan dictionaries and settings when the drive fills up. The overlay will continue without Yomitan. Free at least 1 GiB on this drive, then restart the overlay.`,
+        });
+      } catch (error) {
+        console.error('[YomitanStartup] Failed to show low disk space warning:', error);
+      }
+    }
+    return false;
+  };
+  const yomitanCanLoad = dictionaryReader !== DICTIONARY_READER_YOMITAN || await canLoadYomitan();
+
   // Install before loading either extension or any overlay renderer. This
   // preserves the Reader's own rendering/settings while governing its traffic.
   uninstallJitenSessionBroker = installJitenSessionBroker(getOverlaySession(), jitenParseCache);
@@ -6506,7 +6847,6 @@ async function startOverlayAppImpl() {
   // MANIFEST SWITCHING & MIGRATION LOGIC
   // ===========================================================
 
-  isDev = !app.isPackaged;
   const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
 
   // 1. Define Paths
@@ -6522,7 +6862,7 @@ async function startOverlayAppImpl() {
   const skipMigrationConfirmationInLinux = true;
 
   // DO LINUX FIRST, and then windows later if we need it...
-  if (isLinux()) {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad && isLinux()) {
     if (skipMigrationConfirmationInLinux) {
       try {
         if (!fs.existsSync(staticManifestPath)) {
@@ -6651,7 +6991,7 @@ async function startOverlayAppImpl() {
 
   // Detect if yomitan extension files changed since last overlay launch (e.g. GSM app update).
   // If so, clear Chromium's cached service workers to prevent stale compiled background scripts.
-  {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad) {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
     const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
@@ -6679,6 +7019,33 @@ async function startOverlayAppImpl() {
     try {
       fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
     } catch {}
+  } else if (dictionaryReader === DICTIONARY_READER_HACHIDORI) {
+    // Electron keeps running the first background.js it registered, whatever the manifest version,
+    // so a Hachidori sync would pair new pages with an old worker. SOURCE.json names the vendored commit.
+    const hachidoriExtDir = isDev ? path.join(__dirname, 'hachidori') : path.join(getPackagedResourcesPath(), 'hachidori');
+    const hachidoriCommitPath = path.join(dataPath, 'hachidori_last_commit.json');
+    let currentCommit = null;
+    try {
+      const source = JSON.parse(fs.readFileSync(path.join(hachidoriExtDir, 'SOURCE.json'), 'utf-8'));
+      currentCommit = `${source.commit}:${source.gsmIntegration?.sha256 || ''}`;
+    } catch {}
+    let storedCommit = null;
+    try { storedCommit = JSON.parse(fs.readFileSync(hachidoriCommitPath, 'utf-8')).commit; } catch {}
+
+    if (currentCommit !== storedCommit) {
+      console.log(`[HachidoriStartup] Extension changed (stored=${storedCommit}, current=${currentCommit}). Clearing service worker cache...`);
+      try {
+        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
+      } catch (e) {
+        console.warn('[HachidoriStartup] Failed to clear service worker cache:', e);
+      }
+    }
+
+    hachidoriExt = await loadExtension('hachidori');
+    try { fs.writeFileSync(hachidoriCommitPath, JSON.stringify({ commit: currentCommit })); } catch {}
+    if (hachidoriExt) {
+      await createHachidoriEngineWindow();
+    }
   }
 
   if (userSettings.enableJitenReader) {
@@ -6686,7 +7053,7 @@ async function startOverlayAppImpl() {
   }
 
   // If migration marker exists, update it with the actual ID for debugging
-  if (fs.existsSync(markerPath)) {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad && fs.existsSync(markerPath)) {
     const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
     if (!markerData.id && yomitanExt) {
       markerData.id = yomitanExt.id;
@@ -6695,7 +7062,7 @@ async function startOverlayAppImpl() {
   }
 
   // Watch yomitan extension directory for rebuilds and hot-reload on change (dev workflow)
-  {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad) {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
     const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
@@ -6714,6 +7081,13 @@ async function startOverlayAppImpl() {
       console.log(`[YomitanHotReload] Detected yomitan update (version: ${newVersion}). Reloading extension...`);
 
       try {
+        if (!await canLoadYomitan()) {
+          if (yomitanExt && yomitanExt.id) {
+            getExtensionSessionApi().removeExtension(yomitanExt.id);
+            yomitanExt = null;
+          }
+          return;
+        }
         // Clear stale service worker cache before reloading
         await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
         const extensionApi = getExtensionSessionApi();
@@ -6923,6 +7297,7 @@ async function startOverlayAppImpl() {
   registerGamepadKeyboardHotkey();
 
   reconfigureOverlayRuntimeForSettingsChange = (previousSettings = {}, reason = "unknown") => {
+    syncLocalVocabularyRuntime();
     const previous = previousSettings || {};
     const changed = (key) => previous[key] !== userSettings[key];
     const profileSwitchReconfigure = String(reason || "").startsWith("overlay-profile:");
@@ -7021,6 +7396,7 @@ async function startOverlayAppImpl() {
 
   // Start the shared Rust input server if any current feature requires it.
   syncGamepadServerState("app-whenReady");
+  syncLocalVocabularyRuntime();
 
   // If route-all-hotkeys is already enabled at launch, open the app-hotkey socket
   // (the register* calls above populated the registry).
@@ -7111,6 +7487,19 @@ async function startOverlayAppImpl() {
     child.loadURL(url);
     return { action: 'deny' };
   });
+
+  ipcMain.handle(HACHIDORI_EXTERNAL_LINK_CHANNEL, createHachidoriExternalLinkHandler({
+    getMainWindow: () => mainWindow,
+    isHachidoriActive: () => (
+      dictionaryReader === DICTIONARY_READER_HACHIDORI
+      && hasLoadedHachidoriExtension(hachidoriExt)
+    ),
+    openExternal: (url) => electron.shell.openExternal(url),
+  }));
+  ipcMain.on(OVERLAY_SETTINGS_READY_CHANNEL, createOverlaySettingsReadyHandler({
+    getMainWindow: () => mainWindow,
+    buildPayload: buildOverlaySettingsPayload,
+  }));
 
   // Set bounds again to fix potential issue with wrong size on start
   setTimeout(() => {
@@ -7366,8 +7755,9 @@ async function startOverlayAppImpl() {
     }
 
     // Start the activity timer
-    if (userSettings.openSettingsOnStartup) {
-      openSettings();
+    const settingsTab = process.argv.includes('--gsm-overlay-settings-tab=system') ? 'system' : undefined;
+    if (userSettings.openSettingsOnStartup || settingsTab) {
+      openSettings(settingsTab);
     }
     resetActivityTimer();
   });
@@ -7616,6 +8006,11 @@ async function startOverlayAppImpl() {
       root_tab_key: "profiles",
     });
   });
+  ipcMain.on("open-ai-settings", (event) => {
+    if (mainWindow && event.sender === mainWindow.webContents && backend?.connected) {
+      backend.send({ type: "open-gsm-settings", root_tab_key: "ai", subtab_key: "general" });
+    }
+  });
   ipcMain.on("gamepad-input-test-active", (event, payload) => {
     gamepadInputTestActive = !!(payload && payload.active);
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -7662,6 +8057,10 @@ async function startOverlayAppImpl() {
   });
 
   ipcMain.on("setting-changed", (event, { key, value }) => {
+    if (key === 'dictionaryReaderSelection') {
+      if (settingsWindow && event.sender === settingsWindow.webContents) void changeDictionaryReader(value);
+      return;
+    }
     const sanitizedLogValue = (key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value;
     console.log(`Setting changed: ${key} = ${sanitizedLogValue}`);
     const enforcedTransportUrls = getEnforcedOverlayTransportUrls();
@@ -7931,6 +8330,12 @@ async function startOverlayAppImpl() {
       case "gamepadMineButton":
       case "gamepadNextEntryButton":
       case "gamepadPrevEntryButton":
+      case "gamepadPrevJitenWordButton":
+      case "gamepadNextJitenWordButton":
+      case "gamepadNavigateUp":
+      case "gamepadNavigateDown":
+      case "gamepadNavigateLeft":
+      case "gamepadNavigateRight":
       case "gamepadAutoConfirmSelection":
       case "gamepadFocusOverlayOnEntry":
       case "gamepadShowModeIndicator":
@@ -7970,6 +8375,10 @@ async function startOverlayAppImpl() {
         registerGamepadKeyboardHotkey(oldValue);
         syncGamepadServerState(`setting-changed:${key}`);
         break;
+    }
+    if (key.startsWith('localVocabulary') || key === 'gamepadJitenApiKey') {
+      syncGamepadServerState('local-vocabulary-settings');
+      syncLocalVocabularyRuntime();
     }
     // GSM-owned OCR-capture settings are persisted by the backend, not the overlay profile.
     if (GSM_OWNED_OVERLAY_FIELD_MAP[key]) {
@@ -8127,7 +8536,7 @@ async function startOverlayAppImpl() {
       }
       if (shouldTranslate) {
         translationRequested = true;
-        mainWindow?.webContents.send('request-block-translation');
+        mainWindow?.webContents.send('request-block-translation', { automatic: true });
       }
     }
 
@@ -8373,6 +8782,10 @@ async function stopOverlayApp() {
 
       runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());
       runOverlayCleanupStep('Jiten requests', () => {
+        localVocabulary.cancel();
+        clearInterval(vocabularySyncInterval);
+        clearTimeout(vocabularySyncTimer);
+        vocabularyConnection.close();
         jitenFrameRequests.dispose();
         jitenParseCache.dispose();
         uninstallJitenSessionBroker?.();
@@ -8415,13 +8828,14 @@ async function stopOverlayApp() {
       fullscreenModeRecommendationWindow = null;
       settingsWindow = null;
       yomitanSettingsWindow = null;
+      hachidoriEngineWindow = null;
       jitenReaderSettingsWindow = null;
       offsetHelperWindow = null;
       texthookerWindow = null;
 
       runOverlayCleanupStep('extensions', () => {
         const extensionApi = getExtensionSessionApi();
-        for (const extension of [yomitanExt, jitenReaderExt]) {
+        for (const extension of [yomitanExt, hachidoriExt, jitenReaderExt]) {
           if (extension && extension.id) {
             try {
               extensionApi.removeExtension(extension.id);
@@ -8432,6 +8846,8 @@ async function stopOverlayApp() {
         }
       });
       yomitanExt = null;
+      yomitanBlockedByLowDisk = false;
+      hachidoriExt = null;
       jitenReaderExt = null;
 
       runOverlayCleanupStep('IPC registrations', () => removeOverlayIpcRegistrations());
@@ -8460,6 +8876,7 @@ module.exports = {
   startOverlayApp,
   stopOverlayApp,
   isOverlayRunning,
+  openSettings,
 };
 
 if (!IN_PROCESS_OVERLAY) {

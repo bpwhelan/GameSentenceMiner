@@ -4,6 +4,7 @@ from typing import List, Optional
 from GameSentenceMiner.util.config.configuration import (
     AI_GEMINI,
     AI_GROQ,
+    AI_ZAI,
     AI_GSM_CLOUD,
     AI_LM_STUDIO,
     AI_OLLAMA,
@@ -61,10 +62,25 @@ def get_ai_prompt_result(
         return ""
 
 
+def get_sentence_analysis(lines, sentence, current_line, game_title="", mode="sentence", question="") -> str:
+    config = get_config()
+    AIService, snapshot_config = _get_ai_service_components()
+    service = AIService(config_snapshot=snapshot_config(config.ai, config.general), logger=logger)
+    return service.analyze(lines, sentence, current_line, game_title, mode=mode, question=question)
+
+
 def ai_config_changed(config: Ai, current: Optional[Ai]) -> bool:
     if not current:
         return True
     if config.provider != current.provider:
+        return True
+    if config.provider == AI_ZAI and (
+        config.zai_api_key != current.zai_api_key
+        or config.zai_model != current.zai_model
+        or config.zai_backup_model != current.zai_backup_model
+    ):
+        return True
+    if config.prompt_preset != current.prompt_preset:
         return True
     if config.provider == AI_GEMINI and (
         config.gemini_api_key != current.gemini_api_key

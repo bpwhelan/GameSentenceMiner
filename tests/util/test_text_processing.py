@@ -10,6 +10,7 @@ from GameSentenceMiner.util.text_processing import (
     apply_text_processing,
     extract_bracketed_text,
     preview_text_processing_request,
+    remove_newlines,
 )
 
 
@@ -39,6 +40,17 @@ def _rule(
 def test_apply_text_processing_passthrough_for_empty_and_none_config():
     assert apply_text_processing("", None) == ""
     assert apply_text_processing("abc", None) == "abc"
+
+
+def test_remove_newlines_keeps_japanese_words_joined_across_ocr_rows():
+    config = TextProcessing(remove_newlines=True)
+    source = "わしら全員には固有の――【プロダクトＩＤ】が設定されと\nる。できればそれで。"
+    expected = source.replace("\n", "")
+
+    assert remove_newlines(source) == expected
+    assert apply_text_processing(source, config) == expected
+    assert remove_newlines("やさか\nい、") == "やさかい、"
+    assert remove_newlines("The\ncat") == "Thecat"
 
 
 def test_apply_text_processing_runs_string_replacement():
@@ -75,6 +87,26 @@ def test_preview_text_processing_request_uses_text_processing_config_dict():
     )
 
     assert result == {"result": "bar"}
+
+
+@pytest.mark.parametrize("mode", ["python", "native", "shadow"])
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("ええ……。", "ええ……。"),
+        ("いい", "いい"),
+        ("ええいい", "ええいい"),
+        ("日日日本本本", "日本"),
+        ("AAAABBBBCCCC", "ABC"),
+        ("ええ日日日本本本語語語", "ええ日本語"),
+    ],
+)
+def test_repeated_character_autodetection_requires_three_in_processing_and_preview(monkeypatch, mode, text, expected):
+    monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", mode)
+    config = TextProcessing(remove_repeated_chars=True)
+
+    assert apply_text_processing(text, config) == expected
+    assert preview_text_processing_request({"text": text, "config": config.to_dict()}) == {"result": expected}
 
 
 def test_extract_bracketed_text_returns_text_between_japanese_quotes():

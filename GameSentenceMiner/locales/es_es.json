@@ -469,7 +469,25 @@
           },
           "animated": {
             "label": "Animado:",
-            "tooltip": "Habilitar para crear una captura de pantalla animada. Será un archivo webm codificado con AV1. Todas las configuraciones debajo de esto no son aplicables con esto ACTIVADO."
+            "tooltip": "Crear un AVIF animado con los ajustes de captura animada. Las líneas sin voz pueden usar los ajustes de imagen fija habituales."
+          },
+          "animated_target_size": {
+            "label": "Tamaño objetivo (KB):",
+            "disabled": "Desactivado",
+            "tooltip": "Tamaño aproximado del AVIF animado; 1 KB = 1.024 bytes. 0 conserva el ajuste actual. Codifica muestras del intervalo y recorte seleccionados y reduce FPS, calidad o anchura según sea necesario. Tiene prioridad sobre Adaptive compact AVIF. El muestreo tarda más y el tamaño final puede variar."
+          },
+          "animated_size_priority": {
+            "label": "Preferencia de tamaño:",
+            "tooltip": "Priorizar FPS reduce primero la calidad y la anchura. Priorizar calidad reduce primero los FPS. Equilibrado reduce los tres a la vez. Los objetivos muy pequeños pueden reducir todos los ajustes.",
+            "options": {
+              "balanced": "Equilibrado",
+              "prefer_fps": "Priorizar FPS",
+              "prefer_quality": "Priorizar calidad"
+            }
+          },
+          "animated_only_when_voice": {
+            "label": "Animar solo líneas con voz:",
+            "tooltip": "Usar una captura animada solo si se detecta voz en el audio del juego y se conserva ese audio. En caso contrario, usar una imagen fija. Requiere detección de voz; el TTS y el audio original conservado sin voz detectada no cuentan."
           },
           "ffmpeg_options": {
             "label": "Opciones de Re-codificación de FFmpeg:",
@@ -877,6 +895,10 @@
           "hotkey": {
             "label": "Tecla Rápida de Pausa de Juego:",
             "tooltip": "Tecla rápida para pausar/reanudar el proceso de juego activo."
+          },
+          "anki_confirmation_requests_pause": {
+            "label": "Pausar mientras la confirmación de Anki esté abierta:",
+            "tooltip": "Pausa el juego mientras la ventana de confirmación de Anki esté abierta. Requiere habilitar la pausa del juego. El juego se reanuda al cerrar la ventana, salvo que haya otra solicitud de pausa activa."
           },
           "auto_resume_seconds": {
             "label": "Reanudar Automáticamente (Segundos):",

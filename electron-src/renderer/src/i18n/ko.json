@@ -150,8 +150,8 @@
     "console": {
       "openLogsFolder": "로그 폴더 열기",
       "openLogsFolderTooltip": "로그 폴더 열기",
-      "exportLogs": "로그 내보내기",
-      "exportLogsTooltip": "로그를 zip 아카이브로 내보내기",
+      "exportLogs": "익명화된 로그 내보내기",
+      "exportLogsTooltip": "감지된 사용자 이름, 홈 경로, 컴퓨터 이름, 이메일/IP 주소 및 일반적인 인증 정보를 가린 ZIP 파일을 내보냅니다. 원본 로그는 변경되지 않습니다. 공유하기 전에 내용을 확인하세요.",
       "modeSimple": "모드: 간단",
       "modeAdvanced": "모드: 고급",
       "modeSimpleTooltip": "고급 로그로 전환 (기본 + 백그라운드 로그 표시)",

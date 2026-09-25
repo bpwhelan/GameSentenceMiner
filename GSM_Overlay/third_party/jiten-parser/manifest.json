@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/Sirush/Jiten",
+  "commit": "a2fd4a6ccbbcc55c975694627e3b54f3f4e23f11",
+  "sourcePath": "Jiten.Parser/Stages/MorphologicalAnalyser.RewriteRules.cs",
+  "sourceSha256": "d832f9f5293d63d236f28c15ac06a990dad94476de89aca4cd94c09b8b62d921",
+  "license": "Apache-2.0",
+  "ruleCount": 133,
+  "guardedRules": [
+    "kariru",
+    "konna-no",
+    "sonna-no",
+    "anna-no",
+    "donna-no"
+  ]
+}

@@ -72,6 +72,18 @@ export function resolveSinglePortFromConfigData(configData: unknown): number {
     return normalizePort(profileData.general.texthooker_port);
 }
 
+/** Legacy opt-in used when migrating to the overlay's dictionary selection. */
+export function resolveHachidoriEnabledFromConfigData(configData: unknown): boolean {
+    if (!isJsonObject(configData) || !isJsonObject(configData.experimental)) {
+        return false;
+    }
+
+    return (
+        configData.experimental.enable_experimental_features === true &&
+        configData.experimental.enable_hachidori === true
+    );
+}
+
 export interface GsmProfileList {
     profiles: string[];
     currentProfile: string;

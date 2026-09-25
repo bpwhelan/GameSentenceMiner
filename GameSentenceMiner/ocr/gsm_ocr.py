@@ -21,13 +21,13 @@ import time
 from PIL import Image
 from dataclasses import dataclass, field
 from datetime import datetime
-from difflib import SequenceMatcher
 from pathlib import Path
 from time import perf_counter
 import multiprocessing as mp
 import sys
 from typing import Any, Callable, Protocol, runtime_checkable
 
+from GameSentenceMiner.native.text import sequence_ratio
 from GameSentenceMiner.ocr.compare import (
     OCRCompareSettings,
     compare_ocr_results,
@@ -96,6 +96,8 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_ocr_screenshots,
     get_ocr_area_select_ocr_hotkey,
     get_ocr_area_select_ocr_gamepad,
+    get_ocr_add_area_ocr_hotkey,
+    get_ocr_add_area_ocr_gamepad,
     get_ocr_global_pause_gamepad,
     get_ocr_global_pause_hotkey,
     get_ocr_subset_chunk_min_length,
@@ -166,6 +168,8 @@ paused = False
 shutdown_requested = False
 ocr_metrics_capture_lock = threading.Lock()
 area_select_ocr_hotkey = "ctrl+shift+o"
+add_area_ocr_hotkey = "alt+shift+n"
+_add_ocr_area_lock = threading.Lock()
 manual_ocr_hotkey = "ctrl+shift+m"
 menu_ocr_hotkey = "ctrl+shift+g"
 whole_window_ocr_hotkey = "ctrl+shift+w"
@@ -1315,7 +1319,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         candidate_normalized = _v2_normalized_text(candidate_text)
         similarity = (
             round(
-                SequenceMatcher(None, previous_normalized, candidate_normalized, autojunk=False).ratio() * 100,
+                sequence_ratio(previous_normalized, candidate_normalized) * 100,
                 3,
             )
             if previous_normalized and candidate_normalized
@@ -1987,7 +1991,7 @@ def _v2_texts_stable(prev_text: str, new_text: str, duplicate_threshold: int) ->
         return False
 
     threshold = max(90, int(duplicate_threshold or 90))
-    return (SequenceMatcher(None, prev_norm, new_norm, autojunk=False).ratio() * 100) >= threshold
+    return (sequence_ratio(prev_norm, new_norm) * 100) >= threshold
 
 
 def _v2_text_is_evolving(prev_text: str, new_text: str, settings: OCRCompareSettings | None = None) -> bool:
@@ -2508,6 +2512,11 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             logger.info("IPC: Triggered Area-Select OCR")
 
+        elif command == ocr_ipc.OCRCommand.ADD_OCR_AREA.value:
+            threading.Thread(target=add_ocr_area, daemon=True).start()
+            response["success"] = True
+            logger.info("IPC: Opening Add new area selector")
+
         elif command == ocr_ipc.OCRCommand.TOGGLE_FORCE_STABLE.value:
             is_stable = get_controller().toggle_force_stable()
             response["success"] = True
@@ -2602,11 +2611,13 @@ def _normalize_hotkey_for_keyboard(value: Any, default: str = "") -> str:
 
 def refresh_runtime_hotkey_settings_from_config() -> None:
     global area_select_ocr_hotkey, manual_ocr_hotkey, menu_ocr_hotkey, whole_window_ocr_hotkey, global_pause_hotkey
+    global add_area_ocr_hotkey
 
     current_manual_hotkey = get_ocr_manual_ocr_hotkey()
     manual_ocr_hotkey = _normalize_hotkey_for_keyboard(current_manual_hotkey, "ctrl+shift+m")
     menu_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_menu_ocr_hotkey(), "ctrl+shift+g")
     area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_area_select_ocr_hotkey(), "ctrl+shift+o")
+    add_area_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_add_area_ocr_hotkey(), "alt+shift+n")
     whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_whole_window_ocr_hotkey(), "ctrl+shift+w")
     global_pause_hotkey = _normalize_hotkey_for_keyboard(get_ocr_global_pause_hotkey(), "ctrl+shift+p")
 
@@ -3704,6 +3715,8 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 "menuOcrGamepad",
                 "areaSelectOcrHotkey",
                 "areaSelectOcrGamepad",
+                "addAreaOcrHotkey",
+                "addAreaOcrGamepad",
                 "wholeWindowOcrHotkey",
                 "wholeWindowOcrGamepad",
                 "globalPauseHotkey",
@@ -4212,6 +4225,23 @@ def run_area_select_ocr_once(source=TextSource.SCREEN_CROPPER) -> bool:
     return True
 
 
+def add_ocr_area() -> bool:
+    """Append one OCR area and hot-reload it without interrupting capture."""
+    if not _add_ocr_area_lock.acquire(blocking=False):
+        return False
+    try:
+        from GameSentenceMiner.ui.qt_main import launch_area_selector
+
+        result = launch_area_selector("", use_obs_screenshot=True, single_area_mode=True)
+        if not result:
+            return False
+        apply_ipc_config_reload({"reload_area": True, "reload_electron": False, "force": True})
+        ocr_ipc.announce_config_reloaded()
+        return True
+    finally:
+        _add_ocr_area_lock.release()
+
+
 def _run_configured_rectangles_ocr_once(*, is_secondary: bool) -> bool:
     area_name = "secondary" if is_secondary else "primary"
     logger.info(f"Running {area_name} OCR rectangles...")
@@ -4359,6 +4389,13 @@ def add_ss_hotkey():
         logger.info("Area-select OCR hotkey is disabled.")
     hotkey_manager.register_gamepad(get_ocr_area_select_ocr_gamepad, capture_screen_crop)
 
+    # Keep the binding getter registered even when disabled so live settings
+    # refreshes can enable it without restarting OCR.
+    hotkey_manager.register(lambda: add_area_ocr_hotkey, add_ocr_area)
+    hotkey_manager.register_gamepad(get_ocr_add_area_ocr_gamepad, add_ocr_area)
+    if add_area_ocr_hotkey:
+        logger.info(f"Press {add_area_ocr_hotkey} to add a new OCR area.")
+
     if manual_ocr_hotkey:
         hotkey_manager.register(lambda: manual_ocr_hotkey, capture_primary_rectangles)
         logger.info(f"Press {manual_ocr_hotkey} to run OCR for Primary Rectangles.")
@@ -4460,6 +4497,12 @@ if __name__ == "__main__":
             help="Hotkey for area selection OCR (default: ctrl+shift+o)",
         )
         parser.add_argument(
+            "--add_area_ocr_hotkey",
+            type=str,
+            default="alt+shift+n",
+            help="Hotkey to add a saved OCR area (default: alt+shift+n)",
+        )
+        parser.add_argument(
             "--whole_window_ocr_hotkey",
             type=str,
             default="ctrl+shift+w",
@@ -4499,6 +4542,7 @@ if __name__ == "__main__":
         window_name = args.window
         furigana_filter_sensitivity = args.furigana_filter_sensitivity
         area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(args.area_select_ocr_hotkey, "ctrl+shift+o")
+        add_area_ocr_hotkey = _normalize_hotkey_for_keyboard(args.add_area_ocr_hotkey, "alt+shift+n")
         manual_ocr_hotkey = _normalize_hotkey_for_keyboard(args.manual_ocr_hotkey, "ctrl+shift+m")
         menu_ocr_hotkey = _normalize_hotkey_for_keyboard(args.menu_ocr_hotkey, "ctrl+shift+g")
         whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(args.whole_window_ocr_hotkey, "ctrl+shift+w")

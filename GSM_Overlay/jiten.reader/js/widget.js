@@ -246,6 +246,7 @@ const DEFAULT_CONFIGURATION = Object.freeze({
     //#endregion
     skipReleaseNotes: true,
     enableDebugMode: false,
+    exposePageEvents: true,
 });
 
 
@@ -1329,7 +1330,8 @@ const on = (event, listener) => {
 /* 100 */,
 /* 101 */,
 /* 102 */,
-/* 103 */
+/* 103 */,
+/* 104 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1339,8 +1341,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
 /* harmony import */ var _dom_display_toast__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(20);
-/* harmony import */ var _match_url__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(104);
-/* harmony import */ var _default_hosts__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(105);
+/* harmony import */ var _match_url__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(105);
+/* harmony import */ var _default_hosts__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(106);
 
 
 
@@ -1416,7 +1418,7 @@ function filterHostMeta(enabledHosts, filter, multiple) {
 
 
 /***/ }),
-/* 104 */
+/* 105 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1458,7 +1460,7 @@ const matchUrl = (matchPattern, host) => {
 
 
 /***/ }),
-/* 105 */
+/* 106 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1697,6 +1699,8 @@ const DEFAULT_HOSTS = [
             '*://learnjapanese.moe/texthooker.html',
             '*://renji-xd.github.io/texthooker-ui/',
             '*://*/texthooker$',
+            '*://*/textfeed$',
+            '*://*/textlog$',
         ],
         auto: true,
         optOut: true,
@@ -1847,7 +1851,6 @@ const DEFAULT_HOSTS = [
 
 
 /***/ }),
-/* 106 */,
 /* 107 */,
 /* 108 */,
 /* 109 */,
@@ -1865,7 +1868,9 @@ const DEFAULT_HOSTS = [
 /* 121 */,
 /* 122 */,
 /* 123 */,
-/* 124 */
+/* 124 */,
+/* 125 */,
+/* 126 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1882,8 +1887,6 @@ const getThemeCssVars = async () => {
 
 
 /***/ }),
-/* 125 */,
-/* 126 */,
 /* 127 */,
 /* 128 */,
 /* 129 */,
@@ -1904,7 +1907,9 @@ const getThemeCssVars = async () => {
 /* 144 */,
 /* 145 */,
 /* 146 */,
-/* 147 */
+/* 147 */,
+/* 148 */,
+/* 149 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1918,8 +1923,6 @@ const getParsingPaused = async () => {
 
 
 /***/ }),
-/* 148 */,
-/* 149 */,
 /* 150 */,
 /* 151 */,
 /* 152 */,
@@ -1942,14 +1945,16 @@ const getParsingPaused = async () => {
 /* 169 */,
 /* 170 */,
 /* 171 */,
-/* 172 */
+/* 172 */,
+/* 173 */,
+/* 174 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   isDisabled: () => (/* binding */ isDisabled)
 /* harmony export */ });
-/* harmony import */ var _get_host_meta__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(103);
+/* harmony import */ var _get_host_meta__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(104);
 
 const isDisabled = async (host) => {
     const enabledHosts = await (0,_get_host_meta__WEBPACK_IMPORTED_MODULE_0__.resolveMatchingHosts)(host);
@@ -1965,8 +1970,8 @@ const isDisabled = async (host) => {
 
 
 /***/ }),
-/* 173 */,
-/* 174 */
+/* 175 */,
+/* 176 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1984,9 +1989,9 @@ class ConfigurationUpdatedCommand extends _lib_broadcast_command__WEBPACK_IMPORT
 
 
 /***/ }),
-/* 175 */,
-/* 176 */,
-/* 177 */
+/* 177 */,
+/* 178 */,
+/* 179 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1999,7 +2004,7 @@ const setParsingPaused = async (paused) => {
 
 
 /***/ }),
-/* 178 */
+/* 180 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -2018,7 +2023,7 @@ class ParsingPausedCommand extends _lib_broadcast_command__WEBPACK_IMPORTED_MODU
 
 
 /***/ }),
-/* 179 */
+/* 181 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -2041,7 +2046,7 @@ const resolveThemeSync = (themeKey, savedThemes) => {
 
 
 /***/ }),
-/* 180 */
+/* 182 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -2104,14 +2109,14 @@ const deleteSavedTheme = async (id) => {
 
 
 /***/ }),
-/* 181 */
+/* 183 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   HTMLProfileSelectorElement: () => (/* binding */ HTMLProfileSelectorElement)
 /* harmony export */ });
-/* harmony import */ var _shared_configuration_profile_operations__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(182);
+/* harmony import */ var _shared_configuration_profile_operations__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(184);
 /* harmony import */ var _shared_configuration_profiles_state__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(8);
 
 
@@ -2176,7 +2181,7 @@ class HTMLProfileSelectorElement extends HTMLElement {
 
 
 /***/ }),
-/* 182 */
+/* 184 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -2187,7 +2192,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   renameProfile: () => (/* binding */ renameProfile),
 /* harmony export */   switchProfile: () => (/* binding */ switchProfile)
 /* harmony export */ });
-/* harmony import */ var _messages_broadcast_profile_switched_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(183);
+/* harmony import */ var _messages_broadcast_profile_switched_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(185);
 /* harmony import */ var _default_configuration__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(3);
 /* harmony import */ var _get_configuration__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(1);
 /* harmony import */ var _profile_constants__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(7);
@@ -2323,7 +2328,7 @@ const deleteProfileData = async (profileId) => {
 
 
 /***/ }),
-/* 183 */
+/* 185 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -2406,22 +2411,22 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _shared_configuration_set_configuration__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(11);
 /* harmony import */ var _shared_dom_append_element__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(23);
 /* harmony import */ var _shared_dom_on_loaded__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(87);
-/* harmony import */ var _shared_extension_get_parsing_paused__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(147);
+/* harmony import */ var _shared_extension_get_parsing_paused__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(149);
 /* harmony import */ var _shared_extension_get_tabs__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(46);
 /* harmony import */ var _shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(15);
 /* harmony import */ var _shared_extension_open_view__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(16);
-/* harmony import */ var _shared_extension_set_parsing_paused__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(177);
-/* harmony import */ var _shared_host_meta_is_disabled__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(172);
-/* harmony import */ var _shared_messages_broadcast_configuration_updated_command__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(174);
-/* harmony import */ var _shared_messages_broadcast_parsing_paused_command__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(178);
+/* harmony import */ var _shared_extension_set_parsing_paused__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(179);
+/* harmony import */ var _shared_host_meta_is_disabled__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(174);
+/* harmony import */ var _shared_messages_broadcast_configuration_updated_command__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(176);
+/* harmony import */ var _shared_messages_broadcast_parsing_paused_command__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(180);
 /* harmony import */ var _shared_messages_foreground_open_reader_mode_command__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(26);
 /* harmony import */ var _shared_messages_foreground_parse_page_command__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(31);
 /* harmony import */ var _shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(33);
-/* harmony import */ var _shared_theme_get_theme_css_vars__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(124);
-/* harmony import */ var _shared_word_style_resolve_theme__WEBPACK_IMPORTED_MODULE_16__ = __webpack_require__(179);
-/* harmony import */ var _shared_word_style_saved_themes_state__WEBPACK_IMPORTED_MODULE_17__ = __webpack_require__(180);
+/* harmony import */ var _shared_theme_get_theme_css_vars__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(126);
+/* harmony import */ var _shared_word_style_resolve_theme__WEBPACK_IMPORTED_MODULE_16__ = __webpack_require__(181);
+/* harmony import */ var _shared_word_style_saved_themes_state__WEBPACK_IMPORTED_MODULE_17__ = __webpack_require__(182);
 /* harmony import */ var _shared_word_style_themes__WEBPACK_IMPORTED_MODULE_18__ = __webpack_require__(6);
-/* harmony import */ var _elements_html_profile_selector_element__WEBPACK_IMPORTED_MODULE_19__ = __webpack_require__(181);
+/* harmony import */ var _elements_html_profile_selector_element__WEBPACK_IMPORTED_MODULE_19__ = __webpack_require__(183);
 
 
 

@@ -31,7 +31,8 @@ from GameSentenceMiner.util.stats.stats_util import (
     MIN_CHARS_FOR_SPEED as _MIN_CHARS_FOR_SPEED,
     MIN_SAMPLES_FOR_IQR as _MIN_SAMPLES_FOR_IQR,
 )
-from GameSentenceMiner.util.text_utils import is_kanji
+from GameSentenceMiner.native.text import count_kanji
+from GameSentenceMiner.util.text_utils import is_kanji as is_kanji  # noqa: PLC0414 - public compatibility re-export
 
 
 # ---------------------------------------------------------------------------
@@ -85,22 +86,32 @@ def build_game_display_name_mapping(all_lines) -> Dict[str, str]:
 def calculate_kanji_frequency(all_lines) -> Dict:
     """Calculate frequency of kanji characters across all lines with gradient colouring."""
     kanji_count: Dict[str, int] = defaultdict(int)
+    pending_texts: list[str] = []
+
+    def flush_texts():
+        if pending_texts:
+            for char, count in count_kanji(pending_texts).items():
+                kanji_count[char] += count
+            pending_texts.clear()
 
     for line in all_lines:
         if hasattr(line, "archived_kanji"):
+            # Flush before archived counts to preserve first-seen tie ordering.
+            flush_texts()
             for char, count in line.archived_kanji.items():
                 kanji_count[char] += count
             continue
         if line.line_text:
             try:
                 line_text = str(line.line_text) if line.line_text else ""
-                for char in line_text:
-                    if is_kanji(char):
-                        kanji_count[char] += 1
+                pending_texts.append(line_text)
+                if len(pending_texts) >= 1024:
+                    flush_texts()
             except Exception as e:
                 logger.warning(f"Error processing line text for kanji frequency: {repr(line.line_text)}, error: {e}")
                 continue
 
+    flush_texts()
     if not kanji_count:
         return {"kanji_data": [], "unique_count": 0}
 

@@ -151,6 +151,7 @@ class JitenParseCache {
     // main.js injects Chromium's session.fetch (HTTP/2 and pooled connections).
     // Requiring an explicit transport keeps tests offline, too.
     this.fetch = options.fetch;
+    this.onMutation = options.onMutation;
     this.ttlMs = options.ttlMs ?? 86_400_000;
     this.stateTtlMs = options.stateTtlMs ?? 300_000;
     this.batchDelayMs = options.batchDelayMs ?? 120;
@@ -495,7 +496,14 @@ class JitenParseCache {
         const { action, body, method, ttl, key } = first.value;
         const payload = await this._fetch(first.scope, action, body, method);
         if (ttl) this._metadata.set(key, payload, ttl);
-        else this.invalidateState(first.scope, body);
+        else {
+          this.invalidateState(first.scope, body);
+          // Notify local mirrors only after an acknowledged write. A callback
+          // failure must not make the caller repeat a successful SRS review.
+          if (method !== 'GET') {
+            try { this.onMutation?.({ apiKey: first.scope.apiKey, endpoint: first.scope.endpoint, body }); } catch {}
+          }
+        }
         results = [payload];
       }
       first.scope.failures = 0;

@@ -114,33 +114,54 @@ def _resize(gray: np.ndarray, size: tuple[int, int]) -> np.ndarray:
     return cv2.resize(gray, size, interpolation=cv2.INTER_AREA)
 
 
+def _uint8_percentile(pixels: np.ndarray, percentile: float) -> float:
+    """Exact linear percentile of bounded 8-bit images, without sorting pixels."""
+    if pixels.dtype != np.uint8 or pixels.ndim != 2 or not 0 < pixels.size <= 2**24:
+        return float(np.percentile(pixels, percentile))
+    # OpenCV's float32 histogram counts are exact up to 2**24 pixels. OCR
+    # signatures have at most 640*256; larger/unusual inputs use numpy above.
+    counts = cv2.calcHist([pixels], [0], None, [256], [0, 256]).ravel()
+    cumulative = np.cumsum(counts, dtype=np.int64)
+    index = (pixels.size - 1) * (percentile / 100.0)
+    lower_index = int(index)
+    fraction = index - lower_index
+    lower, upper = np.searchsorted(cumulative, [lower_index, min(lower_index + 1, pixels.size - 1)], side="right")
+    # Match numpy's linear interpolation order, including the upper-half
+    # subtraction that avoids rounding differences near a pixel threshold.
+    difference = int(upper - lower)
+    if fraction >= 0.5:
+        return float(upper - difference * (1.0 - fraction))
+    return float(lower + difference * fraction)
+
+
 def _contrast_masks(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     blurred = cv2.GaussianBlur(gray, (0, 0), 2.0)
     detail = gray.astype(np.int16) - blurred.astype(np.int16)
-    absolute_detail = np.abs(detail)
-    threshold = max(10.0, float(np.percentile(absolute_detail, 88)))
+    absolute_detail = np.abs(detail).astype(np.uint8)
+    threshold = max(10.0, _uint8_percentile(absolute_detail, 88))
     bright = (detail >= threshold).astype(np.uint8)
     dark = (detail <= -threshold).astype(np.uint8)
     return bright, dark
 
 
 def _edge_mask(gray: np.ndarray) -> np.ndarray:
-    median = float(np.median(gray))
+    median = _uint8_percentile(gray, 50)
     lower = max(12, int(0.55 * median))
     upper = max(lower + 1, min(255, int(1.45 * median) + 20))
     return (cv2.Canny(gray, lower, upper, L2gradient=True) > 0).astype(np.uint8)
 
 
 def _tolerant_f1(reference: np.ndarray, current: np.ndarray) -> float:
-    reference_count = int(reference.sum())
-    current_count = int(current.sum())
+    """Compare the binary uint8 (0/1) masks produced by the signature helpers."""
+    reference_count = cv2.countNonZero(reference)
+    current_count = cv2.countNonZero(current)
     if reference_count == 0 or current_count == 0:
         return 0.0
     kernel = np.ones((3, 3), dtype=np.uint8)
     current_dilated = cv2.dilate(current, kernel, iterations=1)
     reference_dilated = cv2.dilate(reference, kernel, iterations=1)
-    recall = float(np.logical_and(reference > 0, current_dilated > 0).sum()) / reference_count
-    precision = float(np.logical_and(current > 0, reference_dilated > 0).sum()) / current_count
+    recall = float(cv2.countNonZero(cv2.bitwise_and(reference, current_dilated))) / reference_count
+    precision = float(cv2.countNonZero(cv2.bitwise_and(current, reference_dilated))) / current_count
     if recall + precision <= 0:
         return 0.0
     return (2.0 * recall * precision) / (recall + precision)
@@ -161,14 +182,23 @@ class _ImageSignature:
         return cls(size=size, bright_mask=bright, dark_mask=dark, edge_mask=_edge_mask(prepared))
 
     def similarity(self, gray: np.ndarray) -> float:
+        return self._compare(gray)[0]
+
+    def _compare(self, gray: np.ndarray, rebase_threshold: float | None = None) -> tuple[float, _ImageSignature | None]:
         prepared = _resize(gray, self.size)
         bright, dark = _contrast_masks(prepared)
         contrast_score = max(
             _tolerant_f1(self.bright_mask, bright),
             _tolerant_f1(self.dark_mask, dark),
         )
-        edge_score = _tolerant_f1(self.edge_mask, _edge_mask(prepared))
-        return max(contrast_score, (0.75 * contrast_score) + (0.25 * edge_score))
+        # F1 cannot exceed 1, so edges cannot improve a perfect contrast score.
+        # A caller rebasing even perfect matches still needs the complete mask.
+        if contrast_score == 1.0 and (rebase_threshold is None or rebase_threshold <= 1.0):
+            return 1.0, None
+        edges = _edge_mask(prepared)
+        edge_score = _tolerant_f1(self.edge_mask, edges)
+        score = max(contrast_score, (0.75 * contrast_score) + (0.25 * edge_score))
+        return score, _ImageSignature(self.size, bright, dark, edges)
 
 
 @dataclass(frozen=True)
@@ -184,12 +214,12 @@ class _ImageCandidate:
         return self.signature.similarity(gray)
 
 
-def prepare_image_candidate(
+def _prepare_image_crop(
     image: Any,
     payload: Any = None,
     *,
     crop_box: tuple[int, int, int, int] | None = None,
-) -> _ImageCandidate | None:
+) -> tuple[np.ndarray, tuple[int, int], tuple[int, int, int, int]] | None:
     if isinstance(image, np.ndarray):
         if image.ndim not in (2, 3) or image.shape[1] <= 0 or image.shape[0] <= 0:
             return None
@@ -213,6 +243,19 @@ def prepare_image_candidate(
     gray = _crop_gray_array(image, frame_size, resolved_crop_box)
     if gray is None:
         return None
+    return gray, frame_size, resolved_crop_box
+
+
+def prepare_image_candidate(
+    image: Any,
+    payload: Any = None,
+    *,
+    crop_box: tuple[int, int, int, int] | None = None,
+) -> _ImageCandidate | None:
+    prepared = _prepare_image_crop(image, payload, crop_box=crop_box)
+    if prepared is None:
+        return None
+    gray, frame_size, resolved_crop_box = prepared
     return _ImageCandidate(
         frame_size=frame_size,
         crop_box=resolved_crop_box,
@@ -241,15 +284,14 @@ class ImageStabilityGate:
         self._stable_frames = 0
 
     def update_reference(self, image: Any, payload: Any = None) -> bool:
-        candidate = prepare_image_candidate(image, payload)
-        if candidate is None:
+        prepared = _prepare_image_crop(image, payload)
+        if prepared is None:
             return False
-        if (
-            self._candidate is None
-            or self._candidate.frame_size != candidate.frame_size
-            or self._candidate.crop_box != candidate.crop_box
-        ):
-            self._candidate = candidate
+        gray, frame_size, crop_box = prepared
+        if self._candidate is None or self._candidate.frame_size != frame_size or self._candidate.crop_box != crop_box:
+            # An unchanged region deliberately retains its existing reference.
+            # Do not compute blur, contrast masks and edges just to discard them.
+            self._candidate = _ImageCandidate(frame_size, crop_box, _ImageSignature.from_gray(gray))
             self._stable_frames = 1
         return True
 
@@ -258,14 +300,15 @@ class ImageStabilityGate:
         if candidate is None:
             return ImageStabilityObservation(should_run=True, similarity=None, stable_frames=0)
 
-        similarity = candidate.similarity(image)
-        if similarity is None:
+        gray = _crop_gray_array(image, candidate.frame_size, candidate.crop_box)
+        if gray is None:
             return ImageStabilityObservation(should_run=True, similarity=None, stable_frames=self._stable_frames)
 
+        similarity, current_signature = candidate.signature._compare(gray, self.similarity_threshold)
         if similarity < self.similarity_threshold:
-            rebased = prepare_image_candidate(image, crop_box=candidate.crop_box)
-            if rebased is not None:
-                self._candidate = rebased
+            # The comparison already produced this frame's complete signature.
+            # Reuse it instead of cropping, blurring and detecting edges twice.
+            self._candidate = _ImageCandidate(candidate.frame_size, candidate.crop_box, current_signature)
             self._stable_frames = 1
             return ImageStabilityObservation(should_run=True, similarity=similarity, stable_frames=1)
 

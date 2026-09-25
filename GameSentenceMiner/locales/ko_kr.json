@@ -473,7 +473,25 @@
           },
           "animated": {
             "label": "애니메이션:",
-            "tooltip": "애니메이션 스크린샷을 생성합니다. AV1로 인코딩된 webm 파일입니다. 이 옵션이 켜져 있으면 아래 설정은 적용되지 않습니다."
+            "tooltip": "애니메이션 스크린샷 설정으로 애니메이션 AVIF를 만듭니다. 음성이 없는 줄에는 일반 정지 이미지 설정을 사용할 수 있습니다."
+          },
+          "animated_target_size": {
+            "label": "목표 크기 (KB):",
+            "disabled": "끄기",
+            "tooltip": "애니메이션 AVIF의 예상 크기입니다. 1 KB = 1,024바이트이며 0은 기존 설정을 유지합니다. 선택한 구간과 자르기 영역의 샘플을 인코딩한 후 필요에 따라 FPS, 화질, 너비를 낮춥니다. Adaptive compact AVIF보다 우선합니다. 샘플링에 시간이 더 걸리며 최종 크기는 달라질 수 있습니다."
+          },
+          "animated_size_priority": {
+            "label": "크기 조정 우선순위:",
+            "tooltip": "FPS 우선은 화질과 너비를 먼저 낮춥니다. 화질 우선은 FPS를 먼저 낮춥니다. 균형은 세 가지를 함께 낮춥니다. 목표 크기가 매우 작으면 모든 설정이 낮아질 수 있습니다.",
+            "options": {
+              "balanced": "균형",
+              "prefer_fps": "FPS 우선",
+              "prefer_quality": "화질 우선"
+            }
+          },
+          "animated_only_when_voice": {
+            "label": "음성이 있는 줄만 애니메이션 사용:",
+            "tooltip": "게임 오디오에서 음성이 감지되고 해당 오디오를 유지할 때만 애니메이션 스크린샷을 사용합니다. 그 외에는 정지 이미지를 사용합니다. 음성 감지가 필요하며, TTS와 음성이 감지되지 않아 대신 보존한 원본 오디오는 해당하지 않습니다."
           },
           "ffmpeg_options": {
             "label": "FFmpeg 재인코딩 옵션:",
@@ -895,6 +913,10 @@
           "overlay_gamepad_navigation_requests_pause": {
             "label": "오버레이 게임패드 탐색 일시 중지 요청:",
             "tooltip": "활성화되면 오버레이 게임패드 탐색이 진입 시 일시 중지를 요청하고 종료 시 재개를 요청합니다."
+          },
+          "anki_confirmation_requests_pause": {
+            "label": "Anki 확인 창이 열려 있는 동안 일시 중지:",
+            "tooltip": "Anki 확인 창이 열려 있는 동안 게임을 일시 중지합니다. 게임 일시 중지 기능을 활성화해야 합니다. 다른 일시 중지 요청이 없으면 창을 닫을 때 게임이 재개됩니다."
           },
           "auto_resume_seconds": {
             "label": "자동 재개 (초):",

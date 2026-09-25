@@ -465,7 +465,25 @@
           },
           "animated": {
             "label": "动画:",
-            "tooltip": "启用创建动画截图。将是使用AV1编码的webm文件。启用此选项时，以下所有设置均不适用。"
+            "tooltip": "根据动画截图设置创建动画 AVIF。无语音的文本可以使用常规静态截图设置。"
+          },
+          "animated_target_size": {
+            "label": "目标大小 (KB):",
+            "disabled": "关闭",
+            "tooltip": "动画 AVIF 的估计大小；1 KB = 1,024 字节。0 表示保留现有设置。对所选时间段和裁剪区域进行采样编码，然后按需降低帧率、画质或宽度。优先于 Adaptive compact AVIF。采样需要额外时间，最终大小可能与目标不同。"
+          },
+          "animated_size_priority": {
+            "label": "大小调整偏好:",
+            "tooltip": "帧率优先会先降低画质和宽度。画质优先会先降低帧率。均衡会同时降低这三项。目标极小时可能降低所有设置。",
+            "options": {
+              "balanced": "均衡",
+              "prefer_fps": "帧率优先",
+              "prefer_quality": "画质优先"
+            }
+          },
+          "animated_only_when_voice": {
+            "label": "仅对有语音的文本使用动画:",
+            "tooltip": "仅在游戏音频中检测到语音且保留该音频时使用动画截图，否则使用静态截图。需要启用语音检测；TTS 和未检测到语音时保留的原始音频不算检测到的语音。"
           },
           "ffmpeg_options": {
             "label": "FFmpeg 重编码选项:",
@@ -838,6 +856,10 @@
           "hotkey": {
             "label": "游戏暂停热键:",
             "tooltip": "暂停/恢复活动游戏进程的热键。"
+          },
+          "anki_confirmation_requests_pause": {
+            "label": "Anki 确认窗口打开时暂停游戏:",
+            "tooltip": "在 Anki 确认窗口打开期间暂停游戏。需要启用游戏暂停功能。关闭窗口后，如果没有其他暂停请求，游戏将恢复。"
           },
           "auto_resume_seconds": {
             "label": "自动恢复 (秒):",

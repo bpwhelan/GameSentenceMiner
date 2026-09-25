@@ -550,6 +550,13 @@ class GSMApplication:
             lambda: get_config().hotkeys.manual_overlay_scan_gamepad,
             call_overlay_processor,
         )
+        from GameSentenceMiner.ui.config.tabs.hotkeys import copy_game_screenshot_to_clipboard
+
+        hotkey_manager.register(lambda: get_config().hotkeys.copy_game_screenshot, copy_game_screenshot_to_clipboard)
+        hotkey_manager.register_gamepad(
+            lambda: get_config().hotkeys.copy_game_screenshot_gamepad,
+            copy_game_screenshot_to_clipboard,
+        )
         hotkey_manager.register(
             lambda: get_config().hotkeys.pause_text_intake, _get_gametext_module().toggle_text_intake_paused
         )
@@ -611,7 +618,7 @@ class GSMApplication:
         )
 
     def _ensure_settings_window(self):
-        """Create the heavy ConfigWindow only when something needs to show it."""
+        """Return the shared ConfigWindow, creating it on the GUI thread if needed."""
         lock = getattr(self, "_settings_window_lock", None)
         if lock is None:
             lock = threading.Lock()
@@ -1464,7 +1471,7 @@ class GSMApplication:
 
         if is_gsm_cloud_preview_enabled():
             gsm_cloud_auth_cache_service.start_background_loop()
-            cloud_sync_service.start_background_loop()
+        cloud_sync_service.start_background_loop()
         self._start_thread(_get_run_text_hooker_page(), "texthooker-page")
 
     def handle_ipc_command(self, cmd: dict) -> None:
@@ -1956,11 +1963,9 @@ class GSMApplication:
 
         qt_main = _get_qt_main_module()
         qt_main.get_qt_app()
-        gsm_state.config_app = self.state.settings_window
         gsm_state.config_app_factory = self._ensure_settings_window
+        self._ensure_settings_window()
         open_config_on_startup = get_config().general.open_config_on_startup
-        if open_config_on_startup:
-            self._ensure_settings_window()
 
         self.start_background_threads()
         self.register_hotkeys()

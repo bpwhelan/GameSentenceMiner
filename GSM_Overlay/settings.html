@@ -1381,9 +1381,9 @@
     <div class="docs-banner">
       <div class="docs-banner-links">
         <button type="button" class="docs-link-chip yomitan-settings-chip" id="openYomitanSettings"
-          title="Open Yomitan dictionary settings">
+          title="Open dictionary settings">
           <img src="yomitan/images/icon19.png" alt="">
-          Yomitan Settings
+          Dictionary Settings
         </button>
         <button type="button" class="docs-link-chip" data-doc-key="overlay">
           Overlay Guide
@@ -1698,6 +1698,18 @@
       </label>
       <label>
         <span class="label-text">
+          Adaptive OCR Retries (Experimental)
+          <div class="hotkey-info">
+            Retry almost immediately while text is clearly expanding, and gradually wait longer when progress
+            is uncertain. After finding text, focus later local scans on a padded area around it, with a periodic
+            full-source scan and an immediate full-source retry if the text moves or disappears. Off by default;
+            applies when Text Appears Instantly is off.
+          </div>
+        </span>
+        <input type="checkbox" id="adaptive_ocr_retries" />
+      </label>
+      <label>
+        <span class="label-text">
           Image Scaling
           <div class="hotkey-info">
             Scale screenshots before OCR. Lower values scan faster and use less CPU; higher values improve accuracy
@@ -1786,7 +1798,8 @@
           Check Whether the Last OCR Text Is Still Visible
           <div class="hotkey-info">
             Starts a background image check after each overlay result and compares only the tightly cropped
-            last-sent text area. No extra OCR request is made. Experimental and off by default.
+            last-sent text area. If similarity is too low, a local OCR scan checks whether the text moved
+            before removing it and refreshes its position when found. Experimental and off by default.
           </div>
         </span>
         <input type="checkbox" id="last_sent_ocr_presence_check" />
@@ -2397,6 +2410,23 @@
       </label>
       <label>
         <span class="label-text">
+          Previous New / i+1 Jiten Word
+          <div class="hotkey-info">While navigating, jump to the previous new or i+1 Jiten word (for example, bind to LB)</div>
+        </span>
+        <input type="text" id="gamepadPrevJitenWordButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardPrevJitenWordKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Next New / i+1 Jiten Word
+          <div class="hotkey-info">While navigating, jump to the next new or i+1 Jiten word (for example, bind to RB)</div>
+        </span>
+        <input type="text" id="gamepadNextJitenWordButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardNextJitenWordKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <div class="hotkey-info">These word jumps need Jiten Reader highlighting and follow the Left/Right at an Edge setting. With no matching word, the selection stays put.</div>
+      <label>
+        <span class="label-text">
           Token Mode Toggle
           <div class="hotkey-info">Press to switch between character and token navigation</div>
         </span>
@@ -2411,33 +2441,38 @@
         <input type="text" id="gamepadMineButton" class="gamepad-binding-input" value="A" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardMineButton" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
-      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Keyboard Navigation</h5>
+      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Navigation Bindings</h5>
+      <div class="hotkey-info">Click a controller field, press an input or combo, then release to save. Generic controllers may show numbered buttons. Unmapped axis directions can also be assigned.</div>
       <label>
         <span class="label-text">
           Navigate Up
-          <div class="hotkey-info">Key to move to the previous text block</div>
+          <div class="hotkey-info">Move to the previous text block</div>
         </span>
+        <input type="text" id="gamepadNavigateUp" class="gamepad-binding-input" value="DPad Up" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardNavigateUp" class="keyboard-binding-input" value="↑" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
           Navigate Down
-          <div class="hotkey-info">Key to move to the next text block</div>
+          <div class="hotkey-info">Move to the next text block</div>
         </span>
+        <input type="text" id="gamepadNavigateDown" class="gamepad-binding-input" value="DPad Down" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardNavigateDown" class="keyboard-binding-input" value="↓" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
           Navigate Left
-          <div class="hotkey-info">Key to move cursor left</div>
+          <div class="hotkey-info">Move cursor left</div>
         </span>
+        <input type="text" id="gamepadNavigateLeft" class="gamepad-binding-input" value="DPad Left" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardNavigateLeft" class="keyboard-binding-input" value="←" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
           Navigate Right
-          <div class="hotkey-info">Key to move cursor right</div>
+          <div class="hotkey-info">Move cursor right</div>
         </span>
+        <input type="text" id="gamepadNavigateRight" class="gamepad-binding-input" value="DPad Right" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardNavigateRight" class="keyboard-binding-input" value="→" placeholder="Click and press a key" readonly />
       </label>
       <label>
@@ -2585,7 +2620,7 @@
       <label>
         <span class="label-text">
           Starting Position
-          <div class="hotkey-info">On activation and entry into another block. First new uses available Jiten results, otherwise the start. Nearest point applies on block entry and uses the position you just left.</div>
+          <div class="hotkey-info">On activation and entry into another block. First new starts at the first unknown Jiten word and resumes your cursor when reopening unchanged text. If Jiten is still parsing, it starts at the beginning and jumps when results arrive, unless you have navigated. Nearest point applies on block entry and uses the position you just left.</div>
         </span>
         <select id="gamepadInitialPosition">
           <option value="remember">Resume on activation; block start on entry (default)</option>
@@ -2689,6 +2724,26 @@
         </div>
         <div id="gamepadInputConsole" class="mini-console-output empty" aria-live="polite">No input events yet.</div>
       </div>
+      </div>
+    </div>
+    </div>
+
+    <div class="settings-grid single-column">
+    <div class="setting-group" data-tab="system">
+      <h4>Dictionary</h4>
+      <label>
+        <span class="label-text">
+          Dictionary Reader
+          <div class="hotkey-info">Choose the dictionary used for lookups. Changing it automatically restarts the overlay and returns here.</div>
+        </span>
+        <select id="dictionaryReaderSelection">
+          <option value="yomitan">Yomitan</option>
+          <option value="hachidori">Hachidori</option>
+        </select>
+      </label>
+      <div class="label-row">
+        <span class="label-text" id="dictionaryReaderStatus" aria-live="polite">Manage dictionaries, appearance, and lookup behavior for the selected reader.</span>
+        <button type="button" id="openDictionarySettings" class="guide-button">Open Dictionary Settings</button>
       </div>
     </div>
     </div>
@@ -2799,6 +2854,19 @@
 
     let mainBoxStartupWarningAcknowledged = false;
     let activeSettingsTab = "overview";
+    ipcRenderer.on('select-settings-tab', (_event, tab) => {
+      if (tab === 'system') updateSettingsTabVisibility(tab);
+    });
+    ipcRenderer.on('dictionary-reader-switching', (_event, switching) => {
+      document.getElementById('dictionaryReaderSelection').disabled = switching;
+      document.getElementById('openDictionarySettings').disabled = switching;
+      document.getElementById('dictionaryReaderStatus').textContent = switching
+        ? 'Switching dictionary reader…'
+        : 'Manage dictionaries, appearance, and lookup behavior for the selected reader.';
+    });
+    document.getElementById('openDictionarySettings').addEventListener('click', () => {
+      ipcRenderer.send('open-yomitan-settings');
+    });
     let overlayProfileState = {
       enabled: false,
       activeProfileName: "Default",
@@ -2870,6 +2938,12 @@
       gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Button", fallbackValue: 0 },
       gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button", fallbackValue: 7 },
       gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
+      gamepadPrevJitenWordButton: { settingKey: "gamepadPrevJitenWordButton", label: "Previous New / i+1 Jiten Word", fallbackValue: -1 },
+      gamepadNextJitenWordButton: { settingKey: "gamepadNextJitenWordButton", label: "Next New / i+1 Jiten Word", fallbackValue: -1 },
+      gamepadNavigateUp: { settingKey: "gamepadNavigateUp", label: "Navigate Up", fallbackValue: 12 },
+      gamepadNavigateDown: { settingKey: "gamepadNavigateDown", label: "Navigate Down", fallbackValue: 13 },
+      gamepadNavigateLeft: { settingKey: "gamepadNavigateLeft", label: "Navigate Left", fallbackValue: 14 },
+      gamepadNavigateRight: { settingKey: "gamepadNavigateRight", label: "Navigate Right", fallbackValue: 15 },
     };
 
     const KEYBOARD_BINDING_INPUT_CONFIG = {
@@ -2887,6 +2961,8 @@
       keyboardTokenModeToggleKey: { settingKey: "keyboardTokenModeToggleKey", label: "Keyboard Token Toggle Key", fallbackValue: null },
       keyboardNextEntryKey: { settingKey: "keyboardNextEntryKey", label: "Keyboard Next Entry Key", fallbackValue: null },
       keyboardPrevEntryKey: { settingKey: "keyboardPrevEntryKey", label: "Keyboard Prev Entry Key", fallbackValue: null },
+      keyboardPrevJitenWordKey: { settingKey: "keyboardPrevJitenWordKey", label: "Keyboard Previous New / i+1 Jiten Word", fallbackValue: null },
+      keyboardNextJitenWordKey: { settingKey: "keyboardNextJitenWordKey", label: "Keyboard Next New / i+1 Jiten Word", fallbackValue: null },
       keyboardNavigateUp: { settingKey: "keyboardNavigateUp", label: "Keyboard Navigate Up", fallbackValue: "ArrowUp" },
       keyboardNavigateDown: { settingKey: "keyboardNavigateDown", label: "Keyboard Navigate Down", fallbackValue: "ArrowDown" },
       keyboardNavigateLeft: { settingKey: "keyboardNavigateLeft", label: "Keyboard Navigate Left", fallbackValue: "ArrowLeft" },
@@ -3599,6 +3675,12 @@
         "gamepadMineButton",
         "gamepadNextEntryButton",
         "gamepadPrevEntryButton",
+        "gamepadPrevJitenWordButton",
+        "gamepadNextJitenWordButton",
+        "gamepadNavigateUp",
+        "gamepadNavigateDown",
+        "gamepadNavigateLeft",
+        "gamepadNavigateRight",
         "gamepadTokenMode",
         "gamepadAutoConfirmSelection",
         "gamepadFocusOverlayOnEntry",
@@ -3807,6 +3889,7 @@
       }),
       createCheckboxBinding("scan_on_overlay_activation", "#scan_on_overlay_activation"),
       createCheckboxBinding("text_appears_instantly", "#text_appears_instantly"),
+      createCheckboxBinding("adaptive_ocr_retries", "#adaptive_ocr_retries"),
       createNumberBinding("base_scale", "#base_scale", {
         fallback: 0.75,
         min: 0.5,
@@ -3939,6 +4022,9 @@
         event: "change",
       }),
       createCheckboxBinding("openSettingsOnStartup", "#openSettingsOnStartup"),
+      createSelectBinding("dictionaryReaderSelection", "#dictionaryReaderSelection", {
+        normalize: value => value === 'hachidori' ? 'hachidori' : 'yomitan',
+      }),
       createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
       createCheckboxBinding("routeAllHotkeysThroughInputServer", "#routeAllHotkeysThroughInputServer"),
       createNumberBinding("afkTimer", "#afkTimer", {
@@ -4064,6 +4150,12 @@
       createGamepadBindingSetting("gamepadMineButton"),
       createGamepadBindingSetting("gamepadNextEntryButton"),
       createGamepadBindingSetting("gamepadPrevEntryButton"),
+      createGamepadBindingSetting("gamepadPrevJitenWordButton"),
+      createGamepadBindingSetting("gamepadNextJitenWordButton"),
+      createGamepadBindingSetting("gamepadNavigateUp"),
+      createGamepadBindingSetting("gamepadNavigateDown"),
+      createGamepadBindingSetting("gamepadNavigateLeft"),
+      createGamepadBindingSetting("gamepadNavigateRight"),
       createKeyboardBindingSetting("keyboardModifierKey"),
       createKeyboardBindingSetting("keyboardToggleKey"),
       createKeyboardBindingSetting("keyboardConfirmKey"),
@@ -4078,6 +4170,8 @@
       createKeyboardBindingSetting("keyboardTokenModeToggleKey"),
       createKeyboardBindingSetting("keyboardNextEntryKey"),
       createKeyboardBindingSetting("keyboardPrevEntryKey"),
+      createKeyboardBindingSetting("keyboardPrevJitenWordKey"),
+      createKeyboardBindingSetting("keyboardNextJitenWordKey"),
       createKeyboardBindingSetting("keyboardNavigateUp"),
       createKeyboardBindingSetting("keyboardNavigateDown"),
       createKeyboardBindingSetting("keyboardNavigateLeft"),
@@ -4486,6 +4580,7 @@
           return lockedGamepad;
         }
         capture.lockedGamepadIndex = null;
+        capture.capturedButtons = null;
       }
 
       const activeGamepad = connectedGamepads.find((gamepad) => getPressedGamepadButtons(gamepad).length > 0);
@@ -4520,35 +4615,37 @@
       setOverlayGamepadBindingCaptureSuppression(true);
       addGamepadInputConsoleLine(`Capturing ${config.label}...`);
 
-      activeGamepadBindingCapture.intervalId = setInterval(() => {
-        const capture = activeGamepadBindingCapture;
-        if (!capture || capture.inputId !== inputId) {
+      activeGamepadBindingCapture.intervalId = setInterval(pollGamepadBindingCapture, GAMEPAD_BINDING_CAPTURE_POLL_MS);
+    }
+
+    function pollGamepadBindingCapture() {
+      const capture = activeGamepadBindingCapture;
+      if (!capture) return;
+
+      const targetGamepad = getCaptureTargetGamepad(capture);
+      if (!targetGamepad) {
+        capture.lockedGamepadIndex = null;
+        capture.capturedButtons = null;
+        capture.input.value = "Waiting for controller...";
+        return;
+      }
+
+      const pressedButtons = getPressedGamepadButtons(targetGamepad);
+      if (pressedButtons.length === 0) {
+        if (capture.capturedButtons && capture.capturedButtons.length > 0) {
+          commitGamepadBindingCapture();
           return;
         }
 
-        const targetGamepad = getCaptureTargetGamepad(capture);
-        if (!targetGamepad) {
-          capture.input.value = "Waiting for controller...";
-          return;
-        }
+        capture.input.value = "Listening for controller input...";
+        return;
+      }
 
-        const pressedButtons = getPressedGamepadButtons(targetGamepad);
-        if (pressedButtons.length === 0) {
-          if (capture.capturedButtons && capture.capturedButtons.length > 0) {
-            commitGamepadBindingCapture();
-            return;
-          }
-
-          capture.input.value = "Listening for controller input...";
-          return;
-        }
-
-        capture.lockedGamepadIndex = targetGamepad.index;
-        if (!capture.capturedButtons || pressedButtons.length >= capture.capturedButtons.length) {
-          capture.capturedButtons = pressedButtons;
-        }
-        capture.input.value = createGamepadBindingDescriptor(capture.capturedButtons, true).label;
-      }, GAMEPAD_BINDING_CAPTURE_POLL_MS);
+      capture.lockedGamepadIndex = targetGamepad.index;
+      if (!capture.capturedButtons || pressedButtons.length >= capture.capturedButtons.length) {
+        capture.capturedButtons = pressedButtons;
+      }
+      capture.input.value = createGamepadBindingDescriptor(capture.capturedButtons, true).label;
     }
 
     function commitGamepadBindingCapture() {
@@ -5335,6 +5432,7 @@
     let overlayInputSuppressed = false;
     const activeGamepadSuppressionReasons = new Set();
     const serverReportedGamepads = new Set();
+    const serverGamepadStates = new Map();
 
     function updateTokenizerBackendFieldState() {
       const backend = normalizeTokenizerBackendValue(
@@ -5665,6 +5763,7 @@
       }
       gamepadDeviceBlacklist.add(normalized);
       serverReportedGamepads.delete(normalized);
+      serverGamepadStates.delete(normalized);
       setGamepadDeviceBlacklist(getSortedGamepadDeviceBlacklist(), { persist: true });
       addGamepadInputConsoleLine(`Ignored device: ${getDisplayControllerLabel(normalized)}`);
     }
@@ -5775,7 +5874,8 @@
     }
 
     function getGamepadAxisLabel(index) {
-      return GAMEPAD_AXIS_LABELS[index] || `Axis ${index}`;
+      const serverLabels = { left_x: "LS-X", left_y: "LS-Y", right_x: "RS-X", right_y: "RS-Y", lt: "LT", rt: "RT" };
+      return serverLabels[index] || GAMEPAD_AXIS_LABELS[index] || `Axis ${index}`;
     }
 
     function getGamepadButtonSortKey(index) {
@@ -5961,9 +6061,9 @@
 
     function getPressedGamepadButtons(gamepad) {
       const pressedButtons = [];
-      (gamepad?.buttons || []).forEach((button, index) => {
-        if (button && (button.pressed || button.value > 0.5)) {
-          pressedButtons.push(index);
+      Object.entries(gamepad?.buttons || {}).forEach(([index, button]) => {
+        if (button === true || (button && (button.pressed || button.value > 0.5))) {
+          pressedButtons.push(Number(index));
         }
       });
       return normalizeGamepadButtonList(pressedButtons);
@@ -5994,9 +6094,53 @@
     }
 
     function getConnectedGamepads() {
+      // Capture exactly the IDs used by navigation. Chromium's raw layout can
+      // differ from gilrs and may not expose the device at all.
+      if (gamepadStatusSocket?.readyState === WebSocket.OPEN) {
+        return Array.from(serverGamepadStates.values()).filter(g => !isGamepadDeviceBlacklisted(g.id));
+      }
       if (!navigator.getGamepads) return [];
       const gamepads = navigator.getGamepads();
       return Array.from(gamepads).filter(g => g !== null && !isGamepadDeviceBlacklisted(g.id));
+    }
+
+    function updateServerGamepadState(data) {
+      const device = data.device;
+      if (typeof device !== "string" || !device) return;
+      if (data.type === "gamepad_disconnected") {
+        serverReportedGamepads.delete(device);
+        serverGamepadStates.delete(device);
+        pollGamepadBindingCapture();
+        return;
+      }
+      if (isGamepadDeviceBlacklisted(device)) return;
+      if (!["gamepad_connected", "gamepad_state", "button", "axis"].includes(data.type)) return;
+      serverReportedGamepads.add(device);
+      let gamepad = serverGamepadStates.get(device);
+      if (!gamepad || data.type === "gamepad_connected") {
+        gamepad = { id: device, index: `server:${device}`, buttons: {}, axes: {} };
+        serverGamepadStates.set(device, gamepad);
+      }
+      if (data.type === "gamepad_connected" || data.type === "gamepad_state") {
+        const state = data.type === "gamepad_connected" ? data.state : data;
+        gamepad.buttons = { ...state?.buttons };
+        gamepad.axes = { ...state?.axes };
+      } else if (data.type === "button" && Number.isSafeInteger(data.button) && data.button >= 0) {
+        gamepad.buttons[data.button] = data.pressed === true;
+      } else if (data.type === "axis" && typeof data.axis === "string" && Number.isFinite(data.value)) {
+        gamepad.axes[data.axis] = data.value;
+      }
+      // Poll on edges as well as on the timer so a quick tap is never missed.
+      pollGamepadBindingCapture();
+    }
+
+    function clearServerGamepadState() {
+      serverReportedGamepads.clear();
+      serverGamepadStates.clear();
+      if (activeGamepadBindingCapture) {
+        activeGamepadBindingCapture.lockedGamepadIndex = null;
+        activeGamepadBindingCapture.capturedButtons = null;
+      }
     }
     
     function updateGamepadStatus() {
@@ -6058,7 +6202,7 @@
       }
 
       gamepadStatusSocketPort = targetPort;
-      serverReportedGamepads.clear();
+      clearServerGamepadState();
       updateGamepadStatus();
 
       let ws = null;
@@ -6083,6 +6227,7 @@
       };
 
       ws.onmessage = (event) => {
+        if (gamepadStatusSocket !== ws) return;
         if (!event || typeof event.data !== "string") return;
 
         let data = null;
@@ -6092,6 +6237,8 @@
           return;
         }
 
+        if (!data || typeof data !== "object") return;
+        updateServerGamepadState(data);
         const deviceName = typeof data.device === "string" ? data.device : "";
         switch (data.type) {
           case "gamepad_connected":
@@ -6139,7 +6286,7 @@
       ws.onclose = () => {
         if (gamepadStatusSocket !== ws) return;
         gamepadStatusSocket = null;
-        serverReportedGamepads.clear();
+        clearServerGamepadState();
         updateGamepadStatus();
         scheduleGamepadStatusSocketReconnect();
       };
@@ -6156,7 +6303,7 @@
 
     function buildGamepadInputSnapshot(gamepad) {
       const activeAxes = {};
-      (gamepad.axes || []).forEach((value, index) => {
+      Object.entries(gamepad.axes || {}).forEach(([index, value]) => {
         const rounded = Number((Number(value) || 0).toFixed(2));
         if (Math.abs(rounded) >= 0.12) {
           activeAxes[index] = rounded;
@@ -6177,7 +6324,7 @@
         : "buttons=[]";
       const axisEntries = Object.entries(snapshot.axes || {});
       const axisPart = axisEntries.length
-        ? `axes=${axisEntries.map(([axis, value]) => `${getGamepadAxisLabel(Number(axis))}:${value}`).join(" ")}`
+        ? `axes=${axisEntries.map(([axis, value]) => `${getGamepadAxisLabel(axis)}:${value}`).join(" ")}`
         : "axes=idle";
       return `${getDisplayControllerLabel(snapshot.id)} | ${buttonPart} | ${axisPart}`;
     }

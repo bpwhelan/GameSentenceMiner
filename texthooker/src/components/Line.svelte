@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { mdiClockOutline, mdiHistory, mdiMenu, mdiPlay, mdiStop, mdiTrophy } from '@mdi/js';
+	import { mdiClockOutline, mdiCreationOutline, mdiHistory, mdiMenu, mdiPlay, mdiStop, mdiTrophy } from '@mdi/js';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import {
@@ -32,6 +32,7 @@
 		updateScroll,
 	} from '../util';
 	import Icon from './Icon.svelte';
+	import AIHelp from './AIHelp.svelte';
 	import { getGSMEndpoint } from '../gsm';
 
 	export let line: LineItem;
@@ -66,15 +67,18 @@
 	let isSelected = false;
 	let isEditable = false;
 	let actionsMenuOpen = false;
+	let aiHelpOpen = false;
 	let actionsMenuElement: HTMLElement;
 	let actionsMenuButton: HTMLButtonElement;
 	let actionsMenuPopover: HTMLElement;
 	let actionsMenuStyle = 'visibility: hidden;';
+	let aiError = '';
 	$: isAudioLine = audioLineId === line.id;
 	$: isAudioPending = audioPendingLineId === line.id;
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
 	$: isActiveGSMLine = line.gsmStatus === 'active' || (!line.gsmStatus && $lineIDs$?.includes(line.id));
 	$: isTimedOutGSMLine = line.gsmStatus === 'timed_out' || (!line.gsmStatus && $timedOutIDs$.includes(line.id));
+	$: canAskAI = !!line.id && (isActiveGSMLine || isTimedOutGSMLine || line.gsmStatus === 'external');
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
 	$: if (
@@ -85,7 +89,7 @@
 		Number(line.revision ?? 0) > autoTranslationRevision
 	) {
 		autoTranslationRevision = Number(line.revision ?? 0);
-		handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
+		handleAction(line.id, 'TL', $blurAutoTranslatedLines$, true);
 	}
 
 	onMount(() => {
@@ -267,6 +271,16 @@
 		dispatch('videoTrim', { lineId: line.id, text: line.text });
 	}
 
+	function openAIHelp() {
+		closeActionsMenu();
+		aiHelpOpen = true;
+	}
+
+	function closeAIHelp() {
+		aiHelpOpen = false;
+		tick().then(() => actionsMenuButton?.focus());
+	}
+
 	async function handleDeleteFromStats() {
 		if (!getActionsWindow().confirm('Delete this line from stats?')) {
 			return;
@@ -287,8 +301,9 @@
 		}
 	}
 
-	function handleAction(id: string, action: string, blurTranslate: boolean = false) {
+	function handleAction(id: string, action: string, blurTranslate: boolean = false, automatic: boolean = false) {
 		closeActionsMenu();
+		if (action === 'TL') aiError = '';
 		const endpoints: Record<string, string> = {
 			TL: '/translate-line',
 			Screenshot: '/get-screenshot',
@@ -300,11 +315,12 @@
 		fetch(getGSMEndpoint(endpoint), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ id, text: line.text }),
+			body: JSON.stringify({ id, text: line.text, automatic }),
 		})
-			.then((response) => {
+			.then(async (response) => {
 				if (!response.ok) {
-					throw new Error(`HTTP error! Status: ${response.status}`);
+					const data = await response.json().catch(() => ({}));
+					throw new Error(data.error || `Request failed (HTTP ${response.status}).`);
 				}
 				return response.json();
 			})
@@ -356,6 +372,7 @@
 				}
 			})
 			.catch((error) => {
+				if (action === 'TL') aiError = error.message || 'Translation failed. Check that GSM is running and retry.';
 				console.error(`Error performing ${action} action for event ID: ${id}`, error);
 			});
 	}
@@ -470,52 +487,6 @@
 							🌐
 						</button>
 					{/if}
-					<div class="actions-menu" bind:this={actionsMenuElement}>
-						<button
-							class="action-button menu-toggle"
-							class:menu-open={actionsMenuOpen}
-							on:click={toggleActionsMenu}
-							title="More line actions"
-							aria-label="More line actions"
-							aria-expanded={actionsMenuOpen}
-							tabindex="-1"
-							bind:this={actionsMenuButton}
-						>
-							<Icon path={mdiMenu} width="16px" height="16px" />
-						</button>
-						{#if actionsMenuOpen}
-							<div
-								class="actions-menu-popover"
-								style={actionsMenuStyle}
-								bind:this={actionsMenuPopover}
-							>
-								<button on:click={() => handleAction(line.id, 'Screenshot')}>
-									<span aria-hidden="true">📷</span>
-									<span>Screenshot</span>
-								</button>
-								<button on:click={handleVideoTrim}>
-									<span aria-hidden="true">🎬</span>
-									<span>Save cropped replay</span>
-								</button>
-								<button on:click={handleAudioToggle} disabled={isAudioPending}>
-									<Icon
-										path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay}
-										width="16px"
-										height="16px"
-									/>
-									<span>{audioButtonTitle}</span>
-								</button>
-								<button on:click={() => handleAction(line.id, 'TL')}>
-									<span aria-hidden="true">🌐</span>
-									<span>Translate</span>
-								</button>
-								<button on:click={handleDeleteFromStats}>
-									<span aria-hidden="true">🗑️</span>
-									<span>Delete from stats</span>
-								</button>
-							</div>
-						{/if}
-					</div>
 				</div>
 			{:else if isTimedOutGSMLine}
 				<div
@@ -559,9 +530,72 @@
 					<Icon path={mdiHistory} width="32px" height="32px" />
 				</div>
 			{/if}
+			{#if canAskAI}
+				<div class="actions-menu" bind:this={actionsMenuElement}>
+					<button
+						class="action-button menu-toggle"
+						class:menu-open={actionsMenuOpen}
+						on:click={toggleActionsMenu}
+						title="More line actions"
+						aria-label="More line actions"
+						aria-expanded={actionsMenuOpen}
+						bind:this={actionsMenuButton}
+					>
+						<Icon path={mdiMenu} width="16px" height="16px" />
+					</button>
+					{#if actionsMenuOpen}
+						<div
+							class="actions-menu-popover"
+							style={actionsMenuStyle}
+							bind:this={actionsMenuPopover}
+						>
+							<button on:click={openAIHelp}>
+								<Icon path={mdiCreationOutline} width="16px" height="16px" />
+								<span>Ask AI</span>
+							</button>
+							{#if isActiveGSMLine}
+								<button on:click={() => handleAction(line.id, 'Screenshot')}>
+									<span aria-hidden="true">📷</span>
+									<span>Screenshot</span>
+								</button>
+								<button on:click={handleVideoTrim}>
+									<span aria-hidden="true">🎬</span>
+									<span>Save cropped replay</span>
+								</button>
+								<button on:click={handleAudioToggle} disabled={isAudioPending}>
+									<Icon
+										path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay}
+										width="16px"
+										height="16px"
+									/>
+									<span>{audioButtonTitle}</span>
+								</button>
+							{/if}
+							<button on:click={() => handleAction(line.id, 'TL')}>
+								<span aria-hidden="true">🌐</span>
+								<span>Translate</span>
+							</button>
+							{#if isActiveGSMLine}
+								<button on:click={handleDeleteFromStats}>
+									<span aria-hidden="true">🗑️</span>
+									<span>Delete from stats</span>
+								</button>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	</div>
 {/key}
+{#if aiError}
+	<p role="alert" class="mx-4 text-sm">{aiError} <a class="underline" href="https://docs.gamesentenceminer.com/docs/features/ai-features" target="_blank" rel="noreferrer">AI setup guide</a></p>
+{/if}
+{#if canAskAI && aiHelpOpen && !$settingsOpen$}
+	{#key `${line.id}:${line.text.trim()}`}
+		<AIHelp id={line.id} text={line.text} on:close={closeAIHelp} />
+	{/key}
+{/if}
 {@html newLineCharacter}
 {#if $milestoneLines$.has(line.id)}
 	<div

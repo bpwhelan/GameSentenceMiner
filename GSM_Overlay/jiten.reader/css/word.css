@@ -59,6 +59,21 @@ a.jiten-word:not(.unparsed)::after {
   text-underline-position: under left;
 }
 
+.ttsu-parser .jiten-word[ajb] {
+  text-decoration: none !important;
+  background-image: repeating-linear-gradient(to right, var(--jiten-underline-colour, transparent) 0 var(--jiten-underline-on, 0px), transparent var(--jiten-underline-on, 0px) calc(var(--jiten-underline-on, 0px) + var(--jiten-underline-off, 0px)));
+  background-repeat: no-repeat;
+  background-position: left 100%;
+  background-size: 100% var(--jiten-underline-thickness, 0);
+  padding-block-end: 0.1em;
+}
+
+.ttsu-parser .book-content--writing-vertical-rl .jiten-word[ajb] {
+  background-image: repeating-linear-gradient(to bottom, var(--jiten-underline-colour, transparent) 0 var(--jiten-underline-on, 0px), transparent var(--jiten-underline-on, 0px) calc(var(--jiten-underline-on, 0px) + var(--jiten-underline-off, 0px)));
+  background-position: left top;
+  background-size: var(--jiten-underline-thickness, 0) 100%;
+}
+
 .ttsu-parser .jiten-word:not(.unparsed):hover,
 .ttsu-parser .jiten-word:not(.unparsed).hovered {
   text-decoration: none;

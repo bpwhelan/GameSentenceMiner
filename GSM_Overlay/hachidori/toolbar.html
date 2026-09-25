@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hachidori</title>
+    <link rel="stylesheet" href="icons.css" />
+    <link rel="stylesheet" href="toolbar.css" />
+  </head>
+  <body>
+    <main>
+      <header><img src="icons/hachidori-32.png" alt="" width="20" height="20" /><span>Hachidori</span></header>
+      <button id="lookup-toggle" class="lookup-toggle" type="button" role="switch" aria-checked="false" aria-label="Japanese lookups" aria-describedby="activation-hint" disabled>
+        <span id="lookup-state">Loading…</span>
+        <span class="switch-track" aria-hidden="true"><span></span></span>
+      </button>
+      <p id="activation-hint" class="activation-hint">&nbsp;</p>
+      <p id="toolbar-sharing" class="activation-hint" hidden></p>
+      <div class="actions">
+        <button id="record-screen" type="button" title="Capture a screen, window, or tab as context for your Japanese cards" disabled>
+          <span class="hd-icon" data-icon="desktop" aria-hidden="true"></span>
+          <span id="record-label">Record context for Anki</span>
+        </button>
+        <button id="open-settings" type="button" title="Open Hachidori settings">
+          <span class="hd-icon" data-icon="settings" aria-hidden="true"></span>
+          <span>Settings</span>
+        </button>
+      </div>
+      <p id="toolbar-error" class="error" role="alert" hidden></p>
+    </main>
+    <script type="module" src="toolbar.js"></script>
+  </body>
+</html>

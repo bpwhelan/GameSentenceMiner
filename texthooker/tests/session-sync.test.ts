@@ -81,6 +81,36 @@ test('v2 snapshot applies newer revisions and preserves legitimate repeated reco
 	);
 });
 
+test('v2 snapshots keep persisted history before restored records and newer live lines after them', () => {
+	const existingLines: LineItem[] = [
+		{ id: 'previous', text: 'previous', gsmSessionId: 'old' },
+		{ id: 'legacy-history', text: 'legacy history', gsmSessionId: 'current' },
+		{ id: 'history', text: 'history', gsmSessionId: 'current', streamSequence: 1 },
+		{ id: 'external', text: 'external', gsmStatus: 'external' },
+		{ id: 'live', text: 'live', gsmSessionId: 'current', streamSequence: 4 },
+	];
+	const sync: TextFeedSessionSync = {
+		sessionId: 'current',
+		orderedIds: ['restored'],
+		activeIds: ['restored'],
+		timedOutIds: [],
+		missingLines: [{ id: 'restored', text: 'restored', excludedFromStats: false, streamSequence: 3 }],
+		requestedIds: [],
+	};
+
+	const plan = buildTextFeedSessionSyncPlan(sync, existingLines, (text) => text);
+	const mergedLines = [
+		...plan.retainedLines.slice(0, plan.insertionIndex),
+		...plan.syncedLines,
+		...plan.retainedLines.slice(plan.insertionIndex),
+	];
+
+	assert.deepEqual(
+		mergedLines.map((line) => line.id),
+		['previous', 'legacy-history', 'history', 'external', 'restored', 'live'],
+	);
+});
+
 test('session sync does not restore lines the user removed', () => {
 	const sync: TextFeedSessionSync = {
 		sessionId: 'current',

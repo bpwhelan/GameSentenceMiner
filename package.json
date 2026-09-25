@@ -7,6 +7,8 @@
   "desktopName": "com.beangate.gamesentenceminer.desktop",
   "scripts": {
     "start": "npm run build && electron .",
+    "agent:restart": "node scripts/restart-gsm.mjs",
+    "agent:status": "node scripts/restart-gsm.mjs --status",
     "build": "npm run sync:version && npm run sync:legacy && npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.electron.json",
     "build:renderer": "vite build --config electron-src/renderer/vite.config.ts",
@@ -124,6 +126,7 @@
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/archiver": "^7.0.0",
     "@types/extract-zip": "^2.0.1",

@@ -1,0 +1,4144 @@
+{
+  "notice": "Derived from Jiten by Sirush and contributors (Apache-2.0). GSM converts the C# table to JSON; see README.md and LICENSE.",
+  "upstreamCommit": "a2fd4a6ccbbcc55c975694627e3b54f3f4e23f11",
+  "rules": [
+    {
+      "id": "nannan",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "なんなん",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "なんなん",
+          "pos": "Expression",
+          "pin": 2871194
+        }
+      ],
+      "next": {
+        "textAnyOf": [
+          "と"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "kuzu",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "クズ",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1246510
+        }
+      ]
+    },
+    {
+      "id": "aruaru",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "textAnyOf": [
+            "あるある",
+            "アルアル"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "あるある",
+          "normalizedForm": "あるある",
+          "pos": "Interjection",
+          "pin": 2150380
+        }
+      ]
+    },
+    {
+      "id": "goto-suffix",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "事",
+          "readingPrefix": "ゴト",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 2613010
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun",
+          "Verb"
+        ]
+      }
+    },
+    {
+      "id": "nashi",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "ナシ",
+          "pos": [
+            "Noun",
+            "CommonNoun",
+            "NounSuffix",
+            "Suffix"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "なし",
+          "normalizedForm": "なし",
+          "pin": 1529560
+        }
+      ]
+    },
+    {
+      "id": "su-contracted-suru",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "す",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "する",
+            "為る"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1157170,
+          "pinReadingIndex": 1,
+          "hardPin": true
+        }
+      ],
+      "next": {
+        "textAnyOf": [
+          "ん",
+          "んだ",
+          "んで"
+        ]
+      }
+    },
+    {
+      "id": "sun-contracted-suru",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "すん",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "する",
+            "為る"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1157170,
+          "pinReadingIndex": 1,
+          "hardPin": true
+        }
+      ]
+    },
+    {
+      "id": "a-contracted-aru",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "あ",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "ある",
+            "有る",
+            "在る"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1296400,
+          "pinReadingIndex": 2,
+          "hardPin": true
+        }
+      ],
+      "next": {
+        "textAnyOf": [
+          "ん",
+          "んだ",
+          "んで"
+        ]
+      }
+    },
+    {
+      "id": "an-contracted-aru",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "あん",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "ある",
+            "有る",
+            "在る"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1296400,
+          "pinReadingIndex": 2,
+          "hardPin": true
+        }
+      ]
+    },
+    {
+      "id": "kanpan",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "カンパン",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "乾パン",
+          "normalizedForm": "乾パン",
+          "pin": 1209690
+        }
+      ]
+    },
+    {
+      "id": "shita-shita",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "した",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "下",
+          "normalizedForm": "下",
+          "pin": 1184140
+        }
+      ],
+      "prev": {
+        "textAnyOf": [
+          "の"
+        ],
+        "posAnyOf": [
+          "Particle"
+        ]
+      }
+    },
+    {
+      "id": "naraba",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "ならば",
+          "dictFormAnyOf": [
+            "なる",
+            "成る",
+            "ならば",
+            "だ"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "ならば",
+          "normalizedForm": "ならば",
+          "pos": "Conjunction",
+          "pin": 1009470
+        }
+      ]
+    },
+    {
+      "id": "darou",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "textAnyOf": [
+            "だろー",
+            "だろぉ",
+            "だろぉー"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "だろう",
+          "normalizedForm": "だろう",
+          "pin": 1928670
+        }
+      ]
+    },
+    {
+      "id": "tsuu",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "つー",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "という",
+          "normalizedForm": "という",
+          "pos": "Particle",
+          "pin": 1922760
+        }
+      ],
+      "next": {
+        "textAnyOf": [
+          "の",
+          "か",
+          "こと",
+          "わけ"
+        ]
+      }
+    },
+    {
+      "id": "mukai",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "textStartsWith": "向い",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "向く"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "向く",
+          "normalizedForm": "向く",
+          "pin": 1277080,
+          "recoverConjugations": true
+        }
+      ]
+    },
+    {
+      "id": "tomoni",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "共",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "readingPrefix": "トモ",
+          "requireUnpinned": false
+        },
+        {
+          "text": "に",
+          "pos": [
+            "Particle"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "共に",
+          "dictForm": "共に",
+          "normalizedForm": "共に",
+          "pos": "Adverb",
+          "reading": "トモニ",
+          "pin": 1234260
+        }
+      ]
+    },
+    {
+      "id": "kitaru",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "来",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "来る"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "たる",
+          "pos": [
+            "Auxiliary"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "来たる",
+          "dictForm": "来たる",
+          "normalizedForm": "来たる",
+          "pos": "PrenounAdjectival",
+          "reading": "キタル",
+          "pin": 1591270
+        }
+      ],
+      "next": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun"
+        ]
+      }
+    },
+    {
+      "id": "soushita",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "そう",
+          "pos": [
+            "Adverb"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "した",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "する",
+            "為る"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "そうした",
+          "dictForm": "そうした",
+          "normalizedForm": "そうした",
+          "pos": "PrenounAdjectival",
+          "reading": "ソウシタ",
+          "pin": 2008650
+        }
+      ],
+      "next": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun"
+        ]
+      }
+    },
+    {
+      "id": "koushita",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "こう",
+          "pos": [
+            "Adverb"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "した",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "する",
+            "為る"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "こうした",
+          "dictForm": "こうした",
+          "normalizedForm": "こうした",
+          "pos": "PrenounAdjectival",
+          "reading": "コウシタ",
+          "pin": 2008030
+        }
+      ],
+      "next": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun"
+        ]
+      }
+    },
+    {
+      "id": "aashita",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "ああ",
+          "pos": [
+            "Adverb"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "した",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "する",
+            "為る"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "ああした",
+          "dictForm": "ああした",
+          "normalizedForm": "ああした",
+          "pos": "PrenounAdjectival",
+          "reading": "アアシタ",
+          "pin": 2085100
+        }
+      ],
+      "next": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun"
+        ]
+      }
+    },
+    {
+      "id": "hokusoemu",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "ほく",
+          "pos": [
+            "Adverb"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "そ",
+          "requireUnpinned": false
+        },
+        {
+          "text": "笑む",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "笑む"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "ほくそ笑む",
+          "dictForm": "ほくそ笑む",
+          "normalizedForm": "ほくそ笑む",
+          "pos": "Verb",
+          "reading": "ホクソエム",
+          "pin": 2065260,
+          "recoverConjugations": true
+        }
+      ]
+    },
+    {
+      "id": "shiai-ai",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "合",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "合い",
+          "normalizedForm": "合い",
+          "reading": "アイ",
+          "pin": 1284320
+        }
+      ],
+      "prev": {
+        "textAnyOf": [
+          "死"
+        ]
+      }
+    },
+    {
+      "id": "ariu",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "有り得",
+          "pos": [
+            "Verb"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "有り得",
+          "normalizedForm": "有り得",
+          "pin": 2560320
+        }
+      ],
+      "next": {
+        "clauseBoundary": true
+      }
+    },
+    {
+      "id": "kubi-tobashi",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "飛ばし",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "dictFormAnyOf": [
+            "飛ばし"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "飛ばす",
+          "normalizedForm": "飛ばす",
+          "pos": "Verb",
+          "reading": "トバシ",
+          "pin": 1485230,
+          "recoverConjugations": true
+        }
+      ],
+      "prev": {
+        "textAnyOf": [
+          "首"
+        ]
+      }
+    },
+    {
+      "id": "hane-basha",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "羽馬",
+          "requireUnpinned": false
+        },
+        {
+          "text": "車",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "羽",
+          "dictForm": "羽",
+          "normalizedForm": "羽",
+          "pos": "Noun",
+          "reading": "ハネ",
+          "pin": 1171680
+        },
+        {
+          "text": "馬車",
+          "dictForm": "馬車",
+          "normalizedForm": "馬車",
+          "pos": "Noun",
+          "reading": "バシャ",
+          "pin": 1471780
+        }
+      ]
+    },
+    {
+      "id": "ikasemai",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "行",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ]
+        },
+        {
+          "text": "か",
+          "pos": [
+            "Particle"
+          ]
+        },
+        {
+          "text": "せまい"
+        }
+      ],
+      "replace": [
+        {
+          "text": "行かせまい",
+          "dictForm": "行く",
+          "normalizedForm": "行く",
+          "pos": "Verb",
+          "reading": "イカセマイ",
+          "pin": 1578850,
+          "pinReadingIndex": 0,
+          "recoverConjugations": true
+        }
+      ]
+    },
+    {
+      "id": "kkonai",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "っこ"
+        },
+        {
+          "text": "ない"
+        }
+      ],
+      "replace": [
+        {
+          "text": "っこない",
+          "dictForm": "っこない",
+          "normalizedForm": "っこない",
+          "pos": "Expression",
+          "reading": "ッコナイ",
+          "pin": 2145640,
+          "pinReadingIndex": 0
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb"
+        ]
+      }
+    },
+    {
+      "id": "nandesu",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "な"
+        },
+        {
+          "text": "ん"
+        },
+        {
+          "text": "です"
+        }
+      ],
+      "replace": [
+        {
+          "text": "なんです",
+          "dictForm": "なんです",
+          "normalizedForm": "なんです",
+          "pos": "Expression",
+          "reading": "ナンデス",
+          "pin": 2683060,
+          "pinReadingIndex": 0
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun",
+          "Suffix",
+          "Name",
+          "NaAdjective"
+        ]
+      },
+      "next": {
+        "textAnyOf": [
+          "か",
+          "？"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "nandesu-ka-naadj",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "な"
+        },
+        {
+          "text": "ん"
+        },
+        {
+          "text": "です"
+        }
+      ],
+      "replace": [
+        {
+          "text": "なんです",
+          "dictForm": "なんです",
+          "normalizedForm": "なんです",
+          "pos": "Expression",
+          "reading": "ナンデス",
+          "pin": 2683060,
+          "pinReadingIndex": 0
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "NaAdjective"
+        ]
+      },
+      "next": {
+        "textAnyOf": [
+          "か",
+          "？"
+        ]
+      }
+    },
+    {
+      "id": "nandesu-ka-no",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "な"
+        },
+        {
+          "text": "ん"
+        },
+        {
+          "text": "です"
+        }
+      ],
+      "replace": [
+        {
+          "text": "なんです",
+          "dictForm": "なんです",
+          "normalizedForm": "なんです",
+          "pos": "Expression",
+          "reading": "ナンデス",
+          "pin": 2683060,
+          "pinReadingIndex": 0
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun",
+          "Suffix",
+          "Name"
+        ]
+      },
+      "next": {
+        "textAnyOf": [
+          "か",
+          "？"
+        ]
+      },
+      "window": {
+        "from": -2,
+        "to": -2,
+        "textAnyOf": [
+          "の"
+        ]
+      }
+    },
+    {
+      "id": "mirumo-muzan",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "見るも"
+        },
+        {
+          "text": "無残"
+        }
+      ],
+      "replace": [
+        {
+          "text": "見るも無残",
+          "dictForm": "見るも無残",
+          "normalizedForm": "見るも無残",
+          "pos": "Expression",
+          "reading": "ミルモムザン",
+          "pin": 2871068,
+          "pinReadingIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "mirumo-muzan-na",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "見るも"
+        },
+        {
+          "text": "無残な"
+        }
+      ],
+      "replace": [
+        {
+          "text": "見るも無残",
+          "dictForm": "見るも無残",
+          "normalizedForm": "見るも無残",
+          "pos": "Expression",
+          "reading": "ミルモムザン",
+          "pin": 2871068,
+          "pinReadingIndex": 0
+        },
+        {
+          "text": "な",
+          "dictForm": "な",
+          "normalizedForm": "な",
+          "pos": "Auxiliary",
+          "reading": "ナ"
+        }
+      ]
+    },
+    {
+      "id": "yougoin",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "養護院",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "養護",
+          "dictForm": "養護",
+          "normalizedForm": "養護",
+          "pos": "Noun",
+          "reading": "ヨウゴ",
+          "pin": 1605847,
+          "pinReadingIndex": 0,
+          "hardPin": true
+        },
+        {
+          "text": "院",
+          "dictForm": "院",
+          "normalizedForm": "院",
+          "pos": "Noun",
+          "reading": "イン",
+          "pin": 2414530,
+          "pinReadingIndex": 0,
+          "hardPin": true
+        }
+      ]
+    },
+    {
+      "id": "uchioroshi",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "打ち下ろし",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "打ち下ろす",
+          "normalizedForm": "打ち下ろす",
+          "pos": "Verb",
+          "reading": "ウチオロシ",
+          "pin": 1408600,
+          "pinReadingIndex": 0,
+          "recoverConjugations": true
+        }
+      ]
+    },
+    {
+      "id": "ndai",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "んだ"
+        },
+        {
+          "text": "い",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "ん",
+          "dictForm": "ん",
+          "normalizedForm": "ん",
+          "pos": "Particle",
+          "reading": "ン",
+          "pin": 2139720
+        },
+        {
+          "text": "だい",
+          "dictForm": "だい",
+          "normalizedForm": "だい",
+          "pos": "Particle",
+          "reading": "ダイ",
+          "pin": 2097680,
+          "pinReadingIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "kinship-uesama",
+      "phase": "Early",
+      "match": [
+        {
+          "textAnyOf": [
+            "父",
+            "母",
+            "兄",
+            "姉",
+            "祖父",
+            "祖母",
+            "義父",
+            "義母"
+          ],
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ]
+        },
+        {
+          "text": "上様"
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pos": "Noun"
+        },
+        {
+          "text": "上",
+          "dictForm": "上",
+          "normalizedForm": "上",
+          "pos": "Suffix",
+          "reading": "ウエ"
+        },
+        {
+          "text": "様",
+          "dictForm": "様",
+          "normalizedForm": "様",
+          "pos": "Suffix",
+          "reading": "サマ",
+          "pin": 1545790,
+          "pinReadingIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "kudasee",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "くだ"
+        },
+        {
+          "text": "せえ"
+        }
+      ],
+      "replace": [
+        {
+          "text": "くだせえ",
+          "dictForm": "ください",
+          "normalizedForm": "ください",
+          "pos": "Expression",
+          "reading": "クダセエ",
+          "pin": 1184270,
+          "pinReadingIndex": 1,
+          "recoverConjugations": true
+        }
+      ]
+    },
+    {
+      "id": "chotta",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "ちょっ"
+        },
+        {
+          "text": "た",
+          "pos": [
+            "Auxiliary"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "ちょった",
+          "dictForm": "ちょる",
+          "normalizedForm": "ちょる",
+          "pos": "Auxiliary",
+          "reading": "チョッタ",
+          "pin": 2869627,
+          "pinReadingIndex": 0,
+          "recoverConjugations": true
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb",
+          "Auxiliary"
+        ]
+      }
+    },
+    {
+      "id": "nounatta",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "の",
+          "pos": [
+            "Particle"
+          ]
+        },
+        {
+          "textStartsWith": "うなっ",
+          "pos": [
+            "Verb"
+          ]
+        },
+        {
+          "text": "た",
+          "pos": [
+            "Auxiliary"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "のうなった",
+          "dictForm": "のうなる",
+          "normalizedForm": "のうなる",
+          "pos": "Verb",
+          "reading": "ノウナッタ",
+          "pin": 2793080,
+          "pinReadingIndex": 1,
+          "recoverConjugations": true
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb",
+          "Auxiliary",
+          "IAdjective",
+          "Noun",
+          "CommonNoun",
+          "Name",
+          "Pronoun",
+          "NaAdjective",
+          "Prefix",
+          "Suffix",
+          "Numeral",
+          "Counter"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "jatta",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "じゃっ",
+          "pos": [
+            "Auxiliary"
+          ]
+        },
+        {
+          "text": "た",
+          "pos": [
+            "Auxiliary"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "じゃった",
+          "dictForm": "じゃった",
+          "normalizedForm": "じゃった",
+          "pos": "Expression",
+          "reading": "ジャッタ",
+          "pin": 2850797,
+          "pinReadingIndex": 0
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun",
+          "Name",
+          "Pronoun",
+          "NaAdjective",
+          "Suffix"
+        ]
+      }
+    },
+    {
+      "id": "tatouto",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "立",
+          "pos": [
+            "Noun",
+            "CommonNoun",
+            "Name"
+          ]
+        },
+        {
+          "text": "とうと"
+        }
+      ],
+      "replace": [
+        {
+          "text": "立とう",
+          "dictForm": "立つ",
+          "normalizedForm": "立つ",
+          "pos": "Verb",
+          "reading": "タトウ",
+          "pin": 1597040,
+          "pinReadingIndex": 0,
+          "recoverConjugations": true
+        },
+        {
+          "text": "と",
+          "dictForm": "と",
+          "normalizedForm": "と",
+          "pos": "Particle",
+          "reading": "ト"
+        }
+      ]
+    },
+    {
+      "id": "kedamono",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "ケダ",
+          "requireUnpinned": false
+        },
+        {
+          "text": "モノ作り",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "ケダモノ",
+          "dictForm": "獣",
+          "normalizedForm": "獣",
+          "pos": "Noun",
+          "reading": "ケダモノ",
+          "pin": 1335590
+        },
+        {
+          "text": "作り",
+          "dictForm": "作り",
+          "normalizedForm": "作り",
+          "pos": "Noun",
+          "reading": "ツクリ",
+          "pin": 1297250
+        }
+      ]
+    },
+    {
+      "id": "utsuke-domo",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "虚",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "けど",
+          "pos": [
+            "Particle"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "も",
+          "pos": [
+            "Particle"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "虚け",
+          "dictForm": "虚け",
+          "normalizedForm": "虚け",
+          "pos": "Noun",
+          "reading": "ウツケ",
+          "pin": 2674470
+        },
+        {
+          "text": "ども",
+          "dictForm": "ども",
+          "normalizedForm": "共",
+          "pos": "Suffix",
+          "reading": "ドモ"
+        }
+      ],
+      "prev": {
+        "textAnyOf": [
+          "この",
+          "その",
+          "あの",
+          "こんな",
+          "そんな",
+          "あんな"
+        ]
+      }
+    },
+    {
+      "id": "kotta-kotoda",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "こった",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "こった",
+          "normalizedForm": "こった",
+          "pos": "Expression",
+          "reading": "コッタ",
+          "pin": 2106260,
+          "pinReadingIndex": 0
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "IAdjective"
+        ]
+      }
+    },
+    {
+      "id": "zamaa-miyagare",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "ざま",
+          "requireUnpinned": false
+        },
+        {
+          "text": "あみ",
+          "requireUnpinned": false
+        },
+        {
+          "text": "やがれ",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "ざまあみやがれ",
+          "dictForm": "ざまあみやがれ",
+          "normalizedForm": "ざまあみやがれ",
+          "pos": "Expression",
+          "reading": "ザマーミヤガレ",
+          "pin": 2868161,
+          "pinReadingIndex": 1
+        }
+      ]
+    },
+    {
+      "id": "ii-katakana",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "イイ"
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "いい",
+          "normalizedForm": "いい",
+          "pos": "IAdjective",
+          "reading": "イイ",
+          "pin": 2820690,
+          "pinReadingIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "koumutta",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "textStartsWith": "被っ",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "被る"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "被る",
+          "normalizedForm": "被る",
+          "pin": 1484340,
+          "recoverConjugations": true
+        }
+      ],
+      "window": {
+        "from": -4,
+        "to": -1,
+        "textAnyOf": [
+          "損失",
+          "被害",
+          "損害",
+          "迷惑",
+          "ダメージ",
+          "罰",
+          "不利益"
+        ]
+      }
+    },
+    {
+      "id": "anta",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "あんた",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "あんた",
+          "normalizedForm": "あんた",
+          "pos": "Pronoun",
+          "pin": 1979920
+        }
+      ]
+    },
+    {
+      "id": "ussu",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "うっす",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "うっす",
+          "normalizedForm": "うっす",
+          "pos": "Interjection",
+          "pin": 2262630
+        }
+      ]
+    },
+    {
+      "id": "dakke",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "だっけ",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "だっけ",
+          "pos": "Expression",
+          "pin": 2131200
+        }
+      ]
+    },
+    {
+      "id": "ikansen",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "いかんせん",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1919420
+        }
+      ]
+    },
+    {
+      "id": "sen-neg",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "せん",
+          "pos": [
+            "Prefix"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pos": "Expression",
+          "pin": 2844926
+        }
+      ]
+    },
+    {
+      "id": "sen-line",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "セン",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1391780
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Numeral"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "nori",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "ノリ",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1354720
+        }
+      ]
+    },
+    {
+      "id": "kubiki",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "頚木",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1831840
+        }
+      ]
+    },
+    {
+      "id": "kaa",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "かあ",
+          "pos": [
+            "Particle"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "か",
+          "normalizedForm": "か",
+          "pin": 2028970
+        }
+      ]
+    },
+    {
+      "id": "ariari",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "アリアリ",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 2007200
+        }
+      ]
+    },
+    {
+      "id": "sousou",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "そうそう",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pin": 1006640
+        }
+      ],
+      "next": {
+        "textAnyOf": [
+          "たる",
+          "たり"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "itooshii",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "いとおしい",
+          "dictFormAnyOf": [
+            "いとおす",
+            "射通す"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "いとおしい",
+          "normalizedForm": "愛おしい",
+          "pos": "IAdjective",
+          "pin": 2007340
+        }
+      ]
+    },
+    {
+      "id": "kara-shitemireba",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "してみれば"
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "してみれば",
+          "pos": "Expression",
+          "pin": 2407670,
+          "pinReadingIndex": 1
+        }
+      ],
+      "prev": {
+        "textAnyOf": [
+          "から"
+        ]
+      }
+    },
+    {
+      "id": "kara-shitemirya",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "してみりゃ"
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "してみれば",
+          "pos": "Expression",
+          "pin": 2407670,
+          "pinReadingIndex": 1
+        }
+      ],
+      "prev": {
+        "textAnyOf": [
+          "から"
+        ]
+      }
+    },
+    {
+      "id": "nakare",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "なかれ",
+          "dictFormAnyOf": [
+            "ない",
+            "なし",
+            "無い"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "なかれ",
+          "normalizedForm": "なかれ",
+          "pos": "Suffix",
+          "pin": 1535750
+        }
+      ]
+    },
+    {
+      "id": "tsutte-quotative",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "textAnyOf": [
+            "つって",
+            "つった"
+          ],
+          "dictFormAnyOf": [
+            "釣る",
+            "吊る",
+            "つる"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "っつう",
+          "pos": "Particle",
+          "pin": 2798260
+        }
+      ],
+      "prev": {
+        "clauseBoundary": true
+      }
+    },
+    {
+      "id": "ttsutte",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "textAnyOf": [
+            "っつって",
+            "っつった",
+            "つーて",
+            "っつー",
+            "っつう"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "っつう",
+          "pos": "Particle",
+          "pin": 2798260
+        }
+      ]
+    },
+    {
+      "id": "nai-ttsuu",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "な",
+          "pos": [
+            "Auxiliary"
+          ],
+          "dictFormAnyOf": [
+            "ない"
+          ]
+        },
+        {
+          "text": "いっ",
+          "dictFormAnyOf": [
+            "いく",
+            "行く"
+          ]
+        },
+        {
+          "text": "つー",
+          "dictFormAnyOf": [
+            "つう"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "ない",
+          "dictForm": "ない",
+          "normalizedForm": "ない",
+          "pos": "Auxiliary",
+          "reading": "ナイ"
+        },
+        {
+          "text": "っつー",
+          "dictForm": "っつう",
+          "normalizedForm": "っつう",
+          "pos": "Particle",
+          "reading": "ッツー",
+          "pin": 2798260
+        }
+      ]
+    },
+    {
+      "id": "nai-tte-mora",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "な",
+          "pos": [
+            "Auxiliary"
+          ],
+          "dictFormAnyOf": [
+            "ない"
+          ]
+        },
+        {
+          "text": "いっ",
+          "dictFormAnyOf": [
+            "いく",
+            "行く"
+          ]
+        },
+        {
+          "text": "て",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "ない",
+          "dictForm": "ない",
+          "normalizedForm": "ない",
+          "pos": "Auxiliary",
+          "reading": "ナイ"
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ"
+        }
+      ]
+    },
+    {
+      "id": "te-koto",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "てこ",
+          "pos": [
+            "Adverb"
+          ]
+        },
+        {
+          "text": "と",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "て",
+          "dictForm": "て",
+          "normalizedForm": "て",
+          "pos": "Particle",
+          "reading": "テ"
+        },
+        {
+          "text": "こと",
+          "dictForm": "こと",
+          "normalizedForm": "こと",
+          "pos": "Noun",
+          "reading": "コト"
+        }
+      ],
+      "prev": {
+        "clauseBoundary": true
+      }
+    },
+    {
+      "id": "nakya-tte",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "な",
+          "pos": [
+            "Auxiliary"
+          ],
+          "dictFormAnyOf": [
+            "だ"
+          ]
+        },
+        {
+          "text": "きゃっ",
+          "pos": [
+            "Interjection"
+          ]
+        },
+        {
+          "text": "て",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "なきゃ",
+          "dictForm": "なきゃ",
+          "normalizedForm": "なければ",
+          "pos": "Auxiliary",
+          "reading": "ナキャ"
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ"
+        }
+      ]
+    },
+    {
+      "id": "zutto-i",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "ずっ",
+          "dictFormAnyOf": [
+            "ずる"
+          ]
+        },
+        {
+          "text": "とい",
+          "pos": [
+            "Auxiliary"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "ずっと",
+          "dictForm": "ずっと",
+          "normalizedForm": "ずっと",
+          "pos": "Adverb",
+          "reading": "ズット"
+        },
+        {
+          "text": "い",
+          "dictForm": "いる",
+          "normalizedForm": "いる",
+          "pos": "Verb",
+          "reading": "イ"
+        }
+      ]
+    },
+    {
+      "id": "jaa-tte",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "じゃ",
+          "pos": [
+            "Conjunction"
+          ]
+        },
+        {
+          "text": "あっ",
+          "dictFormAnyOf": [
+            "ある",
+            "会う"
+          ]
+        },
+        {
+          "text": "て",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "じゃあ",
+          "dictForm": "じゃあ",
+          "normalizedForm": "じゃあ",
+          "pos": "Conjunction",
+          "reading": "ジャア",
+          "pin": 1005900
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ"
+        }
+      ]
+    },
+    {
+      "id": "tette-quotative",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "てっ",
+          "pos": [
+            "Auxiliary"
+          ],
+          "dictFormAnyOf": [
+            "てく"
+          ]
+        },
+        {
+          "text": "て",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "て",
+          "dictForm": "て",
+          "normalizedForm": "て",
+          "pos": "Particle",
+          "reading": "テ"
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ"
+        }
+      ],
+      "next": {
+        "clauseBoundary": true
+      }
+    },
+    {
+      "id": "ka-ttsuu",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "かっ"
+        },
+        {
+          "text": "つー",
+          "dictFormAnyOf": [
+            "つう"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "か",
+          "dictForm": "か",
+          "normalizedForm": "か",
+          "pos": "Particle",
+          "reading": "カ"
+        },
+        {
+          "text": "っつー",
+          "dictForm": "っつう",
+          "normalizedForm": "っつう",
+          "pos": "Particle",
+          "reading": "ッツー",
+          "pin": 2798260
+        }
+      ]
+    },
+    {
+      "id": "ka-cchuu",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "かっ"
+        },
+        {
+          "text": "ちゅう",
+          "pos": [
+            "Auxiliary"
+          ],
+          "dictFormAnyOf": [
+            "ちゅう"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "か",
+          "dictForm": "か",
+          "normalizedForm": "か",
+          "pos": "Particle",
+          "reading": "カ"
+        },
+        {
+          "text": "っちゅう",
+          "dictForm": "っちゅう",
+          "normalizedForm": "っちゅう",
+          "pos": "Conjunction",
+          "reading": "ッチュウ",
+          "pin": 2757620
+        }
+      ]
+    },
+    {
+      "id": "domo-ttsutte",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "どもっ",
+          "dictFormAnyOf": [
+            "どもる",
+            "吃る"
+          ]
+        },
+        {
+          "text": "つっ",
+          "dictFormAnyOf": [
+            "つう"
+          ]
+        },
+        {
+          "text": "て",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "ども",
+          "dictForm": "ども",
+          "normalizedForm": "ども",
+          "pos": "Suffix",
+          "reading": "ドモ"
+        },
+        {
+          "text": "っつって",
+          "dictForm": "っつう",
+          "normalizedForm": "っつう",
+          "pos": "Particle",
+          "reading": "ッツッテ",
+          "pin": 2798260
+        }
+      ]
+    },
+    {
+      "id": "e-ttsutta",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "えっ",
+          "pos": [
+            "Interjection"
+          ]
+        },
+        {
+          "text": "つっ",
+          "dictFormAnyOf": [
+            "つう"
+          ]
+        },
+        {
+          "text": "た",
+          "pos": [
+            "Auxiliary"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "え",
+          "dictForm": "え",
+          "normalizedForm": "え",
+          "pos": "Interjection",
+          "reading": "エ"
+        },
+        {
+          "text": "っつった",
+          "dictForm": "っつう",
+          "normalizedForm": "っつう",
+          "pos": "Particle",
+          "reading": "ッツッタ",
+          "pin": 2798260
+        }
+      ]
+    },
+    {
+      "id": "zutsu-tte",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "ず"
+        },
+        {
+          "text": "つっ",
+          "dictFormAnyOf": [
+            "つう"
+          ]
+        },
+        {
+          "text": "て",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "ずつ",
+          "dictForm": "ずつ",
+          "normalizedForm": "ずつ",
+          "pos": "Particle",
+          "reading": "ズツ",
+          "pin": 2829645
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ"
+        }
+      ]
+    },
+    {
+      "id": "tsutte-raw",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "つっ",
+          "dictFormAnyOf": [
+            "つう"
+          ]
+        },
+        {
+          "text": "て",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "つって",
+          "dictForm": "っつう",
+          "normalizedForm": "っつう",
+          "pos": "Particle",
+          "reading": "ツッテ",
+          "pin": 2798260
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb",
+          "Noun",
+          "CommonNoun",
+          "Name",
+          "Pronoun",
+          "NaAdjective",
+          "Prefix",
+          "Suffix",
+          "Numeral",
+          "Counter"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "tsutta-raw",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "つっ",
+          "dictFormAnyOf": [
+            "つう"
+          ]
+        },
+        {
+          "text": "た",
+          "pos": [
+            "Auxiliary"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "つった",
+          "dictForm": "っつう",
+          "normalizedForm": "っつう",
+          "pos": "Particle",
+          "reading": "ツッタ",
+          "pin": 2798260
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb",
+          "Noun",
+          "CommonNoun",
+          "Name",
+          "Pronoun",
+          "NaAdjective",
+          "Prefix",
+          "Suffix",
+          "Numeral",
+          "Counter"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "datte-quotative",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "だって",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "だ",
+          "dictForm": "だ",
+          "normalizedForm": "だ",
+          "pos": "Auxiliary",
+          "reading": "ダ"
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ",
+          "pin": 2086960
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "NaAdjective"
+        ]
+      },
+      "next": {
+        "posAnyOf": [
+          "Verb"
+        ],
+        "textStartsWithAnyOf": [
+          "言",
+          "思",
+          "聞",
+          "考",
+          "感"
+        ]
+      }
+    },
+    {
+      "id": "nee-tte",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "ね"
+        },
+        {
+          "text": "えっ"
+        },
+        {
+          "text": "て",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "ねえ",
+          "dictForm": "ない",
+          "normalizedForm": "ない",
+          "pos": "Auxiliary",
+          "reading": "ネエ"
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ",
+          "pin": 2086960
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb"
+        ]
+      }
+    },
+    {
+      "id": "ta-cchuu",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "たっちゅう"
+        }
+      ],
+      "replace": [
+        {
+          "text": "た",
+          "dictForm": "た",
+          "normalizedForm": "た",
+          "pos": "Auxiliary",
+          "reading": "タ"
+        },
+        {
+          "text": "っちゅう",
+          "dictForm": "っちゅう",
+          "normalizedForm": "っちゅう",
+          "pos": "Conjunction",
+          "reading": "ッチュウ",
+          "pin": 2757620
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb"
+        ]
+      }
+    },
+    {
+      "id": "jaa",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "じゃ",
+          "pos": [
+            "Conjunction"
+          ]
+        },
+        {
+          "text": "あ",
+          "pos": [
+            "Interjection"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "じゃあ",
+          "dictForm": "じゃあ",
+          "normalizedForm": "じゃあ",
+          "pos": "Conjunction",
+          "reading": "ジャア",
+          "pin": 1005900,
+          "pinReadingIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "ya-bai",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "や",
+          "pos": [
+            "Auxiliary"
+          ]
+        },
+        {
+          "text": "ばい",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "やばい",
+          "dictForm": "やばい",
+          "normalizedForm": "やばい",
+          "pos": "IAdjective",
+          "reading": "ヤバイ",
+          "pin": 1012840,
+          "pinReadingIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "nani-katte",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "かって",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "か",
+          "dictForm": "か",
+          "normalizedForm": "か",
+          "pos": "Particle",
+          "reading": "カ"
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ"
+        }
+      ],
+      "prev": {
+        "textAnyOf": [
+          "何",
+          "誰",
+          "だれ",
+          "なん"
+        ]
+      }
+    },
+    {
+      "id": "kara-da",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "からだ",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "から",
+          "dictForm": "から",
+          "normalizedForm": "から",
+          "pos": "Particle",
+          "reading": "カラ"
+        },
+        {
+          "text": "だ",
+          "dictForm": "だ",
+          "normalizedForm": "だ",
+          "pos": "Auxiliary",
+          "reading": "ダ"
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb",
+          "IAdjective",
+          "Auxiliary"
+        ]
+      },
+      "next": {
+        "posAnyOf": [
+          "Particle"
+        ],
+        "textAnyOf": [
+          "を",
+          "が",
+          "に",
+          "は",
+          "も",
+          "の",
+          "で",
+          "へ",
+          "や"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "omoi-de",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "思いで",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "思い",
+          "dictForm": "思い",
+          "normalizedForm": "思い",
+          "pos": "Noun",
+          "reading": "オモイ"
+        },
+        {
+          "text": "で",
+          "dictForm": "で",
+          "normalizedForm": "で",
+          "pos": "Particle",
+          "reading": "デ"
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "IAdjective",
+          "Adnominal"
+        ]
+      }
+    },
+    {
+      "id": "migi-tekubi",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "右手首",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "右",
+          "dictForm": "右",
+          "normalizedForm": "右",
+          "pos": "Noun",
+          "reading": "ミギ"
+        },
+        {
+          "text": "手首",
+          "dictForm": "手首",
+          "normalizedForm": "手首",
+          "pos": "Noun",
+          "reading": "テクビ",
+          "pin": 1327770
+        }
+      ]
+    },
+    {
+      "id": "hidari-tekubi",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "左手首",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "左",
+          "dictForm": "左",
+          "normalizedForm": "左",
+          "pos": "Noun",
+          "reading": "ヒダリ"
+        },
+        {
+          "text": "手首",
+          "dictForm": "手首",
+          "normalizedForm": "手首",
+          "pos": "Noun",
+          "reading": "テクビ",
+          "pin": 1327770
+        }
+      ]
+    },
+    {
+      "id": "shu-jinkaku",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "主人",
+          "requireUnpinned": false
+        },
+        {
+          "text": "格"
+        }
+      ],
+      "replace": [
+        {
+          "text": "主",
+          "dictForm": "主",
+          "normalizedForm": "主",
+          "pos": "Noun",
+          "reading": "シュ"
+        },
+        {
+          "text": "人格",
+          "dictForm": "人格",
+          "normalizedForm": "人格",
+          "pos": "Noun",
+          "reading": "ジンカク",
+          "pin": 1366730
+        }
+      ]
+    },
+    {
+      "id": "sonzai-su",
+      "phase": "Cleanup",
+      "match": [
+        {
+          "text": "存",
+          "requireUnpinned": false
+        },
+        {
+          "text": "在す"
+        }
+      ],
+      "replace": [
+        {
+          "text": "存在",
+          "dictForm": "存在",
+          "normalizedForm": "存在",
+          "pos": "Noun",
+          "reading": "ソンザイ"
+        },
+        {
+          "text": "す",
+          "dictForm": "する",
+          "normalizedForm": "する",
+          "pos": "Verb",
+          "reading": "ス",
+          "pin": 1157170
+        }
+      ]
+    },
+    {
+      "id": "nara-nee",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "なら",
+          "pos": [
+            "Auxiliary"
+          ],
+          "dictFormAnyOf": [
+            "だ"
+          ]
+        },
+        {
+          "text": "ねえ",
+          "pos": [
+            "Particle"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "なら",
+          "dictForm": "成る",
+          "normalizedForm": "成る",
+          "pos": "Verb",
+          "reading": "ナラ"
+        },
+        {
+          "text": "ねえ",
+          "dictForm": "ねえ",
+          "normalizedForm": "無い",
+          "pos": "IAdjective",
+          "reading": "ネエ"
+        }
+      ]
+    },
+    {
+      "id": "tsura-sa",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "面さ",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "面す",
+            "面する"
+          ]
+        }
+      ],
+      "replace": [
+        {
+          "text": "面",
+          "dictForm": "面",
+          "normalizedForm": "面",
+          "pos": "Suffix",
+          "reading": "ヅラ"
+        },
+        {
+          "text": "さ",
+          "dictForm": "さ",
+          "normalizedForm": "さ",
+          "pos": "Particle",
+          "reading": "サ"
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun"
+        ]
+      },
+      "next": {
+        "textAnyOf": [
+          "れ",
+          "れる",
+          "れた",
+          "せ",
+          "せる"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "aitsu-mo",
+      "phase": "Late",
+      "match": [
+        {
+          "text": "あ",
+          "pos": [
+            "Interjection"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "いつも"
+        }
+      ],
+      "replace": [
+        {
+          "text": "あいつ",
+          "dictForm": "あいつ",
+          "normalizedForm": "あいつ",
+          "pos": "Pronoun",
+          "reading": "アイツ"
+        },
+        {
+          "text": "も",
+          "dictForm": "も",
+          "normalizedForm": "も",
+          "pos": "Particle",
+          "reading": "モ"
+        }
+      ]
+    },
+    {
+      "id": "kaisouka",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "かいそうか",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "かい",
+          "dictForm": "かい",
+          "normalizedForm": "かい",
+          "pos": "Particle",
+          "reading": "カイ"
+        },
+        {
+          "text": "そう",
+          "dictForm": "そう",
+          "normalizedForm": "そう",
+          "pos": "Adverb",
+          "reading": "ソウ"
+        },
+        {
+          "text": "か",
+          "dictForm": "か",
+          "normalizedForm": "か",
+          "pos": "Particle",
+          "reading": "カ"
+        }
+      ]
+    },
+    {
+      "id": "ganai-tte",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "がな",
+          "normalizedFormAnyOf": [
+            "仮名"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "いっ",
+          "normalizedFormAnyOf": [
+            "言う"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "て",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "が",
+          "dictForm": "が",
+          "normalizedForm": "が",
+          "pos": "Particle",
+          "reading": "ガ",
+          "pin": 2028930
+        },
+        {
+          "text": "ない",
+          "dictForm": "ない",
+          "normalizedForm": "無い",
+          "pos": "IAdjective",
+          "reading": "ナイ",
+          "pin": 1529520
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ",
+          "pin": 2086960
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun",
+          "Pronoun",
+          "Counter"
+        ]
+      }
+    },
+    {
+      "id": "toki-tteno",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "と",
+          "requireUnpinned": false
+        },
+        {
+          "text": "きっての",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "とき",
+          "dictForm": "とき",
+          "normalizedForm": "時",
+          "pos": "Noun",
+          "reading": "トキ"
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ",
+          "pin": 2086960
+        },
+        {
+          "text": "の",
+          "dictForm": "の",
+          "normalizedForm": "の",
+          "pos": "Particle",
+          "reading": "ノ"
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb",
+          "IAdjective",
+          "Auxiliary",
+          "Expression"
+        ]
+      }
+    },
+    {
+      "id": "arigatee",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "あり",
+          "requireUnpinned": false
+        },
+        {
+          "text": "が",
+          "requireUnpinned": false
+        },
+        {
+          "text": "てぇ",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "ありがてぇ",
+          "dictForm": "ありがたい",
+          "normalizedForm": "ありがたい",
+          "pos": "IAdjective",
+          "reading": "アリガテェ",
+          "pin": 1541560,
+          "recoverConjugations": true
+        }
+      ]
+    },
+    {
+      "id": "kariru",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "貸",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "り",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "貸り",
+          "dictForm": "貸りる",
+          "normalizedForm": "貸りる",
+          "pos": "Verb",
+          "reading": "カリ"
+        }
+      ],
+      "guard": {
+        "kind": "NonNameCompoundExists",
+        "pattern": "貸りる"
+      }
+    },
+    {
+      "id": "konna-no",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "こん",
+          "pos": [
+            "PrenounAdjectival"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "なの",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "こんな",
+          "dictForm": "こんな",
+          "normalizedForm": "こんな",
+          "reading": "コンナ"
+        },
+        {
+          "text": "の",
+          "dictForm": "の",
+          "normalizedForm": "の",
+          "pos": "Particle",
+          "reading": "ノ"
+        }
+      ],
+      "guard": {
+        "kind": "CompoundExists",
+        "pattern": "こんな"
+      }
+    },
+    {
+      "id": "sonna-no",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "そん",
+          "pos": [
+            "PrenounAdjectival"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "なの",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "そんな",
+          "dictForm": "そんな",
+          "normalizedForm": "そんな",
+          "reading": "ソンナ"
+        },
+        {
+          "text": "の",
+          "dictForm": "の",
+          "normalizedForm": "の",
+          "pos": "Particle",
+          "reading": "ノ"
+        }
+      ],
+      "guard": {
+        "kind": "CompoundExists",
+        "pattern": "そんな"
+      }
+    },
+    {
+      "id": "anna-no",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "あん",
+          "pos": [
+            "PrenounAdjectival"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "なの",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "あんな",
+          "dictForm": "あんな",
+          "normalizedForm": "あんな",
+          "reading": "アンナ"
+        },
+        {
+          "text": "の",
+          "dictForm": "の",
+          "normalizedForm": "の",
+          "pos": "Particle",
+          "reading": "ノ"
+        }
+      ],
+      "guard": {
+        "kind": "CompoundExists",
+        "pattern": "あんな"
+      }
+    },
+    {
+      "id": "donna-no",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "どん",
+          "pos": [
+            "PrenounAdjectival"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "なの",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "どんな",
+          "dictForm": "どんな",
+          "normalizedForm": "どんな",
+          "reading": "ドンナ"
+        },
+        {
+          "text": "の",
+          "dictForm": "の",
+          "normalizedForm": "の",
+          "pos": "Particle",
+          "reading": "ノ"
+        }
+      ],
+      "guard": {
+        "kind": "CompoundExists",
+        "pattern": "どんな"
+      }
+    },
+    {
+      "id": "domo-me",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "ど",
+          "pos": [
+            "Prefix"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "もめ",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "ども",
+          "dictForm": "ども",
+          "normalizedForm": "ども",
+          "pos": "Suffix",
+          "reading": "ドモ"
+        },
+        {
+          "text": "め",
+          "dictForm": "め",
+          "normalizedForm": "め",
+          "pos": "Suffix",
+          "reading": "メ"
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Noun",
+          "CommonNoun",
+          "Name",
+          "Pronoun"
+        ]
+      }
+    },
+    {
+      "id": "no-yo",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "ノヨ",
+          "pos": [
+            "Noun",
+            "NaAdjective"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "ノ",
+          "dictForm": "の",
+          "normalizedForm": "の",
+          "pos": "Particle",
+          "reading": "ノ"
+        },
+        {
+          "text": "ヨ",
+          "dictForm": "よ",
+          "normalizedForm": "よ",
+          "pos": "Particle",
+          "reading": "ヨ"
+        }
+      ]
+    },
+    {
+      "id": "iika-listen",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "いい",
+          "pos": [
+            "IAdjective"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "か",
+          "pos": [
+            "Particle"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "いいか",
+          "dictForm": "いいか",
+          "normalizedForm": "いいか",
+          "pos": "Expression",
+          "reading": "イイカ",
+          "pin": 2555520
+        }
+      ],
+      "prev": {
+        "clauseBoundary": true
+      },
+      "next": {
+        "textAnyOf": [
+          "、",
+          "!",
+          "！"
+        ]
+      }
+    },
+    {
+      "id": "hito-dict",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "ひと",
+          "pos": [
+            "Noun"
+          ],
+          "dictFormAnyOf": [
+            "一"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "人",
+          "normalizedForm": "人"
+        }
+      ]
+    },
+    {
+      "id": "hito-norm",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "ひと",
+          "pos": [
+            "Noun"
+          ],
+          "normalizedFormAnyOf": [
+            "一"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "人",
+          "normalizedForm": "人"
+        }
+      ]
+    },
+    {
+      "id": "kanenai",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "かね",
+          "pos": [
+            "Suffix"
+          ],
+          "dictFormAnyOf": [
+            "かねる"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "ない",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "かねない",
+          "dictForm": "かねない",
+          "normalizedForm": "かねない",
+          "pos": "Expression",
+          "reading": "カネナイ"
+        }
+      ]
+    },
+    {
+      "id": "kanenakatta",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "かね",
+          "pos": [
+            "Suffix"
+          ],
+          "dictFormAnyOf": [
+            "かねる"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "なかっ",
+          "requireUnpinned": false
+        },
+        {
+          "text": "た",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "かねなかった",
+          "dictForm": "かねない",
+          "normalizedForm": "かねない",
+          "pos": "Expression",
+          "reading": "カネナカッタ"
+        }
+      ]
+    },
+    {
+      "id": "tamae",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "た",
+          "pos": [
+            "Auxiliary"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "まえ",
+          "pos": [
+            "Noun"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "たまえ",
+          "dictForm": "たまえ",
+          "normalizedForm": "たまえ",
+          "pos": "Suffix",
+          "reading": "タマエ"
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb"
+        ]
+      }
+    },
+    {
+      "id": "kke-sfp",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "っけ",
+          "pos": [
+            "Suffix"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pos": "Particle",
+          "posSection": "SentenceEndingParticle"
+        }
+      ]
+    },
+    {
+      "id": "shisen-itaku",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "私戦",
+          "pos": [
+            "Noun",
+            "CommonNoun"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "いたく",
+          "normalizedFormAnyOf": [
+            "痛く"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "私",
+          "dictForm": "私",
+          "normalizedForm": "私",
+          "pos": "Pronoun",
+          "reading": "ワタシ"
+        },
+        {
+          "text": "戦いたく",
+          "dictForm": "戦う",
+          "normalizedForm": "戦う",
+          "pos": "Verb",
+          "reading": "タタカイタク"
+        }
+      ]
+    },
+    {
+      "id": "hitomae-de",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "人前で",
+          "pos": [
+            "Expression"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "人前",
+          "dictForm": "人前",
+          "normalizedForm": "人前",
+          "pos": "Noun",
+          "reading": ""
+        },
+        {
+          "text": "で",
+          "dictForm": "で",
+          "normalizedForm": "で",
+          "pos": "Particle",
+          "reading": "デ"
+        }
+      ]
+    },
+    {
+      "id": "sama-ni",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "様に",
+          "pos": [
+            "Expression"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "様",
+          "dictForm": "様",
+          "normalizedForm": "様",
+          "pos": "Noun",
+          "reading": ""
+        },
+        {
+          "text": "に",
+          "dictForm": "に",
+          "normalizedForm": "に",
+          "pos": "Particle",
+          "reading": "ニ"
+        }
+      ]
+    },
+    {
+      "id": "dare-datte",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "誰だって",
+          "pos": [
+            "Expression"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "誰",
+          "dictForm": "誰",
+          "normalizedForm": "誰",
+          "pos": "Pronoun",
+          "reading": ""
+        },
+        {
+          "text": "だって",
+          "dictForm": "だって",
+          "normalizedForm": "だって",
+          "pos": "Particle",
+          "reading": "ダッテ"
+        }
+      ]
+    },
+    {
+      "id": "okeba-ii",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "おけばいい",
+          "pos": [
+            "Expression"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "おけ",
+          "dictForm": "おく",
+          "normalizedForm": "おく",
+          "pos": "Verb",
+          "reading": "オケ"
+        },
+        {
+          "text": "ば",
+          "dictForm": "ば",
+          "normalizedForm": "ば",
+          "pos": "Particle",
+          "reading": "バ"
+        },
+        {
+          "text": "いい",
+          "dictForm": "いい",
+          "normalizedForm": "いい",
+          "pos": "IAdjective",
+          "reading": "イイ"
+        }
+      ]
+    },
+    {
+      "id": "de-shou",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "で",
+          "pos": [
+            "Conjunction",
+            "Auxiliary"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "しょう",
+          "pos": [
+            "Noun"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "でしょう",
+          "dictForm": "でしょう",
+          "normalizedForm": "です",
+          "pos": "Expression",
+          "posSection": "None",
+          "reading": "デショウ"
+        }
+      ]
+    },
+    {
+      "id": "nande-shou",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "何で",
+          "pos": [
+            "Noun"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "しょう",
+          "pos": [
+            "Noun"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "何",
+          "dictForm": "何",
+          "normalizedForm": "何",
+          "pos": "Pronoun",
+          "reading": "ナニ"
+        },
+        {
+          "text": "でしょう",
+          "dictForm": "でしょう",
+          "normalizedForm": "です",
+          "pos": "Expression",
+          "posSection": "None",
+          "reading": "デショウ"
+        }
+      ]
+    },
+    {
+      "id": "deshou-expression",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "でしょう",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pos": "Expression",
+          "posSection": "None"
+        }
+      ]
+    },
+    {
+      "id": "nu-negative",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "ぬ",
+          "pos": [
+            "Verb"
+          ],
+          "normalizedFormAnyOf": [
+            "寝る"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "normalizedForm": "ず",
+          "pos": "Auxiliary"
+        }
+      ]
+    },
+    {
+      "id": "nare-naru",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "なれ",
+          "pos": [
+            "Pronoun"
+          ],
+          "normalizedFormAnyOf": [
+            "汝"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "dictForm": "なる",
+          "normalizedForm": "なる",
+          "pos": "Verb",
+          "reading": "ナレ"
+        }
+      ]
+    },
+    {
+      "id": "ima-adverb",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "今",
+          "pos": [
+            "Prefix"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pos": "Adverb"
+        }
+      ]
+    },
+    {
+      "id": "kara-empty",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "空",
+          "pos": [
+            "NaAdjective"
+          ],
+          "readingPrefix": "ウツロ",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "normalizedForm": "空",
+          "pos": "Noun",
+          "reading": "カラ"
+        }
+      ]
+    },
+    {
+      "id": "ni-shiro",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "に",
+          "requireUnpinned": false
+        },
+        {
+          "text": "しろ",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "にしろ",
+          "dictForm": "にしろ",
+          "normalizedForm": "にしろ",
+          "pos": "Expression",
+          "reading": "ニシロ"
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Noun",
+          "NaAdjective",
+          "Pronoun"
+        ],
+        "negate": true
+      }
+    },
+    {
+      "id": "toku-to",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "とくと",
+          "pos": [
+            "Adverb"
+          ],
+          "normalizedFormAnyOf": [
+            "篤と"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "とく",
+          "dictForm": "とく",
+          "normalizedForm": "とく",
+          "pos": "Auxiliary",
+          "reading": "トク"
+        },
+        {
+          "text": "と",
+          "dictForm": "と",
+          "normalizedForm": "と",
+          "pos": "Particle",
+          "reading": "ト"
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb"
+        ]
+      }
+    },
+    {
+      "id": "toku-you",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "とくよう",
+          "normalizedFormAnyOf": [
+            "徳用"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "とく",
+          "dictForm": "とく",
+          "normalizedForm": "とく",
+          "pos": "Auxiliary",
+          "reading": "トク"
+        },
+        {
+          "text": "よう",
+          "dictForm": "よう",
+          "normalizedForm": "よう",
+          "pos": "Noun",
+          "reading": "ヨウ"
+        }
+      ],
+      "prev": {
+        "posAnyOf": [
+          "Verb",
+          "Noun"
+        ]
+      }
+    },
+    {
+      "id": "shiyou-toshite",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "しよう",
+          "pos": [
+            "Noun"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "として",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "しようとして",
+          "dictForm": "しようとする",
+          "pos": "Verb",
+          "reading": "シヨウトシテ"
+        }
+      ]
+    },
+    {
+      "id": "shi-youtoshite",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "し",
+          "pos": [
+            "Conjunction"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "ようとして",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "しようとして",
+          "dictForm": "しようとして",
+          "pos": "Verb",
+          "reading": "シヨウトシテ"
+        }
+      ]
+    },
+    {
+      "id": "koi-tte",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "恋っ",
+          "pos": [
+            "Verb"
+          ],
+          "dictFormAnyOf": [
+            "恋う"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "て",
+          "pos": [
+            "Particle"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "恋",
+          "dictForm": "恋",
+          "normalizedForm": "恋",
+          "pos": "Noun",
+          "reading": "コイ"
+        },
+        {
+          "text": "って",
+          "dictForm": "って",
+          "normalizedForm": "って",
+          "pos": "Particle",
+          "reading": "ッテ"
+        }
+      ]
+    },
+    {
+      "id": "gyaku-ni",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "逆",
+          "pos": [
+            "Noun"
+          ],
+          "requireUnpinned": false
+        },
+        {
+          "text": "に",
+          "dictFormAnyOf": [
+            "だ"
+          ],
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "逆に",
+          "dictForm": "逆に",
+          "pos": "Adverb",
+          "reading": "ギャクニ"
+        }
+      ]
+    },
+    {
+      "id": "you-noun",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "よう",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pos": "Noun"
+        }
+      ]
+    },
+    {
+      "id": "juugo-numeral",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "十五",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pos": "Numeral"
+        }
+      ]
+    },
+    {
+      "id": "ore-pronoun",
+      "phase": "Early",
+      "match": [
+        {
+          "text": "オレ",
+          "requireUnpinned": false
+        }
+      ],
+      "replace": [
+        {
+          "text": "",
+          "pos": "Pronoun"
+        }
+      ]
+    }
+  ]
+}

@@ -201,7 +201,7 @@
               <p style="opacity: 0.8">Width of the popup in pixels. Default: <code>350</code></p>
             </div>
             <div>
-              <label for="popupHeight">Popup Height</label>
+              <label for="popupHeight">Popup Max Height</label>
               <input
                 style="width: 100%"
                 type="number"
@@ -210,7 +210,10 @@
                 min="200"
                 max="800"
               />
-              <p style="opacity: 0.8">Height of the popup in pixels. Default: <code>250</code></p>
+              <p style="opacity: 0.8">
+                Maximum height of the popup in pixels; the popup shrinks to fit shorter definitions.
+                Default: <code>250</code>
+              </p>
             </div>
           </div>
         </div>
@@ -1045,6 +1048,22 @@
                 <label for="enableDebugMode">Enable debug mode</label>
               </div>
               <p style="opacity: 0.8" indent up>Enables debug mode for host configuration.</p>
+            </div>
+
+            <div>
+              <div class="checkbox">
+                <input type="checkbox" id="exposePageEvents" name="exposePageEvents" />
+                <label for="exposePageEvents">Broadcast page events for other extensions</label>
+              </div>
+              <p style="opacity: 0.8" indent up>
+                Posts window messages when you interact with words, mine or grade cards, so other
+                extensions and userscripts (e.g. asbplayer) can integrate with JitenReader. See the
+                <a
+                  href="https://github.com/Sirush/JitenReader/blob/dev/docs/page-events.md"
+                  target="_blank"
+                  >page events documentation</a
+                >.
+              </p>
             </div>
           </div>
         </div>

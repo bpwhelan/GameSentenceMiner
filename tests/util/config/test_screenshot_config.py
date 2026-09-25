@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from GameSentenceMiner.util.config.configuration import (
     ANIMATED_SCREENSHOT_CODEC_LABELS,
+    SCREENSHOT_CAPTURE_BACKENDS,
     Advanced,
     AnimatedScreenshotSettings,
-    SCREENSHOT_CAPTURE_BACKENDS,
     Screenshot,
 )
 
@@ -54,6 +56,30 @@ def test_animated_screenshot_avif_options_round_trip():
     assert loaded.adaptive_avif is True
     assert loaded.faststart is False
     assert loaded.encoder_fallback is False
+
+
+def test_animated_size_and_voice_defaults_preserve_existing_profiles():
+    settings = AnimatedScreenshotSettings.from_dict({"adaptive_avif": True})
+    assert settings.target_size_kb == 0
+    assert settings.size_priority == "balanced"
+    assert settings.only_when_voice is False
+    assert settings.adaptive_avif is True
+
+
+@pytest.mark.parametrize("priority", ["prefer_fps", "prefer_quality", "balanced"])
+def test_animated_size_and_voice_options_round_trip(priority):
+    settings = AnimatedScreenshotSettings(target_size_kb=500, size_priority=priority, only_when_voice=True)
+    loaded = AnimatedScreenshotSettings.from_dict(settings.to_dict())
+    assert loaded.target_size_kb == 500
+    assert loaded.size_priority == priority
+    assert loaded.only_when_voice is True
+
+
+@pytest.mark.parametrize("target", [-1, None, "bad", float("inf")])
+def test_invalid_animated_size_options_use_safe_defaults(target):
+    settings = AnimatedScreenshotSettings(target_size_kb=target, size_priority="invalid")
+    assert settings.target_size_kb == 0
+    assert settings.size_priority == "balanced"
 
 
 def test_screenshot_capture_backends_expose_wgc_not_legacy_winapi():

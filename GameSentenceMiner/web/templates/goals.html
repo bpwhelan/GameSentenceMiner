@@ -319,21 +319,22 @@
                             </small>
                         </div>
 
-                        <div id="goalDatesContainer" class="goal-form-field" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                        <div id="goalDatesContainer" class="goal-form-field goal-date-fields">
                             <div id="goalStartDateContainer">
                                 <label for="goalStartDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    Start Date
+                                    Start Date &amp; Time
                                 </label>
-                                <input type="date" id="goalStartDate" name="goalStartDate"
-                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <input type="datetime-local" id="goalStartDate" name="goalStartDate" step="60">
+                                <button type="button" id="goalStartNow" class="goal-date-shortcut">Now</button>
                             </div>
                             <div id="goalEndDateContainer">
                                 <label for="goalEndDate" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
-                                    <span id="goalEndDateLabel">End Date</span>
+                                    <span id="goalEndDateLabel">End Date &amp; Time</span>
                                 </label>
-                                <input type="date" id="goalEndDate" name="goalEndDate"
-                                    style="width: 85%; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 14px;">
+                                <input type="datetime-local" id="goalEndDate" name="goalEndDate" step="60">
+                                <button type="button" id="goalEndIn24Hours" class="goal-date-shortcut">24 hours from now</button>
                             </div>
+                            <small class="goal-date-help">Times use your local time zone. Imported daily totals count only when their whole day is included.</small>
                         </div>
 
                         <div style="margin-bottom: 15px;">

@@ -152,8 +152,8 @@
     "console": {
       "openLogsFolder": "Abrir carpeta de registros",
       "openLogsFolderTooltip": "Abrir carpeta de registros",
-      "exportLogs": "Exportar registros",
-      "exportLogsTooltip": "Exportar registros a un archivo zip",
+      "exportLogs": "Exportar registros anonimizados",
+      "exportLogsTooltip": "Exportar un ZIP ocultando los nombres de usuario, rutas personales, nombres de equipo, direcciones de correo e IP y credenciales habituales detectados. Los registros originales no se modifican. Revisa el contenido antes de compartirlo.",
       "modeSimple": "Modo: Simple",
       "modeAdvanced": "Modo: Avanzado",
       "modeSimpleTooltip": "Cambiar a registros avanzados (muestra básicos + en segundo plano)",

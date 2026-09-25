@@ -3,6 +3,8 @@
 import json
 
 from GameSentenceMiner.ai.ai_prompting import _get_ai_service_components
+from GameSentenceMiner.ai.contracts import AIError
+from GameSentenceMiner.ai.setup import ai_error_message
 from GameSentenceMiner.util.config.configuration import get_config, logger
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 
@@ -83,4 +85,6 @@ Input blocks:
     # Dedicated request kind preserves the configured token budget for the whole batch.
     # Avoid character-summary generation and dialogue translation cache writes here.
     raw = service.generate_raw_prompt(prompt, request_kind="overlay_translation")
+    if not raw or raw.startswith("Processing failed:"):
+        raise AIError(ai_error_message(raw))
     return parse_block_translations(raw, blocks)

@@ -13,9 +13,12 @@ native/gsm-native/
     lib.rs          # Thin PyO3 conversion layer only
     text_filter.rs  # Pure Rust OCR text filtering
     layout.rs       # Pure Rust OCR geometry/layout engine
+    text_matching.rs # Exact no-junk sequence matching
+    text_cleanup.rs  # Repeated-text cleanup and batched kanji counts
 GameSentenceMiner/native/
   runtime.py        # Shared rollout mode
   ocr.py            # Typed Python facade
+  text.py           # Text kernels, Python references, and fallback
 ```
 
 Future components should follow the same split: domain logic remains independent of Python in a Rust
@@ -39,6 +42,40 @@ current OCR callers.
 The native Japanese/Chinese text path uses the same target-script extraction as the legacy filter and
 does not run the legacy statistical language classifier once per text block. Python and shadow modes
 retain that classifier for rollback and representative parity audits.
+
+## Text computation boundary
+
+Three more CPU-heavy paths use the same extension, with no new Rust dependencies:
+
+- OCR matching-block coverage and stability ratios use the exact string-only
+  `SequenceMatcher(None, a, b, autojunk=False)` algorithm, including asymmetric tie breaking and
+  Unicode character indexing. The existing bounded OCR result cache remains in Python.
+- Text-hook repeated-character and repeated-line cleanup run in Rust. Automatic line repetition
+  detection finds the shortest exact period in linear time. Explicit counts, incomplete character
+  groups, and the original automatic character-count tie rules retain their existing behavior.
+- Statistics count kanji in batches of up to 1,024 lines, releasing the GIL while scanning characters.
+  The CJK ranges, first-seen ordering, archive merges, stable frequency ties, and color output are
+  unchanged. Batches flush before archived records so their position in the input still matters.
+
+The Python facades check each capability separately, so an older extension can keep serving the
+existing OCR/overlay operations while these new paths use Python. Lone surrogates and integers beyond
+the native argument range also use Python. `GSM_NATIVE_TEXT_MODE=python` disables all three new paths;
+`GSM_NATIVE_TEXT_MODE=shadow` compares results (including dictionary order), reports mismatches, and
+returns the Python result. The global `GSM_NATIVE_MODE` remains the default when no text override is set.
+
+Rebuild without changing application dependencies and reproduce the benchmarks:
+
+```powershell
+.venv\Scripts\python.exe -m uv pip install --python .venv\Scripts\python.exe --no-deps --reinstall --editable .
+.venv\Scripts\python.exe -m pytest tests/native/test_text_native.py
+.venv\Scripts\python.exe scripts/benchmark_native_text.py --reference-ref 90eb145b --output .tmp_test_env/native_text_benchmark/results.json
+```
+
+The benchmark's statistics baseline comes from `--reference-ref`; use a revision before the text
+migration. It verifies exact outputs before timing, alternates execution order, and includes facade and
+argument-conversion costs. Inputs are deterministic synthetic Japanese text; these are component
+measurements, not overall OCR inference or application speedups. See
+[text benchmark results](benchmarks/native-text-2026-09-17/README.md) for the measured revision and timings.
 
 ## Development
 

@@ -20,10 +20,12 @@ interface OverlayModule {
     startOverlayApp(): Promise<void> | void;
     stopOverlayApp(): Promise<void> | void;
     isOverlayRunning?(): boolean;
+    openSettings?(tab?: string): void;
 }
 
 interface OverlayHost {
     requestStop(): void;
+    requestRestart(settingsTab?: string): Promise<boolean>;
 }
 
 interface EnvironmentBackup {
@@ -36,6 +38,8 @@ let overlayModuleRoot: string | null = null;
 let overlayStartPromise: Promise<boolean> | null = null;
 let overlayStopPromise: Promise<void> | null = null;
 let environmentBackup: EnvironmentBackup[] | null = null;
+let overlayRestartPromise: Promise<boolean> | null = null;
+let overlayStopGeneration = 0;
 
 function getOverlayDataPath(): string {
     const baseDir = getBaseDir();
@@ -122,6 +126,7 @@ function installOverlayHost(): void {
         requestStop: () => {
             stopInProcessOverlay();
         },
+        requestRestart: restartInProcessOverlay,
     };
 }
 
@@ -190,6 +195,8 @@ export async function startInProcessOverlay(): Promise<boolean> {
 }
 
 export function stopInProcessOverlay(): boolean {
+    // Even a repeated stop cancels a queued restart (for example during app quit).
+    overlayStopGeneration += 1;
     if (!overlayModule && !overlayStartPromise) {
         return false;
     }
@@ -222,4 +229,28 @@ export function stopInProcessOverlay(): boolean {
 
 export async function waitForInProcessOverlayShutdown(): Promise<void> {
     await overlayStopPromise;
+}
+
+function restartInProcessOverlay(settingsTab?: string): Promise<boolean> {
+    if (overlayRestartPromise) {
+        return overlayRestartPromise;
+    }
+    if (!overlayModule && !overlayStartPromise) {
+        return Promise.resolve(false);
+    }
+    stopInProcessOverlay();
+    const generation = overlayStopGeneration;
+    overlayRestartPromise = (async () => {
+        await waitForInProcessOverlayShutdown();
+        if (generation !== overlayStopGeneration) return false;
+        if (!await startInProcessOverlay()) {
+            throw new Error('Could not restart the overlay. Check the GSM logs and start the overlay again.');
+        }
+        if (generation !== overlayStopGeneration) return false;
+        if (settingsTab) overlayModule?.openSettings?.(settingsTab);
+        return true;
+    })().finally(() => {
+        overlayRestartPromise = null;
+    });
+    return overlayRestartPromise;
 }

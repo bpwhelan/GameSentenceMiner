@@ -75,6 +75,15 @@ def test_overlay_scan_on_activation_round_trip_and_backward_compatibility():
     assert Overlay.from_dict(data_without_field).scan_on_overlay_activation is False
 
 
+def test_overlay_adaptive_ocr_retries_is_opt_in_and_round_trips():
+    assert Overlay().adaptive_ocr_retries is False
+    data = Overlay(adaptive_ocr_retries=True).to_dict()
+    assert data["adaptive_ocr_retries"] is True
+    assert Overlay.from_dict(data).adaptive_ocr_retries is True
+    data.pop("adaptive_ocr_retries")
+    assert Overlay.from_dict(data).adaptive_ocr_retries is False
+
+
 def test_overlay_use_ocr_result_round_trip_and_backward_compatibility():
     overlay = Overlay(use_ocr_result_v2=False)
     data = overlay.to_dict()
@@ -237,7 +246,9 @@ def test_deprecated_process_pausing_allowlist_removed_from_profileless_config():
 def test_process_pausing_is_profile_scoped_round_trip():
     config = Config(
         configs={
-            "Default": ProfileConfig(process_pausing=ProcessPausing(enabled=True)),
+            "Default": ProfileConfig(
+                process_pausing=ProcessPausing(enabled=True, anki_confirmation_requests_pause=True)
+            ),
             "Game": ProfileConfig(process_pausing=ProcessPausing(enabled=False)),
         },
         current_profile="Game",
@@ -248,7 +259,14 @@ def test_process_pausing_is_profile_scoped_round_trip():
 
     assert "process_pausing" not in data
     assert restored.configs["Default"].process_pausing.enabled is True
+    assert restored.configs["Default"].process_pausing.anki_confirmation_requests_pause is True
     assert restored.get_config().process_pausing.enabled is False
+    assert restored.get_config().process_pausing.anki_confirmation_requests_pause is False
+
+
+def test_anki_confirmation_process_pause_defaults_off_for_existing_profiles():
+    assert ProcessPausing().anki_confirmation_requests_pause is False
+    assert ProcessPausing.from_dict({"enabled": True}).anki_confirmation_requests_pause is False
 
 
 def test_overlay_locales_include_use_ocr_result_strings():

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!--
+  Host page for the hoshidicts WebAssembly engine. It has no UI: it exists only
+  so the engine has a long-lived DOM context that may compile WebAssembly.
+  Explicitly started media capture shares this lifetime in its own service.
+
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>hoshidicts engine</title>
+  </head>
+  <body>
+    <script type="module" src="offscreen.js"></script>
+  </body>
+</html>

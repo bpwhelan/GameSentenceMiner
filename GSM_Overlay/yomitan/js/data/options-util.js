@@ -612,7 +612,8 @@ export class OptionsUtil {
             this._updateVersion73,
             this._updateVersion74,
             this._updateVersion75,
-            this._updateVersion76_GSM,
+            this._updateVersion76,
+            this._updateVersion77,
         ];
         /* eslint-enable @typescript-eslint/unbound-method */
         if (typeof targetVersion === 'number' && targetVersion < result.length) {
@@ -1879,6 +1880,26 @@ export class OptionsUtil {
      */
     async _updateVersion75(options) {
         await this._applyAnkiFieldTemplatesPatch(options, '/data/templates/anki-field-templates-upgrade-v75.handlebars');
+    }
+
+    /**
+     * - Added general.popupFullWidthPosition.
+     * @type {import('options-util').UpdateFunction}
+     */
+    async _updateVersion76(options) {
+        // GSM already used version 76; share this step to keep upstream migration numbers stable.
+        await this._updateVersion76_GSM(options);
+        for (const profile of options.profiles) {
+            profile.options.general.popupFullWidthPosition = 'bottom';
+        }
+    }
+
+    /**
+     *  - Add {url-plain} handlebar
+     *  @type {import('options-util').UpdateFunction}
+     */
+    async _updateVersion77(options) {
+        await this._applyAnkiFieldTemplatesPatch(options, '/data/templates/anki-field-templates-upgrade-v77.handlebars');
     }
 
     /**

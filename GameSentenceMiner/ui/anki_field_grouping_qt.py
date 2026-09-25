@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -23,10 +25,21 @@ class AnkiFieldGroupingDialog(QDialog):
         default_delete_duplicate: bool = True,
         parent=None,
     ) -> None:
+        if parent is None:
+            parent = QApplication.activeModalWidget() or QApplication.activeWindow()
         super().__init__(parent)
         self._selection_result: dict[str, Any] | None = None
         self.setWindowTitle("Merge duplicate Anki note")
         self.setModal(True)
+        # This dialog blocks all GSM windows, including unrelated topmost dialogs.
+        # Keep the decision above them so they cannot hide the only usable window.
+        self.setWindowFlag(
+            Qt.WindowType.WindowStaysOnTopHint,
+            any(
+                window.isVisible() and window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+                for window in QApplication.topLevelWidgets()
+            ),
+        )
         self.setMinimumWidth(620)
 
         layout = QVBoxLayout(self)
@@ -56,7 +69,7 @@ class AnkiFieldGroupingDialog(QDialog):
         self.order_combo.addItem("Front (show newest context first)", "front")
         self.order_combo.addItem("Back (show newest context last)", "back")
         order_index = self.order_combo.findData(str(default_order or "front").lower())
-        self.order_combo.setCurrentIndex(order_index if order_index >= 0 else 0)
+        self.order_combo.setCurrentIndex(max(order_index, 0))
         form.addRow("New context order:", self.order_combo)
 
         self.delete_duplicate_check = QCheckBox("Delete the newly created duplicate note after a successful merge")
@@ -133,4 +146,7 @@ def show_anki_field_grouping_dialog(
         default_delete_duplicate=default_delete_duplicate,
         parent=parent,
     )
-    return dialog.exec()
+    try:
+        return dialog.exec()
+    finally:
+        dialog.deleteLater()

@@ -20,6 +20,11 @@ export function setLaunchBlockedCheck(fn: () => boolean): void {
     launchBlocked = fn;
 }
 
+/** Await every existing managed child without creating a manager during shutdown. */
+export async function stopManagedProcesses(): Promise<void> {
+    await manager?.stopAll();
+}
+
 export function getProcessManager(): ProcessManager {
     if (!manager) {
         manager = new ProcessManager({

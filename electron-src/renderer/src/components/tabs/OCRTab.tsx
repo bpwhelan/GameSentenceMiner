@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { DOCS_URLS } from "../../../../shared/docs";
-import { getDefaultStabilityOcr } from "../../../../shared/ocr_defaults";
+import { getDefaultStabilityOcr, type OcrPlatform } from "../../../../shared/ocr_defaults";
 import { invokeIpc, onIpc, platformFromEnv, sendIpc } from "../../lib/ipc";
 import type { ObsScene, SceneLaunchProfile, SceneOcrMode } from "../../types/models";
 import { useTranslation } from "../../i18n";
@@ -59,6 +59,8 @@ interface OcrStoredConfig {
   menuOcrGamepad?: string;
   areaSelectOcrHotkey?: string;
   areaSelectOcrGamepad?: string;
+  addAreaOcrHotkey?: string;
+  addAreaOcrGamepad?: string;
   wholeWindowOcrHotkey?: string;
   wholeWindowOcrGamepad?: string;
   globalPauseHotkey?: string;
@@ -105,6 +107,8 @@ interface OcrUiConfig {
   menuOcrGamepad: string;
   areaSelectOcrHotkey: string;
   areaSelectOcrGamepad: string;
+  addAreaOcrHotkey: string;
+  addAreaOcrGamepad: string;
   wholeWindowOcrHotkey: string;
   wholeWindowOcrGamepad: string;
   globalPauseHotkey: string;
@@ -171,6 +175,7 @@ type HotkeyConfigKey =
   | "manualOcrHotkey"
   | "menuOcrHotkey"
   | "areaSelectOcrHotkey"
+  | "addAreaOcrHotkey"
   | "wholeWindowOcrHotkey"
   | "globalPauseHotkey";
 
@@ -178,6 +183,7 @@ type GamepadConfigKey =
   | "manualOcrGamepad"
   | "menuOcrGamepad"
   | "areaSelectOcrGamepad"
+  | "addAreaOcrGamepad"
   | "wholeWindowOcrGamepad"
   | "globalPauseGamepad";
 
@@ -694,6 +700,7 @@ function normalizeOcrConfig(
           value?.manualOcrGamepad,
           value?.menuOcrGamepad,
           value?.areaSelectOcrGamepad,
+          value?.addAreaOcrGamepad,
           value?.wholeWindowOcrGamepad,
           value?.globalPauseGamepad
         ].some((binding) => typeof binding === "string" && binding.length > 0);
@@ -768,6 +775,14 @@ function normalizeOcrConfig(
       typeof value?.areaSelectOcrGamepad === "string"
         ? value.areaSelectOcrGamepad
         : "",
+    addAreaOcrHotkey:
+      typeof value?.addAreaOcrHotkey === "string"
+        ? value.addAreaOcrHotkey
+        : "Alt+Shift+N",
+    addAreaOcrGamepad:
+      typeof value?.addAreaOcrGamepad === "string"
+        ? value.addAreaOcrGamepad
+        : "",
     wholeWindowOcrHotkey:
       typeof value?.wholeWindowOcrHotkey === "string"
         ? value.wholeWindowOcrHotkey
@@ -834,6 +849,8 @@ function buildPersistedConfig(
     menuOcrGamepad: config.menuOcrGamepad,
     areaSelectOcrHotkey: config.areaSelectOcrHotkey,
     areaSelectOcrGamepad: config.areaSelectOcrGamepad,
+    addAreaOcrHotkey: config.addAreaOcrHotkey,
+    addAreaOcrGamepad: config.addAreaOcrGamepad,
     wholeWindowOcrHotkey: config.wholeWindowOcrHotkey,
     wholeWindowOcrGamepad: config.wholeWindowOcrGamepad,
     globalPauseHotkey: config.globalPauseHotkey,
@@ -977,6 +994,7 @@ const OCR_TOOLTIP_KEYS = {
   manualHotkey: "ocr.tooltips.manualHotkey",
   menuHotkey: "ocr.tooltips.menuHotkey",
   areaSelectHotkey: "ocr.tooltips.areaSelectHotkey",
+  addAreaHotkey: "ocr.tooltips.addAreaHotkey",
   wholeWindowHotkey: "ocr.tooltips.wholeWindowHotkey",
   pauseHotkey: "ocr.tooltips.pauseHotkey",
   processPriority: "ocr.tooltips.processPriority",
@@ -1964,6 +1982,10 @@ export function OCRTab({ active }: OcrTabProps) {
     sendIpc("ocr.area-select-ocr");
   }, []);
 
+  const triggerAddOcrArea = useCallback(() => {
+    sendIpc("ocr.add-area");
+  }, []);
+
   const installSelectedDependency = useCallback(() => {
     appendTerminalLine(`\x1b[36mInstalling ${installDependency}...\x1b[0m`);
     sendIpc("ocr.install-selected-dep", installDependency);
@@ -2002,6 +2024,14 @@ export function OCRTab({ active }: OcrTabProps) {
       hotkeyKey: "areaSelectOcrHotkey",
       gamepadKey: "areaSelectOcrGamepad",
       trigger: triggerAreaSelectOcr
+    },
+    {
+      id: "add-area",
+      labelKey: "ocr.hotkeys.addArea",
+      tooltip: ocrTooltips.addAreaHotkey,
+      hotkeyKey: "addAreaOcrHotkey",
+      gamepadKey: "addAreaOcrGamepad",
+      trigger: triggerAddOcrArea
     },
     {
       id: "whole-window",

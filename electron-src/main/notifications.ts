@@ -234,6 +234,54 @@ export function sendGSMReadyNotification(message: string) {
     sendNotification(NotificationType.GSMReady, message, 5000);
 }
 
+/** Confirm OS delivery before the restart countdown begins. */
+export async function sendAgentRestartNotification(
+    reason: string,
+    seconds: number,
+    restartNow: () => void = () => {},
+): Promise<void> {
+    if (!Notification.isSupported()) {
+        throw new Error('Desktop notifications are unavailable; GSM was not restarted.');
+    }
+    const notification = new Notification({
+        icon: getIconPath(),
+        title: 'GSM restarting soon',
+        body: `GSM will restart in ${seconds} seconds to load new changes.\n${reason}`,
+        silent: false,
+        timeoutType: 'never',
+        actions: process.platform === 'win32' || process.platform === 'darwin'
+            ? [{ type: 'button', text: 'Restart Now' }]
+            : undefined,
+    });
+    await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const timeout = setTimeout(() => fail('Timed out displaying the restart notification.'), 10_000);
+        const fail = (message: string) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            notification.close();
+            reject(new Error(message));
+        };
+        notification.once('failed', (_event, message) => fail(`Restart notification failed: ${message}`));
+        notification.once('action', (event) => {
+            if (event.actionIndex !== 0) return;
+            notification.close();
+            restartNow();
+        });
+        notification.once('show', () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            setTimeout(() => notification.close(), seconds * 1000);
+            resolve();
+        });
+        try { notification.show(); } catch (error) {
+            fail(`Restart notification failed: ${String(error)}`);
+        }
+    });
+}
+
 export function sendGSMStillRunningInTrayNotification() {
     sendNotification(
         NotificationType.GSMStillRunning,

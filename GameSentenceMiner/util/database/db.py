@@ -1759,6 +1759,9 @@ def check_and_run_migrations():
         This powers incremental cloud sync without scanning all game lines.
         """
         sync_table = GameLinesTable._sync_changes_table
+        from GameSentenceMiner.util.cloud_sync.store import install_tracking
+
+        install_tracking(GameLinesTable._db)
         GameLinesTable._db.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {sync_table} (

@@ -1,6 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { extractFile } from '@electron/asar';
+
+import { validateReleaseMetadata } from './sync-hachidori.mjs';
 
 const repoRoot = process.cwd();
 const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'));
@@ -66,6 +69,16 @@ async function main() {
     path.join(overlayResourcesDir, serverExecutableName),
     path.join(overlayResourcesDir, 'mecab_bridge.py'),
     path.join(overlayResourcesDir, 'yomitan', 'manifest.json'),
+    path.join(overlayResourcesDir, 'hachidori', 'manifest.json'),
+    path.join(overlayResourcesDir, 'hachidori', 'background.js'),
+    path.join(overlayResourcesDir, 'hachidori', 'offscreen.js'),
+    path.join(overlayResourcesDir, 'hachidori', 'overlay-mode.js'),
+    path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts.wasm'),
+    path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts-threaded.wasm'),
+    path.join(overlayResourcesDir, 'hachidori', 'LICENSE.hachidori'),
+    path.join(overlayResourcesDir, 'hachidori', 'SOURCE.json'),
+    ...['bridge.js', 'popup.js', 'popup-navigation.js', 'jiten-grading-bar.js'].map(file =>
+      path.join(overlayResourcesDir, 'hachidori', 'gsm', file)),
   ];
 
   const missing = [];
@@ -77,6 +90,43 @@ async function main() {
 
   if (missing.length > 0) {
     throw new Error(`Packaged overlay is incomplete. Missing:\n${missing.map((item) => `  - ${item}`).join('\n')}`);
+  }
+
+  const hachidoriManifest = JSON.parse(
+    await fs.readFile(path.join(overlayResourcesDir, 'hachidori', 'manifest.json'), 'utf8')
+  );
+  if (typeof hachidoriManifest.key !== 'string' || hachidoriManifest.key.length === 0) {
+    throw new Error('Packaged Hachidori manifest does not contain its stable extension key.');
+  }
+
+  const hachidoriOverlayMode = await fs.readFile(path.join(overlayResourcesDir, 'hachidori', 'overlay-mode.js'), 'utf8');
+  if (!hachidoriOverlayMode.includes('export const OVERLAY_MODE = true;')) {
+    throw new Error('Packaged Hachidori does not run in overlay mode.');
+  }
+
+  const hachidoriSource = JSON.parse(
+    await fs.readFile(path.join(overlayResourcesDir, 'hachidori', 'SOURCE.json'), 'utf8')
+  );
+  if (!/^[0-9a-f]{40}$/.test(hachidoriSource.commit || '')) {
+    throw new Error('Packaged Hachidori SOURCE.json does not identify an exact source commit.');
+  }
+  if (hachidoriSource.repository !== 'https://github.com/bee-san/hachidori') {
+    throw new Error('Packaged Hachidori SOURCE.json does not identify the expected upstream repository.');
+  }
+  if ('release' in hachidoriSource) {
+    validateReleaseMetadata(hachidoriSource.release);
+  }
+  if (hachidoriSource.gsmIntegration?.version !== 1 || !/^[0-9a-f]{64}$/.test(hachidoriSource.gsmIntegration?.sha256 || '')) {
+    throw new Error('Packaged Hachidori is missing its GSM integration fingerprint.');
+  }
+  const readerScripts = hachidoriManifest.content_scripts?.find(item => item.js?.includes('content.js'))?.js || [];
+  if (!readerScripts.includes('gsm/bridge.js') || readerScripts.indexOf('gsm/bridge.js') > readerScripts.indexOf('content.js')) {
+    throw new Error('Packaged Hachidori does not load its GSM bridge before the reader.');
+  }
+
+  const packagedSettings = extractFile(path.join(overlayResourcesDir, 'app.asar'), 'settings.html').toString('utf8');
+  if (!packagedSettings.includes('id="dictionaryReaderSelection"') || !packagedSettings.includes('value="hachidori"')) {
+    throw new Error('Packaged overlay does not expose the dictionary reader selection in System settings.');
   }
 
   console.log(`[verify-overlay-package] Verified ${overlayResourcesDir}`);

@@ -23,6 +23,7 @@ classifiers = [
   "Operating System :: OS Independent"
 ]
 dependencies = [
+  "cryptography>=46.0.6,<47",
   "requests>=2.34.2,<2.35.0",
   "watchdog~=6.0.0",
   "soundfile>=0.14.0,<0.15.0",
@@ -92,6 +93,7 @@ dependencies = [
   "onnxruntime>=1.24.3,<1.25.0",
   "google-genai~=1.70.0",
   "windows-capture>=2.0.0 ; sys_platform == 'win32'",
+  "tzlocal>=5.3,<6",
 ]
 
 
@@ -135,6 +137,8 @@ target = "GameSentenceMiner._native"
 path = "native/gsm-native/Cargo.toml"
 binding = "PyO3"
 py-limited-api = true
+# Overlay hot paths need optimized code in editable installs as well as wheels.
+debug = false
 
 [tool.uv.sources]
 pypresence = { url = "https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip" }

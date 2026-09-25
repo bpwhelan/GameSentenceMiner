@@ -57,6 +57,36 @@ const {
 } = loadBlockDetectionModule();
 
 describe("overlay block detection", () => {
+  it("keeps a Japanese word wrapped across rows in one block when the first row matches history", () => {
+    const history = createRecentBlockHistory();
+    const firstRow = makeLine(
+      "わしら全員には固有の––【プロダクト｜Ｄ】が設定されと",
+      0.10,
+      0.7746,
+      0.8818,
+      0.8312
+    );
+    const secondRow = makeLine(
+      "る。できればそれで。み",
+      0.0995,
+      0.8395,
+      0.4214,
+      0.8942
+    );
+    detectTextBlocks([firstRow], undefined, history, { resultKey: "partial-dialogue", isFinal: true });
+
+    const result = detectTextBlocks(
+      [firstRow, secondRow],
+      undefined,
+      history,
+      { resultKey: "continued-dialogue", latestText: secondRow.text, isFinal: true }
+    );
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+    expect(result.blockMetadata.get(0)?.nvlChainId).toBeUndefined();
+  });
+
   it("splits the reported two-line NVL sequence across line IDs", () => {
     const history = createRecentBlockHistory();
     const previousLine = makeLine(
@@ -66,22 +96,31 @@ describe("overlay block detection", () => {
       0.88,
       0.16
     );
-    detectTextBlocks([previousLine], undefined, history, { resultKey: "line-1" });
+    detectTextBlocks([previousLine], undefined, history, { resultKey: "line-1", isFinal: true });
 
-    const result = detectTextBlocks(
-      [
-        previousLine,
-        makeLine(
-          "どんな人間だって人生ってのは落とし穴だらけなのよ。",
-          0.07,
-          0.20,
-          0.90,
-          0.28
-        ),
-      ],
+    const nextLines = [
+      previousLine,
+      makeLine(
+        "どんな人間だって人生ってのは落とし穴だらけなのよ。",
+        0.07,
+        0.20,
+        0.90,
+        0.28
+      ),
+    ];
+    const provisional = detectTextBlocks(
+      nextLines,
       undefined,
       history,
       { resultKey: "line-2" }
+    );
+    expect(provisional.blockCount).toBe(1);
+    expect(history.getRawTexts()).toEqual([previousLine.text]);
+    const result = detectTextBlocks(
+      nextLines,
+      undefined,
+      history,
+      { resultKey: "line-2", isFinal: true }
     );
 
     expect(result.blockCount).toBe(2);
@@ -95,7 +134,7 @@ describe("overlay block detection", () => {
       makeLine("古い台詞、その二。", 0.08, 0.68, 0.70, 0.74),
     ];
 
-    const firstResult = detectTextBlocks(firstFrame, undefined, history);
+    const firstResult = detectTextBlocks(firstFrame, undefined, history, { isFinal: true });
 
     expect(firstResult.blockCount).toBe(1);
     expect(history.getRawTexts()).toEqual([
@@ -107,7 +146,7 @@ describe("overlay block detection", () => {
       makeLine("新しい台詞、その一。", 0.08, 0.76, 0.70, 0.82),
       makeLine("新しい台詞、その二。", 0.08, 0.84, 0.70, 0.90),
     ];
-    const secondResult = detectTextBlocks(secondFrame, undefined, history);
+    const secondResult = detectTextBlocks(secondFrame, undefined, history, { isFinal: true });
     const preservedBlockId = secondResult.lineBlocks.get(0);
     const newBlockId = secondResult.lineBlocks.get(2);
 
@@ -124,7 +163,7 @@ describe("overlay block detection", () => {
       ...secondFrame,
       makeLine("さらに新しい台詞。", 0.08, 0.92, 0.70, 0.98),
     ];
-    const thirdResult = detectTextBlocks(thirdFrame, undefined, history);
+    const thirdResult = detectTextBlocks(thirdFrame, undefined, history, { isFinal: true });
 
     expect(thirdResult.blockCount).toBe(3);
     expect(thirdResult.lineBlocks.get(0)).toBe(thirdResult.lineBlocks.get(1));
@@ -146,7 +185,7 @@ describe("overlay block detection", () => {
       0.66,
       0.19
     );
-    detectTextBlocks([firstLine], undefined, history, { resultKey: "line-1" });
+    detectTextBlocks([firstLine], undefined, history, { resultKey: "line-1", isFinal: true });
 
     const correctedFirstLine = makeLine(
       "となりのレールを快速電車が通過していく",
@@ -166,7 +205,7 @@ describe("overlay block detection", () => {
       [correctedFirstLine, secondLine],
       undefined,
       history,
-      { resultKey: "line-2" }
+      { resultKey: "line-2", isFinal: true }
     );
     expect(secondResult.blockCount).toBe(2);
 
@@ -190,7 +229,7 @@ describe("overlay block detection", () => {
       ],
       undefined,
       history,
-      { resultKey: "line-3" }
+      { resultKey: "line-3", isFinal: true }
     );
 
     expect(thirdResult.blockCount).toBe(3);
@@ -232,7 +271,7 @@ describe("overlay block detection", () => {
       makeLine("three", 0.08, 0.70, 0.70, 0.76),
       makeLine("brand-new", 0.08, 0.78, 0.70, 0.84),
     ];
-    const result = detectTextBlocks(lines, undefined, history);
+    const result = detectTextBlocks(lines, undefined, history, { isFinal: true });
 
     expect(result.blockCount).toBe(2);
     expect(result.lineBlocks.get(0)).not.toBe(result.lineBlocks.get(1));
@@ -244,6 +283,7 @@ describe("overlay block detection", () => {
       makeLine("partial OCR text", 0.08, 0.70, 0.70, 0.76),
     ];
     detectTextBlocks(partialLines, undefined, history, { resultKey: "line-1" });
+    expect(history.getRawTexts()).toEqual([]);
 
     const completedLines: OverlayLine[] = [
       ...partialLines,
@@ -253,7 +293,7 @@ describe("overlay block detection", () => {
       completedLines,
       undefined,
       history,
-      { resultKey: "line-1" }
+      { resultKey: "line-1", isFinal: true }
     );
 
     expect(retryResult.blockCount).toBe(1);
@@ -266,7 +306,7 @@ describe("overlay block detection", () => {
       ],
       undefined,
       history,
-      { resultKey: "line-2" }
+      { resultKey: "line-2", isFinal: true }
     );
 
     expect(nextResult.blockCount).toBe(2);
@@ -346,6 +386,86 @@ describe("overlay block detection", () => {
       role: "dialogue",
       relatedBlockId: nameBlockId
     });
+  });
+
+  it.each([0.046, 0.050, 0.054])(
+    "splits the reported nameplate above one dialogue line with name height %s",
+    (nameHeight) => {
+      // Approximate normalized bounds from the screenshot, allowing for OCR
+      // boxes that give the name and dialogue similar text heights.
+      const dialogue = "【03】と【01】が発見されたわけだから、当然……";
+      const lines: OverlayLine[] = [
+        makeLine("ファイ", 0.119, 0.730 - nameHeight, 0.191, 0.730),
+        makeLine(dialogue, 0.119, 0.780, 0.787, 0.830),
+      ];
+
+      const result = detectTextBlocks(lines, undefined, null, { latestText: dialogue });
+      const nameBlockId = result.lineBlocks.get(0);
+      const dialogueBlockId = result.lineBlocks.get(1);
+
+      expect(result.blockCount).toBe(2);
+      expect(nameBlockId).not.toBe(dialogueBlockId);
+      expect(result.blockMetadata.get(nameBlockId)).toEqual({
+        role: "character-name",
+        relatedBlockId: dialogueBlockId
+      });
+      expect(result.blockMetadata.get(dialogueBlockId)).toEqual({
+        role: "dialogue",
+        relatedBlockId: nameBlockId,
+        isLatestLine: true
+      });
+    }
+  );
+
+  it("keeps a short first line above one dialogue line at normal paragraph spacing", () => {
+    const lines: OverlayLine[] = [
+      makeLine("でも", 0.119, 0.680, 0.167, 0.730),
+      makeLine("この先に何があるのか確かめてみたいんだ", 0.119, 0.748, 0.787, 0.798),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+    expect(result.blockMetadata.get(result.lineBlocks.get(0))).toEqual({ role: "text" });
+  });
+
+  it("keeps a wider first dialogue line despite a nameplate-sized vertical gap", () => {
+    const lines: OverlayLine[] = [
+      makeLine("この向こうには", 0.119, 0.680, 0.400, 0.730),
+      makeLine("何があるのか確かめてみたいんだ", 0.119, 0.780, 0.787, 0.830),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+  });
+
+  it("keeps a short first dialogue line when a multiline paragraph has uniformly large gaps", () => {
+    const lines: OverlayLine[] = [
+      makeLine("でも", 0.119, 0.680, 0.167, 0.730),
+      makeLine("この先に何があるのか", 0.119, 0.780, 0.500, 0.830),
+      makeLine("確かめてみたいんだ", 0.119, 0.880, 0.450, 0.930),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+    expect(result.lineBlocks.get(1)).toBe(result.lineBlocks.get(2));
+  });
+
+  it("keeps a punctuated first dialogue line despite a narrow width and large gap", () => {
+    const lines: OverlayLine[] = [
+      makeLine("そうか。", 0.119, 0.680, 0.215, 0.730),
+      makeLine("それならこの先へ進んでみよう", 0.119, 0.780, 0.787, 0.830),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
   });
 
   it("does not treat a short first dialogue line as a name without a strong width difference", () => {

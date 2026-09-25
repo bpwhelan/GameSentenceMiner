@@ -5,10 +5,11 @@ from functools import lru_cache
 from queue import Queue
 
 from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QImage
 from PyQt6.QtWidgets import QApplication, QInputDialog
 
 from GameSentenceMiner.util.config.configuration import (
+    get_config,
     get_pickaxe_png_path,
     gsm_state,
     is_dev,
@@ -83,7 +84,59 @@ class DialogManager(QObject):
 
     def __init__(self):
         super().__init__()
+        self._anki_setup_prompts_seen = set()
+        self._anki_setup_prompt = None
         self._execute_on_gui_thread.connect(self._execute_callable)
+
+    def offer_anki_setup(self, issue):
+        """Queue an optional recovery prompt without blocking the mining worker."""
+        self._execute_on_gui_thread.emit(lambda: self._offer_anki_setup(issue))
+
+    def _offer_anki_setup(self, issue):
+        if self._anki_setup_prompt is not None or issue in self._anki_setup_prompts_seen:
+            return
+        if not issue.is_current(get_config()):
+            return
+        if QApplication.activeModalWidget() is not None:
+            # Do not interrupt a setup/confirmation already in progress. A later
+            # card can still offer recovery, since this issue is not marked seen.
+            return
+        from PyQt6.QtWidgets import QMessageBox
+
+        from GameSentenceMiner.ui.config.anki_setup import (
+            create_anki_field_mismatch_prompt,
+            open_recommended_anki_setup,
+        )
+
+        message = create_anki_field_mismatch_prompt(issue)
+        self._anki_setup_prompt = message
+        self._anki_setup_prompts_seen.add(issue)
+
+        def on_finished(result):
+            try:
+                if result != QMessageBox.StandardButton.Yes or not issue.is_current(get_config()):
+                    return
+                window = get_config_window()
+                window.show_window("anki")
+                # Showing settings refreshes the active profile; never set up a stale one.
+                if (
+                    not issue.is_current(get_config())
+                    or window.settings.name != issue.profile_name
+                    or window.anki_url_edit.text().strip() != issue.anki_url
+                ):
+                    return
+                open_recommended_anki_setup(window)
+            except Exception:  # noqa: BLE001 - Qt callbacks must report failures without crashing the event loop.
+                self._anki_setup_prompts_seen.discard(issue)
+                logger.exception("Could not open recommended Anki setup")
+            finally:
+                self._anki_setup_prompt = None
+                message.deleteLater()
+
+        message.finished.connect(on_finished)
+        message.show()
+        message.raise_()
+        message.activateWindow()
 
     def _execute_callable(self, func):
         """Executes a function that was passed via the signal. Runs on GUI Thread."""
@@ -359,11 +412,22 @@ class DialogManager(QObject):
     # 7. Area Selector
     # =========================================================================
 
-    def _logic_area_selector(self, window_name, use_obs_screenshot, callback):
+    def _logic_area_selector(self, window_name, use_obs_screenshot, callback, single_area_mode=False):
         from GameSentenceMiner.ocr.owocr_area_selector_qt import show_area_selector
 
         try:
-            show_area_selector(window_name, use_obs_screenshot=use_obs_screenshot, on_complete=callback)
+            # Keep the widget alive until completion, including while a worker
+            # thread is waiting for the user's single-area selection.
+            def on_complete(result):
+                self._area_selector = None
+                callback(result)
+
+            self._area_selector = show_area_selector(
+                window_name,
+                use_obs_screenshot=use_obs_screenshot,
+                on_complete=on_complete,
+                single_area_mode=single_area_mode,
+            )
         except Exception as e:
             # Must not raise: this can run off the GUI thread via _run_sync's queue,
             # where an uncaught exception would hang forever waiting on this callback.
@@ -373,8 +437,10 @@ class DialogManager(QObject):
     async def area_selector_async(self, window_name="", use_obs_screenshot=False):
         return await self._run_async(lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb))
 
-    def area_selector_sync(self, window_name="", use_obs_screenshot=False):
-        return self._run_sync(lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb))
+    def area_selector_sync(self, window_name="", use_obs_screenshot=False, single_area_mode=False):
+        return self._run_sync(
+            lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb, single_area_mode)
+        )
 
     # =========================================================================
     # 8. Furigana Filter Preview (for non-overlay usage)
@@ -414,6 +480,31 @@ def send_to_clipboard(text):
         manager._execute_on_gui_thread.emit(set_clipboard)
     else:
         logger.error("DialogManager not available for clipboard operation")
+
+
+def send_image_to_clipboard(png_data: bytes) -> None:
+    """Copy PNG data to the image clipboard on Qt's GUI thread."""
+
+    def set_clipboard() -> None:
+        app = QApplication.instance()
+        if app is None:
+            logger.error("Cannot set image clipboard: QApplication is not running")
+            return
+        image = QImage.fromData(png_data, "PNG")
+        if image.isNull():
+            logger.error("Cannot set image clipboard: invalid PNG data")
+            return
+        try:
+            app.clipboard().setImage(image)
+            logger.info("Game screenshot copied to clipboard.")
+        except Exception as e:
+            logger.error(f"Error setting image clipboard: {e}")
+
+    manager = get_dialog_manager()
+    if manager:
+        manager._execute_on_gui_thread.emit(set_clipboard)
+    else:
+        logger.error("DialogManager not available for image clipboard operation")
 
 
 def get_qt_app():
@@ -580,7 +671,7 @@ def launch_anki_field_grouping(
 def launch_screenshot_selector(video_path, timestamp, mode="beginning"):
     """
     Launch screenshot selector. Thread-safe, blocking.
-    Returns: Selected screenshot path or None
+    Returns: Selected screenshot collection or None
     """
     return get_dialog_manager().screenshot_selector_sync(video_path, timestamp, mode)
 
@@ -622,12 +713,12 @@ def launch_minimum_character_size_selector(current_size, for_overlay=False):
     return get_dialog_manager().minimum_char_size_sync(current_size, for_overlay)
 
 
-def launch_area_selector(window_name="", use_obs_screenshot=False):
+def launch_area_selector(window_name="", use_obs_screenshot=False, single_area_mode=False):
     """
     Launch area selector. Thread-safe, blocking.
     Returns: Selected area or None
     """
-    return get_dialog_manager().area_selector_sync(window_name, use_obs_screenshot)
+    return get_dialog_manager().area_selector_sync(window_name, use_obs_screenshot, single_area_mode)
 
 
 def launch_furigana_filter_preview(current_sensitivity):

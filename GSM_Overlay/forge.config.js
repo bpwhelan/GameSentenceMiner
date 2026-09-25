@@ -10,6 +10,7 @@ const ignoredPackagerEntries = new Set([
   '.github',
   '__pycache__',
   'bin',
+  'hachidori',
   'input_server',
   'jiten.reader',
   'out',
@@ -76,7 +77,7 @@ module.exports = {
     asar: true,
     icon: isWindows ? './overlay.ico' : (isMac ? undefined : './overlay-256.png'),
     ignore: ignorePackagerFile,
-    "extraResource": ["yomitan", "jiten.reader", resolveInputServerExtraResource(), "input_server/mecab_bridge.py"],
+    "extraResource": ["yomitan", "hachidori", "jiten.reader", resolveInputServerExtraResource(), "input_server/mecab_bridge.py"],
   },
   rebuildConfig: {},
   makers: [

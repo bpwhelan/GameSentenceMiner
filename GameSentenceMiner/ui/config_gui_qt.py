@@ -48,6 +48,7 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.ui import window_state_manager, WindowId
 
 # Config UI modules
+from GameSentenceMiner.ui.config.anki_setup import offer_recommended_field_mappings
 from GameSentenceMiner.ui.config.binding import BindingManager, ValueTransform
 from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
@@ -96,6 +97,7 @@ from GameSentenceMiner.util.config.configuration import (
     Locale,
     is_gsm_cloud_ai_preview_enabled,
     logger,
+    normalize_gemini_model_name,
     ProfileConfig,
     Paths,
     Anki,
@@ -127,6 +129,7 @@ from GameSentenceMiner.util.config.configuration import (
     get_current_version,
     AI_GEMINI,
     AI_GROQ,
+    AI_ZAI,
     AI_OPENAI,
     AI_OLLAMA,
     AI_LM_STUDIO,
@@ -608,6 +611,7 @@ class ConfigWindow(QWidget):
             self.profile_combo,
             self.locale_combo,
             self.single_port_edit,
+            self.gemini_show_other_models_check,
         }
         if getattr(self, "sync_changes_check", None):
             excluded_widgets.add(self.sync_changes_check)
@@ -793,6 +797,7 @@ class ConfigWindow(QWidget):
                 overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
                 overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
                 overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
+                anki_confirmation_requests_pause=self.process_pausing_anki_confirmation_requests_pause_check.isChecked(),
                 linux_target_process=self.process_pausing_linux_target_process_edit.text().strip(),
                 denylist=[
                     item.strip().lower()
@@ -972,6 +977,9 @@ class ConfigWindow(QWidget):
                         quality=max(0, min(10, self.animated_quality_spin.value())),
                         max_width=max(0, min(3840, self.animated_max_width_spin.value())),
                         adaptive_avif=self.animated_adaptive_avif_check.isChecked(),
+                        target_size_kb=self.animated_target_size_spin.value(),
+                        size_priority=self.animated_size_priority_combo.currentData() or "balanced",
+                        only_when_voice=self.animated_only_when_voice_check.isChecked(),
                         faststart=self.animated_faststart_check.isChecked(),
                         encoder_fallback=self.animated_encoder_fallback_check.isChecked(),
                     ),
@@ -1006,6 +1014,8 @@ class ConfigWindow(QWidget):
                 hotkeys=Hotkeys(
                     manual_overlay_scan=self.manual_overlay_scan_hotkey_edit.keySequence().toString(),
                     manual_overlay_scan_gamepad=str(self.manual_overlay_scan_gamepad_combo.currentData() or ""),
+                    copy_game_screenshot=self.copy_game_screenshot_hotkey_edit.keySequence().toString(),
+                    copy_game_screenshot_gamepad=str(self.copy_game_screenshot_gamepad_combo.currentData() or ""),
                     play_latest_audio=self.play_latest_audio_hotkey_edit.keySequence().toString(),
                     play_latest_audio_gamepad=str(self.play_latest_audio_gamepad_combo.currentData() or ""),
                     mute_target_window=self.mute_target_window_hotkey_edit.keySequence().toString(),
@@ -1038,7 +1048,8 @@ class ConfigWindow(QWidget):
                     use_vad_filter_for_whisper=self.use_vad_filter_for_whisper_check.isChecked(),
                     preload_vad_model=self.vad_preload_model_check.isChecked(),
                 ),
-                advanced=Advanced(
+                advanced=replace(
+                    self.settings.advanced,
                     audio_player_path=self.audio_player_path_edit.text(),
                     video_player_path=self.video_player_path_edit.text(),
                     multi_line_line_break=self.multi_line_line_break_edit.text(),
@@ -1070,6 +1081,10 @@ class ConfigWindow(QWidget):
                     gemini_api_key=self.gemini_api_key_edit.text(),
                     api_key=self.gemini_api_key_edit.text(),
                     groq_api_key=self.groq_api_key_edit.text(),
+                    zai_api_key=self.zai_api_key_edit.text(),
+                    zai_model=self.zai_model_combo.currentText(),
+                    zai_backup_model=self.zai_backup_model_combo.currentText(),
+                    prompt_preset=self.ai_prompt_preset_combo.currentData() or "",
                     anki_field=self.ai_anki_field_edit.currentText(),
                     open_ai_api_key=self.open_ai_api_key_edit.text(),
                     open_ai_model=self.open_ai_model_edit.text(),
@@ -1158,6 +1173,14 @@ class ConfigWindow(QWidget):
                 config.audio.custom_encode_settings = self.audio_ffmpeg_reencode_options_edit.text()
 
             # Perform the save operation
+            from GameSentenceMiner.util.cloud_sync.settings import preserve_synced_settings
+
+            sync_groups = config.advanced.cloud_sync_settings_groups
+            if sync_groups and config.advanced.cloud_sync_protocol == "relay-v2":
+                latest_default = configuration.get_master_config().get_default_config()
+                baseline_default = self.master_config.get_default_config()
+                edited_default = config if self.settings.name == DEFAULT_CONFIG else baseline_default
+                preserve_synced_settings(baseline_default, edited_default, latest_default, sync_groups)
             prev_config = self.master_config.get_config()
             self.master_config.switch_to_default_if_not_found = self.switch_to_default_if_not_found_check.isChecked()
             current_profile_name = target_profile_name or self.settings.name or self.profile_combo.currentText()
@@ -1173,6 +1196,8 @@ class ConfigWindow(QWidget):
 
             self.master_config.experimental = Experimental(
                 enable_experimental_features=self.experimental_features_enabled_check.isChecked(),
+                # Retain the old selection until the overlay migrates it to System settings.
+                enable_hachidori=getattr(self.master_config.experimental, "enable_hachidori", False),
                 enable_tokenization=self.enable_tokenization_check.isChecked(),
                 tokenization_backend=str(self.tokenization_backend_combo.currentData() or "sudachi"),
                 tokenization_sudachi_dictionary=str(
@@ -1601,9 +1626,15 @@ class ConfigWindow(QWidget):
         self.animated_quality_spin = QSpinBox()
         self.animated_quality_spin.setRange(0, 10)
         self.animated_adaptive_avif_check = QCheckBox()
+        self.animated_target_size_spin = QSpinBox()
+        self.animated_target_size_spin.setRange(0, 102400)
+        self.animated_target_size_spin.setSingleStep(50)
+        self.animated_size_priority_combo = QComboBox()
+        self.animated_only_when_voice_check = QCheckBox()
         self.animated_faststart_check = QCheckBox()
         self.animated_encoder_fallback_check = QCheckBox()
         self.animated_settings_group = QGroupBox()
+        self.animated_target_size_spin.valueChanged.connect(self._update_animated_settings_visibility)
 
         # Discord Settings
         self.discord_enabled_check = QCheckBox()
@@ -1621,6 +1652,7 @@ class ConfigWindow(QWidget):
         # AI Provider Groups
         self.gemini_settings_group = QGroupBox()
         self.groq_settings_group = QGroupBox()
+        self.zai_settings_group = QGroupBox()
         self.openai_settings_group = QGroupBox()
         self.gsm_cloud_settings_group = QGroupBox()
         self.ollama_settings_group = QGroupBox()
@@ -1681,10 +1713,19 @@ class ConfigWindow(QWidget):
         self.ai_provider_combo = QComboBox()
         self.gemini_model_combo = QComboBox()
         self.gemini_backup_model_combo = QComboBox()
+        self.gemini_show_other_models_check = QCheckBox()
+        self._available_gemini_models = []
         self.gemini_api_key_edit = QLineEdit()
         self.groq_model_combo = QComboBox()
         self.groq_backup_model_combo = QComboBox()
         self.groq_api_key_edit = QLineEdit()
+        self.zai_api_key_edit = QLineEdit()
+        self.zai_model_combo = QComboBox()
+        self.zai_model_combo.setEditable(True)
+        self.zai_model_combo.addItems(["glm-4.7-flash", "glm-4.5-flash", "glm-4.7", "glm-4.7-flashx"])
+        self.zai_backup_model_combo = QComboBox()
+        self.zai_backup_model_combo.setEditable(True)
+        self.zai_backup_model_combo.addItems([OFF, "glm-4.7-flash", "glm-4.5-flash"])
         self.open_ai_url_edit = QLineEdit()
         self.open_ai_model_edit = QLineEdit()
         self.open_ai_backup_model_edit = QLineEdit()
@@ -1720,6 +1761,15 @@ class ConfigWindow(QWidget):
         self.custom_prompt_textedit = QTextEdit()
         self.custom_texthooker_prompt_textedit = QTextEdit()
         self.custom_full_prompt_textedit = QTextEdit()
+        self.ai_prompt_preset_combo = QComboBox()
+        self.ai_prompt_preset_combo.addItem("Use existing canned / custom prompt settings", "")
+        from GameSentenceMiner.ai.prompts.presets import PROMPT_PRESETS
+
+        for key, (label, description) in PROMPT_PRESETS.items():
+            self.ai_prompt_preset_combo.addItem(label, key)
+            self.ai_prompt_preset_combo.setItemData(
+                self.ai_prompt_preset_combo.count() - 1, description, Qt.ItemDataRole.ToolTipRole
+            )
 
         # GSM Cloud
         self.gsm_cloud_status_label = QLabel("Not authenticated")
@@ -1748,6 +1798,8 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = ClearableKeySequenceEdit()
         self.manual_overlay_scan_gamepad_combo = self._create_gamepad_hotkey_combo()
+        self.copy_game_screenshot_hotkey_edit = ClearableKeySequenceEdit()
+        self.copy_game_screenshot_gamepad_combo = self._create_gamepad_hotkey_combo()
         self.use_overlay_area_config_check = QCheckBox()
         self.ocr_area_config_include_primary_areas_check = QCheckBox()
         self.ocr_area_config_include_secondary_areas_check = QCheckBox()
@@ -1827,6 +1879,7 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_manual_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check = QCheckBox()
+        self.process_pausing_anki_confirmation_requests_pause_check = QCheckBox()
         self.process_pausing_denylist_edit = QLineEdit()
         self.process_pausing_linux_target_process_edit = QLineEdit()
         self.process_pausing_linux_target_process_edit.setPlaceholderText(
@@ -2137,6 +2190,9 @@ class ConfigWindow(QWidget):
             providers = [AI_GEMINI]
 
         desired_provider = str(preferred_provider or self.ai_provider_combo.currentText() or "").strip()
+        # Preserve a saved Z.ai selection without offering it to new profiles.
+        if desired_provider == AI_ZAI and self.settings.ai.provider == AI_ZAI:
+            providers.append(AI_ZAI)
         if desired_provider not in providers:
             desired_provider = AI_GEMINI if AI_GEMINI in providers else providers[0]
 
@@ -2622,12 +2678,12 @@ class ConfigWindow(QWidget):
             self.locale_combo.currentIndexChanged.disconnect()
             self.obs_scene_list.itemSelectionChanged.disconnect()
             self.ffmpeg_audio_preset_combo.currentTextChanged.disconnect()
-            self.anki_note_type_combo.currentIndexChanged.disconnect()
+            self.anki_note_type_combo.activated.disconnect()
             self.single_port_edit.editingFinished.disconnect()
             if self.anki_note_type_combo.lineEdit():
                 self.anki_note_type_combo.lineEdit().editingFinished.disconnect()
             if hasattr(self, "req_note_type_combo"):
-                self.req_note_type_combo.currentIndexChanged.disconnect()
+                self.req_note_type_combo.activated.disconnect()
                 if self.req_note_type_combo.lineEdit():
                     self.req_note_type_combo.lineEdit().editingFinished.disconnect()
             if hasattr(self, "anki_fields_refresh_button"):
@@ -2649,10 +2705,10 @@ class ConfigWindow(QWidget):
         self.obs_scene_list.itemSelectionChanged.connect(self._on_obs_scene_selection_changed)
         self.ffmpeg_audio_preset_combo.currentTextChanged.connect(self._on_ffmpeg_preset_changed)
         self.single_port_edit.editingFinished.connect(self._on_single_port_editing_finished)
-        self.anki_note_type_combo.currentIndexChanged.connect(
+        self.anki_note_type_combo.activated.connect(
             safe_config_callback(
                 lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()),
-                name="ConfigWindow.anki_note_type_current_changed",
+                name="ConfigWindow.anki_note_type_selected",
             )
         )
         if self.anki_note_type_combo.lineEdit():
@@ -2663,10 +2719,10 @@ class ConfigWindow(QWidget):
                 )
             )
         if hasattr(self, "req_note_type_combo"):
-            self.req_note_type_combo.currentIndexChanged.connect(
+            self.req_note_type_combo.activated.connect(
                 safe_config_callback(
                     lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText()),
-                    name="ConfigWindow.required_note_type_current_changed",
+                    name="ConfigWindow.required_note_type_selected",
                 )
             )
             if self.req_note_type_combo.lineEdit():
@@ -2797,6 +2853,12 @@ class ConfigWindow(QWidget):
         """Shows/hides animated screenshot settings based on animated checkbox or video field."""
         should_show = self.animated_screenshot_check.isChecked() or bool(self.video_field_edit.currentText().strip())
         self.animated_settings_group.setVisible(should_show)
+        animated = self.animated_screenshot_check.isChecked()
+        has_target = self.animated_target_size_spin.value() > 0
+        self.animated_target_size_spin.setEnabled(animated)
+        self.animated_size_priority_combo.setEnabled(animated and has_target)
+        self.animated_only_when_voice_check.setEnabled(animated)
+        self.animated_adaptive_avif_check.setEnabled(not (animated and has_target))
 
     def _update_discord_settings_visibility(self):
         """Shows/hides Discord settings based on enabled checkbox."""
@@ -2950,14 +3012,20 @@ class ConfigWindow(QWidget):
         return fields
 
     def _on_anki_note_type_changed(self, note_type):
-        if self._suppress_anki_field_refresh:
+        if self._suppress_anki_field_refresh or self._autosave_suspended:
             return
-        if note_type == self._last_anki_note_type_refresh:
+        context = (self.settings.name, self.anki_url_edit.text().strip(), note_type)
+        if context == self._last_anki_note_type_refresh:
             return
-        self._last_anki_note_type_refresh = note_type
+        self._last_anki_note_type_refresh = None
         try:
             if note_type:
-                self._refresh_anki_fields_for_model(note_type, preserve_selection=True)
+                fields = self._refresh_anki_fields_for_model(note_type, preserve_selection=True)
+                if fields:
+                    # Mark successful refreshes before showing the prompt: opening it can
+                    # emit editingFinished from the selector, which must not prompt twice.
+                    self._last_anki_note_type_refresh = context
+                    offer_recommended_field_mappings(self, note_type, fields)
         except Exception as e:
             logger.debug(f"Failed to refresh Anki fields for model '{note_type}': {e}")
 
@@ -3168,6 +3236,7 @@ class ConfigWindow(QWidget):
         self.anki_field_grouping_overwrite_check.setChecked(bool(getattr(s.anki, "field_grouping_overwrite", False)))
         self._set_text_value(self.anki_url_edit, s.anki.url)
         self._suppress_anki_field_refresh = True
+        self._last_anki_note_type_refresh = None
         self.anki_note_type_combo.setCurrentText(s.anki.note_type)
         try:
             self._refresh_anki_model_list(preserve_selection=True)
@@ -3263,6 +3332,26 @@ class ConfigWindow(QWidget):
         self.animated_adaptive_avif_check.setChecked(
             bool(getattr(s.screenshot.animated_settings, "adaptive_avif", False))
         )
+        self.animated_target_size_spin.setValue(getattr(s.screenshot.animated_settings, "target_size_kb", 0))
+        priority_i18n = self.i18n.get("tabs", {}).get("screenshot", {}).get("animated_size_priority", {})
+        self.animated_size_priority_combo.clear()
+        for key, fallback in (
+            ("balanced", "Balanced"),
+            ("prefer_fps", "Prefer FPS"),
+            ("prefer_quality", "Prefer quality"),
+        ):
+            self.animated_size_priority_combo.addItem(priority_i18n.get("options", {}).get(key, fallback), key)
+        self.animated_size_priority_combo.setCurrentIndex(
+            max(
+                0,
+                self.animated_size_priority_combo.findData(
+                    getattr(s.screenshot.animated_settings, "size_priority", "balanced")
+                ),
+            )
+        )
+        self.animated_only_when_voice_check.setChecked(
+            bool(getattr(s.screenshot.animated_settings, "only_when_voice", False))
+        )
         self.animated_faststart_check.setChecked(bool(getattr(s.screenshot.animated_settings, "faststart", True)))
         self.animated_encoder_fallback_check.setChecked(
             bool(getattr(s.screenshot.animated_settings, "encoder_fallback", True))
@@ -3341,20 +3430,23 @@ class ConfigWindow(QWidget):
 
         # AI
         self.ai_enabled_check.setChecked(s.ai.add_to_anki)
-        self.gemini_model_combo.clear()
-        self.gemini_model_combo.addItems(RECOMMENDED_GEMINI_MODELS)
-        self.gemini_model_combo.setCurrentText(s.ai.gemini_model)
-        self.gemini_backup_model_combo.clear()
-        self.gemini_backup_model_combo.addItems([OFF] + RECOMMENDED_GEMINI_MODELS)
-        self.gemini_backup_model_combo.setCurrentText(s.ai.gemini_backup_model or OFF)
+        self._update_gemini_model_combos(preserve_selection=False)
         self._set_text_value(self.gemini_api_key_edit, s.ai.gemini_api_key)
+        groq_models = list(RECOMMENDED_GROQ_MODELS)
+        for selected in (s.ai.groq_model, s.ai.groq_backup_model):
+            if selected and selected not in groq_models:
+                groq_models.append(selected)
         self.groq_model_combo.clear()
-        self.groq_model_combo.addItems(RECOMMENDED_GROQ_MODELS)
+        self.groq_model_combo.addItems(groq_models)
         self.groq_model_combo.setCurrentText(s.ai.groq_model)
         self.groq_backup_model_combo.clear()
-        self.groq_backup_model_combo.addItems([OFF] + RECOMMENDED_GROQ_MODELS)
+        self.groq_backup_model_combo.addItems([OFF] + groq_models)
         self.groq_backup_model_combo.setCurrentText(s.ai.groq_backup_model or OFF)
         self._set_text_value(self.groq_api_key_edit, s.ai.groq_api_key)
+        self._set_text_value(self.zai_api_key_edit, s.ai.zai_api_key)
+        self.zai_model_combo.setCurrentText(s.ai.zai_model)
+        self.zai_backup_model_combo.setCurrentText(s.ai.zai_backup_model or OFF)
+        self.ai_prompt_preset_combo.setCurrentIndex(max(0, self.ai_prompt_preset_combo.findData(s.ai.prompt_preset)))
         self._set_text_value(self.open_ai_url_edit, s.ai.open_ai_url)
         self._set_text_value(self.open_ai_model_edit, s.ai.open_ai_model)
         self._set_text_value(self.open_ai_backup_model_edit, s.ai.open_ai_backup_model)
@@ -3429,6 +3521,13 @@ class ConfigWindow(QWidget):
             self.manual_overlay_scan_gamepad_combo,
             getattr(s.hotkeys, "manual_overlay_scan_gamepad", ""),
         )
+        self.copy_game_screenshot_hotkey_edit.setKeySequence(
+            QKeySequence(getattr(s.hotkeys, "copy_game_screenshot", "f8") or "")
+        )
+        self._set_gamepad_hotkey_combo(
+            self.copy_game_screenshot_gamepad_combo,
+            getattr(s.hotkeys, "copy_game_screenshot_gamepad", ""),
+        )
         self.use_overlay_area_config_check.setChecked(bool(getattr(s.overlay, "use_overlay_area_config", False)))
         self.ocr_area_config_include_primary_areas_check.setChecked(
             bool(getattr(s.overlay, "ocr_area_config_include_primary_areas", True))
@@ -3493,6 +3592,9 @@ class ConfigWindow(QWidget):
         )
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check.setChecked(
             bool(getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False))
+        )
+        self.process_pausing_anki_confirmation_requests_pause_check.setChecked(
+            bool(getattr(process_cfg, "anki_confirmation_requests_pause", False))
         )
         self._set_text_value(self.process_pausing_denylist_edit, ", ".join(process_cfg.denylist))
         self._set_text_value(
@@ -3786,6 +3888,7 @@ class ConfigWindow(QWidget):
         provider = self.ai_provider_combo.currentText()
         self.gemini_settings_group.setVisible(provider == AI_GEMINI)
         self.groq_settings_group.setVisible(provider == AI_GROQ)
+        self.zai_settings_group.setVisible(provider == AI_ZAI)
         self.openai_settings_group.setVisible(provider == AI_OPENAI)
         self.gsm_cloud_settings_group.setVisible(provider == AI_GSM_CLOUD)
         self.ollama_settings_group.setVisible(provider == AI_OLLAMA)
@@ -4221,8 +4324,6 @@ class ConfigWindow(QWidget):
         logger.info(f"Manually refreshing AI models for provider: {provider or 'all'}")
 
         # Store current selections
-        current_gemini = self.gemini_model_combo.currentText()
-        current_gemini_backup = self.gemini_backup_model_combo.currentText()
         current_groq = self.groq_model_combo.currentText()
         current_groq_backup = self.groq_backup_model_combo.currentText()
         current_ollama = self.ollama_model_combo.currentText()
@@ -4231,21 +4332,17 @@ class ConfigWindow(QWidget):
         current_lm_studio_backup = self.lm_studio_backup_model_combo.currentText()
 
         # Fetch fresh models from APIs
-        self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
+        self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text(), self.gemini_api_key_edit.text())
 
         if provider == "gemini":
             gemini_models = self.model_fetcher._get_gemini_models()
-            self.gemini_model_combo.clear()
-            self.gemini_model_combo.addItems(gemini_models)
-            self.gemini_model_combo.setCurrentText(current_gemini)
-            self.gemini_backup_model_combo.clear()
-            self.gemini_backup_model_combo.addItems(
-                [OFF] + [m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
-            )
-            self.gemini_backup_model_combo.setCurrentText(current_gemini_backup)
+            self._update_gemini_model_combos(gemini_models)
             AIModelsTable.update_models(gemini_models, None, None, None)
         elif provider == "groq":
             groq_models = self.model_fetcher._get_groq_models()
+            for selected in (current_groq, current_groq_backup):
+                if selected and selected != OFF and selected not in groq_models:
+                    groq_models.append(selected)
             self.groq_model_combo.clear()
             self.groq_model_combo.addItems(groq_models)
             self.groq_model_combo.setCurrentText(current_groq)
@@ -4308,14 +4405,50 @@ class ConfigWindow(QWidget):
             )
         else:
             logger.info("AI models outdated or not found, fetching new ones.")
-            self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
+            self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text(), self.gemini_api_key_edit.text())
             self.model_thread = threading.Thread(target=self.model_fetcher.fetch, daemon=True)
-            self.model_fetcher.models_fetched.connect(self._update_ai_model_combos)
+            self.model_fetcher.models_fetched.connect(
+                safe_config_callback(
+                    lambda g, q, o, local_models: self._update_ai_model_combos(g, q, o, local_models, True),
+                    name="ConfigWindow.update_ai_model_combos_preserve_selection",
+                )
+            )
             self.model_thread.start()
 
         # Always try to fetch Ollama models if Ollama is selected or just as a bonus
         # But wait, AIModelFetcher.fetch() already handles Ollama.
         # So we just need to ensure it's triggered.
+
+    def _update_gemini_model_combos(self, gemini_models=None, preserve_selection=True):
+        if gemini_models is not None:
+            available = list(gemini_models)
+            # Old caches included hardcoded recommendations before OTHER.
+            # Only retain the API-discovered portion of those lists.
+            if "OTHER" in available:
+                available = available[available.index("OTHER") + 1 :]
+            self._available_gemini_models = [
+                normalize_gemini_model_name(model)
+                for model in available
+                if model and model not in {OFF, "RECOMMENDED", "OTHER"}
+            ]
+
+        models = list(RECOMMENDED_GEMINI_MODELS)
+        if self.gemini_show_other_models_check.isChecked():
+            models.extend(self._available_gemini_models)
+        models = list(dict.fromkeys(models))
+
+        for combo, saved, fallback, prefix in (
+            (self.gemini_model_combo, self.settings.ai.gemini_model, RECOMMENDED_GEMINI_MODELS[0], []),
+            (self.gemini_backup_model_combo, self.settings.ai.gemini_backup_model, OFF, [OFF]),
+        ):
+            selected = normalize_gemini_model_name(combo.currentText() if preserve_selection else saved) or fallback
+            # Keep explicitly selected models even when the API is unavailable
+            # or the user hides the other models.
+            choices = list(dict.fromkeys([*prefix, *models, selected]))
+            with QSignalBlocker(combo):
+                combo.clear()
+                combo.addItems(choices)
+                combo.setCurrentText(selected)
 
     def _update_ai_model_combos(
         self,
@@ -4326,8 +4459,6 @@ class ConfigWindow(QWidget):
         preserve_selection=False,
     ):
         # Store current selections if we want to preserve them
-        current_gemini = self.gemini_model_combo.currentText() if preserve_selection else None
-        current_gemini_backup = self.gemini_backup_model_combo.currentText() if preserve_selection else None
         current_groq = self.groq_model_combo.currentText() if preserve_selection else None
         current_groq_backup = self.groq_backup_model_combo.currentText() if preserve_selection else None
         current_ollama = self.ollama_model_combo.currentText() if preserve_selection else None
@@ -4345,16 +4476,22 @@ class ConfigWindow(QWidget):
                 seen.add(item)
             return ordered
 
-        gemini_models = _unique(gemini_models)
-        groq_models = _unique(groq_models)
+        # Cached lists can carry an older recommendation section. Replace it with
+        # the current models while keeping API-discovered models after OTHER.
+        groq_models = list(groq_models or [])
+        other_index = groq_models.index("OTHER") if "OTHER" in groq_models else -1
+        available_groq_models = groq_models[other_index + 1 :] if other_index >= 0 else groq_models[:]
+        selected_groq_models = [self.settings.ai.groq_model, self.settings.ai.groq_backup_model]
+        if preserve_selection:
+            selected_groq_models.extend([current_groq, current_groq_backup])
+        for selected in selected_groq_models:
+            if selected and selected not in {OFF, "RECOMMENDED", "OTHER"}:
+                available_groq_models.append(selected)
+        groq_models = _unique(["RECOMMENDED", *RECOMMENDED_GROQ_MODELS, "OTHER", *available_groq_models])
         ollama_models = _unique(ollama_models)
         lm_studio_models = _unique(lm_studio_models)
 
-        self.gemini_model_combo.clear()
-        self.gemini_model_combo.addItems(gemini_models)
-        backup_gemini_models = [OFF] + [m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
-        self.gemini_backup_model_combo.clear()
-        self.gemini_backup_model_combo.addItems(_unique(backup_gemini_models))
+        self._update_gemini_model_combos(gemini_models, preserve_selection=preserve_selection)
 
         self.groq_model_combo.clear()
         self.groq_model_combo.addItems(groq_models)
@@ -4374,10 +4511,6 @@ class ConfigWindow(QWidget):
 
         # Restore previous selection
         if preserve_selection:
-            if current_gemini:
-                self.gemini_model_combo.setCurrentText(current_gemini)
-            if current_gemini_backup:
-                self.gemini_backup_model_combo.setCurrentText(current_gemini_backup)
             if current_groq:
                 self.groq_model_combo.setCurrentText(current_groq)
             if current_groq_backup:
@@ -4391,8 +4524,6 @@ class ConfigWindow(QWidget):
             if current_lm_studio_backup:
                 self.lm_studio_backup_model_combo.setCurrentText(current_lm_studio_backup)
         else:
-            self.gemini_model_combo.setCurrentText(self.settings.ai.gemini_model)
-            self.gemini_backup_model_combo.setCurrentText(self.settings.ai.gemini_backup_model or OFF)
             self.groq_model_combo.setCurrentText(self.settings.ai.groq_model)
             self.groq_backup_model_combo.setCurrentText(self.settings.ai.groq_backup_model or OFF)
             self.ollama_model_combo.setCurrentText(self.settings.ai.ollama_model)

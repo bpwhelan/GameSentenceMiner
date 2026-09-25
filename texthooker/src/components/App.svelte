@@ -159,11 +159,13 @@
 	);
 
 	const handleLine$ = newLine$.pipe(
-		filter(([value, lineType, _1, lineMeta]) => {
+		filter(([value, lineType, id, lineMeta]) => {
 			const isResetCheckboxes = lineType === LineType.RESETCHECKBOXES;
 			const isAuthoritativeV2 = Number.isFinite(Number(lineMeta?.streamSequence));
 			const isReplayBufferExpiry = lineMeta?.gsmStatus === 'timed_out' || lineMeta?.recordState === 'expired';
 			const isPaste = lineType === LineType.PASTE;
+			const shouldAutoStartTimer =
+				!isReplayBufferExpiry && (isPaste ? $autoStartTimerDuringPausePaste$ : $autoStartTimerDuringPause$);
 			const hasNoUserInteraction = !isPaste || (!$notesOpen$ && !$dialogOpen$ && !$settingsOpen$ && !lineInEdit);
 			const skipExternalLine = blockNextExternalLine && lineType === LineType.EXTERNAL;
 
@@ -175,17 +177,10 @@
 				resetCheckBoxes()
 				return false;
 			}
-			// Authoritative stream events must always reach the reducer. Dropping an
-			// update while a dialog/timer is active would permanently strand that ID
-			// now that v2 intentionally has no polling/backfill workaround.
-			if (isAuthoritativeV2) {
-				if (
-					$isPaused$ &&
-					$autoStartTimerDuringPause$ &&
-					hasNoUserInteraction &&
-					!skipExternalLine &&
-					!isReplayBufferExpiry
-				) {
+			// Keep corrections and status updates for displayed stream records flowing
+			// while paused. New records must still respect the pause settings below.
+			if (isAuthoritativeV2 && $lineData$.some((line) => line.id === id)) {
+				if ($isPaused$ && shouldAutoStartTimer && hasNoUserInteraction && !skipExternalLine) {
 					$isPaused$ = false;
 				}
 				return true;
@@ -193,15 +188,12 @@
 
 			if (
 				(!$isPaused$ ||
-					(($allowPasteDuringPause$ || $autoStartTimerDuringPausePaste$) && isPaste) ||
-					(($allowNewLineDuringPause$ || $autoStartTimerDuringPause$) && !isPaste)) &&
+					shouldAutoStartTimer ||
+					(isPaste ? $allowPasteDuringPause$ : $allowNewLineDuringPause$)) &&
 				hasNoUserInteraction &&
 				!skipExternalLine
 			) {
-				if (
-					$isPaused$ &&
-					(($autoStartTimerDuringPausePaste$ && isPaste) || ($autoStartTimerDuringPause$ && !isPaste))
-				) {
+				if ($isPaused$ && shouldAutoStartTimer) {
 					$isPaused$ = false;
 				}
 
@@ -1324,9 +1316,13 @@
 				const result = await response.text();
 				// Add the translation result as a normal websocket event without adding to lineIDs
 				newLine$.next([result, LineType.TL, '']);
+			} else {
+				const data = await response.json().catch(() => ({}));
+				$openDialog$ = { type: 'error', message: data.error || 'Translation failed. Check AI / Translation settings.', showCancel: false };
 			}
 		} catch (error) {
 			console.error('Translation failed:', error);
+			$openDialog$ = { type: 'error', message: 'Could not reach GSM. Check that it is running and retry.', showCancel: false };
 		}
 	}
 </script>

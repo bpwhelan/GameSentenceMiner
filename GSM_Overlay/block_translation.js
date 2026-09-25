@@ -3,7 +3,7 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.GSMBlockTranslation = api;
 }(typeof window !== 'undefined' ? window : globalThis, function () {
-  function createBlockTranslationController({ document, send, showLegacy, showError, getRevision = () => 0 }) {
+  function createBlockTranslationController({ document, send, showLegacy, showError, showAnalysis = showLegacy, onStart = () => {}, getRevision = () => 0 }) {
     let sequence = 0;
     let active = null;
 
@@ -26,12 +26,17 @@
       });
     }
 
-    function request() {
+    function request({ mode = 'translation', automatic = false } = {}) {
       const blocks = capture();
-      if (matches(blocks) && (active.pending || document.getElementById('translation-display'))) return;
+      if (matches(blocks) && active.mode === mode && (active.pending || (mode === 'translation' && document.getElementById('translation-display')))) return;
+      if (mode !== 'translation' && !blocks.length) {
+        showError('No text blocks available. Scan some game text first.', mode);
+        return;
+      }
       const request_id = `overlay-translation-${++sequence}`;
-      active = { request_id, blocks, pending: true, revision: getRevision() };
-      send({ type: 'translate-request', request_id,
+      active = { request_id, blocks, mode, pending: true, revision: getRevision() };
+      onStart(mode);
+      send({ type: 'translate-request', request_id, mode, automatic,
         ...(blocks.length ? { blocks: blocks.map((block, i) => ({ id: String(i), text: block.text })) } : {}) });
     }
 
@@ -40,10 +45,17 @@
         showLegacy(payload);
         return;
       }
-      if (!active || payload?.request_id !== active.request_id || !matches(capture())) return;
+      if (!active || payload?.request_id !== active.request_id) return;
+      if (!matches(capture())) {
+        const mode = active.mode;
+        active = null;
+        if (mode !== 'translation') showError('The source text changed. Select Explain again for the current text.', mode);
+        return;
+      }
       active.pending = false;
       if (typeof payload.text === 'string') {
-        showLegacy(payload.text);
+        if (active.mode !== 'translation') showAnalysis(payload.text, active.mode);
+        else showLegacy(payload.text);
         return;
       }
       if (!Array.isArray(payload.blocks)) return;
@@ -86,15 +98,20 @@
     }
 
     function error(payload) {
+      const mode = active?.mode;
       if (typeof payload === 'object' && payload !== null) {
         if (!active || payload.request_id !== active.request_id || !matches(capture())) return;
         payload = payload.error;
       }
       active = null;
-      showError(String(payload));
+      showError(String(payload), mode);
     }
 
-    return { request, receive, error };
+    function dismissAnalysis() {
+      if (active?.mode !== 'translation') active = null;
+    }
+
+    return { request, receive, error, dismissAnalysis };
   }
   return { createBlockTranslationController };
 }));

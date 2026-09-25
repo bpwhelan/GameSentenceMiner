@@ -37,6 +37,7 @@ function loadLifecycle() {
         pyProc: proc,
         pythonPath: 'python.exe',
         restartingGSM: false,
+        isQuitting: false,
         cleanupComplete: false,
         gsmStopPromise: null,
         intentionalBackendStops: new WeakSet(),
@@ -46,6 +47,11 @@ function loadLifecycle() {
         clearManagedGSMProcessState: vi.fn(),
         ensureAndRunGSM: launch,
         execFileAsync: vi.fn(async () => {}),
+        terminateProcessTree: vi.fn(async (target: ReturnType<typeof child>) => {
+            if (target.exitCode === null && target.signalCode === null) {
+                exit(target);
+            }
+        }),
         isWindows: () => true,
         installSessionManager: { getActiveSnapshot: () => null },
         getWindowsNamedPythonExecutable: (command: string) => command,
@@ -78,19 +84,16 @@ function exit(proc: ReturnType<typeof child>) {
 afterEach(() => vi.useRealTimers());
 
 describe('Python backend restart', () => {
-    it('force stops the Windows process tree even after cleanup_complete, then waits before launching', async () => {
+    it('stops the process tree even after cleanup_complete, then waits before launching', async () => {
         vi.useFakeTimers();
         const { context, proc, launch } = loadLifecycle();
         context.sendBackendCommand.mockImplementation(() => { context.cleanupComplete = true; });
-        context.execFileAsync.mockImplementation(async () => { exit(proc); });
 
         const restart = context.restartGSM();
         await vi.advanceTimersByTimeAsync(20_000);
         await restart;
 
-        expect(context.execFileAsync).toHaveBeenCalledWith(
-            'taskkill', ['/PID', '12564', '/T', '/F'], expect.objectContaining({ windowsHide: true })
-        );
+        expect(context.terminateProcessTree).toHaveBeenCalledWith(proc);
         expect(proc.kill).not.toHaveBeenCalled();
         expect(launch).toHaveBeenCalledOnce();
         expect(proc.exitCode).toBe(0);
@@ -100,7 +103,7 @@ describe('Python backend restart', () => {
         vi.useFakeTimers();
         const { context, launch } = loadLifecycle();
         context.sendBackendCommand.mockImplementation(() => { context.cleanupComplete = true; });
-        context.execFileAsync.mockRejectedValue(new Error('Access denied'));
+        context.terminateProcessTree.mockRejectedValue(new Error('Access denied'));
 
         const restart = context.restartGSM().catch(() => {});
         await vi.advanceTimersByTimeAsync(20_000);
@@ -170,30 +173,41 @@ describe('Python backend restart', () => {
         expect(launch).toHaveBeenCalledTimes(2);
     });
 
-    it('escalates a non-Windows process from SIGTERM to SIGKILL and verifies exit', async () => {
-        vi.useFakeTimers();
+    it('waits for worker cleanup even after the backend itself has exited', async () => {
         const { context, proc } = loadLifecycle();
-        context.isWindows = () => false;
-        context.bus.isConnected.mockReturnValue(false);
-        proc.kill.mockImplementation((signal?: string) => {
-            if (signal === 'SIGKILL') {
-                proc.signalCode = signal;
-                proc.emit('exit', null, signal);
-                proc.emit('close', null, signal);
-            }
-            return true;
-        });
-
-        const stop = context.closeGSM();
-        await vi.advanceTimersByTimeAsync(1500);
+        exit(proc);
+        let finish!: () => void;
+        context.terminateProcessTree.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+        const settled = vi.fn();
+        const stop = context.closeGSM().then(settled);
+        await Promise.resolve();
+        expect(settled).not.toHaveBeenCalled();
+        expect(context.clearManagedGSMProcessState).not.toHaveBeenCalled();
+        finish();
         await stop;
-
-        expect(proc.kill.mock.calls).toEqual([['SIGTERM'], ['SIGKILL']]);
-        expect(context.execFileAsync).not.toHaveBeenCalled();
+        expect(settled).toHaveBeenCalledOnce();
     });
 });
 
 describe('backend process lifetime', () => {
+    it('isolates the Linux backend and its workers in an owned process group', async () => {
+        const { context, proc } = loadLifecycle();
+        context.isWindows = () => false;
+        const run = context.runGSM('python', []);
+        expect(context.spawn).toHaveBeenCalledWith('python', [], expect.objectContaining({ detached: true }));
+        exit(proc);
+        await run;
+    });
+
+    it('does not spawn or restart a backend once app shutdown has started', async () => {
+        const { context, launch } = loadLifecycle();
+        context.isQuitting = true;
+        await context.runGSM('python', []);
+        await context.restartGSM();
+        expect(context.spawn).not.toHaveBeenCalled();
+        expect(launch).not.toHaveBeenCalled();
+    });
+
     it('settles an intentional stop without resetting the restart guard', async () => {
         const { context, proc } = loadLifecycle();
         const spawned = vi.fn();

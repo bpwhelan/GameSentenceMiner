@@ -1,0 +1,77 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+
+.setup-dictionary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-dictionary-list[hidden] {
+  display: none;
+}
+
+.setup-dictionary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 16px;
+  row-gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+}
+
+.setup-dictionary-name {
+  grid-area: 1 / 1;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.setup-dictionary-purpose {
+  grid-area: 2 / 1;
+  color: var(--text-dim);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.setup-dictionary-status {
+  grid-area: 3 / 1;
+  margin-top: 5px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.setup-dictionary.is-active {
+  border-color: var(--accent);
+}
+
+.setup-dictionary-status.is-ok {
+  color: var(--ok);
+}
+
+.setup-dictionary-status.is-error {
+  color: var(--error);
+}
+
+.setup-dictionary .setup-track {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+}
+
+.setup-track.is-determinate .track-fill {
+  width: var(--progress, 0%);
+  animation: none;
+  transition: width 120ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setup-track.is-determinate .track-fill {
+    transition: none;
+  }
+}

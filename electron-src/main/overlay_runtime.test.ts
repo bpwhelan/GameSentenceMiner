@@ -9,10 +9,12 @@ const startOverlayAppMock = vi.fn(async () => {
 const stopOverlayAppMock = vi.fn(async () => {
     running = false;
 });
+const openSettingsMock = vi.fn();
 const overlayModuleMock = {
     startOverlayApp: startOverlayAppMock,
     stopOverlayApp: stopOverlayAppMock,
     isOverlayRunning: () => running,
+    openSettings: openSettingsMock,
 };
 const requireMock = Object.assign(vi.fn(() => overlayModuleMock), {
     cache: {} as Record<string, unknown>,
@@ -53,6 +55,7 @@ describe('in-process overlay runtime', () => {
         running = false;
         startOverlayAppMock.mockClear();
         stopOverlayAppMock.mockClear();
+        openSettingsMock.mockClear();
         requireMock.mockClear();
         existsSyncMock.mockReturnValue(true);
         originalEnvironment = Object.fromEntries(
@@ -90,5 +93,44 @@ describe('in-process overlay runtime', () => {
         expect(requireMock.cache[entryPath]).toBeUndefined();
         expect(runtime.isInProcessOverlayRunning()).toBe(false);
         expect(process.env.GSM_OVERLAY_IN_PROCESS).toBe(originalEnvironment.GSM_OVERLAY_IN_PROCESS);
+    });
+
+    it('restarts with a fresh module and restores the System settings tab', async () => {
+        const runtime = await import('./overlay_runtime.js');
+        await runtime.startInProcessOverlay();
+        const host = (globalThis as any)[Symbol.for('gsm.overlay.host')];
+        const restart = host.requestRestart('system');
+        const duplicate = host.requestRestart('system');
+        await expect(restart).resolves.toBe(true);
+        await expect(duplicate).resolves.toBe(true);
+        expect(stopOverlayAppMock).toHaveBeenCalledTimes(1);
+        expect(startOverlayAppMock).toHaveBeenCalledTimes(2);
+        expect(requireMock).toHaveBeenCalledTimes(2);
+        expect(openSettingsMock).toHaveBeenCalledExactlyOnceWith('system');
+        expect(runtime.isInProcessOverlayRunning()).toBe(true);
+        runtime.stopInProcessOverlay();
+        await runtime.waitForInProcessOverlayShutdown();
+    });
+
+    it('does not restart after a later stop request during shutdown', async () => {
+        const runtime = await import('./overlay_runtime.js');
+        await runtime.startInProcessOverlay();
+        const host = (globalThis as any)[Symbol.for('gsm.overlay.host')];
+        const restart = host.requestRestart('system');
+        runtime.stopInProcessOverlay();
+        await expect(restart).resolves.toBe(false);
+        expect(startOverlayAppMock).toHaveBeenCalledTimes(1);
+        expect(openSettingsMock).not.toHaveBeenCalled();
+        expect(runtime.isInProcessOverlayRunning()).toBe(false);
+    });
+
+    it('reports a failed replacement instead of treating it as a successful switch', async () => {
+        const runtime = await import('./overlay_runtime.js');
+        await runtime.startInProcessOverlay();
+        const host = (globalThis as any)[Symbol.for('gsm.overlay.host')];
+        startOverlayAppMock.mockRejectedValueOnce(new Error('extension load failed'));
+        await expect(host.requestRestart('system')).rejects.toThrow('Could not restart the overlay');
+        expect(openSettingsMock).not.toHaveBeenCalled();
+        expect(runtime.isInProcessOverlayRunning()).toBe(false);
     });
 });

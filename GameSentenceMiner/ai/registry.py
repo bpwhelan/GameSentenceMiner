@@ -10,6 +10,7 @@ from GameSentenceMiner.ai.providers.base import ProviderClient
 from GameSentenceMiner.util.config.configuration import (
     AI_GEMINI,
     AI_GROQ,
+    AI_ZAI,
     AI_GSM_CLOUD,
     AI_LM_STUDIO,
     AI_OLLAMA,
@@ -57,6 +58,14 @@ class ProviderRegistry:
         )
 
     def get_client(self, config: Ai) -> ProviderClient:
+        if config.provider == AI_ZAI:
+            from GameSentenceMiner.ai.providers.zai_client import ZAI_API_URL, ZaiClient
+
+            key = self._build_key(config.provider, config.zai_model, ZAI_API_URL, config.zai_api_key)
+            if key not in self._clients:
+                self._clients[key] = ZaiClient(api_key=config.zai_api_key, logger=self.logger)
+            return self._clients[key]
+
         if config.provider == AI_GEMINI:
             from GameSentenceMiner.ai.providers.gemini_client import GeminiClient
 

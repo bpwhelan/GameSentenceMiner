@@ -217,7 +217,7 @@ def test_launch_obs_early_skips_python_launch_under_electron(monkeypatch):
     assert calls == []
 
 
-def test_run_does_not_schedule_default_config_dialog_after_backend_ready(monkeypatch):
+def test_run_prepares_hidden_config_window_before_backend_ready(monkeypatch):
     calls = []
 
     class _FakeFuture:
@@ -309,11 +309,15 @@ def test_run_does_not_schedule_default_config_dialog_after_backend_ready(monkeyp
 
     app.run()
 
-    assert "config-window" not in calls
+    assert calls.count("config-window") == 1
+    assert calls.index("qt-app") < calls.index("config-window")
+    assert calls.index("config-window") < calls.index("send-initialized")
+    assert app.state.settings_window is fake_settings_window
+    assert gsm_module.gsm_state.config_app is fake_settings_window
     assert calls.index("send-initialized") < calls.index("qt-loop")
 
 
-def test_open_settings_creates_and_registers_config_window_lazily(monkeypatch):
+def test_open_settings_creates_and_registers_config_window_if_missing(monkeypatch):
     calls = []
 
     class FakeSettingsWindow:

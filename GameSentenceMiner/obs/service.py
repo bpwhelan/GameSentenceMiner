@@ -56,6 +56,7 @@ OBS_RETRYABLE_ERROR_SUBSTRINGS = (
     "websocket",
 )
 OBS_SERVICE_REFRESH_COOLDOWN_SECONDS = 2.0
+REPLAY_BUFFER_WINDOW_INACTIVITY_SECONDS = 300.0
 _obs_service_refresh_lock = threading.Lock()
 _last_obs_service_refresh_attempt = 0.0
 
@@ -320,6 +321,9 @@ class OBSService:
         self._replay_buffer_action_grace_seconds = 8.0
         self._source_no_output_timestamp: Optional[float] = None
         self._no_output_shutdown_seconds = 300
+        self._window_inactive_since: Optional[float] = None
+        self._window_inactivity_stopped_replay = False
+        self._last_window_activity: Optional[str] = None
         self._initial_replay_check_done = False
         self._auto_start_paused_by_external_replay_stop = False
         self._connection_grace_deadline = 0.0
@@ -891,6 +895,98 @@ class OBSService:
                 self.state.source_output_empty_since = now
         return result
 
+    def _get_window_activity(self, current_scene: str) -> Optional[str]:
+        """Return the tracked game's window state when it belongs to this OBS scene."""
+        if not is_windows() or not current_scene:
+            return None
+
+        from GameSentenceMiner.util.platform.window_state_monitor import get_window_state_monitor
+
+        monitor = get_window_state_monitor()
+        if not monitor or getattr(monitor, "last_target_scene_name", None) != current_scene:
+            return None
+        if not getattr(monitor, "ever_had_target_hwnd", False):
+            return None
+
+        state = getattr(monitor, "last_state", None)
+        if state in {"active", "background", "obscured"} and getattr(monitor, "target_hwnd", None):
+            return state
+        if state == "minimized" and (
+            getattr(monitor, "target_hwnd", None) or getattr(monitor, "last_known_target_hwnd", None)
+        ):
+            return state
+        return None
+
+    def _manage_replay_buffer(self, source_active: Optional[bool], now: float, current_scene: str) -> None:
+        if _is_obs_recording_disabled() or not get_config().obs.automatically_manage_replay_buffer:
+            self._window_inactive_since = None
+            self._window_inactivity_stopped_replay = False
+            self._last_window_activity = None
+            return
+
+        from GameSentenceMiner.obs.actions import start_replay_buffer, stop_replay_buffer
+
+        window_activity = self._get_window_activity(current_scene)
+        previous_window_activity = self._last_window_activity
+        self._last_window_activity = window_activity
+
+        if window_activity in {"background", "obscured", "minimized"}:
+            if self._window_inactive_since is None:
+                self._window_inactive_since = time.monotonic()
+            if time.monotonic() - self._window_inactive_since >= REPLAY_BUFFER_WINDOW_INACTIVITY_SECONDS:
+                if self._get_replay_buffer_active():
+                    logger.info("Game window inactive for five minutes; stopping OBS replay buffer.")
+                    stop_replay_buffer()
+                    if self._get_replay_buffer_active() is False:
+                        self._window_inactivity_stopped_replay = True
+                return
+        else:
+            self._window_inactive_since = None
+            if window_activity is None:
+                self._window_inactivity_stopped_replay = False
+
+        if window_activity == "active" and self._window_inactivity_stopped_replay:
+            if self._get_replay_buffer_active() is True:
+                self._window_inactivity_stopped_replay = False
+            elif self._can_auto_start_replay_buffer():
+                # OBS may need another frame to satisfy the output probe. A buffer
+                # stopped by this rule should resume as soon as the game has focus.
+                start_replay_buffer()
+                if self._get_replay_buffer_active() is True:
+                    self._window_inactivity_stopped_replay = False
+                    self._source_no_output_timestamp = None
+            return
+
+        # A focus change wakes the OBS manager between its usual screenshot probes.
+        # For ordinary auto-starts, confirm OBS has output before starting the buffer.
+        if window_activity == "active" and previous_window_activity != "active" and source_active is None:
+            try:
+                source_active = self._is_output_active_from_screenshot()
+            except Exception:
+                source_active = None
+
+        if source_active is None:
+            return
+
+        replay_buffer_active = self._get_replay_buffer_active()
+        if replay_buffer_active is False and not self._initial_replay_check_done:
+            self._initial_replay_check_done = True
+            if not source_active:
+                return
+
+        if source_active:
+            self._source_no_output_timestamp = None
+            if replay_buffer_active is not True and self._can_auto_start_replay_buffer():
+                start_replay_buffer()
+            return
+
+        if replay_buffer_active:
+            if self._source_no_output_timestamp is None:
+                self._source_no_output_timestamp = now
+            elif now - self._source_no_output_timestamp >= self._no_output_shutdown_seconds:
+                stop_replay_buffer()
+                self._source_no_output_timestamp = None
+
     # -- fit-to-screen -------------------------------------------------------
 
     def _schedule_fit_to_screen(self, scene_name: str, delay: float = 2.0):
@@ -928,40 +1024,8 @@ class OBSService:
         except Exception:
             pass
 
-        if not self.check_output:
-            return
-
-        if source_active is None:
-            return
-
-        if _is_obs_recording_disabled():
-            return
-
-        replay_buffer_active = self._get_replay_buffer_active()
-
-        if replay_buffer_active is False and not self._initial_replay_check_done:
-            self._initial_replay_check_done = True
-            if not source_active:
-                return
-
-        if not get_config().obs.automatically_manage_replay_buffer:
-            return
-
-        from GameSentenceMiner.obs.actions import start_replay_buffer, stop_replay_buffer
-
-        now = time.time()
-        if source_active:
-            self._source_no_output_timestamp = None
-            if replay_buffer_active is not True and self._can_auto_start_replay_buffer():
-                start_replay_buffer()
-            return
-
-        if replay_buffer_active:
-            if self._source_no_output_timestamp is None:
-                self._source_no_output_timestamp = now
-            elif now - self._source_no_output_timestamp >= self._no_output_shutdown_seconds:
-                stop_replay_buffer()
-                self._source_no_output_timestamp = None
+        if self.check_output:
+            self._manage_replay_buffer(source_active, time.time(), current_scene)
 
     # -- tick scheduling -----------------------------------------------------
 
@@ -1090,34 +1154,7 @@ class OBSService:
         if not self.check_output or not resolved.manage_replay_buffer:
             return
         self._tick_last_run_by_operation["manage_replay_buffer"] = now
-
-        if source_active is None or _is_obs_recording_disabled():
-            return
-
-        replay_buffer_active = self._get_replay_buffer_active()
-
-        if replay_buffer_active is False and not self._initial_replay_check_done:
-            self._initial_replay_check_done = True
-            if not source_active:
-                return
-
-        if not get_config().obs.automatically_manage_replay_buffer:
-            return
-
-        from GameSentenceMiner.obs.actions import start_replay_buffer, stop_replay_buffer
-
-        if source_active:
-            self._source_no_output_timestamp = None
-            if replay_buffer_active is not True and self._can_auto_start_replay_buffer():
-                start_replay_buffer()
-            return
-
-        if replay_buffer_active:
-            if self._source_no_output_timestamp is None:
-                self._source_no_output_timestamp = now
-            elif now - self._source_no_output_timestamp >= self._no_output_shutdown_seconds:
-                stop_replay_buffer()
-                self._source_no_output_timestamp = None
+        self._manage_replay_buffer(source_active, now, current_scene)
 
     def _mark_tick_operation(self, operation_name: str, now: float):
         self._tick_last_run_by_operation[operation_name] = now
@@ -1223,6 +1260,7 @@ class OBSConnectionManager(threading.Thread):
         super().__init__(name="gsm-obs-actor", daemon=False)
         self.running = True
         self._stop_event = threading.Event()
+        self._wake_event = threading.Event()
         self.check_connection_interval = 5.0
         self.recovery_cooldown_seconds = 2.0
         self.check_output = check_output
@@ -1230,6 +1268,10 @@ class OBSConnectionManager(threading.Thread):
         self.last_errors = []
         self._check_lock = threading.Lock()
         self.last_tick_time = 0
+
+    def request_tick(self) -> None:
+        """Wake the OBS loop after a tracked game-window state change."""
+        self._wake_event.set()
 
     def _recover_obs_connection(self) -> bool:
         import GameSentenceMiner.obs as _obs_pkg
@@ -1312,7 +1354,9 @@ class OBSConnectionManager(threading.Thread):
         while self.running:
             if not gsm_status.obs_connected:
                 delay = disconnect_sleep_manager.current_delay
-                if self._stop_event.wait(delay):
+                woke_for_window = self._wake_event.wait(delay)
+                self._wake_event.clear()
+                if self._stop_event.is_set():
                     break
                 disconnect_sleep_manager.current_delay = min(
                     delay * disconnect_sleep_manager.backoff_factor,
@@ -1320,7 +1364,9 @@ class OBSConnectionManager(threading.Thread):
                 )
             else:
                 disconnect_sleep_manager.reset()
-                if self._stop_event.wait(self.check_connection_interval):
+                woke_for_window = self._wake_event.wait(self.check_connection_interval)
+                self._wake_event.clear()
+                if self._stop_event.is_set():
                     break
 
             if not self._check_obs_connection():
@@ -1330,7 +1376,8 @@ class OBSConnectionManager(threading.Thread):
             with self._check_lock:
                 if _obs_pkg.obs_service:
                     try:
-                        _obs_pkg.obs_service.tick()
+                        options = OBSTickOptions(manage_replay_buffer=True) if woke_for_window else None
+                        _obs_pkg.obs_service.tick(options)
                     except Exception as e:
                         logger.debug(f"Tick failed: {e}")
 
@@ -1347,6 +1394,7 @@ class OBSConnectionManager(threading.Thread):
     def stop(self):
         self.running = False
         self._stop_event.set()
+        self._wake_event.set()
 
 
 # ---------------------------------------------------------------------------

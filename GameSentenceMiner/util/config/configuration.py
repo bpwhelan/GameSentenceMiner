@@ -39,12 +39,17 @@ WHISPER_TURBO = "turbo"
 
 AI_GEMINI = "Gemini"
 AI_GROQ = "Groq"
+AI_ZAI = "Z.ai"
 AI_OPENAI = "OpenAI"
 AI_OLLAMA = "Ollama"
 AI_LM_STUDIO = "LM Studio"
 AI_GSM_CLOUD = "GSM Cloud"
 AI_DEEPL = "DeepL"
 
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_GEMINI_BACKUP_MODEL = "gemma-4-31b-it"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+DEFAULT_GROQ_BACKUP_MODEL = "openai/gpt-oss-20b"
 GSM_CLOUD_DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
 GSM_CLOUD_PREVIEW_ENV = "GSM_CLOUD_PREVIEW"
 GSM_CLOUD_AI_PREVIEW_ENV = "GSM_CLOUD_AI_PREVIEW"
@@ -87,20 +92,16 @@ GEMINI_MODEL_ALIASES = {
     "gemini-3-pro": "gemini-3-pro-preview",
 }
 
-LEGACY_GEMINI_MODEL_ALIASES = {
-    "gemini-2.5-flash-lite-preview-06-17": "gemini-2.5-flash-lite",
-}
-
 
 def normalize_gemini_model_name(model_name: str) -> str:
-    normalized = str(model_name or "").strip()
+    normalized = str(model_name or "").strip().removeprefix("models/")
     if not normalized:
         return ""
     lowered = normalized.lower()
+    if lowered.startswith("gemini-2."):
+        return DEFAULT_GEMINI_MODEL
     if lowered in GEMINI_MODEL_ALIASES:
         return GEMINI_MODEL_ALIASES[lowered]
-    if lowered in LEGACY_GEMINI_MODEL_ALIASES:
-        return LEGACY_GEMINI_MODEL_ALIASES[lowered]
     return normalized
 
 
@@ -1018,7 +1019,7 @@ class Features:
     full_auto: bool = True
     notify_on_update: bool = True
     open_anki_edit: bool = False
-    open_anki_in_browser: bool = True
+    open_anki_in_browser: bool = False
     browser_query: str = ""
     generate_longplay: bool = False
 
@@ -1027,6 +1028,7 @@ class Features:
 @dataclass
 class Experimental:
     enable_experimental_features: bool = False
+    enable_hachidori: bool = False
     enable_tokenization: bool = False
     tokenization_backend: str = "sudachi"
     tokenization_sudachi_dictionary: str = "small"
@@ -1042,6 +1044,7 @@ class ProcessPausing:
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
     overlay_gamepad_navigation_requests_pause: bool = False
+    anki_confirmation_requests_pause: bool = False
     # Linux only: process name of the game to suspend (e.g. "eldenring.exe" under
     # Proton, or a native binary name). Linux has no window handle to resolve a PID
     # from, so the game is matched by process name. Mainly for Wayland users — leave
@@ -1085,6 +1088,9 @@ class AnimatedScreenshotSettings:
     quality: int = 8  # 0-10
     max_width: int = 960  # 0 disables scaling
     adaptive_avif: bool = False
+    target_size_kb: int = 0  # Approximate AVIF size in KiB; 0 keeps existing sizing.
+    size_priority: str = "balanced"
+    only_when_voice: bool = False
     faststart: bool = True
     encoder_fallback: bool = True
     scaled_quality: int = 10  # 0-90 for webp, encoder-specific CRF for avif
@@ -1096,6 +1102,13 @@ class AnimatedScreenshotSettings:
         self.quality = max(0, min(10, int(self.quality or 0)))
         self.max_width = max(0, min(3840, int(self.max_width or 0)))
         self.adaptive_avif = bool(self.adaptive_avif)
+        try:
+            self.target_size_kb = max(0, min(102400, int(self.target_size_kb or 0)))
+        except (TypeError, ValueError, OverflowError):
+            self.target_size_kb = 0
+        if self.size_priority not in ("prefer_fps", "prefer_quality", "balanced"):
+            self.size_priority = "balanced"
+        self.only_when_voice = bool(self.only_when_voice)
         self.faststart = bool(self.faststart)
         self.encoder_fallback = bool(self.encoder_fallback)
         if self.codec not in ANIMATED_SCREENSHOT_CODECS:
@@ -1230,6 +1243,8 @@ class Hotkeys:
     unmute_target_window_on_focus: bool = True
     manual_overlay_scan: str = ""
     manual_overlay_scan_gamepad: str = ""
+    copy_game_screenshot: str = "f12"
+    copy_game_screenshot_gamepad: str = ""
     process_pause: str = ""
     process_pause_gamepad: str = ""
     pause_text_intake: str = ""
@@ -1302,6 +1317,9 @@ class Advanced:
     mute_game_on_minimize: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
+    cloud_sync_protocol: str = "relay-v2"
+    cloud_sync_key: str = ""
+    cloud_sync_settings_groups: List[str] = field(default_factory=list)
     cloud_sync_api_url: str = ""
     cloud_sync_email: str = ""
     cloud_sync_api_token: str = ""
@@ -1335,7 +1353,7 @@ class Advanced:
         self.cloud_sync_push_batch_size = max(1, min(5000, int(self.cloud_sync_push_batch_size or 5000)))
         self.cloud_sync_max_server_changes = max(1, min(5000, int(self.cloud_sync_max_server_changes or 5000)))
         self.cloud_sync_timeout_seconds = max(5, min(120, int(self.cloud_sync_timeout_seconds or 20)))
-        if not is_gsm_cloud_preview_enabled():
+        if not is_gsm_cloud_preview_enabled() and self.cloud_sync_protocol == "legacy":
             self.cloud_sync_enabled = False
             self.cloud_sync_auto_sync = False
 
@@ -1349,13 +1367,16 @@ class Ai:
     deepl_api_key: str = ""
     deepl_target_lang: str = "EN"
     provider: str = AI_GEMINI
-    gemini_model: str = "gemma-3-27b-it"
-    gemini_backup_model: str = ""
-    groq_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
-    groq_backup_model: str = ""
+    gemini_model: str = DEFAULT_GEMINI_MODEL
+    gemini_backup_model: str = DEFAULT_GEMINI_BACKUP_MODEL
+    groq_model: str = DEFAULT_GROQ_MODEL
+    groq_backup_model: str = DEFAULT_GROQ_BACKUP_MODEL
     gemini_api_key: str = ""
     api_key: str = ""  # Legacy support, will be moved to gemini_api_key if provider is gemini
     groq_api_key: str = ""
+    zai_api_key: str = ""
+    zai_model: str = "glm-4.7-flash"
+    zai_backup_model: str = ""
     open_ai_url: str = ""
     open_ai_model: str = ""
     open_ai_backup_model: str = ""
@@ -1380,6 +1401,7 @@ class Ai:
     custom_prompt: str = ""
     custom_texthooker_prompt: str = ""
     custom_full_prompt: str = ""
+    prompt_preset: str = ""  # Empty preserves the legacy canned/custom prompt selection.
     dialogue_context_length: int = 10
     temperature: float = 0.3
     max_output_tokens: int = 4096
@@ -1389,6 +1411,8 @@ class Ai:
         provider_alias_map = {
             "gemini": AI_GEMINI,
             "groq": AI_GROQ,
+            "z.ai": AI_ZAI,
+            "zai": AI_ZAI,
             "openai": AI_OPENAI,
             "ollama": AI_OLLAMA,
             "deepl": AI_DEEPL,
@@ -1406,12 +1430,16 @@ class Ai:
         if not self.gemini_api_key:
             self.gemini_api_key = self.api_key
         if self.gemini_model in ["RECOMMENDED", "OTHER"]:
-            self.gemini_model = "gemini-2.5-flash-lite"
-        if self.gemini_backup_model in ["RECOMMENDED", "OTHER", OFF]:
+            self.gemini_model = DEFAULT_GEMINI_MODEL
+        if self.gemini_backup_model == "RECOMMENDED":
+            self.gemini_backup_model = DEFAULT_GEMINI_BACKUP_MODEL
+        if self.gemini_backup_model in ["OTHER", OFF]:
             self.gemini_backup_model = ""
         if self.groq_model in ["RECOMMENDED", "OTHER"]:
-            self.groq_model = "meta-llama/llama-4-scout-17b-16e-instruct"
-        if self.groq_backup_model in ["RECOMMENDED", "OTHER", OFF]:
+            self.groq_model = DEFAULT_GROQ_MODEL
+        if self.groq_backup_model == "RECOMMENDED":
+            self.groq_backup_model = DEFAULT_GROQ_BACKUP_MODEL
+        if self.groq_backup_model in ["OTHER", OFF]:
             self.groq_backup_model = ""
         if self.open_ai_backup_model == OFF:
             self.open_ai_backup_model = ""
@@ -1426,6 +1454,11 @@ class Ai:
             self.add_to_anki = True
 
         self.groq_model = str(self.groq_model or "").strip()
+        self.zai_api_key = str(self.zai_api_key or "").strip()
+        self.zai_model = str(self.zai_model or "").strip() or "glm-4.7-flash"
+        self.zai_backup_model = str(self.zai_backup_model or "").strip()
+        if self.zai_backup_model in {OFF, self.zai_model}:
+            self.zai_backup_model = ""
         self.groq_backup_model = str(self.groq_backup_model or "").strip()
         self.open_ai_model = str(self.open_ai_model or "").strip()
         self.open_ai_backup_model = str(self.open_ai_backup_model or "").strip()
@@ -1445,9 +1478,13 @@ class Ai:
             self.gsm_cloud_token_expires_at = 0
 
         self.gemini_model = normalize_gemini_model_name(self.gemini_model)
+        previous_gemini_backup = str(self.gemini_backup_model or "").strip().removeprefix("models/").lower()
         self.gemini_backup_model = normalize_gemini_model_name(self.gemini_backup_model)
         if self.gemini_backup_model == self.gemini_model:
-            self.gemini_backup_model = ""
+            # Upgrading two 2.x models must not silently disable failover.
+            self.gemini_backup_model = (
+                DEFAULT_GEMINI_BACKUP_MODEL if previous_gemini_backup.startswith("gemini-2.") else ""
+            )
         if self.groq_backup_model == self.groq_model:
             self.groq_backup_model = ""
         if self.open_ai_backup_model == self.open_ai_model:
@@ -1470,6 +1507,8 @@ class Ai:
         if self.provider == AI_GEMINI and self.gemini_api_key and self.gemini_model:
             return True
         if self.provider == AI_GROQ and self.groq_api_key and self.groq_model:
+            return True
+        if self.provider == AI_ZAI and self.zai_api_key.strip() and self.zai_model.strip():
             return True
         if self.provider == AI_OPENAI and self.open_ai_api_key and self.open_ai_model and self.open_ai_url:
             return True
@@ -1525,6 +1564,7 @@ class Overlay:
     scan_on_mouse_move: bool = True  # only scan on a periodic tick when the cursor moved and is over the game window
     scan_on_overlay_activation: bool = False  # scan when Push to Show/navigation makes the overlay interactive
     text_appears_instantly: bool = False  # send the first overlay OCR pass without waiting for stabilization
+    adaptive_ocr_retries: bool = False  # experimental: retry quickly while overlay text is expanding
     base_scale: float = 0.75  # screenshot scale used before OCR (50% fast -> 100% highest quality)
     inject_scanned_lines: bool = False  # not recommended: persist overlay scans to the log (pollutes stats/texthooker)
     minimum_character_size: int = 0
@@ -1610,6 +1650,7 @@ GSM_OWNED_OVERLAY_FIELDS: Dict[str, GsmOwnedOverlayField] = {
     "scan_on_mouse_move": GsmOwnedOverlayField("scan_on_mouse_move", _coerce_overlay_bool),
     "scan_on_overlay_activation": GsmOwnedOverlayField("scan_on_overlay_activation", _coerce_overlay_bool),
     "text_appears_instantly": GsmOwnedOverlayField("text_appears_instantly", _coerce_overlay_bool),
+    "adaptive_ocr_retries": GsmOwnedOverlayField("adaptive_ocr_retries", _coerce_overlay_bool),
     "base_scale": GsmOwnedOverlayField("base_scale", lambda v: max(0.5, min(1.0, float(v)))),
     "inject_scanned_lines": GsmOwnedOverlayField("inject_scanned_lines", _coerce_overlay_bool),
     "minimum_character_size": GsmOwnedOverlayField("minimum_character_size", int),
@@ -2328,6 +2369,9 @@ class Config:
             self.sync_shared_field(config.advanced, profile.advanced, "longest_sleep_time")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_enabled")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_auto_sync")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_protocol")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_key")
+            self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_settings_groups")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_api_url")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_email")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_api_token")
@@ -2346,6 +2390,8 @@ class Config:
             self.sync_shared_field(config.ai, profile.ai, "gemini_backup_model")
             self.sync_shared_field(config.ai, profile.ai, "groq_api_key")
             self.sync_shared_field(config.ai, profile.ai, "groq_backup_model")
+            self.sync_shared_field(config.ai, profile.ai, "zai_api_key")
+            self.sync_shared_field(config.ai, profile.ai, "zai_backup_model")
             self.sync_shared_field(config.ai, profile.ai, "open_ai_backup_model")
             self.sync_shared_field(config.ai, profile.ai, "ollama_url")
             self.sync_shared_field(config.ai, profile.ai, "ollama_model")
@@ -2749,6 +2795,8 @@ class AnkiUpdateResult:
     audio_in_anki: str = ""
     screenshot_in_anki: str = ""
     prev_screenshot_in_anki: str = ""
+    screenshot_media_in_anki: List[str] = field(default_factory=list)
+    prev_screenshot_media_in_anki: List[str] = field(default_factory=list)
     sentence_in_anki: str = ""
     multi_line: bool = False
     video_in_anki: str = ""

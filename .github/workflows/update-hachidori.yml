@@ -1,0 +1,167 @@
+name: Update Hachidori release
+
+on:
+    schedule:
+        - cron: '17 6 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: write
+    pull-requests: write
+
+concurrency:
+    group: update-hachidori-release
+    cancel-in-progress: false
+
+jobs:
+    update:
+        if: github.repository == 'bpwhelan/GameSentenceMiner'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+
+        steps:
+            - name: Check out GameSentenceMiner
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+
+            - name: Set up Node.js
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 22.22.2
+                  cache: npm
+                  cache-dependency-path: |
+                      package-lock.json
+                      GSM_Overlay/package-lock.json
+
+            - name: Resolve latest stable Hachidori release
+              id: release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  release_json="$RUNNER_TEMP/hachidori-release.json"
+                  gh api repos/bee-san/hachidori/releases/latest > "$release_json"
+                  if [[ "$(jq -r '.draft')" != "false" || "$(jq -r '.prerelease')" != "false" ]]; then
+                    echo "GitHub's latest-release endpoint returned a draft or prerelease." >&2
+                    exit 1
+                  fi
+                  {
+                    echo "tag=$(jq -r '.tag_name' "$release_json")"
+                    echo "id=$(jq -r '.id' "$release_json")"
+                    echo "published_at=$(jq -r '.published_at' "$release_json")"
+                    echo "url=$(jq -r '.html_url' "$release_json")"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Check out exact Hachidori release
+              id: source
+              env:
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+              run: |
+                  source_dir="$RUNNER_TEMP/hachidori"
+                  git check-ref-format "refs/tags/${RELEASE_TAG}"
+                  git clone \
+                    --filter=blob:none \
+                    --branch main \
+                    --no-checkout \
+                    --no-recurse-submodules \
+                    --no-tags \
+                    --single-branch \
+                    https://github.com/bee-san/hachidori.git \
+                    "$source_dir"
+                  git -C "$source_dir" fetch --force origin \
+                    "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+                  git -C "$source_dir" checkout --detach "refs/tags/${RELEASE_TAG}"
+                  {
+                    echo "directory=$source_dir"
+                    echo "commit=$(git -C "$source_dir" rev-parse HEAD)"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Test release-aware sync logic
+              run: node --test scripts/sync-hachidori.test.mjs scripts/hachidori-integration.test.mjs GSM_Overlay/tests/hachidori_bridge.test.cjs GSM_Overlay/tests/reader_bridge.test.cjs GSM_Overlay/tests/dictionary_navigation.test.cjs GSM_Overlay/tests/popup_navigation.test.cjs GSM_Overlay/tests/overlay_startup.test.cjs GSM_Overlay/tests/extension_version.test.cjs
+
+            - name: Sync Hachidori release
+              id: sync
+              env:
+                  RELEASE_ID: ${{ steps.release.outputs.id }}
+                  RELEASE_PUBLISHED_AT: ${{ steps.release.outputs.published_at }}
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+                  RELEASE_URL: ${{ steps.release.outputs.url }}
+                  SOURCE_DIR: ${{ steps.source.outputs.directory }}
+              run: |
+                  node scripts/sync-hachidori.mjs "$SOURCE_DIR" \
+                    --release-tag "$RELEASE_TAG" \
+                    --release-id "$RELEASE_ID" \
+                    --release-published-at "$RELEASE_PUBLISHED_AT" \
+                    --release-url "$RELEASE_URL"
+                  if [[ -n "$(git status --porcelain -- GSM_Overlay/hachidori)" ]]; then
+                    echo "changed=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "changed=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Verify deterministic sync
+              if: steps.sync.outputs.changed == 'true'
+              env:
+                  RELEASE_ID: ${{ steps.release.outputs.id }}
+                  RELEASE_PUBLISHED_AT: ${{ steps.release.outputs.published_at }}
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+                  RELEASE_URL: ${{ steps.release.outputs.url }}
+                  SOURCE_DIR: ${{ steps.source.outputs.directory }}
+              run: |
+                  first_diff="$RUNNER_TEMP/hachidori-first.diff"
+                  second_diff="$RUNNER_TEMP/hachidori-second.diff"
+                  git diff --binary --full-index -- GSM_Overlay/hachidori > "$first_diff"
+                  node scripts/sync-hachidori.mjs "$SOURCE_DIR" \
+                    --release-tag "$RELEASE_TAG" \
+                    --release-id "$RELEASE_ID" \
+                    --release-published-at "$RELEASE_PUBLISHED_AT" \
+                    --release-url "$RELEASE_URL"
+                  git diff --binary --full-index -- GSM_Overlay/hachidori > "$second_diff"
+                  cmp "$first_diff" "$second_diff"
+                  git diff --check
+
+            - name: Install JavaScript dependencies
+              if: steps.sync.outputs.changed == 'true'
+              run: |
+                  npm ci --prefer-offline --no-audit --fund=false
+                  npm --prefix GSM_Overlay ci --prefer-offline --no-audit --fund=false
+
+            - name: Run focused GameSentenceMiner tests
+              if: steps.sync.outputs.changed == 'true'
+              run: |
+                  npm run test:ts -- \
+                    electron-src/main/gsm_config.test.ts \
+                    electron-src/main/electron_build_contract.test.ts
+                  npm --prefix GSM_Overlay test
+
+            - name: Create or update Hachidori release PR
+              if: steps.sync.outputs.changed == 'true'
+              uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+              with:
+                  token: ${{ github.token }}
+                  base: main
+                  branch: automation/hachidori-release
+                  delete-branch: true
+                  add-paths: GSM_Overlay/hachidori
+                  commit-message: 'vendor: update Hachidori to ${{ steps.release.outputs.tag }}'
+                  title: 'vendor: update Hachidori to ${{ steps.release.outputs.tag }}'
+                  body: |
+                      Updates GameSentenceMiner's vendored Hachidori extension to the latest stable release.
+
+                      - Release: [${{ steps.release.outputs.tag }}](${{ steps.release.outputs.url }})
+                      - Commit: `${{ steps.source.outputs.commit }}`
+                      - Published: `${{ steps.release.outputs.published_at }}`
+                      - Automation run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+                      Validation completed before this PR was created:
+
+                      - Release ancestry and provenance tests
+                      - Deterministic repeat sync
+                      - Focused GameSentenceMiner TypeScript tests
+                      - GameSentenceMiner overlay tests
+
+                      This PR is intentionally left for human review and will not auto-merge.
+                  labels: dependencies
+                  reviewers: bpwhelan
+                  committer: 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'
+                  author: 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'

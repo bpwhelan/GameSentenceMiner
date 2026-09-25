@@ -163,7 +163,7 @@ def test_google_lens_uses_upstream_request_configuration(monkeypatch):
     class FakeResponse:
         status_code = 500
 
-    def fake_post(url, **kwargs):
+    def fake_post(self, url, **kwargs):
         captured["url"] = url
         captured.update(kwargs)
         return FakeResponse()
@@ -171,7 +171,8 @@ def test_google_lens_uses_upstream_request_configuration(monkeypatch):
     monkeypatch.setattr(ocr_module, "get_ocr_language", lambda: "ja")
     monkeypatch.setattr(ocr_module.random, "randint", lambda *_args: 42)
     monkeypatch.setattr(ocr_module.random, "randbytes", lambda _size: b"a" * 16)
-    monkeypatch.setattr(ocr_module.curl_cffi, "post", fake_post)
+    monkeypatch.setattr(ocr_module.curl_cffi.Session, "post", fake_post)
+    monkeypatch.setattr(ocr_module.GoogleLens, "_get_locale_metadata", lambda self: ("DE", "Europe/Berlin"))
 
     engine = ocr_module.GoogleLens(lang="ja", get_furigana_sens_from_file=False)
     image = Image.new("RGB", (100, 100), color=(12, 34, 56))
@@ -179,8 +180,6 @@ def test_google_lens_uses_upstream_request_configuration(monkeypatch):
     assert engine(image) == (False, "Unknown error!")
     assert captured["url"] == "https://lensfrontend-pa.googleapis.com/v1/crupload"
     assert captured["headers"] == {
-        "Host": "lensfrontend-pa.googleapis.com",
-        "Connection": "keep-alive",
         "Content-Type": "application/x-protobuf",
         "X-Goog-Api-Key": "AIzaSyDr2UxVnv_U85AbhhY8XSHSIavUW0DC-sY",
         "Sec-Fetch-Mode": "no-cors",
@@ -199,13 +198,14 @@ def test_google_lens_uses_upstream_request_configuration(monkeypatch):
     assert context.client_context.platform == engine._lens_proto_deps["PLATFORM_WEB"]
     assert context.client_context.surface == engine._lens_proto_deps["SURFACE_CHROMIUM"]
     assert context.client_context.locale_context.language == "ja"
-    assert context.client_context.locale_context.region == "Asia/Tokyo"
-    assert context.client_context.locale_context.time_zone == ""
+    assert context.client_context.locale_context.region == "DE"
+    assert context.client_context.locale_context.time_zone == "Europe/Berlin"
     assert context.client_context.app_id == ""
     assert context.client_context.client_filters.filter[0].filter_type == engine._lens_proto_deps["AUTO_FILTER"]
     assert request.objects_request.image_data.payload.image_bytes == ocr_module.pil_image_to_bytes(image)
     assert request.objects_request.image_data.image_metadata.width == 100
     assert request.objects_request.image_data.image_metadata.height == 100
+    engine.close()
 
 
 def test_meiki_does_not_convert_rgb_twice_or_probe_debug_directory(monkeypatch):

@@ -207,7 +207,7 @@ describe("overlay settings window lifecycle", () => {
       path.resolve(process.cwd(), "GSM_Overlay/main.js"),
       "utf8"
     );
-    const start = source.indexOf("function openSettings() {");
+    const start = source.indexOf("let requestedSettingsTab = null;");
     const end = source.indexOf("\nfunction openYomitanSettings", start);
     if (start < 0 || end < 0) {
       throw new Error("Unable to find openSettings in GSM_Overlay/main.js");
@@ -221,7 +221,8 @@ describe("overlay settings window lifecycle", () => {
         once: () => {},
         setWindowOpenHandler: () => {},
         invalidate: () => {},
-        send: () => {},
+        send: vi.fn(),
+        isLoadingMainFrame: () => false,
       };
 
       isDestroyed() { return this.destroyed; }
@@ -265,5 +266,7 @@ describe("overlay settings window lifecycle", () => {
 
     expect(() => module.exports.openSettings()).not.toThrow();
     expect(module.exports.getSettingsWindow()).toBeInstanceOf(FakeBrowserWindow);
+    expect(() => module.exports.openSettings('system')).not.toThrow();
+    expect(module.exports.getSettingsWindow().webContents.send).toHaveBeenCalledWith('select-settings-tab', 'system');
   });
 });

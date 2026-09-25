@@ -499,8 +499,10 @@ def test_manual_hotkeys_identify_keyboard_and_gamepad_activations(monkeypatch, m
 
     gsm_ocr.add_ss_hotkey()
 
-    assert len(manager.keyboard) == 1
-    manager.keyboard[0][1]()
+    manual_keyboard_callback = next(
+        callback for binding_getter, callback in manager.keyboard if binding_getter() == "Ctrl+Shift+M"
+    )
+    manual_keyboard_callback()
     manual_gamepad_callback = next(
         callback for binding_getter, callback in manager.gamepad if binding_getter is gsm_ocr.get_ocr_manual_ocr_gamepad
     )

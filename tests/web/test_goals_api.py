@@ -21,7 +21,7 @@ import uuid
 import flask
 import pytest
 
-from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable, GoalsTable
+from GameSentenceMiner.util.database.db import GameLinesTable, GoalsTable, SQLiteDB
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
@@ -159,6 +159,244 @@ class TestParseAndValidateDates:
 
         with pytest.raises(ValueError):
             parse_and_validate_dates("", "2024-12-31")
+
+
+class TestTimedGoals:
+    @pytest.fixture(autouse=True)
+    def fixed_time(self, monkeypatch):
+        from GameSentenceMiner.web import goals_api
+
+        self.now = datetime.datetime(2025, 6, 2, 10, 30, tzinfo=datetime.timezone.utc)
+        monkeypatch.setattr(goals_api, "get_goal_now", lambda tz: self.now.astimezone(tz), raising=False)
+        monkeypatch.setattr(goals_api, "get_today_in_timezone", lambda tz=None: self.now.date())
+
+    def goal(self, **overrides):
+        return {
+            "id": "timed",
+            "name": "24 hour challenge",
+            "metricType": "characters",
+            "targetValue": 240,
+            "startDate": "2025-06-01T12:30:00Z",
+            "endDate": "2025-06-02T12:30:00Z",
+            **overrides,
+        }
+
+    def seed_line(self, timestamp, text="字", **kwargs):
+        GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="Test Game",
+            line_text=text,
+            timestamp=datetime.datetime.fromisoformat(timestamp).timestamp(),
+            **kwargs,
+        ).save()
+
+    def request_data(self, goal):
+        return {
+            "goal_id": goal["id"],
+            "metric_type": goal["metricType"],
+            "target_value": goal["targetValue"],
+            "start_date": goal["startDate"],
+            "end_date": goal["endDate"],
+            "game_id": goal.get("gameId"),
+            "media_type": goal.get("mediaType", "ALL"),
+        }
+
+    @pytest.mark.parametrize("metric,expected", [("characters", 3), ("cards", 2), ("games", 1)])
+    def test_progress_respects_minutes_and_excludes_outside_lines(self, client, metric, expected):
+        self.seed_line("2025-06-01T12:29:59+00:00", "outside", note_ids=[1])
+        self.seed_line("2025-06-01T12:30:00+00:00", "字字", note_ids=[2])
+        self.seed_line("2025-06-02T10:29:00+00:00", "字", note_ids=[3])
+        self.seed_line("2025-06-02T12:30:00+00:00", "outside", note_ids=[4])
+        goal = self.goal(metricType=metric)
+        response = client.post("/api/goals/progress", json=self.request_data(goal))
+        assert response.status_code == 200
+        assert response.json["progress"] == expected
+        assert response.json["days_in_range"] == 1
+
+    def test_dashboard_daily_history_and_tomorrow_share_exact_window(self, client):
+        goal = self.goal()
+        self.seed_line("2025-06-01T12:29:00+00:00", "字" * 500)
+        self.seed_line("2025-06-01T13:00:00+00:00", "字" * 115)
+        self.seed_line("2025-06-02T10:00:00+00:00", "字" * 20)
+        _seed_rollup(datetime.date(2025, 6, 1), characters=9999)
+        _seed_current_goals([goal])
+        dashboard = client.get("/api/goals/dashboard").json
+        assert dashboard["goal_progress"]["timed"]["progress"] == 135
+        daily = dashboard["today_progress"]["timed"]
+        assert daily["required"] == 125
+        assert daily["progress"] == 20
+        assert daily["has_target"] is True
+        assert client.post("/api/goals/today-progress", json=self.request_data(goal)).json == daily
+
+        from GameSentenceMiner.web.goals_api import get_goals_for_date
+
+        history = get_goals_for_date(datetime.date(2025, 6, 1))
+        assert history["goals"][0]["progress_today"] == 115
+        assert history["goals"][0]["progress_needed"] == 115
+        tomorrow = client.post("/api/goals/tomorrow-requirements", json={"current_goals": [goal]}).json
+        assert tomorrow["requirements"] == []
+
+    @pytest.mark.parametrize("game_scoped", [False, True])
+    def test_same_day_expiry_caps_progress_and_marks_trophy(self, client, game_scoped):
+        _seed_game("game-a")
+        goal = self.goal(
+            startDate="2025-06-02T09:00:00Z",
+            endDate="2025-06-02T10:00:00Z",
+            **({"gameId": "game-a", "metricType": "finish_game"} if game_scoped else {}),
+        )
+        self.seed_line("2025-06-02T09:30:00+00:00", "字" * 20, game_id="game-a")
+        self.seed_line("2025-06-02T10:00:00+00:00", "字" * 500, game_id="game-a")
+        _seed_current_goals([goal])
+        dashboard = client.get("/api/goals/dashboard").json
+        assert dashboard["goal_progress"]["timed"]["progress"] == 20
+        assert dashboard["today_progress"]["timed"]["expired"] is True
+        trophy = client.get("/api/goals/achieved").json["achieved_goals"][0]
+        assert trophy["current_progress"] == 20
+        assert trophy["expired"] is True
+        assert trophy["achieved"] is False
+
+    def test_future_start_later_today_has_no_daily_target(self, client):
+        goal = self.goal(startDate="2025-06-02T11:00:00Z")
+        response = client.post("/api/goals/today-progress", json=self.request_data(goal))
+        assert response.status_code == 200
+        assert response.json["not_started"] is True
+        assert response.json["has_target"] is False
+
+    def test_local_minutes_use_request_timezone(self, client):
+        self.seed_line("2025-06-02T10:10:00+00:00", "字" * 3)
+        self.seed_line("2025-06-02T09:59:00+00:00", "字" * 10)
+        goal = self.goal(startDate="2025-06-02T06:00", endDate="2025-06-02T06:20")
+        response = client.post(
+            "/api/goals/progress", json=self.request_data(goal), headers={"X-Timezone": "America/New_York"}
+        )
+        assert response.status_code == 200
+        assert response.json["progress"] == 3
+
+    @pytest.mark.parametrize("end", ["2025-06-01T12:30:00Z", "2025-06-01T12:29:00Z", "bad"])
+    def test_rejects_invalid_timed_range_when_saving(self, client, end):
+        response = client.post("/api/goals/update", json={"current_goals": [self.goal(endDate=end)]})
+        assert response.status_code == 400
+
+    def test_save_and_reload_preserve_exact_times(self, client):
+        goal = self.goal()
+        assert client.post("/api/goals/update", json={"current_goals": [goal]}).status_code == 200
+        assert client.get("/api/goals/current").json["current_goals"] == [goal]
+
+    def test_hours_and_game_media_filters_use_only_the_interval(self, client):
+        _seed_game("game-a", game_type="Visual Novel")
+        _seed_game("game-b", game_type="Anime")
+        for stamp in ("2025-06-02T10:00:00+00:00", "2025-06-02T10:01:00+00:00"):
+            self.seed_line(stamp, "字" * 120, game_id="game-a")
+        self.seed_line("2025-06-02T09:59:00+00:00", "字" * 120, game_id="game-a")
+        self.seed_line("2025-06-02T10:01:00+00:00", "字" * 50, game_id="game-b")
+        goal = self.goal(
+            startDate="2025-06-02T10:00:00Z",
+            endDate="2025-06-02T10:02:00Z",
+            metricType="hours",
+            mediaType="Visual Novel",
+        )
+        assert client.post("/api/goals/progress", json=self.request_data(goal)).json["progress"] == 0.02
+        goal.update(metricType="characters", gameId="game-b")
+        assert client.post("/api/goals/progress", json=self.request_data(goal)).json["progress"] == 50
+
+    def test_timed_media_filter_skips_lines_without_a_game(self, client, monkeypatch):
+        _seed_game("game-a", game_type="Visual Novel")
+        self.seed_line("2025-06-02T10:10:00+00:00", "字" * 3, game_id="game-a")
+        GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="",
+            game_id="",
+            line_text="字" * 7,
+            timestamp=datetime.datetime.fromisoformat("2025-06-02T10:12:00+00:00").timestamp(),
+        ).save()
+
+        original_lookup = GamesTable.get_by_game_line
+
+        def lookup_with_game(cls, line):
+            assert line.game_id or line.game_name, "Unidentified lines cannot have a media type"
+            return original_lookup(line)
+
+        monkeypatch.setattr(GamesTable, "get_by_game_line", classmethod(lookup_with_game))
+        goal = self.goal(
+            startDate="2025-06-02T10:00:00Z",
+            endDate="2025-06-02T11:00:00Z",
+            mediaType="Visual Novel",
+        )
+
+        response = client.post("/api/goals/progress", json=self.request_data(goal))
+        assert response.status_code == 200
+        assert response.json["progress"] == 3
+
+    def test_imported_daily_totals_require_complete_days(self, client, _in_memory_db, monkeypatch):
+        from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
+
+        monkeypatch.setattr(ThirdPartyStatsTable, "_db", _in_memory_db)
+        ThirdPartyStatsTable.set_db(_in_memory_db)
+        ThirdPartyStatsTable(date="2025-06-01", characters_read=500, source="manual").save()
+        partial = self.goal()
+        assert client.post("/api/goals/progress", json=self.request_data(partial)).json["progress"] == 0
+        whole = self.goal(startDate="2025-06-01T00:00:00Z", endDate="2025-06-02T00:00:00Z")
+        assert client.post("/api/goals/progress", json=self.request_data(whole)).json["progress"] == 500
+
+    def test_mature_reviews_are_bounded_to_minutes_and_deck(self, client, _in_memory_db, monkeypatch):
+        from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable, AnkiReviewsTable
+
+        for table in (AnkiCardsTable, AnkiReviewsTable):
+            monkeypatch.setattr(table, "_db", _in_memory_db)
+            table.set_db(_in_memory_db)
+        for card_id, stamp, deck in [
+            (1, "2025-06-02T09:59:00+00:00", "Japanese"),
+            (2, "2025-06-02T10:01:00+00:00", "Japanese"),
+            (3, "2025-06-02T10:01:00+00:00", "Other"),
+        ]:
+            AnkiCardsTable(card_id=card_id, deck_name=deck, interval=21).save()
+            AnkiReviewsTable(
+                review_id=str(card_id),
+                card_id=card_id,
+                review_time=int(datetime.datetime.fromisoformat(stamp).timestamp() * 1000),
+            ).save()
+        goal = self.goal(metricType="mature_cards", startDate="2025-06-02T10:00:00Z")
+        data = self.request_data(goal)
+        data["goals_settings"] = {"ankiConnect": {"deckName": "Japanese"}}
+        assert client.post("/api/goals/progress", json=data).json["progress"] == 1
+
+    def test_projection_uses_fractional_days_and_stops_at_deadline(self, client):
+        goal = self.goal()
+        self.seed_line("2025-06-02T10:00:00+00:00", "字" * 100)
+        _seed_current_goals([goal])
+        response = client.post("/api/goals/projection", json=self.request_data(goal))
+        assert response.status_code == 200
+        projection = response.json
+        assert projection["current"] == 100
+        assert projection["days_until_target"] == pytest.approx(2 / 24)
+        assert projection == client.get("/api/goals/dashboard").json["projections"]["timed"]
+
+    def test_tomorrow_requirement_uses_only_remaining_hours(self, client):
+        goal = self.goal(startDate="2025-06-02T10:00:00Z", endDate="2025-06-03T10:00:00Z")
+        self.seed_line("2025-06-02T10:10:00+00:00", "字" * 30)
+        result = client.post("/api/goals/tomorrow-requirements", json={"current_goals": [goal]}).json
+        assert result["requirements"][0]["required_tomorrow"] == 210
+
+    def test_overlay_expiry_uses_exact_instant(self):
+        from GameSentenceMiner.web.goals_api import _get_goal_value
+        from GameSentenceMiner.web.live_goals import _goal_is_active
+
+        goal = self.goal(endDate="2025-06-02T10:30:00Z")
+        assert _goal_is_active(goal, "2025-06-02", _get_goal_value, self.now.timestamp() - 1)
+        assert not _goal_is_active(goal, "2025-06-02", _get_goal_value, self.now.timestamp())
+
+    def test_legacy_days_and_dst_window(self):
+        import pytz
+
+        from GameSentenceMiner.web.goal_windows import parse_goal_window
+
+        tz = pytz.timezone("America/New_York")
+        start, end = parse_goal_window("2025-06-02", "2025-06-02", tz)
+        assert (end - start).total_seconds() == 86400
+        start, end = parse_goal_window("2025-03-08T12:00:00-05:00", "2025-03-09T13:00:00-04:00", tz)
+        assert (end - start).total_seconds() == 86400
+        with pytest.raises(ValueError):
+            parse_goal_window("2025-03-09T02:30", "2025-03-09T04:30", tz)
 
 
 class TestValidateMetricType:

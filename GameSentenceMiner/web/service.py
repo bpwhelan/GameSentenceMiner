@@ -16,6 +16,7 @@ from GameSentenceMiner.util.config.configuration import (
 )
 from GameSentenceMiner.util.gsm_utils import make_unique_file_name, sanitize_filename
 from GameSentenceMiner.util.media import ffmpeg
+from GameSentenceMiner.util.media.screenshot_selection import ScreenshotSelectionResult
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
 from GameSentenceMiner.util.media.ffmpeg import get_video_timings
 from GameSentenceMiner.util.platform import notification
@@ -291,7 +292,10 @@ def create_media_for_lines(video_path=""):
     if config.screenshot.enabled:
         try:
             screenshot = ffmpeg.get_screenshot_for_line(video_path, primary_line, True)
-            if screenshot and os.path.isfile(screenshot):
+            if isinstance(screenshot, ScreenshotSelectionResult):
+                for item in screenshot.items:
+                    shutil.copy(item.path, word_path)
+            elif screenshot and os.path.isfile(screenshot):
                 shutil.copy(screenshot, word_path)
         except Exception as e:
             logger.error(f"Failed to create screenshot for media folder: {e}")
@@ -467,9 +471,21 @@ def handle_texthooker_button(video_path=""):
             gsm_state.line_for_screenshot = None
             gsm_state.previous_line_for_screenshot = line
             screenshot = ffmpeg.get_screenshot_for_line(video_path, line, True)
+            if not screenshot:
+                gsm_state.anki_note_for_screenshot = None
+                return
             if gsm_state.anki_note_for_screenshot:
                 gsm_state.anki_note_for_screenshot = None
-                encoded_image = ffmpeg.process_image(screenshot)
+                encoded_image = (
+                    screenshot
+                    if isinstance(screenshot, ScreenshotSelectionResult)
+                    else ffmpeg.process_image(screenshot)
+                )
+                display_path = (
+                    encoded_image.items[0].path
+                    if isinstance(encoded_image, ScreenshotSelectionResult)
+                    else encoded_image
+                )
                 if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
                     last_note = anki.get_last_anki_card()
                     if last_note:
@@ -478,11 +494,13 @@ def handle_texthooker_button(video_path=""):
                         if get_config().features.open_anki_edit:
                             notification.open_anki_card(last_note.noteId)
                     else:
-                        notification.send_screenshot_saved(encoded_image)
+                        notification.send_screenshot_saved(display_path)
                 else:
-                    notification.send_screenshot_saved(encoded_image)
+                    notification.send_screenshot_saved(display_path)
             else:
-                os.startfile(screenshot)
+                os.startfile(
+                    screenshot.items[0].path if isinstance(screenshot, ScreenshotSelectionResult) else screenshot
+                )
             return
     except Exception as e:
         logger.exception(f"Error Playing Audio/Video: {e}")

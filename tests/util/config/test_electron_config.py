@@ -366,11 +366,13 @@ def test_get_ocr_hotkeys_preserve_explicit_empty_values(monkeypatch):
                 "manualOcrHotkey": "",
                 "menuOcrHotkey": "",
                 "areaSelectOcrHotkey": "",
+                "addAreaOcrHotkey": "",
                 "wholeWindowOcrHotkey": "",
                 "globalPauseHotkey": "",
                 "manualOcrGamepad": "",
                 "menuOcrGamepad": "",
                 "areaSelectOcrGamepad": "",
+                "addAreaOcrGamepad": "",
                 "wholeWindowOcrGamepad": "",
                 "globalPauseGamepad": "",
             }
@@ -381,6 +383,8 @@ def test_get_ocr_hotkeys_preserve_explicit_empty_values(monkeypatch):
     assert electron_config.get_ocr_manual_ocr_hotkey() == ""
     assert electron_config.get_ocr_menu_ocr_hotkey() == ""
     assert electron_config.get_ocr_area_select_ocr_hotkey() == ""
+    assert electron_config.get_ocr_add_area_ocr_hotkey() == ""
+    assert electron_config.get_ocr_add_area_ocr_gamepad() == ""
     assert electron_config.get_ocr_whole_window_ocr_hotkey() == ""
     assert electron_config.get_ocr_global_pause_hotkey() == ""
     assert electron_config.get_ocr_manual_ocr_gamepad() == ""
@@ -397,6 +401,8 @@ def test_get_ocr_hotkeys_use_defaults_when_missing(monkeypatch):
     assert electron_config.get_ocr_manual_ocr_hotkey() == "Ctrl+Shift+M"
     assert electron_config.get_ocr_menu_ocr_hotkey() == "Ctrl+Shift+G"
     assert electron_config.get_ocr_area_select_ocr_hotkey() == "Ctrl+Shift+O"
+    assert electron_config.get_ocr_add_area_ocr_hotkey() == "Alt+Shift+N"
+    assert electron_config.get_ocr_add_area_ocr_gamepad() == ""
     assert electron_config.get_ocr_whole_window_ocr_hotkey() == "Ctrl+Shift+W"
     assert electron_config.get_ocr_global_pause_hotkey() == "Ctrl+Shift+P"
     assert electron_config.get_ocr_manual_ocr_gamepad() == ""
@@ -404,6 +410,17 @@ def test_get_ocr_hotkeys_use_defaults_when_missing(monkeypatch):
     assert electron_config.get_ocr_area_select_ocr_gamepad() == ""
     assert electron_config.get_ocr_whole_window_ocr_gamepad() == ""
     assert electron_config.get_ocr_global_pause_gamepad() == ""
+
+
+def test_add_area_gamepad_binding_respects_gamepad_toggle(monkeypatch):
+    store = _DummyStore({"OCR": {"addAreaOcrHotkey": "Alt+N", "addAreaOcrGamepad": "3"}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+    assert electron_config.get_ocr_add_area_ocr_hotkey() == "Alt+N"
+    assert electron_config.get_ocr_gamepad_hotkeys_enabled() is True
+    assert electron_config.get_ocr_add_area_ocr_gamepad() == "3"
+    store.data["OCR"]["gamepadHotkeysEnabled"] = False
+    assert electron_config.get_ocr_add_area_ocr_gamepad() == ""
+    assert store.data["OCR"]["addAreaOcrGamepad"] == "3"
 
 
 def test_ocr_gamepad_hotkeys_infer_enabled_for_legacy_bindings(monkeypatch):

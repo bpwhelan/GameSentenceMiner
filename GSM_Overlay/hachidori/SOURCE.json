@@ -1,0 +1,23 @@
+{
+  "name": "Hachidori",
+  "repository": "https://github.com/bee-san/hachidori",
+  "commit": "23710ccd0dfaaea5ceb97dabe3a50aede1822c42",
+  "release": {
+    "tag": "0.1.6",
+    "id": 394352215,
+    "publishedAt": "2026-09-23T06:34:02Z",
+    "url": "https://github.com/bee-san/hachidori/releases/tag/0.1.6"
+  },
+  "sourceDirectory": "extension",
+  "license": "GPL-3.0-or-later",
+  "modifications": [
+    "manifest.json includes a fixed public key so the GSM-hosted extension keeps one stable ID.",
+    "overlay-mode.js enables overlay mode: hover lookups, no word highlight, and no first-run setup page.",
+    "README.md is left out.",
+    "gsm/ contains GSM-owned bridge and navigation modules; content.js has generated integration hooks."
+  ],
+  "gsmIntegration": {
+    "version": 1,
+    "sha256": "95d609271387709a44ab65ac7181f4af19ec024b2418d08b28d578ad16698881"
+  }
+}

@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
-from typing import TYPE_CHECKING
 
+from GameSentenceMiner.ai.prompts.builder import PromptBuilder
+from GameSentenceMiner.ai.prompts.presets import build_study_prompt
+from GameSentenceMiner.ai.prompts.templates import build_translation_prompt
+from GameSentenceMiner.ui.config.ai_setup import AISetupGuide
 from GameSentenceMiner.util.docs import DOCS_URLS
+
 from ..labels import LabelColor
 
 if TYPE_CHECKING:
@@ -25,13 +32,11 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     tabs_i18n = i18n.get("tabs", {})
 
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "ai", "enabled"),
-        window.ai_enabled_check,
-    )
-    layout.addRow(
         window._create_labeled_widget(tabs_i18n, "ai", "provider"),
         window.ai_provider_combo,
     )
+    window.ai_setup_guide = AISetupGuide(window)
+    layout.addRow(window.ai_setup_guide)
     layout.addRow(
         QLabel("Documentation:"),
         window._create_docs_links_widget([("AI Guide", DOCS_URLS["ai_features"])]),
@@ -40,6 +45,15 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     window.gemini_settings_group.setTitle("Google Gemini Settings")
     window.gemini_settings_group.setStyleSheet(window._get_group_box_style())
     gemini_layout = QFormLayout()
+    gemini_i18n = tabs_i18n.get("ai", {})
+    recommendations = QLabel(
+        gemini_i18n.get(
+            "gemini_recommendations",
+            "Recommended free-tier models: Gemini 3.5 Flash-Lite and Gemma 4.",
+        )
+    )
+    recommendations.setWordWrap(True)
+    gemini_layout.addRow(recommendations)
 
     gemini_model_widget = QWidget()
     gemini_model_layout = QHBoxLayout(gemini_model_widget)
@@ -64,6 +78,16 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.gemini_backup_model_combo,
     )
+    show_other_i18n = gemini_i18n.get("gemini_show_other_models", {})
+    window.gemini_show_other_models_check.setText(show_other_i18n.get("label", "Show other API models"))
+    window.gemini_show_other_models_check.setToolTip(
+        show_other_i18n.get(
+            "tooltip",
+            "Show other text models available through the API. Pricing varies by model. Your selected models stay visible.",
+        )
+    )
+    window.gemini_show_other_models_check.toggled.connect(lambda _checked: window._update_gemini_model_combos())
+    gemini_layout.addRow(window.gemini_show_other_models_check)
     gemini_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "ai", "gemini_api_key"),
         window.gemini_api_key_edit,
@@ -103,6 +127,22 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     window.groq_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
     window.groq_settings_group.setLayout(groq_layout)
     layout.addRow(window.groq_settings_group)
+
+    window.zai_settings_group.setTitle("Z.ai Settings")
+    window.zai_settings_group.setStyleSheet(window._get_group_box_style())
+    zai_layout = QFormLayout()
+    zai_layout.addRow("Model", window.zai_model_combo)
+    zai_layout.addRow("Backup model (optional)", window.zai_backup_model_combo)
+    zai_layout.addRow("API key", window.zai_api_key_edit)
+    window.zai_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+    window.zai_api_key_edit.setPlaceholderText("Paste the key from Z.ai → API Keys")
+    note = QLabel(
+        "The pricing table lists Flash models as free, but requests may be slow or unavailable. Other models, including FlashX, may incur charges. No backup is enabled by default."
+    )
+    note.setWordWrap(True)
+    zai_layout.addRow(note)
+    window.zai_settings_group.setLayout(zai_layout)
+    layout.addRow(window.zai_settings_group)
 
     window.openai_settings_group.setTitle("OpenAI-Compatible API Settings")
     window.openai_settings_group.setStyleSheet(window._get_group_box_style())
@@ -187,6 +227,8 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     window.ollama_settings_group.setTitle("Ollama Settings")
     window.ollama_settings_group.setStyleSheet(window._get_group_box_style())
     ollama_layout = QFormLayout()
+    window.ollama_model_combo.setEditable(True)
+    window.ollama_backup_model_combo.setEditable(True)
 
     ollama_model_widget = QWidget()
     ollama_model_layout = QHBoxLayout(ollama_model_widget)
@@ -258,6 +300,12 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     window.lm_studio_settings_group.setLayout(lm_studio_layout)
     layout.addRow(window.lm_studio_settings_group)
 
+    layout.addRow(window.ai_setup_guide.test_button)
+    layout.addRow(window.ai_setup_guide.status)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "enabled"),
+        window.ai_enabled_check,
+    )
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "ai", "anki_field"),
         window.ai_anki_field_edit,
@@ -312,6 +360,41 @@ def build_ai_prompts_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
+    intro = QLabel(
+        "Choose a task for AI output added to Anki. The text feed's Explain menu and the overlay's sentence-help menu let you choose a task for each request. Translation buttons keep their translation format."
+    )
+    intro.setWordWrap(True)
+    layout.addRow(intro)
+    layout.addRow("Prompt preset", window.ai_prompt_preset_combo)
+    customize = QPushButton("Copy selected preset to custom prompt")
+
+    def copy_preset():
+        preset = window.ai_prompt_preset_combo.currentData()
+        if not preset:
+            return
+        prompt = (
+            build_translation_prompt("{native_language}")
+            if preset == "translation"
+            else build_study_prompt(preset, "{native_language}")
+        )
+        window.custom_prompt_textedit.setPlainText(prompt)
+        window.use_canned_translation_prompt_check.setChecked(False)
+        window.use_canned_context_prompt_check.setChecked(False)
+        window.ai_prompt_preset_combo.setCurrentIndex(0)
+
+    customize.clicked.connect(copy_preset)
+    layout.addRow(customize)
+
+    def update_prompt_controls():
+        legacy = not window.ai_prompt_preset_combo.currentData()
+        window.use_canned_translation_prompt_check.setEnabled(legacy)
+        window.use_canned_context_prompt_check.setEnabled(legacy)
+        window.custom_prompt_textedit.setEnabled(legacy)
+        customize.setEnabled(not legacy)
+
+    window.ai_prompt_preset_combo.currentIndexChanged.connect(update_prompt_controls)
+    update_prompt_controls()
+
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "ai", "use_canned_translation"),
         window.use_canned_translation_prompt_check,
@@ -333,12 +416,26 @@ def build_ai_prompts_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     cfp_layout = QVBoxLayout(custom_full_prompt_widget)
     cfp_layout.setContentsMargins(0, 0, 0, 0)
     keys_label = QLabel(
-        "Available Keys: {game_title}, {character_context}, {dialogue_context}, {prompt_to_use}, {sentence}"
+        "Available keys: {game_title}, {character_context}, {dialogue_context}, {prompt_to_use}, {sentence}, {native_language}. The full template must include {sentence}. Literal JSON braces are supported."
     )
     keys_label.setWordWrap(True)
     keys_label.setStyleSheet("color: #888;")
     cfp_layout.addWidget(keys_label)
     cfp_layout.addWidget(window.custom_full_prompt_textedit)
+    window.ai_prompt_validation_label = QLabel()
+    window.ai_prompt_validation_label.setWordWrap(True)
+    cfp_layout.addWidget(window.ai_prompt_validation_label)
+
+    def validate_template():
+        template = window.custom_full_prompt_textedit.toPlainText().strip()
+        window.ai_prompt_validation_label.setText(
+            "Add {sentence} to this template so the AI receives the sentence."
+            if template and "{sentence}" not in template
+            else ""
+        )
+
+    window.custom_full_prompt_textedit.textChanged.connect(validate_template)
+    validate_template()
     # prompt_help_button = QPushButton("Open Prompt Template Builder")
     # prompt_help_button.clicked.connect(window.show_prompt_help_dialog)
     # cfp_layout.addWidget(prompt_help_button)
@@ -351,6 +448,37 @@ def build_ai_prompts_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         custom_full_prompt_widget,
     )
+
+    sample = QLineEdit("昨日は忙しかったけど、今日は少し休めそうだ。")
+    sample.setProperty("_gsm_autosave_connected", True)
+    preview = QTextEdit()
+    preview.setReadOnly(True)
+    preview.setProperty("_gsm_autosave_connected", True)
+    preview.setMinimumHeight(160)
+    preview_button = QPushButton("Preview prompt (no API request)")
+
+    def show_preview():
+        try:
+            rendered, _ = PromptBuilder(window.settings.general.get_native_language_name()).build(
+                lines=[],
+                sentence=sample.text(),
+                current_line=None,
+                game_title="Example game",
+                dialogue_context_length=0,
+                use_canned_translation_prompt=window.use_canned_translation_prompt_check.isChecked(),
+                use_canned_context_prompt=window.use_canned_context_prompt_check.isChecked(),
+                custom_prompt=window.custom_prompt_textedit.toPlainText(),
+                prompt_preset=window.ai_prompt_preset_combo.currentData() or "",
+                custom_full_prompt=window.custom_full_prompt_textedit.toPlainText(),
+            )
+            preview.setPlainText(rendered)
+        except ValueError as exc:
+            preview.setPlainText(str(exc))
+
+    preview_button.clicked.connect(show_preview)
+    layout.addRow("Sample sentence", sample)
+    layout.addRow(preview_button)
+    layout.addRow(preview)
 
     layout.addRow(window._create_reset_button("ai", window._create_ai_tab))
     return widget

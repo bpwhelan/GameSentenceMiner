@@ -133,6 +133,7 @@ export function buildTextFeedSessionSyncPlan(
 		}
 	}
 
+	const firstSyncedSequence = syncedLines[0]?.streamSequence;
 	let insertionIndex = -1;
 	const retainedLines: LineItem[] = [];
 	for (const line of existingLineData) {
@@ -147,7 +148,12 @@ export function buildTextFeedSessionSyncPlan(
 			continue;
 		}
 
-		if (isCurrentSessionLine && insertionIndex < 0) {
+		// Unreturned v2 lines may be saved history from before the replay window.
+		// Keep that history (including older lines without sequences) before the snapshot.
+		const isOlderPersistedLine =
+			firstSyncedSequence !== undefined &&
+			(line.streamSequence === undefined || line.streamSequence < firstSyncedSequence);
+		if (isCurrentSessionLine && !isOlderPersistedLine && insertionIndex < 0) {
 			// This line arrived after the sync request. Restored history belongs before it.
 			insertionIndex = retainedLines.length;
 		}

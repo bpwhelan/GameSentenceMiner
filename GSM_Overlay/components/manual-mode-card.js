@@ -373,9 +373,10 @@
   const CARD_HTML = `
     <h4>Push to Show</h4>
     <label>
-      <span class="label-text">Only Show Overlay on Hotkey (Enabled)</span>
+      <span class="label-text">Manual Mode (Enabled)</span>
       <input type="checkbox" id="manualMode" />
     </label>
+    <div class="hotkey-info">Activate with the hotkey or by entering gamepad/keyboard navigation. Navigation uses its own hold/toggle binding in Gamepad settings.</div>
     <label>
       <span class="label-text">Push to Show Type</span>
       <select id="manualModeType">
@@ -386,10 +387,10 @@
     <label>
       <span class="label-text">
         Inactive Behavior
-        <div class="hotkey-info">Choose what happens before the manual hotkey activates text interaction</div>
+        <div class="hotkey-info">Hide text and navigation highlights until activation, or keep text visible with interaction disabled. Leaving navigation restores this behavior unless the manual hotkey is still active.</div>
       </span>
       <select id="manualModeInactiveBehavior">
-        <option value="hide-overlay">Hide overlay until hotkey</option>
+        <option value="hide-overlay">Hide overlay until activation</option>
         <option value="disable-interaction">Keep overlay visible, disable interaction</option>
       </select>
     </label>

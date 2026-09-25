@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function setup(options = {}) {
   const context = vm.createContext({ module: { exports: {} }, window: {}, console: { log() {} } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../dictionary_navigation.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../gamepad.js'), 'utf8'), context);
   const handler = Object.create(context.module.exports.prototype);
   Object.assign(handler, {
@@ -37,6 +38,240 @@ function setup(options = {}) {
   ] };
   return { handler, context, confirmations: () => confirmations };
 }
+
+function setupActivation(options = {}) {
+  const fixture = setup({ activationMode: 'modifier', initialPosition: 'first-new', ...options });
+  const { handler, context } = fixture;
+  Object.assign(handler, {
+    isActive: false, virtualMouse: {}, navigationAwayHideToken: 0,
+    tokenCacheByBlock: new Map(), pendingTokenizationByBlock: new Map(),
+    pendingTokenizationStartedWhileNavigationActive: new Map(),
+  });
+  context.document = { querySelectorAll: () => handler.textBlocks };
+  context.window.dispatchEvent = () => {};
+  context.CustomEvent = class {};
+  context.setTimeout = () => 1;
+  for (const method of ['publishNavigationActiveState', 'rememberCurrentSelectionSnapshot',
+    'initializeVirtualMousePosition', 'syncVirtualMouseToCurrentSelection', 'showModeIndicator',
+    'syncOverlayFocusState', 'releaseOverlayFocus', 'hideVisuals', 'clearCursorPosition',
+    'closeDictionaryPopups']) {
+    handler[method] = () => {};
+  }
+  return fixture;
+}
+
+function setupJitenBindings(options = {}) {
+  const fixture = setup({
+    activationMode: 'toggle', controllerEnabled: true,
+    prevJitenWordButton: 'LB', nextJitenWordButton: 'RB', ...options,
+  });
+  const { handler } = fixture;
+  Object.assign(handler, {
+    isActive: true, toggleModeActive: true, virtualMouse: {},
+    buttonStates: new Map(), gamepads: new Map(), repeatTimers: new Map(),
+  });
+  handler.updateVirtualMouseCursor = () => {};
+  handler.refreshButtonBindings();
+  fixture.press = button => {
+    handler.onButtonEvent({ device: 'pad', button, pressed: true });
+    handler.onButtonEvent({ device: 'pad', button, pressed: false });
+  };
+  return fixture;
+}
+
+function setupJitenReadingOrder(blockLines, options = {}) {
+  const fixture = setupJitenBindings(options);
+  const { handler, context } = fixture;
+  handler.syncVirtualMouseToCurrentSelection = () => {};
+  const texts = ['猫は犬を見る', '鳥も空を見る', '魚は海を泳ぐ'];
+  handler.textBlocks = blockLines.map(lineIndices => {
+    const chars = lineIndices.flatMap(lineIndex => Array.from(texts[lineIndex], (textContent, offset) => ({
+      textContent, isConnected: true, dataset: { lineIndex: String(lineIndex) },
+      // Deliberately offset the lines: the closest word on screen is not
+      // necessarily the next word in the source text.
+      getBoundingClientRect: () => ({ left: 500 - lineIndex * 150 + offset * 20,
+        top: lineIndex * 40, width: 20, height: 20 }),
+    })));
+    return { chars, isConnected: true, querySelectorAll: () => chars };
+  });
+  handler.refreshCharacters = () => {
+    handler.characters = handler.textBlocks[handler.currentBlockIndex].chars;
+    handler.buildLines();
+  };
+  handler.currentBlockIndex = blockLines.findIndex(lines => lines.includes(0));
+  handler.refreshCharacters();
+  handler.currentCursorIndex = handler.characters.findIndex(char => char.dataset.lineIndex === '0');
+  context.window.GsmJitenHighlight.getNavigationTokens = () => texts.flatMap((text, lineIndex) => [
+    { lineIndex, text, start: 0, end: 1, states: [lineIndex === 1 ? 'young' : 'new'], iPlusOne: lineIndex === 1 },
+    { lineIndex, text, start: 2, end: 3, states: ['mature'] },
+    { lineIndex, text, start: 4, end: 6, states: ['new'] },
+  ]);
+  fixture.selection = () => {
+    const anchor = handler.getCurrentAnchorCharIndex();
+    const lineIndex = handler.characters[anchor].dataset.lineIndex;
+    const lineOffset = handler.characters.slice(0, anchor).filter(char => char.dataset.lineIndex === lineIndex).length;
+    return [Number(lineIndex), lineOffset];
+  };
+  return fixture;
+}
+
+for (const [layout, blockLines] of [
+  ['interleaved blocks', [[0, 2], [1]]],
+  ['reordered lines inside a block', [[0, 2, 1]]],
+  ['reordered block containers', [[2], [1], [0]]],
+]) {
+  test(`Jiten word bindings follow source reading order with ${layout}`, () => {
+    const { press, selection } = setupJitenReadingOrder(blockLines);
+    const next = [];
+    for (let i = 0; i < 6; i++) {
+      press(5);
+      next.push(selection());
+    }
+    assert.deepEqual(next, [[0, 4], [1, 0], [1, 4], [2, 0], [2, 4], [0, 0]]);
+    const previous = [];
+    for (let i = 0; i < 6; i++) {
+      press(4);
+      previous.push(selection());
+    }
+    assert.deepEqual(previous, [[2, 4], [2, 0], [1, 4], [1, 0], [0, 4], [0, 0]]);
+  });
+}
+
+test('Jiten jumps from a known token keep reading order and respect the wrap scope', () => {
+  const { handler, press, selection } = setupJitenReadingOrder([[0, 2, 1]], { horizontalWrap: 'block' });
+  handler.currentCursorIndex = 2;
+  press(5);
+  assert.deepEqual(selection(), [0, 4]);
+  press(5);
+  assert.deepEqual(selection(), [1, 0]);
+  handler.config.horizontalWrap = 'line';
+  press(4);
+  assert.deepEqual(selection(), [1, 4]);
+  press(5);
+  assert.deepEqual(selection(), [1, 0]);
+});
+
+test('held Jiten jumps and the first-new starting position use source reading order', () => {
+  const { handler, selection } = setupJitenReadingOrder([[2, 0, 1]], {
+    holdNavigation: 'new', initialPosition: 'first-new',
+  });
+  handler.applyPreferredEntryPosition();
+  assert.deepEqual(selection(), [0, 0]);
+  handler.navigateCursorRight(true);
+  assert.deepEqual(selection(), [0, 4]);
+  handler.navigateCursorRight(true);
+  assert.deepEqual(selection(), [1, 4]);
+});
+
+test('Jiten word bindings skip known words, include i+1, and wrap in both directions', () => {
+  const { handler, context, press, confirmations } = setupJitenBindings();
+  const tokens = context.window.GsmJitenHighlight.getNavigationTokens();
+  tokens[3].iPlusOne = true;
+  context.window.GsmJitenHighlight.getNavigationTokens = () => tokens;
+  const positions = [];
+  for (const button of [5, 5, 5, 4, 4]) {
+    press(button);
+    positions.push([handler.currentBlockIndex, handler.getCurrentAnchorCharIndex()]);
+  }
+  assert.deepEqual(positions, [[0, 4], [1, 0], [0, 0], [1, 0], [0, 4]]);
+  assert.equal(confirmations(), 5);
+  assert.equal(handler.config.holdNavigation, 'repeat');
+  assert.equal(handler.lineNavPrefersCharacters, true);
+});
+
+test('Jiten word bindings are disabled by default and can be cleared after assignment', () => {
+  const { handler, press, confirmations } = setupJitenBindings({
+    prevJitenWordButton: undefined, nextJitenWordButton: undefined,
+  });
+  for (const key of ['prevJitenWordButton', 'nextJitenWordButton']) {
+    assert.equal(handler.buttonBindings[key].disabled, true);
+    handler.config[key] = key === 'prevJitenWordButton' ? 'LB' : 'RB';
+  }
+  handler.refreshButtonBindings();
+  press(5);
+  assert.equal(handler.currentCursorIndex, 4);
+  handler.config.prevJitenWordButton = 'Disabled';
+  handler.config.nextJitenWordButton = -1;
+  handler.refreshButtonBindings();
+  press(4);
+  press(5);
+  assert.equal(handler.currentCursorIndex, 4);
+  assert.equal(confirmations(), 1);
+});
+
+test('Jiten word bindings respect navigation activation and input suppression', () => {
+  const { handler, press, confirmations } = setupJitenBindings();
+  handler.toggleModeActive = false;
+  press(5);
+  assert.equal(handler.currentCursorIndex, 0);
+  handler.toggleModeActive = true;
+  handler.config.inputSuppressed = true;
+  press(5);
+  assert.equal(handler.currentCursorIndex, 0);
+  handler.config.inputSuppressed = false;
+  handler.dictionaryPopupVisible = true;
+  press(5);
+  assert.equal(handler.currentCursorIndex, 4);
+  assert.equal(confirmations(), 1);
+});
+
+test('Jiten word bindings support modifier combos', () => {
+  const { handler, press } = setupJitenBindings({
+    activationMode: 'modifier', modifierButton: 'LB', nextJitenWordButton: 'LB + RB',
+    prevJitenWordButton: -1,
+  });
+  press(5);
+  assert.equal(handler.currentCursorIndex, 0);
+  handler.onButtonEvent({ device: 'pad', button: 4, pressed: true });
+  press(5);
+  assert.equal(handler.currentCursorIndex, 4);
+});
+
+test('Jiten word bindings honor line and block wrapping', () => {
+  const { handler, press } = setupJitenBindings({ horizontalWrap: 'block' });
+  handler.currentCursorIndex = 4;
+  press(5);
+  assert.equal(handler.currentBlockIndex, 0);
+  assert.equal(handler.currentCursorIndex, 0);
+  handler.config.horizontalWrap = 'line';
+  handler.lines = [{ indices: [0, 1, 2] }, { indices: [3, 4, 5] }];
+  handler.currentCursorIndex = 3;
+  press(5);
+  assert.equal(handler.currentCursorIndex, 4);
+  press(4);
+  assert.equal(handler.currentCursorIndex, 4);
+});
+
+test('Jiten word bindings stay put for missing, stale, or all-known parse results', () => {
+  const { handler, context, press, confirmations } = setupJitenBindings();
+  for (const tokens of [[],
+    [{ lineIndex: 0, text: '古い文章', start: 0, end: 1, states: ['new'] }],
+    [{ lineIndex: 0, text: '猫は犬を見る', start: 2, end: 3, states: ['mature'] }],
+  ]) {
+    context.window.GsmJitenHighlight.getNavigationTokens = () => tokens;
+    press(5);
+    press(4);
+    assert.equal(handler.currentCursorIndex, 0);
+  }
+  delete context.window.GsmJitenHighlight;
+  press(5);
+  assert.equal(handler.currentCursorIndex, 0);
+  assert.equal(confirmations(), 0);
+});
+
+test('optional keyboard Jiten word bindings use the same navigation', () => {
+  const { handler } = setupJitenBindings({
+    keyboardPrevJitenWordKey: 'Q', keyboardNextJitenWordKey: 'E',
+  });
+  handler.pressedKeys = new Set();
+  handler.keyboardModifiers = {};
+  handler.refreshKeyboardBindings();
+  assert.ok(handler.buildKeyboardCaptureAllowlist().includes('KeyE'));
+  handler.onKeyboardKeyDown('KeyE');
+  assert.equal(handler.currentCursorIndex, 4);
+  handler.onKeyboardKeyDown('KeyQ');
+  assert.equal(handler.currentCursorIndex, 0);
+});
 
 test('repeat acceleration ramps smoothly, is bounded, and leaves the default timing intact', () => {
   const { handler } = setup();
@@ -125,6 +360,97 @@ test('preferred positions use navigable units and first-new falls back to the st
   assert.equal(handler.currentCursorIndex, 0);
 });
 
+test('first-new resumes the moved cursor through repeated navigation activations', () => {
+  const { handler } = setupActivation({ holdNavigation: 'new' });
+  handler.currentCursorIndex = 5;
+  handler.activateNavigation();
+  assert.equal(handler.currentCursorIndex, 0);
+  handler.navigateCursorRight(true);
+  assert.equal(handler.currentCursorIndex, 4);
+  handler.navigateCursorRight();
+  for (const expectedIndex of [5, 4, 3]) {
+    handler.deactivateNavigation();
+    handler.deactivateNavigation();
+    handler.activateNavigation();
+    assert.equal(handler.currentBlockIndex, 0);
+    assert.equal(handler.currentCursorIndex, expectedIndex);
+    handler.navigateCursorLeft();
+  }
+});
+
+test('first-new restores the exact character after an inactive redraw and late tokens', () => {
+  const { handler } = setupActivation({ holdNavigation: 'new' });
+  handler.tokenMode = true;
+  handler.activateNavigation();
+  handler.navigateCursorRight(true);
+  handler.deactivateNavigation();
+  handler.textBlocks[0] = {
+    ...handler.textBlocks[0],
+    chars: handler.characters.map(char => ({ ...char })),
+    querySelectorAll() { return this.chars; },
+  };
+  handler.currentCursorIndex = 0;
+  handler.lineNavPrefersCharacters = false;
+  handler.tokens = [{ word: '猫は犬を見る', start: 0, end: 6 }];
+  handler.activateNavigation();
+  assert.equal(handler.getCurrentAnchorCharIndex(), 4);
+  assert.equal(handler.characters[handler.getCurrentAnchorCharIndex()].textContent, '見');
+});
+
+test('first-new remembers the character anchor when deactivated in token mode', () => {
+  const { handler } = setupActivation();
+  handler.tokenMode = true;
+  handler.tokens = [
+    { word: '猫は', start: 0, end: 2 },
+    { word: '犬を', start: 2, end: 4 },
+    { word: '見る', start: 4, end: 6 },
+  ];
+  handler.activateNavigation();
+  handler.navigateCursorRight();
+  assert.equal(handler.currentCursorIndex, 1);
+  assert.equal(handler.getCurrentAnchorCharIndex(), 2);
+  handler.deactivateNavigation();
+  handler.activateNavigation();
+  assert.equal(handler.getCurrentAnchorCharIndex(), 2);
+});
+
+test('first-new keeps the saved cursor when no unknown words remain', () => {
+  const { handler, context } = setupActivation({ holdNavigation: 'new' });
+  handler.activateNavigation();
+  handler.navigateCursorRight(true);
+  handler.deactivateNavigation();
+  context.window.GsmJitenHighlight.getNavigationTokens = () => [];
+  handler.activateNavigation();
+  assert.equal(handler.currentCursorIndex, 4);
+});
+
+test('first-new selects the first unknown word again when the text changes', () => {
+  const { handler, context } = setupActivation({ holdNavigation: 'new' });
+  handler.activateNavigation();
+  handler.navigateCursorRight(true);
+  handler.deactivateNavigation();
+  handler.textBlocks[0].chars[0].textContent = '虎';
+  context.window.GsmJitenHighlight.getNavigationTokens = () => [
+    { lineIndex: 0, text: '虎は犬を見る', start: 2, end: 3, states: ['new'] },
+  ];
+  handler.activateNavigation();
+  assert.equal(handler.currentCursorIndex, 2);
+});
+
+test('first-new applies to a different block selected while navigation was inactive', () => {
+  const { handler, context } = setupActivation({ holdNavigation: 'new' });
+  handler.activateNavigation();
+  handler.navigateCursorRight(true);
+  handler.deactivateNavigation();
+  handler.currentBlockIndex = 1;
+  context.window.GsmJitenHighlight.getNavigationTokens = () => [
+    { lineIndex: 1, text: '鳥も見る', start: 2, end: 4, states: ['new'] },
+  ];
+  handler.activateNavigation();
+  assert.equal(handler.currentBlockIndex, 1);
+  assert.equal(handler.currentCursorIndex, 2);
+});
+
 test('sentence holds skip closing quotes and punctuation, and respect line scope', () => {
   const { handler } = setup({ holdNavigation: 'sentence', horizontalWrap: 'block' });
   handler.characters = Array.from('「猫だ。」犬だ！鳥？', textContent => ({ textContent, isConnected: true }));
@@ -194,9 +520,10 @@ test('the D-pad sends an ordinary tap, a held jump after the delay, and stops on
   context.clearTimeout = id => timers.delete(id);
   handler.repeatTimers = new Map();
   handler.buttonStates = new Map([['pad', { 15: true }]]);
+  handler.refreshButtonBindings();
   handler.hideVirtualMouseCursorForDpadNavigation = () => {};
   handler.shouldProcessNavigation = () => true;
-  handler.scanHiddenCharacterToHideYomitan = () => {};
+  handler.closeDictionaryPopups = () => {};
   handler.handleDPadNavigation(15, 'pad');
   assert.equal(handler.currentCursorIndex, 1);
   const [id, timer] = [...timers][0];
@@ -209,6 +536,33 @@ test('the D-pad sends an ordinary tap, a held jump after the delay, and stops on
   handler.onButtonUp(15, 'pad');
   assert.equal(timers.size, 0);
   assert.equal(handler.repeatTimers.size, 0);
+});
+
+test('navigation directions accept raw buttons, combos and explicit disabled bindings', () => {
+  const { handler, context } = setupJitenBindings({ dpadLeft: 'Button 803 + Button 806', dpadRight: 'Disabled' });
+  const moves = [];
+  const timers = new Map();
+  context.setTimeout = callback => { timers.set(1, callback); return 1; };
+  context.clearTimeout = id => timers.delete(id);
+  handler.navigateCursorLeft = () => moves.push('left');
+  handler.navigateCursorRight = () => moves.push('right');
+  handler.shouldProcessNavigation = () => true;
+  handler.closeDictionaryPopups = () => {};
+  handler.hideVirtualMouseCursorForDpadNavigation = () => {};
+  const input = (button, pressed) => handler.onButtonEvent({ device: 'pad', button, pressed });
+  input(803, true);
+  assert.deepEqual(moves, []);
+  input(806, true);
+  assert.deepEqual(moves, ['left']);
+  const repeat = timers.get(1);
+  assert.equal(typeof repeat, 'function');
+  input(803, false);
+  repeat();
+  assert.deepEqual(moves, ['left']);
+  input(806, false);
+  input(14, true);
+  input(15, true);
+  assert.deepEqual(moves, ['left']);
 });
 
 test('left-stick curve keeps gentle tilts precise and makes full tilt faster', () => {

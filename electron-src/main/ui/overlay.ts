@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getResourcesDir, isDev } from '../util.js';
+import { quit } from '../main.js';
 import { getBaseDir, getDefaultBaseDir } from '../data_dir.js';
 import { fileURLToPath } from 'url';
 
@@ -370,7 +371,7 @@ async function initializeYomitan() {
                     fs.copyFileSync(staticManifestPath, activeManifestPath);
                     fs.writeFileSync(markerPath, JSON.stringify({ status: 'migrated', date: Date.now() }));
                     app.relaunch();
-                    app.exit(0);
+                    void quit();
                     return;
                 }
             } else if (isMigrated) {

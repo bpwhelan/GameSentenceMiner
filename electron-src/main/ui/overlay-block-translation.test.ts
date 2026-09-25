@@ -10,12 +10,14 @@ function setup() {
   vm.runInNewContext(fs.readFileSync(path.resolve("GSM_Overlay/block_translation.js"), "utf8"), { module, window: dom.window });
   const sent: any[] = [];
   const errors: string[] = [];
+  const analyses: string[] = [];
   let revision = 0;
   const controller = module.exports.createBlockTranslationController({
     document: dom.window.document,
     send: (payload: any) => sent.push(payload),
     showLegacy: () => {},
     showError: (error: string) => errors.push(error),
+    showAnalysis: (text: string) => analyses.push(text),
     getRevision: () => revision,
   });
   function add(text: string, left: number, top: number) {
@@ -31,10 +33,46 @@ function setup() {
   }
   add("こんにちは", 20, 30);
   add("終了", 700, 500);
-  return { dom, controller, sent, errors, add, invalidate: () => revision++ };
+  return { dom, controller, sent, errors, analyses, add, invalidate: () => revision++ };
 }
 
 describe("overlay block translation", () => {
+  it("keeps study responses separate and ignores replies for an older task", () => {
+    const { controller, sent, analyses, dom } = setup();
+    controller.request({ automatic: true });
+    expect(sent[0].automatic).toBe(true);
+    controller.request({ mode: 'grammar' });
+    expect(sent[1].mode).toBe('grammar');
+    expect(sent[1].automatic).toBe(false);
+    controller.receive({ request_id: sent[0].request_id, text: 'Old translation' });
+    controller.receive({ request_id: sent[1].request_id, text: 'Grammar answer', mode: 'grammar' });
+    expect(analyses).toEqual(['Grammar answer']);
+    expect(dom.window.document.querySelector('.block-translation')).toBeNull();
+  });
+
+  it("shows a helpful error for study requests without text", () => {
+    const { controller, dom, sent, errors } = setup();
+    dom.window.document.querySelectorAll('.text-block-container').forEach(node => node.remove());
+    controller.request({ mode: 'sentence' });
+    expect(sent).toEqual([]);
+    expect(errors[0]).toContain('Scan some game text');
+  });
+
+  it("dismisses a pending explanation and prevents its late reply reopening the panel", () => {
+    const { controller, sent, analyses } = setup();
+    controller.request({ mode: 'sentence' });
+    controller.dismissAnalysis();
+    controller.receive({ request_id: sent[0].request_id, text: 'Too late' });
+    expect(analyses).toEqual([]);
+  });
+
+  it("finishes the loading state when the source changes during analysis", () => {
+    const { controller, sent, errors, invalidate } = setup();
+    controller.request({ mode: 'sentence' });
+    invalidate();
+    controller.receive({ request_id: sent[0].request_id, text: 'Outdated answer' });
+    expect(errors[0]).toContain('source text changed');
+  });
   it("batches blocks once and positions reordered results over their own bounds", () => {
     const { dom, controller, sent } = setup();
     controller.request();

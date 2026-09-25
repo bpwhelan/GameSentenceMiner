@@ -36,6 +36,8 @@ function loadLegacyGamepadHandler() {
     }
   };
 
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.resolve(process.cwd(), 'GSM_Overlay/dictionary_navigation.js'), 'utf8'), context);
   vm.runInNewContext(source, context, {
     filename: "GSM_Overlay/gamepad.js"
   });
@@ -79,6 +81,24 @@ const GamepadHandler = legacyGamepad.GamepadHandler;
 const legacyGamepadContext = legacyGamepad.context;
 
 describe("legacy gamepad startup settings", () => {
+  it("restores generic controller navigation bindings and disabled directions", () => {
+    expect(loadStartupGamepadSettings({
+      gamepadNavigateUp: "Button 803", gamepadNavigateDown: "Button 806 + Button 809",
+      gamepadNavigateLeft: "Disabled", gamepadNavigateRight: 196642,
+    })).toMatchObject({
+      dpadUp: "Button 803", dpadDown: "Button 806 + Button 809",
+      dpadLeft: "Disabled", dpadRight: 196642,
+    });
+  });
+  it("restores dedicated Jiten word bindings, including explicit disabled values", () => {
+    expect(loadStartupGamepadSettings({
+      gamepadPrevJitenWordButton: "LB", gamepadNextJitenWordButton: "RB"
+    })).toMatchObject({ prevJitenWordButton: "LB", nextJitenWordButton: "RB" });
+    expect(loadStartupGamepadSettings({
+      gamepadPrevJitenWordButton: "Disabled", gamepadNextJitenWordButton: -1
+    })).toMatchObject({ prevJitenWordButton: "Disabled", nextJitenWordButton: -1 });
+  });
+
   it("loads saved navigation experiments before initialization", () => {
     expect(loadStartupGamepadSettings({
       gamepadHoldNavigation: "sentence", gamepadHorizontalWrap: "line",
@@ -211,6 +231,7 @@ describe("legacy gamepad token refreshes", () => {
     handler.getBlockText = () => "日本語";
     handler.shouldTokenizeText = () => true;
     handler.isNavigationActive = () => true;
+    handler.getCurrentAnchorCharIndex = () => 1;
     handler.autoConfirmSelection = vi.fn();
     handler.syncSelectionFromVirtualMouse = vi.fn(
       (_sourceElement: unknown, options: { autoConfirm?: boolean } = {}) => {
@@ -309,7 +330,7 @@ describe("legacy gamepad analog lookup path", () => {
     handler.navigationAwayHideTimer = null;
 
     try {
-      GamepadHandler.prototype.scheduleHideYomitanAfterLeavingAnchor.call(handler, "0:0");
+      GamepadHandler.prototype.scheduleHideDictionaryAfterLeavingAnchor.call(handler, "0:0");
       expect(handler.navigationAwayHideTimer).toBeNull();
     } finally {
       if (handler.navigationAwayHideTimer) {
@@ -393,11 +414,11 @@ describe("legacy gamepad button bindings", () => {
       matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
       refreshButtonBindings: () => void;
       onButtonDown: (buttonIndex: number, device: string) => void;
-      yomitanPopupVisible: boolean;
+      dictionaryPopupVisible: boolean;
       isNavigationActive: () => boolean;
       shouldProcessNavigation: () => boolean;
-      navigateYomitanNextEntry: () => void;
-      navigateYomitanPrevEntry: () => void;
+      navigateDictionaryNextEntry: () => void;
+      navigateDictionaryPrevEntry: () => void;
     };
 
     handler.config = {
@@ -412,15 +433,15 @@ describe("legacy gamepad button bindings", () => {
     handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
     handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
     handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
-    handler.yomitanPopupVisible = true;
+    handler.dictionaryPopupVisible = true;
     handler.isNavigationActive = () => false;
     handler.shouldProcessNavigation = () => false;
 
     const calls: string[] = [];
-    handler.navigateYomitanNextEntry = () => {
+    handler.navigateDictionaryNextEntry = () => {
       calls.push("next");
     };
-    handler.navigateYomitanPrevEntry = () => {
+    handler.navigateDictionaryPrevEntry = () => {
       calls.push("prev");
     };
 
@@ -461,7 +482,7 @@ describe("legacy gamepad button bindings", () => {
       areButtonBindingsEquivalent: (left: any, right: any) => boolean;
       refreshButtonBindings: () => void;
       onButtonDown: (buttonIndex: number, device: string) => void;
-      yomitanPopupVisible: boolean;
+      dictionaryPopupVisible: boolean;
       isNavigationActive: () => boolean;
       shouldProcessNavigation: () => boolean;
       confirmSelection: () => void;
@@ -484,7 +505,7 @@ describe("legacy gamepad button bindings", () => {
     handler.areButtonBindingsEquivalent = GamepadHandler.prototype.areButtonBindingsEquivalent;
     handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
     handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
-    handler.yomitanPopupVisible = false;
+    handler.dictionaryPopupVisible = false;
     handler.isNavigationActive = () => true;
     handler.shouldProcessNavigation = () => false;
 
@@ -538,7 +559,7 @@ describe("legacy gamepad button bindings", () => {
       areButtonBindingsEquivalent: (left: any, right: any) => boolean;
       refreshButtonBindings: () => void;
       onButtonDown: (buttonIndex: number, device: string) => void;
-      yomitanPopupVisible: boolean;
+      dictionaryPopupVisible: boolean;
       isNavigationActive: () => boolean;
       shouldProcessNavigation: () => boolean;
       confirmSelection: () => void;
@@ -560,7 +581,7 @@ describe("legacy gamepad button bindings", () => {
     handler.areButtonBindingsEquivalent = GamepadHandler.prototype.areButtonBindingsEquivalent;
     handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
     handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
-    handler.yomitanPopupVisible = false;
+    handler.dictionaryPopupVisible = false;
     handler.isNavigationActive = () => true;
     handler.shouldProcessNavigation = () => false;
 
@@ -1051,10 +1072,10 @@ describe("legacy gamepad popup routing", () => {
     legacyGamepadContext.document.querySelector = () => null;
 
     const handler = Object.create(GamepadHandler.prototype) as {
-      sendYomitanControlMessage: (action: string, params?: Record<string, unknown>) => void;
+      sendDictionaryControlMessage: (action: string, params?: Record<string, unknown>) => void;
     };
 
-    handler.sendYomitanControlMessage("reset-action-selection");
+    handler.sendDictionaryControlMessage("reset-action-selection");
 
     expect(hostMessages).toEqual([
       {

@@ -1,0 +1,27 @@
+{
+  "repository": "microsoft/fluentui-system-icons",
+  "revision": "9cf8af0f95a555918a60b8147a2f33a6a1248442",
+  "icons": {
+    "add": "assets/Add/SVG/ic_fluent_add_20_regular.svg",
+    "document-add": "assets/Document Add/SVG/ic_fluent_document_add_20_regular.svg",
+    "document-edit": "assets/Document Edit/SVG/ic_fluent_document_edit_20_regular.svg",
+    "book-search": "assets/Book Search/SVG/ic_fluent_book_search_20_regular.svg",
+    "speaker-2": "assets/Speaker 2/SVG/ic_fluent_speaker_2_20_regular.svg",
+    "edit": "assets/Edit/SVG/ic_fluent_edit_20_regular.svg",
+    "checkmark": "assets/Checkmark/SVG/ic_fluent_checkmark_20_regular.svg",
+    "error-circle": "assets/Error Circle/SVG/ic_fluent_error_circle_20_regular.svg",
+    "more-horizontal": "assets/More Horizontal/SVG/ic_fluent_more_horizontal_20_regular.svg",
+    "arrow-clockwise": "assets/Arrow Clockwise/SVG/ic_fluent_arrow_clockwise_20_regular.svg",
+    "arrow-sync": "assets/Arrow Sync/SVG/ic_fluent_arrow_sync_20_regular.svg",
+    "subtract": "assets/Subtract/SVG/ic_fluent_subtract_20_regular.svg",
+    "dismiss": "assets/Dismiss/SVG/ic_fluent_dismiss_20_regular.svg",
+    "open": "assets/Open/SVG/ic_fluent_open_20_regular.svg",
+    "arrow-up": "assets/Arrow Up/SVG/ic_fluent_arrow_up_20_regular.svg",
+    "arrow-down": "assets/Arrow Down/SVG/ic_fluent_arrow_down_20_regular.svg",
+    "arrow-right": "assets/Arrow Right/SVG/ic_fluent_arrow_right_20_regular.svg",
+    "star": "assets/Star/SVG/ic_fluent_star_20_regular.svg",
+    "reorder": "assets/Reorder/SVG/ic_fluent_reorder_20_regular.svg",
+    "settings": "assets/Settings/SVG/ic_fluent_settings_20_regular.svg",
+    "desktop": "assets/Desktop/SVG/ic_fluent_desktop_20_regular.svg"
+  }
+}

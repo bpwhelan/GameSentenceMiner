@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass
-from difflib import SequenceMatcher
+from functools import lru_cache
 
 import regex
 from rapidfuzz import fuzz
+
+from GameSentenceMiner.native import text as native_text
 
 punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
 
@@ -37,8 +39,17 @@ class OCRCompareSettings:
     chunk_longest_block_divisor: int = 4
 
 
+_DEFAULT_COMPARE_SETTINGS = OCRCompareSettings()
+
+
 def _resolve_settings(settings: OCRCompareSettings | None) -> OCRCompareSettings:
-    return settings or OCRCompareSettings()
+    return settings or _DEFAULT_COMPARE_SETTINGS
+
+
+@lru_cache(maxsize=512)
+def _normalize_comparison_string(text: str) -> str:
+    folded = unicodedata.normalize("NFKC", text)
+    return punctuation_regex.sub("", folded)
 
 
 def normalize_for_comparison(text: str) -> str:
@@ -55,8 +66,12 @@ def normalize_for_comparison(text: str) -> str:
     compare equal. OCR engines flip between these forms frame-to-frame, which
     would otherwise make a stable line look like it is still changing.
     """
-    folded = unicodedata.normalize("NFKC", str(text))
-    return punctuation_regex.sub("", folded)
+    value = str(text)
+    # Controllers repeatedly compare the same recent lines. Cache only bounded
+    # strings, after coercion, so mutable/custom inputs never become cache keys.
+    if len(value) > 4096:
+        return _normalize_comparison_string.__wrapped__(value)
+    return _normalize_comparison_string(value)
 
 
 def is_evolving_text(
@@ -171,22 +186,21 @@ def _matching_block_stats(
         return 0.0, 0
 
     active_settings = _resolve_settings(settings)
-    matcher = SequenceMatcher(None, reference, candidate, autojunk=False)
     min_block_size = (
         max(1, active_settings.matching_block_small_candidate_min_size)
         if len(candidate) <= active_settings.matching_block_short_candidate_limit
         else max(1, active_settings.matching_block_default_min_size)
     )
-    covered = 0
-    longest = 0
+    if len(reference) + len(candidate) > 4096:
+        return _matching_block_stats_cached.__wrapped__(reference, candidate, min_block_size)
+    return _matching_block_stats_cached(reference, candidate, min_block_size)
 
-    for _, _, size in matcher.get_matching_blocks():
-        if size > longest:
-            longest = size
-        if size >= min_block_size:
-            covered += size
 
-    return covered / len(candidate), longest
+@lru_cache(maxsize=256)
+def _matching_block_stats_cached(reference: str, candidate: str, min_block_size: int) -> tuple[float, int]:
+    # Both controllers and filtering can ask about the same recent pair. Keep
+    # the original matching algorithm and cache only its immutable statistics.
+    return native_text.matching_block_stats(reference, candidate, min_block_size)
 
 
 def _chunk_is_covered_by_previous(

@@ -1,4 +1,9 @@
 mod features;
+mod jiten_rules;
+mod raw_gamepad;
+#[cfg(target_os = "windows")]
+mod sdl_gamepad;
+mod vocabulary;
 #[cfg(target_os = "windows")]
 mod windows_keyboard_listener;
 
@@ -12,7 +17,8 @@ use ashpd::zbus;
 use clap::Parser;
 use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
-use gilrs::{Axis, Button as GamepadButton, Event, EventType, GamepadId, Gilrs};
+#[cfg(not(target_os = "windows"))]
+use gilrs::{Axis, Button as GamepadButton, Event, EventType, Gilrs};
 #[cfg(not(target_os = "windows"))]
 use rdev::listen as listen_global_keyboard;
 use rdev::{
@@ -44,7 +50,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::time;
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio_tungstenite::{accept_hdr_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
 #[cfg(target_os = "windows")]
 use windows_keyboard_listener::listen as listen_global_keyboard;
@@ -270,6 +276,7 @@ fn tag_gamepad_control_payload(payload: String) -> String {
     value.to_string()
 }
 
+#[cfg(not(target_os = "windows"))]
 fn map_button(btn: GamepadButton) -> Option<ButtonCode> {
     match btn {
         GamepadButton::South => Some(ButtonCode::A),
@@ -299,6 +306,7 @@ fn map_button(btn: GamepadButton) -> Option<ButtonCode> {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn axis_name(axis: Axis) -> Option<&'static str> {
     match axis {
         Axis::LeftStickX => Some("left_x"),
@@ -311,6 +319,7 @@ fn axis_name(axis: Axis) -> Option<&'static str> {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn digital_pressed(value: f32) -> bool {
     value >= 0.5
 }
@@ -328,7 +337,7 @@ struct GamepadState {
     device_name: String,
     connected: bool,
 
-    buttons: HashMap<u8, bool>,
+    buttons: HashMap<u64, bool>,
     axes: HashMap<String, f32>,
 
     // Rate limiting per axis
@@ -338,7 +347,7 @@ struct GamepadState {
 impl GamepadState {
     fn new(device_name: String) -> Self {
         let mut buttons = HashMap::new();
-        for i in 0u8..=16u8 {
+        for i in 0u64..=16u64 {
             buttons.insert(i, false);
         }
 
@@ -381,10 +390,11 @@ impl Default for Config {
     }
 }
 
-type SharedStates = Mutex<HashMap<GamepadId, GamepadState>>;
+type SharedStates = Mutex<HashMap<usize, GamepadState>>;
 type SharedDeviceBlacklist = Arc<StdMutex<HashSet<String>>>;
 type SharedMecab = Mutex<MecabService>;
 type SharedSudachi = Mutex<SudachiService>;
+type SharedVocabulary = Arc<StdMutex<Option<vocabulary::Store>>>;
 type SharedManualHotkey = Arc<StdMutex<ManualHotkeyState>>;
 
 fn baseline_features_from_args(values: &[String]) -> Vec<ServiceFeature> {
@@ -1891,6 +1901,14 @@ fn manual_hotkey_binding_active_with_mouse(
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 enum ClientMsg {
+    /// Local text and account vocabulary never leave this service. Network sync
+    /// is owned by Electron, which already owns the account credentials.
+    #[serde(rename = "local_vocabulary")]
+    LocalVocabulary {
+        #[serde(rename = "requestId")]
+        request_id: Value,
+        request: Value,
+    },
     #[serde(rename = "ping")]
     Ping,
 
@@ -2007,6 +2025,7 @@ fn normalize_stick(v: f32, deadzone: f32) -> f32 {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn normalize_trigger(v: f32) -> f32 {
     // Robust mapping:
     // If v is already 0..1 keep it; else assume -1..1 and map to 0..1.
@@ -2716,6 +2735,7 @@ fn service_info_payload(features: &FeatureRegistry) -> Value {
         "type": "service_info",
         "service": "gsm_input_service",
         "protocolVersion": PROTOCOL_VERSION,
+        "vocabularyProtocol": 1,
         "features": features.snapshot(),
     })
 }
@@ -2727,6 +2747,47 @@ fn feature_status_payload(features: &FeatureRegistry) -> Value {
     })
 }
 
+async fn execute_vocabulary_request(
+    request: Value,
+    sudachi: &'static SharedSudachi,
+    vocabulary: SharedVocabulary,
+    features: &FeatureRegistry,
+) -> Result<Value, String> {
+    let request: vocabulary::Request = serde_json::from_value(request)
+        .map_err(|_| "Invalid local vocabulary request".to_string())?;
+    request.validate()?;
+    let dictionary = if matches!(&request, vocabulary::Request::Parse { texts, .. } if !texts.is_empty())
+    {
+        if !features.is_enabled(ServiceFeature::Sudachi) {
+            return Err("Enable the sudachi service feature before parsing".into());
+        }
+        let mut service = sudachi.lock().await;
+        service.last_request_at = Some(Instant::now());
+        service.ensure_tokenizer().await?;
+        service.last_request_at = Some(Instant::now());
+        service.dictionary.clone()
+    } else {
+        None
+    };
+    tokio::task::spawn_blocking(move || {
+        let mut store = vocabulary
+            .lock()
+            .map_err(|_| "Vocabulary database lock failed")?;
+        if store.is_none() {
+            let path = std::env::var_os("GSM_VOCABULARY_DB_PATH")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_gsm_app_data_dir().join("local-vocabulary.sqlite3"));
+            if let Some(directory) = path.parent() {
+                fs::create_dir_all(directory).map_err(|e| e.to_string())?;
+            }
+            *store = Some(vocabulary::Store::open(path)?);
+        }
+        store.as_mut().unwrap().execute(request, dictionary)
+    })
+    .await
+    .map_err(|e| format!("Local vocabulary task failed: {e}"))?
+}
+
 async fn handle_socket(
     peer: SocketAddr,
     stream: TcpStream,
@@ -2736,12 +2797,24 @@ async fn handle_socket(
     device_blacklist: SharedDeviceBlacklist,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
+    vocabulary: SharedVocabulary,
     manual_hotkey: SharedManualHotkey,
     features: FeatureRegistry,
     portal_rebind: Option<mpsc::UnboundedSender<()>>,
     gamepad_capture: GamepadCaptureRegistry,
 ) {
-    let ws = match accept_async(stream).await {
+    // Vocabulary is a local desktop API. Websites may connect to localhost;
+    // their browser-supplied Origin must not expose the persisted account data.
+    let mut browser_origin = false;
+    let ws = match accept_hdr_async(
+        stream,
+        |request: &tungstenite::handshake::server::Request, response| {
+            browser_origin = request.headers().contains_key("origin");
+            Ok(response)
+        },
+    )
+    .await
+    {
         Ok(ws) => ws,
         Err(e) => {
             warn!("ws accept error from {peer}: {e}");
@@ -2842,6 +2915,18 @@ async fn handle_socket(
                     Some(Ok(Message::Text(text))) => {
                         let parsed: Result<ClientMsg, _> = serde_json::from_str(&text);
                         match parsed {
+                            Ok(ClientMsg::LocalVocabulary { request_id, request }) => {
+                                let result = if browser_origin || !peer.ip().is_loopback() {
+                                    Err("Vocabulary requests require a local desktop connection".into())
+                                } else {
+                                    execute_vocabulary_request(request, sudachi, vocabulary.clone(), &features).await
+                                };
+                                let response = match result {
+                                    Ok(result) => json!({"type": "local_vocabulary", "requestId": request_id, "result": result}),
+                                    Err(error) => json!({"type": "local_vocabulary", "requestId": request_id, "error": error}),
+                                };
+                                if ws_sink.send(Message::Text(response.to_string())).await.is_err() { break; }
+                            }
                             Ok(ClientMsg::Ping) => {
                                 let _ = ws_sink.send(Message::Text(json!({"type":"pong"}).to_string())).await;
                             }
@@ -3142,6 +3227,7 @@ async fn websocket_server(
     device_blacklist: SharedDeviceBlacklist,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
+    vocabulary: SharedVocabulary,
     manual_hotkey: SharedManualHotkey,
     features: FeatureRegistry,
     portal_rebind: Option<mpsc::UnboundedSender<()>>,
@@ -3174,6 +3260,7 @@ async fn websocket_server(
             device_blacklist_clone,
             mecab,
             sudachi,
+            vocabulary.clone(),
             manual_hotkey.clone(),
             features.clone(),
             portal_rebind.clone(),
@@ -3206,6 +3293,7 @@ fn emit_input_server_ready(bound_addr: SocketAddr) {
 // ------------------------------ Input loops ----------------------------------
 
 /// Runs on a dedicated OS thread because Gilrs isn't Send.
+#[cfg(not(target_os = "windows"))]
 fn gilrs_input_thread(
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
@@ -3224,10 +3312,10 @@ fn gilrs_input_thread(
 
     // Pre-populate any already-connected pads.
     // IMPORTANT: don't hold a non-Send iterator across async awaits (we're on a thread anyway).
-    let connected: Vec<(GamepadId, String)> = gilrs
+    let connected: Vec<(usize, String)> = gilrs
         .gamepads()
         .filter(|(_, gp)| gp.is_connected())
-        .map(|(id, gp)| (id, gp.name().to_string()))
+        .map(|(id, gp)| (id.into(), gp.name().to_string()))
         .collect();
 
     // Use blocking_lock() since we're on a plain thread.
@@ -3256,6 +3344,7 @@ fn gilrs_input_thread(
         while let Some(Event { id, event, .. }) = gilrs.next_event() {
             let now = Instant::now();
             let device_name = gilrs.gamepad(id).name().to_string();
+            let id = usize::from(id);
 
             if is_device_blacklisted(&device_blacklist, &device_name) {
                 let removed_state = {
@@ -3288,11 +3377,7 @@ fn gilrs_input_thread(
             match event {
                 EventType::Connected => {
                     let mut guard = states.blocking_lock();
-                    let st = guard
-                        .entry(id)
-                        .or_insert_with(|| GamepadState::new(device_name.clone()));
-                    st.connected = true;
-                    st.device_name = device_name.clone();
+                    guard.insert(id, GamepadState::new(device_name.clone()));
                     drop(guard);
 
                     let msg = json!({
@@ -3300,14 +3385,14 @@ fn gilrs_input_thread(
                         "device": device_name,
                     });
                     send_broadcast(&tx, msg.to_string(), "gamepad_connected");
-                    info!("gamepad connected: {}", gilrs.gamepad(id).name());
+                    info!("gamepad connected: {device_name}");
                 }
 
                 EventType::Disconnected => {
                     let mut guard = states.blocking_lock();
-                    if let Some(st) = guard.get_mut(&id) {
-                        st.connected = false;
-                    }
+                    // Don't send stale pressed buttons to clients joining after
+                    // unplug, or retain them when gilrs reuses the device ID.
+                    guard.remove(&id);
                     drop(guard);
                     let msg = json!({
                         "type": "gamepad_disconnected",
@@ -3317,7 +3402,7 @@ fn gilrs_input_thread(
                     info!("gamepad disconnected: {device_name}");
                 }
 
-                EventType::ButtonPressed(btn, _) | EventType::ButtonReleased(btn, _) => {
+                EventType::ButtonPressed(btn, native) | EventType::ButtonReleased(btn, native) => {
                     if let Some(code) = map_button(btn) {
                         let pressed = matches!(event, EventType::ButtonPressed(_, _));
 
@@ -3335,14 +3420,14 @@ fn gilrs_input_thread(
                                     .insert(axis_name.to_string(), if pressed { 1.0 } else { 0.0 });
                             }
 
-                            let old = *st.buttons.get(&(code as u8)).unwrap_or(&false);
+                            let old = *st.buttons.get(&(code as u64)).unwrap_or(&false);
                             if old != pressed {
-                                st.buttons.insert(code as u8, pressed);
+                                st.buttons.insert(code as u64, pressed);
 
                                 let mut msg = json!({
                                     "type": "button",
                                     "device": st.device_name,
-                                    "button": code as u8,
+                                    "button": code as u64,
                                     "pressed": pressed,
                                     "name": format!("{:?}", code),
                                 });
@@ -3354,10 +3439,18 @@ fn gilrs_input_thread(
                                 info!("button event: device={device_name} button={code:?} pressed={pressed}");
                             }
                         }
+                    } else {
+                        let pressed = matches!(event, EventType::ButtonPressed(_, _));
+                        let outgoing = states.blocking_lock().get_mut(&id).and_then(|st| {
+                            raw_gamepad::button_event(st, native.into_u32(), pressed)
+                        });
+                        if let Some(msg) = outgoing {
+                            send_broadcast(&tx, msg, "button(raw)");
+                        }
                     }
                 }
 
-                EventType::ButtonChanged(btn, value, _) => {
+                EventType::ButtonChanged(btn, value, native) => {
                     if let Some(code) = map_button(btn) {
                         let pressed = if matches!(code, ButtonCode::LT | ButtonCode::RT) {
                             value > cfg.trigger_threshold
@@ -3379,14 +3472,14 @@ fn gilrs_input_thread(
                                 st.axes.insert(axis_name.to_string(), trigger_value);
                             }
 
-                            let old = *st.buttons.get(&(code as u8)).unwrap_or(&false);
+                            let old = *st.buttons.get(&(code as u64)).unwrap_or(&false);
                             if old != pressed {
-                                st.buttons.insert(code as u8, pressed);
+                                st.buttons.insert(code as u64, pressed);
 
                                 let mut msg = json!({
                                     "type": "button",
                                     "device": st.device_name,
-                                    "button": code as u8,
+                                    "button": code as u64,
                                     "pressed": pressed,
                                     "name": format!("{:?}", code),
                                 });
@@ -3401,11 +3494,16 @@ fn gilrs_input_thread(
                             }
                         }
                     } else {
-                        debug!("unmapped button change: device={device_name} button={btn:?} value={value:.3}");
+                        let outgoing = states.blocking_lock().get_mut(&id).and_then(|st| {
+                            raw_gamepad::button_event(st, native.into_u32(), digital_pressed(value))
+                        });
+                        if let Some(msg) = outgoing {
+                            send_broadcast(&tx, msg, "button(raw)");
+                        }
                     }
                 }
 
-                EventType::AxisChanged(ax, raw, _) => {
+                EventType::AxisChanged(ax, raw, native) => {
                     if matches!(ax, Axis::DPadX | Axis::DPadY) {
                         let mut guard = states.blocking_lock();
                         let mut outgoing: Vec<String> = Vec::new();
@@ -3426,14 +3524,14 @@ fn gilrs_input_thread(
                             };
 
                             for (code, pressed, name) in dpad_updates {
-                                let old = *st.buttons.get(&(code as u8)).unwrap_or(&false);
+                                let old = *st.buttons.get(&(code as u64)).unwrap_or(&false);
                                 if old != pressed {
-                                    st.buttons.insert(code as u8, pressed);
+                                    st.buttons.insert(code as u64, pressed);
                                     outgoing.push(
                                         json!({
                                             "type": "button",
                                             "device": st.device_name,
-                                            "button": code as u8,
+                                            "button": code as u64,
                                             "pressed": pressed,
                                             "name": name,
                                         })
@@ -3465,14 +3563,14 @@ fn gilrs_input_thread(
                             if name == "lt" {
                                 let lt_pressed = value > cfg.trigger_threshold;
                                 let old =
-                                    *st.buttons.get(&(ButtonCode::LT as u8)).unwrap_or(&false);
+                                    *st.buttons.get(&(ButtonCode::LT as u64)).unwrap_or(&false);
                                 if old != lt_pressed {
-                                    st.buttons.insert(ButtonCode::LT as u8, lt_pressed);
+                                    st.buttons.insert(ButtonCode::LT as u64, lt_pressed);
 
                                     let msg = json!({
                                         "type": "button",
                                         "device": st.device_name,
-                                        "button": ButtonCode::LT as u8,
+                                        "button": ButtonCode::LT as u64,
                                         "pressed": lt_pressed,
                                         "name": "LT",
                                         "value": value,
@@ -3485,14 +3583,14 @@ fn gilrs_input_thread(
                             } else if name == "rt" {
                                 let rt_pressed = value > cfg.trigger_threshold;
                                 let old =
-                                    *st.buttons.get(&(ButtonCode::RT as u8)).unwrap_or(&false);
+                                    *st.buttons.get(&(ButtonCode::RT as u64)).unwrap_or(&false);
                                 if old != rt_pressed {
-                                    st.buttons.insert(ButtonCode::RT as u8, rt_pressed);
+                                    st.buttons.insert(ButtonCode::RT as u64, rt_pressed);
 
                                     let msg = json!({
                                         "type": "button",
                                         "device": st.device_name,
-                                        "button": ButtonCode::RT as u8,
+                                        "button": ButtonCode::RT as u64,
                                         "pressed": rt_pressed,
                                         "name": "RT",
                                         "value": value,
@@ -3519,9 +3617,16 @@ fn gilrs_input_thread(
                             }
                         }
                     } else {
-                        debug!(
-                            "unmapped axis change: device={device_name} axis={ax:?} value={raw:.3}"
-                        );
+                        let outgoing = states
+                            .blocking_lock()
+                            .get_mut(&id)
+                            .map(|st| {
+                                raw_gamepad::axis_events(st, native.into_u32(), raw, &cfg, now)
+                            })
+                            .unwrap_or_default();
+                        for msg in outgoing {
+                            send_broadcast(&tx, msg, "axis(raw)");
+                        }
                     }
                 }
 
@@ -4136,6 +4241,7 @@ async fn main() {
         device_blacklist.clone(),
         mecab,
         sudachi,
+        Arc::new(StdMutex::new(None)),
         manual_hotkey.clone(),
         features.clone(),
         portal_rebind,
@@ -4157,11 +4263,14 @@ async fn main() {
     ));
     tokio::spawn(sudachi_idle_unload_loop(sudachi));
 
-    // Gilrs input loop runs on a dedicated OS thread (Gilrs isn't Send).
+    // Keep each platform's native controller handles on their owning OS thread.
     {
         let tx2 = tx.clone();
         let device_blacklist2 = device_blacklist.clone();
         let cfg2 = cfg.clone();
+        #[cfg(target_os = "windows")]
+        thread::spawn(move || sdl_gamepad::input_thread(tx2, states, device_blacklist2, cfg2));
+        #[cfg(not(target_os = "windows"))]
         thread::spawn(move || gilrs_input_thread(tx2, states, device_blacklist2, cfg2));
     }
     info!("startup complete: {:?}", features.snapshot());
