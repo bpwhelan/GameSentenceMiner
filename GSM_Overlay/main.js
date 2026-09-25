@@ -361,6 +361,7 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "gamepadJitenApiKey",
   "gamepadJpdbApiKey",
   "gamepadYomitanApiUrl",
+  "dictionaryReaderSelection",
 ]);
 
 function getPackagedResourcesPath() {
@@ -1037,6 +1038,7 @@ ipcMain.handle('overlay-get-active-goals', async () => {
 });
 
 const DEFAULT_USER_SETTINGS = Object.freeze({
+  "dictionaryReaderSelection": "yomitan",
   "fontSize": 42,
   "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
   "weburl2": DEFAULT_ENFORCED_OVERLAY_WS_URL,
@@ -1195,7 +1197,11 @@ const CONFIGURED_HOTKEY_SETTING_KEYS = Object.freeze([
 ]);
 const CONFIGURED_HOTKEY_SETTING_KEY_SET = new Set(CONFIGURED_HOTKEY_SETTING_KEYS);
 
-let userSettings = { ...DEFAULT_USER_SETTINGS, [OVERLAY_PROFILE_SETTINGS_KEY]: {} };
+let userSettings = {
+  ...DEFAULT_USER_SETTINGS,
+  dictionaryReaderSelection: resolveDictionaryReaderFromConfigData(getGSMSettings()),
+  [OVERLAY_PROFILE_SETTINGS_KEY]: {},
+};
 let shouldMigrateLegacyOverlayActivationScan = false;
 let reconfigureOverlayRuntimeForSettingsChange = () => {};
 let liveStatsVisibilityMode = "all";
@@ -4516,6 +4522,10 @@ if (hasPersistedOverlaySettings) {
       throw new TypeError("settings.json must contain a JSON object");
     }
     userSettings = { ...DEFAULT_USER_SETTINGS, ...userSettings, ...oldUserSettings };
+    userSettings.dictionaryReaderSelection = resolveDictionaryReaderFromConfigData(getGSMSettings(), oldUserSettings);
+    if (oldUserSettings.dictionaryReaderSelection !== userSettings.dictionaryReaderSelection) {
+      shouldPersistOverlaySettings = true;
+    }
 
     // Consolidate the old Push-to-Show-only toggle into the GSM-owned activation
     // setting. Only carry it forward when the new config key does not exist yet,
@@ -5505,9 +5515,61 @@ function saveSettings() {
     const persistedUserSettings = { ...userSettings };
     delete persistedUserSettings.showRecycledIndicator;
     fs.writeFileSync(settingsPath, JSON.stringify(persistedUserSettings, null, 2), "utf-8");
+    return true;
   } catch (e) {
     console.error(`[Settings] Failed to save settings to ${settingsPath}:`, e);
+    return false;
   }
+}
+
+let dictionaryReaderSwitchPromise = null;
+
+function changeDictionaryReader(value) {
+  if (dictionaryReaderSwitchPromise) return dictionaryReaderSwitchPromise;
+  if (![DICTIONARY_READER_YOMITAN, DICTIONARY_READER_HACHIDORI].includes(value)) return Promise.resolve();
+  if (value === userSettings.dictionaryReaderSelection && value === activeDictionaryReader) return Promise.resolve();
+
+  dictionaryReaderSwitchPromise = Promise.resolve().then(async () => {
+    const previous = userSettings.dictionaryReaderSelection;
+    userSettings.dictionaryReaderSelection = value;
+    if (!saveSettings()) {
+      userSettings.dictionaryReaderSelection = previous;
+      publishOverlaySettingsSnapshot('dictionary-save-failed');
+      throw new Error('The dictionary choice could not be saved. Check available disk space and try again.');
+    }
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send('dictionary-reader-switching', true);
+    }
+    if (IN_PROCESS_OVERLAY) {
+      const host = globalThis[OVERLAY_HOST_SYMBOL];
+      if (typeof host?.requestRestart !== 'function') {
+        throw new Error('Restart GSM once to enable automatic dictionary switching.');
+      }
+      await host.requestRestart('system');
+    } else {
+      const args = process.argv.slice(1).filter(arg => !arg.startsWith('--gsm-overlay-settings-tab='));
+      args.push('--gsm-overlay-settings-tab=system');
+      // Keep standalone Electron alive while its last window is destroyed.
+      const keepAlive = () => {};
+      app.on('window-all-closed', keepAlive);
+      try {
+        await stopOverlayApp();
+        app.relaunch({ args });
+      } finally {
+        app.removeListener('window-all-closed', keepAlive);
+      }
+      app.quit();
+    }
+  }).catch(error => {
+    console.error('[DictionaryReader] Could not switch dictionary:', error);
+    dialog.showErrorBox('Could not switch dictionary', error.message || String(error));
+  }).finally(() => {
+    dictionaryReaderSwitchPromise = null;
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send('dictionary-reader-switching', false);
+    }
+  });
+  return dictionaryReaderSwitchPromise;
 }
 
 let isOverlayVisible = false; // Internal tracking to prevent redundant calls
@@ -6057,7 +6119,17 @@ function resetActivityTimer() {
   // }, userSettings.afkTimer * 60 * 1000);
 }
 
-function openSettings() {
+let requestedSettingsTab = null;
+
+function sendRequestedSettingsTab(window) {
+  if (requestedSettingsTab && !window.isDestroyed() && !window.webContents.isLoadingMainFrame()) {
+    window.webContents.send('select-settings-tab', requestedSettingsTab);
+    requestedSettingsTab = null;
+  }
+}
+
+function openSettings(tab) {
+  if (tab === 'system') requestedSettingsTab = tab;
   refreshOverlayTransportSettingsFromGSM("openSettings");
   syncGsmOwnedOverlaySettingsFromGSM("openSettings");
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -6067,6 +6139,7 @@ function openSettings() {
     settingsWindow.setAlwaysOnTop(false);
     settingsWindow.show();
     settingsWindow.focus();
+    sendRequestedSettingsTab(settingsWindow);
     return;
   }
 
@@ -6125,6 +6198,7 @@ function openSettings() {
       runtimeSettings: getManualHotkeyRuntimeStatus(),
       profileState: getOverlayProfileState(),
     });
+    sendRequestedSettingsTab(openedSettingsWindow);
     // Populate the OCR/Capture monitor dropdown, then ask the backend to refresh it.
     openedSettingsWindow.webContents.send("gsm-overlay-monitors", gsmOverlayMonitors);
     if (backend) {
@@ -6683,8 +6757,8 @@ function updateTrayMenu() {
 
 async function startOverlayAppImpl() {
   isDev = !app.isPackaged;
-  // Config edits take effect when the overlay restarts, not on settings broadcasts.
-  activeDictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings());
+  // Renderer routing changes only after the selected extension is loaded on restart.
+  activeDictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings(), userSettings);
   const dictionaryReader = activeDictionaryReader;
   let yomitanLowDiskWarningShown = false;
   const canLoadYomitan = async () => {
@@ -7669,8 +7743,9 @@ async function startOverlayAppImpl() {
     }
 
     // Start the activity timer
-    if (userSettings.openSettingsOnStartup) {
-      openSettings();
+    const settingsTab = process.argv.includes('--gsm-overlay-settings-tab=system') ? 'system' : undefined;
+    if (userSettings.openSettingsOnStartup || settingsTab) {
+      openSettings(settingsTab);
     }
     resetActivityTimer();
   });
@@ -7970,6 +8045,10 @@ async function startOverlayAppImpl() {
   });
 
   ipcMain.on("setting-changed", (event, { key, value }) => {
+    if (key === 'dictionaryReaderSelection') {
+      if (settingsWindow && event.sender === settingsWindow.webContents) void changeDictionaryReader(value);
+      return;
+    }
     const sanitizedLogValue = (key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value;
     console.log(`Setting changed: ${key} = ${sanitizedLogValue}`);
     const enforcedTransportUrls = getEnforcedOverlayTransportUrls();
@@ -8785,6 +8864,7 @@ module.exports = {
   startOverlayApp,
   stopOverlayApp,
   isOverlayRunning,
+  openSettings,
 };
 
 if (!IN_PROCESS_OVERLAY) {

@@ -72,7 +72,7 @@ export function resolveSinglePortFromConfigData(configData: unknown): number {
     return normalizePort(profileData.general.texthooker_port);
 }
 
-/** Hachidori needs both the master experimental toggle and its own opt-in. */
+/** Legacy opt-in used when migrating to the overlay's dictionary selection. */
 export function resolveHachidoriEnabledFromConfigData(configData: unknown): boolean {
     if (!isJsonObject(configData) || !isJsonObject(configData.experimental)) {
         return false;

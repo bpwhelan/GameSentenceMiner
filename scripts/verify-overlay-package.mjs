@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { extractFile } from '@electron/asar';
 
 import { validateReleaseMetadata } from './sync-hachidori.mjs';
 
@@ -46,13 +47,11 @@ async function exists(candidate) {
 async function main() {
   const resourcesDirCandidates = candidateResourceDirs();
   let overlayResourcesDir = null;
-  let packagedResourcesDir = null;
 
   for (const resourcesDir of resourcesDirCandidates) {
     const candidate = path.join(resourcesDir, 'GSM_Overlay', overlayDirName, 'resources');
     if (await exists(candidate)) {
       overlayResourcesDir = candidate;
-      packagedResourcesDir = resourcesDir;
       break;
     }
   }
@@ -125,19 +124,9 @@ async function main() {
     throw new Error('Packaged Hachidori does not load its GSM bridge before the reader.');
   }
 
-  const packagedExperimentalTab = path.join(
-    packagedResourcesDir,
-    'GameSentenceMiner',
-    'ui',
-    'config',
-    'tabs',
-    'experimental.py'
-  );
-  if (await exists(packagedExperimentalTab)) {
-    const packagedExperimentalContents = await fs.readFile(packagedExperimentalTab, 'utf8');
-    if (!packagedExperimentalContents.includes('enable_hachidori')) {
-      throw new Error('Packaged backend does not expose the Hachidori experimental toggle.');
-    }
+  const packagedSettings = extractFile(path.join(overlayResourcesDir, 'app.asar'), 'settings.html').toString('utf8');
+  if (!packagedSettings.includes('id="dictionaryReaderSelection"') || !packagedSettings.includes('value="hachidori"')) {
+    throw new Error('Packaged overlay does not expose the dictionary reader selection in System settings.');
   }
 
   console.log(`[verify-overlay-package] Verified ${overlayResourcesDir}`);

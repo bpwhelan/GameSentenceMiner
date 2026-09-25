@@ -29,3 +29,19 @@ test('settings snapshots retain the running reader until the overlay restarts', 
   assert.equal(startup.settingsPayload().fontSize, 40);
   assert.equal(loadOverlayStartup(config, settings).settingsPayload().dictionaryReader, 'yomitan');
 });
+
+test('an explicit System dictionary selection overrides the legacy experimental flags', () => {
+  const legacyEnabled = { experimental: { enable_experimental_features: true, enable_hachidori: true } };
+  assert.equal(loadOverlayStartup(legacyEnabled, { dictionaryReaderSelection: 'yomitan' }).selectedReader, 'yomitan');
+  assert.equal(loadOverlayStartup({}, { dictionaryReaderSelection: 'hachidori' }).selectedReader, 'hachidori');
+  assert.equal(loadOverlayStartup(legacyEnabled, { dictionaryReaderSelection: 'invalid' }).selectedReader, 'hachidori');
+});
+
+test('changing the selection keeps renderer routing on the loaded reader until restart', () => {
+  const settings = { dictionaryReaderSelection: 'yomitan' };
+  const startup = loadOverlayStartup({}, settings);
+  settings.dictionaryReaderSelection = 'hachidori';
+  assert.equal(startup.settingsPayload().dictionaryReader, 'yomitan');
+  assert.equal(startup.settingsPayload().dictionaryReaderSelection, 'hachidori');
+  assert.equal(loadOverlayStartup({}, settings).selectedReader, 'hachidori');
+});

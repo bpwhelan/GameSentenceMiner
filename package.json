@@ -126,6 +126,7 @@
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/archiver": "^7.0.0",
     "@types/extract-zip": "^2.0.1",

@@ -2,6 +2,20 @@
 
 Hachidori uses the same `GamepadHandler` as Yomitan. Controller/keyboard bindings, OS input, character and token navigation, virtual cursor movement, repeats, and lookup targeting are shared. The configured dictionary reader selects a small popup adapter. Tokenization remains a separate service choice (Sudachi, MeCab, Jiten, JPDB, or Yomitan); Hachidori does not provide a tokenizer.
 
+## Choosing the dictionary
+
+Use **Overlay Settings → System → Dictionary Reader** to choose Yomitan or Hachidori.
+The selection is global to the overlay and is saved as `dictionaryReaderSelection`
+in its settings file. Existing experimental opt-ins migrate on first load; the
+experimental master toggle is no longer required after migration. New installations
+default to Yomitan. **Open Dictionary Settings** opens the selected reader's settings.
+
+Changing readers saves the selection, unloads the overlay and its extensions, then
+loads a fresh overlay and returns to System settings. The in-process host restarts
+only the overlay; standalone mode relaunches its own process. A later stop request
+cancels a pending restart. Renderer routing continues to report the loaded reader
+until replacement startup so navigation never targets an unloaded extension.
+
 ## Ownership
 
 | File | Responsibility |

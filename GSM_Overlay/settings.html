@@ -2756,6 +2756,26 @@
 
     <div class="settings-grid single-column">
     <div class="setting-group" data-tab="system">
+      <h4>Dictionary</h4>
+      <label>
+        <span class="label-text">
+          Dictionary Reader
+          <div class="hotkey-info">Choose the dictionary used for lookups. Changing it automatically restarts the overlay and returns here.</div>
+        </span>
+        <select id="dictionaryReaderSelection">
+          <option value="yomitan">Yomitan</option>
+          <option value="hachidori">Hachidori</option>
+        </select>
+      </label>
+      <div class="label-row">
+        <span class="label-text" id="dictionaryReaderStatus" aria-live="polite">Manage dictionaries, appearance, and lookup behavior for the selected reader.</span>
+        <button type="button" id="openDictionarySettings" class="guide-button">Open Dictionary Settings</button>
+      </div>
+    </div>
+    </div>
+
+    <div class="settings-grid single-column">
+    <div class="setting-group" data-tab="system">
       <h4>Overlay Profiles</h4>
       <label>
         <span class="label-text">
@@ -2860,6 +2880,19 @@
 
     let mainBoxStartupWarningAcknowledged = false;
     let activeSettingsTab = "overview";
+    ipcRenderer.on('select-settings-tab', (_event, tab) => {
+      if (tab === 'system') updateSettingsTabVisibility(tab);
+    });
+    ipcRenderer.on('dictionary-reader-switching', (_event, switching) => {
+      document.getElementById('dictionaryReaderSelection').disabled = switching;
+      document.getElementById('openDictionarySettings').disabled = switching;
+      document.getElementById('dictionaryReaderStatus').textContent = switching
+        ? 'Switching dictionary reader…'
+        : 'Manage dictionaries, appearance, and lookup behavior for the selected reader.';
+    });
+    document.getElementById('openDictionarySettings').addEventListener('click', () => {
+      ipcRenderer.send('open-yomitan-settings');
+    });
     let overlayProfileState = {
       enabled: false,
       activeProfileName: "Default",
@@ -4016,6 +4049,9 @@
         event: "change",
       }),
       createCheckboxBinding("openSettingsOnStartup", "#openSettingsOnStartup"),
+      createSelectBinding("dictionaryReaderSelection", "#dictionaryReaderSelection", {
+        normalize: value => value === 'hachidori' ? 'hachidori' : 'yomitan',
+      }),
       createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
       createCheckboxBinding("routeAllHotkeysThroughInputServer", "#routeAllHotkeysThroughInputServer"),
       createNumberBinding("afkTimer", "#afkTimer", {

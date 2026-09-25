@@ -46,6 +46,8 @@ function rendererGamepadConfigSource(settingsPayload, gamepadSettings = {}) {
     const gamepadSettings = ${JSON.stringify(gamepadSettings)};
     const showFurigana = false;
     const gamepadInputSuppressed = false;
+    const pendingManualRevealForBackground = false;
+    const isManualInteractionSuppressed = () => false;
     let dictionaryReader = 'yomitan';
     ${between(renderer, '  function normalizeDictionaryReader(', '  function shouldHideOverlayWhenManualInactive(')}
     ${between(renderer, '    dictionaryReader = normalizeDictionaryReader(newsettings.dictionaryReader);', '    applyFloatingWindowFontSize(newsettings.fontSize);')}

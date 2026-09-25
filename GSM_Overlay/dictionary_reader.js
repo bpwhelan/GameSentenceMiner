@@ -2,7 +2,7 @@ const DICTIONARY_READER_YOMITAN = 'yomitan';
 const DICTIONARY_READER_HACHIDORI = 'hachidori';
 
 // Mirrors resolveHachidoriEnabledFromConfigData in electron-src/main/gsm_config.ts:
-// Hachidori needs both the master experimental toggle and its own opt-in.
+// These flags are only used to migrate the old experimental selection.
 function resolveHachidoriEnabledFromConfigData(configData) {
   if (!configData || typeof configData !== 'object') {
     return false;
@@ -14,7 +14,11 @@ function resolveHachidoriEnabledFromConfigData(configData) {
   return experimental.enable_experimental_features === true && experimental.enable_hachidori === true;
 }
 
-function resolveDictionaryReaderFromConfigData(configData) {
+function resolveDictionaryReaderFromConfigData(configData, overlaySettings) {
+  const selected = overlaySettings?.dictionaryReaderSelection;
+  if (selected === DICTIONARY_READER_YOMITAN || selected === DICTIONARY_READER_HACHIDORI) {
+    return selected;
+  }
   return resolveHachidoriEnabledFromConfigData(configData)
     ? DICTIONARY_READER_HACHIDORI
     : DICTIONARY_READER_YOMITAN;
