@@ -17,8 +17,9 @@
   iconStylesheet.href = "icons.css";
   shadow.append(stylesheet, iconStylesheet, popup);
   const source = document.getElementById("preview-source");
-  const candidate = { query: "食べる", sentence: source.textContent,
-    sourceElements: [source], matchOffset: source.textContent.indexOf("食べる") };
+  const sourceOffset = source.textContent.indexOf("食べる");
+  const candidate = { query: "食べる", sentence: source.textContent, matchOffset: sourceOffset,
+    sourceElements: [source], sourceText: source.textContent, sourceOffset };
   let options = { ...HDReaderOptions.DEFAULT_OPTIONS };
   let state;
   let sample;
@@ -195,28 +196,32 @@
 
   function renderSample(preserveViewControls = false) {
     if (kanjiCharacter) {
-      const capability = HDReaderOptions.resolveKanjiDictionary(options.kanjiClickDictionary, state.dictionaries);
+      const capability = HDReaderOptions.resolveKanjiDictionary(options.kanjiClickDictionary, state.dictionaries, state.groups);
       kanjiSource = capability;
       const renderContext = { ...context(), preserveViewControls, highlightText: candidate.query, onBack() {
         kanjiCharacter = null;
         renderSample();
         popup.querySelectorAll(".gsm-hoshidicts-kanji-link")[clickedKanjiIndex]?.focus({ preventScroll: true });
       } };
-      if (capability?.kind === "term") {
+      const nativeSample = (dictionary) => ({ dictionary, onyomi: "ショク ジキ", kunyomi: "た.べる く.う", tags: "常用",
+        definitions: ["eat", "food"], stats: [{ name: "strokes", value: "9" }, { name: "grade", value: "2" }] });
+      if (capability?.kind === "term" || capability?.kind === "group") {
+        // A group compares its members: one card each, in group order, with a tab per member.
+        const members = capability.kind === "group" ? capability.members : [capability];
         view.renderResults([{ matched: kanjiCharacter, trace: [], term: {
-          expression: kanjiCharacter, reading: "しょく", glossaries: [{ dictionary: capability.title,
-            glossary: JSON.stringify(["food; eating — sample single-kanji entry"]) }], frequencies: [], pitches: [],
-        } }], candidate, renderContext);
+          expression: kanjiCharacter, reading: "しょく", glossaries: members.map(member => ({ dictionary: member.title,
+            glossary: member.kind === "kanji" ? HDPopup.kanjiEntryGlossary(nativeSample(member.title))
+              : JSON.stringify(["food; eating — sample single-kanji entry"]) })), frequencies: [], pitches: [],
+        } }], candidate, capability.kind === "group"
+          ? { ...renderContext, dictionaryTabScope: members.map(member => member.title) } : renderContext);
         sampleTermView = true;
         armSampleBlur();
       } else {
         // Native kanji is outside term blur.
         sampleTermView = false;
         clearSampleBlurTimer();
-        view.renderKanji({ character: kanjiCharacter, entries: [{ dictionary: capability?.title || "Sample kanji",
-          onyomi: "ショク ジキ", kunyomi: "た.べる く.う", tags: "常用", definitions: ["eat", "food"],
-          stats: [{ name: "strokes", value: "9" }, { name: "grade", value: "2" }],
-        }] }, candidate, { ...renderContext, definitionBlurState: "revealed" });
+        view.renderKanji({ character: kanjiCharacter, entries: [nativeSample(capability?.title || "Sample kanji")] },
+          candidate, { ...renderContext, definitionBlurState: "revealed" });
       }
     } else {
       view.renderResults(sample.results, candidate, { ...context(), preserveViewControls,
@@ -269,7 +274,7 @@
     const nextSampleKey = JSON.stringify(nextSample.results);
     sample = nextSample;
     const changed = kanjiCharacter
-      ? JSON.stringify(kanjiSource) !== JSON.stringify(HDReaderOptions.resolveKanjiDictionary(options.kanjiClickDictionary, state.dictionaries))
+      ? JSON.stringify(kanjiSource) !== JSON.stringify(HDReaderOptions.resolveKanjiDictionary(options.kanjiClickDictionary, state.dictionaries, state.groups))
       : sampleKey !== nextSampleKey;
     sampleKey = nextSampleKey;
     if (changed) {

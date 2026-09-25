@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 export function formatBytes(bytes) {
+  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(2)} GB`;
   return bytes < 1_048_576
     ? `${Math.round(bytes / 1024)} KB`
     : `${(bytes / 1_048_576).toFixed(1)} MB`;

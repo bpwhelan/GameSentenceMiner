@@ -5,6 +5,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hachidori settings</title>
+    <script src="reader-options.js"></script>
+    <script src="settings-theme.js"></script>
     <link rel="stylesheet" href="icons.css" />
     <link rel="stylesheet" href="render/reader.css" />
     <link rel="stylesheet" href="settings.css" />
@@ -95,6 +97,12 @@
         >
           Contacting the engine&hellip;
         </output>
+        <ul
+          class="engine-status-failures"
+          id="engine-status-failures"
+          aria-labelledby="engine-status"
+          hidden
+        ></ul>
       </aside>
       <main class="page" id="settings-content" tabindex="-1">
         <div id="settings-search-results" class="card settings-search-results" hidden>
@@ -496,6 +504,14 @@
 
             </div>
           </fieldset>
+          <fieldset class="lookup-group" id="selection-notice-settings">
+            <legend>Personal dictionary</legend>
+            <label class="lookup-enable">
+              <span>Show a popup when a selection has no definition</span>
+              <input id="opt-no-result-notice" type="checkbox" aria-describedby="selection-notice-help" />
+            </label>
+            <p class="field-hint" id="selection-notice-help">Use the pencil in the popup to add your own definition. The setup notice still appears when no dictionaries are loaded.</p>
+          </fieldset>
           <fieldset class="lookup-group">
             <legend>Frequency</legend>
             <div class="fields">
@@ -692,7 +708,7 @@
                   <label class="field">
                     <span class="field-label">Clicked-kanji dictionary</span>
                     <select id="opt-kanji-dictionary"></select>
-                    <span class="field-hint">Term dictionaries also work when they contain a single-kanji entry.</span>
+                    <span class="field-hint">Term dictionaries also work when they contain a single-kanji entry. A group shows each of its dictionaries with an entry as its own tab, in group order.</span>
                   </label>
                 </div>
               </fieldset>
@@ -1243,6 +1259,17 @@
             <p class="hint">Features that are still changing. Changes save automatically.</p>
           </div>
           <div class="options-feedback-slot"></div>
+          <fieldset class="lookup-group" id="memory-settings">
+            <legend data-search-keywords="ram memory heap low memory mode">Memory</legend>
+            <p id="memory-total" class="section-note" aria-live="polite">Engine memory: —</p>
+            <p class="hint">Every installed dictionary is held in memory while the engine runs. Each dictionary's share is under its Details in Library. <a href="https://github.com/bee-san/hachidori/blob/main/docs/memory.md" target="_blank" rel="noopener noreferrer">How Hachidori uses memory</a></p>
+            <label class="lookup-enable" id="low-memory-mode">
+              <span>Low memory mode</span>
+              <input type="checkbox" id="opt-low-memory-mode" aria-describedby="opt-low-memory-mode-help" />
+            </label>
+            <p class="field-hint" id="opt-low-memory-mode-help">Frees the memory an import or dictionary change leaves behind by restarting the engine once it is idle. Imports run on one thread and are slower, and dictionaries reload briefly after a change.</p>
+            <p class="hint" id="low-memory-mode-unavailable" hidden>Low memory mode needs the threaded engine, which this browser does not run.</p>
+          </fieldset>
           <fieldset class="lookup-group" id="experimental-settings">
             <legend>Experimental features</legend>
             <p class="section-note">Experimental features may change or be removed in a later version. Turning one off hides it but keeps its settings for the next time you turn it on.</p>
@@ -1326,6 +1353,7 @@
           <summary class="dict-details-toggle">Details</summary>
           <div class="dict-footer">
             <span class="dict-metadata"></span>
+            <span class="dict-memory">In memory: —</span>
             <div class="dict-schedule" hidden>
               <label>
                 <span class="cell-label">Automatic updates</span>
@@ -1361,6 +1389,9 @@
                 />
               </label>
               <button type="button" class="ghost dict-move">Move</button>
+              <button type="button" class="ghost dict-update-check" hidden>
+                <span class="hd-icon" data-icon="arrow-sync" aria-hidden="true"></span>
+              </button>
               <button type="button" class="ghost dict-update" hidden>
                 Update
               </button>

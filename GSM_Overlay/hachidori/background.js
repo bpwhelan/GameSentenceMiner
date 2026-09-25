@@ -757,7 +757,25 @@ function hasCapability(dictionary, kind) {
   return dictionary.frequencyCount === 0 && dictionary.pitchCount === 0 && dictionary.kanjiCount === 0;
 }
 
-function normaliseDictionarySelections(value, dictionaries) {
+// The stored clicked-kanji selection after a dictionary or group change: a
+// group keeps its stable ID through renames and membership edits and resets
+// only when the group is removed, like a removed or disabled dictionary does.
+function normaliseKanjiClickSelection(value, dictionaries, groups) {
+  const selection = typeof value === "string" ? { title: value, kind: "" } : value;
+  if (selection?.kind === "tabGroup") {
+    return groups.some((group) => group.id === selection.id) ? value : "";
+  }
+  if (!selection?.title) return value;
+  const selected = dictionaries.find((entry) => entry.title === selection.title);
+  let kind = selection.kind;
+  if (!KANJI_SELECTION_KINDS.has(kind)) {
+    kind = selected && hasCapability(selected, "kanji") ? "kanji" : "term";
+  }
+  if (!selected || selected.enabled === false || !hasCapability(selected, kind)) return "";
+  return KANJI_SELECTION_KINDS.has(selection.kind) ? value : { title: selection.title, kind };
+}
+
+function normaliseDictionarySelections(value, dictionaries, groups = []) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value;
   }
@@ -770,21 +788,8 @@ function normaliseDictionarySelections(value, dictionaries) {
   ) {
     options.frequencyDictionary = "";
   }
-
-  const selection = typeof options.kanjiClickDictionary === "string"
-    ? { title: options.kanjiClickDictionary, kind: "" }
-    : options.kanjiClickDictionary;
-  if (selection?.title) {
-    const selected = dictionaries.find((entry) => entry.title === selection.title);
-    let kind = selection.kind;
-    if (!KANJI_SELECTION_KINDS.has(kind)) {
-      kind = selected && hasCapability(selected, "kanji") ? "kanji" : "term";
-    }
-    if (!selected || selected.enabled === false || !hasCapability(selected, kind)) {
-      options.kanjiClickDictionary = "";
-    } else if (!KANJI_SELECTION_KINDS.has(selection.kind)) {
-      options.kanjiClickDictionary = { title: selection.title, kind };
-    }
+  if (Object.hasOwn(options, "kanjiClickDictionary")) {
+    options.kanjiClickDictionary = normaliseKanjiClickSelection(options.kanjiClickDictionary, dictionaries, groups);
   }
   return options;
 }
@@ -902,6 +907,7 @@ function dictionaryCommit(current, currentOptions, dictionaries, groups) {
         state.dictionaries,
       ),
       state.dictionaries,
+      state.groups,
     );
     if (!sameJsonValue(nextOptions, { ...currentOptions, revision })) {
       values[OPTIONS_KEY] = { ...nextOptions, revision: revision + 1 };
@@ -1205,7 +1211,7 @@ const WORKER_HANDLERS = {
     }
     const expected = Object.fromEntries(Object.entries(backupRevisions(current)).map(([key, revision]) => [key, revision + 1]));
     if (!sameJsonValue(backupRevisions(snapshot), expected)) throw new Error("Invalid backup restore revisions.");
-    if (!sameJsonValue(snapshot.options, normaliseDictionarySelections(snapshot.options, snapshot.state.dictionaries))) {
+    if (!sameJsonValue(snapshot.options, normaliseDictionarySelections(snapshot.options, snapshot.state.dictionaries, snapshot.state.groups))) {
       throw new Error("The backup reader settings refer to unavailable dictionaries.");
     }
     await writeLocalState({
@@ -1441,6 +1447,14 @@ const WORKER_HANDLERS = {
     return ankiSetupDetection;
   },
 
+  // The offscreen document reads the engine's own options once at start; the
+  // storage listener below pushes later changes to it.
+  async hd_engine_config(message, sender) {
+    if (!engineSender(sender)) throw new Error("The engine configuration is read only by the dictionary engine host.");
+    const stored = await chrome.storage.local.get(OPTIONS_KEY);
+    return { lowMemoryMode: normaliseOptions(stored[OPTIONS_KEY]).lowMemoryMode };
+  },
+
   async hd_setup_record(message, sender) {
     if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL(OFFSCREEN_DOCUMENT)) {
       throw new Error("Setup outcomes are recorded only by the dictionary engine host.");
@@ -1491,7 +1505,7 @@ function optionsWriteResult(message, patch, state, storedOptions) {
   const current = { ...projectStoredOptions(storedOptions), revision };
   if (message.baseRevision !== revision) return optionsWriteConflict(message, current);
   const patched = { ...current, ...patch };
-  const options = state === null ? patched : normaliseDictionarySelections(patched, state.dictionaries);
+  const options = state === null ? patched : normaliseDictionarySelections(patched, state.dictionaries, state.groups);
   if (!sameJsonValue(options, { ...storedOptions, revision })) options.revision += 1;
   return checkedOptionsResult(message, { options });
 }
@@ -1673,7 +1687,7 @@ function firstInstallSelections(previousSelections, outcomes, dictionaryState, s
   if (Object.keys(patch).length === 0) return { applied, options: null };
   const revision = optionsRevision(storedOptions);
   const options = normaliseDictionarySelections(
-    { ...projectStoredOptions(storedOptions), ...validateOptionsPatch(patch), revision }, dictionaries,
+    { ...projectStoredOptions(storedOptions), ...validateOptionsPatch(patch), revision }, dictionaries, dictionaryState?.groups ?? [],
   );
   return { applied, options: sameJsonValue(options, { ...storedOptions, revision }) ? null : { ...options, revision: revision + 1 } };
 }
@@ -1998,6 +2012,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes[OPTIONS_KEY]) return;
   void reconcileAnkiIndex();
   void applyCustomJavaScript(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).customPopupJavascript);
+  const lowMemoryMode = normaliseOptions(changes[OPTIONS_KEY].newValue).lowMemoryMode;
+  if (lowMemoryMode === normaliseOptions(changes[OPTIONS_KEY].oldValue).lowMemoryMode) return;
+  // Sent to the offscreen document only if it exists: a document created later
+  // reads the option itself. A busy engine picks the change up when idle.
+  Promise.resolve(chrome.runtime.sendMessage({ target: TARGET, type: "hd_engine_config", relayed: true, lowMemoryMode }))
+    .catch(() => {});
 });
 
 async function applyAnkiIndexRole() {
@@ -2026,8 +2046,11 @@ const UPDATE_HANDLERS = {
     return result;
   },
 
-  async hd_updates_check() {
-    return queueManagedUpdate({ install: false });
+  async hd_updates_check(message) {
+    if (message.dictionaryIds !== undefined && !Array.isArray(message.dictionaryIds)) {
+      throw new TypeError("the dictionary update request carried no dictionary IDs");
+    }
+    return queueManagedUpdate({ dictionaryIds: message.dictionaryIds, install: false });
   },
 
   async hd_updates_install(message) {
@@ -2655,6 +2678,8 @@ const backupPreparations = new Map();
 let backupCancelTail = Promise.resolve();
 
 async function relayEngineRequest(message) {
+  // Pushed by the options storage listener only; a page cannot relay it.
+  if (message.type === "hd_engine_config") throw new Error("Unknown engine request.");
   await sharingReady;
   if (sharingLinked && forwardableRequest(message)) return forwardToHost(message);
   if (message.type === "hd_backup_cancel") {
@@ -2903,7 +2928,7 @@ async function handleWorkerRequest(message, sender) {
   // Navigation and read-only Anki discovery must not hold up storage commits.
   const run = () => [
     "hd_open_external", "hd_anki_discover", "hd_anki_setup", "hd_setup_anki", "hd_backup_download",
-    "hd_lookup_stats_record", "hd_lookup_stats_read",
+    "hd_lookup_stats_record", "hd_lookup_stats_read", "hd_engine_config",
   ].includes(type) ? invoke() : serialiseStorage(invoke);
   const operation = ["hd_anki_discover", "hd_anki_setup", "hd_setup_anki"].includes(type)
     ? trackAnkiOperation(run) : run();

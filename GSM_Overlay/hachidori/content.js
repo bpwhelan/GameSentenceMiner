@@ -3,11 +3,13 @@
  * Hachidori.
  *
  * Rendering lives in render/popup.js and render/glossary.js (ported from
- * GameSentenceMiner PR #549); this file only produces the
- * {sentence, matchOffset, sourceElements} candidates those modules consume and
- * drives the request/reply state machine. Like Yomitan's default layout-unaware
- * scan, page text is read in DOM order regardless of how it is boxed, and a
- * pointer candidate's sources are the text nodes around the hovered glyph.
+ * GameSentenceMiner PR #549); this file only produces the candidates those
+ * modules consume and drives the request/reply state machine. A candidate
+ * carries its raw page text as {sourceElements, sourceText, sourceOffset} for
+ * the highlighter and Yomitan's sentence around the match as {sentence,
+ * matchOffset} for Anki notes. Like Yomitan's default layout-unaware scan,
+ * page text is read in DOM order regardless of how it is boxed, and a pointer
+ * candidate's sources are the text nodes around the hovered glyph.
  *
  * Copyright (C) 2026 Manhhao
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -45,6 +47,7 @@
   } = globalThis.HDReaderOptions;
   const { normaliseDictionaryGroups } = globalThis.HDDictionaryGroups;
   const { normaliseLookupTerm, lookupStatsKey } = globalThis.HDLookupStats;
+  const { SENTENCE_SCAN_EXTENT, extractSentence } = globalThis.HDSentence;
   const { normaliseDictionaryTab: normalizedDictionaryTab } = globalThis.HDPopup;
   const MODIFIER_PROPERTIES = new Map([
     ["Shift", "shiftKey"],
@@ -60,9 +63,6 @@
   const MAX_MEDIA_CONCURRENT_REQUESTS = 4;
   const MAX_MEDIA_PENDING_REQUESTS = 128;
   const MEDIA_REQUEST_TIMEOUT_MS = 4000;
-  // Yomitan's sentence scan extent: how far the sentence reaches to either
-  // side of the hovered glyph before a newline cuts it.
-  const SENTENCE_SCAN_EXTENT = 200;
 
   // Same character set PR #549 gates lookups on: kana, halfwidth katakana, CJK
   // ideographs (including ext-A and ext-B), and the iteration/repeat marks.
@@ -106,6 +106,10 @@
   // A whitespace-only text node with a line break separates blocks in the
   // source ("</p>\n<p>", an overlay's block separator) and ends the sentence.
   const BLOCK_SEPARATOR_PATTERN = /^\s*[\n\r]\s*$/u;
+  // So does the edge of the paragraph, list item or table cell the text is laid
+  // out in. Flex, grid and positioned boxes are not in this set: an overlay
+  // boxes every glyph of one line in its own positioned flex span.
+  const BLOCK_DISPLAYS = new Set(["block", "list-item", "table-cell"]);
   const PRESERVED_WHITESPACE = new Set([
     "pre",
     "pre-wrap",
@@ -348,7 +352,7 @@
   }
 
   function selectedKanjiDictionaryCapability() {
-    return globalThis.HDReaderOptions.resolveKanjiDictionary(options.kanjiClickDictionary, dictionaries);
+    return globalThis.HDReaderOptions.resolveKanjiDictionary(options.kanjiClickDictionary, dictionaries, dictionaryGroups);
   }
 
   function projectResultsToDictionary(results, title) {
@@ -365,6 +369,41 @@
       }
     }
     return projected;
+  }
+
+  function nativeKanjiEntries(reply) {
+    const entries = Array.isArray(reply?.kanji?.entries) ? reply.kanji.entries : [];
+    return entries.filter((entry) => entry && typeof entry === "object"
+      && typeof entry.dictionary === "string" && entry.dictionary !== "");
+  }
+
+  // A group's members answer in group order. Entries sharing an expression and
+  // reading merge their cards, as the engine does for an ordinary lookup, and a
+  // native kanji entry becomes one structured card of its member.
+  function mergeKanjiGroupResults(members, character, kanjiReply, termReplies) {
+    const merged = [];
+    const append = (result) => {
+      const existing = merged.find((entry) => entry.term.expression === result.term.expression
+        && entry.term.reading === result.term.reading);
+      if (existing) existing.term.glossaries.push(...result.term.glossaries);
+      else merged.push({ ...result, term: { ...result.term, glossaries: [...result.term.glossaries] } });
+    };
+    const nativeEntries = nativeKanjiEntries(kanjiReply);
+    let termIndex = 0;
+    for (const member of members) {
+      if (member.kind === "term") {
+        const reply = termReplies[termIndex++];
+        for (const result of projectResultsToDictionary(Array.isArray(reply.results) ? reply.results : [], member.title)) {
+          append(result);
+        }
+        continue;
+      }
+      for (const entry of nativeEntries.filter((candidate) => candidate.dictionary === member.title)) {
+        append({ matched: character, term: { expression: character, reading: "", frequencies: [], pitches: [],
+          glossaries: [{ dictionary: entry.dictionary, glossary: window.HDPopup.kanjiEntryGlossary(entry) }] } });
+      }
+    }
+    return merged;
   }
 
   function isJapaneseToken(text) {
@@ -576,15 +615,25 @@
     );
   }
 
+  /** The nearest ancestor laid out as its own block, or null above the root. */
+  function blockAncestor(element, styleCache) {
+    for (let current = element; current; current = current.parentElement) {
+      if (BLOCK_DISPLAYS.has(computedStyleFor(current, styleCache).display)) return current;
+    }
+    return null;
+  }
+
   /**
    * The text nodes around `startNode`, in document order, that make up the
-   * sentence: neighbours up to SENTENCE_SCAN_EXTENT characters each way, cut at
-   * a block separator, a line break or a control. They are the candidate's
-   * `sourceElements`, so `sourceElements.map(textContent).join("") === sentence`
-   * holds by construction, which is what createSourceHighlighter requires.
+   * sentence's source: neighbours up to SENTENCE_SCAN_EXTENT characters each
+   * way, cut at a block separator, another block, a line break or a control.
+   * They are the candidate's `sourceElements`, so
+   * `sourceElements.map(textContent).join("") === sourceText` holds by
+   * construction, which is what createSourceHighlighter requires.
    */
   function collectSentenceSources(startNode, root, styleCache) {
     const sources = [startNode];
+    const block = blockAncestor(startNode.parentElement, styleCache);
     for (const backward of [true, false]) {
       const walker = createScanWalker(root, styleCache);
       walker.currentNode = startNode;
@@ -595,6 +644,7 @@
           !node ||
           node.nodeType !== Node.TEXT_NODE ||
           BLOCK_SEPARATOR_PATTERN.test(node.nodeValue || "") ||
+          blockAncestor(node.parentElement, styleCache) !== block ||
           // The walker stops at a control going forward but reaches its text
           // first going backward.
           (backward && isEditingElement(node.parentElement?.closest(EDITING_SELECTOR)))
@@ -606,6 +656,50 @@
       }
     }
     return sources;
+  }
+
+  /**
+   * `sourceText` with the segment breaks CSS collapses replaced by spaces, so
+   * that only a rendered line break ends the sentence: a paragraph wrapped
+   * across source lines is one line on the page.
+   */
+  function sentenceSource(sources, styleCache) {
+    let text = "";
+    const append = (node) => {
+      const raw = node.nodeValue || "";
+      text += preservesWhitespace(node.parentElement, styleCache) ? raw : raw.replace(/[\n\r]/gu, " ");
+    };
+    for (const source of sources) {
+      if (source.nodeType === Node.TEXT_NODE) {
+        append(source);
+        continue;
+      }
+      const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) append(walker.currentNode);
+    }
+    return text;
+  }
+
+  /**
+   * Completes a candidate with its raw source coordinates and its sentence.
+   * `sourceText` is the text of `sourceElements` and `sourceOffset` the match's
+   * start in it; the highlighter and rawMatchedText work there. `sentence` and
+   * `matchOffset` are Yomitan's sentence around the match, which Anki notes,
+   * the Note form and custom links receive. Until the engine answers, the match
+   * is the hovered glyph; the reply refines it to the matched word.
+   */
+  function withSentence(candidate, sourceOffset, matchLength, styleCache) {
+    candidate.sourceText = candidate.sourceElements.map((source) => source.textContent || "").join("");
+    candidate.sourceOffset = sourceOffset;
+    candidate.sentenceSource = sentenceSource(candidate.sourceElements, styleCache);
+    return refineSentence(candidate, matchLength);
+  }
+
+  function refineSentence(candidate, matchLength) {
+    const { sentence, matchOffset } = extractSentence(candidate.sentenceSource, candidate.sourceOffset, matchLength);
+    candidate.sentence = sentence;
+    candidate.matchOffset = matchOffset;
+    return candidate;
   }
 
   function withinSources(sources, node) {
@@ -763,10 +857,28 @@
    */
   function resolveCandidate(clientX, clientY) {
     const caretRange = caretRangeAt(clientX, clientY);
-    if (!caretRange) {
+    const node = caretRange?.startContainer;
+    if (node?.nodeType !== Node.TEXT_NODE
+        || !document.elementFromPoint(clientX, clientY)?.contains(node)) {
       return null;
     }
-    return resolveCandidateAt(caretRange.startContainer, caretRange.startOffset);
+    const text = node.nodeValue || "";
+    let offset = caretRange.startOffset;
+    // Caret alignment can step back onto the low surrogate of a wide glyph.
+    if (offset > 0 && (text.charCodeAt(offset) & 0xfc00) === 0xdc00) offset -= 1;
+    if (offset >= text.length) return null;
+    const glyph = document.createRange();
+    glyph.setStart(node, offset);
+    glyph.setEnd(node, offset + (text.codePointAt(offset) > 0xffff ? 2 : 1));
+    // Caret APIs snap to nearby text even in padding. Admit only the pointed
+    // glyph, with two CSS pixels for thin glyphs and subpixel layout.
+    for (const rect of glyph.getClientRects()) {
+      if (clientX >= rect.left - 2 && clientX <= rect.right + 2
+          && clientY >= rect.top - 2 && clientY <= rect.bottom + 2) {
+        return resolveCandidateAt(node, offset);
+      }
+    }
+    return null;
   }
 
   function resolveCandidateAt(startNode, startOffset) {
@@ -791,10 +903,10 @@
 
     const first = entries[0];
     const sourceElements = collectSentenceSources(first.node, document.body, styleCache);
-    let matchOffset;
+    let matchStart;
     let anchorRange;
     try {
-      matchOffset = sourceOffset(sourceElements, first.node, first.offset);
+      matchStart = sourceOffset(sourceElements, first.node, first.offset);
       anchorRange = document.createRange();
       anchorRange.setStart(first.node, first.offset);
       anchorRange.setEnd(
@@ -807,18 +919,16 @@
     } catch {
       return null;
     }
-    return {
+    return withSentence({
       anchor: first.node.parentElement,
       anchorRange,
-      matchOffset,
       query,
       scanEntries: entries,
-      sentence: sourceElements.map((source) => source.nodeValue || "").join(""),
       sourceDepth: -1,
       sourceElements,
       vertical: computedStyleFor(first.node.parentElement, styleCache)
         .writingMode.startsWith("vertical"),
-    };
+    }, matchStart, first.sourceLength, styleCache);
   }
 
   function resolveDefinitionCandidate(clientX, clientY, level) {
@@ -893,10 +1003,10 @@
       return null;
     }
     const first = entries[0];
-    let matchOffset;
+    let matchStart;
     let anchorRange;
     try {
-      matchOffset = rangeOffsetWithin(lookupText, first.node, first.offset);
+      matchStart = rangeOffsetWithin(lookupText, first.node, first.offset);
       anchorRange = document.createRange();
       anchorRange.setStart(first.node, first.offset);
       anchorRange.setEnd(
@@ -909,18 +1019,16 @@
     } catch {
       return null;
     }
-    return {
+    return withSentence({
       anchor: lookupText,
       anchorRange,
-      matchOffset,
       query,
       scanEntries: entries,
-      sentence: lookupText.textContent || "",
       sourceDepth: level.depth,
       sourceElements: [lookupText],
       vertical: computedStyleFor(lookupText, styleCache)
         .writingMode.startsWith("vertical"),
-    };
+    }, matchStart, first.sourceLength, styleCache);
   }
 
   function selectionBoundaryElement(node) {
@@ -950,30 +1058,31 @@
     if (!isScannableElement(selectionBoundaryElement(range.startContainer), styleCache)
         || !isScannableElement(selectionBoundaryElement(range.endContainer), styleCache)) return null;
     const query = selection.toString();
-    if (!query.trim()) return null;
+    if (!query.trim() || (options.onlyScanJapaneseText && !isJapaneseToken(query))) return null;
     const anchor = selectionBoundaryElement(range.commonAncestorContainer);
     for (const control of anchor.querySelectorAll(EDITING_SELECTOR)) {
       if (isEditingElement(control) && range.intersectsNode(control)
           && hasVisibleContent(control, styleCache)) return null;
     }
-    return {
+    const rawSelectionText = range.toString();
+    return withSentence({
       anchor,
       anchorRange: range.cloneRange(),
       exactSelection: true,
-      matchOffset: rangeOffsetWithin(anchor, range.startContainer, range.startOffset),
       query,
-      rawSelectionText: range.toString(),
-      sentence: anchor.textContent || "",
+      rawSelectionText,
       sourceDepth: -1,
       sourceElements: [anchor],
       vertical: computedStyleFor(anchor, styleCache).writingMode.startsWith("vertical"),
-    };
+    }, rangeOffsetWithin(anchor, range.startContainer, range.startOffset), rawSelectionText.length, styleCache);
   }
 
   // Yomitan's Scan text at selection: an ordinary scan from the selection's
   // first text. The live selection, not the scanned word, keeps it retained.
   function resolveSelectionScanCandidate(selection = window.getSelection()) {
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return null;
+    const query = selection.toString();
+    if (options.onlyScanJapaneseText && !isJapaneseToken(query)) return null;
     const range = selection.getRangeAt(0);
     let node = range.startContainer, offset = range.startOffset;
     if (node.nodeType !== Node.TEXT_NODE) {
@@ -982,7 +1091,7 @@
       offset = 0;
     }
     const candidate = node ? resolveCandidateAt(node, offset) : null;
-    return candidate && { ...candidate, selectionRange: range.cloneRange(), selectionText: selection.toString() };
+    return candidate && { ...candidate, selectionRange: range.cloneRange(), selectionText: query };
   }
 
   function candidateStart(candidate) {
@@ -1046,14 +1155,14 @@
 
   /**
    * Translates a matched length in scan coordinates into the raw substring of
-   * `candidate.sentence` that covers it. createSourceHighlighter measures the
-   * highlight as `matchedText.length` from `candidate.matchOffset` inside
-   * `sentence`, and `sentence` still carries the rt text and uncollapsed
+   * `candidate.sourceText` that covers it. createSourceHighlighter measures the
+   * highlight as `matchedText.length` from `candidate.sourceOffset` inside
+   * `sourceText`, and `sourceText` still carries the rt text and uncollapsed
    * whitespace the scan dropped -- so the engine's own `matched` string is the
    * wrong length whenever the word crosses ruby or a line wrap.
    */
   function rawMatchedText(candidate, matched) {
-    if (candidate.linkAnchor) return candidate.sentence;
+    if (candidate.linkAnchor) return candidate.sourceText;
     if (candidate.exactSelection === true) return candidate.rawSelectionText;
     const last = matchedScanEnd(candidate, matched);
     if (!last) {
@@ -1068,8 +1177,8 @@
           last.offset + last.sourceLength
         )
       );
-      if (end > candidate.matchOffset) {
-        return candidate.sentence.slice(candidate.matchOffset, end);
+      if (end > candidate.sourceOffset) {
+        return candidate.sourceText.slice(candidate.sourceOffset, end);
       }
     } catch {
       // Fall through to the engine's own string.
@@ -1463,10 +1572,10 @@
     }, (error) => console.debug("hachidori: page zoom unavailable", error));
   }
 
-  function calculatePopupPosition(anchorRect, viewport, vertical) {
+  function calculatePopupPosition(anchorRect, viewport, vertical, preferBelow = false) {
     return window.HDPopup.calculatePopupPosition(anchorRect, sessionPopupSize ?? {
       width: options.popupWidthPx, height: options.popupHeightPx,
-    }, viewport, { gap: POPUP_GAP_PX, padding: POPUP_PADDING_PX, vertical });
+    }, viewport, { gap: POPUP_GAP_PX, padding: POPUP_PADDING_PX, vertical, preferBelow });
   }
 
   function anchorRectFor(candidate) {
@@ -1650,6 +1759,14 @@
     if (level.popup.dataset.toolbarPosition !== desired) level.view.setToolbarPosition(desired);
   }
 
+  function placePopup(level, position, resetToolbar) {
+    positionToolbar(level, position.placement, resetToolbar);
+    level.popup.style.left = `${position.left}px`;
+    level.popup.style.top = `${position.top}px`;
+    level.popup.style.width = `${position.width}px`;
+    level.popup.style.height = `${position.height}px`;
+  }
+
   function positionPopup(fromLevel = rootLevel, resetToolbar = false) {
     queueMicrotask(() => gsmBridge?.refresh()); // GSM hook
     if (fromLevel.retired || fromLevel.popup?.inert || !rootLevel.popup || rootLevel.popup.hidden || !rootLevel.activeCandidate) {
@@ -1661,59 +1778,37 @@
       return;
     }
     highlighter?.refresh();
+    const viewport = popupViewport();
     if (fromLevel === rootLevel) {
-      const position = popupResize?.level === rootLevel ? popupResizePosition() : calculatePopupPosition(
+      placePopup(rootLevel, popupResize?.level === rootLevel ? popupResizePosition() : calculatePopupPosition(
         popupRect(anchorRectFor(rootLevel.activeCandidate)),
-        popupViewport(),
+        viewport,
         rootLevel.activeCandidate.vertical
-      );
-      positionToolbar(rootLevel, position.placement, resetToolbar);
-      rootLevel.popup.style.left = `${position.left}px`;
-      rootLevel.popup.style.top = `${position.top}px`;
-      rootLevel.popup.style.width = `${position.width}px`;
-      rootLevel.popup.style.height = `${position.height}px`;
+      ), resetToolbar);
     }
     if (levels.length === 1) return;
-    const viewport = popupViewport();
     if (viewport.width <= POPUP_PADDING_PX * 2 || viewport.height <= POPUP_PADDING_PX * 2) {
       pruneLevels(1);
       // Finish this placement before a newly unprotected view can reproject.
       window.queueMicrotask(flushDictionaryPresentation);
       return;
     }
-    const startDepth = Math.max(1, fromLevel.depth);
-    let parentRect = popupRect(levels[startDepth - 1].popup.getBoundingClientRect());
-    for (const level of levels.slice(startDepth)) {
+    // Like Yomitan, a child opens beside the text that opened it: below that
+    // word when it fits, otherwise above, aligned with its left edge and
+    // clamped to the viewport. Only each pane's own source is measured, so no
+    // ancestor box is read for any descendant.
+    for (const level of levels.slice(Math.max(1, fromLevel.depth))) {
       if (level.popup.hidden) break;
       if (!anchorConnected(level.activeCandidate)) {
         hide(level);
         break;
       }
-      positionToolbar(level, "beside", resetToolbar);
-      const anchorRect = popupRect(anchorRectFor(level.activeCandidate));
-      const width = Math.min(sessionPopupSize?.width ?? options.popupWidthPx, viewport.width - POPUP_PADDING_PX * 2);
-      const height = Math.min(sessionPopupSize?.height ?? options.popupHeightPx, viewport.height - POPUP_PADDING_PX * 2);
-      const rightRoom = viewport.width - parentRect.right - POPUP_GAP_PX - POPUP_PADDING_PX;
-      const leftRoom = parentRect.left - POPUP_GAP_PX - POPUP_PADDING_PX;
-      const preferredLeft = rightRoom >= width || rightRoom >= leftRoom
-        ? parentRect.right + POPUP_GAP_PX
-        : parentRect.left - width - POPUP_GAP_PX;
-      const left = Math.max(POPUP_PADDING_PX, Math.min(preferredLeft, viewport.width - width - POPUP_PADDING_PX));
-      const top = Math.max(POPUP_PADDING_PX, Math.min(anchorRect.top, viewport.height - height - POPUP_PADDING_PX));
-      level.popup.style.left = `${left}px`;
-      level.popup.style.top = `${top}px`;
-      level.popup.style.width = `${width}px`;
-      level.popup.style.height = `${height}px`;
-      if (popupResize?.level === level) {
-        const position = popupResizePosition();
-        level.popup.style.left = `${position.left}px`;
-        level.popup.style.top = `${position.top}px`;
-        level.popup.style.width = `${position.width}px`;
-        level.popup.style.height = `${position.height}px`;
-      }
-      // Each parent box is read once, after its own placement, not once per
-      // ancestor for every descendant. Narrow viewports may overlap panes.
-      parentRect = popupRect(level.popup.getBoundingClientRect());
+      placePopup(level, popupResize?.level === level ? popupResizePosition() : calculatePopupPosition(
+        popupRect(anchorRectFor(level.activeCandidate)),
+        viewport,
+        level.activeCandidate.vertical,
+        true
+      ), resetToolbar);
     }
   }
 
@@ -1924,6 +2019,20 @@
     }, { capture: true, passive: true });
     popup.addEventListener("wheel", onPopupWheel, { passive: false });
     popup.addEventListener("mouseenter", () => onPopupEnter(level));
+    // Yomitan dismisses a nested popup when its parent is pressed. A primary
+    // press here retires this pane's descendants at once, focused or not, and
+    // drops a pending definition scan so an older lookup cannot reopen one.
+    // A draft or pending append protects them as on every other hide path. A
+    // press on an internal link keeps that link's own child for its click to
+    // reuse or replace, retiring only the branch below it.
+    popup.addEventListener("mousedown", (event) => {
+      if (event.button !== 0 || level.retired) return;
+      const link = popupLinkAt(event.target, level)?.hasAttribute("data-hoshidicts-query") === true;
+      const depth = level.depth + (link ? 2 : 1);
+      if (levels.length <= depth || hasProtectedNote(depth)) return;
+      clearScanTimer();
+      dismissLevels(depth, false);
+    });
     popup.addEventListener(
       "mousemove",
       (event) => onPopupMouseMove(event, level),
@@ -2019,7 +2128,7 @@
         ({ ...group, frequencyMode: frequencyModes.get(group.dictionary) })) };
       return { ...result, term, generation: level.activeTermRender.generation, sentence: candidate.sentence,
         matchOffset: candidate.matchOffset, matched: rawMatchedText(candidate, result.matched || result.term.expression),
-        searchQuery: request?.payload?.text ?? request?.termPayload?.text ?? candidate.query,
+        searchQuery: request?.payload?.text ?? request?.kanjiPayload?.character ?? candidate.query,
         popupSelectionText: selection?.anchorNode && level.popup.contains(selection.anchorNode) ? selection.toString() : "",
         documentTitle: document.title, audioSelection: audio.selectionFor(result) ?? undefined,
         capturePin: rootLevel.capturePin ?? undefined,
@@ -2347,17 +2456,20 @@
     if (levels.length === 1) clearTransferTimer();
   }
 
+  // Retiring panes can release a deferred parent replay or projection.
+  function dismissLevels(depth, restoreFocus = true) {
+    pruneLevels(depth, restoreFocus);
+    flushDeferredNotes();
+    flushDictionaryPresentation();
+  }
+
   function hide(level = rootLevel) {
     if (level === rootLevel || popupResize?.level === level) stopPopupResize();
     audio?.retire(level);
     mining?.retire(level);
     clearDefinitionBlurTimer(level);
     if (level !== rootLevel) {
-      if (!level.retired) {
-        pruneLevels(level.depth);
-        flushDeferredNotes();
-        flushDictionaryPresentation();
-      }
+      if (!level.retired) dismissLevels(level.depth);
       return;
     }
     cancelPopupLayout();
@@ -2437,9 +2549,7 @@
       descendantTimer = null;
       if (!hasProtectedNote(depth) && (!pointerLevel || pointerLevel.depth < depth)
           && !levels.slice(depth).some((child) => child.popup.contains(shadow.activeElement))) {
-        pruneLevels(depth);
-        flushDeferredNotes();
-        flushDictionaryPresentation();
+        dismissLevels(depth);
       }
     };
     if (options.popupHideDelayMs === 0) prune();
@@ -2684,7 +2794,7 @@
 
   function handleTermMiss(request, dictionaryCount, token, level, replayOptions) {
     if (retainProtectedReplay(request, token, level, replayOptions)) return false;
-    if (dictionaryCount === 0 || request.exactSelection) {
+    if (dictionaryCount === 0 || (request.exactSelection && options.showNoResultNotice)) {
       show(request.candidate, level);
       level.activeHighlightText = "";
       level.activeTermRender = null;
@@ -2703,6 +2813,9 @@
       return false;
     }
     hide(level);
+    // A hidden miss keeps the selection like a rendered notice does, so pointer
+    // movement cannot repeat its lookup until the selection changes or Escape.
+    if (request.exactSelection) activeSelectionCandidate = request.candidate;
     return false;
   }
 
@@ -2756,6 +2869,9 @@
     if (!replayOptions?.preserveViewControls) show(request.candidate, level);
     if (request.highlightText === undefined) {
       request.highlightText = rawMatchedText(request.candidate, matched);
+      // The sentence was cut around the hovered glyph; a terminator inside the
+      // matched word (U.S.A.) must not end it.
+      refineSentence(request.candidate, request.highlightText.length);
     }
     return renderTerms(
       results,
@@ -2875,12 +2991,11 @@
     if (!anchor?.isConnected || !query) {
       return;
     }
-    // Link text is an anchor/highlight, never the query's page-scan offsets.
-    const candidate = {
-      anchor, linkAnchor: true, query, matchOffset: 0,
-      sentence: anchor.textContent || "", sourceElements: [anchor], sourceDepth: level.depth,
-      vertical: false,
-    };
+    // Link text is an anchor/highlight, never the query's page-scan offsets,
+    // and the whole of it is the match, so it is its own sentence.
+    const candidate = withSentence({
+      anchor, linkAnchor: true, query, sourceElements: [anchor], sourceDepth: level.depth, vertical: false,
+    }, 0, (anchor.textContent || "").length, new Map());
     return openChildLookup(candidate, level, {
       focusChild,
       primaryReading,
@@ -2892,7 +3007,7 @@
     audio?.retire(level);
     mining?.retire(level);
     const { candidate, capability, character } = request;
-    const useTermDictionary = capability?.kind === "term";
+    const group = capability?.kind === "group";
     const token = (level.lookupToken += 1);
     level.pendingPopupInteraction = token;
     const finishInteraction = () => {
@@ -2900,11 +3015,15 @@
     };
     level.retainedView = replayOptions?.preserveViewControls === true;
     level.view?.hideImagePreview();
-    let reply;
+    // Every selected source is asked at once. A term-only selection defers the
+    // native fallback until its members miss.
+    const wantsNative = group ? capability.members.some((member) => member.kind === "kanji") : capability?.kind !== "term";
+    let reply, termReplies;
     try {
-      reply = useTermDictionary
-        ? await sendRequest("hd_lookup_dictionary", request.termPayload)
-        : await sendRequest("hd_kanji", request.kanjiPayload);
+      [reply, ...termReplies] = await Promise.all([
+        wantsNative ? sendRequest("hd_kanji", request.kanjiPayload) : null,
+        ...request.termPayloads.map((payload) => sendRequest("hd_lookup_dictionary", payload)),
+      ]);
     } catch (error) {
       finishInteraction();
       return handleLookupFailure(token, error, level, request, true);
@@ -2913,24 +3032,29 @@
       finishInteraction();
       return false;
     }
-    noteGeneration(reply.generation, level);
-    if (useTermDictionary) {
-      const results = projectResultsToDictionary(
-        Array.isArray(reply.results) ? reply.results : [],
-        capability.title
+    for (const each of [reply, ...termReplies]) if (each) noteGeneration(each.generation, level);
+    let results = [];
+    if (group) {
+      results = mergeKanjiGroupResults(capability.members, character, reply, termReplies);
+    } else if (capability?.kind === "term") {
+      results = projectResultsToDictionary(Array.isArray(termReplies[0].results) ? termReplies[0].results : [], capability.title);
+    }
+    if (results.length > 0) {
+      finishInteraction();
+      return renderTerms(
+        results,
+        candidate,
+        request.highlightText,
+        {
+          ...backRenderOptions(request, level),
+          ...(group ? { dictionaryTabScope: capability.members.map((member) => member.title) } : {}),
+        },
+        request,
+        level,
+        replayOptions,
       );
-      if (results.length > 0) {
-        finishInteraction();
-        return renderTerms(
-          results,
-          candidate,
-          request.highlightText,
-          backRenderOptions(request, level),
-          request,
-          level,
-          replayOptions,
-        );
-      }
+    }
+    if (reply === null) {
       try {
         reply = await sendRequest("hd_kanji", request.kanjiPayload);
       } catch (error) {
@@ -2944,13 +3068,8 @@
       noteGeneration(reply.generation, level);
     }
     const kanji = reply.kanji;
-    if (!kanji || !Array.isArray(kanji.entries) || kanji.entries.length === 0) {
-      finishInteraction();
-      return handleLookupFailure(token, new Error("kanji lookup returned no usable result"), level, request, true);
-    }
-    const validEntries = kanji.entries.filter((entry) => entry && typeof entry === "object"
-      && typeof entry.dictionary === "string" && entry.dictionary !== "");
-    if (validEntries.length === 0) {
+    const validEntries = nativeKanjiEntries(reply);
+    if (!kanji || validEntries.length === 0) {
       finishInteraction();
       return handleLookupFailure(token, new Error("kanji lookup returned no usable result"), level, request, true);
     }
@@ -2993,6 +3112,9 @@
       return;
     }
     const capability = selectedKanjiDictionaryCapability();
+    const termSources = capability?.kind === "group"
+      ? capability.members.filter((member) => member.kind === "term")
+      : capability?.kind === "term" ? [capability] : [];
     return executeKanjiRequest({
       candidate: level.activeCandidate,
       capability,
@@ -3006,19 +3128,17 @@
       },
       returnFocus: kanjiLinkFocusTarget(sourceLink, character, level),
       selectedDictionaryTab: normalizedDictionaryTab(level.currentViewRequest?.selectedDictionaryTab),
-      termPayload: capability?.kind === "term"
-        ? {
-            dictionary: capability.title,
-            maxResults: options.maxResults,
-            options: {
-              frequencyDictionary: options.frequencyDictionary,
-              frequencyOrder: options.frequencyOrder,
-              primaryReading: "",
-            },
-            scanLength: 1,
-            text: character,
-          }
-        : null,
+      termPayloads: termSources.map((source) => ({
+        dictionary: source.title,
+        maxResults: options.maxResults,
+        options: {
+          frequencyDictionary: options.frequencyDictionary,
+          frequencyOrder: options.frequencyOrder,
+          primaryReading: "",
+        },
+        scanLength: 1,
+        text: character,
+      })),
     }, level);
   }
 

@@ -141,6 +141,11 @@ const fieldKey = value => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 const knownMarker = value => MARKERS.has(value) || DYNAMIC_PREFIXES.some(prefix => value.startsWith(prefix) && value.length > prefix.length);
 const blankTemplate = () => ({ value: "", overwriteMode: "coalesce" });
 const semanticMarker = semantic => ({ captureAnimation: "capture-animation", captureAudio: "capture-audio" })[semantic] ?? semantic;
+const semanticLabel = semantic => ({ captureAnimation: "captured animation", captureAudio: "captured audio" })[semantic] ?? semantic;
+// Names the fields Anki reported, so a stale mapping can be corrected without
+// opening Anki. An empty list means the note type itself is still unknown.
+const availableFields = fields => fields.length === 0 ? ""
+  : ` Its fields are ${fields.map(field => `“${field}”`).join(", ")}.`;
 
 export const escapeAnkiHtml = value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;")
   .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#x27;");
@@ -201,7 +206,10 @@ function basicTemplates(config, fields) {
     const name = config.fields[semantic];
     if (!name) continue;
     const field = canonical.get(name.toLowerCase());
-    if (!field) { errors.push(`Mapped field “${name}” is unavailable.`); continue; }
+    if (!field) {
+      errors.push(`The ${semanticLabel(semantic)} mapping points at field “${name}”, which is unavailable in note type “${config.model}”.${availableFields(fields)}`);
+      continue;
+    }
     const row = rows.get(field);
     const marker = semantic === "pitch" && field.toLowerCase() === "pitchposition" ? "pitch-position"
       : semanticMarker(semantic);
@@ -241,9 +249,10 @@ export function resolveAnkiTemplates(config, fields) {
     return [field, { ...saved[name] }];
   }));
   const staleFields = Object.keys(saved).filter(field => !used.has(field));
-  const errors = staleFields.map(field => `Template field “${field}” is unavailable.`);
+  const errors = staleFields.map(field =>
+    `Template field “${field}” is unavailable in note type “${config.model}”.${availableFields(fields)}`);
   for (const [field, template] of Object.entries(templates)) {
-    errors.push(...ankiTemplateErrors(template.value).map(error => `${field}: ${error}`));
+    errors.push(...ankiTemplateErrors(template.value).map(error => `Field “${field}”: ${error}`));
   }
   return { templates, staleFields, errors };
 }

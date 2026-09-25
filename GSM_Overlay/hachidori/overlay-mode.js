@@ -23,6 +23,9 @@ export const HOST_CAPABILITIES = Object.freeze({
   externalLinkHost: OVERLAY_MODE,
   localFileAccessPrompt: !OVERLAY_MODE,
   mediaCapture: !OVERLAY_MODE && !IS_FIREFOX,
+  // Recycling the engine worker needs the dedicated worker path; Firefox runs
+  // the engine in the background page's iframe.
+  lowMemoryMode: !IS_FIREFOX,
 });
 
 export const MINING_CAPABILITIES = Object.freeze({

@@ -20,12 +20,40 @@ const isEnvelope = payload => payload !== null && typeof payload === "object" &&
   && Object.keys(payload).length === 2 && Object.hasOwn(payload, "result") && Object.hasOwn(payload, "error")
   && (payload.error === null || typeof payload.error === "string");
 const invalidResponse = () => new Error("AnkiConnect returned an invalid response. Check the add-on and retry.");
-function unwrap(reply) {
-  if (reply.error !== null) {
-    throw new Error(/api key/iu.test(reply.error)
-      ? "AnkiConnect requires a valid API key. Enter the key from its add-on configuration."
-      : `AnkiConnect: ${reply.error}`);
+
+// AnkiConnect's own error strings name the cause but not what to do about it.
+// Each translation keeps the original text so it can still be searched for.
+const ANKI_CONNECT_EXPLANATIONS = [
+  [/api key/iu, () => "AnkiConnect requires a valid API key. Enter the key from its add-on configuration."],
+  [/collection is not available/iu,
+    () => "Anki has no open collection. Open your profile in Anki, then retry."],
+  [/^deck was not found: (.+)$/iu,
+    ([, deck]) => `Anki has no deck named “${deck}”. Choose an available deck in Anki Settings.`],
+  [/^model was not found: (.+)$/iu,
+    ([, model]) => `Anki has no note type named “${model}”. Choose an available note type in Anki Settings.`],
+  [/^cannot create note because it is empty$/iu,
+    () => "Anki refused the note because its first field is empty. Map the first field to content this result has."],
+  [/^cannot create note because it is a duplicate$/iu,
+    () => "Anki refused the note because a note with the same first field already exists."],
+  [/^note was not found: (.+)$/iu,
+    ([, id]) => `Anki no longer has note ${id}. It was deleted or moved to another collection; refresh and retry.`],
+  [/unsupported action|unknown action/iu,
+    () => "The installed AnkiConnect add-on is too old for this request. Update AnkiConnect in Anki."],
+];
+
+// Turns a raw AnkiConnect error string into the message shown to the reader.
+export function describeAnkiConnectError(error) {
+  for (const [pattern, explain] of ANKI_CONNECT_EXPLANATIONS) {
+    const match = pattern.exec(error);
+    if (match === null) continue;
+    const explanation = explain(match);
+    return pattern === ANKI_CONNECT_EXPLANATIONS[0][0] ? explanation : `${explanation} (AnkiConnect: ${error})`;
   }
+  return `AnkiConnect: ${error}`;
+}
+
+function unwrap(reply) {
+  if (reply.error !== null) throw new Error(describeAnkiConnectError(reply.error));
   return reply.result;
 }
 
@@ -203,13 +231,23 @@ export function ankiAvailability(config, discovery, resolvedTemplates) {
   if (!discovery) return ["Refresh Anki to check this configuration."];
   if (!discovery.connected) return discovery.errors;
   const errors = [...discovery.errors];
-  if (!discovery.decks.includes(config.deck)) errors.push("Choose an available deck.");
-  if (!discovery.models.includes(config.model)) errors.push("Choose an available note type.");
-  if (config.model !== discovery.model) return [...errors, "Refresh fields for the selected note type."];
+  if (!discovery.decks.includes(config.deck)) {
+    errors.push(config.deck
+      ? `Anki has no deck named “${config.deck}”. Choose an available deck.`
+      : "Choose an available deck.");
+  }
+  if (!discovery.models.includes(config.model)) {
+    errors.push(config.model
+      ? `Anki has no note type named “${config.model}”. Choose an available note type.`
+      : "Choose an available note type.");
+  }
+  if (config.model !== discovery.model) {
+    return [...errors, `Refresh fields for the selected note type, “${config.model}”.`];
+  }
   const resolved = resolvedTemplates ?? resolveAnkiTemplates(config, discovery.fields);
   errors.push(...resolved.errors);
   if (discovery.fields.length > 0 && !resolved.templates[discovery.fields[0]].value.trim()) {
-    errors.push(`Map the first field, “${discovery.fields[0]}”, before adding notes.`);
+    errors.push(`Map the first field, “${discovery.fields[0]}”, of note type “${config.model}” before adding notes. Anki requires it.`);
   }
   if (discovery.fields.length > 0) {
     const markers = ankiTemplateMarkerNames(resolved.templates[discovery.fields[0]].value);
