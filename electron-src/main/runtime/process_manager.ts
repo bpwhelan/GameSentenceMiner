@@ -7,8 +7,8 @@
  *
  * Liveness is event-driven off the message bus: a process is "ready" once it
  * sends its `hello` (bus client-connected), not by polling its pid. Graceful
- * stop is a bus command on a per-spec topic, escalating to SIGTERM and then a
- * force kill if the process doesn't exit in time.
+ * stop is a bus command on a per-spec topic, followed by an owned process-tree
+ * termination when the child does not stop itself.
  */
 
 import { execFile, ChildProcess, spawn } from 'node:child_process';
@@ -19,6 +19,7 @@ import * as path from 'node:path';
 import { promisify } from 'node:util';
 
 import type { BrokerStartInfo } from './message_bus.js';
+import { hasProcessExited, terminateProcessTree, waitForProcessExit } from './process_tree.js';
 
 // Kept dependency-free on purpose: util.ts statically imports main.ts, so pulling
 // it in here would drag the whole app graph (and its circular init) into anything
@@ -94,8 +95,7 @@ interface ManagedEntry {
     state: ProcessState;
     /** True while an intentional stop is in flight (suppresses auto-restart). */
     stopping: boolean;
-    stopTimer: NodeJS.Timeout | null;
-    forceTimer: NodeJS.Timeout | null;
+    stopPromise: Promise<void> | null;
     restartTimer: NodeJS.Timeout | null;
     restartAttempts: number;
 }
@@ -107,7 +107,6 @@ interface PersistedProcess {
     matchTokens: string[];
 }
 
-const SIGTERM_ESCALATION_MS = 1500;
 const DEFAULT_RESTART_INITIAL_MS = 1000;
 const DEFAULT_RESTART_MAX_MS = 30_000;
 
@@ -146,8 +145,7 @@ export class ProcessManager extends EventEmitter {
             proc: null,
             state: 'stopped',
             stopping: false,
-            stopTimer: null,
-            forceTimer: null,
+            stopPromise: null,
             restartTimer: null,
             restartAttempts: 0,
         });
@@ -171,7 +169,7 @@ export class ProcessManager extends EventEmitter {
 
     isRunning(id: string): boolean {
         const entry = this.entries.get(id);
-        return Boolean(entry?.proc && entry.proc.exitCode === null && !entry.proc.killed);
+        return Boolean(entry?.proc && !hasProcessExited(entry.proc));
     }
 
     start(id: string): void {
@@ -180,7 +178,7 @@ export class ProcessManager extends EventEmitter {
             console.warn(`[ProcessManager] launch of "${id}" blocked (update in progress).`);
             return;
         }
-        if (this.isRunning(id)) {
+        if (this.isRunning(id) || entry.stopPromise) {
             return;
         }
         this.clearRestartTimer(entry);
@@ -190,13 +188,19 @@ export class ProcessManager extends EventEmitter {
     async stop(id: string, options?: ProcessStopOptions): Promise<void> {
         const entry = this.requireEntry(id);
         this.clearRestartTimer(entry);
-        if (!entry.proc || entry.proc.exitCode !== null) {
+        if (entry.stopPromise) {
+            return entry.stopPromise;
+        }
+        if (!entry.proc) {
             this.setState(entry, 'stopped');
             return;
         }
         entry.stopping = true;
         this.setState(entry, 'stopping');
-        await this.gracefulStop(entry, options);
+        entry.stopPromise = this.gracefulStop(entry, options).finally(() => {
+            entry.stopPromise = null;
+        });
+        return entry.stopPromise;
     }
 
     async restart(id: string, options?: ProcessStopOptions): Promise<void> {
@@ -205,7 +209,11 @@ export class ProcessManager extends EventEmitter {
     }
 
     async stopAll(): Promise<void> {
-        await Promise.all([...this.entries.keys()].map((id) => this.stop(id)));
+        const results = await Promise.allSettled([...this.entries.keys()].map((id) => this.stop(id)));
+        const errors = results.filter((result) => result.status === 'rejected').map((result) => result.reason);
+        if (errors.length > 0) {
+            throw new AggregateError(errors, 'Failed to stop managed processes.');
+        }
     }
 
     /** Kill any leftover managed processes from a previous app run. */
@@ -245,6 +253,7 @@ export class ProcessManager extends EventEmitter {
         const proc = spawn(executable, args, {
             cwd: entry.spec.cwd,
             windowsHide,
+            detached: !IS_WINDOWS,
             env: this.buildEnv(entry.spec),
         });
 
@@ -261,12 +270,18 @@ export class ProcessManager extends EventEmitter {
             this.emit('log', entry.spec.id, { stream: 'stderr', message: data.toString() });
         });
 
-        proc.on('close', (code, signal) => {
-            this.handleExit(entry, proc, code, signal);
+        proc.on('exit', (code, signal) => {
+            // Workers can inherit stdio and keep 'close' from firing after the
+            // parent exits. Reap the group from 'exit' instead.
+            void this.handleExit(entry, proc, code, signal).catch((err) => {
+                console.warn(`[ProcessManager] failed to clean up "${entry.spec.id}":`, err);
+            });
         });
         proc.on('error', (err) => {
             this.emit('log', entry.spec.id, { stream: 'stderr', message: `spawn error: ${err.message}` });
-            this.handleExit(entry, proc, 1, null);
+            if (!proc.pid) {
+                void this.handleExit(entry, proc, 1, null);
+            }
         });
 
         // readyOn 'spawn' means the process has no bus handshake.
@@ -310,63 +325,36 @@ export class ProcessManager extends EventEmitter {
         if (!proc) {
             return;
         }
-        const exited = new Promise<void>((resolve) => proc.once('close', () => resolve()));
-
         const graceful = entry.spec.gracefulStop;
-        if (graceful && this.options.bus.isClientConnected(entry.spec.id)) {
+        if (!hasProcessExited(proc) && graceful && this.options.bus.isClientConnected(entry.spec.id)) {
             const data = options && 'gracefulStopData' in options
                 ? options.gracefulStopData
                 : graceful.data;
-            this.options.bus.publish(entry.spec.id, graceful.topic, data, 'command');
-            entry.stopTimer = setTimeout(() => this.signalTerminate(entry), graceful.timeoutMs);
-        } else {
-            this.signalTerminate(entry);
-        }
-        await exited;
-    }
-
-    private signalTerminate(entry: ManagedEntry): void {
-        const proc = entry.proc;
-        if (!proc || proc.exitCode !== null) {
-            return;
-        }
-        try {
-            proc.kill('SIGTERM');
-        } catch (err) {
-            console.warn(`[ProcessManager] SIGTERM failed for "${entry.spec.id}":`, err);
-        }
-        const pid = proc.pid;
-        entry.forceTimer = setTimeout(() => {
-            if (proc.exitCode !== null || !pid) {
-                return;
+            const exited = waitForProcessExit(proc, graceful.timeoutMs);
+            try {
+                this.options.bus.publish(entry.spec.id, graceful.topic, data, 'command');
+                await exited;
+            } catch (err) {
+                console.warn(`[ProcessManager] graceful stop failed for "${entry.spec.id}":`, err);
             }
-            if (IS_WINDOWS) {
-                execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F']).catch(() => {
-                    /* best-effort */
-                });
-            } else {
-                try {
-                    process.kill(pid, 'SIGKILL');
-                } catch {
-                    /* best-effort */
-                }
-            }
-        }, SIGTERM_ESCALATION_MS);
+        }
+        await terminateProcessTree(proc);
+        await this.handleExit(entry, proc, proc.exitCode, proc.signalCode);
     }
 
     // -- exit / restart -----------------------------------------------------
 
-    private handleExit(
+    private async handleExit(
         entry: ManagedEntry,
         proc: ChildProcess,
         code: number | null,
         signal: NodeJS.Signals | null
-    ): void {
+    ): Promise<void> {
+        await terminateProcessTree(proc);
         if (entry.proc !== proc) {
             // A newer process already replaced this one; ignore the stale close.
             return;
         }
-        this.clearStopTimers(entry);
         entry.proc = null;
         this.recordPid(entry, '', [], undefined);
 
@@ -403,7 +391,7 @@ export class ProcessManager extends EventEmitter {
         entry.restartAttempts += 1;
         entry.restartTimer = setTimeout(() => {
             entry.restartTimer = null;
-            if (!this.isRunning(entry.spec.id)) {
+            if (!this.options.launchBlocked?.() && !entry.stopPromise && !this.isRunning(entry.spec.id)) {
                 this.spawnEntry(entry);
             }
         }, delay);
@@ -427,7 +415,7 @@ export class ProcessManager extends EventEmitter {
         if (!entry || entry.stopping) {
             return;
         }
-        // Process may still be alive (its `close` is the authority on death);
+        // Process may still be alive (its `exit` is the authority on death);
         // a disconnect while running just means it's no longer ready.
         if (entry.state === 'ready' && this.isRunning(id)) {
             this.setState(entry, 'starting');
@@ -517,17 +505,6 @@ export class ProcessManager extends EventEmitter {
         this.emit('state-changed', entry.spec.id, state);
         if (state === 'ready') {
             this.emit('ready', entry.spec.id);
-        }
-    }
-
-    private clearStopTimers(entry: ManagedEntry): void {
-        if (entry.stopTimer) {
-            clearTimeout(entry.stopTimer);
-            entry.stopTimer = null;
-        }
-        if (entry.forceTimer) {
-            clearTimeout(entry.forceTimer);
-            entry.forceTimer = null;
         }
     }
 

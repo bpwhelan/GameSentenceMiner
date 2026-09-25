@@ -1,5 +1,13 @@
 # Repository Instructions
 
+## Agent Restart Workflow
+
+- After completing and checking changes the user wants to try, use `npm run agent:restart -- --reason "Brief description of the changes"` to request a clean restart with a desktop warning.
+- Add `--build` for Electron changes unless the main process and renderer have already been built. Complete any separate overlay/vendor/native build workflow first.
+- Use `npm run agent:status` to check availability. GSM must have been launched once with restart support using `npm start`; `npm run dev` manages its own restart loop.
+- The command waits for the new app and backend to be ready. Treat a nonzero exit as a failure; do not report success or use broad process-name kills as a fallback.
+- See `docs/AGENT_RESTART.md` for timing options, startup behavior, and troubleshooting.
+
 ## Yomitan Edit Workflow
 
 - Do not edit built/compiled files under `GSM_Overlay/yomitan/` directly.

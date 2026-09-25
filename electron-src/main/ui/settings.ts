@@ -10,6 +10,7 @@ import {
     type SaveDialogOptions,
 } from 'electron';
 import { spawn } from 'child_process';
+import { terminateProcessTree } from '../runtime/process_tree.js';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -100,7 +101,9 @@ import { getConfiguredSinglePort, getGsmProfileNames } from '../gsm_config.js';
 import {
     closeAllPythonProcesses,
     isPythonLaunchBlockedByUpdate,
+    isQuitting,
     mainWindow,
+    quit,
     pyProc,
     restartGSM,
     sendOpenOverlaySettings,
@@ -1462,7 +1465,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
 
             if (restart.response === 0) {
                 app.relaunch();
-                app.exit(0);
+                await quit();
             }
 
             return { success: true, restartRequired: true, ...restored };
@@ -1916,17 +1919,19 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
 }
 
 export function runWindowTransparencyTool() {
-    if (isPythonLaunchBlockedByUpdate()) {
+    if (isQuitting || isPythonLaunchBlockedByUpdate()) {
         console.warn(
-            '[Update Guard] Skipping window transparency tool start while updates are in progress.'
+            '[Shutdown Guard] Skipping window transparency tool start while shutdown or updates are in progress.'
         );
         return;
     }
 
     const hotkey = getWindowTransparencyToolHotkey();
-    if (window_transparency_process && !window_transparency_process.killed) {
+    if (window_transparency_process && window_transparency_process.exitCode === null) {
         console.log('Stopping existing Window Transparency Tool process');
-        window_transparency_process.kill();
+        void stopWindowTransparencyTool().catch((error) => {
+            console.warn('Failed to replace Window Transparency Tool process:', error);
+        });
     }
     console.log(
         `Starting Window Transparency Tool with hotkey: ${hotkey} and target: ${getWindowTransparencyTarget()}`
@@ -1939,6 +1944,7 @@ export function runWindowTransparencyTool() {
         '--window',
         getWindowTransparencyTarget(),
     ], {
+        detached: process.platform !== 'win32',
         env: getSanitizedPythonEnv()
     });
     window_transparency_process.stdout.on('data', (data: any) => {
@@ -1949,9 +1955,11 @@ export function runWindowTransparencyTool() {
     });
 }
 
-export function stopWindowTransparencyTool() {
-    if (window_transparency_process) {
-        window_transparency_process.kill();
-        window_transparency_process = null;
+export async function stopWindowTransparencyTool(): Promise<void> {
+    const proc = window_transparency_process;
+    if (!proc) {
+        return;
     }
+    window_transparency_process = null;
+    await terminateProcessTree(proc);
 }

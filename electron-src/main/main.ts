@@ -11,6 +11,8 @@ import {
     Tray,
 } from 'electron';
 import {
+    sendAgentRestartNotification,
+    sendGSMReadyNotification,
     sendGSMStillRunningInTrayNotification,
     sendNotificationFromPython,
 } from './notifications.js';
@@ -74,7 +76,10 @@ import {
     setPreReleaseMetadataAutoEnableApplied,
 } from './store.js';
 import { launchSteamGameID } from './ui/steam.js';
-import { bus, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
+import { bus, getBroker, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
+import { AGENT_RESTART_ARG, agentRelaunchArgs, startAgentControl } from './services/agent_control.js';
+import { stopManagedProcesses } from './runtime/process_supervisor.js';
+import { terminateProcessTree, waitForProcessExit } from './runtime/process_tree.js';
 import { submitTextObservation } from './runtime/text_ingress.js';
 import {
     textGeometryToOverlayPayload,
@@ -318,6 +323,11 @@ let backendExitRequestedFromPython = false;
 let textIntakePaused = false;
 let pythonIpcConnected = false;
 let backendStatusReady = false;
+let backendInitialized = false;
+let agentControl: ReturnType<typeof startAgentControl> | null = null;
+const agentRestartId = process.argv
+    .find((arg) => arg.startsWith(AGENT_RESTART_ARG))?.slice(AGENT_RESTART_ARG.length) ?? null;
+let agentRestartReadyNotified = false;
 let pausedTrayFallbackIconCache: Electron.NativeImage | null = null;
 let loadingTrayFallbackIconCache: Electron.NativeImage | null = null;
 let readyTrayFallbackIconCache: Electron.NativeImage | null = null;
@@ -327,6 +337,7 @@ let trayReadyIndicatorExpiresAt = 0;
 let hasShownCloseToTrayNotification = false;
 let quitFromWindowCloseInProgress = false;
 let quitPromise: Promise<void> | null = null;
+let quitCleanupComplete = false;
 const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const TRAY_READY_INDICATOR_MS = 10_000;
@@ -1027,6 +1038,7 @@ function getHardcodedStatusTrayIconPath(state: Exclude<TrayVisualState, 'normal'
 }
 
 function maybeActivateReadyTrayIndicator(): void {
+    maybeNotifyAgentRestartReady();
     if (!pythonIpcConnected || !backendStatusReady || trayReadyIndicatorExpiresAt > 0) {
         return;
     }
@@ -1039,6 +1051,14 @@ function maybeActivateReadyTrayIndicator(): void {
         refreshTrayPresentation();
     }, TRAY_READY_INDICATOR_MS);
     refreshTrayPresentation();
+}
+
+function maybeNotifyAgentRestartReady(): void {
+    if (!agentRestartId || agentRestartReadyNotified || !backendInitialized || !backendStatusReady || isQuitting) {
+        return;
+    }
+    agentRestartReadyNotified = true;
+    sendGSMReadyNotification('GSM has restarted. Your new changes are ready to try.');
 }
 
 async function pollBackendStatusOnce(): Promise<void> {
@@ -1078,6 +1098,7 @@ function startBackendStatusPolling(): void {
 function resetStartupTrayState(): void {
     pythonIpcConnected = false;
     backendStatusReady = false;
+    backendInitialized = false;
     trayReadyIndicatorExpiresAt = 0;
     clearTrayReadyIndicatorTimer();
     clearBackendStatusPollTimer();
@@ -1416,7 +1437,9 @@ function handleBackendMessage(msg: BackendMessage): void {
         });
     }
     if (msg.function === 'initialized') {
+        backendInitialized = true;
         markPythonIPCConnected();
+        maybeNotifyAgentRestartReady();
         updateInstallStage('backend_boot', 'completed', 'estimated', 1, 'GSM backend is running.');
         const activeInstallSession = installSessionManager.getActiveSnapshot();
         if (activeInstallSession) {
@@ -1490,17 +1513,53 @@ function wireBackendBus(): void {
     bus.subscribe('backend.event', (m) => handleBackendMessage((m.data ?? {}) as BackendMessage));
 }
 
+function initializeAgentControl(): void {
+    try {
+        agentControl = startAgentControl({
+            broker: getBroker(),
+            connection: getBusConnectInfo()!,
+            userDataPath: app.getPath('userData'),
+            appPath: app.getAppPath(),
+            isPackaged: app.isPackaged,
+            restartId: agentRestartId,
+            isReady: () => backendInitialized && backendStatusReady && bus.isConnected('backend')
+                && isChildProcessActive(pyProc) && !isQuitting,
+            getBlockedReason: () => {
+                if (isQuitting) return 'GSM is shutting down.';
+                if (restartingGSM) return 'The Python backend is already restarting.';
+                if (isPythonLaunchBlockedByUpdate() || installSessionManager.getActiveSnapshot()?.status === 'running') {
+                    return 'An update or installation is in progress.';
+                }
+                if (process.env.VITE_DEV_SERVER_URL) {
+                    return 'Agent restarts require GSM launched with npm start; npm run dev manages its own restarts.';
+                }
+                return null;
+            },
+            notify: sendAgentRestartNotification,
+            restart: (requestId) => quit(agentRelaunchArgs(process.argv.slice(1), requestId)),
+        });
+    } catch (error) {
+        // Agent discovery must not prevent the normal runtime from starting.
+        console.warn('Could not enable agent restart control:', error);
+    }
+}
+
 /**
  * Runs a command and returns a promise that resolves when the command exits.
  * @param command The command to run.
  * @param args The arguments to pass.
  */
 function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<void> {
+    if (isQuitting) {
+        onSpawn?.();
+        return Promise.resolve();
+    }
     return new Promise((resolve, reject) => {
         const activeInstallSessionId = installSessionManager.getActiveSnapshot()?.id ?? '';
         const taskManagerCommand = getWindowsNamedPythonExecutable(command, APP_NAME);
         const busConnectInfo = getBusConnectInfo();
         const proc = spawn(taskManagerCommand, args, {
+            detached: !isWindows(),
             env: {
                 ...getSanitizedPythonEnv(),
                 GSM_ELECTRON: '1',
@@ -1527,7 +1586,15 @@ function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<
         attachBackendLogForwarding(proc);
         proc.once('spawn', () => onSpawn?.());
 
-        proc.on('close', (code) => {
+        proc.on('exit', async (code) => {
+            try {
+                // A worker holding an inherited stdout/stderr pipe can prevent
+                // 'close' forever. Reap the owned tree as soon as the parent exits.
+                await terminateProcessTree(proc);
+            } catch (error) {
+                reject(error);
+                return;
+            }
             const intentionallyStopped = intentionalBackendStops.has(proc);
             if (pyProc === proc) {
                 clearManagedGSMProcessState();
@@ -2060,10 +2127,9 @@ function buildTrayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
         template.push({
             label: 'Restart App',
             click: async () => {
-                closeAllPythonProcesses().then(() => {
-                    app.relaunch();
-                    app.exit(0);
-                });
+                await closeAllPythonProcesses();
+                app.relaunch();
+                await quit();
             },
         });
     }
@@ -2108,6 +2174,10 @@ async function ensureAndRunGSM(
     retry = 1,
     options?: EnsureAndRunOptions
 ): Promise<void> {
+    if (isQuitting) {
+        options?.onSpawn?.();
+        return;
+    }
     const origin = options?.origin ?? 'startup';
     const trackInstallSession =
         options?.trackInstallSession ??
@@ -2409,6 +2479,9 @@ async function ensureAndRunGSM(
         }
         return await runGSM(runtimePythonPath, args, options?.onSpawn);
     } catch (err) {
+        if (isQuitting) {
+            return;
+        }
         console.error('Failed to start GameSentenceMiner:', err);
         console.log(`[Startup] Failed to start GameSentenceMiner: ${formatConsoleArg(err)}`);
         const backendRuntimeMs = Date.now() - backendLaunchStartedAt;
@@ -2614,7 +2687,12 @@ if (!app.requestSingleInstanceLock()) {
         app.quit();
     });
 } else {
+    // Install before asynchronous startup/update work so early quits also wait.
+    registerShutdownHandlers();
     app.whenReady().then(async () => {
+        if (isQuitting) {
+            return;
+        }
         try {
             bootstrapPreReleaseSettingsFromMetadata();
             registerChangelogProtocolHandler(getAssetsDir());
@@ -2626,7 +2704,8 @@ if (!app.requestSingleInstanceLock()) {
                 await startBus();
                 wireBackendBus();
                 const { setLaunchBlockedCheck } = await import('./runtime/process_supervisor.js');
-                setLaunchBlockedCheck(() => isPythonLaunchBlockedByUpdate());
+                setLaunchBlockedCheck(() => isQuitting || isPythonLaunchBlockedByUpdate());
+                initializeAgentControl();
             } catch (busErr) {
                 console.error('Failed to start message bus broker:', busErr);
             }
@@ -2793,20 +2872,26 @@ if (!app.requestSingleInstanceLock()) {
             }
         }
 
-        app.on('window-all-closed', () => {
-            if (process.platform !== 'darwin') {
-                quit();
-            }
-        });
-
-        app.on('before-quit', () => {
-            isQuitting = true;
-        });
-
-        app.on('will-quit', () => {
-            autoLauncher.stopPolling();
-        });
     });
+}
+
+function registerShutdownHandlers(): void {
+    app.on('window-all-closed', () => {
+        if (process.platform !== 'darwin' && !isQuitting) {
+            void quit();
+        }
+    });
+    app.on('before-quit', (event) => {
+        if (!quitCleanupComplete) {
+            event.preventDefault();
+            void quit();
+        }
+    });
+    app.on('will-quit', () => autoLauncher.stopPolling());
+    if (process.platform !== 'win32') {
+        process.once('SIGTERM', () => { void quit(); });
+        process.once('SIGINT', () => { void quit(); });
+    }
 }
 
 export async function runPipInstall(packageName: string): Promise<void> {
@@ -2846,18 +2931,29 @@ export async function runPipInstall(packageName: string): Promise<void> {
 }
 
 async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<void> {
+    const stops: Array<() => unknown> = [
+        async () => {
+            stopOverlay();
+            await waitForOverlayShutdown();
+        },
+        async () => {
+            stopOCR({ reason: 'python-process-group-shutdown' });
+            // stopOCR reports whether a request was made; it is not an exit promise.
+            await stopManagedProcesses();
+        },
+        () => stopWindowTransparencyTool(),
+        async () => {
+            const { shutdownTextHook } = await import('./ui/texthook.js');
+            await shutdownTextHook();
+        },
+    ];
     if (closeGSMFlag) {
-        await closeGSM();
+        stops.push(() => closeGSM());
     }
-    stopOverlay();
-    await waitForOverlayShutdown();
-    await stopOCR({ reason: 'python-process-group-shutdown' });
-    await stopWindowTransparencyTool();
-    try {
-        const { shutdownTextHook } = await import('./ui/texthook.js');
-        shutdownTextHook();
-    } catch (err) {
-        console.warn('Failed to shut down text hook session:', err);
+    const results = await Promise.allSettled(stops.map((stop) => Promise.resolve().then(stop)));
+    const errors = results.filter((result) => result.status === 'rejected').map((result) => result.reason);
+    if (errors.length > 0) {
+        throw new AggregateError(errors, 'Failed to stop backend-related processes.');
     }
 }
 
@@ -2908,6 +3004,9 @@ async function closeGSM(): Promise<void> {
     }
     const procToClose = pyProc;
     if (!isChildProcessActive(procToClose)) {
+        if (procToClose) {
+            await terminateProcessTree(procToClose);
+        }
         clearManagedGSMProcessState();
         return;
     }
@@ -2927,6 +3026,7 @@ async function stopGSMProcess(procToClose: ChildProcessWithoutNullStreams): Prom
             // cleanup_complete precedes transport/thread teardown. Only process
             // exit proves it is safe to launch another backend or modify its files.
             if (await waitForChildProcessExit(procToClose)) {
+                await terminateProcessTree(procToClose);
                 console.log('GSM closed gracefully.');
                 return;
             }
@@ -2942,30 +3042,11 @@ async function stopGSMProcess(procToClose: ChildProcessWithoutNullStreams): Prom
 }
 
 async function forceTerminateGSMProcess(proc: ChildProcessWithoutNullStreams): Promise<void> {
-    if (!isChildProcessActive(proc)) {
-        return;
-    }
-    try {
-        if (isWindows() && proc.pid) {
-            // Windows venv python.exe can be a launcher with a Python child.
-            // Killing the launcher first orphans that child and loses its tree.
-            await execFileAsync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], {
-                windowsHide: true,
-                timeout: 5000,
-            });
-        } else {
-            proc.kill('SIGTERM');
-            if (!(await waitForChildProcessExit(proc, 1500))) {
-                proc.kill('SIGKILL');
-            }
-        }
-    } catch (error) {
-        console.warn('Failed to terminate GSM process:', error);
-    }
+    await terminateProcessTree(proc);
 }
 
 async function restartGSM(): Promise<void> {
-    if (restartingGSM) {
+    if (restartingGSM || isQuitting) {
         console.log('GSM restart already in progress. Ignoring duplicate request.');
         return;
     }
@@ -2992,42 +3073,63 @@ export { closeGSM, restartGSM, closeAllPythonProcesses, ensureAndRunGSM };
 export { checkAndInstallPython311, checkAndInstallUV, isPackageInstalled };
 
 export async function stopScripts(): Promise<void> {
-    if (window_transparency_process && !window_transparency_process.killed) {
+    const proc = window_transparency_process;
+    if (proc && proc.exitCode === null && proc.signalCode === null) {
         console.log('Stopping existing Window Transparency Tool process');
-        window_transparency_process.stdin.write('exit\n');
-        setTimeout(() => {
-            window_transparency_process.kill();
-        }, 1000);
+        try {
+            proc.stdin.write('exit\n');
+            if (await waitForProcessExit(proc, 1000)) {
+                return;
+            }
+        } catch (error) {
+            console.warn('Could not request a graceful stop from Window Transparency Tool:', error);
+        }
+        await terminateProcessTree(proc);
     }
 }
 
-async function runQuit(): Promise<void> {
+async function runQuit(relaunchArgs?: string[]): Promise<void> {
     hideUserFacingShutdownSurfaces();
     autoLauncher.stopPolling();
     shutdownWindowSceneSwitcher();
 
     try {
-        stopOverlay();
-        await waitForOverlayShutdown();
-        await stopScripts();
-        if (pyProc != null && !pyProc.killed) {
-            await closeAllPythonProcesses();
+        const results = await Promise.allSettled([
+            closeAllPythonProcesses(),
+            stopInputServer(),
+            closeOBSFromElectron({ reason: 'app quit' }),
+        ]);
+        const cleanupErrors: unknown[] = [];
+        for (const result of results) {
+            if (result.status === 'rejected') {
+                console.error('Error during app shutdown cleanup:', result.reason);
+                cleanupErrors.push(result.reason);
+            }
         }
-        await stopInputServer();
-        await closeOBSFromElectron({ reason: 'app quit' });
-        await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
+        await stopBus().catch((err) => {
+            console.warn('Failed to stop message bus:', err);
+            cleanupErrors.push(err);
+        });
+        if (relaunchArgs) {
+            if (cleanupErrors.length > 0) {
+                throw new Error('GSM could not stop all background processes; restart cancelled. Check the GSM logs before starting again.');
+            }
+            // Schedule the replacement only after every owned child has exited.
+            app.relaunch({ args: relaunchArgs });
+        }
     } catch (error) {
         console.error('Error during app shutdown cleanup:', error);
+        if (relaunchArgs) agentControl?.fail(error);
     } finally {
+        agentControl?.dispose();
+        quitCleanupComplete = true;
         app.quit();
     }
 }
 
-async function quit(): Promise<void> {
+export async function quit(relaunchArgs?: string[]): Promise<void> {
     if (!quitPromise) {
-        quitPromise = runQuit().finally(() => {
-            quitPromise = null;
-        });
+        quitPromise = runQuit(relaunchArgs);
     }
     return quitPromise;
 }
@@ -3040,9 +3142,7 @@ async function stopAllChildrenForRelocation(): Promise<void> {
     stopOverlay();
     await waitForOverlayShutdown();
     await stopScripts();
-    if (pyProc != null && !pyProc.killed) {
-        await closeAllPythonProcesses();
-    }
+    await closeAllPythonProcesses();
     await stopInputServer();
     await closeOBSFromElectron({ reason: 'data relocation' });
     await stopBus().catch((err) => console.warn('Failed to stop message bus during relocation:', err));
@@ -3104,7 +3204,7 @@ function registerDataRelocateIPC(): void {
 
         // New location is committed; relaunch so every path resolves to it and the venv rebuilds.
         app.relaunch();
-        app.exit(0);
+        await quit();
         return { success: true };
     });
 
@@ -3150,7 +3250,7 @@ function registerDataRelocateIPC(): void {
         }
 
         app.relaunch();
-        app.exit(0);
+        await quit();
         return { success: true };
     });
 }
