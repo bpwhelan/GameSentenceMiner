@@ -10,8 +10,6 @@ afterEach(() => {
 async function openHelp() {
 	const component = mount(AIHelp, { target: document.body, props: { id: 'line-1', text: '例文' } });
 	await tick();
-	(document.querySelector('.explain-toggle') as HTMLButtonElement).click();
-	await tick();
 	return component;
 }
 

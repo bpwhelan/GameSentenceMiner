@@ -27,7 +27,7 @@ Free access is subject to the provider's current limits and availability; GSM do
 
 ## Sentence help
 
-- **Text feed:** open **Explain sentence**, choose a task, and click **Explain**. Choose **Ask a question** for a custom question.
+- **Text feed:** open a line's **More line actions** menu and choose **Ask AI**. Choose a task and click **Explain**, or select **Ask a question** for a custom question.
 - **Overlay:** use the **Explain…** menu in the floating toolbar. The answer appears in a scrollable, selectable panel with Close and AI setup controls.
 - Tasks include sentence breakdown, grammar, vocabulary/readings/idioms, nuance and tone, and scene summary.
 - Explicit study requests keep their output separate from translations and do not write to the dialogue's translation cache.
