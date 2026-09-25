@@ -1144,6 +1144,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadForwardEscapeButton": -1, // Disabled by default; forwards Escape to target game window
   "gamepadForwardClickButton": -1, // Disabled by default; left-clicks the center of the target game window
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
+  "gamepadTranslateButton": -1, // Disabled by default; requests/toggles translation
   "gamepadPauseToggleButton": -1, // Disabled by default; pauses/resumes the text source while navigating
   "gamepadTokenModeToggleButton": 3, // Y button - toggles token/character navigation
   "gamepadMineButton": 0, // A button - mines the current Yomitan entry
@@ -7182,29 +7183,26 @@ async function startOverlayAppImpl() {
   }
   registerOverlaySettingsHotkey();
 
-  // Register translate hotkey
-  function registerTranslateHotkey(_oldHotkey) {
-    setAppHotkey("translate", userSettings.translateHotkey || "Alt+T", () => {
-      console.log("Translate hotkey pressed");
+  // Register translate hotkey and share its request/toggle behavior with controllers.
+  function requestOrToggleTranslation() {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
 
-      // If translation has been requested, just toggle visibility
-      if (translationRequested) {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('toggle-translation-visibility');
-        }
-      } else {
-        // First press - request translation from backend
-        if (backend && backend.connected) {
-          mainWindow?.webContents.send('request-block-translation');
-          translationRequested = true;
-        } else {
-          console.error("Backend not connected. Cannot translate.");
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('translation-error', 'Backend not connected');
-          }
-        }
-      }
-    }, { settingKey: "translateHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
+    if (translationRequested) {
+      mainWindow.webContents.send('toggle-translation-visibility');
+    } else if (backend && backend.connected) {
+      mainWindow.webContents.send('request-block-translation');
+      translationRequested = true;
+    } else {
+      console.error("Backend not connected. Cannot translate.");
+      mainWindow.webContents.send('translation-error', 'Backend not connected');
+    }
+  }
+
+  function registerTranslateHotkey(_oldHotkey) {
+    setAppHotkey("translate", userSettings.translateHotkey || "Alt+T", requestOrToggleTranslation,
+      { settingKey: "translateHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerTranslateHotkey();
 
@@ -8325,6 +8323,7 @@ async function startOverlayAppImpl() {
       case "gamepadForwardEscapeButton":
       case "gamepadForwardClickButton":
       case "gamepadManualOverlayScanButton":
+      case "gamepadTranslateButton":
       case "gamepadPauseToggleButton":
       case "gamepadTokenModeToggleButton":
       case "gamepadMineButton":
@@ -8662,6 +8661,12 @@ async function startOverlayAppImpl() {
 
   ipcMain.on("gamepad-manual-overlay-scan", () => {
     requestManualOverlayScan("gamepad");
+  });
+
+  ipcMain.on("gamepad-translate", (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
+    if (!userSettings.gamepadEnabled || !userSettings.gamepadControllerEnabled) return;
+    requestOrToggleTranslation();
   });
 
   // On-demand pause/resume of the text source, toggled by the gamepad pause button.

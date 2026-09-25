@@ -534,6 +534,7 @@ class GamepadHandler {
       forwardEscapeButton: options.forwardEscapeButton ?? -1, // Disabled by default; forwards Escape to target game window
       forwardClickButton: options.forwardClickButton ?? -1, // Disabled by default; left-clicks the center of the target game window
       manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
+      translateButton: options.translateButton ?? -1, // Disabled by default; requests/toggles translation
       pauseToggleButton: options.pauseToggleButton ?? -1, // Disabled by default; pauses/resumes the text source while navigation is active
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
       mineButton: options.mineButton ?? 0, // A button to mine the current dictionary entry
@@ -1434,6 +1435,7 @@ class GamepadHandler {
       forwardEscapeButton: normalizeGamepadBindingValue(this.config.forwardEscapeButton, -1),
       forwardClickButton: normalizeGamepadBindingValue(this.config.forwardClickButton, -1),
       manualOverlayScanButton: normalizeGamepadBindingValue(this.config.manualOverlayScanButton, -1),
+      translateButton: normalizeGamepadBindingValue(this.config.translateButton, -1),
       pauseToggleButton: normalizeGamepadBindingValue(this.config.pauseToggleButton, -1),
       tokenModeToggleButton: normalizeGamepadBindingValue(this.config.tokenModeToggleButton, 3),
       mineButton: normalizeGamepadBindingValue(this.config.mineButton, 0),
@@ -2992,6 +2994,12 @@ class GamepadHandler {
       this.requestManualOverlayScan();
       return;
     }
+
+    // Translation is available without entering navigation mode.
+    if (this.matchesButtonBindingDown(this.buttonBindings.translateButton, device, buttonIndex)) {
+      this.requestTranslation();
+      return;
+    }
     
     // Handle Dictionary entry navigation (popup must be visible)
     if (this.dictionaryPopupVisible) {
@@ -3099,6 +3107,17 @@ class GamepadHandler {
     }
 
     ipc.send('gamepad-manual-overlay-scan');
+  }
+
+  requestTranslation() {
+    if (!this.config.controllerEnabled || this.isInputSuppressed()) {
+      return;
+    }
+    const ipc = this.getIpcRenderer();
+    if (!ipc || !this.shouldAcceptToggleAction('translation')) {
+      return;
+    }
+    ipc.send('gamepad-translate');
   }
 
   // Ask main to pause/resume the text source. Main owns the authoritative state
@@ -7072,6 +7091,7 @@ class GamepadHandler {
       safeConfig.forwardEscapeButton = this.describeButtonBinding(this.buttonBindings.forwardEscapeButton);
       safeConfig.forwardClickButton = this.describeButtonBinding(this.buttonBindings.forwardClickButton);
       safeConfig.manualOverlayScanButton = this.describeButtonBinding(this.buttonBindings.manualOverlayScanButton);
+      safeConfig.translateButton = this.describeButtonBinding(this.buttonBindings.translateButton);
       safeConfig.pauseToggleButton = this.describeButtonBinding(this.buttonBindings.pauseToggleButton);
       safeConfig.tokenModeToggleButton = this.describeButtonBinding(this.buttonBindings.tokenModeToggleButton);
       safeConfig.mineButton = this.describeButtonBinding(this.buttonBindings.mineButton);

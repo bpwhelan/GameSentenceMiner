@@ -124,6 +124,43 @@ describe("overlay adaptive OCR retry settings", () => {
 });
 
 describe("overlay settings keyboard binding capture", () => {
+  it("captures, restores, and clears the translation controller binding", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: { gamepadEnabled: true }, defaultSettings: {},
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      const input = page.dom.window.document.getElementById("gamepadTranslateButton");
+      expect(input?.value).toBe("Disabled");
+      expect(input.closest('[data-tab="gamepad"]')).not.toBeNull();
+      input.focus();
+      for (const [button, pressed] of [[5, true], [2, true], [2, false], [5, false]]) {
+        page.dom.window.updateServerGamepadState({ type: "button", device: "pad", button, pressed });
+      }
+      await nextTick();
+      expect(input.value).toBe("RB + X");
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "gamepadTranslateButton", value: "RB + X"
+      });
+
+      page.listeners.get("settings-updated")?.(null, { gamepadTranslateButton: "LT + Y" });
+      expect(input.value).toBe("LT + Y");
+      input.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+      await nextTick();
+      expect(input.value).toBe("Disabled");
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "gamepadTranslateButton", value: "Disabled"
+      });
+      page.listeners.get("settings-updated")?.(null, { gamepadEnabled: false });
+      expect(input.disabled).toBe(true);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
   it("loads unbound Jiten word actions, restores saved bumpers, and clears bindings", async () => {
     const page = loadOverlaySettingsPage();
     try {

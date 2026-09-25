@@ -4892,6 +4892,9 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = newsettings.gamepadManualOverlayScanButton;
     }
+    if (newsettings.gamepadTranslateButton !== undefined) {
+      gamepadSettings.translateButton = newsettings.gamepadTranslateButton;
+    }
     if (newsettings.gamepadPauseToggleButton !== undefined) {
       gamepadSettings.pauseToggleButton = newsettings.gamepadPauseToggleButton;
     }
@@ -5693,6 +5696,7 @@ background: rgba(202, 12, 12, 0.692);
     forwardEscapeButton: -1, // Disabled
     forwardClickButton: -1, // Disabled - left-clicks the center of the target game window
     manualOverlayScanButton: -1, // Disabled
+    translateButton: -1, // Disabled
     pauseToggleButton: -1, // Disabled - pauses/resumes the text source while navigating
     tokenModeToggleButton: 3, // Y
     mineButton: 0, // A
@@ -5811,6 +5815,7 @@ background: rgba(202, 12, 12, 0.692);
       forwardEscapeButton: gamepadSettings.forwardEscapeButton,
       forwardClickButton: gamepadSettings.forwardClickButton,
       manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
+      translateButton: gamepadSettings.translateButton,
       pauseToggleButton: gamepadSettings.pauseToggleButton,
       tokenModeToggleButton: gamepadSettings.tokenModeToggleButton,
       mineButton: gamepadSettings.mineButton,
@@ -6251,6 +6256,10 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = updatedSettings.gamepadManualOverlayScanButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadTranslateButton !== undefined) {
+      gamepadSettings.translateButton = updatedSettings.gamepadTranslateButton;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadPauseToggleButton !== undefined) {

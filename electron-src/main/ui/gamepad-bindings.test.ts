@@ -81,6 +81,12 @@ const GamepadHandler = legacyGamepad.GamepadHandler;
 const legacyGamepadContext = legacyGamepad.context;
 
 describe("legacy gamepad startup settings", () => {
+  it.each(["RB + X", "Disabled", -1, 0])("restores the translation binding %s", (binding) => {
+    expect(loadStartupGamepadSettings({ gamepadTranslateButton: binding })).toMatchObject({
+      translateButton: binding,
+    });
+  });
+
   it("restores generic controller navigation bindings and disabled directions", () => {
     expect(loadStartupGamepadSettings({
       gamepadNavigateUp: "Button 803", gamepadNavigateDown: "Button 806 + Button 809",
@@ -113,6 +119,59 @@ describe("legacy gamepad startup settings", () => {
     expect(loadStartupGamepadSettings({ gamepadEnabled: false })).toMatchObject({
       enabled: false
     });
+  });
+});
+
+describe("gamepad translation binding", () => {
+  function setup(config: Record<string, unknown> = {}) {
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.config = { activationMode: "toggle", controllerEnabled: true, translateButton: "RB + X", ...config };
+    handler.buttonStates = new Map();
+    handler.gamepads = new Map();
+    handler.repeatTimers = new Map();
+    handler.isNavigationActive = () => false;
+    handler.shouldProcessNavigation = () => false;
+    handler.getToggleTimestamp = vi.fn(() => 1000);
+    const send = vi.fn();
+    handler.getIpcRenderer = () => ({ send });
+    handler.refreshButtonBindings();
+    const button = (index: number, pressed = true, device = "pad") =>
+      handler.onButtonEvent({ device, button: index, pressed });
+    return { handler, send, button };
+  }
+
+  it.each(["modifier", "toggle"])("requests translation outside %s navigation with a full combo only", (activationMode) => {
+    const { button, send } = setup({ activationMode });
+    button(5);
+    expect(send).not.toHaveBeenCalled();
+    button(2, true, "other-pad");
+    expect(send).not.toHaveBeenCalled();
+    button(2);
+    expect(send).toHaveBeenCalledExactlyOnceWith("gamepad-translate");
+    button(2, false);
+    button(5, false);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a single button and debounces duplicate controller events", () => {
+    const { handler, button, send } = setup({ translateButton: 2 });
+    button(2);
+    button(2);
+    expect(send).toHaveBeenCalledExactlyOnceWith("gamepad-translate");
+    button(2, false);
+    handler.getToggleTimestamp.mockReturnValue(1300);
+    button(2);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { translateButton: undefined }, { translateButton: -1 }, { translateButton: "Disabled" },
+    { controllerEnabled: false }, { inputSuppressed: true },
+  ])("ignores translation when disabled or capturing input: %j", (config) => {
+    const { button, send } = setup(config);
+    button(5);
+    button(2);
+    expect(send).not.toHaveBeenCalled();
   });
 });
 

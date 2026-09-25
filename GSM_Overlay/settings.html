@@ -2386,6 +2386,13 @@
       </label>
       <label>
         <span class="label-text">
+          Translation Button
+          <div class="hotkey-info">Request an LLM translation or toggle its visibility, just like the Translation Hotkey in Interaction. Works without entering navigation mode.</div>
+        </span>
+        <input type="text" id="gamepadTranslateButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+      </label>
+      <label>
+        <span class="label-text">
           Pause Button
           <div class="hotkey-info">While navigating, pause the text source so you can take your time with lookups. Press again to resume. Activating navigation is unaffected.</div>
         </span>
@@ -2933,6 +2940,7 @@
       gamepadForwardEscapeButton: { settingKey: "gamepadForwardEscapeButton", label: "Forward Escape Button", fallbackValue: -1 },
       gamepadForwardClickButton: { settingKey: "gamepadForwardClickButton", label: "Forward Click Button", fallbackValue: -1 },
       gamepadManualOverlayScanButton: { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button", fallbackValue: -1 },
+      gamepadTranslateButton: { settingKey: "gamepadTranslateButton", label: "Translation Button", fallbackValue: -1 },
       gamepadPauseToggleButton: { settingKey: "gamepadPauseToggleButton", label: "Pause Button", fallbackValue: -1 },
       gamepadTokenModeToggleButton: { settingKey: "gamepadTokenModeToggleButton", label: "Token Mode Toggle Button", fallbackValue: 3 },
       gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Button", fallbackValue: 0 },
@@ -3670,6 +3678,7 @@
         "gamepadForwardEscapeButton",
         "gamepadForwardClickButton",
         "gamepadManualOverlayScanButton",
+        "gamepadTranslateButton",
         "gamepadPauseToggleButton",
         "gamepadTokenModeToggleButton",
         "gamepadMineButton",
@@ -4145,6 +4154,7 @@
       createGamepadBindingSetting("gamepadForwardEscapeButton"),
       createGamepadBindingSetting("gamepadForwardClickButton"),
       createGamepadBindingSetting("gamepadManualOverlayScanButton"),
+      createGamepadBindingSetting("gamepadTranslateButton"),
       createGamepadBindingSetting("gamepadPauseToggleButton"),
       createGamepadBindingSetting("gamepadTokenModeToggleButton"),
       createGamepadBindingSetting("gamepadMineButton"),
