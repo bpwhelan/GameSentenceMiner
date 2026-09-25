@@ -664,7 +664,7 @@ def video_to_anim(
         fps, max_width, quality = _adaptive_avif_encode_settings(duration, fps, max_width, quality)
 
     crop_filters = []
-    if get_config().screenshot.trim_black_bars_wip:
+    if get_config().screenshot.trim_black_bars_wip and not crop:
         timestamp_for_detection = _timestamp_seconds(start)
         crop_filter = find_black_bars(str(input_path), timestamp_for_detection)
         if crop_filter:
@@ -761,16 +761,19 @@ def video_to_anim(
     return str(output_path)
 
 
-def video_to_animation_with_start_end(video_path: str | Path, start: float, end: float, **kwargs) -> Path:
+def video_to_animation_with_start_end(
+    video_path: str | Path, start: float, end: float, output_path: str | Path | None = None, **kwargs
+) -> Path:
     """Convert video to animation using start and end time strings."""
-    if end < start:
+    if end <= start:
         raise ValueError("end time must be after start time")
     duration = end - start
 
-    output_path = get_unique_temp_file_for_game(
-        obs.get_current_game(sanitize=True),
-        get_config().screenshot.animated_settings.extension,
-    )
+    if output_path is None:
+        output_path = get_unique_temp_file_for_game(
+            obs.get_current_game(sanitize=True),
+            get_config().screenshot.animated_settings.extension,
+        )
 
     return video_to_anim(
         input_path=video_path,
@@ -899,13 +902,12 @@ def get_anki_compatible_video(video_file, screenshot_timing, vad_start, vad_end,
 
 def get_raw_screenshot(video_file, screenshot_timing, try_selector=False):
     """Extract a frame as a raw PNG without filters."""
-    screenshot_timing = screenshot_timing if screenshot_timing else 1
     if try_selector:
-        filepath = call_frame_extractor(video_path=video_file, timestamp=screenshot_timing)
-        if filepath:
-            return filepath
-        else:
-            logger.error("Frame extractor script failed to run or returned no output, defaulting")
+        # Cancellation is intentional; do not turn it into a default screenshot.
+        return call_frame_extractor(
+            video_path=video_file, timestamp=screenshot_timing if screenshot_timing is not None else 1
+        )
+    screenshot_timing = screenshot_timing if screenshot_timing else 1
 
     output_image = make_unique_file_name(
         os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}_raw.png")
@@ -931,7 +933,9 @@ def get_raw_screenshot(video_file, screenshot_timing, try_selector=False):
     return output_image
 
 
-def encode_screenshot(input_image, source_video_path=None, screenshot_timing=None, output_path=None):
+def encode_screenshot(
+    input_image, source_video_path=None, screenshot_timing=None, output_path=None, already_processed=False
+):
     """Encode a screenshot with user's configured settings."""
     if output_path is None:
         output_image = make_unique_file_name(
@@ -948,7 +952,11 @@ def encode_screenshot(input_image, source_video_path=None, screenshot_timing=Non
 
     ffmpeg_command_base = ffmpeg_base_command_list + pre_input_args + ["-i", input_image]
 
-    video_filters = _build_screenshot_video_filters(source_video_path, screenshot_timing, use_negative_two=True)
+    video_filters = (
+        []
+        if already_processed
+        else _build_screenshot_video_filters(source_video_path, screenshot_timing, use_negative_two=True)
+    )
     _extend_video_filters(ffmpeg_command_base, video_filters)
 
     if get_config().screenshot.custom_ffmpeg_settings:
@@ -985,14 +993,13 @@ def encode_screenshot(input_image, source_video_path=None, screenshot_timing=Non
 
 
 def get_screenshot(video_file, screenshot_timing, try_selector=False):
-    screenshot_timing = screenshot_timing if screenshot_timing else 1
     if try_selector:
-        filepath = call_frame_extractor(video_path=video_file, timestamp=screenshot_timing)
-        output = process_image(filepath, source_video_path=video_file, screenshot_timing=screenshot_timing)
-        if output:
-            return output
-        else:
-            logger.error("Frame extractor script failed to run or returned no output, defaulting")
+        # The selector exports each selected item with its own exact timestamp.
+        # Returning the collection here keeps the complete result intact.
+        return call_frame_extractor(
+            video_path=video_file, timestamp=screenshot_timing if screenshot_timing is not None else 1
+        )
+    screenshot_timing = screenshot_timing if screenshot_timing else 1
 
     output_image = make_unique_file_name(
         os.path.join(

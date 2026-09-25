@@ -760,13 +760,13 @@ class AnkiConfirmationDialog(QDialog):
 
         # Show animated screenshot status if pending
         if self.reusing_screenshot:
-            self.screenshot_button.setText("Reusing screenshot")
+            self.screenshot_button.setText("Change reused screenshot")
             self.screenshot_button.setStyleSheet("color: green; font-weight: bold;")
-            self.screenshot_button.setEnabled(False)
+            self.screenshot_button.setEnabled(True)
         elif pending_animated:
-            self.screenshot_button.setText("🎬 Animated (generating after confirmation)")
+            self.screenshot_button.setText("Replace animation with screenshot(s)")
             self.screenshot_button.setStyleSheet("color: #ff8c00; font-weight: bold;")
-            self.screenshot_button.setEnabled(False)
+            self.screenshot_button.setEnabled(True)
         else:
             self.screenshot_button.setText("Select New Screenshot")
             self.screenshot_button.setStyleSheet("")
@@ -815,6 +815,10 @@ class AnkiConfirmationDialog(QDialog):
             self.translation_text.setPlaceholderText("")
 
     def _load_image_to_label(self, path, label_widget):
+        from GameSentenceMiner.util.media.screenshot_selection import ScreenshotSelectionResult
+
+        if isinstance(path, ScreenshotSelectionResult):
+            path = path.items[0].path
         label_widget.setStyleSheet("")
         if not path or not os.path.exists(path):
             label_widget.setPixmap(QPixmap())
@@ -1239,17 +1243,23 @@ class AnkiConfirmationDialog(QDialog):
         video_path = gsm_state.current_replay
         self._cancel_auto_accept()
         timestamp = self.previous_screenshot_timestamp if previous else self.screenshot_timestamp
-        selected_path = launch_screenshot_selector(
+        selected = launch_screenshot_selector(
             video_path,
             timestamp,
             mode=get_config().screenshot.screenshot_timing_setting,
         )
-        if not selected_path:
+        if not selected:
             return
         target_attr = "previous_screenshot_path" if previous else "screenshot_path"
         label_widget = self.prev_image_label if previous else self.image_label
-        setattr(self, target_attr, selected_path)
-        self._load_image_to_label(selected_path, label_widget)
+        setattr(self, target_attr, selected)
+        self._load_image_to_label(selected, label_widget)
+        if not previous:
+            self.screenshot_button.setText("Change selected screenshot(s)")
+            self.screenshot_button.setStyleSheet("color: green; font-weight: bold;")
+            self.animated_audio_notice_label.setVisible(False)
+        if len(selected.items) > 1:
+            label_widget.setToolTip(f"{len(selected.items)} screenshots selected in order")
 
     @staticmethod
     def _dialogue_lines_from_context(context):

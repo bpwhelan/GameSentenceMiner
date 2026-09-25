@@ -1012,6 +1012,8 @@ class ConfigWindow(QWidget):
                 hotkeys=Hotkeys(
                     manual_overlay_scan=self.manual_overlay_scan_hotkey_edit.keySequence().toString(),
                     manual_overlay_scan_gamepad=str(self.manual_overlay_scan_gamepad_combo.currentData() or ""),
+                    copy_game_screenshot=self.copy_game_screenshot_hotkey_edit.keySequence().toString(),
+                    copy_game_screenshot_gamepad=str(self.copy_game_screenshot_gamepad_combo.currentData() or ""),
                     play_latest_audio=self.play_latest_audio_hotkey_edit.keySequence().toString(),
                     play_latest_audio_gamepad=str(self.play_latest_audio_gamepad_combo.currentData() or ""),
                     mute_target_window=self.mute_target_window_hotkey_edit.keySequence().toString(),
@@ -1791,6 +1793,8 @@ class ConfigWindow(QWidget):
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = ClearableKeySequenceEdit()
         self.manual_overlay_scan_gamepad_combo = self._create_gamepad_hotkey_combo()
+        self.copy_game_screenshot_hotkey_edit = ClearableKeySequenceEdit()
+        self.copy_game_screenshot_gamepad_combo = self._create_gamepad_hotkey_combo()
         self.use_overlay_area_config_check = QCheckBox()
         self.ocr_area_config_include_primary_areas_check = QCheckBox()
         self.ocr_area_config_include_secondary_areas_check = QCheckBox()
@@ -3517,6 +3521,13 @@ class ConfigWindow(QWidget):
         self._set_gamepad_hotkey_combo(
             self.manual_overlay_scan_gamepad_combo,
             getattr(s.hotkeys, "manual_overlay_scan_gamepad", ""),
+        )
+        self.copy_game_screenshot_hotkey_edit.setKeySequence(
+            QKeySequence(getattr(s.hotkeys, "copy_game_screenshot", "f8") or "")
+        )
+        self._set_gamepad_hotkey_combo(
+            self.copy_game_screenshot_gamepad_combo,
+            getattr(s.hotkeys, "copy_game_screenshot_gamepad", ""),
         )
         self.use_overlay_area_config_check.setChecked(bool(getattr(s.overlay, "use_overlay_area_config", False)))
         self.ocr_area_config_include_primary_areas_check.setChecked(

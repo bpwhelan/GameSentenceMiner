@@ -622,6 +622,10 @@
             "label": "Pause GSM Text Intake Hotkey:",
             "tooltip": "Temporarily pause or resume GSM's clipboard and websocket text intake. While paused, GSM skips its own stats/history logging and overlay triggers. Leave blank to disable this shortcut; no default hotkey is assigned."
           },
+          "copy_game_screenshot": {
+            "label": "Copy Game Screenshot Hotkey:",
+            "tooltip": "Capture the current game image and copy it to the clipboard. Defaults to F8; leave blank to disable."
+          },
           "mute_target_window": {
             "label": "Mute/Unmute Target Window Hotkey:",
             "tooltip": "Toggle all audio from the currently captured target window. This is independent of Mute Game on Minimize, and GSM restores targets muted with this shortcut when GSM closes. Leave blank to disable this shortcut; no default hotkey is assigned."

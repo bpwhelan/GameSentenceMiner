@@ -24,6 +24,54 @@ class AnkiSetupError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class AnkiFieldMismatch:
+    """A note layout and settings snapshot, independent of any individual card."""
+
+    profile_name: str
+    anki_url: str
+    configured_note_type: str
+    model_name: str
+    available_fields: tuple[str, ...]
+    mappings: tuple[tuple[str, str], ...]
+
+    @property
+    def missing_fields(self) -> tuple[tuple[str, str], ...]:
+        return tuple((label, name) for label, name in self.mappings if name not in self.available_fields)
+
+    @property
+    def blocks_mining(self) -> bool:
+        return any(label in ("Word", "Sentence") for label, _ in self.missing_fields)
+
+    def is_current(self, config) -> bool:
+        return self == find_anki_field_mismatch(config, self.model_name, self.available_fields)
+
+
+def find_anki_field_mismatch(config, model_name: str, fields: Iterable[str]) -> AnkiFieldMismatch | None:
+    """Check required fields and configured media destinations after alias matching."""
+    mappings = [
+        ("Word", config.anki.word_field),
+        ("Sentence", config.anki.sentence_field),
+    ]
+    for label, field_key, capture_config in (
+        ("Sentence audio", "sentence_audio_field", config.audio),
+        ("Picture", "picture_field", config.screenshot),
+    ):
+        name = getattr(config.anki, field_key, "")
+        # Empty mappings are an existing way to opt out of optional media.
+        if name and getattr(capture_config, "enabled", True):
+            mappings.append((label, name))
+    issue = AnkiFieldMismatch(
+        profile_name=getattr(config, "name", ""),
+        anki_url=config.anki.url.strip(),
+        configured_note_type=getattr(config.anki, "note_type", ""),
+        model_name=model_name,
+        available_fields=tuple(sorted(fields)),
+        mappings=tuple(mappings),
+    )
+    return issue if issue.missing_fields else None
+
+
+@dataclass(frozen=True)
 class CardTypePreset:
     id: str
     name: str

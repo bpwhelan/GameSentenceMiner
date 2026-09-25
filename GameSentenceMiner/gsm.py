@@ -550,6 +550,13 @@ class GSMApplication:
             lambda: get_config().hotkeys.manual_overlay_scan_gamepad,
             call_overlay_processor,
         )
+        from GameSentenceMiner.ui.config.tabs.hotkeys import copy_game_screenshot_to_clipboard
+
+        hotkey_manager.register(lambda: get_config().hotkeys.copy_game_screenshot, copy_game_screenshot_to_clipboard)
+        hotkey_manager.register_gamepad(
+            lambda: get_config().hotkeys.copy_game_screenshot_gamepad,
+            copy_game_screenshot_to_clipboard,
+        )
         hotkey_manager.register(
             lambda: get_config().hotkeys.pause_text_intake, _get_gametext_module().toggle_text_intake_paused
         )

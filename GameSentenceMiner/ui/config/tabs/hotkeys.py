@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from io import BytesIO
+from threading import Lock, Thread
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
@@ -15,8 +17,39 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from GameSentenceMiner.util.logging_config import logger
+
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
+
+
+_screenshot_lock = Lock()
+
+
+def copy_game_screenshot_to_clipboard() -> None:
+    """Capture the current game without blocking other hotkey callbacks."""
+
+    def capture_and_copy() -> None:
+        if not _screenshot_lock.acquire(blocking=False):
+            return
+        try:
+            from GameSentenceMiner import obs
+            from GameSentenceMiner.ui.qt_main import send_image_to_clipboard
+
+            image = obs.get_screenshot_PIL(img_format="png")
+            if image is None:
+                logger.warning("Could not capture a game screenshot for the clipboard.")
+                return
+
+            png = BytesIO()
+            image.save(png, format="PNG")
+            send_image_to_clipboard(png.getvalue())
+        except Exception:  # noqa: BLE001 - capture backends can raise third-party exceptions
+            logger.exception("Failed to copy game screenshot to clipboard.")
+        finally:
+            _screenshot_lock.release()
+
+    Thread(target=capture_and_copy, name="copy-game-screenshot", daemon=True).start()
 
 
 class _CheckboxLabel(QLabel):
@@ -176,6 +209,13 @@ def build_hotkeys_tab(window: "ConfigWindow", i18n: dict) -> QWidget:
             window.manual_overlay_scan_hotkey_edit,
             window.manual_overlay_scan_gamepad_combo,
             hotkeys_i18n,
+            extra_bindings=[
+                (
+                    window._create_labeled_widget(tabs_i18n, "hotkeys", "copy_game_screenshot"),
+                    window.copy_game_screenshot_hotkey_edit,
+                    window.copy_game_screenshot_gamepad_combo,
+                )
+            ],
         )
     )
 

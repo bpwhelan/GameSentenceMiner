@@ -24,11 +24,13 @@ class _FakeConfigWindow:
     def __init__(self) -> None:
         self.pause_text_intake_hotkey_edit = QLineEdit("F13")
         self.manual_overlay_scan_hotkey_edit = QLineEdit("+")
+        self.copy_game_screenshot_hotkey_edit = QLineEdit("F8")
         self.play_latest_audio_hotkey_edit = QLineEdit("F7")
         self.process_pause_hotkey_edit = QLineEdit()
 
         self.pause_text_intake_gamepad_combo = self._gamepad_combo()
         self.manual_overlay_scan_gamepad_combo = self._gamepad_combo()
+        self.copy_game_screenshot_gamepad_combo = self._gamepad_combo()
         self.play_latest_audio_gamepad_combo = self._gamepad_combo()
         self.process_pause_gamepad_combo = self._gamepad_combo()
         self.relay_outputs_when_text_intake_paused_check = QCheckBox()
@@ -47,6 +49,7 @@ class _FakeConfigWindow:
     def _create_labeled_widget(_tabs_i18n, section: str, key: str) -> QLabel:
         labels = {
             ("hotkeys", "pause_text_intake"): "Pause GSM Text Intake Hotkey:",
+            ("hotkeys", "copy_game_screenshot"): "Copy Game Screenshot Hotkey:",
             ("overlay", "manual_overlay_scan_hotkey"): "Manual Overlay Scan Hotkey",
             ("advanced", "play_latest_hotkey"): "Play Latest Video/Audio Hotkey:",
             ("game_pausing", "hotkey"): "Game Pause Hotkey:",

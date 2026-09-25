@@ -1245,6 +1245,8 @@ class Hotkeys:
     unmute_target_window_on_focus: bool = True
     manual_overlay_scan: str = ""
     manual_overlay_scan_gamepad: str = ""
+    copy_game_screenshot: str = "f12"
+    copy_game_screenshot_gamepad: str = ""
     process_pause: str = ""
     process_pause_gamepad: str = ""
     pause_text_intake: str = ""
@@ -2789,6 +2791,8 @@ class AnkiUpdateResult:
     audio_in_anki: str = ""
     screenshot_in_anki: str = ""
     prev_screenshot_in_anki: str = ""
+    screenshot_media_in_anki: List[str] = field(default_factory=list)
+    prev_screenshot_media_in_anki: List[str] = field(default_factory=list)
     sentence_in_anki: str = ""
     multi_line: bool = False
     video_in_anki: str = ""

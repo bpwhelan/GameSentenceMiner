@@ -134,6 +134,47 @@ def test_add_wildcards():
     assert anki.add_wildcards("abc") == "*a*b*c*"
 
 
+@pytest.mark.parametrize("missing", ["Word", "Sentence", "SentenceAudio", "Picture"])
+def test_new_card_with_missing_fields_offers_setup_before_mining(monkeypatch, missing):
+    config = _base_config()
+    config.name = "Mining profile"
+    config.audio.enabled = True
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    fields = {"Word": "語", "Sentence": "例文", "SentenceAudio": "", "Picture": ""}
+    del fields[missing]
+    card = SimpleNamespace(noteId=42, tags=[], modelName="Custom cards", fields=fields, get_field=fields.__getitem__)
+    offered = []
+    monkeypatch.setattr(anki.gsm_state, "dialog_manager", SimpleNamespace(offer_anki_setup=offered.append))
+    mined_line = SimpleNamespace(id="mismatch-test-line", text="例文")
+    monkeypatch.setattr(anki, "_resolve_mined_line_for_card", lambda *_args: mined_line)
+    queued = []
+    monkeypatch.setattr(anki, "queue_card_for_processing", lambda *args, **_kwargs: queued.append(args))
+
+    anki.update_single_card(card)
+
+    assert len(offered) == 1
+    assert [name for _, name in offered[0].missing_fields] == [missing]
+    assert bool(queued) == (missing in {"SentenceAudio", "Picture"})
+
+
+def test_tag_filtered_note_does_not_offer_template_setup(monkeypatch):
+    config = _base_config()
+    config.anki.tags_to_check = ["mine"]
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    offered = []
+    monkeypatch.setattr(anki.gsm_state, "dialog_manager", SimpleNamespace(offer_anki_setup=offered.append))
+    card = SimpleNamespace(noteId=42, tags=[], modelName="Unrelated cards", fields={})
+    anki.update_single_card(card)
+    assert offered == []
+
+
+def test_missing_required_fields_without_gui_do_not_crash_mining(monkeypatch):
+    monkeypatch.setattr(anki, "get_config", _base_config)
+    monkeypatch.setattr(anki.gsm_state, "dialog_manager", None)
+    card = SimpleNamespace(noteId=42, tags=[], modelName="Custom cards", fields={})
+    anki.update_single_card(card)
+
+
 def test_find_field_grouping_candidates_uses_find_notes_and_filters_exact_matches(monkeypatch):
     config = _base_config()
     config.anki.field_grouping_enabled = True

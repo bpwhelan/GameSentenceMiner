@@ -12,12 +12,14 @@ from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from html import unescape
+from html import escape as html_escape
 from pathlib import Path
 from queue import Empty, Full, Queue
 from types import SimpleNamespace
-from typing import Dict, Any, List, Tuple, Optional
+from typing import TYPE_CHECKING, Dict, Any, List, Tuple, Optional
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.anki_setup import find_anki_field_mismatch
 from GameSentenceMiner.tokenizer import tokenizer
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.config.configuration import (
@@ -66,6 +68,17 @@ from GameSentenceMiner.util.text_log import (
     lines_match,
     strip_whitespace_and_punctuation,
 )
+
+if TYPE_CHECKING:
+    from GameSentenceMiner.util.media.screenshot_selection import ScreenshotSelectionResult
+
+
+def _is_screenshot_selection(value) -> bool:
+    if value is None or isinstance(value, (str, bytes, os.PathLike)):
+        return False
+    from GameSentenceMiner.util.media.screenshot_selection import ScreenshotSelectionResult
+
+    return isinstance(value, ScreenshotSelectionResult)
 
 
 configure_anki_card_timing_logging(is_dev, Path(get_app_directory()) / "logs")
@@ -666,6 +679,8 @@ class MediaAssets:
     audio_path: str = ""
     screenshot_path: str = ""
     prev_screenshot_path: str = ""
+    selected_screenshots: Optional["ScreenshotSelectionResult"] = None
+    selected_prev_screenshots: Optional["ScreenshotSelectionResult"] = None
     video_path: str = ""
     source_video_path: str = ""
     screenshot_timestamp: float = 0.0
@@ -676,9 +691,11 @@ class MediaAssets:
     reused_audio: bool = False
     reused_audio_result_id: str = ""
     screenshot_in_anki: str = ""
+    screenshot_media_in_anki: List[str] = field(default_factory=list)
     reused_screenshot: bool = False
     reused_screenshot_result_id: str = ""
     prev_screenshot_in_anki: str = ""
+    prev_screenshot_media_in_anki: List[str] = field(default_factory=list)
     video_in_anki: str = ""
 
     # Paths after being copied to the final output folder
@@ -821,6 +838,72 @@ def _apply_field_policy(
     return True
 
 
+def _image_tags(media_names: List[str]) -> str:
+    return "".join(f'<img src="{html_escape(name, quote=True)}">' for name in media_names)
+
+
+def _put_selected_images_in_field(note: Dict, last_note: "AnkiCard", field_key: str, media_names: List[str], config):
+    """Apply the field's append/replacement policy without erasing unrelated markup."""
+    field_cfg = _get_anki_field_config(field_key, anki_cfg=config.anki)
+    if not field_cfg.enabled or not field_cfg.name:
+        raise ValueError(f"The Anki {field_key} destination is not configured")
+    current = _field_value_in_note_or_anki(note, last_note, field_cfg.name)
+    tags = _image_tags(media_names)
+    if field_cfg.append:
+        value = current + tags
+    else:
+        match = re.search(r"<img\b[^>]*>", current, flags=re.IGNORECASE)
+        value = current[: match.start()] + tags + current[match.end() :] if match else current + tags
+    note["fields"][field_cfg.name] = value
+
+
+def _process_selected_screenshots(
+    assets: MediaAssets,
+    note: Dict,
+    config,
+    last_note: Optional["AnkiCard"],
+    timing_context: Optional[AnkiCardTimingContext] = None,
+):
+    """Upload every selected item before changing the note's image fields."""
+    selections = (
+        ("picture_field", assets.selected_screenshots, "screenshot"),
+        ("previous_image_field", assets.selected_prev_screenshots, "previous_screenshot"),
+    )
+    field_collections = {}
+    for field_key, result, media_kind in selections:
+        if result is None:
+            continue
+        if assets.source_video_path and os.path.normcase(os.path.abspath(result.source_path)) != os.path.normcase(
+            os.path.abspath(assets.source_video_path)
+        ):
+            raise RuntimeError(f"Selected {media_kind} belongs to a different recording; the Anki note was not changed")
+        field_cfg = _get_anki_field_config(field_key, anki_cfg=config.anki)
+        if not field_cfg.enabled or not field_cfg.name:
+            raise ValueError(f"The Anki {field_key} destination is not configured")
+        paths = [item.path for item in result.items]
+        if any(not os.path.isfile(path) or os.path.getsize(path) == 0 for path in paths):
+            raise RuntimeError(f"Selected {media_kind} media is missing; the Anki note was not changed")
+        names = []
+        for path in paths:
+            name = store_media_file(path, timing_context=timing_context, media_kind=media_kind)
+            if not name:
+                raise RuntimeError(f"Failed to upload {media_kind} media; the Anki note was not changed")
+            names.append(name)
+        field_name = field_cfg.name
+        if field_name in field_collections:
+            field_collections[field_name][1].extend(names)
+        else:
+            field_collections[field_name] = (field_key, names.copy())
+        if field_key == "picture_field":
+            assets.screenshot_media_in_anki = names
+            assets.screenshot_in_anki = names[0]
+        else:
+            assets.prev_screenshot_media_in_anki = names
+            assets.prev_screenshot_in_anki = names[0]
+    for field_key, names in field_collections.values():
+        _put_selected_images_in_field(note, last_note, field_key, names, config)
+
+
 def _normalize_anki_sentence_line_breaks(note: Dict, anki_cfg=None) -> Dict:
     """Convert sentence text newlines to HTML breaks immediately before an Anki update."""
     if not isinstance(note, dict):
@@ -893,6 +976,8 @@ def _generate_media_files(
             assets.audio_in_anki = anki_result.audio_in_anki
             assets.screenshot_in_anki = anki_result.screenshot_in_anki
             assets.prev_screenshot_in_anki = anki_result.prev_screenshot_in_anki
+            assets.screenshot_media_in_anki = list(anki_result.screenshot_media_in_anki)
+            assets.prev_screenshot_media_in_anki = list(anki_result.prev_screenshot_media_in_anki)
             assets.video_in_anki = anki_result.video_in_anki
             assets.extra_tags = anki_result.extra_tags
             return assets
@@ -949,6 +1034,7 @@ def _generate_media_files(
         previous_result = anki_results.get(previous_line.id)
         if previous_result:
             assets.prev_screenshot_in_anki = previous_result.screenshot_in_anki
+            assets.prev_screenshot_media_in_anki = list(previous_result.screenshot_media_in_anki)
         else:
             # Get raw PNG for previous screenshot (fast preview)
             assets.prev_screenshot_timestamp = ffmpeg.get_screenshot_time(video_path, previous_line)
@@ -1060,7 +1146,7 @@ def _prepare_anki_note_fields(note: Dict, last_note: "AnkiCard", assets: MediaAs
             note,
             last_note,
             "previous_image_field",
-            f'<img src="{assets.prev_screenshot_in_anki}">',
+            _image_tags(assets.prev_screenshot_media_in_anki or [assets.prev_screenshot_in_anki]),
             anki_cfg=config.anki,
         )
 
@@ -1167,6 +1253,8 @@ def prefetch_animated_screenshot_for_confirmation(
 ):
     """Kick off animated screenshot generation as soon as timing metadata is available."""
     if not assets:
+        return
+    if assets.selected_screenshots is not None:
         return
     _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
     _start_animated_screenshot_prefetch(assets, get_config(), timing_context=timing_context)
@@ -1459,11 +1547,19 @@ def _handle_file_management(
             assets.final_audio_path = shutil.copy(assets.audio_path, word_path)
         if assets.screenshot_path and os.path.exists(assets.screenshot_path):
             assets.final_screenshot_path = shutil.copy(assets.screenshot_path, word_path)
+        if assets.selected_screenshots:
+            for item in assets.selected_screenshots.items[1:]:
+                if os.path.exists(item.path):
+                    shutil.copy(item.path, word_path)
         if assets.prev_screenshot_path and os.path.exists(assets.prev_screenshot_path):
             dest_name = "prev_" + Path(assets.prev_screenshot_path).name
             assets.final_prev_screenshot_path = shutil.copy(
                 assets.prev_screenshot_path, os.path.join(word_path, dest_name)
             )
+        if assets.selected_prev_screenshots:
+            for item in assets.selected_prev_screenshots.items[1:]:
+                if os.path.exists(item.path):
+                    shutil.copy(item.path, os.path.join(word_path, "prev_" + Path(item.path).name))
         if assets.video_path and os.path.exists(assets.video_path):
             assets.final_video_path = shutil.copy(assets.video_path, word_path)
         elif video_path and config.paths.copy_trimmed_replay_to_output_folder and os.path.exists(video_path):
@@ -1588,6 +1684,8 @@ def update_anki_card(
         assets.screenshot_in_anki = _get_reusable_screenshot_from_result(reuse_screenshot_result_id)
         assets.reused_screenshot = bool(assets.screenshot_in_anki)
         assets.reused_screenshot_result_id = reuse_screenshot_result_id if assets.reused_screenshot else ""
+        if assets.reused_screenshot:
+            assets.screenshot_media_in_anki = list(anki_results[reuse_screenshot_result_id].screenshot_media_in_anki)
         if assets.reused_screenshot:
             assets.screenshot_path = ""
             assets.pending_animated = False
@@ -1726,8 +1824,22 @@ def update_anki_card(
             note["fields"][config.ai.anki_field] = translation
         if game_line is not None:
             game_line.TL = translation
-        assets.screenshot_path = new_ss_path or assets.screenshot_path
-        assets.prev_screenshot_path = new_prev_ss_path or assets.prev_screenshot_path
+        if _is_screenshot_selection(new_ss_path):
+            assets.selected_screenshots = new_ss_path
+            assets.screenshot_path = new_ss_path.items[0].path
+            assets.pending_animated = False
+            assets.reused_screenshot = False
+            assets.reused_screenshot_result_id = ""
+            assets.screenshot_in_anki = ""
+            assets.screenshot_media_in_anki = []
+            update_picture_flag = True
+        else:
+            assets.screenshot_path = new_ss_path or assets.screenshot_path
+        if _is_screenshot_selection(new_prev_ss_path):
+            assets.selected_prev_screenshots = new_prev_ss_path
+            assets.prev_screenshot_path = new_prev_ss_path.items[0].path
+        else:
+            assets.prev_screenshot_path = new_prev_ss_path or assets.prev_screenshot_path
         # Update audio path if TTS was generated in the dialog
         if new_audio_path:
             assets.audio_path = new_audio_path
@@ -1787,6 +1899,8 @@ def update_anki_card(
                 audio_in_anki=assets.audio_in_anki,
                 screenshot_in_anki=assets.screenshot_in_anki,
                 prev_screenshot_in_anki=assets.prev_screenshot_in_anki,
+                screenshot_media_in_anki=list(assets.screenshot_media_in_anki),
+                prev_screenshot_media_in_anki=list(assets.prev_screenshot_media_in_anki),
                 sentence_in_anki=sentence_in_anki,
                 multi_line=bool(selected_lines and len(selected_lines) > 1),
                 video_in_anki=assets.video_in_anki or "",
@@ -1911,7 +2025,14 @@ def _process_screenshot(
     last_note: Optional["AnkiCard"] = None,
     timing_context: Optional[AnkiCardTimingContext] = None,
 ):
-    if not assets:
+    if (
+        not assets
+        or assets.selected_screenshots is not None
+        or (
+            assets.selected_prev_screenshots is not None
+            and config.anki.previous_image_field == config.anki.picture_field
+        )
+    ):
         return
 
     # If reusing an existing screenshot, just add the Anki media reference to the note.
@@ -1921,7 +2042,7 @@ def _process_screenshot(
                 note,
                 last_note,
                 "picture_field",
-                f'<img src="{assets.screenshot_in_anki}">',
+                _image_tags(assets.screenshot_media_in_anki or [assets.screenshot_in_anki]),
                 anki_cfg=config.anki,
             )
         return
@@ -1978,7 +2099,12 @@ def _process_previous_screenshot(
     last_note: Optional["AnkiCard"] = None,
     timing_context: Optional[AnkiCardTimingContext] = None,
 ):
-    if not assets or not assets.prev_screenshot_path or use_existing_files:
+    if (
+        not assets
+        or assets.selected_prev_screenshots is not None
+        or not assets.prev_screenshot_path
+        or use_existing_files
+    ):
         return
 
     with time_anki_card_block(timing_context, "anki.media.encode_screenshot", media_kind="previous_screenshot"):
@@ -2093,6 +2219,11 @@ def _process_animated_screenshot(
         return
 
     try:
+        if assets.selected_screenshots is not None or (
+            assets.selected_prev_screenshots is not None
+            and config.anki.previous_image_field == config.anki.picture_field
+        ):
+            return
         target_window = _animated_target_window(assets)
         prefetch_window = _animated_prefetch_window(assets) or _animated_requested_window(assets)
         can_use_prefetch = not target_window or (prefetch_window and _window_contains(prefetch_window, target_window))
@@ -2406,6 +2537,8 @@ def check_and_update_note(
     )
     try:
         if assets:
+            with time_anki_card_block(timing_context, "anki.background.process_selected_screenshots"):
+                _process_selected_screenshots(assets, note, config, last_note, timing_context=timing_context)
             with time_anki_card_block(timing_context, "anki.background.process_screenshot"):
                 _process_screenshot(
                     assets,
@@ -2522,12 +2655,17 @@ def check_and_update_note(
 
 def add_image_to_card(last_note: AnkiCard, image_path):
     global screenshot_in_anki
-    update_picture = _field_should_write(last_note, "picture_field")
+    selected = _is_screenshot_selection(image_path)
+    update_picture = selected or _field_should_write(last_note, "picture_field")
 
     # Create a MediaAssets object for just the screenshot
     assets = MediaAssets()
     if update_picture:
-        assets.screenshot_path = image_path
+        if selected:
+            assets.selected_screenshots = image_path
+            assets.screenshot_path = image_path.items[0].path
+        else:
+            assets.screenshot_path = image_path
 
     note = {"id": last_note.noteId, "fields": {}}
 
@@ -3419,6 +3557,19 @@ def update_single_card(card):
     timing_start = time.perf_counter()
     if not card or not check_tags_for_should_update(card):
         return
+    if hasattr(card, "fields"):
+        # AnkiCard has already tried case-insensitive names and known alternatives.
+        issue = find_anki_field_mismatch(get_config(), getattr(card, "modelName", ""), card.fields)
+        if issue:
+            missing = ", ".join(f"{label}: {name or '(not configured)'}" for label, name in issue.missing_fields)
+            logger.warning(f"Anki note {card.noteId} ({issue.model_name}) has missing field mappings: {missing}")
+            if gsm_state.dialog_manager:
+                try:
+                    gsm_state.dialog_manager.offer_anki_setup(issue)
+                except Exception:  # noqa: BLE001 - A failed GUI handoff must not stop other card processing.
+                    logger.exception("Could not offer recommended Anki setup for missing fields")
+            if issue.blocks_mining:
+                return
     gsm_status.add_word_being_processed(card.get_field(get_config().anki.word_field))
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}")
     lines = _get_texthooking_page_module().get_selected_lines()

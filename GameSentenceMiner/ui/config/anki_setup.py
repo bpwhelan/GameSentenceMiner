@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 
 from GameSentenceMiner.anki_setup import (
     PRESETS,
+    AnkiFieldMismatch,
     AnkiSetupClient,
     AnkiSetupError,
     SetupResult,
@@ -32,6 +33,41 @@ from GameSentenceMiner.anki_setup import (
     suggest_gsm_field_mappings,
 )
 from GameSentenceMiner.util.config.configuration import get_app_directory
+
+
+def create_anki_field_mismatch_prompt(issue: AnkiFieldMismatch) -> QMessageBox:
+    """Explain a runtime mapping failure before offering the existing setup flow."""
+    message = QMessageBox()
+    message.setWindowTitle("Anki note type needs setup")
+    message.setIcon(QMessageBox.Icon.Warning)
+    message.setTextFormat(Qt.TextFormat.PlainText)
+    message.setWindowModality(Qt.WindowModality.NonModal)
+    message.setText(
+        f'We noticed that GSM\'s field settings do not match your note type "{issue.model_name or "Unknown"}".'
+    )
+    missing = "\n".join(
+        f'{label}: "{name}" (missing)' if name else f"{label}: no field configured"
+        for label, name in issue.missing_fields
+    )
+    consequence = (
+        "GSM could not enhance this card because its Word or Sentence field is missing."
+        if issue.blocks_mining
+        else "GSM cannot add the affected audio or picture to this note type."
+    )
+    message.setInformativeText(
+        f"{missing}\n\n{consequence}\n\n"
+        "GSM recommends using a standardized note type: Lapis (simplest), Kiku, or Senren. "
+        "Would you like to set up one of these templates?\n\n"
+        "You can also keep your template and correct the field mappings in GSM's Anki settings. "
+        "Setup configures new cards; it does not convert this existing card."
+    )
+    message.setDetailedText("Fields on this note type:\n" + "\n".join(issue.available_fields))
+    message.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    message.button(QMessageBox.StandardButton.Yes).setText("Open auto setup")
+    message.button(QMessageBox.StandardButton.No).setText("Not now")
+    message.setDefaultButton(QMessageBox.StandardButton.Yes)
+    message.setEscapeButton(QMessageBox.StandardButton.No)
+    return message
 
 
 def offer_recommended_field_mappings(window, model_name: str, fields: list[str]) -> bool:
