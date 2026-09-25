@@ -342,19 +342,22 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
                       className="btn-icon"
                       onClick={() => moveProcessor(index, Math.max(0, index - 1))}
                       disabled={index === 0}
-                      title={t("textProcessing.moveUp")}
+                      data-tip={t("textProcessing.moveUp")}
+                      aria-label={t("textProcessing.moveUp")}
                     >▲</button>
                     <button
                       className="btn-icon"
                       onClick={() => moveProcessor(index, Math.min(orderedProcessors.length - 1, index + 1))}
                       disabled={index === orderedProcessors.length - 1}
-                      title={t("textProcessing.moveDown")}
+                      data-tip={t("textProcessing.moveDown")}
+                      aria-label={t("textProcessing.moveDown")}
                     >▼</button>
                     {proc.hasConfig && (
                       <button
                         className="btn-icon btn-config"
                         onClick={() => setExpandedProcessor(expandedProcessor === proc.id ? null : proc.id)}
-                        title={t("textProcessing.configure")}
+                        data-tip={t("textProcessing.configure")}
+                        aria-label={t("textProcessing.configure")}
                       >⚙</button>
                     )}
                   </div>
@@ -526,7 +529,8 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
               type="checkbox"
               checked={rule.enabled}
               onChange={(e) => updateRule(index, { enabled: e.target.checked })}
-              title={t("textProcessing.rules.toggleEnabled")}
+              data-tip={t("textProcessing.rules.toggleEnabled")}
+              aria-label={t("textProcessing.rules.toggleEnabled")}
             />
             <select
               value={rule.mode}
@@ -551,18 +555,20 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
               placeholder={t("textProcessing.rules.replacePlaceholder")}
               className="rule-replace-input"
             />
-            <label className="rule-option" title={t("textProcessing.rules.caseSensitive")}>
+            <label className="rule-option" data-tip={t("textProcessing.rules.caseSensitive")}>
               <input
                 type="checkbox"
                 checked={rule.case_sensitive}
+                aria-label={t("textProcessing.rules.caseSensitive")}
                 onChange={(e) => updateRule(index, { case_sensitive: e.target.checked })}
               />
               {" "}Aa
             </label>
-            <label className="rule-option" title={t("textProcessing.rules.wholeWord")}>
+            <label className="rule-option" data-tip={t("textProcessing.rules.wholeWord")}>
               <input
                 type="checkbox"
                 checked={rule.whole_word}
+                aria-label={t("textProcessing.rules.wholeWord")}
                 onChange={(e) => updateRule(index, { whole_word: e.target.checked })}
               />
               {" "}\\b
@@ -573,7 +579,7 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
                 className="btn-icon"
                 onClick={() => moveRule(index, index - 1)}
                 disabled={index === 0}
-                title={t("textProcessing.moveUp")}
+                data-tip={t("textProcessing.moveUp")}
                 aria-label={t("textProcessing.moveUp")}
               >▲</button>
               <button
@@ -581,11 +587,11 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
                 className="btn-icon"
                 onClick={() => moveRule(index, index + 1)}
                 disabled={index === rules.length - 1}
-                title={t("textProcessing.moveDown")}
+                data-tip={t("textProcessing.moveDown")}
                 aria-label={t("textProcessing.moveDown")}
               >▼</button>
             </div>
-            <button className="btn-icon btn-danger" onClick={() => removeRule(index)} title={t("textProcessing.rules.remove")}>✕</button>
+            <button className="btn-icon btn-danger" onClick={() => removeRule(index)} data-tip={t("textProcessing.rules.remove")} aria-label={t("textProcessing.rules.remove")}>✕</button>
           </div>
         ))}
       </div>

@@ -3293,6 +3293,9 @@ export function sendWindowsSpeechGetStatus() {
 export function sendOpenOverlaySettings() {
     return sendBackendCommand('open_overlay_settings');
 }
+export function sendStopOverlay(launchId: string): boolean {
+    return sendBackendCommand('stop_overlay', { launchId });
+}
 export function sendOpenTexthooker() { sendBackendCommand('open_texthooker'); }
 export function sendRelateSceneToProfile(scene: string, profileName: string, createNew = false) {
     return sendBackendCommand('relate_scene_to_profile', {

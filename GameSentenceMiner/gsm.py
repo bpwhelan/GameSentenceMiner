@@ -1526,6 +1526,12 @@ class GSMApplication:
                 )
 
                 request_overlay_settings_open()
+            elif function == FunctionName.STOP_OVERLAY.value:
+                from GameSentenceMiner.web.gsm_websocket import request_overlay_shutdown
+
+                data = cmd.get("data")
+                if isinstance(data, dict):
+                    request_overlay_shutdown(data.get("launchId"))
             elif function == FunctionName.OPEN_TEXTHOOKER.value:
                 self.open_texthooker()
             elif function == FunctionName.SWITCH_PROFILE.value:

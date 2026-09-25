@@ -96,7 +96,7 @@ function StatusPill({ icon, label, text, variant, tooltip, onClick, clickable }:
   return (
     <button
       className={`home-status-pill home-status-pill--${variant}${clickable ? " home-status-pill--clickable" : ""}`}
-      title={tooltip}
+      data-tip={tooltip}
       onClick={onClick}
       type="button"
       tabIndex={clickable ? 0 : -1}
@@ -909,7 +909,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     type="button"
                     className="home-icon-btn"
                     onClick={() => void refreshAll()}
-                    title={t("home.obs.refreshScenes")}
+                    data-tip={t("home.obs.refreshScenes")}
                     aria-label={t("home.obs.refreshScenes")}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
@@ -1017,7 +1017,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     className="home-text-btn"
                     disabled={isHelperScene}
                     onClick={handleOpenCaptureWizard}
-                    title={t("home.obs.runCaptureWizardTooltip")}
+                    data-tip={t("home.obs.runCaptureWizardTooltip")}
                   >
                     {t("home.obs.runCaptureWizard")}
                   </button>
@@ -1057,7 +1057,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                         value={windowsDetectedExe}
                         readOnly
                         disabled
-                        title={t("home.obs.gameExeWindowsTooltip")}
+                        data-tip={t("home.obs.gameExeWindowsTooltip")}
                         autoComplete="off"
                       />
                     ) : (
@@ -1114,7 +1114,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     className="home-select"
                     value={selectedWindowValue}
                     disabled={!canEnumerateWindows}
-                    title={!canEnumerateWindows ? t("home.obs.notSupportedTooltip") : undefined}
+                    data-tip={!canEnumerateWindows ? t("home.obs.notSupportedTooltip") : undefined}
                     onChange={(e) => handleWindowSelectionChange(e.target.value)}
                   >
                     {!canEnumerateWindows && (
@@ -1162,7 +1162,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     className="home-icon-btn"
                     disabled={!canEnumerateWindows}
                     onClick={() => void loadWindows()}
-                    title={t("home.obs.refreshWindows")}
+                    data-tip={t("home.obs.refreshWindows")}
                     aria-label={t("home.obs.refreshWindows")}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
@@ -1227,7 +1227,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                   <label
                     className="home-toggle"
                     htmlFor="home-capture-card-toggle"
-                    title={t("home.obs.captureCardTooltip")}
+                    data-tip={t("home.obs.captureCardTooltip")}
                   >
                     <input
                       id="home-capture-card-toggle"
@@ -1249,7 +1249,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     type="button"
                     disabled={!canCreateScene}
                     onClick={() => void handleCreateScene()}
-                    title={t(
+                    data-tip={t(
                       isWaylandPipewireSelection
                         ? "home.obs.waylandPipewireTooltip"
                         : isMonitorSelection
@@ -1287,7 +1287,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     type="button"
                     className="home-overlay-primary-btn"
                     onClick={overlayRunning ? openOverlaySettings : runOverlay}
-                    title={
+                    data-tip={
                       overlayRunning
                         ? t("home.actions.overlaySettingsTooltip")
                         : t("home.actions.overlayTooltip")
@@ -1299,7 +1299,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     type="button"
                     className="home-quick-btn home-overlay-guide-btn"
                     onClick={() => openExternal(OVERLAY_DOCS_URL)}
-                    title={t("home.actions.overlayWiki")}
+                    data-tip={t("home.actions.overlayWiki")}
                   >
                     {t("home.overlay.guide")}
                   </button>
@@ -1307,7 +1307,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                 <label
                   className="home-toggle home-overlay-card__startup"
                   htmlFor="home-overlay-startup-toggle"
-                  title={t("home.overlay.runOnStartupTooltip")}
+                  data-tip={t("home.overlay.runOnStartupTooltip")}
                 >
                   <input
                     id="home-overlay-startup-toggle"
@@ -1334,7 +1334,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                 type="button"
                 className="home-quick-btn"
                 onClick={openGSMSettings}
-                title={t("home.actions.gsmSettingsTooltip")}
+                data-tip={t("home.actions.gsmSettingsTooltip")}
               >
                 {t("home.actions.gsmSettings")}
               </button>
@@ -1342,7 +1342,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                 type="button"
                 className="home-quick-btn"
                 onClick={openTexthooker}
-                title={t("home.actions.texthookerTooltip")}
+                data-tip={t("home.actions.texthookerTooltip")}
               >
                 {t("home.actions.texthooker")}
               </button>

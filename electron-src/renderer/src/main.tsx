@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { SceneSwitchConflictWindow } from "./components/SceneSwitchConflictWindow";
 import { I18nProvider } from "./i18n";
+import { TooltipLayer } from "./components/Tooltip";
 import { installDevPreviewBridge } from "./lib/devPreview";
 import { applyTheme } from "./lib/theme";
 import "./styles.css";
@@ -49,6 +50,7 @@ void getInitialSettings().then(({ locale, theme }) => {
   applyTheme(theme);
   root.render(
     <I18nProvider initialLocale={locale}>
+      <TooltipLayer />
       {isSceneSwitcherPicker ? <SceneSwitchConflictWindow /> : <App />}
     </I18nProvider>
   );

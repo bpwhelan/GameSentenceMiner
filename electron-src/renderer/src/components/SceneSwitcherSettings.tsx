@@ -153,7 +153,7 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
       <button
         type="button"
         className="secondary scene-switcher-settings__source-button"
-        title={t("sceneSwitcher.useCaptureSource")}
+        data-tip={t("sceneSwitcher.useCaptureSource")}
         disabled={saving || loadingCaptureSource}
         onClick={() => void useCaptureSource()}
       >

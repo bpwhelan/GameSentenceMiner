@@ -253,8 +253,8 @@ describe('App install-session integration', () => {
             (button) => button.textContent === 'Export Anonymized Logs'
         );
         expect(exportButton).toBeDefined();
-        expect(exportButton?.title).toContain('redacted');
-        expect(exportButton?.title).toContain('Original logs are unchanged');
+        expect(exportButton?.dataset.tip).toContain('redacted');
+        expect(exportButton?.dataset.tip).toContain('Original logs are unchanged');
         await act(async () => {
             exportButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         });

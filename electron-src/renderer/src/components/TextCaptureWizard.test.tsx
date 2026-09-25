@@ -943,6 +943,84 @@ describe("TextCaptureWizard", () => {
     expect(invokeMock).toHaveBeenCalledWith("settings.saveSceneLaunchProfile", expect.objectContaining({ ocrMode: "manual" }));
   });
 
+  it.each([
+    { navigation: "Finalize", steps: ["Finalize"] },
+    { navigation: "the remaining steps", steps: ["Continue to OCR", "Keep text hook and finalize"] },
+  ])("saves a manually selected Agent script without starting it via $navigation", async ({ steps }) => {
+    const scriptPath = "C:\\Agent\\data\\scripts\\PC_Steam_Picked_Adventure.js";
+    mockSceneContext({
+      "settings.listAgentScripts": { scripts: [scriptPath] },
+    });
+    const onClose = await renderWizard();
+    await clickButton(container, "Texthook");
+    await clickButton(container, "Search scripts");
+    await clickButton(container, "Picked Adventure");
+    expect(container.querySelector(".agent-script-search-dialog")).toBeNull();
+
+    for (const step of steps) await clickButton(container, step);
+    await clickButton(container, "Save and close");
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(invokeMock).not.toHaveBeenCalledWith("texthook.start", expect.anything());
+    expect(invokeMock).toHaveBeenCalledWith("texthook.saveProfile", expect.objectContaining({
+      exeName: "ExampleGame.exe",
+      sceneId: exampleScene.id,
+      engine: "agent",
+      autoHook: true,
+      hookId: null,
+      hookFunction: null,
+      agentScriptPath: scriptPath,
+    }));
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSceneLaunchProfile", expect.objectContaining({
+      scene: exampleScene, textHookMode: "none", agentScriptPath: "",
+    }));
+  });
+
+  it("replaces a saved Luna hook with a selected Agent script while preserving disabled auto-start", async () => {
+    const scriptPath = "C:\\Agent\\data\\scripts\\PC_Steam_Picked_Adventure.js";
+    mockSceneContext({
+      "texthook.getProfile": {
+        engine: "luna", autoHook: false, flushDelayMs: 350, copyToClipboard: true,
+        hookId: "saved-hook", hookFunction: "Saved dialogue", manualHookCode: "/HSN4@1234:ExampleGame.exe",
+      },
+      "settings.listAgentScripts": { scripts: [scriptPath] },
+    });
+    await renderWizard();
+    await clickButton(container, "Texthook");
+    await clickButton(container, "Search scripts");
+    await clickButton(container, "Picked Adventure");
+    await clickButton(container, "Finalize");
+    await clickButton(container, "Save and close");
+
+    expect(invokeMock).not.toHaveBeenCalledWith("texthook.start", expect.anything());
+    expect(invokeMock).toHaveBeenCalledWith("texthook.saveProfile", expect.objectContaining({
+      exeName: "ExampleGame.exe",
+      sceneId: exampleScene.id,
+      engine: "agent",
+      autoHook: false,
+      flushDelayMs: 350,
+      copyToClipboard: true,
+      hookId: null,
+      hookFunction: null,
+      manualHookCode: null,
+      agentScriptPath: scriptPath,
+    }));
+  });
+
+  it("does not save a recommended Agent script that was never selected", async () => {
+    const scriptPath = "C:\\Agent\\data\\scripts\\PC_Steam_Example_Game.js";
+    mockSceneContext({
+      "settings.listAgentScripts": { scripts: [scriptPath] },
+    });
+    await renderWizard();
+    await clickButton(container, "Texthook");
+    expect(findButton(container, "Use this script")).toBeInstanceOf(HTMLButtonElement);
+    await clickButton(container, "Finalize");
+    await clickButton(container, "Save and close");
+
+    expect(invokeMock).not.toHaveBeenCalledWith("texthook.saveProfile", expect.anything());
+  });
+
   it("saves a successfully started Agent script when jumping directly to Finalize", async () => {
     const scriptPath = "C:\\Agent\\data\\scripts\\PC_Steam_Example_Game.js";
     let running = false;

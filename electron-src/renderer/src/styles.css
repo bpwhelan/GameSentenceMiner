@@ -3068,88 +3068,31 @@ button:disabled {
   }
 }
 
-/* --- Custom instant tooltips (data-tip) --- */
-/* Only labels, buttons, summaries, headings, and tip-wraps get tooltips.
-   inputs/selects/checkboxes are excluded to prevent duplicates. */
-label[data-tip],
-summary[data-tip],
-h3[data-tip],
-span[data-tip],
-button[data-tip],
-.ocr-tip-wrap[data-tip] {
-  position: relative;
-}
-
-.ocr-tip-wrap {
+/* Shared instant tooltips. The portal keeps them clear of scrolling panels. */
+.tooltip-trigger {
   display: inline-flex;
   align-items: center;
 }
 
-label[data-tip]::after,
-summary[data-tip]::after,
-h3[data-tip]::after,
-span[data-tip]::after,
-button[data-tip]::after,
-.ocr-tip-wrap[data-tip]::after {
-  content: attr(data-tip);
-  display: none;
-  position: absolute;
-  left: 0;
-  top: calc(100% + 6px);
-  z-index: 60;
+.app-tooltip {
+  position: fixed;
+  z-index: 2147483647;
   width: max-content;
-  min-width: min(280px, calc(100vw - 32px));
-  max-width: min(460px, calc(100vw - 32px));
+  min-width: min(280px, calc(100vw - 16px));
+  max-width: min(460px, calc(100vw - 16px));
   padding: 10px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--gsm-border-default, #44506a);
-  background: rgba(16, 20, 28, 0.97);
-  color: var(--gsm-text-primary, #dfe8fb);
-  font-size: 0.84rem;
+  border-radius: var(--gsm-radius-md);
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-0);
+  color: var(--gsm-text-primary);
+  font-size: 0.8rem;
   font-weight: 400;
-  line-height: 1.6;
+  line-height: 1.5;
   white-space: pre-line;
   overflow-wrap: anywhere;
   text-align: left;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--gsm-shadow-md);
   pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.08s ease-out, visibility 0.08s ease-out;
-}
-
-label[data-tip]:hover::after,
-summary[data-tip]:hover::after,
-h3[data-tip]:hover::after,
-span[data-tip]:hover::after,
-button[data-tip]:hover::after,
-.ocr-tip-wrap[data-tip]:hover::after {
-  display: block;
-  opacity: 1;
-  visibility: visible;
-}
-
-/* Tip wrapper alignment variants */
-.ocr-tip-wrap--start[data-tip]::after {
-  left: 0;
-  transform: none;
-}
-
-.ocr-tip-wrap--center[data-tip]::after {
-  left: 50%;
-  transform: translateX(-50%);
-  min-width: min(300px, calc(100vw - 32px));
-  max-width: min(460px, calc(100vw - 32px));
-}
-
-.ocr-col--monitor label[data-tip]::after,
-.ocr-col--monitor summary[data-tip]::after,
-.ocr-col--monitor h3[data-tip]::after,
-.ocr-col--monitor span[data-tip]::after,
-.ocr-col--monitor button[data-tip]::after,
-.ocr-col--monitor .ocr-tip-wrap[data-tip]::after {
-  left: auto;
-  right: 0;
 }
 
 /* --- Line break color coding --- */
@@ -3180,7 +3123,7 @@ button[data-tip]:hover::after,
   white-space: nowrap;
 }
 
-.ocr-scene-row .ocr-tip-wrap {
+.ocr-scene-row .tooltip-trigger {
   min-width: 0;
 }
 
@@ -5642,22 +5585,6 @@ body {
   .ocr-workspace .ocr-sticky-footer-actions button {
     padding: 6px 11px !important;
   }
-}
-
-/* Tooltip refresh */
-label[data-tip]::after,
-summary[data-tip]::after,
-h3[data-tip]::after,
-span[data-tip]::after,
-button[data-tip]::after,
-.ocr-tip-wrap[data-tip]::after {
-  background: var(--gsm-surface-0);
-  border: 1px solid var(--gsm-border-default);
-  color: var(--gsm-text-primary);
-  border-radius: var(--gsm-radius-md);
-  box-shadow: var(--gsm-shadow-md);
-  font-size: 0.8rem;
-  line-height: 1.5;
 }
 
 /* Toast refresh */

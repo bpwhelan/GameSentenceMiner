@@ -722,7 +722,7 @@
       "textHookLuna": "Lanzar automáticamente LunaTranslator cuando este juego se active.",
       "launchDelay": "Retardo antes de iniciar el lanzador de enganche de texto seleccionado para este juego.",
       "agentScript": "Ruta del script de Agent para este juego. Puedes establecerla manualmente, examinar o buscar.",
-      "launchOverlay": "Iniciar la superposición GSM mientras la sesión de este juego esté activa, y cerrar la superposición auto-lanzada cuando el juego/sesión termine.",
+      "launchOverlay": "Iniciar la superposición GSM cuando la sesión de este juego esté activa. Cerrar correctamente la superposición iniciada por esta opción al cambiar a una escena de OBS donde esté desactivada. Esta opción no está disponible mientras Inicio → Superposición → Ejecutar al inicio esté activado.",
       "browseScript": "Abrir selector de archivos y elegir un script de Agent para este juego.",
       "searchScript": "Buscar todos los scripts en la ruta de scripts de Agent, clasificados por similitud con el juego.",
       "downloadAgent": "Descargar el último Agent desde las versiones oficiales de GitHub. Elige cualquier carpeta de instalación.",

@@ -720,7 +720,7 @@
       "textHookLuna": "当此游戏激活时自动启动 LunaTranslator。",
       "launchDelay": "为此游戏启动所选文本钉子启动器之前的延迟。",
       "agentScript": "此游戏的 Agent 脚本路径。可以手动设置、浏览或搜索。",
-      "launchOverlay": "在此游戏的会话活动时启动 GSM 覆盖层，游戏/会话结束时关闭自动启动的覆盖层。",
+      "launchOverlay": "在此游戏的会话处于活动状态时启动 GSM 覆盖层。切换到未启用此选项的 OBS 场景时，正常关闭由此选项启动的覆盖层。启用“主页 → 覆盖层 → 启动时运行”时，此选项不可用。",
       "browseScript": "打开文件选择器并为此游戏选择 Agent 脚本。",
       "searchScript": "搜索 Agent 脚本路径下的所有脚本，按与游戏的相似度排序。",
       "downloadAgent": "从官方 GitHub 发布下载最新 Agent。选择任意安装文件夹。",

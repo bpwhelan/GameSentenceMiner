@@ -30,6 +30,7 @@ const getLunaTranslatorPathMock = vi.fn();
 const getObsOcrScenesMock = vi.fn();
 const getIgnoreActiveSceneForOcrMock = vi.fn();
 const getForceManualOcrAllProfilesMock = vi.fn();
+const getRunOverlayOnStartupMock = vi.fn();
 const getSceneLaunchProfileForSceneMock = vi.fn();
 const getSteamGamesMock = vi.fn();
 const getTextractorPath32Mock = vi.fn();
@@ -81,6 +82,7 @@ vi.mock('./store.js', () => ({
     getObsOcrScenes: getObsOcrScenesMock,
     getIgnoreActiveSceneForOcr: getIgnoreActiveSceneForOcrMock,
     getForceManualOcrAllProfiles: getForceManualOcrAllProfilesMock,
+    getRunOverlayOnStartup: getRunOverlayOnStartupMock,
     getSceneLaunchProfileForScene: getSceneLaunchProfileForSceneMock,
     getSteamGames: getSteamGamesMock,
     getTextractorPath32: getTextractorPath32Mock,
@@ -145,6 +147,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getObsOcrScenesMock.mockReset();
         getIgnoreActiveSceneForOcrMock.mockReset();
         getForceManualOcrAllProfilesMock.mockReset();
+        getRunOverlayOnStartupMock.mockReset();
         getSceneLaunchProfileForSceneMock.mockReset();
         getSteamGamesMock.mockReset();
         getTextractorPath32Mock.mockReset();
@@ -178,6 +181,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getObsOcrScenesMock.mockReturnValue([]);
         getIgnoreActiveSceneForOcrMock.mockReturnValue(false);
         getForceManualOcrAllProfilesMock.mockReturnValue(false);
+        getRunOverlayOnStartupMock.mockReturnValue(false);
         getSceneLaunchProfileForSceneMock.mockReturnValue(null);
         getSteamGamesMock.mockReturnValue([]);
         getYuzuGamesConfigMock.mockReturnValue([]);
@@ -424,17 +428,37 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         }
     });
 
-    it('stops auto-launched overlay when the active scene no longer enables overlay automation', async () => {
+    it.each([true, false])('leaves overlay lifecycle alone when Home startup is enabled (scene enabled: %s)', async (launchOverlay) => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        getRunOverlayOnStartupMock.mockReturnValue(true);
+        getSceneLaunchProfileForSceneMock.mockReturnValue({ launchOverlay });
+        sceneHasVisibleOutputMock.mockResolvedValue(true);
+
+        await launcher.runOverlayAutomation({ id: 'scene-1', name: 'Scene 1' });
+
+        expect(runOverlayWithSourceMock).not.toHaveBeenCalled();
+        expect(stopOverlayMock).not.toHaveBeenCalled();
+        expect(sceneHasVisibleOutputMock).not.toHaveBeenCalled();
+    });
+
+    it.each([false, undefined])('stops a scene-launched overlay after switching to a scene with overlay automation %s', async (launchOverlay) => {
         const { AutoLauncher } = await loadAutoLauncherModule();
         const launcher = new AutoLauncher() as any;
         const scene = { id: 'scene-1', name: 'Scene 1' };
+
+        getSceneLaunchProfileForSceneMock.mockReturnValue({ launchOverlay: true });
+        sceneHasVisibleOutputMock.mockResolvedValue(true);
+        await launcher.runOverlayAutomation(scene);
+        expect(runOverlayWithSourceMock).toHaveBeenCalledWith('auto-launcher');
+        runOverlayWithSourceMock.mockClear();
 
         getSceneLaunchProfileForSceneMock.mockReturnValue({
             sceneId: scene.id,
             sceneName: scene.name,
             textHookMode: 'none',
             ocrMode: 'none',
-            launchOverlay: false,
+            launchOverlay,
             agentScriptPath: '',
             launchDelaySeconds: 0,
         });
@@ -444,7 +468,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         });
         stopOverlayMock.mockReturnValue(true);
 
-        await launcher.runOverlayAutomation(scene);
+        await launcher.runOverlayAutomation({ id: 'scene-2', name: 'Scene 2' });
 
         expect(stopOverlayMock).toHaveBeenCalledWith({ onlyIfSource: 'auto-launcher' });
         expect(runOverlayWithSourceMock).not.toHaveBeenCalled();

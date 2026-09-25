@@ -55,8 +55,8 @@ export function AgentScriptSearchDialog({
   return (
     <div className="launcher-config-modal agent-script-search-dialog" role="dialog" aria-modal="true">
       <div className="launcher-config-modal-header">
-        <strong title={titleTooltip}>{renderedTitle}</strong>
-        <button type="button" className="secondary" title={closeTitle} onClick={onClose}>
+        <strong data-tip={titleTooltip}>{renderedTitle}</strong>
+        <button type="button" className="secondary" data-tip={closeTitle} onClick={onClose}>
           {closeLabel}
         </button>
       </div>
@@ -84,7 +84,7 @@ export function AgentScriptSearchDialog({
               className={`launcher-script-option agent-script-search-option ${
                 selected ? "agent-script-search-option--selected" : ""
               }`}
-              title={getCandidateTitle?.(candidate, index) ?? candidate.path}
+              data-tip={getCandidateTitle?.(candidate, index) ?? candidate.path}
               aria-pressed={selected}
               onClick={() => onSelect(candidate.path)}
             >

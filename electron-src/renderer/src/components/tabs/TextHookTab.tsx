@@ -1040,7 +1040,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                             <div className="input-group">
                               <label
                                 htmlFor="texthook-manual-input"
-                                title={t("texthook.profile.manualHookHint")}
+                                data-tip={t("texthook.profile.manualHookHint")}
                               >
                                 {t("texthook.profile.manualHook")}
                               </label>
@@ -1135,7 +1135,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                       <div className="input-group">
                         <label
                           htmlFor="texthook-max-buffer-size-input"
-                          title={t("texthook.global.maxBufferSizeHint")}
+                          data-tip={t("texthook.global.maxBufferSizeHint")}
                         >
                           {t("texthook.global.maxBufferSize")}
                         </label>
@@ -1216,7 +1216,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                             type="button"
                             className="texthook-hook-button"
                             onClick={() => void selectHook(hook.id)}
-                            title={hook.preview || ""}
+                            data-tip={hook.preview || ""}
                             aria-pressed={isSelected}
                             aria-label={t("texthook.hooks.rowLabel", {
                               id: hook.id,

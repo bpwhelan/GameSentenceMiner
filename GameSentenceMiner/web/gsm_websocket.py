@@ -1095,6 +1095,14 @@ def request_overlay_settings_open() -> bool:
     return True
 
 
+def request_overlay_shutdown(launch_id: str) -> bool:
+    """Ask only the matching Electron-managed overlay to quit normally."""
+    if not isinstance(launch_id, str) or not launch_id or not websocket_manager.has_clients(ID_OVERLAY):
+        return False
+    websocket_manager.send_nowait(ID_OVERLAY, {"type": "shutdown-overlay", "launchId": launch_id})
+    return True
+
+
 async def _overlay_message_handler(message: str):
     """Handler for overlay websocket messages."""
     from GameSentenceMiner.web.overlay_handler import overlay_handler

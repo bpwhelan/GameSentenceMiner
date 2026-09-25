@@ -320,6 +320,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
   const [activeScene, setActiveScene] = useState<ObsScene | null>(null);
   const [configuredSceneId, setConfiguredSceneId] = useState("");
   const [sceneProfile, setSceneProfile] = useState<SceneLaunchProfile | null>(null);
+  const [runOverlayOnStartup, setRunOverlayOnStartup] = useState<boolean | null>(null);
   const [candidateDialog, setCandidateDialog] = useState<{
     sceneId: string;
     candidates: AgentScriptCandidate[];
@@ -392,6 +393,22 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
       console.error("Failed to load game settings:", error);
     }
   }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    setRunOverlayOnStartup(null);
+    void invokeIpc<{ runOverlayOnStartup?: boolean }>("settings.getSettings")
+      .then((settings) => {
+        if (!cancelled) {
+          setRunOverlayOnStartup(settings?.runOverlayOnStartup === true);
+        }
+      })
+      .catch((error) => console.error("Failed to load overlay startup setting:", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [active]);
 
   const refreshActiveScene = useCallback(async () => {
     try {
@@ -937,12 +954,12 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
     <div className={`tab-panel ${active ? "active" : ""}`}>
       <div className="modern-tab">
         <div className="launcher-tab-header">
-          <h1 title={t(TOOLTIPS.overviewTooltip)}>{t("launcher.title")}</h1>
+          <h1 data-tip={t(TOOLTIPS.overviewTooltip)}>{t("launcher.title")}</h1>
           <div className="launcher-header-actions">
             <button
               type="button"
               className="secondary launcher-docs-button"
-              title={t("launcher.docsButtonTooltip")}
+              data-tip={t("launcher.docsButtonTooltip")}
               onClick={() => {
                 void openDocumentation();
               }}
@@ -952,7 +969,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
             <button
               type="button"
               className="launcher-info-icon"
-              title={t(TOOLTIPS.overviewTooltip)}
+              data-tip={t(TOOLTIPS.overviewTooltip)}
               aria-label={t("launcher.infoLabel")}
             >
               i
@@ -961,32 +978,32 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
         </div>
         <div className="launcher-stack">
           <section className="card legacy-card">
-            <h2 title={t(TOOLTIPS.sceneAutomation)}>{t("launcher.scene.title")}</h2>
+            <h2 data-tip={t(TOOLTIPS.sceneAutomation)}>{t("launcher.scene.title")}</h2>
             <div className="form-group">
               <div className="input-group">
-                <label title={t(TOOLTIPS.activeScene)}>{t("launcher.scene.activeScene")}</label>
-                <span className="mono-text" title={t(TOOLTIPS.activeScene)}>
+                <label data-tip={t(TOOLTIPS.activeScene)}>{t("launcher.scene.activeScene")}</label>
+                <span className="mono-text" data-tip={t(TOOLTIPS.activeScene)}>
                   {activeScene?.name ?? t("launcher.scene.notSelected")}
                 </span>
               </div>
 
               <div className="input-group">
-                <label htmlFor="launcher-scene-selector" title={t(TOOLTIPS.configureScene)}>
+                <label htmlFor="launcher-scene-selector" data-tip={t(TOOLTIPS.configureScene)}>
                   {t("launcher.scene.configureScene")}
                 </label>
                 <select
                   id="launcher-scene-selector"
-                  title={t(TOOLTIPS.configureScene)}
+                  data-tip={t(TOOLTIPS.configureScene)}
                   value={configuredSceneId}
                   onChange={(event) => setConfiguredSceneId(event.target.value)}
                 >
                   {obsScenes.length === 0 ? (
-                    <option value="" title={t(TOOLTIPS.configureScene)}>
+                    <option value="">
                       {t("launcher.scene.noScenesFound")}
                     </option>
                   ) : null}
                   {obsScenes.map((scene) => (
-                    <option key={scene.id} value={scene.id} title={scene.name}>
+                    <option key={scene.id} value={scene.id}>
                       {scene.name}
                     </option>
                   ))}
@@ -994,7 +1011,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                 <button
                   type="button"
                   className="secondary"
-                  title={t(TOOLTIPS.refreshScenes)}
+                  data-tip={t(TOOLTIPS.refreshScenes)}
                   onClick={() => {
                     void loadObsScenes();
                   }}
@@ -1006,34 +1023,34 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
               {configuredScene && sceneProfile ? (
                 <>
                   <div className="input-group">
-                    <label title={t(TOOLTIPS.ocrMode)}>{t("launcher.scene.ocrMode")}</label>
+                    <label data-tip={t(TOOLTIPS.ocrMode)}>{t("launcher.scene.ocrMode")}</label>
                   </div>
                   <div className="launcher-mode-grid">
-                    <label className="launcher-mode-item" title={t(TOOLTIPS.ocrNone)}>
+                    <label className="launcher-mode-item" data-tip={t(TOOLTIPS.ocrNone)}>
                       <input
                         type="radio"
                         name={`ocr-mode-${configuredScene.id}`}
-                        title={t(TOOLTIPS.ocrNone)}
+                        data-tip={t(TOOLTIPS.ocrNone)}
                         checked={sceneProfile.ocrMode === "none"}
                         onChange={() => void patchSceneProfile({ ocrMode: "none" })}
                       />
                       {t("launcher.scene.ocrNone")}
                     </label>
-                    <label className="launcher-mode-item" title={t(TOOLTIPS.ocrAuto)}>
+                    <label className="launcher-mode-item" data-tip={t(TOOLTIPS.ocrAuto)}>
                       <input
                         type="radio"
                         name={`ocr-mode-${configuredScene.id}`}
-                        title={t(TOOLTIPS.ocrAuto)}
+                        data-tip={t(TOOLTIPS.ocrAuto)}
                         checked={sceneProfile.ocrMode === "auto"}
                         onChange={() => void patchSceneProfile({ ocrMode: "auto" })}
                       />
                       {t("launcher.scene.ocrAuto")}
                     </label>
-                    <label className="launcher-mode-item" title={t(TOOLTIPS.ocrManual)}>
+                    <label className="launcher-mode-item" data-tip={t(TOOLTIPS.ocrManual)}>
                       <input
                         type="radio"
                         name={`ocr-mode-${configuredScene.id}`}
-                        title={t(TOOLTIPS.ocrManual)}
+                        data-tip={t(TOOLTIPS.ocrManual)}
                         checked={sceneProfile.ocrMode === "manual"}
                         onChange={() => void patchSceneProfile({ ocrMode: "manual" })}
                       />
@@ -1044,15 +1061,16 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   <div className="input-group">
                     <label
                       htmlFor={`scene-launch-overlay-${configuredScene.id}`}
-                      title={t(TOOLTIPS.launchOverlay)}
+                      data-tip={t(TOOLTIPS.launchOverlay)}
                     >
                       {t("launcher.scene.launchOverlay")}
                     </label>
                     <input
                       id={`scene-launch-overlay-${configuredScene.id}`}
                       type="checkbox"
-                      title={t(TOOLTIPS.launchOverlay)}
+                      data-tip={t(TOOLTIPS.launchOverlay)}
                       checked={sceneProfile.launchOverlay}
+                      disabled={runOverlayOnStartup !== false}
                       onChange={(event) =>
                         void patchSceneProfile({ launchOverlay: event.target.checked })
                       }
@@ -1065,40 +1083,40 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                     className="launcher-legacy-details"
                     defaultOpen={sceneProfile.textHookMode !== "none"}
                   >
-                    <summary className="launcher-legacy-summary" title={t(TOOLTIPS.textHookMode)}>
+                    <summary className="launcher-legacy-summary" data-tip={t(TOOLTIPS.textHookMode)}>
                       <span>{t("launcher.scene.textHookLauncher")}</span>
                       <span className="launcher-legacy-badge">{t("launcher.legacyBadge")}</span>
                     </summary>
                     <div className="form-group launcher-legacy-details-body">
-                      <p className="muted" title={t(TOOLTIPS.textHookMode)}>
+                      <p className="muted" data-tip={t(TOOLTIPS.textHookMode)}>
                         {t("launcher.scene.textHookLegacyHint")}
                       </p>
                       <div className="launcher-mode-grid">
-                        <label className="launcher-mode-item" title={t(TOOLTIPS.textHookNone)}>
+                        <label className="launcher-mode-item" data-tip={t(TOOLTIPS.textHookNone)}>
                           <input
                             type="radio"
                             name={`text-hook-${configuredScene.id}`}
-                            title={t(TOOLTIPS.textHookNone)}
+                            data-tip={t(TOOLTIPS.textHookNone)}
                             checked={sceneProfile.textHookMode === "none"}
                             onChange={() => void patchSceneProfile({ textHookMode: "none" })}
                           />
                           {t("launcher.scene.modeNone")}
                         </label>
-                        <label className="launcher-mode-item" title={t(TOOLTIPS.textHookAgent)}>
+                        <label className="launcher-mode-item" data-tip={t(TOOLTIPS.textHookAgent)}>
                           <input
                             type="radio"
                             name={`text-hook-${configuredScene.id}`}
-                            title={t(TOOLTIPS.textHookAgent)}
+                            data-tip={t(TOOLTIPS.textHookAgent)}
                             checked={sceneProfile.textHookMode === "agent"}
                             onChange={() => void patchSceneProfile({ textHookMode: "agent" })}
                           />
                           {t("launcher.scene.modeAgent")}
                         </label>
-                        <label className="launcher-mode-item" title={t(TOOLTIPS.textHookTextractor)}>
+                        <label className="launcher-mode-item" data-tip={t(TOOLTIPS.textHookTextractor)}>
                           <input
                             type="radio"
                             name={`text-hook-${configuredScene.id}`}
-                            title={t(TOOLTIPS.textHookTextractor)}
+                            data-tip={t(TOOLTIPS.textHookTextractor)}
                             checked={sceneProfile.textHookMode === "textractor"}
                             onChange={() =>
                               void patchSceneProfile({ textHookMode: "textractor" })
@@ -1106,11 +1124,11 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                           />
                           {t("launcher.scene.modeTextractor")}
                         </label>
-                        <label className="launcher-mode-item" title={t(TOOLTIPS.textHookLuna)}>
+                        <label className="launcher-mode-item" data-tip={t(TOOLTIPS.textHookLuna)}>
                           <input
                             type="radio"
                             name={`text-hook-${configuredScene.id}`}
-                            title={t(TOOLTIPS.textHookLuna)}
+                            data-tip={t(TOOLTIPS.textHookLuna)}
                             checked={sceneProfile.textHookMode === "luna"}
                             onChange={() => void patchSceneProfile({ textHookMode: "luna" })}
                           />
@@ -1121,7 +1139,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                       <div className="input-group">
                         <label
                           htmlFor={`scene-launch-delay-${configuredScene.id}`}
-                          title={t(TOOLTIPS.launchDelay)}
+                          data-tip={t(TOOLTIPS.launchDelay)}
                         >
                           {t("launcher.scene.launchDelay")}
                         </label>
@@ -1131,7 +1149,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                           min={0}
                           max={300}
                           step={0.1}
-                          title={t(TOOLTIPS.launchDelay)}
+                          data-tip={t(TOOLTIPS.launchDelay)}
                           value={sceneProfile.launchDelaySeconds}
                           onChange={(event) => {
                             const next = Number.parseFloat(event.target.value);
@@ -1162,14 +1180,14 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                           <div className="input-group">
                             <label
                               htmlFor={`scene-agent-script-${configuredScene.id}`}
-                              title={t(TOOLTIPS.agentScript)}
+                              data-tip={t(TOOLTIPS.agentScript)}
                             >
                               {t("launcher.scene.agentScript")}
                             </label>
                             <input
                               id={`scene-agent-script-${configuredScene.id}`}
                               type="text"
-                              title={t(TOOLTIPS.agentScript)}
+                              data-tip={t(TOOLTIPS.agentScript)}
                               value={sceneProfile.agentScriptPath}
                               onChange={(event) => {
                                 const nextPath = event.target.value;
@@ -1186,7 +1204,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                             <button
                               type="button"
                               className="secondary"
-                              title={t(TOOLTIPS.searchScript)}
+                              data-tip={t(TOOLTIPS.searchScript)}
                               onClick={() => {
                                 void openSceneAgentScriptSearchDialog();
                               }}
@@ -1195,7 +1213,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                             </button>
                             <button
                               type="button"
-                              title={t(TOOLTIPS.browseScript)}
+                              data-tip={t(TOOLTIPS.browseScript)}
                               onClick={() => {
                                 void pickSceneAgentScript();
                               }}
@@ -1203,7 +1221,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                               {t("launcher.shared.browse")}
                             </button>
                           </div>
-                          <p className="muted" title={t(TOOLTIPS.searchScript)}>
+                          <p className="muted" data-tip={t(TOOLTIPS.searchScript)}>
                             {t("launcher.scene.searchHint")}
                           </p>
                         </div>
@@ -1212,7 +1230,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   </details>
                 </>
               ) : (
-                <p className="muted" title={t(TOOLTIPS.noScene)}>
+                <p className="muted" data-tip={t(TOOLTIPS.noScene)}>
                   {t("launcher.scene.noSceneHint")}
                 </p>
               )}
@@ -1220,21 +1238,21 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
           </section>
 
           <section className="card legacy-card">
-            <h2 title={t(TOOLTIPS.sharedAutomationSettings)}>
+            <h2 data-tip={t(TOOLTIPS.sharedAutomationSettings)}>
               {t("launcher.shared.title")}
             </h2>
             <div className="form-group">
               <div className="input-group">
                 <label
                   htmlFor="force-manual-ocr-all-profiles"
-                  title={t(TOOLTIPS.forceManualOcrAllProfiles)}
+                  data-tip={t(TOOLTIPS.forceManualOcrAllProfiles)}
                 >
                   {t("launcher.shared.forceManualOcrAllProfiles")}
                 </label>
                 <input
                   id="force-manual-ocr-all-profiles"
                   type="checkbox"
-                  title={t(TOOLTIPS.forceManualOcrAllProfiles)}
+                  data-tip={t(TOOLTIPS.forceManualOcrAllProfiles)}
                   checked={sharedSettings.forceManualOcrAllProfiles}
                   onChange={(event) => {
                     void saveSharedToggle("forceManualOcrAllProfiles", event.target.checked);
@@ -1245,14 +1263,14 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
               <div className="input-group">
                 <label
                   htmlFor="ignore-active-scene-for-ocr"
-                  title={t(TOOLTIPS.ignoreActiveSceneForOcr)}
+                  data-tip={t(TOOLTIPS.ignoreActiveSceneForOcr)}
                 >
                   {t("launcher.shared.ignoreActiveSceneForOcr")}
                 </label>
                 <input
                   id="ignore-active-scene-for-ocr"
                   type="checkbox"
-                  title={t(TOOLTIPS.ignoreActiveSceneForOcr)}
+                  data-tip={t(TOOLTIPS.ignoreActiveSceneForOcr)}
                   checked={sharedSettings.ignoreActiveSceneForOcr}
                   onChange={(event) => {
                     void saveSharedToggle("ignoreActiveSceneForOcr", event.target.checked);
@@ -1265,13 +1283,13 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
 
           <section className="card legacy-card">
             <div className="launcher-card-header">
-              <h2 className="launcher-card-title" title={t(TOOLTIPS.toolPathsLegacy)}>
+              <h2 className="launcher-card-title" data-tip={t(TOOLTIPS.toolPathsLegacy)}>
                 {t("launcher.toolPaths.title")}
               </h2>
               <button
                 type="button"
                 className="launcher-card-toggle"
-                title={
+                data-tip={
                   isToolPathsLegacyExpanded
                     ? t("launcher.toolPaths.collapse")
                     : t("launcher.toolPaths.expand")
@@ -1306,13 +1324,13 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                 </section>
 
                 <div className="input-group">
-                  <label htmlFor="agent-path-input" title={t(TOOLTIPS.agentPath)}>
+                  <label htmlFor="agent-path-input" data-tip={t(TOOLTIPS.agentPath)}>
                     {t("launcher.shared.agentPath")}
                   </label>
                   <input
                     id="agent-path-input"
                     type="text"
-                    title={t(TOOLTIPS.agentPath)}
+                    data-tip={t(TOOLTIPS.agentPath)}
                     value={sharedSettings.agentPath}
                     onChange={(event) => {
                       setSharedSettings((current) => ({
@@ -1324,7 +1342,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    title={t(TOOLTIPS.agentPath)}
+                    data-tip={t(TOOLTIPS.agentPath)}
                     onClick={() => void pickPath("settings.selectAgentPath", "agentPath")}
                   >
                     {t("launcher.shared.browse")}
@@ -1332,7 +1350,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   <button
                     type="button"
                     className="secondary launcher-download-button"
-                    title={t(TOOLTIPS.downloadAgent)}
+                    data-tip={t(TOOLTIPS.downloadAgent)}
                     disabled={downloadingTool !== null}
                     style={getDownloadButtonStyle("agent")}
                     onClick={() => {
@@ -1344,13 +1362,13 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                 </div>
 
                 <div className="input-group">
-                  <label htmlFor="agent-scripts-path-input" title={t(TOOLTIPS.agentScriptsPath)}>
+                  <label htmlFor="agent-scripts-path-input" data-tip={t(TOOLTIPS.agentScriptsPath)}>
                     {t("launcher.shared.agentScriptsPath")}
                   </label>
                   <input
                     id="agent-scripts-path-input"
                     type="text"
-                    title={t(TOOLTIPS.agentScriptsPath)}
+                    data-tip={t(TOOLTIPS.agentScriptsPath)}
                     value={sharedSettings.agentScriptsPath}
                     onChange={(event) => {
                       setSharedSettings((current) => ({
@@ -1364,7 +1382,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    title={t(TOOLTIPS.agentScriptsPath)}
+                    data-tip={t(TOOLTIPS.agentScriptsPath)}
                     onClick={() =>
                       void pickPath("settings.selectAgentScriptsPath", "agentScriptsPath")
                     }
@@ -1374,13 +1392,13 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                 </div>
 
                 <div className="input-group">
-                  <label htmlFor="textractor-64-path-input" title={t(TOOLTIPS.textractor64)}>
+                  <label htmlFor="textractor-64-path-input" data-tip={t(TOOLTIPS.textractor64)}>
                     {t("launcher.shared.textractor64")}
                   </label>
                   <input
                     id="textractor-64-path-input"
                     type="text"
-                    title={t(TOOLTIPS.textractor64)}
+                    data-tip={t(TOOLTIPS.textractor64)}
                     value={sharedSettings.textractorPath64}
                     onChange={(event) => {
                       setSharedSettings((current) => ({
@@ -1394,7 +1412,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    title={t(TOOLTIPS.textractor64)}
+                    data-tip={t(TOOLTIPS.textractor64)}
                     onClick={() =>
                       void pickPath("settings.selectTextractorPath64", "textractorPath64")
                     }
@@ -1404,7 +1422,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   <button
                     type="button"
                     className="secondary launcher-download-button"
-                    title={t(TOOLTIPS.downloadTextractor)}
+                    data-tip={t(TOOLTIPS.downloadTextractor)}
                     disabled={downloadingTool !== null}
                     style={getDownloadButtonStyle("textractor")}
                     onClick={() => {
@@ -1416,13 +1434,13 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                 </div>
 
                 <div className="input-group">
-                  <label htmlFor="textractor-32-path-input" title={t(TOOLTIPS.textractor32)}>
+                  <label htmlFor="textractor-32-path-input" data-tip={t(TOOLTIPS.textractor32)}>
                     {t("launcher.shared.textractor32")}
                   </label>
                   <input
                     id="textractor-32-path-input"
                     type="text"
-                    title={t(TOOLTIPS.textractor32)}
+                    data-tip={t(TOOLTIPS.textractor32)}
                     value={sharedSettings.textractorPath32}
                     onChange={(event) => {
                       setSharedSettings((current) => ({
@@ -1436,7 +1454,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    title={t(TOOLTIPS.textractor32)}
+                    data-tip={t(TOOLTIPS.textractor32)}
                     onClick={() =>
                       void pickPath("settings.selectTextractorPath32", "textractorPath32")
                     }
@@ -1446,13 +1464,13 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                 </div>
 
                 <div className="input-group">
-                  <label htmlFor="luna-path-input" title={t(TOOLTIPS.lunaPath)}>
+                  <label htmlFor="luna-path-input" data-tip={t(TOOLTIPS.lunaPath)}>
                     {t("launcher.shared.lunaPath")}
                   </label>
                   <input
                     id="luna-path-input"
                     type="text"
-                    title={t(TOOLTIPS.lunaPath)}
+                    data-tip={t(TOOLTIPS.lunaPath)}
                     value={sharedSettings.lunaTranslatorPath}
                     onChange={(event) => {
                       setSharedSettings((current) => ({
@@ -1466,7 +1484,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    title={t(TOOLTIPS.lunaPath)}
+                    data-tip={t(TOOLTIPS.lunaPath)}
                     onClick={() =>
                       void pickPath("settings.selectLunaTranslatorPath", "lunaTranslatorPath")
                     }
@@ -1476,7 +1494,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    title={t(TOOLTIPS.downloadLuna)}
+                    data-tip={t(TOOLTIPS.downloadLuna)}
                     disabled={downloadingTool !== null}
                     onClick={() => {
                       void openToolReleasesPage("luna");
@@ -1486,7 +1504,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   </button>
                 </div>
 
-                <p className="muted" title={t(TOOLTIPS.toolPathsLegacy)}>
+                <p className="muted" data-tip={t(TOOLTIPS.toolPathsLegacy)}>
                   {t("launcher.shared.disclaimer")}
                 </p>
                 {activeDownloadSummary ? (
@@ -1496,13 +1514,13 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                 ) : null}
 
                 <div className="input-group">
-                  <label htmlFor="launch-agent-minimized" title={t(TOOLTIPS.launchAgentMinimized)}>
+                  <label htmlFor="launch-agent-minimized" data-tip={t(TOOLTIPS.launchAgentMinimized)}>
                     {t("launcher.shared.launchAgentMinimized")}
                   </label>
                   <input
                     id="launch-agent-minimized"
                     type="checkbox"
-                    title={t(TOOLTIPS.launchAgentMinimized)}
+                    data-tip={t(TOOLTIPS.launchAgentMinimized)}
                     checked={sharedSettings.launchAgentMinimized}
                     onChange={(event) => {
                       void saveSharedToggle("launchAgentMinimized", event.target.checked);
@@ -1513,14 +1531,14 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
               {/* <div className="input-group">
                 <label
                   htmlFor="launch-textractor-minimized"
-                  title={t(TOOLTIPS.launchTextractorMinimized)}
+                  data-tip={t(TOOLTIPS.launchTextractorMinimized)}
                 >
                   Launch Textractor Minimized:
                 </label>
                 <input
                   id="launch-textractor-minimized"
                   type="checkbox"
-                  title={t(TOOLTIPS.launchTextractorMinimized)}
+                  data-tip={t(TOOLTIPS.launchTextractorMinimized)}
                   checked={sharedSettings.launchTextractorMinimized}
                   onChange={(event) => {
                     void saveSharedToggle("launchTextractorMinimized", event.target.checked);
@@ -1531,14 +1549,14 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
               <div className="input-group">
                 <label
                   htmlFor="launch-luna-minimized"
-                  title={t(TOOLTIPS.launchLunaTranslatorMinimized)}
+                  data-tip={t(TOOLTIPS.launchLunaTranslatorMinimized)}
                 >
                   Launch LunaTranslator Minimized:
                 </label>
                 <input
                   id="launch-luna-minimized"
                   type="checkbox"
-                  title={t(TOOLTIPS.launchLunaTranslatorMinimized)}
+                  data-tip={t(TOOLTIPS.launchLunaTranslatorMinimized)}
                   checked={sharedSettings.launchLunaTranslatorMinimized}
                   onChange={(event) => {
                     void saveSharedToggle("launchLunaTranslatorMinimized", event.target.checked);
@@ -1549,7 +1567,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
             ) : null}
           </section>
 
-          <p className="muted launcher-status-text" title={t(TOOLTIPS.status)}>
+          <p className="muted launcher-status-text" data-tip={t(TOOLTIPS.status)}>
             {statusMessage}
           </p>
         </div>

@@ -18,6 +18,7 @@ import {
     getLunaTranslatorPath,
     getObsOcrScenes,
     getGameExePathForScene,
+    getRunOverlayOnStartup,
     getSceneLaunchProfileForScene,
     getSteamGames,
     getTextractorPath32,
@@ -559,6 +560,10 @@ export class AutoLauncher {
 
     private async runOverlayAutomation(currentScene: ObsScene) {
         try {
+            // Global startup takes precedence while retaining saved scene preferences.
+            if (getRunOverlayOnStartup()) {
+                return;
+            }
             this.syncOutputProbeScene(currentScene);
             const sceneProfile = getSceneLaunchProfileForScene(currentScene);
             const shouldLaunchOverlay = sceneProfile?.launchOverlay === true;

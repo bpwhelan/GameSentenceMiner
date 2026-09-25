@@ -598,6 +598,9 @@ export function TextCaptureWizard({
 
   const selectAgentScript = useCallback((scriptPath: string) => {
     setSelectedAgentScript(scriptPath);
+    setTextSource("agent");
+    setTextSourceChanged(true);
+    if (!hasTextHook) setLaunchTextHook(true);
     setAgentSearchDialog(null);
     setAgentCandidates((current) => {
       const normalizedScriptPath = normalizeAgentScriptPathForCompare(scriptPath);
@@ -610,7 +613,7 @@ export function TextCaptureWizard({
       }
       return [{ path: scriptPath, score: 0 }, ...current];
     });
-  }, []);
+  }, [hasTextHook]);
 
   const acceptHook = useCallback(() => {
     if (!selectedHook || !runtimeMatchesCapture || !hookStatus.running || hookStatus.engine === "agent") return;
@@ -1053,7 +1056,7 @@ export function TextCaptureWizard({
                       </div>
                     ) : null}
                     <div className="capture-wizard-script capture-wizard-script--selected">
-                      <span className="capture-wizard-choice-body" title={displayedAgentScript}>
+                      <span className="capture-wizard-choice-body" data-tip={displayedAgentScript}>
                         <AgentScriptDisplay scriptPath={displayedAgentScript} showPath={false} />
                       </span>
                     </div>

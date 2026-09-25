@@ -250,9 +250,11 @@ def test_focus_on_show_activates_after_show_and_stops_after_success(
     assert not dialog._focus_on_show_timer.isActive()
 
 
-def test_focus_on_show_gives_up_after_bounded_retries(focus_confirmation_dialog, monkeypatch):
+@pytest.mark.parametrize("retry_ms", [1, 50])
+def test_focus_on_show_gives_up_after_bounded_retries(focus_confirmation_dialog, monkeypatch, retry_ms):
     dialog, _config = focus_confirmation_dialog
     attempts = []
+    monkeypatch.setattr(anki_confirmation_qt, "FOCUS_ON_SHOW_RETRY_MS", retry_ms)
     monkeypatch.setattr(
         anki_confirmation_qt,
         "activate_window",
@@ -260,7 +262,11 @@ def test_focus_on_show_gives_up_after_bounded_retries(focus_confirmation_dialog,
     )
 
     dialog.show()
-    QTest.qWait(150)
+    elapsed = QElapsedTimer()
+    elapsed.start()
+    # Wait for retry completion; busy CI event loops can outlive a fixed sleep.
+    while dialog._focus_on_show_timer.isActive() and elapsed.elapsed() < 2000:
+        QTest.qWait(10)
 
     assert len(attempts) == anki_confirmation_qt.FOCUS_ON_SHOW_MAX_ATTEMPTS
     assert not dialog._focus_on_show_timer.isActive()

@@ -51,6 +51,7 @@ class FunctionName(Enum):
     RELOAD_SETTINGS = "reload_settings"
     APPLY_CHANGELOG_SETTING_CHOICE = "apply_changelog_setting_choice"
     OPEN_OVERLAY_SETTINGS = "open_overlay_settings"
+    STOP_OVERLAY = "stop_overlay"
     OPEN_TEXTHOOKER = "open_texthooker"
     SWITCH_PROFILE = "switch_profile"
     RELATE_SCENE_TO_PROFILE = "relate_scene_to_profile"

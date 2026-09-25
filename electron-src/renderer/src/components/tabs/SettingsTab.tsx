@@ -1475,7 +1475,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
               </div>
 
               <div className="input-group">
-                <label htmlFor="pull-pre-releases" title={t("settings.updates.betaTooltip")}>
+                <label htmlFor="pull-pre-releases" data-tip={t("settings.updates.betaTooltip")}>
                   {t("settings.updates.betaUpdates")}
                 </label>
                 <input

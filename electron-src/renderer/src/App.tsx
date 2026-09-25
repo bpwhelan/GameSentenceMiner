@@ -600,21 +600,21 @@ function ConsolePanel({
         <button
           className="console-action-button"
           onClick={() => void openLogsFolder()}
-          title={t("app.console.openLogsFolderTooltip")}
+          data-tip={t("app.console.openLogsFolderTooltip")}
         >
           {t("app.console.openLogsFolder")}
         </button>
         <button
           className="console-action-button"
           onClick={() => void exportLogs()}
-          title={t("app.console.exportLogsTooltip")}
+          data-tip={t("app.console.exportLogsTooltip")}
         >
           {t("app.console.exportLogs")}
         </button>
         <button
           className={`console-mode-toggle ${consoleMode}`}
           onClick={toggleConsoleMode}
-          title={consoleMode === 'simple' ? t('app.console.modeSimpleTooltip') : t('app.console.modeAdvancedTooltip')}
+          data-tip={consoleMode === 'simple' ? t('app.console.modeSimpleTooltip') : t('app.console.modeAdvancedTooltip')}
         >
           {consoleMode === 'simple' ? t('app.console.modeSimple') : t('app.console.modeAdvanced')}
         </button>
@@ -1258,7 +1258,7 @@ export default function App() {
         <div className="header-links">
           <button
             className="icon-link"
-            title={t("app.header.github")}
+            data-tip={t("app.header.github")}
             aria-label={t("app.header.github")}
             onClick={() =>
               void window.ipcRenderer.invoke(
@@ -1273,7 +1273,7 @@ export default function App() {
           </button>
           <button
             className="icon-link"
-            title={t("app.header.discord")}
+            data-tip={t("app.header.discord")}
             aria-label={t("app.header.discord")}
             onClick={() =>
               void window.ipcRenderer.invoke(

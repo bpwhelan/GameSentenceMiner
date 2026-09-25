@@ -2488,6 +2488,14 @@ function handleOverlayWebSocketControlMessage(type, data) {
     return true;
   }
 
+  if (message.type === "shutdown-overlay") {
+    const launchId = process.env.GSM_OVERLAY_LAUNCH_ID;
+    if (launchId && message.launchId === launchId) {
+      requestOverlayShutdown();
+    }
+    return true;
+  }
+
   if (message.type === "live_stats_update") {
     maybePomodoroAutoStart(message.session_active);
     return false; // still forward to renderer

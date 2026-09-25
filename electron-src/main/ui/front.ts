@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import { execFile } from 'child_process';
+import { randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -26,7 +27,7 @@ import {
 import { getConfiguredYuzuGames, getYuzuGames } from './yuzu.js';
 import { getOBSConnection, getOBSScenes } from './obs.js';
 import { getSceneOCRConfig } from './ocr.js';
-import { sendOpenTexthooker } from '../main.js';
+import { sendOpenTexthooker, sendStopOverlay } from '../main.js';
 import { USE_IN_PROCESS_OVERLAY } from '../overlay_runtime_config.js';
 import {
     isInProcessOverlayRunning,
@@ -39,6 +40,12 @@ const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
 let overlayProcess: ChildProcess | null = null;
 export type OverlayLaunchSource = 'manual' | 'startup' | 'auto-launcher';
 let overlayLaunchSource: OverlayLaunchSource | null = null;
+let overlayLaunchId: string | null = null;
+let overlayExitPromise: Promise<void> | null = null;
+let overlayStopRequested = false;
+let overlayShutdownTimer: NodeJS.Timeout | null = null;
+const OVERLAY_SHUTDOWN_GRACE_MS = 5000;
+const OVERLAY_SHUTDOWN_TIMEOUT_MS = 15000;
 
 export interface OverlayRuntimeState {
     isRunning: boolean;
@@ -175,11 +182,30 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         return false;
     }
 
+    if (overlayStopRequested) {
+        return true;
+    }
+
     const processHandle = overlayProcess;
     try {
-        terminateOverlayProcess(processHandle);
+        overlayStopRequested = true;
+        if (overlayLaunchId && sendStopOverlay(overlayLaunchId)) {
+            overlayShutdownTimer = setTimeout(() => {
+                overlayShutdownTimer = null;
+                if (overlayProcess !== processHandle || processHandle.exitCode !== null) return;
+                console.warn('Overlay did not quit gracefully; stopping its managed process tree.');
+                try {
+                    terminateOverlayProcess(processHandle);
+                } catch (error) {
+                    console.error('Failed to stop unresponsive overlay process:', error);
+                }
+            }, OVERLAY_SHUTDOWN_GRACE_MS);
+        } else {
+            terminateOverlayProcess(processHandle);
+        }
         return true;
     } catch (error) {
+        overlayStopRequested = false;
         console.error('Failed to stop overlay process:', error);
         return false;
     }
@@ -188,6 +214,23 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
 export async function waitForOverlayShutdown(): Promise<void> {
     if (USE_IN_PROCESS_OVERLAY) {
         await waitForInProcessOverlayShutdown();
+        return;
+    }
+    if (!overlayStopRequested || !overlayExitPromise) return;
+
+    let timeout: NodeJS.Timeout | undefined;
+    try {
+        await Promise.race([
+            overlayExitPromise,
+            new Promise<never>((_resolve, reject) => {
+                timeout = setTimeout(
+                    () => reject(new Error('Timed out waiting for overlay shutdown.')),
+                    OVERLAY_SHUTDOWN_TIMEOUT_MS
+                );
+            }),
+        ]);
+    } finally {
+        clearTimeout(timeout);
     }
 }
 
@@ -209,21 +252,33 @@ function terminateOverlayProcess(processHandle: ChildProcess): void {
     processHandle.kill();
 }
 
-function registerOverlayProcess(processHandle: ChildProcess, source: OverlayLaunchSource): void {
+function registerOverlayProcess(processHandle: ChildProcess, source: OverlayLaunchSource, launchId: string): void {
     overlayProcess = processHandle;
     overlayLaunchSource = source;
-    overlayProcess.once('exit', () => {
-        overlayProcess = null;
-        overlayLaunchSource = null;
-    });
-    overlayProcess.once('error', (error: Error) => {
-        console.error('Overlay process error:', error);
-        overlayProcess = null;
-        overlayLaunchSource = null;
+    overlayLaunchId = launchId;
+    overlayStopRequested = false;
+    overlayExitPromise = new Promise<void>((resolve) => {
+        const onExit = () => {
+            if (overlayProcess === processHandle) {
+                if (overlayShutdownTimer) clearTimeout(overlayShutdownTimer);
+                overlayShutdownTimer = null;
+                overlayProcess = null;
+                overlayLaunchSource = null;
+                overlayLaunchId = null;
+                overlayStopRequested = false;
+            }
+            resolve();
+        };
+        processHandle.once('exit', onExit);
+        processHandle.once('error', (error: Error) => {
+            console.error('Overlay process error:', error);
+            onExit();
+        });
     });
 }
 
-function spawnOverlayFromSource(overlayDir: string) {
+function spawnOverlayFromSource(overlayDir: string, launchId: string) {
+    const env = { ...process.env, GSM_OVERLAY_LAUNCH_ID: launchId };
     if (process.platform === 'win32') {
         return {
             command: 'cmd.exe',
@@ -232,6 +287,7 @@ function spawnOverlayFromSource(overlayDir: string) {
                 cwd: overlayDir,
                 detached: false,
                 stdio: 'ignore' as const,
+                env,
             },
         };
     }
@@ -243,16 +299,18 @@ function spawnOverlayFromSource(overlayDir: string) {
             cwd: overlayDir,
             detached: false,
             stdio: 'ignore' as const,
+            env,
         },
     };
 }
 
-function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn): ChildProcess {
+function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn, launchId: string): ChildProcess {
     const overlayResourcesPath = getOverlayResourcesPath();
     const env: NodeJS.ProcessEnv = {
         ...process.env,
         GSM_OVERLAY_CHILD: '1',
         GSM_OVERLAY_SHARED_RUNTIME: '1',
+        GSM_OVERLAY_LAUNCH_ID: launchId,
         [OVERLAY_RESOURCES_ENV]: overlayResourcesPath,
     };
     delete env.ELECTRON_RUN_AS_NODE;
@@ -281,12 +339,17 @@ export async function runOverlayWithSource(
         return started;
     }
 
+    if (overlayStopRequested) {
+        await waitForOverlayShutdown();
+    }
+
     if (overlayProcess && overlayProcess.exitCode === null) {
         console.log('Overlay is already running.');
         return true;
     }
 
     const { spawn } = await import('child_process');
+    const launchId = randomUUID();
 
     if (isDev) {
         const overlayDir = path.join(getResourcesDir(), 'GSM_Overlay');
@@ -299,7 +362,7 @@ export async function runOverlayWithSource(
             return false;
         }
 
-        const sourceLaunch = spawnOverlayFromSource(overlayDir);
+        const sourceLaunch = spawnOverlayFromSource(overlayDir, launchId);
         let processHandle: ChildProcess;
         try {
             processHandle = spawn(
@@ -314,7 +377,7 @@ export async function runOverlayWithSource(
             return false;
         }
 
-        registerOverlayProcess(processHandle, source);
+        registerOverlayProcess(processHandle, source, launchId);
         console.log('Overlay launched successfully from source.');
         return true;
     }
@@ -322,8 +385,8 @@ export async function runOverlayWithSource(
     const overlayAppAsarPath = getOverlayAppAsarPath();
     if (fs.existsSync(overlayAppAsarPath)) {
         try {
-            const processHandle = spawnSharedOverlayRuntime(spawn);
-            registerOverlayProcess(processHandle, source);
+            const processHandle = spawnSharedOverlayRuntime(spawn, launchId);
+            registerOverlayProcess(processHandle, source, launchId);
             console.log('Overlay launched successfully with shared Electron runtime.');
             return true;
         } catch (error) {
@@ -337,8 +400,12 @@ export async function runOverlayWithSource(
     const overlayPath = path.join(getOverlayPath(), getOverlayExecName());
     if (fs.existsSync(overlayPath)) {
         try {
-            const processHandle = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });
-            registerOverlayProcess(processHandle, source);
+            const processHandle = spawn(overlayPath, [], {
+                detached: false,
+                stdio: 'ignore',
+                env: { ...process.env, GSM_OVERLAY_LAUNCH_ID: launchId },
+            });
+            registerOverlayProcess(processHandle, source, launchId);
             console.log('Overlay launched successfully with legacy standalone runtime.');
             return true;
         } catch (error) {

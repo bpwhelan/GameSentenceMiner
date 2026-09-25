@@ -985,7 +985,7 @@
       "textHookLuna": "Auto-launch LunaTranslator when this game becomes active.",
       "launchDelay": "Delay before starting the selected text hook launcher for this game.",
       "agentScript": "Agent script path for this game. You can set manually, browse, or search.",
-      "launchOverlay": "Start the GSM overlay while this game's session is active, and close the auto-launched overlay when the game/session ends.",
+      "launchOverlay": "Start the GSM overlay when this game's session is active. Gracefully close the overlay launched by this option when switching to an OBS scene where it is disabled. This option is unavailable while Home → Overlay → Run on startup is enabled.",
       "browseScript": "Open file picker and choose an Agent script for this game.",
       "searchScript": "Search all scripts under Agent Scripts Path, ranked by similarity to the game.",
       "downloadAgent": "Download latest Agent from official GitHub releases. Choose any install folder.",
