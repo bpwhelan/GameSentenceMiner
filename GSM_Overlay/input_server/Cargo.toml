@@ -30,7 +30,9 @@ winapi = { version = "0.3", features = ["errhandlingapi", "winuser"] }
 sdl2 = { version = "0.38", features = ["bundled", "static-link"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-gilrs = { version = "0.10", default-features = false }
+# gilrs-core 0.5 requires a Windows backend feature even on Linux/macOS.
+# The target OS still selects the native backend; XInput is not built here.
+gilrs = { version = "0.10", default-features = false, features = ["xinput"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.13.13", default-features = false, features = ["global_shortcuts", "tokio"] }
