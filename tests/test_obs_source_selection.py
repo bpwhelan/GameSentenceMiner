@@ -355,6 +355,181 @@ def test_replay_buffer_stop_event_is_not_treated_as_external_when_delayed(monkey
     )
 
 
+@pytest.mark.parametrize("inactive_state", ["background", "obscured", "minimized"])
+@pytest.mark.parametrize("source_active", [True, None])
+def test_replay_buffer_stops_after_five_minutes_without_game_focus(monkeypatch, inactive_state, source_active):
+    service = _make_obs_service(monkeypatch)
+    service.check_output = True
+    clock = {"now": 100.0}
+    replay_active = {"value": True}
+    actions = []
+
+    monkeypatch.setattr(obs_service_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(
+        obs_service_module,
+        "get_config",
+        lambda: SimpleNamespace(obs=SimpleNamespace(automatically_manage_replay_buffer=True, disable_recording=False)),
+    )
+    monkeypatch.setattr(service, "_get_window_activity", lambda scene: inactive_state)
+    monkeypatch.setattr(service, "_get_replay_buffer_active", lambda: replay_active["value"])
+    monkeypatch.setattr(
+        obs_actions_module, "stop_replay_buffer", lambda: (actions.append("stop"), replay_active.update(value=False))
+    )
+    monkeypatch.setattr(obs_actions_module, "start_replay_buffer", lambda: actions.append("start"))
+
+    service._manage_replay_buffer(source_active=source_active, now=100.0, current_scene="Game")
+    clock["now"] = 399.9
+    service._manage_replay_buffer(source_active=source_active, now=399.9, current_scene="Game")
+    assert actions == []
+
+    clock["now"] = 400.0
+    service._manage_replay_buffer(source_active=source_active, now=400.0, current_scene="Game")
+    service._manage_replay_buffer(source_active=source_active, now=405.0, current_scene="Game")
+    assert actions == ["stop"]
+
+
+def test_replay_buffer_resumes_on_focus_and_resets_inactivity_timer(monkeypatch):
+    service = _make_obs_service(monkeypatch)
+    service.check_output = True
+    clock = {"now": 100.0}
+    window = {"state": "background"}
+    replay_active = {"value": True}
+    actions = []
+    probes = []
+
+    monkeypatch.setattr(obs_service_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(
+        obs_service_module,
+        "get_config",
+        lambda: SimpleNamespace(obs=SimpleNamespace(automatically_manage_replay_buffer=True, disable_recording=False)),
+    )
+    monkeypatch.setattr(service, "_get_window_activity", lambda scene: window["state"])
+    monkeypatch.setattr(service, "_get_replay_buffer_active", lambda: replay_active["value"])
+    monkeypatch.setattr(service, "_is_output_active_from_screenshot", lambda: (probes.append(True), None)[1])
+    monkeypatch.setattr(
+        obs_actions_module, "stop_replay_buffer", lambda: (actions.append("stop"), replay_active.update(value=False))
+    )
+    monkeypatch.setattr(
+        obs_actions_module, "start_replay_buffer", lambda: (actions.append("start"), replay_active.update(value=True))
+    )
+
+    service._manage_replay_buffer(source_active=True, now=100.0, current_scene="Game")
+    clock["now"] = 400.0
+    service._manage_replay_buffer(source_active=True, now=400.0, current_scene="Game")
+    window["state"] = "active"
+    clock["now"] = 401.0
+    service._manage_replay_buffer(source_active=None, now=401.0, current_scene="Game")
+
+    assert actions == ["stop", "start"]
+    assert probes == []
+    assert service._window_inactive_since is None
+
+    window["state"] = "minimized"
+    clock["now"] = 450.0
+    service._manage_replay_buffer(source_active=True, now=450.0, current_scene="Game")
+    clock["now"] = 700.0
+    service._manage_replay_buffer(source_active=True, now=700.0, current_scene="Game")
+    assert actions == ["stop", "start"]
+
+
+def test_replay_buffer_focus_return_respects_external_stop(monkeypatch):
+    service = _make_obs_service(monkeypatch)
+    service.check_output = True
+    service._auto_start_paused_by_external_replay_stop = True
+    service._window_inactivity_stopped_replay = True
+    monkeypatch.setattr(
+        obs_service_module,
+        "get_config",
+        lambda: SimpleNamespace(obs=SimpleNamespace(automatically_manage_replay_buffer=True, disable_recording=False)),
+    )
+    monkeypatch.setattr(service, "_get_window_activity", lambda scene: "active")
+    monkeypatch.setattr(service, "_get_replay_buffer_active", lambda: False)
+    monkeypatch.setattr(
+        obs_actions_module, "start_replay_buffer", lambda: pytest.fail("unexpected replay buffer start")
+    )
+
+    service._manage_replay_buffer(source_active=None, now=100.0, current_scene="Game")
+
+
+def test_replay_buffer_window_inactivity_respects_manual_management(monkeypatch):
+    service = _make_obs_service(monkeypatch)
+    service.check_output = True
+    service._window_inactive_since = 1.0
+    service._window_inactivity_stopped_replay = True
+    monkeypatch.setattr(
+        obs_service_module,
+        "get_config",
+        lambda: SimpleNamespace(obs=SimpleNamespace(automatically_manage_replay_buffer=False, disable_recording=False)),
+    )
+    monkeypatch.setattr(service, "_get_window_activity", lambda scene: "background")
+    monkeypatch.setattr(obs_actions_module, "stop_replay_buffer", lambda: pytest.fail("unexpected replay buffer stop"))
+
+    service._manage_replay_buffer(source_active=True, now=400.0, current_scene="Game")
+
+    assert service._window_inactive_since is None
+    assert service._window_inactivity_stopped_replay is False
+
+
+def test_replay_buffer_window_activity_requires_matching_live_game_window(monkeypatch):
+    service = _make_obs_service(monkeypatch)
+    monitor = SimpleNamespace(
+        last_target_scene_name="Game",
+        last_state="minimized",
+        target_hwnd=123,
+        last_known_target_hwnd=123,
+        ever_had_target_hwnd=True,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.platform.window_state_monitor.get_window_state_monitor",
+        lambda: monitor,
+    )
+
+    assert service._get_window_activity("Game") == "minimized"
+    assert service._get_window_activity("Other Scene") is None
+
+    monitor.target_hwnd = None
+    monitor.last_known_target_hwnd = None
+    assert service._get_window_activity("Game") is None
+
+    monitor.last_known_target_hwnd = 123
+    monitor.ever_had_target_hwnd = False
+    assert service._get_window_activity("Game") is None
+
+
+def test_window_state_change_wakes_obs_manager_for_immediate_replay_check(monkeypatch):
+    manager = obs_service_module.OBSConnectionManager(check_output=True)
+    initial_check = threading.Event()
+    tick_options = []
+
+    def tick(options):
+        tick_options.append(options)
+        manager.stop()
+
+    monkeypatch.setattr(manager._stop_event, "wait", lambda timeout: False)
+    monkeypatch.setattr(manager, "_check_obs_connection", lambda: True)
+    monkeypatch.setattr(obs_service_module.gsm_status, "obs_connected", True)
+    monkeypatch.setattr(obs_service_module.gsm_state, "replay_buffer_stopped_timestamp", None)
+    monkeypatch.setattr(
+        obs_module,
+        "obs_service",
+        SimpleNamespace(_periodic_work=lambda force: initial_check.set(), tick=tick),
+    )
+
+    try:
+        manager.start()
+        assert initial_check.wait(2)
+        manager.request_tick()
+        manager.join(2)
+        assert not manager.is_alive()
+    finally:
+        manager.stop()
+        if manager.is_alive():
+            manager.join(2)
+
+    assert len(tick_options) == 1
+    assert tick_options[0].manage_replay_buffer is True
+
+
 def test_get_best_source_for_screenshot_falls_back_to_window_capture(monkeypatch):
     sources = [
         {"sourceName": "Game Source", "inputKind": "game_capture"},

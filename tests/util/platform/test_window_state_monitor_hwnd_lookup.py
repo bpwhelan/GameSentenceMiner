@@ -2,6 +2,8 @@ import asyncio
 import importlib
 import json
 import sys
+import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -278,3 +280,34 @@ def test_capture_card_output_announces_showable_background_state(monkeypatch):
             "obs_output_active": True,
         }
     ]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only window monitor")
+def test_minimized_invisible_target_survives_hwnd_revalidation(monkeypatch):
+    fake_user32 = SimpleNamespace(
+        IsWindow=lambda hwnd: hwnd == 123,
+        IsIconic=lambda hwnd: hwnd == 123,
+        IsWindowVisible=lambda hwnd: False,
+    )
+    monkeypatch.setattr(_wwm, "user32", fake_user32)
+    monkeypatch.setattr(_wwm.WindowsWindowStateMonitor, "_start_event_hooks", lambda self: None)
+    monkeypatch.setattr(_wwm.websocket_manager, "has_clients", lambda client_id: False)
+
+    monitor = _wwm.WindowsWindowStateMonitor(SimpleNamespace(obs_width=None, obs_height=None))
+    monitor.target_hwnd = 123
+    monitor.last_known_target_hwnd = 123
+    monitor.last_state = "background"
+    monitor.last_target_scene_name = "Game"
+    monitor.last_scene_name = "Game"
+    monitor.last_obs_check_time = time.time()
+    monitor.last_monitor_validation_time = time.time()
+    monitor.last_hwnd_refresh_time = 0.0
+    monkeypatch.setattr(monitor, "find_target_hwnd", lambda: pytest.fail("minimized HWND was discarded"))
+    monkeypatch.setattr(monitor, "_sync_minimized_audio_mute", lambda state: None)
+    monkeypatch.setattr(monitor, "update_magpie_info", lambda: None)
+    monkeypatch.setattr(monitor, "_build_client_rect_payload", lambda: None)
+
+    asyncio.run(monitor.check_and_send())
+
+    assert monitor.target_hwnd == 123
+    assert monitor.last_state == "minimized"
