@@ -74,6 +74,8 @@ interface OCRConfig {
     menuOcrGamepad?: string;
     areaSelectOcrHotkey: string;
     areaSelectOcrGamepad: string;
+    addAreaOcrHotkey: string;
+    addAreaOcrGamepad: string;
     wholeWindowOcrHotkey: string;
     wholeWindowOcrGamepad: string;
     globalPauseHotkey: string;
@@ -274,6 +276,8 @@ export const store = new Store<StoreConfig>({
             manualOcrDelayGamepadOnly: false,
             areaSelectOcrHotkey: "Ctrl+Shift+O",
             areaSelectOcrGamepad: "",
+            addAreaOcrHotkey: "Alt+Shift+N",
+            addAreaOcrGamepad: "",
             wholeWindowOcrHotkey: "Ctrl+Shift+W",
             wholeWindowOcrGamepad: "",
             globalPauseHotkey: "Ctrl+Shift+P",
@@ -1126,6 +1130,11 @@ export function setKeepNewline(keep: boolean): void {
 
 export function getOCRConfig(): OCRConfig {
     let config = store.get("OCR");
+    config = {
+        ...config,
+        addAreaOcrHotkey: config.addAreaOcrHotkey ?? "Alt+Shift+N",
+        addAreaOcrGamepad: config.addAreaOcrGamepad ?? "",
+    };
     if (config.menuOcrHotkey === undefined) {
         config = {
             ...config,

@@ -88,6 +88,9 @@ function diffOcrConfigValues(previousConfig: Record<string, any>, nextConfig: Re
 }
 
 function blockOcrStartDuringUpdate(action: string): boolean {
+    if (isQuitting) {
+        return true;
+    }
     if (!isPythonLaunchBlockedByUpdate()) {
         return false;
     }
@@ -183,6 +186,7 @@ function sendToMainWindowFrames(channel: string, ...args: any[]) {
 function appendHotkeyArgs(command: string[], ocr_config: ReturnType<typeof getOCRConfig>) {
     // Always pass explicit values so empty strings can disable hotkeys.
     command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey ?? ''}`);
+    command.push('--add_area_ocr_hotkey', `${ocr_config.addAreaOcrHotkey ?? 'Alt+Shift+N'}`);
     command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey ?? ''}`);
     command.push('--menu_ocr_hotkey', `${ocr_config.menuOcrHotkey ?? ''}`);
     command.push('--whole_window_ocr_hotkey', `${ocr_config.wholeWindowOcrHotkey ?? ''}`);
@@ -1220,6 +1224,10 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.on('ocr.area-select-ocr', () => {
         sendOcrCommand('area_select_ocr');
+    });
+
+    ipcMain.on('ocr.add-area', () => {
+        sendOcrCommand('add_ocr_area');
     });
 
     ipcMain.on('ocr.get-status', () => {

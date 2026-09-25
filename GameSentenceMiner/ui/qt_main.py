@@ -412,11 +412,22 @@ class DialogManager(QObject):
     # 7. Area Selector
     # =========================================================================
 
-    def _logic_area_selector(self, window_name, use_obs_screenshot, callback):
+    def _logic_area_selector(self, window_name, use_obs_screenshot, callback, single_area_mode=False):
         from GameSentenceMiner.ocr.owocr_area_selector_qt import show_area_selector
 
         try:
-            show_area_selector(window_name, use_obs_screenshot=use_obs_screenshot, on_complete=callback)
+            # Keep the widget alive until completion, including while a worker
+            # thread is waiting for the user's single-area selection.
+            def on_complete(result):
+                self._area_selector = None
+                callback(result)
+
+            self._area_selector = show_area_selector(
+                window_name,
+                use_obs_screenshot=use_obs_screenshot,
+                on_complete=on_complete,
+                single_area_mode=single_area_mode,
+            )
         except Exception as e:
             # Must not raise: this can run off the GUI thread via _run_sync's queue,
             # where an uncaught exception would hang forever waiting on this callback.
@@ -426,8 +437,10 @@ class DialogManager(QObject):
     async def area_selector_async(self, window_name="", use_obs_screenshot=False):
         return await self._run_async(lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb))
 
-    def area_selector_sync(self, window_name="", use_obs_screenshot=False):
-        return self._run_sync(lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb))
+    def area_selector_sync(self, window_name="", use_obs_screenshot=False, single_area_mode=False):
+        return self._run_sync(
+            lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb, single_area_mode)
+        )
 
     # =========================================================================
     # 8. Furigana Filter Preview (for non-overlay usage)
@@ -700,12 +713,12 @@ def launch_minimum_character_size_selector(current_size, for_overlay=False):
     return get_dialog_manager().minimum_char_size_sync(current_size, for_overlay)
 
 
-def launch_area_selector(window_name="", use_obs_screenshot=False):
+def launch_area_selector(window_name="", use_obs_screenshot=False, single_area_mode=False):
     """
     Launch area selector. Thread-safe, blocking.
     Returns: Selected area or None
     """
-    return get_dialog_manager().area_selector_sync(window_name, use_obs_screenshot)
+    return get_dialog_manager().area_selector_sync(window_name, use_obs_screenshot, single_area_mode)
 
 
 def launch_furigana_filter_preview(current_sensitivity):

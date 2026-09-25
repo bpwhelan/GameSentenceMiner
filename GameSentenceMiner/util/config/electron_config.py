@@ -89,6 +89,8 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "menuOcrGamepad": "",
         "areaSelectOcrHotkey": "Ctrl+Shift+O",
         "areaSelectOcrGamepad": "",
+        "addAreaOcrHotkey": "Alt+Shift+N",
+        "addAreaOcrGamepad": "",
         "wholeWindowOcrHotkey": "Ctrl+Shift+W",
         "wholeWindowOcrGamepad": "",
         "globalPauseHotkey": "Ctrl+Shift+P",
@@ -496,6 +498,7 @@ def get_ocr_gamepad_hotkeys_enabled() -> bool:
             "manualOcrGamepad",
             "menuOcrGamepad",
             "areaSelectOcrGamepad",
+            "addAreaOcrGamepad",
             "wholeWindowOcrGamepad",
             "globalPauseGamepad",
         )
@@ -533,6 +536,16 @@ def get_ocr_area_select_ocr_gamepad() -> str:
     if not get_ocr_gamepad_hotkeys_enabled():
         return ""
     return _get_ocr_hotkey_value("areaSelectOcrGamepad", "")
+
+
+def get_ocr_add_area_ocr_hotkey() -> str:
+    return _get_ocr_hotkey_value("addAreaOcrHotkey", "Alt+Shift+N")
+
+
+def get_ocr_add_area_ocr_gamepad() -> str:
+    if not get_ocr_gamepad_hotkeys_enabled():
+        return ""
+    return _get_ocr_hotkey_value("addAreaOcrGamepad", "")
 
 
 def get_ocr_whole_window_ocr_hotkey() -> str:
