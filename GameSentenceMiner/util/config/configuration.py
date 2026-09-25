@@ -46,6 +46,8 @@ AI_LM_STUDIO = "LM Studio"
 AI_GSM_CLOUD = "GSM Cloud"
 AI_DEEPL = "DeepL"
 
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_GEMINI_BACKUP_MODEL = "gemma-4-31b-it"
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 DEFAULT_GROQ_BACKUP_MODEL = "openai/gpt-oss-20b"
 GSM_CLOUD_DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
@@ -90,20 +92,16 @@ GEMINI_MODEL_ALIASES = {
     "gemini-3-pro": "gemini-3-pro-preview",
 }
 
-LEGACY_GEMINI_MODEL_ALIASES = {
-    "gemini-2.5-flash-lite-preview-06-17": "gemini-2.5-flash-lite",
-}
-
 
 def normalize_gemini_model_name(model_name: str) -> str:
-    normalized = str(model_name or "").strip()
+    normalized = str(model_name or "").strip().removeprefix("models/")
     if not normalized:
         return ""
     lowered = normalized.lower()
+    if lowered.startswith("gemini-2."):
+        return DEFAULT_GEMINI_MODEL
     if lowered in GEMINI_MODEL_ALIASES:
         return GEMINI_MODEL_ALIASES[lowered]
-    if lowered in LEGACY_GEMINI_MODEL_ALIASES:
-        return LEGACY_GEMINI_MODEL_ALIASES[lowered]
     return normalized
 
 
@@ -1369,8 +1367,8 @@ class Ai:
     deepl_api_key: str = ""
     deepl_target_lang: str = "EN"
     provider: str = AI_GEMINI
-    gemini_model: str = "gemma-3-27b-it"
-    gemini_backup_model: str = ""
+    gemini_model: str = DEFAULT_GEMINI_MODEL
+    gemini_backup_model: str = DEFAULT_GEMINI_BACKUP_MODEL
     groq_model: str = DEFAULT_GROQ_MODEL
     groq_backup_model: str = DEFAULT_GROQ_BACKUP_MODEL
     gemini_api_key: str = ""
@@ -1432,8 +1430,10 @@ class Ai:
         if not self.gemini_api_key:
             self.gemini_api_key = self.api_key
         if self.gemini_model in ["RECOMMENDED", "OTHER"]:
-            self.gemini_model = "gemini-2.5-flash-lite"
-        if self.gemini_backup_model in ["RECOMMENDED", "OTHER", OFF]:
+            self.gemini_model = DEFAULT_GEMINI_MODEL
+        if self.gemini_backup_model == "RECOMMENDED":
+            self.gemini_backup_model = DEFAULT_GEMINI_BACKUP_MODEL
+        if self.gemini_backup_model in ["OTHER", OFF]:
             self.gemini_backup_model = ""
         if self.groq_model in ["RECOMMENDED", "OTHER"]:
             self.groq_model = DEFAULT_GROQ_MODEL
@@ -1478,9 +1478,13 @@ class Ai:
             self.gsm_cloud_token_expires_at = 0
 
         self.gemini_model = normalize_gemini_model_name(self.gemini_model)
+        previous_gemini_backup = str(self.gemini_backup_model or "").strip().removeprefix("models/").lower()
         self.gemini_backup_model = normalize_gemini_model_name(self.gemini_backup_model)
         if self.gemini_backup_model == self.gemini_model:
-            self.gemini_backup_model = ""
+            # Upgrading two 2.x models must not silently disable failover.
+            self.gemini_backup_model = (
+                DEFAULT_GEMINI_BACKUP_MODEL if previous_gemini_backup.startswith("gemini-2.") else ""
+            )
         if self.groq_backup_model == self.groq_model:
             self.groq_backup_model = ""
         if self.open_ai_backup_model == self.open_ai_model:

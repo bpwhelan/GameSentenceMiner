@@ -45,6 +45,15 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     window.gemini_settings_group.setTitle("Google Gemini Settings")
     window.gemini_settings_group.setStyleSheet(window._get_group_box_style())
     gemini_layout = QFormLayout()
+    gemini_i18n = tabs_i18n.get("ai", {})
+    recommendations = QLabel(
+        gemini_i18n.get(
+            "gemini_recommendations",
+            "Recommended free-tier models: Gemini 3.5 Flash-Lite and Gemma 4.",
+        )
+    )
+    recommendations.setWordWrap(True)
+    gemini_layout.addRow(recommendations)
 
     gemini_model_widget = QWidget()
     gemini_model_layout = QHBoxLayout(gemini_model_widget)
@@ -69,6 +78,16 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.gemini_backup_model_combo,
     )
+    show_other_i18n = gemini_i18n.get("gemini_show_other_models", {})
+    window.gemini_show_other_models_check.setText(show_other_i18n.get("label", "Show other API models"))
+    window.gemini_show_other_models_check.setToolTip(
+        show_other_i18n.get(
+            "tooltip",
+            "Show other text models available through the API. Pricing varies by model. Your selected models stay visible.",
+        )
+    )
+    window.gemini_show_other_models_check.toggled.connect(lambda _checked: window._update_gemini_model_combos())
+    gemini_layout.addRow(window.gemini_show_other_models_check)
     gemini_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "ai", "gemini_api_key"),
         window.gemini_api_key_edit,

@@ -97,6 +97,7 @@ from GameSentenceMiner.util.config.configuration import (
     Locale,
     is_gsm_cloud_ai_preview_enabled,
     logger,
+    normalize_gemini_model_name,
     ProfileConfig,
     Paths,
     Anki,
@@ -610,6 +611,7 @@ class ConfigWindow(QWidget):
             self.profile_combo,
             self.locale_combo,
             self.single_port_edit,
+            self.gemini_show_other_models_check,
         }
         if getattr(self, "sync_changes_check", None):
             excluded_widgets.add(self.sync_changes_check)
@@ -1710,6 +1712,8 @@ class ConfigWindow(QWidget):
         self.ai_provider_combo = QComboBox()
         self.gemini_model_combo = QComboBox()
         self.gemini_backup_model_combo = QComboBox()
+        self.gemini_show_other_models_check = QCheckBox()
+        self._available_gemini_models = []
         self.gemini_api_key_edit = QLineEdit()
         self.groq_model_combo = QComboBox()
         self.groq_backup_model_combo = QComboBox()
@@ -3426,12 +3430,7 @@ class ConfigWindow(QWidget):
 
         # AI
         self.ai_enabled_check.setChecked(s.ai.add_to_anki)
-        self.gemini_model_combo.clear()
-        self.gemini_model_combo.addItems(RECOMMENDED_GEMINI_MODELS)
-        self.gemini_model_combo.setCurrentText(s.ai.gemini_model)
-        self.gemini_backup_model_combo.clear()
-        self.gemini_backup_model_combo.addItems([OFF] + RECOMMENDED_GEMINI_MODELS)
-        self.gemini_backup_model_combo.setCurrentText(s.ai.gemini_backup_model or OFF)
+        self._update_gemini_model_combos(preserve_selection=False)
         self._set_text_value(self.gemini_api_key_edit, s.ai.gemini_api_key)
         groq_models = list(RECOMMENDED_GROQ_MODELS)
         for selected in (s.ai.groq_model, s.ai.groq_backup_model):
@@ -4326,8 +4325,6 @@ class ConfigWindow(QWidget):
         logger.info(f"Manually refreshing AI models for provider: {provider or 'all'}")
 
         # Store current selections
-        current_gemini = self.gemini_model_combo.currentText()
-        current_gemini_backup = self.gemini_backup_model_combo.currentText()
         current_groq = self.groq_model_combo.currentText()
         current_groq_backup = self.groq_backup_model_combo.currentText()
         current_ollama = self.ollama_model_combo.currentText()
@@ -4336,18 +4333,11 @@ class ConfigWindow(QWidget):
         current_lm_studio_backup = self.lm_studio_backup_model_combo.currentText()
 
         # Fetch fresh models from APIs
-        self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
+        self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text(), self.gemini_api_key_edit.text())
 
         if provider == "gemini":
             gemini_models = self.model_fetcher._get_gemini_models()
-            self.gemini_model_combo.clear()
-            self.gemini_model_combo.addItems(gemini_models)
-            self.gemini_model_combo.setCurrentText(current_gemini)
-            self.gemini_backup_model_combo.clear()
-            self.gemini_backup_model_combo.addItems(
-                [OFF] + [m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
-            )
-            self.gemini_backup_model_combo.setCurrentText(current_gemini_backup)
+            self._update_gemini_model_combos(gemini_models)
             AIModelsTable.update_models(gemini_models, None, None, None)
         elif provider == "groq":
             groq_models = self.model_fetcher._get_groq_models()
@@ -4416,14 +4406,50 @@ class ConfigWindow(QWidget):
             )
         else:
             logger.info("AI models outdated or not found, fetching new ones.")
-            self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text())
+            self.model_fetcher = AIModelFetcher(self.groq_api_key_edit.text(), self.gemini_api_key_edit.text())
             self.model_thread = threading.Thread(target=self.model_fetcher.fetch, daemon=True)
-            self.model_fetcher.models_fetched.connect(self._update_ai_model_combos)
+            self.model_fetcher.models_fetched.connect(
+                safe_config_callback(
+                    lambda g, q, o, local_models: self._update_ai_model_combos(g, q, o, local_models, True),
+                    name="ConfigWindow.update_ai_model_combos_preserve_selection",
+                )
+            )
             self.model_thread.start()
 
         # Always try to fetch Ollama models if Ollama is selected or just as a bonus
         # But wait, AIModelFetcher.fetch() already handles Ollama.
         # So we just need to ensure it's triggered.
+
+    def _update_gemini_model_combos(self, gemini_models=None, preserve_selection=True):
+        if gemini_models is not None:
+            available = list(gemini_models)
+            # Old caches included hardcoded recommendations before OTHER.
+            # Only retain the API-discovered portion of those lists.
+            if "OTHER" in available:
+                available = available[available.index("OTHER") + 1 :]
+            self._available_gemini_models = [
+                normalize_gemini_model_name(model)
+                for model in available
+                if model and model not in {OFF, "RECOMMENDED", "OTHER"}
+            ]
+
+        models = list(RECOMMENDED_GEMINI_MODELS)
+        if self.gemini_show_other_models_check.isChecked():
+            models.extend(self._available_gemini_models)
+        models = list(dict.fromkeys(models))
+
+        for combo, saved, fallback, prefix in (
+            (self.gemini_model_combo, self.settings.ai.gemini_model, RECOMMENDED_GEMINI_MODELS[0], []),
+            (self.gemini_backup_model_combo, self.settings.ai.gemini_backup_model, OFF, [OFF]),
+        ):
+            selected = normalize_gemini_model_name(combo.currentText() if preserve_selection else saved) or fallback
+            # Keep explicitly selected models even when the API is unavailable
+            # or the user hides the other models.
+            choices = list(dict.fromkeys([*prefix, *models, selected]))
+            with QSignalBlocker(combo):
+                combo.clear()
+                combo.addItems(choices)
+                combo.setCurrentText(selected)
 
     def _update_ai_model_combos(
         self,
@@ -4434,8 +4460,6 @@ class ConfigWindow(QWidget):
         preserve_selection=False,
     ):
         # Store current selections if we want to preserve them
-        current_gemini = self.gemini_model_combo.currentText() if preserve_selection else None
-        current_gemini_backup = self.gemini_backup_model_combo.currentText() if preserve_selection else None
         current_groq = self.groq_model_combo.currentText() if preserve_selection else None
         current_groq_backup = self.groq_backup_model_combo.currentText() if preserve_selection else None
         current_ollama = self.ollama_model_combo.currentText() if preserve_selection else None
@@ -4453,7 +4477,6 @@ class ConfigWindow(QWidget):
                 seen.add(item)
             return ordered
 
-        gemini_models = _unique(gemini_models)
         # Cached lists can carry an older recommendation section. Replace it with
         # the current models while keeping API-discovered models after OTHER.
         groq_models = list(groq_models or [])
@@ -4469,11 +4492,7 @@ class ConfigWindow(QWidget):
         ollama_models = _unique(ollama_models)
         lm_studio_models = _unique(lm_studio_models)
 
-        self.gemini_model_combo.clear()
-        self.gemini_model_combo.addItems(gemini_models)
-        backup_gemini_models = [OFF] + [m for m in gemini_models if m not in {OFF, "RECOMMENDED", "OTHER"}]
-        self.gemini_backup_model_combo.clear()
-        self.gemini_backup_model_combo.addItems(_unique(backup_gemini_models))
+        self._update_gemini_model_combos(gemini_models, preserve_selection=preserve_selection)
 
         self.groq_model_combo.clear()
         self.groq_model_combo.addItems(groq_models)
@@ -4493,10 +4512,6 @@ class ConfigWindow(QWidget):
 
         # Restore previous selection
         if preserve_selection:
-            if current_gemini:
-                self.gemini_model_combo.setCurrentText(current_gemini)
-            if current_gemini_backup:
-                self.gemini_backup_model_combo.setCurrentText(current_gemini_backup)
             if current_groq:
                 self.groq_model_combo.setCurrentText(current_groq)
             if current_groq_backup:
@@ -4510,8 +4525,6 @@ class ConfigWindow(QWidget):
             if current_lm_studio_backup:
                 self.lm_studio_backup_model_combo.setCurrentText(current_lm_studio_backup)
         else:
-            self.gemini_model_combo.setCurrentText(self.settings.ai.gemini_model)
-            self.gemini_backup_model_combo.setCurrentText(self.settings.ai.gemini_backup_model or OFF)
             self.groq_model_combo.setCurrentText(self.settings.ai.groq_model)
             self.groq_backup_model_combo.setCurrentText(self.settings.ai.groq_backup_model or OFF)
             self.ollama_model_combo.setCurrentText(self.settings.ai.ollama_model)

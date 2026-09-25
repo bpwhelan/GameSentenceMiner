@@ -11,6 +11,7 @@ from GameSentenceMiner.util.config.configuration import (
     AI_OLLAMA,
     AI_OPENAI,
     Ai,
+    normalize_gemini_model_name,
 )
 
 
@@ -24,6 +25,63 @@ def test_ai_normalizes_gemini_3_aliases():
 
     assert cfg.gemini_model == "gemini-3-flash-preview"
     assert cfg.gemini_backup_model == "gemini-3-pro-preview"
+
+
+def test_gemini_defaults_use_flash_lite_primary_and_gemma_4_backup():
+    for cfg in (Ai(), Ai.from_dict({})):
+        assert cfg.gemini_model == "gemini-3.5-flash-lite"
+        assert cfg.gemini_backup_model == "gemma-4-31b-it"
+    assert Ai(gemini_backup_model="RECOMMENDED").gemini_backup_model == "gemma-4-31b-it"
+
+
+@pytest.mark.parametrize(
+    "legacy_model",
+    [
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-001",
+        "gemini-2.0-flash-lite",
+        "gemini-2.0-flash-thinking-exp-01-21",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash-lite-preview-06-17",
+        " GEMINI-2.5-FLASH ",
+        " models/gemini-2.5-flash ",
+    ],
+)
+@pytest.mark.parametrize("field", ["gemini_model", "gemini_backup_model"])
+def test_saved_gemini_2_models_upgrade_to_flash_lite(legacy_model, field):
+    values = {
+        "gemini_model": "gemini-3-pro-preview",
+        "gemini_backup_model": "gemma-4-31b-it",
+        field: legacy_model,
+    }
+    cfg = Ai.from_dict(values)
+
+    assert getattr(cfg, field) == "gemini-3.5-flash-lite"
+    assert Ai.from_dict(cfg.to_dict()) == cfg
+    assert normalize_gemini_model_name(legacy_model) == "gemini-3.5-flash-lite"
+
+
+@pytest.mark.parametrize("primary", ["gemini-2.5-flash", "gemini-3.5-flash-lite"])
+def test_gemini_migration_keeps_a_distinct_backup(primary):
+    cfg = Ai.from_dict({"gemini_model": primary, "gemini_backup_model": "gemini-2.0-flash"})
+
+    assert cfg.gemini_model == "gemini-3.5-flash-lite"
+    assert cfg.gemini_backup_model == "gemma-4-31b-it"
+
+
+@pytest.mark.parametrize("backup", ["", "OFF", None])
+def test_gemini_migration_preserves_explicitly_disabled_backup(backup):
+    cfg = Ai.from_dict({"gemini_model": "gemini-2.5-flash", "gemini_backup_model": backup})
+
+    assert cfg.gemini_model == "gemini-3.5-flash-lite"
+    assert cfg.gemini_backup_model == ""
+
+
+@pytest.mark.parametrize("model", ["gemini-3.5-flash-lite", "gemini-3-pro-preview", "gemma-2-27b-it", "gemma-4-31b-it"])
+def test_gemini_migration_keeps_other_models(model):
+    assert normalize_gemini_model_name(model) == model
 
 
 def test_ai_clears_backup_model_when_same_as_primary():

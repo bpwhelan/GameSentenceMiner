@@ -3,6 +3,8 @@ from __future__ import annotations
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from GameSentenceMiner.util.config.configuration import (
+    DEFAULT_GEMINI_BACKUP_MODEL,
+    DEFAULT_GEMINI_MODEL,
     DEFAULT_GROQ_BACKUP_MODEL,
     DEFAULT_GROQ_MODEL,
     get_config,
@@ -16,13 +18,9 @@ RECOMMENDED_GROQ_MODELS = [
     DEFAULT_GROQ_BACKUP_MODEL,
 ]
 RECOMMENDED_GEMINI_MODELS = [
-    "gemini-3-flash-preview",
-    "gemini-3-pro-preview",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemma-4-31b-it",
+    DEFAULT_GEMINI_MODEL,
+    DEFAULT_GEMINI_BACKUP_MODEL,
     "gemma-4-26b-a4b-it",
-    "gemma-3-27b-it",
 ]
 
 EXCLUDED_GEMINI_MODEL_TOKENS = (
@@ -41,10 +39,6 @@ def _is_supported_gemini_model_name(name: str) -> bool:
         return False
     if not (lowered.startswith("gemini") or lowered.startswith("gemma")):
         return False
-    if lowered.startswith("gemini-exp"):
-        return False
-    if lowered.endswith("-001"):
-        return False
     if any(token in lowered for token in EXCLUDED_GEMINI_MODEL_TOKENS):
         return False
     return True
@@ -55,9 +49,10 @@ class AIModelFetcher(QObject):
 
     models_fetched = pyqtSignal(list, list, list, list)
 
-    def __init__(self, groq_api_key: str):
+    def __init__(self, groq_api_key: str, gemini_api_key: str | None = None):
         super().__init__()
         self.groq_api_key = groq_api_key
+        self.gemini_api_key = gemini_api_key
 
     def fetch(self) -> None:
         """Fetch models and emit a signal when done."""
@@ -120,16 +115,16 @@ class AIModelFetcher(QObject):
         return models
 
     def _get_gemini_models(self) -> list[str]:
-        models = ["RECOMMENDED"] + RECOMMENDED_GEMINI_MODELS + ["OTHER"]
+        models = list(RECOMMENDED_GEMINI_MODELS)
         try:
             from google import genai
 
-            api_key = get_config().ai.gemini_api_key
+            api_key = self.gemini_api_key if self.gemini_api_key is not None else get_config().ai.gemini_api_key
             if not api_key:
                 return models
             client = genai.Client(api_key=api_key)
             for model in client.models.list():
-                name = normalize_gemini_model_name(model.name.replace("models/", ""))
+                name = normalize_gemini_model_name((model.name or "").removeprefix("models/"))
                 supported_actions = list(getattr(model, "supported_actions", []) or [])
                 if "generateContent" not in supported_actions:
                     continue

@@ -736,6 +736,11 @@
             "label": "Gemini AIモデル:",
             "tooltip": "使用するAIモデルを選択。"
           },
+          "gemini_recommendations": "無料枠の推奨モデル: Gemini 3.5 Flash-Lite と Gemma 4。",
+          "gemini_show_other_models": {
+            "label": "その他のAPIモデルを表示",
+            "tooltip": "APIで利用できるその他のテキストモデルを表示します。料金はモデルによって異なります。選択中のモデルは引き続き表示されます。"
+          },
           "gemini_api_key": {
             "label": "Gemini APIキー:",
             "tooltip": "選択したAIプロバイダーのAPIキー（現在Geminiのみ）。"

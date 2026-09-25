@@ -783,6 +783,11 @@
             "label": "Gemini AI Model:",
             "tooltip": "Select the AI model to use."
           },
+          "gemini_recommendations": "Recommended free-tier models: Gemini 3.5 Flash-Lite and Gemma 4.",
+          "gemini_show_other_models": {
+            "label": "Show other API models",
+            "tooltip": "Show other text models available through the API. Pricing varies by model. Your selected models stay visible."
+          },
           "gemini_backup_model": {
             "label": "Gemini Backup Model:",
             "tooltip": "Optional Gemini model to retry with when the primary model is rate-limited or fails."
