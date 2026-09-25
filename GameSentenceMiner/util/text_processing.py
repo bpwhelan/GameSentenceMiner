@@ -178,7 +178,7 @@ def remove_non_japanese(text: str) -> str:
 
 
 def remove_newlines(text: str) -> str:
-    return " ".join(segment for segment in text.splitlines() if segment)
+    return "".join(text.splitlines())
 
 
 # --- Remove Numbers ---

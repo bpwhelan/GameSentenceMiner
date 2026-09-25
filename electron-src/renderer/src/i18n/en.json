@@ -1573,7 +1573,7 @@
       "removeNonJapanese": "Remove Non-Japanese Characters",
       "removeNonJapaneseDesc": "Filter out characters not in the Shift-JIS character set",
       "removeNewlines": "Remove Newlines",
-      "removeNewlinesDesc": "Join all lines into a single line separated by spaces",
+      "removeNewlinesDesc": "Remove line breaks without adding spaces",
       "removeNumbers": "Remove Numbers",
       "removeNumbersDesc": "Strip all numeric digits (0-9)",
       "removeEnglish": "Remove English Letters",
