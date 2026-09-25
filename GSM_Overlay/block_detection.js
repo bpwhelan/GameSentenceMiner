@@ -232,7 +232,10 @@
   }
 
   function inlineGapLimit(a, b, tuning) {
-    const advance = Math.min(a.advance, b.advance);
+    // Word boxes measure ink, not the full character cell. Include the row's
+    // ordinary spacing when estimating advance, or loosely set dialogue can
+    // split at a wide dash whose OCR box covers only part of the glyph.
+    const advance = Math.min(a.advance, b.advance) + Math.min(a.spacing, b.spacing);
     return Math.min(
       advance * tuning.maxWordGapMultiplier,
       Math.max(advance * tuning.horizontalGapMultiplier, Math.min(a.spacing, b.spacing) * tuning.wordGapMultiplier)
@@ -589,7 +592,7 @@
     return bestIndex;
   }
 
-  function findRecentBlockMatchAt(orderedIndexes, start, lines, recentRawTexts, normalizedHistory = null) {
+  function findRecentBlockMatchAt(orderedIndexes, start, lines, recentRawTexts, normalizedHistory = null, canEndAt = null) {
     let candidateText = '';
     let bestMatch = null;
     const history = normalizedHistory || recentRawTexts.map(normalizeRecentBlockText);
@@ -597,6 +600,7 @@
     for (let end = start; end < orderedIndexes.length; end++) {
       const line = lines[orderedIndexes[end]];
       candidateText += line && typeof line.text === 'string' ? line.text : '';
+      if (canEndAt && !canEndAt(end + 1)) continue;
       const normalizedCandidate = normalizeRecentBlockText(candidateText);
       for (let historyIndex = recentRawTexts.length - 1; historyIndex >= 0; historyIndex--) {
         const similarity = getNormalizedBlockMatchSimilarity(normalizedCandidate, history[historyIndex]);
@@ -621,6 +625,14 @@
     return bestMatch;
   }
 
+  function isLikelyCjkLineWrap(previousLine, nextLine) {
+    const previous = typeof previousLine?.text === 'string' ? previousLine.text : '';
+    const next = typeof nextLine?.text === 'string' ? nextLine.text : '';
+    if (/\s$/u.test(previous) || /^\s/u.test(next)) return false;
+    return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]$/u.test(previous)
+      && /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(next);
+  }
+
   // NVL games retain old dialogue and append new lines into the same nearby
   // screen region. Geometry alone sees one connected component. Exact raw-text
   // matches recover the boundaries detected on recent frames, leaving each
@@ -635,6 +647,14 @@
 
     const segments = [];
     const normalizedHistory = usableRawTexts.map(normalizeRecentBlockText);
+    // A previous OCR frame may have captured only the first visual row of an
+    // unfinished Japanese sentence. Its exact history match is not an NVL
+    // boundary when the next row continues directly with CJK text.
+    const canSplitAt = (position) => position >= orderedIndexes.length
+      || !isLikelyCjkLineWrap(
+        lines[orderedIndexes[position - 1]],
+        lines[orderedIndexes[position]]
+      );
     let cursor = 0;
     while (cursor < orderedIndexes.length) {
       const match = findRecentBlockMatchAt(
@@ -642,7 +662,8 @@
         cursor,
         lines,
         usableRawTexts,
-        normalizedHistory
+        normalizedHistory,
+        canSplitAt
       );
       if (match) {
         segments.push(orderedIndexes.slice(cursor, match.end));
@@ -656,7 +677,10 @@
       let nextKnownStart = cursor + 1;
       while (
         nextKnownStart < orderedIndexes.length
-        && !findRecentBlockMatchAt(orderedIndexes, nextKnownStart, lines, usableRawTexts, normalizedHistory)
+        && (!canSplitAt(nextKnownStart)
+          || !findRecentBlockMatchAt(
+            orderedIndexes, nextKnownStart, lines, usableRawTexts, normalizedHistory, canSplitAt
+          ))
       ) {
         nextKnownStart++;
       }
@@ -845,10 +869,12 @@
       appendParagraphs(nameSplit.bodyIndexes, 'dialogue', currentRelationshipKey);
     }
 
+    // Only settled coordinate payloads can establish NVL boundaries. Provisional
+    // OCR rows often match an earlier partial frame before the sentence wraps.
     // Order blocks top-to-bottom, then left-to-right, then by original line
     // order. The gamepad layer uses the semantic role, not this visual order,
     // to choose the initial block.
-    const recentRawTexts = recentBlockHistory
+    const recentRawTexts = options.isFinal === true && recentBlockHistory
       && typeof recentBlockHistory.getRawTexts === 'function'
       ? recentBlockHistory.getRawTexts(options.resultKey)
       : [];
@@ -910,7 +936,8 @@
       blockMetadata.get(secondBlockId).relatedBlockId = firstBlockId;
     });
 
-    if (recentBlockHistory && typeof recentBlockHistory.rememberAll === 'function') {
+    if (options.isFinal === true
+      && recentBlockHistory && typeof recentBlockHistory.rememberAll === 'function') {
       recentBlockHistory.rememberAll(
         orderedComponents.map((component) => (
           getBlockRawText(component.memberIndexes, lines)

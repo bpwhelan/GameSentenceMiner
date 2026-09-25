@@ -59,6 +59,20 @@ test('regrouping identical lexical text invalidates the renderer reuse signature
   assert.notEqual(joined.signature, separate.signature);
 });
 
+test('NVL blocks split only when the coordinate payload is final', t => {
+  const window = setup(t);
+  const oldLine = line('古い台詞。', 0.1, 0.4, 0.22, 0.04);
+  const newLine = line('新しい台詞。', 0.1, 0.45, 0.26, 0.04);
+  window.renderFixture({ line_id: 'old', is_final: true, data: [oldLine] });
+  window.renderFixture({ line_id: 'new', data: [oldLine, newLine] });
+  assert.equal(window.document.querySelectorAll('.text-block-container').length, 1);
+
+  window.renderFixture({ line_id: 'new', is_final: true, data: [oldLine, newLine] });
+  const blocks = [...window.document.querySelectorAll('.text-block-container')];
+  assert.equal(blocks.length, 2);
+  assert.deepEqual(blocks.map(block => block.dataset.translationSource), [oldLine.text, newLine.text]);
+});
+
 test('distant menu labels within one OCR row retain their own lookup and translation blocks', t => {
   const window = setup(t);
   const words = [

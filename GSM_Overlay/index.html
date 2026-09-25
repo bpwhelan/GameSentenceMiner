@@ -2926,7 +2926,7 @@ background: rgba(202, 12, 12, 0.692);
         });
       }
 
-      for (const w of Array.isArray(line.words) ? line.words : []) {
+      for (const w of reconcileCjkWordWhitespace(line.words, line.text)) {
         if (!w || typeof w.text !== 'string' || !w.text.length || !w.bounding_rect) {
           continue;
         }
@@ -3260,6 +3260,7 @@ background: rgba(202, 12, 12, 0.692);
             {
               ...blockLayoutOptions,
               resultKey: data.line_id != null ? String(data.line_id) : null,
+              isFinal: data.is_final === true,
               latestText: !isSupplemental && typeof data.latest_text === 'string'
                 ? data.latest_text
                 : null,
@@ -3684,11 +3685,50 @@ background: rgba(202, 12, 12, 0.692);
     const text = String(lineText || '');
     // Hangul uses word spaces, including in lines mixed with Hanja or Latin text.
     // Keep it in CJK_LEXICAL_REGEX for glyph sizing, but preserve word boundaries.
-    return /\p{Script_Extensions=Hangul}/u.test(text) || !CJK_LEXICAL_REGEX.test(text);
+    // Script_Extensions also includes shared Japanese punctuation such as 【】.
+    // Only actual Hangul letters should switch this line to lexical spacing.
+    return /\p{Script=Hangul}/u.test(text) || !CJK_LEXICAL_REGEX.test(text);
   }
 
   function normalizeLexicalFragmentText(text) {
     return String(text || '').replace(/\s+/g, '');
+  }
+
+  function reconcileCjkWordWhitespace(words, lineText) {
+    if (!Array.isArray(words)) return [];
+    if (typeof lineText !== 'string') return words;
+    if (words.map(word => word?.text || '').join('') === lineText) return words;
+    // OCR can supply a standalone or trailing whitespace box at a visual line
+    // wrap even when its authoritative line text has no space. Lookup must use
+    // the line text, while the original word boxes remain available for layout.
+    if (!/\s/u.test(lineText)) {
+      return words.flatMap(word => {
+        if (typeof word?.text !== 'string' || !/\s/u.test(word.text)) return [word];
+        const text = word.text.replace(/\s+/gu, '');
+        return text ? [{ ...word, text }] : [];
+      });
+    }
+    if (words.map(word => normalizeLexicalFragmentText(word?.text)).join('')
+      !== normalizeLexicalFragmentText(lineText)) return words;
+
+    const visible = Array.from(lineText.matchAll(/\S/gu));
+    const reconciled = [];
+    let sourceCursor = 0;
+    let visibleCount = 0;
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const glyphCount = Array.from(String(word?.text || '').matchAll(/\S/gu)).length;
+      const nextIsWhitespace = i + 1 < words.length
+        && !/\S/u.test(String(words[i + 1]?.text || ''));
+      visibleCount += glyphCount;
+      const end = glyphCount && nextIsWhitespace
+        ? visible[visibleCount - 1].index + visible[visibleCount - 1][0].length
+        : visibleCount < visible.length ? visible[visibleCount].index : lineText.length;
+      const text = lineText.slice(sourceCursor, end);
+      sourceCursor = end;
+      if (text) reconciled.push({ ...word, text });
+    }
+    return reconciled;
   }
 
   // Approximate horizontal advance of a single glyph relative to a full-width
@@ -3735,7 +3775,7 @@ background: rgba(202, 12, 12, 0.692);
           && word.bounding_rect
         ))
       : [];
-    if (/\p{Script_Extensions=Hangul}/u.test(String(lineText || ''))) {
+    if (/\p{Script=Hangul}/u.test(String(lineText || ''))) {
       // Korean OCR boxes can contain words or individual syllables. Use the
       // line's separators so mixed fragments never turn 파일 into 파 일.
       const source = String(lineText);
