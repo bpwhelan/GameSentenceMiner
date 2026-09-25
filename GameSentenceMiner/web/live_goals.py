@@ -36,12 +36,21 @@ _publish_pending = False
 _publish_lock = threading.Lock()
 
 
-def _goal_is_active(goal, today_str, get_goal_value):
+def _goal_is_active(goal, today_str, get_goal_value, now=None, user_tz=None):
     """Match the goals page's "active" semantics: custom/static always, else not expired."""
     metric_type = get_goal_value(goal, "metric_type", "metricType")
     if metric_type == "custom" or metric_type in _STATIC_METRIC_TYPES:
         return True
     end_date = get_goal_value(goal, "end_date", "endDate")
+    from GameSentenceMiner.web.goal_windows import has_goal_time, parse_goal_window
+
+    if has_goal_time(end_date):
+        try:
+            tz = user_tz or _local_timezone()
+            _, end = parse_goal_window(get_goal_value(goal, "start_date", "startDate"), end_date, tz)
+            return datetime.datetime.fromtimestamp(time.time() if now is None else now, tz) < end
+        except ValueError:
+            return False
     return bool(end_date) and end_date >= today_str
 
 
@@ -78,7 +87,7 @@ def build_live_goals_payload(now: float | None = None) -> dict:
         goal_id = _get_goal_value(goal, "goal_id", "id")
         if not goal_id:
             continue
-        if not _goal_is_active(goal, today_str, _get_goal_value):
+        if not _goal_is_active(goal, today_str, _get_goal_value, updated_at, user_tz):
             continue
 
         metric_type = _get_goal_value(goal, "metric_type", "metricType")

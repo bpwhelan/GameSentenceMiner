@@ -7,10 +7,11 @@ Provides data for calculating progress on user-defined goals with date ranges.
 
 import datetime
 import json
-from dataclasses import dataclass
-import pytz
 import time
-from flask import request, jsonify
+from dataclasses import dataclass
+
+import pytz
+from flask import jsonify, request
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import GameLinesTable, GoalsTable
@@ -21,14 +22,14 @@ from GameSentenceMiner.util.stats.stats_util import (
     count_cards_from_lines,
     has_cards,
 )
+from GameSentenceMiner.web.goal_windows import has_goal_time, local_midnight, parse_goal_window
 from GameSentenceMiner.web.rollup_stats import (
-    calculate_live_stats_for_today,
     aggregate_rollup_data,
+    calculate_live_stats_for_today,
     combine_rollup_and_live_stats,
-    get_third_party_stats_by_date,
     enrich_aggregated_stats,
+    get_third_party_stats_by_date,
 )
-
 
 # Helper Functions
 
@@ -621,8 +622,8 @@ def extract_game_metric_value(game_id, metric_type, start_date=None, end_date=No
     if not game_id:
         return 0
 
-    from GameSentenceMiner.web.stats import calculate_actual_reading_time
     from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
+    from GameSentenceMiner.web.stats import calculate_actual_reading_time
 
     base = metric_type.replace("_static", "") if metric_type else ""
     if base == "finish_game":
@@ -1002,6 +1003,177 @@ def resolve_goal_game_id(goal):
     return _resolve_game_id_from_name(game_name)
 
 
+def get_goal_now(user_tz):
+    return datetime.datetime.now(user_tz)
+
+
+def is_timed_goal(goal):
+    metric = _get_goal_value(goal, "metric_type", "metricType", "")
+    return (
+        metric != "custom"
+        and not metric.endswith("_static")
+        and any(
+            has_goal_time(_get_goal_value(goal, snake, camel))
+            for snake, camel in (("start_date", "startDate"), ("end_date", "endDate"))
+        )
+    )
+
+
+def _timed_metric_value(lines, metric, start, end, goals_settings, include_imports):
+    """Read exact timestamp bounds; daily imported totals require a complete day."""
+    if end <= start:
+        return 0
+    lines = [line for line in lines if start.timestamp() <= float(line.timestamp) < end.timestamp()]
+    if metric in ("mature_cards", "anki_backlog"):
+        from GameSentenceMiner.util.database.anki_tables import AnkiCardsTable
+
+        if AnkiCardsTable._db is None or AnkiCardsTable.one() is None:
+            return 0
+        condition = "ac.interval >= 21" if metric == "mature_cards" else "ac.type != 0"
+        query = (
+            "SELECT COUNT(DISTINCT ac.card_id) FROM anki_cards ac "
+            "JOIN anki_reviews ar ON ac.card_id = ar.card_id "
+            f"WHERE ar.review_time >= ? AND ar.review_time < ? AND {condition}"
+        )
+        params = [int(start.timestamp() * 1000), int(end.timestamp() * 1000)]
+        deck = goals_settings.get("ankiConnect", {}).get("deckName", "")
+        if deck and deck.strip():
+            query += " AND ac.deck_name = ?"
+            params.append(deck.strip())
+        row = AnkiCardsTable._db.fetchone(query, tuple(params))
+        return row[0] if row else 0
+    if metric == "cards":
+        return count_cards_from_lines(lines)
+    if metric == "games":
+        return len({line.game_id or line.game_name for line in lines})
+    if metric == "hours":
+        from GameSentenceMiner.web.stats import calculate_actual_reading_time
+
+        value = (
+            calculate_actual_reading_time(
+                [float(line.timestamp) for line in lines], [line.line_text or "" for line in lines]
+            )
+            / 3600
+        )
+    else:
+        value = sum(len(line.line_text or "") for line in lines)
+
+    if include_imports:
+        first_day = start.date()
+        if start > local_midnight(first_day, start.tzinfo):
+            first_day += datetime.timedelta(days=1)
+        last_day = end.date() - datetime.timedelta(days=1)
+        if first_day <= last_day:
+            imported = get_third_party_stats_by_date(first_day.isoformat(), last_day.isoformat())
+            key = "time_seconds" if metric == "hours" else "characters"
+            value += sum(day[key] for day in imported.values()) / (3600 if metric == "hours" else 1)
+    return value
+
+
+def calculate_timed_goal(goal, goals_settings, user_tz, target_date=None):
+    """Share exact progress and duration-weighted daily pacing across all goal views."""
+    start, end = parse_goal_window(
+        _get_goal_value(goal, "start_date", "startDate"),
+        _get_goal_value(goal, "end_date", "endDate"),
+        user_tz,
+    )
+    metric = _get_goal_value(goal, "metric_type", "metricType")
+    base_metric = "characters" if metric == "finish_game" else metric
+    validate_metric_type(base_metric)
+    target = _get_goal_value(goal, "target_value", "targetValue", 0) or 0
+    now = get_goal_now(user_tz)
+    day = target_date or now.date()
+    day_start = local_midnight(day, user_tz)
+    day_end = local_midnight(day + datetime.timedelta(days=1), user_tz)
+    progress_end = min(end, now, day_end) if target_date else min(end, now)
+    lines = (
+        GameLinesTable.get_lines_filtered_by_timestamp(
+            start=start.timestamp(), end=progress_end.timestamp(), for_stats=True
+        )
+        if progress_end > start
+        else []
+    )
+    scoped = bool(_get_goal_value(goal, "game_id", "gameId")) or metric == "finish_game"
+    media_type = _get_goal_value(goal, "media_type", "mediaType", "ALL")
+    if scoped:
+        game_id = resolve_goal_game_id(goal)
+        lines = [line for line in lines if game_id and line.game_id == game_id]
+    elif media_type and media_type != "ALL":
+        games = {}
+        filtered = []
+        for line in lines:
+            key = line.game_id or line.game_name
+            if not key:
+                # A line without a game cannot be classified by media type.
+                continue
+            if key not in games:
+                games[key] = GamesTable.get_by_game_line(line)
+            if games[key] and games[key].type == media_type:
+                filtered.append(line)
+        lines = filtered
+
+    def value_between(begin, finish):
+        return _timed_metric_value(
+            lines, base_metric, begin, finish, goals_settings, not scoped and media_type in (None, "", "ALL")
+        )
+
+    total = value_between(start, progress_end)
+    days = (end - start).total_seconds() / 86400
+    overall = {
+        "progress": format_metric_value(total, base_metric),
+        "daily_average": format_metric_value(total / days, base_metric),
+        "days_in_range": days,
+    }
+    expired = now >= end
+    not_started = now < start
+    overlaps_day = start < day_end and end > day_start
+    # Historical snapshots and tomorrow's preview use the day's intersection;
+    # the live daily target additionally follows the exact current instant.
+    if not overlaps_day or (day == now.date() and (expired or not_started)):
+        return overall, {
+            "required": 0,
+            "progress": 0,
+            "has_target": False,
+            "expired": expired,
+            "not_started": not_started,
+        }
+
+    active_start, active_end = max(start, day_start), min(end, day_end)
+    before = value_between(start, min(day_start, progress_end))
+    remaining = max(0, target - before)
+    multiplier = 1 if metric == "finish_game" else calculate_balanced_easy_day_multiplier(day, goals_settings)
+    fraction = (active_end - active_start).total_seconds() / (end - active_start).total_seconds()
+    required = remaining * fraction * multiplier
+    daily = {
+        "required": format_metric_value(required, base_metric),
+        "progress": format_metric_value(value_between(active_start, min(active_end, progress_end)), base_metric),
+        "has_target": True,
+        "days_remaining": (end - active_start).total_seconds() / 86400,
+        "total_progress": format_metric_value(total, base_metric),
+        "easy_day_percentage": int(multiplier * 100),
+    }
+    return overall, daily
+
+
+def build_timed_goal_projection(goal, progress, avg_daily, user_tz):
+    start, end = parse_goal_window(
+        _get_goal_value(goal, "start_date", "startDate"), _get_goal_value(goal, "end_date", "endDate"), user_tz
+    )
+    days_left = max(0, (end - max(start, get_goal_now(user_tz))).total_seconds() / 86400)
+    target = _get_goal_value(goal, "target_value", "targetValue", 0) or 0
+    metric = _get_goal_value(goal, "metric_type", "metricType")
+    projected = progress + avg_daily * days_left
+    return {
+        "projection": format_metric_value(projected, metric),
+        "target": target,
+        "current": progress,
+        "daily_average": format_metric_value(avg_daily, metric),
+        "end_date": _get_goal_value(goal, "end_date", "endDate"),
+        "days_until_target": days_left,
+        "percent_difference": round((projected - target) / target * 100, 2) if target else 0,
+    }
+
+
 def _build_goals_dashboard_payload(
     current_goals,
     goals_settings,
@@ -1127,6 +1299,21 @@ def _build_goals_dashboard_payload(
         game_id = resolve_goal_game_id(goal) if raw_game_id or metric_type == "finish_game" else ""
 
         if not goal_id or not metric_type or metric_type == "custom":
+            continue
+
+        if is_timed_goal(goal):
+            try:
+                overall, daily = calculate_timed_goal(goal, goals_settings, user_tz)
+            except ValueError:
+                continue
+            goal_progress[goal_id], today_progress[goal_id] = overall, daily
+            if not raw_game_id and metric_type != "finish_game":
+                if metric_type == "mature_cards":
+                    deck = goals_settings.get("ankiConnect", {}).get("deckName", "")
+                    avg_daily = sum(query_anki_connect_mature_cards_on_day(deck, day)[0] for day in (0, 7, 14, 21)) / 4
+                else:
+                    avg_daily = get_projection_total(metric_type, media_type) / 30
+                projections[goal_id] = build_timed_goal_projection(goal, overall["progress"], avg_daily, user_tz)
             continue
 
         # Game-scoped goals (and the "finish game by date" type) measure progress
@@ -1501,6 +1688,23 @@ def get_goals_for_date(
             if metric_type == "custom":
                 continue
 
+            if is_timed_goal(goal):
+                try:
+                    _, daily = calculate_timed_goal(goal, goals_settings, user_tz, target_date)
+                except ValueError:
+                    continue
+                if daily["has_target"]:
+                    goals_for_date.append(
+                        {
+                            "goal_name": goal_name,
+                            "progress_today": daily["progress"],
+                            "progress_needed": daily["required"],
+                            "metric_type": metric_type,
+                            "goal_icon": goal_icon,
+                        }
+                    )
+                continue
+
             # Game-scoped goals (incl. finish_game): measure from one game's lines
             # so completion isn't credited from reading other games.
             if raw_game_id or game_id or metric_type == "finish_game":
@@ -1706,6 +1910,13 @@ def register_goals_api_routes(app):
             if not metric_type or not start_date_str or not end_date_str:
                 return jsonify({"error": "Missing required fields: metric_type, start_date, end_date"}), 400
 
+            if is_timed_goal(data):
+                try:
+                    overall, _ = calculate_timed_goal(data, goals_settings, get_user_timezone())
+                except ValueError as e:
+                    return jsonify({"error": str(e)}), 400
+                return jsonify(overall), 200
+
             # Game-scoped / finish_game goals: progress from the game's lines.
             if raw_game_id or game_id or metric_type == "finish_game":
                 try:
@@ -1855,6 +2066,15 @@ def register_goals_api_routes(app):
             )
 
             # Game-scoped / finish_game goals: required + progress from the game's lines.
+            if is_timed_goal(data):
+                if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
+                    return jsonify({"error": "Missing required fields"}), 400
+                try:
+                    _, daily = calculate_timed_goal(data, goals_settings, get_user_timezone())
+                except ValueError as e:
+                    return jsonify({"error": str(e)}), 400
+                return jsonify(daily), 200
+
             if raw_game_id or game_id or metric_type == "finish_game":
                 if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
                     return jsonify({"error": "Missing required fields"}), 400
@@ -2114,6 +2334,19 @@ def register_goals_api_routes(app):
                 validate_metric_type(metric_type)
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
+
+            # Timed projections share the dashboard's progress and fractional days remaining.
+            if is_timed_goal(data):
+                try:
+                    dashboard = _build_goals_dashboard_payload(
+                        [data], data.get("goals_settings", {}), None, user_tz=get_user_timezone()
+                    )
+                    projection = dashboard["projections"].get(goal_id)
+                    if projection is None:
+                        raise ValueError("Invalid timed goal")
+                    return jsonify(projection), 200
+                except ValueError as e:
+                    return jsonify({"error": str(e)}), 400
 
             # Parse dates
             try:
@@ -2599,6 +2832,23 @@ def register_goals_api_routes(app):
                 game_id = resolve_goal_game_id(goal) if raw_game_id or metric_type == "finish_game" else ""
                 is_static = metric_type.endswith("_static")
 
+                if is_timed_goal(goal):
+                    try:
+                        _, daily = calculate_timed_goal(goal, goals_settings, user_tz, tomorrow)
+                    except ValueError:
+                        continue
+                    if daily["has_target"] and daily["required"] > 0:
+                        requirements.append(
+                            {
+                                "goal_name": goal_name,
+                                "goal_icon": goal_icon,
+                                "metric_type": metric_type,
+                                "required_tomorrow": daily["required"],
+                                "formatted_required": format_requirement_display(daily["required"], metric_type),
+                            }
+                        )
+                    continue
+
                 # For static goals, requirement is always the target value
                 if is_static:
                     formatted = format_requirement_display(target_value, metric_type)
@@ -2979,6 +3229,16 @@ def register_goals_api_routes(app):
 
             # Update goals if provided
             if "current_goals" in data:
+                for goal in data["current_goals"]:
+                    if is_timed_goal(goal):
+                        try:
+                            parse_goal_window(
+                                _get_goal_value(goal, "start_date", "startDate"),
+                                _get_goal_value(goal, "end_date", "endDate"),
+                                get_user_timezone(),
+                            )
+                        except ValueError as e:
+                            return jsonify({"error": str(e)}), 400
                 existing_goals = data["current_goals"]
 
             # Update settings if provided
@@ -3086,6 +3346,35 @@ def register_goals_api_routes(app):
                     continue
 
                 try:
+                    if is_timed_goal(goal):
+                        if not target_value or target_value <= 0:
+                            continue
+                        overall, daily = calculate_timed_goal(goal, goals_settings, user_tz)
+                        total_progress = overall["progress"]
+                        is_achieved = total_progress >= target_value
+                        is_expired = daily.get("expired", False)
+                        if is_achieved or is_expired:
+                            achieved_goals.append(
+                                {
+                                    "goal_id": goal_id,
+                                    "goal_name": goal_name,
+                                    "goal_icon": goal_icon,
+                                    "metric_type": metric_type,
+                                    "media_type": media_type,
+                                    "target_value": target_value,
+                                    "current_progress": total_progress,
+                                    "completion_percentage": round(total_progress / target_value * 100, 1),
+                                    "start_date": start_date_str,
+                                    "end_date": end_date_str,
+                                    "is_static": False,
+                                    "is_custom": False,
+                                    "completed_today": False,
+                                    "achieved": is_achieved,
+                                    "expired": is_expired,
+                                }
+                            )
+                        continue
+
                     # --- Game-scoped goals (incl. finish_game) ---
                     # Progress is read from a single game's lines, never aggregated
                     # rollups, so achievement isn't inflated by other games.

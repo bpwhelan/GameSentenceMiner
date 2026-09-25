@@ -331,11 +331,53 @@ const GoalsUtils = {
         return str.charAt(0).toUpperCase() + str.slice(1);
     },
 
-    // Parse YYYY-MM-DD date string as local date (not UTC)
+    // Legacy dates are local calendar days; timestamps retain their UTC offset.
     parseLocalDate(dateStr) {
         if (!dateStr) return null;
+        if (dateStr.includes('T')) return new Date(dateStr);
         const [year, month, day] = dateStr.split('-').map(Number);
         return new Date(year, month - 1, day); // month is 0-indexed
+    },
+
+    goalDateBoundary(value, isEnd = false) {
+        const date = this.parseLocalDate(value);
+        if (date && isEnd && !value.includes('T')) date.setDate(date.getDate() + 1);
+        return date;
+    },
+
+    formatDateTimeInput(date) {
+        return `${this.formatDateString(date)}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    },
+
+    setGoalDateInput(input, value, isEnd = false) {
+        const date = this.parseLocalDate(value);
+        if (date && isEnd && !value.includes('T')) date.setHours(23, 59);
+        input.value = date ? this.formatDateTimeInput(date) : '';
+        // Keep old whole-day goals and exact offsets intact when only other fields change.
+        input.dataset.savedValue = value || '';
+        input.dataset.savedInput = input.value;
+    },
+
+    readGoalDateInput(input) {
+        if (!input.value) return '';
+        if (input.value === input.dataset.savedInput) return input.dataset.savedValue;
+        const date = new Date(input.value);
+        return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+    },
+
+    setDateTimeShortcut(input, hours = 0, now = new Date()) {
+        const date = new Date(Math.floor((now.getTime() + hours * 60 * 60 * 1000) / 60000) * 60000);
+        this.setGoalDateInput(input, date.toISOString());
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    },
+
+    formatGoalDate(value, options = { month: 'short', day: 'numeric', year: 'numeric' }) {
+        const date = this.parseLocalDate(value);
+        if (!date || Number.isNaN(date.getTime())) return 'N/A';
+        return date.toLocaleString(navigator.language, {
+            ...options,
+            ...(value.includes('T') ? { hour: 'numeric', minute: '2-digit' } : {}),
+        });
     },
 
     // Get goals from database (uses cache if available)
@@ -617,39 +659,39 @@ const CustomGoalsManager = {
 
     // Get active goals (within current date or future)
     async getActive() {
-        const todayStr = GoalsUtils.getTodayDateString();
+        const now = new Date();
 
         const allGoals = await this.getAll();
         return allGoals.filter(goal => {
             // Custom and static goals are always active
             if (goal.metricType === 'custom') return true;
             if (['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType)) return true;
-            return goal.endDate >= todayStr;
+            return GoalsUtils.goalDateBoundary(goal.endDate, true) > now;
         });
     },
 
     // Get goals that are currently in progress (today is within date range)
     async getInProgress() {
-        const todayStr = GoalsUtils.getTodayDateString();
+        const now = new Date();
 
         const allGoals = await this.getAll();
         return allGoals.filter(goal => {
             // Custom and static goals are always in progress
             if (goal.metricType === 'custom') return true;
             if (['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType)) return true;
-            return goal.startDate <= todayStr && goal.endDate >= todayStr;
+            return GoalsUtils.goalDateBoundary(goal.startDate) <= now && GoalsUtils.goalDateBoundary(goal.endDate, true) > now;
         });
     },
 
     // Get expired goals (end date has passed, excludes custom and static)
     async getExpired() {
-        const todayStr = GoalsUtils.getTodayDateString();
+        const now = new Date();
 
         const allGoals = await this.getAll();
         return allGoals.filter(goal => {
             if (goal.metricType === 'custom') return false;
             if (['hours_static', 'characters_static', 'cards_static'].includes(goal.metricType)) return false;
-            return goal.endDate && goal.endDate < todayStr;
+            return goal.endDate && GoalsUtils.goalDateBoundary(goal.endDate, true) <= now;
         });
     },
 
@@ -779,8 +821,12 @@ const CustomGoalsManager = {
                 errors.push('End date is required');
             }
 
-            if (goalData.startDate && goalData.endDate && goalData.startDate > goalData.endDate) {
-                errors.push('End date must be after start date');
+            if (goalData.startDate && goalData.endDate) {
+                const start = GoalsUtils.goalDateBoundary(goalData.startDate);
+                const end = GoalsUtils.goalDateBoundary(goalData.endDate, true);
+                if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+                    errors.push('End date and time must be after start date and time');
+                }
             }
         }
 
@@ -952,10 +998,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Regular goal rendering
         const percentage = Math.min(100, (currentProgress / goal.targetValue) * 100);
-        const formattedCurrent = goal.metricType === 'hours' ? Math.floor(currentProgress).toLocaleString() :
+        const formattedCurrent = goal.metricType === 'hours' ? formatHours(currentProgress, globalUseRawHours) :
             goal.metricType === 'characters' ? formatGoalNumber(currentProgress) :
                 currentProgress.toLocaleString();
-        const formattedTarget = goal.metricType === 'hours' ? goal.targetValue.toLocaleString() :
+        const formattedTarget = goal.metricType === 'hours' ? formatHours(goal.targetValue, globalUseRawHours) :
             goal.metricType === 'characters' ? formatGoalNumber(goal.targetValue) :
                 goal.targetValue.toLocaleString();
 
@@ -963,13 +1009,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Format dates for display - parse YYYY-MM-DD as local date
         const startDate = GoalsUtils.parseLocalDate(goal.startDate);
-        const endDate = GoalsUtils.parseLocalDate(goal.endDate);
         let formattedStartDate = 'N/A';
 
         if (startDate && startDate >= new Date(1980, 0, 1)) {
-            formattedStartDate = startDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' });
+            formattedStartDate = GoalsUtils.formatGoalDate(goal.startDate);
         }
-        const formattedEndDate = endDate ? endDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+        const formattedEndDate = GoalsUtils.formatGoalDate(goal.endDate);
 
         return `
             <div class="goal-progress-item custom-goal-item" data-goal-id="${goal.id}">
@@ -1290,15 +1335,13 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // Format target date - parse YYYY-MM-DD as local date
-        const targetDate = GoalsUtils.parseLocalDate(projectionData.end_date);
-        const formattedTargetDate = targetDate ? targetDate.toLocaleDateString(navigator.language) : 'N/A';
+        const formattedTargetDate = GoalsUtils.formatGoalDate(projectionData.end_date);
 
         // Calculate projected completion date
         const remaining = Math.max(0, projectionData.target - projectionData.current);
         const daysToComplete = projectionData.daily_average > 0 ?
             Math.ceil(remaining / projectionData.daily_average) : 0;
-        const completionDate = new Date();
-        completionDate.setDate(completionDate.getDate() + daysToComplete);
+        const completionDate = new Date(Date.now() + daysToComplete * 24 * 60 * 60 * 1000);
         const completionDateStr = completionDate.toLocaleDateString(navigator.language);
 
         // Determine pace status and badge
@@ -1385,10 +1428,8 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (goal.is_static) {
             dateRangeHTML = '<div class="trophy-date-range">♾️ Daily Target Met</div>';
         } else if (goal.start_date && goal.end_date) {
-            const startDate = GoalsUtils.parseLocalDate(goal.start_date);
-            const endDate = GoalsUtils.parseLocalDate(goal.end_date);
-            const fmtStart = startDate ? startDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric' }) : '';
-            const fmtEnd = endDate ? endDate.toLocaleDateString(navigator.language, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+            const fmtStart = GoalsUtils.formatGoalDate(goal.start_date, { month: 'short', day: 'numeric' });
+            const fmtEnd = GoalsUtils.formatGoalDate(goal.end_date);
             dateRangeHTML = `<div class="trophy-date-range">📅 ${fmtStart} → ${fmtEnd}</div>`;
         }
 
@@ -1549,14 +1590,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // Filter for only the 5 core metrics and goals that have started
             const coreMetrics = ['hours', 'characters', 'games', 'cards', 'mature_cards'];
-            const todayStr = GoalsUtils.getTodayDateString();
+            const now = new Date();
 
             const customGoalsWithProjections = customGoals.filter(goal => {
                 // Must be a core metric
                 if (!coreMetrics.includes(goal.metricType)) return false;
 
                 // Must have started (today >= start_date)
-                if (goal.startDate && goal.startDate > todayStr) return false;
+                if (goal.startDate && GoalsUtils.goalDateBoundary(goal.startDate) > now) return false;
 
                 return true;
             });
@@ -1836,7 +1877,7 @@ document.addEventListener('DOMContentLoaded', function () {
             customHelpText.style.display = 'none';
             if (staticHelpText) staticHelpText.style.display = 'none';
             if (ankiBacklogHelpText) ankiBacklogHelpText.style.display = 'none';
-            if (endDateLabel) endDateLabel.textContent = 'End Date';
+            if (endDateLabel) endDateLabel.textContent = 'End Date & Time';
 
             // Add required attributes back
             startDateInput.setAttribute('required', 'required');
@@ -1845,24 +1886,23 @@ document.addEventListener('DOMContentLoaded', function () {
             // Suggestion logic for characters/hours
             if (goalValueHelp) {
                 let suggestion = '';
-                // Helper to calculate days between two dates (inclusive)
+                // Use elapsed days so a 24-hour challenge receives one day's suggested target.
                 function getDaysBetween(start, end) {
                     if (!start || !end) return null;
-                    const startDate = GoalsUtils.parseLocalDate(start);
-                    const endDate = GoalsUtils.parseLocalDate(end);
+                    const startDate = GoalsUtils.goalDateBoundary(start);
+                    const endDate = GoalsUtils.goalDateBoundary(end, true);
                     if (isNaN(startDate) || isNaN(endDate)) return null;
-                    // Add 1 to include both start and end dates
-                    return Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+                    return (endDate - startDate) / (1000 * 60 * 60 * 24);
                 }
 
-                const startDateVal = document.getElementById('goalStartDate').value;
-                const endDateVal = document.getElementById('goalEndDate').value;
+                const startDateVal = GoalsUtils.readGoalDateInput(startDateInput);
+                const endDateVal = GoalsUtils.readGoalDateInput(endDateInput);
                 const days = getDaysBetween(startDateVal, endDateVal);
 
                 if (metricType === 'characters') {
                     if (window.averagePaceForPredictions && typeof window.averagePaceForPredictions.average_characters_per_day === 'number' && days && days > 0) {
                         const recommended = Math.round(window.averagePaceForPredictions.average_characters_per_day * days);
-                        suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_characters_per_day.toLocaleString()}</b> characters/day.<br>For this date range (<b>${days}</b> days), some suggested targets are:
+                        suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_characters_per_day.toLocaleString()}</b> characters/day.<br>For this date range (<b>${days.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b> days), some suggested targets are:
                         <ul>
                         <li>Maintain: <b>${recommended.toLocaleString()}</b> characters.</li>
                         <li>+5%: <b>${Math.round(recommended * 1.05).toLocaleString()}</b> characters.</li>
@@ -1894,7 +1934,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         const recPlus15Hours = Math.floor(recPlus15);
                         const recPlus15Minutes = Math.round((recPlus15 - recPlus15Hours) * 60);
                         
-                        suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_hours_per_day.toFixed(2)}</b> hours/day.<br>For this date range (<b>${days}</b> days), some recommended targets are:
+                        suggestion = `Tip: Your recent average is <b>${window.averagePaceForPredictions.average_hours_per_day.toFixed(2)}</b> hours/day.<br>For this date range (<b>${days.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b> days), some recommended targets are:
                         <ul>
                         <li>Maintain: <b>${recommendedHours}h ${recommendedMinutes}m</b></li>
                         <li>+5%: <b>${recPlus5Hours}h ${recPlus5Minutes}m</b></li>
@@ -1922,7 +1962,7 @@ document.addEventListener('DOMContentLoaded', function () {
             timeValueContainer.style.display = 'none';
             datesContainer.style.display = 'grid';
             if (startDateContainer) startDateContainer.style.display = 'block';
-            if (endDateLabel) endDateLabel.textContent = 'End Date';
+            if (endDateLabel) endDateLabel.textContent = 'End Date & Time';
         }
 
         // "Finish a game by date": relabel the target as the game's total length
@@ -1939,6 +1979,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const goalMetricTypeSelect = document.getElementById('goalMetricType');
     const startDateInput = document.getElementById('goalStartDate');
     const endDateInput = document.getElementById('goalEndDate');
+    document.getElementById('goalStartNow')?.addEventListener('click', () => {
+        GoalsUtils.setDateTimeShortcut(startDateInput);
+    });
+    document.getElementById('goalEndIn24Hours')?.addEventListener('click', () => {
+        GoalsUtils.setDateTimeShortcut(endDateInput, 24);
+    });
     if (goalMetricTypeSelect) {
         goalMetricTypeSelect.addEventListener('change', updateFormFieldsVisibility);
     }
@@ -1979,6 +2025,9 @@ document.addEventListener('DOMContentLoaded', function () {
             _lastAutoFilledMediaType = '';
             customGoalModalTitle.textContent = 'Add Custom Goal';
             customGoalForm.reset();
+            const now = new Date();
+            GoalsUtils.setDateTimeShortcut(startDateInput, 0, now);
+            GoalsUtils.setDateTimeShortcut(endDateInput, 24, now);
             customGoalModal.style.display = 'flex';
             customGoalModal.classList.add('show');
             clearCustomGoalMessages();
@@ -2071,8 +2120,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 name: document.getElementById('goalName').value.trim(),
                 metricType: metricType,
                 targetValue: targetValue,
-                startDate: document.getElementById('goalStartDate').value,
-                endDate: document.getElementById('goalEndDate').value,
+                startDate: GoalsUtils.readGoalDateInput(startDateInput),
+                endDate: GoalsUtils.readGoalDateInput(endDateInput),
                 icon: icon,
                 mediaType: document.getElementById('goalMediaType').value || 'ALL',
                 gameId: gameId,
@@ -2153,8 +2202,8 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('goalTargetMinutes').value = '';
         }
         
-        document.getElementById('goalStartDate').value = goal.startDate || '';
-        document.getElementById('goalEndDate').value = goal.endDate || '';
+        GoalsUtils.setGoalDateInput(startDateInput, goal.startDate);
+        GoalsUtils.setGoalDateInput(endDateInput, goal.endDate, true);
         document.getElementById('goalIconSelector').value = goal.icon;
         document.getElementById('customGoalIcon').value = goal.icon;
         document.getElementById('goalMediaType').value = goal.mediaType || 'ALL';
@@ -2699,6 +2748,28 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     void initializeGoalsPage();
+
+    // Refresh timed goals while the page stays open so starts/deadlines do not
+    // leave stale daily targets or progress cards on screen.
+    let refreshingTimedGoals = false;
+    async function refreshTimedGoals() {
+        if (document.hidden || refreshingTimedGoals) return;
+        const goals = GoalsDataManager.getCached()?.current_goals || [];
+        if (!goals.some(goal => goal.startDate?.includes('T') || goal.endDate?.includes('T'))) return;
+        refreshingTimedGoals = true;
+        try {
+            const dashboard = await GoalsDataManager.fetchDashboard(true);
+            await Promise.allSettled([
+                loadGoalProgress(dashboard), loadTodayGoals(dashboard), loadGoalProjections(dashboard), loadTrophyCabinet(),
+            ]);
+        } catch (error) {
+            console.error('Error refreshing timed goals:', error);
+        } finally {
+            refreshingTimedGoals = false;
+        }
+    }
+    setInterval(refreshTimedGoals, 60000);
+    document.addEventListener('visibilitychange', refreshTimedGoals);
 
     // Make functions globally available
     window.loadGoalProgress = loadGoalProgress;
