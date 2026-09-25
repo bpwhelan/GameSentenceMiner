@@ -13,9 +13,11 @@ const timeout = setTimeout(() => { console.error('Hachidori smoke timed out'); a
 const background = `
 import './reader-options.js';
 const calls = [];
+const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+let focusScenario = null;
 const ready = chrome.storage.local.set({
   options: { ...globalThis.HDReaderOptions.DEFAULT_OPTIONS, revision: 1, popupWidth: 600,
-    audioAutoplay: false, anki: { ...globalThis.HDReaderOptions.DEFAULT_OPTIONS.anki, model: 'Fixture' } },
+    audioAutoplay: true, anki: { ...globalThis.HDReaderOptions.DEFAULT_OPTIONS.anki, model: 'Fixture' } },
   dictionaryState: { revision: 1, dictionaries: [{ id: 'fixture', title: 'Fixture', path: 'fixture', enabled: true, termCount: 3 }] }
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -35,10 +37,25 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       case 'hd_lookup_stats_record':
       case 'hd_lookup_stats_read': payload = { descriptor: { generation: null, revision: 0 }, statistics: null }; break;
       case 'hd_anki_status': payload = { available: true, configKey: 'fixture' }; break;
-      case 'hd_anki_preflight': payload = { canAdd: true, state: 'ready', action: 'add' }; break;
+      case 'hd_anki_preflight':
+        if (focusScenario && message.request.term.expression !== '猫') {
+          await (message.request.term.expression === '犬' ? focusScenario.first : focusScenario.later).promise;
+        }
+        payload = { canAdd: true, state: 'ready', action: 'add' }; break;
       case 'hd_anki_submit': payload = { state: 'added', noteId: 1234 }; break;
-      case 'hd_audio_play': payload = { played: true }; break;
-      case 'hd_status': payload = { calls }; break;
+      case 'hd_audio_play': {
+        const scenario = focusScenario;
+        if (scenario?.mode === 'playing') await scenario.audio.promise;
+        payload = { status: scenario?.mode === 'no-result' ? 'no-result' : 'success' }; break;
+      }
+      case 'hd_status':
+        if (message.focusScenario) focusScenario = { mode: message.focusScenario, first: deferred(), later: deferred(), audio: deferred() };
+        if (message.releaseFirst) focusScenario.first.resolve();
+        if (message.finishFocus) {
+          focusScenario.first.resolve(); focusScenario.later.resolve(); focusScenario.audio.resolve();
+          focusScenario = null;
+        }
+        payload = { calls }; break;
     }
     respond({ ...payload, ok: true, type: message.type + '_result', requestId: message.requestId });
   });
@@ -159,6 +176,34 @@ app.whenReady().then(async () => {
     handler.cancelSelection();
     await new Promise(resolve => setTimeout(resolve, 400));
     assert(!handler.dictionaryPopupVisible, 'Late lookup must not reopen a canceled popup');
+    // Enable just the current entry while other entries' Anki checks remain pending.
+    // There is no popup lifecycle event or controller input to repair the default.
+    for (const mode of ['playing', 'no-result']) {
+      await gsmHachidoriBridge.invoke('status', { focusScenario: mode });
+      handler.triggerDictionaryLookup({ targetChar: document.querySelector('.text-box'), centerX: 95, centerY: 100 });
+      await wait(() => handler.dictionaryPopupVisible, 'focus scenario popup: ' + mode);
+      await wait(() => root().querySelector('.gsm-controller-selected[data-action="add"]:not(:disabled)'), 'first entry ready');
+      handler.navigateDictionaryNextEntry();
+      await wait(async () => (await gsmHachidoriBridge.invoke('selection')).index === 1, 'pending entry selected');
+      const audio = () => root().querySelectorAll('.gsm-hoshidicts-audio-button')[1];
+      await gsmHachidoriBridge.control('command', { command: 'playAudio' });
+      await wait(() => mode === 'playing' ? audio()?.getAttribute('aria-busy') === 'true'
+        : audio()?.dataset.state === 'error', 'audio scenario: ' + mode);
+      await wait(() => audio()?.classList.contains('gsm-controller-selected'), 'provisional audio default');
+      await wait(() => root().querySelectorAll('.gsm-hoshidicts-mine-button:disabled').length === 2, 'pending entry checks');
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await gsmHachidoriBridge.invoke('status', { releaseFirst: true });
+      const mine = () => root().querySelectorAll('.gsm-hoshidicts-mine-button')[1];
+      await wait(() => !mine().disabled, 'current entry ready');
+      assert(mine().classList.contains('gsm-controller-selected'), 'Mining must be selected as soon as it is ready: ' + mode);
+      assert(root().querySelector('.gsm-hoshidicts-mine-button:disabled'), 'Other entries must still be checking Anki');
+      if (mode === 'playing') assert(audio().getAttribute('aria-busy') === 'true', 'Audio must still be playing');
+      await gsmHachidoriBridge.invoke('status', { finishFocus: true });
+      await wait(() => !root().querySelector('.gsm-hoshidicts-mine-button:disabled')
+        && audio().getAttribute('aria-busy') === 'false', 'focus scenario completed');
+      handler.cancelSelection();
+      await wait(() => !handler.dictionaryPopupVisible, 'focus scenario closed');
+    }
     handler.triggerDictionaryLookup({ targetChar: document.querySelector('.text-box'), centerX: 95, centerY: 100 });
     await wait(() => handler.dictionaryPopupVisible, 'final popup');
     await wait(() => root().querySelector('.gsm-controller-selected[data-action="add"]:not(:disabled)'), 'final action availability');

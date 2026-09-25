@@ -44,9 +44,14 @@
       if (revision !== this.revision) {
         this.revision = revision;
         this.reset();
-      } else if (!this.selected?.isConnected || (this.automatic && this.adapter.isAvailable(this.selected))) {
+      } else if (!this.selected?.isConnected || this.automatic) {
         const buttons = this.buttons();
-        this.select(this.adapter.preferred(buttons, this.scope) || buttons[0]);
+        const preferred = this.adapter.preferred(buttons, this.scope);
+        // A ready preferred action can replace even a hidden/disabled provisional default.
+        // Keep a busy selection when there is no preferred action to promote.
+        if (preferred || !this.selected?.isConnected || this.adapter.isAvailable(this.selected)) {
+          this.select(preferred || buttons[0]);
+        }
       }
     }
     control(action, body = {}) {

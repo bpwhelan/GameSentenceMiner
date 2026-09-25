@@ -9,7 +9,7 @@
     const current = () => api.state().levels.findLast(level => level.popup && !level.popup.hidden && !level.retired);
     const available = button => button?.isConnected && !button.disabled && !button.closest('[hidden]')
       && button.getClientRects().length > 0 && window.getComputedStyle(button).visibility !== 'hidden';
-    let styledRoot;
+    let styledRoot, observedPopup;
     const identities = new WeakMap();
     let nextIdentity = 0;
     const controller = new window.GsmPopupNavigation({
@@ -41,6 +41,9 @@
         ? buttons.find(button => button.dataset.rating === '3') || buttons.find(button => button.dataset.deck === 'neverForget')
         : buttons.find(button => button.dataset.action === 'add') || buttons.find(button => button.dataset.action === 'view'),
     });
+    // An entry's Anki check can finish without a layout/lifecycle callback.
+    // Track readiness directly, independently of audio and other entries' checks.
+    const observer = new window.MutationObserver(() => controller.refresh());
     const grading = window.GsmJitenGradingBar ? new window.GsmJitenGradingBar({ window, document,
       getHeadword: level => {
         const result = currentResult(level);
@@ -51,6 +54,12 @@
       control: (action, body) => controller.control(action, body),
       refresh() {
         const level = current();
+        if (level?.popup !== observedPopup) {
+          observer.disconnect();
+          observedPopup = level?.popup;
+          if (observedPopup) observer.observe(observedPopup, { subtree: true, childList: true,
+            attributes: true, attributeFilter: ['disabled', 'hidden', 'data-action'] });
+        }
         if (level) {
           const root = level.popup.getRootNode();
           if (root !== styledRoot) {
@@ -62,7 +71,7 @@
         }
         controller.refresh();
       },
-      destroy() { controller.destroy(); grading?.destroy(); },
+      destroy() { observer.disconnect(); controller.destroy(); grading?.destroy(); },
     };
   }
   const api = { create, currentResult };
