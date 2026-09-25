@@ -2,6 +2,8 @@ import sys
 import types
 import queue
 
+import pytest
+
 import GameSentenceMiner.ocr.gsm_ocr as gsm_ocr
 
 
@@ -36,10 +38,8 @@ def _make_fake_qt_main_module(app):
 def test_initialize_qt_runtime_for_ocr_does_not_create_config_window(monkeypatch):
     fake_app = _FakeApp()
     fake_qt_main = _make_fake_qt_main_module(fake_app)
-    fake_ui_pkg = types.ModuleType("GameSentenceMiner.ui")
-    fake_ui_pkg.qt_main = fake_qt_main
-    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui", fake_ui_pkg)
-    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", fake_qt_main)
+    # Patch the lazy loader so already-imported UI packages cannot bypass the fake.
+    monkeypatch.setattr(gsm_ocr, "_get_qt_main_module", lambda: fake_qt_main)
 
     qt_main_module = gsm_ocr.initialize_qt_runtime_for_ocr()
 
@@ -48,15 +48,13 @@ def test_initialize_qt_runtime_for_ocr_does_not_create_config_window(monkeypatch
     assert fake_qt_main.get_config_window_calls == 0
 
 
-def test_run_qt_event_loop_for_ocr_uses_qt_app_exec(monkeypatch):
+@pytest.mark.parametrize("provide_qt_main", [True, False], ids=["provided", "lazy"])
+def test_run_qt_event_loop_for_ocr_uses_qt_app_exec(monkeypatch, provide_qt_main):
     fake_app = _FakeApp(result=123)
     fake_qt_main = _make_fake_qt_main_module(fake_app)
-    fake_ui_pkg = types.ModuleType("GameSentenceMiner.ui")
-    fake_ui_pkg.qt_main = fake_qt_main
-    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui", fake_ui_pkg)
-    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", fake_qt_main)
+    monkeypatch.setattr(gsm_ocr, "_get_qt_main_module", lambda: fake_qt_main)
 
-    result = gsm_ocr.run_qt_event_loop_for_ocr(qt_main_module=fake_qt_main)
+    result = gsm_ocr.run_qt_event_loop_for_ocr(qt_main_module=fake_qt_main if provide_qt_main else None)
 
     assert result == 123
     assert fake_qt_main.get_qt_app_calls == 1
@@ -94,10 +92,7 @@ def test_request_clean_shutdown_quits_qt_app_without_config_window(monkeypatch):
         fake_qt_main.shutdown_calls += 1
 
     fake_qt_main.shutdown_qt_app = _shutdown_qt_app
-    fake_ui_pkg = types.ModuleType("GameSentenceMiner.ui")
-    fake_ui_pkg.qt_main = fake_qt_main
-    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui", fake_ui_pkg)
-    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", fake_qt_main)
+    monkeypatch.setattr(gsm_ocr, "_get_qt_main_module", lambda: fake_qt_main)
 
     fake_qtwidgets = types.ModuleType("PyQt6.QtWidgets")
     fake_qtwidgets.QApplication = _FakeQApplication

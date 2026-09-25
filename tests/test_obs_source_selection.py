@@ -470,8 +470,10 @@ def test_replay_buffer_window_inactivity_respects_manual_management(monkeypatch)
     assert service._window_inactivity_stopped_replay is False
 
 
-def test_replay_buffer_window_activity_requires_matching_live_game_window(monkeypatch):
+@pytest.mark.parametrize("is_windows", [True, False], ids=["windows", "non-windows"])
+def test_replay_buffer_window_activity_requires_matching_live_game_window(monkeypatch, is_windows):
     service = _make_obs_service(monkeypatch)
+    monkeypatch.setattr(obs_service_module, "is_windows", lambda: is_windows)
     monitor = SimpleNamespace(
         last_target_scene_name="Game",
         last_state="minimized",
@@ -484,7 +486,7 @@ def test_replay_buffer_window_activity_requires_matching_live_game_window(monkey
         lambda: monitor,
     )
 
-    assert service._get_window_activity("Game") == "minimized"
+    assert service._get_window_activity("Game") == ("minimized" if is_windows else None)
     assert service._get_window_activity("Other Scene") is None
 
     monitor.target_hwnd = None

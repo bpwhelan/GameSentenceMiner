@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -37,7 +38,8 @@ def encoder(monkeypatch, tmp_path):
     monkeypatch.setattr(ffmpeg, "get_config", lambda: config)
     monkeypatch.setattr(ffmpeg, "get_temporary_directory", lambda: str(tmp_path))
     monkeypatch.setattr(ffmpeg.shutil, "which", lambda _name: "ffmpeg")
-    monkeypatch.setattr(ffmpeg, "find_black_bars", lambda *_args: "crop=800:450:10:20")
+    find_black_bars = Mock(return_value="crop=800:450:10:20")
+    monkeypatch.setattr(ffmpeg, "find_black_bars", find_black_bars)
     monkeypatch.setattr(ffmpeg.FFmpegHelper, "get_probe_json", lambda *_args: probe)
 
     def run(command, **_kwargs):
@@ -56,7 +58,7 @@ def encoder(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ffmpeg.FFmpegHelper, "run", run)
 
-    def encode(**kwargs):
+    def encode(*, crop="640:360:0:0", **kwargs):
         return ffmpeg.video_to_anim(
             source,
             output,
@@ -65,20 +67,29 @@ def encoder(monkeypatch, tmp_path):
             duration=12,
             fps=20,
             quality=28,
-            crop="640:360:0:0",
+            crop=crop,
             extra_vf=["setsar=1"],
             **kwargs,
         )
 
     return SimpleNamespace(
-        settings=settings, config=config, source=source, output=output, calls=calls, probe=probe, run=run, encode=encode
+        settings=settings,
+        config=config,
+        source=source,
+        output=output,
+        calls=calls,
+        probe=probe,
+        run=run,
+        encode=encode,
+        find_black_bars=find_black_bars,
     )
 
 
 @pytest.mark.parametrize("priority", ["prefer_fps", "prefer_quality", "balanced"])
-def test_target_selects_measured_settings_with_correct_priority(encoder, priority):
+@pytest.mark.parametrize("crop", ["640:360:0:0", None], ids=["manual-crop", "auto-crop"])
+def test_target_selects_measured_settings_with_correct_priority(encoder, priority, crop):
     encoder.settings.size_priority = priority
-    assert encoder.encode() == str(encoder.output)
+    assert encoder.encode(crop=crop) == str(encoder.output)
     assert len(encoder.calls) > 1
     assert encoder.output.stat().st_size <= 40 * 1024
     final = encoder.calls[-1]
@@ -97,11 +108,17 @@ def test_target_selects_measured_settings_with_correct_priority(encoder, priorit
         assert crf > 28
         assert "min(960,iw)" not in vf
 
-    # All probes must use the selected crop/filter chain and stay in the mined window.
+    if crop:
+        encoder.find_black_bars.assert_not_called()
+    else:
+        encoder.find_black_bars.assert_called_once_with(str(encoder.source), 4.5)
+
+    # Manual crops override black-bar detection. Every probe and the final encode
+    # must use the same single crop/filter chain and stay in the mined window.
+    expected_crop = f"crop={crop}" if crop else "crop=800:450:10:20"
     for command in encoder.calls:
         filters = command[command.index("-vf") + 1]
-        assert "crop=800:450:10:20" in filters
-        assert "crop=640:360:0:0" in filters
+        assert re.findall(r"crop=[^,]+", filters) == [expected_crop]
         assert "setsar=1" in filters
         assert ":round=up" in filters
         assert ":start_time=0" in filters
