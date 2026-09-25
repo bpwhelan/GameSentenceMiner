@@ -2085,32 +2085,6 @@
     </div>
 
     <div class="setting-group" data-tab="reading">
-      <h4>Local vocabulary</h4>
-      <label>
-        <span class="label-text">Parse highlighting locally
-          <div class="hotkey-info">Use Sudachi and a saved word list for the highlighting below. Works offline after the dictionary and word list are downloaded. Jiten Reader is optional. Includes parsing corrections adapted from Jiten by Sirush and contributors (Apache-2.0).</div>
-        </span>
-        <input type="checkbox" id="localVocabularyEnabled" />
-      </label>
-      <label>
-        <span class="label-text">Word list source
-          <div class="hotkey-info">Refreshes every 15 minutes while enabled. With both sources, Jiten takes precedence for matching words. Anki imports stay local.</div>
-        </span>
-        <select id="localVocabularySource">
-          <option value="jiten">Jiten</option><option value="anki">Anki</option><option value="both">Jiten and Anki</option>
-        </select>
-      </label>
-      <label><span class="label-text">Anki search<div class="hotkey-info">Optional Anki search, such as deck:Japanese. Blank includes all cards.</div></span>
-        <input type="text" id="localVocabularyAnkiQuery" placeholder="All cards" /></label>
-      <label><span class="label-text">Anki word field<div class="hotkey-info">Blank uses the word field configured in GSM.</div></span>
-        <input type="text" id="localVocabularyAnkiWordField" placeholder="GSM word field" /></label>
-      <label><span class="label-text">Anki reading field<div class="hotkey-info">Optional kana field to distinguish words with the same spelling.</div></span>
-        <input type="text" id="localVocabularyAnkiReadingField" placeholder="Optional" /></label>
-      <label><span class="label-text">Saved word list<div id="localVocabularyStatus" class="hotkey-info" role="status">Local vocabulary is disabled.</div></span>
-        <button type="button" id="localVocabularySync" class="guide-button">Sync now</button></label>
-    </div>
-
-    <div class="setting-group" data-tab="reading">
       <h4>Overlay Integration <span style="color: #ff6b6b; font-size: 13px; font-weight: normal;">⚠️ WIP</span></h4>
       <div class="hotkey-info" style="color: #ffcc66; margin-bottom: 10px;">
         Work in progress. To avoid unnecessary API calls, some operations are intentionally delayed in order to play nice with Jiten's API.
@@ -3646,8 +3620,7 @@
       ].forEach((id) => {
         const control = document.getElementById(id);
         if (control) {
-          control.disabled = !isEnabled && !(['jitenHighlightingEnabled', 'jitenHighlightOffsetY'].includes(id)
-            && document.getElementById('localVocabularyEnabled')?.checked);
+          control.disabled = !isEnabled;
         }
       });
     }
@@ -4148,15 +4121,6 @@
         afterApply: () => syncJitenReaderUi(),
       }),
       createCheckboxBinding("jitenHighlightingEnabled", "#jitenHighlightingEnabled"),
-      createCheckboxBinding("localVocabularyEnabled", "#localVocabularyEnabled", {
-        afterApply: () => { syncJitenReaderUi(); void refreshLocalVocabularyStatus(); },
-      }),
-      createSelectBinding("localVocabularySource", "#localVocabularySource", {
-        normalize: value => ['jiten', 'anki', 'both'].includes(value) ? value : 'jiten',
-      }),
-      createTextBinding("localVocabularyAnkiQuery", "#localVocabularyAnkiQuery"),
-      createTextBinding("localVocabularyAnkiWordField", "#localVocabularyAnkiWordField"),
-      createTextBinding("localVocabularyAnkiReadingField", "#localVocabularyAnkiReadingField"),
       createCheckboxBinding("showJitenGradingButtons", "#showJitenGradingButtons"),
       createHotkeyBinding("toggleFuriganaHotkey", "#toggleFuriganaHotkey"),
       createHotkeyBinding("toggleWindowHotkey", "#toggleWindowHotkey"),
@@ -4408,27 +4372,6 @@
       acknowledgeMainBoxStartupWarning();
     });
 
-    async function refreshLocalVocabularyStatus(sync = false) {
-      const status = document.getElementById('localVocabularyStatus');
-      const button = document.getElementById('localVocabularySync');
-      if (!document.getElementById('localVocabularyEnabled').checked) {
-        status.textContent = 'Local vocabulary is disabled.'; button.disabled = true; return;
-      }
-      button.disabled = true;
-      if (sync) status.textContent = 'Syncing vocabulary…';
-      try {
-        const result = await ipcRenderer.invoke(sync ? 'gsm-local-vocabulary-sync' : 'gsm-local-vocabulary-status');
-        const count = result.sources.reduce((total, source) => total + source.count, 0);
-        const times = result.sources.map(source => source.syncedAt).filter(Boolean);
-        status.textContent = `${count.toLocaleString()} saved words. ` + (times.length
-          ? `Last refreshed ${new Date(Math.min(...times) * 1000).toLocaleString()}.` : 'Choose a source and sync to import your words.')
-          + (result.errors?.length ? ' A refresh failed; saved words remain available.' : '');
-      } catch (error) {
-        status.textContent = `Sync unavailable. ${error.message}`;
-      } finally { button.disabled = !document.getElementById('localVocabularyEnabled').checked; }
-    }
-    document.getElementById('localVocabularySync').addEventListener('click', () => { void refreshLocalVocabularyStatus(true); });
-    ipcRenderer.on('local-vocabulary-changed', () => { void refreshLocalVocabularyStatus(); });
     document.getElementById("openJitenReaderSettings").addEventListener("click", () => {
       ipcRenderer.send("open-jiten-reader-settings");
     });

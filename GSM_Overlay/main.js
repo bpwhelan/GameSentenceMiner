@@ -1267,6 +1267,11 @@ function seedOverlayProfileSettings(profileName, sourceSettings = userSettings) 
 
 function normalizeOverlaySettingsProfiles(reason = "unknown") {
   let changed = false;
+  // Local vocabulary is not ready for production, including previously enabled profiles.
+  if (userSettings.localVocabularyEnabled !== false) {
+    userSettings.localVocabularyEnabled = false;
+    changed = true;
+  }
   userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] = userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] === true;
   userSettings[OVERLAY_ACTIVE_PROFILE_KEY] = normalizeOverlayProfileName(userSettings[OVERLAY_ACTIVE_PROFILE_KEY]);
   const profiles = getOverlayProfileSettingsContainer();
@@ -1291,6 +1296,10 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
       } else {
         changed = true;
       }
+    }
+    if (cleanedSettings.localVocabularyEnabled !== false) {
+      cleanedSettings.localVocabularyEnabled = false;
+      changed = true;
     }
     if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideCompletedGoals")) {
       cleanedSettings.hideCompletedGoals = DEFAULT_USER_SETTINGS.hideCompletedGoals;
@@ -1341,6 +1350,9 @@ function persistOverlaySettingForActiveProfile(key, value) {
 }
 
 function setOverlaySettingValue(key, value) {
+  if (key === "localVocabularyEnabled") {
+    value = false;
+  }
   userSettings[key] = value;
   persistOverlaySettingForActiveProfile(key, value);
 }
