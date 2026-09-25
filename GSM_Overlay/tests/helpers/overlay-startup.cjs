@@ -28,7 +28,7 @@ function loadOverlayStartup(configData, userSettings = {}) {
     ${between(main, 'let isDev = false;', 'let hachidoriEngineWindow')}
     ${between(main, 'function buildOverlaySettingsPayload()', 'function publishLiveStatsVisibilityMode')}
     function loadReader() {
-      ${between(main, '  isDev = !app.isPackaged;', '  // 1. Define Paths')}
+      ${between(main, '  isDev = !app.isPackaged;', '  let yomitanLowDiskWarningShown = false;')}
       return dictionaryReader;
     }
     globalThis.selectedReader = loadReader();

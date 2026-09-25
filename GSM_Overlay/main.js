@@ -49,6 +49,7 @@ const {
   createHachidoriExternalLinkHandler,
   hasLoadedHachidoriExtension,
 } = require('./hachidori_external_links');
+const { checkYomitanDiskSpace } = require('./yomitan_disk_space');
 const {
   OVERLAY_SETTINGS_READY_CHANNEL,
   createOverlaySettingsReadyHandler,
@@ -758,6 +759,7 @@ let lastManualActivity = Date.now();
 let activityTimer = null;
 let isDev = false;
 let yomitanExt;
+let yomitanBlockedByLowDisk = false;
 let hachidoriExt;
 let activeDictionaryReader = DICTIONARY_READER_YOMITAN;
 let hachidoriEngineWindow = null;
@@ -6065,7 +6067,11 @@ function openYomitanSettings() {
   }
   const dictionaryExtension = hachidoriExt || yomitanExt;
   if (!dictionaryExtension) {
-    dialog.showErrorBox('Error', 'The selected dictionary reader is not loaded. Restart the overlay and try again.');
+    if (yomitanBlockedByLowDisk) {
+      dialog.showErrorBox('Yomitan paused: low disk space', 'Free at least 1 GiB on the drive holding the overlay data, then restart the overlay to load Yomitan.');
+    } else {
+      dialog.showErrorBox('Error', 'The selected dictionary reader is not loaded. Restart the overlay and try again.');
+    }
     return;
   }
   // Hachidori's Design section shows its controls beside the live preview only
@@ -6585,6 +6591,46 @@ function updateTrayMenu() {
 
 
 async function startOverlayAppImpl() {
+  isDev = !app.isPackaged;
+  // Config edits take effect when the overlay restarts, not on settings broadcasts.
+  activeDictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings());
+  const dictionaryReader = activeDictionaryReader;
+  let yomitanLowDiskWarningShown = false;
+  const canLoadYomitan = async () => {
+    const diskSpace = checkYomitanDiskSpace(dataPath);
+    if (!diskSpace) {
+      console.warn('[YomitanStartup] Could not check free space on the Chromium storage volume.');
+      yomitanBlockedByLowDisk = false;
+      return true;
+    }
+    if (!diskSpace.isLow) {
+      yomitanBlockedByLowDisk = false;
+      return true;
+    }
+
+    yomitanBlockedByLowDisk = true;
+    const storageVolume = path.parse(path.resolve(dataPath)).root || dataPath;
+    const freeMiB = Math.floor(diskSpace.freeBytes / (1024 ** 2));
+    console.warn(`[YomitanStartup] Skipping Yomitan: ${freeMiB} MiB free on ${storageVolume}.`);
+    if (!yomitanLowDiskWarningShown) {
+      yomitanLowDiskWarningShown = true;
+      try {
+        await dialog.showMessageBox({
+          type: 'warning',
+          buttons: ['Continue without Yomitan'],
+          defaultId: 0,
+          title: 'Yomitan paused: low disk space',
+          message: 'Yomitan was not loaded because its storage drive is nearly full.',
+          detail: `${storageVolume} has ${freeMiB} MiB free. Chromium may corrupt or lose Yomitan dictionaries and settings when the drive fills up. The overlay will continue without Yomitan. Free at least 1 GiB on this drive, then restart the overlay.`,
+        });
+      } catch (error) {
+        console.error('[YomitanStartup] Failed to show low disk space warning:', error);
+      }
+    }
+    return false;
+  };
+  const yomitanCanLoad = dictionaryReader !== DICTIONARY_READER_YOMITAN || await canLoadYomitan();
+
   // Install before loading either extension or any overlay renderer. This
   // preserves the Reader's own rendering/settings while governing its traffic.
   uninstallJitenSessionBroker = installJitenSessionBroker(getOverlaySession(), jitenParseCache);
@@ -6624,11 +6670,6 @@ async function startOverlayAppImpl() {
   // MANIFEST SWITCHING & MIGRATION LOGIC
   // ===========================================================
 
-  isDev = !app.isPackaged;
-  // Keep renderer routing aligned with the extensions loaded by this startup.
-  // Config edits take effect when the overlay restarts, not on settings broadcasts.
-  activeDictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings());
-  const dictionaryReader = activeDictionaryReader;
   const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
 
   // 1. Define Paths
@@ -6644,7 +6685,7 @@ async function startOverlayAppImpl() {
   const skipMigrationConfirmationInLinux = true;
 
   // DO LINUX FIRST, and then windows later if we need it...
-  if (dictionaryReader === DICTIONARY_READER_YOMITAN && isLinux()) {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad && isLinux()) {
     if (skipMigrationConfirmationInLinux) {
       try {
         if (!fs.existsSync(staticManifestPath)) {
@@ -6773,7 +6814,7 @@ async function startOverlayAppImpl() {
 
   // Detect if yomitan extension files changed since last overlay launch (e.g. GSM app update).
   // If so, clear Chromium's cached service workers to prevent stale compiled background scripts.
-  if (dictionaryReader === DICTIONARY_READER_YOMITAN) {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad) {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
     const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
@@ -6801,7 +6842,7 @@ async function startOverlayAppImpl() {
     try {
       fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
     } catch {}
-  } else {
+  } else if (dictionaryReader === DICTIONARY_READER_HACHIDORI) {
     // Electron keeps running the first background.js it registered, whatever the manifest version,
     // so a Hachidori sync would pair new pages with an old worker. SOURCE.json names the vendored commit.
     const hachidoriExtDir = isDev ? path.join(__dirname, 'hachidori') : path.join(getPackagedResourcesPath(), 'hachidori');
@@ -6835,7 +6876,7 @@ async function startOverlayAppImpl() {
   }
 
   // If migration marker exists, update it with the actual ID for debugging
-  if (dictionaryReader === DICTIONARY_READER_YOMITAN && fs.existsSync(markerPath)) {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad && fs.existsSync(markerPath)) {
     const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
     if (!markerData.id && yomitanExt) {
       markerData.id = yomitanExt.id;
@@ -6844,7 +6885,7 @@ async function startOverlayAppImpl() {
   }
 
   // Watch yomitan extension directory for rebuilds and hot-reload on change (dev workflow)
-  if (dictionaryReader === DICTIONARY_READER_YOMITAN) {
+  if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad) {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
     const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
@@ -8602,6 +8643,7 @@ async function stopOverlayApp() {
         }
       });
       yomitanExt = null;
+      yomitanBlockedByLowDisk = false;
       hachidoriExt = null;
       jitenReaderExt = null;
 
