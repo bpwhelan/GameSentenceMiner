@@ -1,0 +1,54 @@
+name: Feature request
+description: Suggest an improvement or capability for GSM.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Before submitting, search existing issues and Discussions for a similar idea.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation or workflow that led to this request.
+      placeholder: I have trouble with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: What would you like GSM to do?
+      description: Describe the behavior or feature you have in mind.
+      placeholder: It would help if GSM could...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this relate to?
+      options:
+        - Text capture or OCR
+        - Anki or cards
+        - Integrations or text hooks
+        - Audio or screenshots
+        - User interface
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: Have you tried another approach or found a workaround?
+
+  - type: textarea
+    id: extra-context
+    attributes:
+      label: Additional context
+      description: Add examples, screenshots, or other details that would help explain the request.
+

@@ -1,0 +1,75 @@
+name: Bug report
+description: Report something that is broken or behaving unexpectedly in GSM.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Before submitting, search existing issues for the same problem. For general
+        questions or setup help, use the Discord or Discussions links instead.
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you were doing when it occurred.
+      placeholder: Tell us what went wrong.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest sequence of steps that reliably triggers the problem.
+      placeholder: |
+        1. Open...
+        2. Select...
+        3. See the error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: What did you expect to happen?
+      description: Describe what you expected GSM to do instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Steam Deck
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: gsm-version
+    attributes:
+      label: GSM version
+      description: Include the version shown in GSM, or enter "unknown".
+      placeholder: e.g. 1.2.3
+    validations:
+      required: true
+
+  - type: input
+    id: game-source
+    attributes:
+      label: Game or text source
+      description: If relevant, include the game and how GSM receives its text (hook, OCR, texthooker, etc.).
+      placeholder: e.g. Game title; OCR
+
+  - type: textarea
+    id: logs-media
+    attributes:
+      label: Logs, screenshots, or other details
+      description: Attach relevant screenshots or error messages. Remove personal or sensitive information from logs before sharing.
+

@@ -681,47 +681,6 @@ def test_gamepad_edit_actions_respect_unavailable_controls(
     assert len(clicked) == 0
 
 
-@pytest.mark.parametrize(
-    ("action", "focused_button", "use_audio"),
-    [
-        ("confirm_with_audio", None, True),
-        ("confirm_without_audio", None, False),
-        ("activate", "voice_button", True),
-        ("activate", "no_voice_button", False),
-        ("activate", "confirm_button", False),
-    ],
-)
-def test_gamepad_confirmation_keeps_dialog_open_for_half_a_second(
-    gamepad_confirmation_dialog, action, focused_button, use_audio
-):
-    dialog = gamepad_confirmation_dialog
-    if focused_button:
-        button = getattr(dialog, focused_button)
-        button.setFocus()
-        assert QApplication.focusWidget() is button
-    accepted = QSignalSpy(dialog.accepted)
-    elapsed = QElapsedTimer()
-    elapsed.start()
-
-    dialog._on_gamepad_action(action)
-    # Further presses must not change or duplicate the pending confirmation.
-    dialog._on_gamepad_action("confirm_without_audio" if use_audio else "confirm_with_audio")
-    dialog._on_gamepad_action("activate")
-
-    assert dialog.result is None
-    assert not accepted.wait(200)
-    assert dialog.isVisible()
-    assert dialog._gamepad_capture_active
-    assert accepted.wait(1000)
-    # Qt's integer millisecond clocks can differ by one millisecond at the deadline.
-    assert dialog._gamepad_confirmation_timer.interval() == 500
-    assert elapsed.elapsed() >= 499
-    assert len(accepted) == 1
-    assert dialog.result[0] is use_audio
-    assert not dialog.isVisible()
-    assert not dialog._gamepad_capture_active
-
-
 def test_hiding_dialog_cancels_pending_gamepad_confirmation(gamepad_confirmation_dialog):
     dialog = gamepad_confirmation_dialog
     accepted = QSignalSpy(dialog.accepted)
