@@ -96,8 +96,19 @@
         await api.ready();
         if (destroyed || revision !== lookupRevision) return false;
         if (!candidate || (candidate.anchor && !candidate.anchor.isConnected)) { api.hide(); return false; }
-        api.cancelHover();
-        api.lookupCandidate(candidate);
+        // Match native hover's pending/visible lookup reuse. Canceling a candidate
+        // scan here hides and clears an inert popup while its replacement is still
+        // loading, and repeated controller input restarts the same engine request.
+        // A new lookup already invalidates older replies through the native token.
+        api.cancelHover({ preserveLookup: true });
+        const { levels, pendingCandidateLookup: pending } = api.state();
+        const root = levels[0];
+        const signature = api.candidateSignature(candidate);
+        if (pending && pending.token === root?.lookupToken && pending.signature === signature
+          && api.sameAnchorNode(candidate, pending.candidate)) return true;
+        if (root?.popup && !root.popup.hidden && !root.popup.inert && root.activeSignature === signature
+          && api.sameAnchorNode(candidate, root.activeCandidate)) return true;
+        api.lookupCandidate(candidate, signature);
         return true;
       }
       if (popupControls.has(action)) { const handled = popup.control(action, body); refresh(); return handled; }

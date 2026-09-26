@@ -3725,7 +3725,9 @@ class GamepadHandler {
       this.clearPendingMineCandidate();
     } else {
       this.dictionaryPopupVisible = true;
-      this.resetDictionaryPopupActionSelection();
+      // The parent popup retains its own selection while a nested popup is
+      // open. Resetting here would move the selection to the parent's default
+      // mining action as soon as the child closes.
     }
   }
 

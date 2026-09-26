@@ -15,11 +15,14 @@ const begin = '// GSM integration hook begin';
 const end = '// GSM integration hook end';
 const hook = `${begin}
   gsmBridge = globalThis.GsmHachidoriIntegration?.install({
-    state: () => ({ disposed, levels, options, dictionaries }),
+    state: () => ({ disposed, levels, options, dictionaries, pendingCandidateLookup }),
     ready: () => globalThis.HDReaderReady,
     readOptions: async () => (await chrome.storage.local.get("options")).options ?? null,
-    resolveCandidate, resolveCandidateAt, lookupCandidate, hide, sendRequest,
-    cancelHover() { cancelCandidateScan(); clearHideTimer(); clearTransferTimer(); clearDescendantTimer(); },
+    resolveCandidate, resolveCandidateAt, candidateSignature, sameAnchorNode, lookupCandidate, hide, sendRequest,
+    cancelHover({ preserveLookup = false } = {}) {
+      if (preserveLookup) clearScanTimer(); else cancelCandidateScan();
+      clearHideTimer(); clearTransferTimer(); clearDescendantTimer();
+    },
     command: (action, argument) => runKeybindAction({ action, argument }, { preventDefault() {}, stopPropagation() {} }),
   });
   ${end}`;

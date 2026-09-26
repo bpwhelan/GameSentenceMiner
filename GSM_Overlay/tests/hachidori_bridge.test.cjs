@@ -18,6 +18,8 @@ function setup() {
     ready: () => Promise.resolve(),
     sendRequest: async (...args) => { calls.push(args); return { ok: true }; },
     resolveCandidate: () => ({ query: '猫' }), resolveCandidateAt() {},
+    candidateSignature: candidate => candidate.query,
+    sameAnchorNode: (candidate, other) => !!other && candidate.anchor === other.anchor,
     lookupCandidate: candidate => calls.push(candidate), hide: () => calls.push('hide'),
     cancelHover: () => calls.push('cancelHover'), command: action => calls.push(action),
   };
@@ -81,4 +83,45 @@ test('navigation state suppresses hover and is cleaned up on destroy', async () 
   assert.ok(h.calls.includes('cancelHover'));
   h.bridge.destroy();
   assert.equal(h.bridge.navigationActive, false);
+});
+
+test('controller lookup reuses a matching pending or visible native lookup', async () => {
+  for (const pending of [true, false]) {
+    const h = setup();
+    const candidate = { query: '猫', anchor: { isConnected: true } };
+    const root = { lookupToken: 7, popup: { hidden: false, inert: pending },
+      activeCandidate: candidate, activeSignature: '猫' };
+    h.api.resolveCandidate = () => ({ ...candidate });
+    h.api.state = () => ({ levels: [root], pendingCandidateLookup: pending
+      ? { token: 7, candidate, signature: '猫' } : null });
+    assert.equal((await h.send('control', { action: 'lookup-point', x: 10, y: 20 })).data, true);
+    assert.equal(h.calls.some(call => call?.query === '猫'), false);
+    h.bridge.destroy();
+  }
+});
+
+test('controller retargeting stops hover timers without clearing the pending popup', async () => {
+  const h = setup();
+  let hoverOptions;
+  h.api.cancelHover = options => { hoverOptions = options; };
+  await h.send('control', { action: 'lookup-point', x: 10, y: 20 });
+  assert.deepEqual(hoverOptions, { preserveLookup: true });
+  assert.ok(h.calls.some(call => call?.query === '猫'));
+  h.bridge.destroy();
+});
+
+test('hidden, invalidated, or differently anchored lookups do not suppress a new request', async () => {
+  for (const scenario of ['hidden', 'invalidated', 'different-anchor']) {
+    const h = setup();
+    const candidate = { query: '猫', anchor: { isConnected: true } };
+    const root = { lookupToken: 8, popup: { hidden: scenario === 'hidden', inert: scenario === 'invalidated' },
+      activeCandidate: candidate, activeSignature: '猫' };
+    h.api.resolveCandidate = () => scenario === 'different-anchor'
+      ? { ...candidate, anchor: { isConnected: true } } : candidate;
+    h.api.state = () => ({ levels: [root], pendingCandidateLookup: scenario === 'invalidated'
+      ? { token: 7, candidate, signature: '猫' } : null });
+    await h.send('control', { action: 'lookup-point', x: 10, y: 20 });
+    assert.ok(h.calls.some(call => call?.query === '猫'), scenario);
+    h.bridge.destroy();
+  }
 });

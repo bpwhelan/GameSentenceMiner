@@ -15,6 +15,7 @@ import './reader-options.js';
 const calls = [];
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 let focusScenario = null;
+let pendingLookups = null;
 const ready = chrome.storage.local.set({
   options: { ...globalThis.HDReaderOptions.DEFAULT_OPTIONS, revision: 1, popupWidth: 600,
     audioAutoplay: true, anki: { ...globalThis.HDReaderOptions.DEFAULT_OPTIONS.anki, model: 'Fixture' } },
@@ -27,6 +28,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     switch (message.type) {
       case 'hd_page_zoom': payload = { zoomFactor: 1 }; break;
       case 'hd_lookup':
+        if (pendingLookups) await pendingLookups.promise;
         if (message.text.startsWith('遅')) await new Promise(resolve => setTimeout(resolve, 300));
         payload = { generation: 1, dictionaryCount: 1, results: ['猫', '犬', '鳥'].map((word, index) => ({
           matched: message.text[0], term: { expression: word, reading: ['ねこ','いぬ','とり'][index],
@@ -49,6 +51,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         payload = { status: scenario?.mode === 'no-result' ? 'no-result' : 'success' }; break;
       }
       case 'hd_status':
+        if (message.pauseLookups) pendingLookups = deferred();
+        if (message.releaseLookups) { pendingLookups.resolve(); pendingLookups = null; }
         if (message.focusScenario) focusScenario = { mode: message.focusScenario, first: deferred(), later: deferred(), audio: deferred() };
         if (message.releaseFirst) focusScenario.first.resolve();
         if (message.finishFocus) {
@@ -208,6 +212,33 @@ app.whenReady().then(async () => {
     await wait(() => handler.dictionaryPopupVisible, 'final popup');
     await wait(() => root().querySelector('.gsm-controller-selected[data-action="add"]:not(:disabled)'), 'final action availability');
     await wait(() => root().querySelector('.gsm-jiten-bar:not([hidden])'), 'final grading bar');
+    // A held direction can revisit a word before the engine finishes. Like mouse
+    // hover, keep the old popup mounted and only perform each current lookup once.
+    let hiddenDuringNavigation = 0;
+    const onHidden = () => hiddenDuringNavigation++;
+    window.addEventListener('gsm-hachidori-popup-hidden', onHidden);
+    const lookupCount = async () => (await calls()).filter(call => call.type === 'hd_lookup').length;
+    const lookupBaseline = await lookupCount();
+    const existingEntry = root().querySelector('.gsm-hoshidicts-entry');
+    await gsmHachidoriBridge.invoke('status', { pauseLookups: true });
+    handler.currentCursorIndex = 0;
+    handler.navigateCursorRight();
+    await wait(async () => await lookupCount() === lookupBaseline + 1, 'pending navigation lookup');
+    // Repeated commands for an in-flight word must neither cancel nor restart it.
+    handler.autoConfirmSelection();
+    await gsmHachidoriBridge.state();
+    assert(await lookupCount() === lookupBaseline + 1, 'Repeated pending target must reuse its dictionary lookup');
+    handler.navigateCursorRight();
+    await wait(async () => await lookupCount() === lookupBaseline + 2, 'replacement navigation lookup');
+    assert(hiddenDuringNavigation === 0, 'Rapid navigation must not close the popup between words');
+    assert(existingEntry.isConnected, 'Rapid navigation must retain the rendered entries until replacement');
+    await gsmHachidoriBridge.invoke('status', { releaseLookups: true });
+    await wait(async () => (await gsmHachidoriBridge.invoke('selection'))?.matchOffset === 2
+      && root().querySelector('.gsm-controller-selected[data-action="add"]:not(:disabled)'), 'latest navigation result');
+    handler.autoConfirmSelection();
+    await gsmHachidoriBridge.state();
+    assert(await lookupCount() === lookupBaseline + 2, 'Repeated rendered target must not rebuild the popup');
+    window.removeEventListener('gsm-hachidori-popup-hidden', onHidden);
     window.fixtureHandler = handler;
     return { mining: mined, grading: window.lastGrade.rating, calls: (await calls()).map(call => call.type) };
   })()`);
