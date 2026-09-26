@@ -51,6 +51,7 @@ const {
   hasLoadedHachidoriExtension,
 } = require('./hachidori_external_links');
 const { checkYomitanDiskSpace } = require('./yomitan_disk_space');
+const { getExtensionContentRevision } = require('./extension_revision');
 const {
   OVERLAY_SETTINGS_READY_CHANNEL,
   createOverlaySettingsReadyHandler,
@@ -3694,7 +3695,9 @@ function ensureExtensionCopy(name, sourceDir) {
   fs.mkdirSync(extensionsRoot, { recursive: true });
   const targetDir = path.join(extensionsRoot, name);
   const versions = readExtensionVersions();
-  const sourceVersion = readExtensionPackageVersion(sourceDir);
+  const sourceVersion = name === 'yomitan'
+    ? getExtensionContentRevision(sourceDir)
+    : readExtensionPackageVersion(sourceDir);
   const storedVersion = versions[name] || null;
 
   let shouldCopy = false;
@@ -7002,32 +7005,33 @@ async function startOverlayAppImpl() {
   // If so, clear Chromium's cached service workers to prevent stale compiled background scripts.
   if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad) {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
-    const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
-    const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
-    let currentMtime = 0;
-    try { currentMtime = fs.statSync(yomitanManifestPath).mtimeMs; } catch {}
-    let storedMtime = 0;
+    const yomitanRevisionPath = path.join(dataPath, 'yomitan_last_revision.json');
+    let currentRevision = null;
+    try { currentRevision = getExtensionContentRevision(yomitanExtDir); }
+    catch (error) { console.warn('[YomitanStartup] Could not fingerprint extension files:', error); }
+    let storedRevision = null;
     try {
-      const stored = JSON.parse(fs.readFileSync(yomitanMtimePath, 'utf-8'));
-      storedMtime = stored && typeof stored.mtime === 'number' ? stored.mtime : 0;
+      storedRevision = JSON.parse(fs.readFileSync(yomitanRevisionPath, 'utf-8')).revision;
     } catch {}
 
-    if (currentMtime > 0 && currentMtime !== storedMtime) {
-      console.log(`[YomitanStartup] Extension files changed (stored=${storedMtime}, current=${currentMtime}). Clearing service worker cache...`);
+    let cacheReady = true;
+    if (!currentRevision || currentRevision !== storedRevision) {
+      console.log('[YomitanStartup] Extension contents changed. Clearing service worker cache...');
       try {
         await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
         console.log('[YomitanStartup] Service worker cache cleared.');
       } catch (e) {
+        cacheReady = false;
         console.warn('[YomitanStartup] Failed to clear service worker cache:', e);
       }
     }
 
     yomitanExt = await loadExtension('yomitan');
 
-    // Persist the mtime after successful load
-    try {
-      fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
-    } catch {}
+    // Retry cache invalidation next launch if clearing or loading failed.
+    if (yomitanExt && currentRevision && cacheReady) {
+      try { fs.writeFileSync(yomitanRevisionPath, JSON.stringify({ revision: currentRevision })); } catch {}
+    }
   } else if (dictionaryReader === DICTIONARY_READER_HACHIDORI) {
     // Electron keeps running the first background.js it registered, whatever the manifest version,
     // so a Hachidori sync would pair new pages with an old worker. SOURCE.json names the vendored commit.
@@ -7074,7 +7078,7 @@ async function startOverlayAppImpl() {
   if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad) {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
-    const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
+    const yomitanRevisionPath = path.join(dataPath, 'yomitan_last_revision.json');
     let yomitanReloadDebounce = null;
     let yomitanLastMtime = (() => { try { return fs.statSync(yomitanManifestPath).mtimeMs; } catch { return 0; } })();
 
@@ -7097,18 +7101,21 @@ async function startOverlayAppImpl() {
           }
           return;
         }
-        // Clear stale service worker cache before reloading
-        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
+        // Unload first so the old worker cannot re-register while storage is cleared.
         const extensionApi = getExtensionSessionApi();
         if (yomitanExt && yomitanExt.id) {
           extensionApi.removeExtension(yomitanExt.id);
           console.log(`[YomitanHotReload] Unloaded old yomitan extension (id: ${yomitanExt.id})`);
         }
+        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
         yomitanExt = await loadExtension('yomitan');
         console.log(`[YomitanHotReload] Reloaded yomitan extension (id: ${yomitanExt ? yomitanExt.id : 'null'})`);
 
-        // Persist new mtime
-        try { fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime })); } catch {}
+        if (yomitanExt) {
+          try {
+            fs.writeFileSync(yomitanRevisionPath, JSON.stringify({ revision: getExtensionContentRevision(yomitanExtDir) }));
+          } catch {}
+        }
 
         // Reload all webContents so content scripts re-inject
         if (mainWindow && !mainWindow.isDestroyed()) {
