@@ -730,9 +730,14 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ ids: [lineId] }),
 			});
+			const data = await response.json().catch(() => ({}));
 			if (!response.ok) {
-				const data = await response.json().catch(() => ({}));
 				throw new Error(data.error || `HTTP error: ${response.status}`);
+			}
+			if (data.already_saved) {
+				savingLineIds = savingLineIds.filter((id) => id !== lineId);
+				savedLineIds = [...new Set([...savedLineIds, lineId])];
+				showSaveToast('Already saved for later');
 			}
 		} catch (error) {
 			savingLineIds = savingLineIds.filter((id) => id !== lineId);

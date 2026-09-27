@@ -1224,10 +1224,15 @@ def save_lines():
     if not lines:
         return jsonify({"error": "Invalid id"}), 400
     lines.sort(key=lambda line: line.time)
+    line_ids = [line.id for line in lines]
+
+    existing = saved_lines.find_saved_folder(saved_lines.get_saved_lines_root(), lines)
+    if existing:
+        return jsonify({"queued": False, "already_saved": True, "line_ids": line_ids, "folder": existing}), 200
 
     wait_seconds = saved_lines.seconds_until_clip_ready(lines)
     _queue_line_save(lines, wait_seconds)
-    return jsonify({"queued": True, "line_ids": [line.id for line in lines], "wait_seconds": wait_seconds}), 200
+    return jsonify({"queued": True, "line_ids": line_ids, "wait_seconds": wait_seconds}), 200
 
 
 @app.route("/texthooker/audio/<token>", methods=["GET"])

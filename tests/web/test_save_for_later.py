@@ -116,3 +116,24 @@ def test_queued_save_triggers_an_obs_replay(monkeypatch):
 
     assert started and saved == [True]
     assert texthooking_page.gsm_state.pending_line_saves == [lines]
+
+
+def test_already_saved_line_is_not_queued_again(monkeypatch):
+    line = _line("a", 0)
+    queued = []
+    monkeypatch.setattr(texthooking_page, "get_config", lambda: _config("/out"))
+    monkeypatch.setattr(texthooking_page, "get_event_line_by_id", {"a": line}.get)
+    monkeypatch.setattr(saved_lines, "get_saved_lines_root", lambda: "/out/Saved")
+    monkeypatch.setattr(saved_lines, "find_saved_folder", lambda root, lines: "/out/Saved/day/folder")
+    monkeypatch.setattr(texthooking_page, "_queue_line_save", lambda selected, wait: queued.append(selected))
+
+    response = texthooking_page.app.test_client().post("/save-lines", json={"id": "a"})
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "queued": False,
+        "already_saved": True,
+        "line_ids": ["a"],
+        "folder": "/out/Saved/day/folder",
+    }
+    assert queued == []

@@ -237,3 +237,32 @@ def test_read_manifest_round_trips(tmp_path):
     (tmp_path / saved_lines.MANIFEST_NAME).write_text(json.dumps({"version": 1}), encoding="utf-8")
 
     assert saved_lines.read_manifest(str(tmp_path)) == {"version": 1}
+
+
+@requires_ffmpeg
+def test_saving_the_same_line_again_reuses_its_folder(tmp_path):
+    replay = tmp_path / "replay.mkv"
+    length = _make_replay(replay)
+    _, line, _ = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
+    line.first_seen_time = line.time - timedelta(milliseconds=250)
+    kwargs = {"replay_end_time": BASE + timedelta(seconds=length)}
+
+    first = saved_lines.save_lines_to_disk(str(replay), [line], str(tmp_path / "Saved"), **kwargs)
+    line.text = "今（改訂）"
+    line.time += timedelta(seconds=1)  # a later revision moves `time`, not `first_seen_time`
+    second = saved_lines.save_lines_to_disk(str(replay), [line], str(tmp_path / "Saved"), **kwargs)
+
+    assert second == first
+    assert os.path.basename(first).startswith("12-00-15-750_")
+    assert len(os.listdir(os.path.dirname(first))) == 1
+
+
+def test_find_saved_folder_matches_the_same_selection_only(tmp_path):
+    a, b = _chain(("a", "一", 10), ("b", "二", 12))
+    folder = tmp_path / "2026-09-27" / "12-00-10-000_一"
+    folder.mkdir(parents=True)
+    (folder / saved_lines.MANIFEST_NAME).write_text(json.dumps({"selected_line_ids": ["a"]}), encoding="utf-8")
+
+    assert saved_lines.find_saved_folder(str(tmp_path), [a]) == str(folder)
+    assert saved_lines.find_saved_folder(str(tmp_path), [a, b]) is None
+    assert saved_lines.find_saved_folder(str(tmp_path), [b]) is None

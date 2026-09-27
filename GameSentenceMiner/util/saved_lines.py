@@ -87,10 +87,40 @@ def _line_entry(line: GameLine, role: str) -> dict:
     }
 
 
+def _identity_time(line: GameLine) -> datetime:
+    # Revisions can move `time`; first_seen_time stays put, so it identifies the line.
+    return getattr(line, "first_seen_time", None) or line.time
+
+
+def _folder_prefix(line: GameLine) -> tuple[str, str]:
+    moment = _identity_time(line)
+    return moment.strftime("%Y-%m-%d"), f"{moment.strftime('%H-%M-%S')}-{moment.microsecond // 1000:03d}_"
+
+
+def find_saved_folder(saved_root: str, lines: list[GameLine]) -> str | None:
+    """Return the folder these exact lines were already saved to, if any."""
+    lines = sorted(lines, key=lambda line: line.time)
+    day, prefix = _folder_prefix(lines[0])
+    day_folder = os.path.join(saved_root, day)
+    if not os.path.isdir(day_folder):
+        return None
+    line_ids = [line.id for line in lines]
+    for name in sorted(os.listdir(day_folder)):
+        if not name.startswith(prefix):
+            continue
+        folder = os.path.join(day_folder, name)
+        try:
+            if read_manifest(folder).get("selected_line_ids") == line_ids:
+                return folder
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 def _make_folder(saved_root: str, first_line: GameLine, full_text: str) -> str:
     name = sanitize_filename(full_text.strip())[:32].strip() or "line"
-    day_folder = os.path.join(saved_root, first_line.time.strftime("%Y-%m-%d"))
-    folder = os.path.join(day_folder, f"{first_line.time.strftime('%H-%M-%S')}_{name}")
+    day, prefix = _folder_prefix(first_line)
+    folder = os.path.join(saved_root, day, f"{prefix}{name}")
     suffix = 2
     candidate = folder
     while os.path.exists(candidate):
@@ -107,7 +137,15 @@ def save_lines_to_disk(
     game: str = "",
     replay_end_time: datetime | None = None,
 ) -> str:
-    """Copy the replay span around lines into a new folder under saved_root and return its path."""
+    """Copy the replay span around lines into a new folder under saved_root and return its path.
+
+    Saving the same lines again returns their existing folder instead of copying a second clip.
+    """
+    existing = find_saved_folder(saved_root, lines)
+    if existing:
+        logger.info(f"Line(s) already saved for later: {existing}")
+        return existing
+
     window = plan_clip_window(lines)
     lines = window.lines
     replay_end_time = replay_end_time or get_file_modification_time(video_path)
