@@ -1,4 +1,4 @@
-"""API behind the Saved page: list saved lines, play their audio, enrich a card, move to trash."""
+"""API behind the Clips to mine page: list clips, play their audio, enrich a card, move to trash."""
 
 import base64
 import hashlib
@@ -10,26 +10,26 @@ import shutil
 from flask import Response, jsonify, request, send_file
 from send2trash import send2trash
 
-from GameSentenceMiner import anki, saved_line_cards
-from GameSentenceMiner.util import saved_lines
+from GameSentenceMiner import anki, clip_cards
+from GameSentenceMiner.util import clips
 from GameSentenceMiner.util.config.configuration import get_config, get_temporary_directory, logger
 
 
-def _saved_root() -> str:
+def _clips_root() -> str:
     output_folder = get_config().paths.output_folder
-    return saved_lines.get_saved_lines_root(output_folder) if output_folder else ""
+    return clips.get_clips_root(output_folder) if output_folder else ""
 
 
-def _resolve(saved_id: str | None) -> str | None:
-    """Map an id like "2026-09-28/00-21-27-412_text" to its folder, refusing anything outside Saved/."""
-    root = _saved_root()
-    if not root or not saved_id or os.path.isabs(saved_id):
+def _resolve(clip_id: str | None) -> str | None:
+    """Map an id like "2026-09-28/00-21-27-412_text" to its folder, refusing anything outside Clips/."""
+    root = _clips_root()
+    if not root or not clip_id or os.path.isabs(clip_id):
         return None
     root = os.path.realpath(root)
-    folder = os.path.realpath(os.path.join(root, saved_id))
+    folder = os.path.realpath(os.path.join(root, clip_id))
     if folder == root or os.path.commonpath([root, folder]) != root:
         return None
-    return folder if os.path.isfile(os.path.join(folder, saved_lines.MANIFEST_NAME)) else None
+    return folder if os.path.isfile(os.path.join(folder, clips.MANIFEST_NAME)) else None
 
 
 def _folder_size(folder: str) -> int:
@@ -40,17 +40,17 @@ def _folder_size(folder: str) -> int:
     return total
 
 
-def _summary(saved: saved_lines.SavedLine, root: str) -> dict:
-    first = saved.selected[0] if saved.selected else None
+def _summary(clip: clips.Clip, root: str) -> dict:
+    first = clip.selected[0] if clip.selected else None
     return {
-        "id": os.path.relpath(saved.folder, root).replace(os.sep, "/"),
-        "game": saved.game,
-        "sentence": saved.manifest.get("sentence", ""),
+        "id": os.path.relpath(clip.folder, root).replace(os.sep, "/"),
+        "game": clip.game,
+        "sentence": clip.manifest.get("sentence", ""),
         "line_time": first.time.isoformat() if first else "",
-        "saved_at": saved.manifest.get("saved_at", ""),
-        "cards": saved.manifest.get("cards", []),
-        "size_bytes": _folder_size(saved.folder),
-        "lines": [{"text": entry["text"], "role": entry.get("role", "")} for entry in saved.manifest["lines"]],
+        "saved_at": clip.manifest.get("saved_at", ""),
+        "cards": clip.manifest.get("cards", []),
+        "size_bytes": _folder_size(clip.folder),
+        "lines": [{"text": entry["text"], "role": entry.get("role", "")} for entry in clip.manifest["lines"]],
     }
 
 
@@ -60,13 +60,13 @@ _CARD_MEDIA_PATTERNS = {
 }
 
 
-def register_saved_lines_api_routes(app):
-    @app.route("/api/saved-lines", methods=["GET"])
-    def saved_lines_list():
-        root = _saved_root()
+def register_clips_api_routes(app):
+    @app.route("/api/clips", methods=["GET"])
+    def clips_list():
+        root = _clips_root()
         if not root:
-            return jsonify({"saved_lines": [], "error": "No output folder is set in the Paths settings."})
-        items = [_summary(saved, os.path.realpath(root)) for saved in saved_lines.iter_saved_lines(root)]
+            return jsonify({"clips": [], "error": "No output folder is set in the Paths settings."})
+        items = [_summary(clip, os.path.realpath(root)) for clip in clips.iter_clips(root)]
         items.sort(key=lambda item: item["line_time"], reverse=True)
         try:
             disk = shutil.disk_usage(root if os.path.isdir(root) else os.path.dirname(root))
@@ -74,7 +74,7 @@ def register_saved_lines_api_routes(app):
             disk = None
         return jsonify(
             {
-                "saved_lines": items,
+                "clips": items,
                 "total_bytes": sum(item["size_bytes"] for item in items),
                 "disk_total_bytes": disk.total if disk else None,
                 "disk_used_bytes": disk.used if disk else None,
@@ -82,55 +82,55 @@ def register_saved_lines_api_routes(app):
             }
         )
 
-    def _trash(saved_id: str) -> str | None:
-        """Move one saved line to the system trash; return an error message, or None on success."""
-        folder = _resolve(saved_id)
+    def _trash(clip_id: str) -> str | None:
+        """Move one clip to the system trash; return an error message, or None on success."""
+        folder = _resolve(clip_id)
         if not folder:
-            return "Saved line not found."
+            return "Clip not found."
         try:
             send2trash(folder)
         except Exception as e:
-            logger.exception(f"Failed to move saved line to the trash: {folder}")
+            logger.exception(f"Failed to move clip to the trash: {folder}")
             return f"Could not move it to the trash: {e}"
         return None
 
-    @app.route("/api/saved-lines", methods=["DELETE"])
-    def saved_lines_delete():
-        saved_id = request.args.get("id")
-        error = _trash(saved_id)
+    @app.route("/api/clips", methods=["DELETE"])
+    def clips_delete():
+        clip_id = request.args.get("id")
+        error = _trash(clip_id)
         if error:
-            return jsonify({"error": error}), 404 if error == "Saved line not found." else 500
-        return jsonify({"trashed": saved_id})
+            return jsonify({"error": error}), 404 if error == "Clip not found." else 500
+        return jsonify({"trashed": clip_id})
 
-    @app.route("/api/saved-lines/trash", methods=["POST"])
-    def saved_lines_trash_many():
+    @app.route("/api/clips/trash", methods=["POST"])
+    def clips_trash_many():
         ids = (request.get_json() or {}).get("ids") or []
         if not isinstance(ids, list) or not ids:
-            return jsonify({"error": "No saved lines selected."}), 400
+            return jsonify({"error": "No clips selected."}), 400
         trashed, failed = [], []
-        for saved_id in ids:
-            error = _trash(saved_id) if isinstance(saved_id, str) else "Saved line not found."
+        for clip_id in ids:
+            error = _trash(clip_id) if isinstance(clip_id, str) else "Clip not found."
             if error:
-                failed.append({"id": saved_id, "error": error})
+                failed.append({"id": clip_id, "error": error})
             else:
-                trashed.append(saved_id)
+                trashed.append(clip_id)
         return jsonify({"trashed": trashed, "failed": failed})
 
-    @app.route("/api/saved-lines/audio", methods=["GET"])
-    def saved_lines_audio():
+    @app.route("/api/clips/audio", methods=["GET"])
+    def clips_audio():
         folder = _resolve(request.args.get("id"))
         if not folder:
-            return jsonify({"error": "Saved line not found."}), 404
-        saved = saved_lines.load_saved_line(folder)
+            return jsonify({"error": "Clip not found."}), 404
+        clip = clips.load_clip(folder)
         name = hashlib.sha1(folder.encode("utf-8")).hexdigest()[:16]
-        output_path = os.path.join(get_temporary_directory(), f"saved_line_{name}.mp3")
-        saved_lines.extract_line_audio(saved, output_path)
+        output_path = os.path.join(get_temporary_directory(), f"clip_audio_{name}.mp3")
+        clips.extract_clip_audio(clip, output_path)
         if not os.path.isfile(output_path):
             return jsonify({"error": "Could not extract the line's audio."}), 500
         return send_file(output_path, mimetype="audio/mpeg", conditional=True)
 
-    @app.route("/api/saved-lines/card-media", methods=["GET"])
-    def saved_lines_card_media():
+    @app.route("/api/clips/card-media", methods=["GET"])
+    def clips_card_media():
         """Serve the latest card's current audio or picture so the page can show what Enrich replaces."""
         kind = request.args.get("kind", "")
         pattern = _CARD_MEDIA_PATTERNS.get(kind)
@@ -158,12 +158,12 @@ def register_saved_lines_api_routes(app):
         mimetype = mimetypes.guess_type(match.group(1))[0] or "application/octet-stream"
         return Response(base64.b64decode(data), mimetype=mimetype, headers={"Cache-Control": "no-store"})
 
-    @app.route("/api/saved-lines/enrich", methods=["POST"])
-    def saved_lines_enrich():
+    @app.route("/api/clips/enrich", methods=["POST"])
+    def clips_enrich():
         data = request.get_json() or {}
         folder = _resolve(data.get("id"))
         if not folder:
-            return jsonify({"error": "Saved line not found."}), 404
+            return jsonify({"error": "Clip not found."}), 404
         try:
             card = anki.get_last_anki_card()
         except Exception as e:
@@ -172,13 +172,13 @@ def register_saved_lines_api_routes(app):
         if not card:
             return jsonify({"error": "No card was added to Anki today. Add one with Yomitan first."}), 404
 
-        saved = saved_lines.load_saved_line(folder)
-        check = saved_line_cards.check_enrich(card, saved)
+        clip = clips.load_clip(folder)
+        check = clip_cards.check_enrich(card, clip)
         codes = {warning["code"] for warning in check["warnings"]}
         if "live_pending" in codes:
             return jsonify({**check, "can_confirm": False}), 409
         if codes and not data.get("confirm"):
             return jsonify({**check, "can_confirm": True}), 409
-        # A fresh matching card keeps Yomitan's sentence; anything else is rewritten from the saved line.
-        saved_line_cards.enrich_from_saved_line(card, saved, rewrite=bool(codes))
+        # A fresh matching card keeps Yomitan's sentence; anything else is rewritten from the clip.
+        clip_cards.enrich_from_clip(card, clip, rewrite=bool(codes))
         return jsonify({"queued": True, "note_id": card.noteId}), 202

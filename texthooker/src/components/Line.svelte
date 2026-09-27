@@ -29,7 +29,7 @@
 		showScreenshotButton$,
 		showAudioButton$,
 		showTrimVideoButton$,
-		showSaveForLaterButton$,
+		showSaveClipButton$,
 		showTranslateButton$,
 		settingsOpen$,
 	} from '../stores/stores';
@@ -53,8 +53,8 @@
 	export let audioLineId = '';
 	export let audioIsPlaying = false;
 	export let audioPendingLineId = '';
-	export let isSaving = false;
-	export let isSaved = false;
+	export let isSavingClip = false;
+	export let isClipSaved = false;
 
 	export function deselect() {
 		isSelected = false;
@@ -70,7 +70,7 @@
 		edit: LineItemEditEvent;
 		audioToggle: { lineId: string; text: string };
 		videoTrim: { lineId: string; text: string };
-		saveForLater: { lineId: string };
+		saveClip: { lineId: string };
 	}>();
 
 	let paragraph: HTMLElement;
@@ -285,9 +285,9 @@
 		dispatch('videoTrim', { lineId: line.id, text: line.text });
 	}
 
-	function handleSaveForLater() {
+	function handleSaveClip() {
 		closeActionsMenu();
-		dispatch('saveForLater', { lineId: line.id });
+		dispatch('saveClip', { lineId: line.id });
 	}
 
 	function openAIHelp() {
@@ -484,17 +484,17 @@
 							🎬
 						</button>
 					{/if}
-					{#if $showSaveForLaterButton$}
+					{#if $showSaveClipButton$}
 						<!-- Kept visible on small screens: saving from a phone or tablet is the main use. -->
 						<button
 							class="action-button"
-							on:click={handleSaveForLater}
-							title={isSaving ? 'Saving…' : isSaved ? 'Saved for later' : 'Save for later'}
-							aria-label={isSaved ? 'Saved for later' : 'Save for later'}
+							on:click={handleSaveClip}
+							title={isSavingClip ? 'Saving…' : isClipSaved ? 'Clip saved for later' : 'Save clip for later'}
+							aria-label={isClipSaved ? 'Clip saved for later' : 'Save clip for later'}
 							tabindex="-1"
-							disabled={isSaving}
+							disabled={isSavingClip}
 						>
-							<Icon path={isSaved ? mdiContentSaveCheck : mdiContentSave} width="16px" height="16px" />
+							<Icon path={isClipSaved ? mdiContentSaveCheck : mdiContentSave} width="16px" height="16px" />
 						</button>
 					{/if}
 					{#if $showAudioButton$}
@@ -595,12 +595,12 @@
 									<span>Save cropped replay</span>
 								</button>
 								<button
-									on:click={handleSaveForLater}
-									disabled={isSaving}
-									title="Keep this line's replay clip so a card can be made later"
+									on:click={handleSaveClip}
+									disabled={isSavingClip}
+									title="Keep a replay clip of this line so a card can be made later"
 								>
-									<span aria-hidden="true">{isSaved ? '✅' : '💾'}</span>
-									<span>{isSaving ? 'Saving…' : isSaved ? 'Saved for later' : 'Save for later'}</span>
+									<span aria-hidden="true">{isClipSaved ? '✅' : '💾'}</span>
+									<span>{isSavingClip ? 'Saving…' : isClipSaved ? 'Clip saved for later' : 'Save clip for later'}</span>
 								</button>
 								<button on:click={handleAudioToggle} disabled={isAudioPending}>
 									<Icon

@@ -2779,10 +2779,10 @@ class GsmAppState:
         self.lines_for_media_creation = None
         self.previous_lines_for_media_creation = None
         self.media_creation_request = {}
-        # Save for later: queued line groups, one per saved OBS replay.
-        self.pending_line_saves = []
-        # Notes enriched from a saved line; the live flow leaves them alone.
-        self.saved_line_note_ids = set()
+        # Save clip for later: queued line groups, one per saved OBS replay.
+        self.pending_clip_saves = []
+        # Notes enriched from a clip; the live flow leaves them alone.
+        self.clip_note_ids = set()
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None

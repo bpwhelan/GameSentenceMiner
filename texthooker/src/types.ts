@@ -94,7 +94,7 @@ export interface Settings {
 	showAudioButton$: boolean;
 	trimAudioWithVAD$: boolean;
 	showTrimVideoButton$: boolean;
-	showSaveForLaterButton$: boolean;
+	showSaveClipButton$: boolean;
 	trimVideoWithVAD$: boolean;
 	showTrimmedVideoInExplorer$: boolean;
 	showGSMCheckboxes$: boolean;

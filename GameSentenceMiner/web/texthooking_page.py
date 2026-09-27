@@ -1182,23 +1182,23 @@ def create_media():
     return jsonify({"queued": True, "count": len(lines)}), 200
 
 
-def _queue_line_save(lines, wait_seconds):
+def _queue_clip_save(lines, wait_seconds):
     """Save an OBS replay once it covers the lines; the replay handler writes the clip."""
 
     def run():
         if wait_seconds > 0:
             time.sleep(wait_seconds)
-        gsm_state.pending_line_saves.append(lines)
+        gsm_state.pending_clip_saves.append(lines)
         try:
             obs.save_replay_buffer()
         except Exception as e:
-            logger.exception(f"Failed to save OBS replay for Save for later: {e}")
-            if lines in gsm_state.pending_line_saves:
-                gsm_state.pending_line_saves.remove(lines)
+            logger.exception(f"Failed to save OBS replay for Save clip for later: {e}")
+            if lines in gsm_state.pending_clip_saves:
+                gsm_state.pending_clip_saves.remove(lines)
             from GameSentenceMiner.web.service import _send_texthooker_audio_event
 
             _send_texthooker_audio_event(
-                "line_save_failed",
+                "clip_save_failed",
                 line_ids=[line.id for line in lines],
                 error=f"Could not save the OBS replay: {e}",
             )
@@ -1206,10 +1206,10 @@ def _queue_line_save(lines, wait_seconds):
     threading.Thread(target=run, name="gsm-save-line", daemon=True).start()
 
 
-@app.route("/save-lines", methods=["POST"])
-def save_lines():
-    """Save for later: keep the line(s) as an OBS-shaped clip plus manifest, for card creation later."""
-    from GameSentenceMiner.util import saved_lines
+@app.route("/save-clip", methods=["POST"])
+def save_clip():
+    """Save clip for later: keep the line(s) as an OBS-shaped clip plus manifest, for card creation later."""
+    from GameSentenceMiner.util import clips
 
     data = request.get_json() or {}
     ids = data.get("ids") or ([data["id"]] if data.get("id") else [])
@@ -1226,12 +1226,12 @@ def save_lines():
     lines.sort(key=lambda line: line.time)
     line_ids = [line.id for line in lines]
 
-    existing = saved_lines.find_saved_folder(saved_lines.get_saved_lines_root(), lines)
+    existing = clips.find_clip_folder(clips.get_clips_root(), lines)
     if existing:
         return jsonify({"queued": False, "already_saved": True, "line_ids": line_ids, "folder": existing}), 200
 
-    wait_seconds = saved_lines.seconds_until_clip_ready(lines)
-    _queue_line_save(lines, wait_seconds)
+    wait_seconds = clips.seconds_until_clip_ready(lines)
+    _queue_clip_save(lines, wait_seconds)
     return jsonify({"queued": True, "line_ids": line_ids, "wait_seconds": wait_seconds}), 200
 
 
@@ -1570,10 +1570,10 @@ def games():
     return render_template("games.html")
 
 
-@app.route("/saved")
-def saved_lines_page():
-    """Renders the lines saved for later."""
-    return render_template("saved.html")
+@app.route("/clips")
+def clips_page():
+    """Renders the clips to mine."""
+    return render_template("clips.html")
 
 
 @app.route("/game/<game_id>")

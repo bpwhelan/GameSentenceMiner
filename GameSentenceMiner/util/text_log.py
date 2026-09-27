@@ -524,7 +524,7 @@ def find_matching_line(
 ) -> GameLine | None:
     """Return the line that best matches the card's sentence, or None when nothing matches.
 
-    Saved lines pass respect_replay_window=False: their footage lives in a saved clip, so age
+    Clips pass respect_replay_window=False: their footage lives in a saved clip, so age
     does not rule them out.
     """
     if not last_note or not lines:

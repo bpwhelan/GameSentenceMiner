@@ -1,9 +1,9 @@
-"""Make Anki cards from lines saved for later.
+"""Make Anki cards from lines clip for later.
 
-A saved line's clip stands in for a fresh OBS replay, so the normal Anki flow (timing, VAD,
+A clip line's clip stands in for a fresh OBS replay, so the normal Anki flow (timing, VAD,
 confirmation dialog, uploads) runs unchanged. Cards reach this module two ways: a new card
-whose sentence matches no live line but does match a saved one, and the "Enrich latest card"
-button on the Saved page.
+whose sentence matches no live line but does match a clip one, and the "Enrich latest card"
+button on the Clips to mine page.
 """
 
 import copy
@@ -22,17 +22,17 @@ from GameSentenceMiner.util.config.configuration import (
     logger,
 )
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
-from GameSentenceMiner.util.saved_lines import SavedLine
-from GameSentenceMiner.util import saved_lines
+from GameSentenceMiner.util.clips import Clip
+from GameSentenceMiner.util import clips
 from GameSentenceMiner.util.text_log import find_matching_line, get_all_lines, lines_match
 
 _BOLD = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
 
 
 def match_new_card(card):
-    """Return (saved line, matched line) when a new card belongs to a saved line, else None.
+    """Return (clip line, matched line) when a new card belongs to a clip line, else None.
 
-    Live lines always win: the saved lines are only consulted when neither the text log nor the
+    Live lines always win: the clip lines are only consulted when neither the text log nor the
     last overlay scan matches, which is exactly when the live flow would fall back to the latest
     line.
     """
@@ -52,9 +52,9 @@ def match_new_card(card):
         live_lines = get_all_lines()
         if live_lines and find_matching_line(card, live_lines) is not None:
             return None
-        return saved_lines.match_card_to_saved_line(card, saved_lines.get_saved_lines_root(config.paths.output_folder))
+        return clips.match_card_to_clip(card, clips.get_clips_root(config.paths.output_folder))
     except Exception as e:
-        logger.exception(f"Failed to check the new card against saved lines: {e}")
+        logger.exception(f"Failed to check the new card against clip lines: {e}")
         return None
 
 
@@ -65,15 +65,13 @@ def _word(card) -> str:
         return ""
 
 
-def check_enrich(card, saved: SavedLine) -> dict:
-    """Describe why enriching this card from the saved line might be a mistake."""
+def check_enrich(card, clip: Clip) -> dict:
+    """Describe why enriching this card from the clip line might be a mistake."""
     config = get_config()
     card_sentence = remove_html_and_cloze_tags(card.get_field(config.anki.sentence_field) or "")
     warnings = []
-    if find_matching_line(card, saved.selected, respect_replay_window=False) is None:
-        warnings.append(
-            {"code": "sentence_mismatch", "message": "The latest card's sentence doesn't match this saved line."}
-        )
+    if find_matching_line(card, clip.selected, respect_replay_window=False) is None:
+        warnings.append({"code": "sentence_mismatch", "message": "The latest card's sentence doesn't match this clip."})
 
     def has_value(name):
         return bool(name and card.has_field(name) and card.get_field(name))
@@ -91,14 +89,14 @@ def check_enrich(card, saved: SavedLine) -> dict:
         "note_id": card.noteId,
         "card_word": _word(card),
         "card_sentence": card_sentence,
-        "saved_sentence": saved.manifest.get("sentence", ""),
+        "saved_sentence": clip.manifest.get("sentence", ""),
         "card_media": card_media,
         "warnings": warnings,
     }
 
 
 def _highlight(saved_sentence: str, card) -> str:
-    """Put the looked-up word's bold on the saved sentence, when it can be found there."""
+    """Put the looked-up word's bold on the clip sentence, when it can be found there."""
     bold = _BOLD.search(card.get_field(get_config().anki.sentence_field) or "")
     for target in (remove_html_and_cloze_tags(bold.group(1)) if bold else "", _word(card)):
         if target and target in saved_sentence:
@@ -106,8 +104,8 @@ def _highlight(saved_sentence: str, card) -> str:
     return saved_sentence
 
 
-def _card_for_rewrite(card, saved: SavedLine):
-    """An in-memory copy that looks freshly created from the saved line, so every field is rewritten.
+def _card_for_rewrite(card, clip: Clip):
+    """An in-memory copy that looks freshly created from the clip line, so every field is rewritten.
 
     The real note is only changed by the normal flow's final update, so cancelling the dialog
     leaves it as it was.
@@ -129,18 +127,18 @@ def _card_for_rewrite(card, saved: SavedLine):
             fresh.fields[name] = replace(fresh.fields[name], value="")
     sentence_field = config.anki.sentence_field
     if sentence_field in fresh.fields:
-        sentence = saved.manifest.get("sentence") or "".join(line.text for line in saved.selected)
+        sentence = clip.manifest.get("sentence") or "".join(line.text for line in clip.selected)
         fresh.fields[sentence_field] = replace(fresh.fields[sentence_field], value=_highlight(sentence, card))
     return fresh
 
 
-def _copy_saved_clip(saved: SavedLine) -> str:
+def _copy_clip(clip: Clip) -> str:
     """The Anki flow may delete its video afterwards, so it gets a copy shaped like the original."""
-    extension = os.path.splitext(saved.clip_path)[1] or ".mkv"
-    fd, path = tempfile.mkstemp(prefix="saved_clip_", suffix=extension, dir=get_temporary_directory())
+    extension = os.path.splitext(clip.clip_path)[1] or ".mkv"
+    fd, path = tempfile.mkstemp(prefix="clip_copy_", suffix=extension, dir=get_temporary_directory())
     os.close(fd)
-    shutil.copyfile(saved.clip_path, path)
-    end = saved.clip_end_time.timestamp()
+    shutil.copyfile(clip.clip_path, path)
+    end = clip.clip_end_time.timestamp()
     os.utime(path, (end, end))
     return path
 
@@ -151,28 +149,28 @@ def _process_replay(video_path, queued_job):
     return replay_handler.get_replay_extractor().process_replay(video_path, queued_job=queued_job)
 
 
-def _process_saved_line_card(card, saved: SavedLine, line, rewrite: bool) -> None:
+def _process_clip_card(card, clip: Clip, line, rewrite: bool) -> None:
     try:
-        clip_path = _copy_saved_clip(saved)
-        last_note = _card_for_rewrite(card, saved) if rewrite else card
-        selected = saved.selected if len(saved.selected) > 1 else []
+        clip_path = _copy_clip(clip)
+        last_note = _card_for_rewrite(card, clip) if rewrite else card
+        selected = clip.selected if len(clip.selected) > 1 else []
         # Same shape as a queued live card; the creation time is the clip's end, as with its mtime.
-        job = (last_note, saved.clip_end_time, selected, line, None, None, None, None)
+        job = (last_note, clip.clip_end_time, selected, line, None, None, None, None)
         context = _process_replay(clip_path, job)
         if context is not None and getattr(context, "background_update_started", False):
-            saved_lines.record_card(saved.folder, card.noteId, _word(card))
+            clips.record_card(clip.folder, card.noteId, _word(card))
     except Exception as e:
-        logger.exception(f"Failed to make a card from saved line {saved.folder}: {e}")
+        logger.exception(f"Failed to make a card from clip line {clip.folder}: {e}")
         gsm_status.remove_word_being_processed(_word(card))
         from GameSentenceMiner.util.platform import notification
 
-        notification.send_anki_enhancement_failed(f"Could not use the saved line's clip: {e}")
+        notification.send_anki_enhancement_failed(f"Could not use the clip: {e}")
 
 
-def enrich_from_saved_line(card, saved: SavedLine, line=None, *, rewrite: bool = False):
-    """Queue the Anki flow for card on the saved clip, on the same worker as live cards."""
+def enrich_from_clip(card, clip: Clip, line=None, *, rewrite: bool = False):
+    """Queue the Anki flow for card on the clip, on the same worker as live cards."""
     from GameSentenceMiner import replay_handler
 
-    gsm_state.saved_line_note_ids.add(card.noteId)
-    line = line or find_matching_line(card, saved.selected, respect_replay_window=False) or saved.selected[-1]
-    return replay_handler.get_card_executor().submit(_process_saved_line_card, card, saved, line, rewrite)
+    gsm_state.clip_note_ids.add(card.noteId)
+    line = line or find_matching_line(card, clip.selected, respect_replay_window=False) or clip.selected[-1]
+    return replay_handler.get_card_executor().submit(_process_clip_card, card, clip, line, rewrite)

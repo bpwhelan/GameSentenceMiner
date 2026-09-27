@@ -1,15 +1,15 @@
-// Saved lines page: list lines saved for later, play their audio, enrich the latest Anki card, trash them.
+// Clips to mine page: list clips, play their audio, enrich the latest Anki card, trash them.
 (() => {
     const $ = (id) => document.getElementById(id);
-    const list = $('savedList');
-    const status = $('savedStatus');
-    const search = $('savedSearch');
-    const sort = $('savedSort');
-    const count = $('savedCount');
-    const empty = $('savedEmpty');
-    const selectionBar = $('savedSelection');
-    const selectAll = $('savedSelectAll');
-    const deleteSelected = $('savedDeleteSelected');
+    const list = $('clipsList');
+    const status = $('clipsStatus');
+    const search = $('clipsSearch');
+    const sort = $('clipsSort');
+    const count = $('clipsCount');
+    const empty = $('clipsEmpty');
+    const selectionBar = $('clipsSelection');
+    const selectAll = $('clipsSelectAll');
+    const deleteSelected = $('clipsDeleteSelected');
     const player = new Audio();
     const enrichParts = {
         warnings: $('enrichWarnings'),
@@ -18,11 +18,11 @@
         cardPicture: $('enrichCardPicture'),
         cardAudio: $('enrichCardAudio'),
         cardNoMedia: $('enrichCardNoMedia'),
-        savedSentence: $('enrichSavedSentence'),
-        savedAudio: $('enrichSavedAudio'),
+        clipsSentence: $('enrichSavedSentence'),
+        clipsAudio: $('enrichSavedAudio'),
     };
     let items = [];
-    let disk = { saved: 0, total: null, used: null, free: null };
+    let disk = { clips: 0, total: null, used: null, free: null };
     let playingId = '';
     const selected = new Set();
 
@@ -75,12 +75,12 @@
     }
 
     function renderItem(item, grouped) {
-        const card = element('article', 'saved-item');
+        const card = element('article', 'clips-item');
         card.classList.toggle('is-selected', selected.has(item.id));
-        const pick = element('input', 'saved-item-select');
+        const pick = element('input', 'clips-item-select');
         pick.type = 'checkbox';
         pick.checked = selected.has(item.id);
-        pick.setAttribute('aria-label', 'Select this saved line');
+        pick.setAttribute('aria-label', 'Select this clip');
         pick.addEventListener('change', () => {
             if (pick.checked) selected.add(item.id);
             else selected.delete(item.id);
@@ -90,33 +90,33 @@
 
         const before = item.lines.filter((line) => line.role === 'previous').map((line) => line.text).join('\n');
         const after = item.lines.filter((line) => line.role === 'next').map((line) => line.text).join('\n');
-        if (before) card.append(element('p', 'saved-context', before));
-        const sentence = element('p', 'saved-sentence', item.sentence);
+        if (before) card.append(element('p', 'clips-context', before));
+        const sentence = element('p', 'clips-sentence', item.sentence);
         sentence.lang = 'ja';
         card.append(sentence);
-        if (after) card.append(element('p', 'saved-context', after));
+        if (after) card.append(element('p', 'clips-context', after));
 
-        const meta = element('div', 'saved-meta');
+        const meta = element('div', 'clips-meta');
         if (item.game) meta.append(element('span', '', item.game));
         const when = grouped ? formatTime(item.line_time) : `${formatDay(item.line_time)} ${formatTime(item.line_time)}`;
         meta.append(element('span', '', when));
-        const size = element('span', 'saved-size', formatBytes(item.size_bytes));
-        size.title = 'Disk space used by this saved line';
+        const size = element('span', 'clips-size', formatBytes(item.size_bytes));
+        size.title = 'Disk space used by this clip';
         meta.append(size);
         if (item.cards.length) {
-            const badge = element('span', 'saved-badge', item.cards.length === 1 ? '1 card' : `${item.cards.length} cards`);
+            const badge = element('span', 'clips-badge', item.cards.length === 1 ? '1 card' : `${item.cards.length} cards`);
             badge.title = item.cards.map((c) => c.word).filter(Boolean).join(', ');
             meta.append(badge);
         }
         card.append(meta);
 
-        const actions = element('div', 'saved-actions');
-        const play = element('button', 'saved-play', playingId === item.id ? '⏹ Stop' : '▶ Play');
+        const actions = element('div', 'clips-actions');
+        const play = element('button', 'clips-play', playingId === item.id ? '⏹ Stop' : '▶ Play');
         play.addEventListener('click', () => togglePlay(item.id));
-        const enrich = element('button', 'saved-enrich', '✨ Enrich latest card');
-        enrich.title = "Add this line's audio and screenshot to the card you added to Anki most recently";
+        const enrich = element('button', 'clips-enrich', '✨ Enrich latest card');
+        enrich.title = "Add this clip's audio and screenshot to the card you added to Anki most recently";
         enrich.addEventListener('click', () => enrichLatest(item.id, enrich));
-        const trash = element('button', 'saved-delete', '🗑 Delete');
+        const trash = element('button', 'clips-delete', '🗑 Delete');
         trash.title = 'Move to the trash (can be restored from there)';
         trash.addEventListener('click', () => trashItems([item.id]));
         actions.append(play, enrich, trash);
@@ -125,22 +125,22 @@
     }
 
     function renderDisk() {
-        const box = $('savedDisk');
+        const box = $('clipsDisk');
         if (!Number.isFinite(disk.total) || disk.total <= 0) {
             box.hidden = true;
             return;
         }
         box.hidden = false;
-        const other = Math.max(0, (disk.used || 0) - disk.saved);
-        $('savedDiskSaved').style.width = `${(disk.saved / disk.total) * 100}%`;
-        $('savedDiskSaved').hidden = disk.saved === 0;
-        $('savedDiskOther').style.width = `${(other / disk.total) * 100}%`;
-        $('savedDiskSavedLabel').textContent = `Saved lines ${formatBytes(disk.saved)}`;
-        $('savedDiskOtherLabel').textContent = `Other files ${formatBytes(other)}`;
-        $('savedDiskFreeLabel').textContent = `Free ${formatBytes(disk.free)} of ${formatBytes(disk.total)}`;
-        $('savedDiskBar').setAttribute(
+        const other = Math.max(0, (disk.used || 0) - disk.clips);
+        $('clipsDiskShare').style.width = `${(disk.clips / disk.total) * 100}%`;
+        $('clipsDiskShare').hidden = disk.clips === 0;
+        $('clipsDiskOther').style.width = `${(other / disk.total) * 100}%`;
+        $('clipsDiskShareLabel').textContent = `Clips ${formatBytes(disk.clips)}`;
+        $('clipsDiskOtherLabel').textContent = `Other files ${formatBytes(other)}`;
+        $('clipsDiskFreeLabel').textContent = `Free ${formatBytes(disk.free)} of ${formatBytes(disk.total)}`;
+        $('clipsDiskBar').setAttribute(
             'aria-label',
-            `Saved lines use ${formatBytes(disk.saved)}; ${formatBytes(disk.free)} of ${formatBytes(disk.total)} free`
+            `Clips use ${formatBytes(disk.clips)}; ${formatBytes(disk.free)} of ${formatBytes(disk.total)} free`
         );
     }
 
@@ -152,7 +152,7 @@
         for (const item of shown) {
             const day = formatDay(item.line_time);
             if (grouped && day !== currentDay) {
-                list.append(element('h2', 'saved-day', day));
+                list.append(element('h2', 'clips-day', day));
                 currentDay = day;
             }
             list.append(renderItem(item, grouped));
@@ -169,7 +169,7 @@
             : '🗑 Delete selected';
         selectionBar.hidden = items.length === 0;
 
-        const noun = items.length === 1 ? 'line' : 'lines';
+        const noun = items.length === 1 ? 'clip' : 'clips';
         count.textContent = items.length
             ? shown.length === items.length
                 ? `${items.length} ${noun}`
@@ -181,12 +181,12 @@
 
     async function load() {
         try {
-            const response = await fetch('/api/saved-lines', { cache: 'no-store' });
+            const response = await fetch('/api/clips', { cache: 'no-store' });
             const data = await response.json();
-            items = data.saved_lines || [];
+            items = data.clips || [];
             const number = (value) => (Number.isFinite(value) ? value : null);
             disk = {
-                saved: data.total_bytes || 0,
+                clips: data.total_bytes || 0,
                 total: number(data.disk_total_bytes),
                 used: number(data.disk_used_bytes),
                 free: number(data.disk_free_bytes),
@@ -194,7 +194,7 @@
             if (data.error) showStatus(data.error, true);
             render();
         } catch (error) {
-            showStatus(`Could not load saved lines: ${error.message}`, true);
+            showStatus(`Could not load clips: ${error.message}`, true);
         }
     }
 
@@ -203,7 +203,7 @@
             player.pause();
             playingId = '';
         } else {
-            player.src = `/api/saved-lines/audio?id=${encodeURIComponent(id)}`;
+            player.src = `/api/clips/audio?id=${encodeURIComponent(id)}`;
             player.play().catch((error) => showStatus(`Could not play the audio: ${error.message}`, true));
             playingId = id;
         }
@@ -245,23 +245,23 @@
     }
 
     function cardMediaUrl(noteId, kind) {
-        return `/api/saved-lines/card-media?note_id=${encodeURIComponent(noteId)}&kind=${kind}&t=${Date.now()}`;
+        return `/api/clips/card-media?note_id=${encodeURIComponent(noteId)}&kind=${kind}&t=${Date.now()}`;
     }
 
-    // Shows the latest card next to the saved line before replacing its media.
+    // Shows the latest card next to the clip before replacing its media.
     function confirmEnrich(data, id) {
         const parts = enrichParts;
         const media = data.card_media || {};
         parts.warnings.replaceChildren(...(data.warnings || []).map((warning) => element('li', '', warning.message)));
         parts.cardWord.textContent = data.card_word || '';
         parts.cardSentence.textContent = data.card_sentence || '';
-        parts.savedSentence.textContent = data.saved_sentence || '';
+        parts.clipsSentence.textContent = data.saved_sentence || '';
         parts.cardPicture.hidden = !media.picture;
         parts.cardPicture.src = media.picture ? cardMediaUrl(data.note_id, 'picture') : '';
         parts.cardAudio.hidden = !media.audio;
         parts.cardAudio.src = media.audio ? cardMediaUrl(data.note_id, 'audio') : '';
         parts.cardNoMedia.hidden = Boolean(media.audio || media.picture);
-        parts.savedAudio.src = `/api/saved-lines/audio?id=${encodeURIComponent(id)}`;
+        parts.clipsAudio.src = `/api/clips/audio?id=${encodeURIComponent(id)}`;
         stopPlayback();
         render();
         return openModal($('enrichModal'));
@@ -270,14 +270,14 @@
     async function enrichLatest(id, button, confirm = false) {
         button.disabled = true;
         try {
-            const response = await fetch('/api/saved-lines/enrich', {
+            const response = await fetch('/api/clips/enrich', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id, confirm }),
             });
             const data = await response.json().catch(() => ({}));
             if (response.status === 202) {
-                showStatus('Enriching the latest card with this line. If the confirmation dialog is on, it opens on the desktop.');
+                showStatus('Enriching the latest card with this clip. If the confirmation dialog is on, it opens on the desktop.');
                 setTimeout(load, 5000);
                 return;
             }
@@ -301,7 +301,7 @@
         const chosen = items.filter((item) => ids.includes(item.id));
         if (!chosen.length) return;
         const bytes = chosen.reduce((sum, item) => sum + item.size_bytes, 0);
-        $('trashModalTitle').textContent = chosen.length === 1 ? 'Move this line to the trash?' : `Move ${chosen.length} lines to the trash?`;
+        $('trashModalTitle').textContent = chosen.length === 1 ? 'Move this clip to the trash?' : `Move ${chosen.length} clips to the trash?`;
         $('trashModalMessage').textContent = `This frees ${formatBytes(bytes)}.`;
         const preview = chosen.slice(0, 8).map((item) => element('li', '', item.sentence.replace(/\s+/g, ' ')));
         if (chosen.length > 8) preview.push(element('li', '', `…and ${chosen.length - 8} more`));
@@ -309,7 +309,7 @@
         if (!(await openModal($('trashModal')))) return;
 
         try {
-            const response = await fetch('/api/saved-lines/trash', {
+            const response = await fetch('/api/clips/trash', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ids: chosen.map((item) => item.id) }),
@@ -325,7 +325,7 @@
             if (failed.length) {
                 showStatus(`${failed.length} could not be moved to the trash:\n${failed.map((f) => f.error).join('\n')}`, true);
             } else {
-                showStatus(chosen.length === 1 ? 'Moved to the trash.' : `Moved ${chosen.length} lines to the trash.`);
+                showStatus(chosen.length === 1 ? 'Moved to the trash.' : `Moved ${chosen.length} clips to the trash.`);
             }
         } catch (error) {
             showStatus(`Delete failed: ${error.message}`, true);
@@ -334,15 +334,15 @@
     }
 
     // Remember whether the instructions were collapsed (per browser only).
-    const help = $('savedHelp');
+    const help = $('clipsHelp');
     try {
-        if (localStorage.getItem('gsm-saved-help-collapsed') === '1') help.open = false;
+        if (localStorage.getItem('gsm-clips-help-collapsed') === '1') help.open = false;
     } catch (error) {
         // Storage can be unavailable; the instructions just stay open.
     }
     help.addEventListener('toggle', () => {
         try {
-            localStorage.setItem('gsm-saved-help-collapsed', help.open ? '0' : '1');
+            localStorage.setItem('gsm-clips-help-collapsed', help.open ? '0' : '1');
         } catch (error) {
             // Ignore: remembering the choice is only a convenience.
         }

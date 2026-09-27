@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{% set page_title = 'GSM - Clips to mine' %}
+{% set page_specific_css = 'clips.css' %}
+{% set include_dashboard_css = true %}
+{% include 'components/html-head.html' %}
+
+<body>
+    <div class="container">
+        <h1>GSM - Clips to mine</h1>
+
+        {% include 'components/navigation.html' %}
+
+        <details class="clips-help" id="clipsHelp" open>
+            <summary>How to make cards from clips</summary>
+            <p class="clips-help-intro">
+                Clips let you make Anki cards at your own pace, after the OBS replay buffer has moved on, for example
+                once your gaming session is over.
+            </p>
+            <ol class="clips-help-steps">
+                <li>Look up a word in one of the clips below with Yomitan, and add the card to Anki.</li>
+                <li>GSM recognises the clip and adds its audio and screenshot, with the usual confirmation dialog on the desktop.</li>
+                <li>If that doesn't happen (for example, Anki isn't connected to GSM), press <strong>✨ Enrich latest card</strong> on the clip.</li>
+            </ol>
+            <p class="clips-help-note">
+                Save clips from the Text Feed with <strong>💾 Save clip for later</strong>. A clip stays here after you
+                make a card from it, so you can make more cards from the same sentence.
+            </p>
+            <p class="clips-help-caution">
+                ⚠️ Each clip is a video file, often 10–40 MB, so this isn't meant as a long-term collection of
+                sentences. Once you've made your cards, delete the clips you no longer need.
+            </p>
+        </details>
+
+        <div id="clipsDisk" class="clips-disk" hidden>
+            <div class="clips-disk-bar" role="img" id="clipsDiskBar">
+                <span class="clips-disk-share" id="clipsDiskShare"></span>
+                <span class="clips-disk-other" id="clipsDiskOther"></span>
+            </div>
+            <div class="clips-disk-legend">
+                <span><i class="clips-swatch clips-swatch-share"></i><span id="clipsDiskShareLabel"></span></span>
+                <span><i class="clips-swatch clips-swatch-other"></i><span id="clipsDiskOtherLabel"></span></span>
+                <span><i class="clips-swatch clips-swatch-free"></i><span id="clipsDiskFreeLabel"></span></span>
+            </div>
+        </div>
+
+        <div class="clips-toolbar">
+            <input type="search" id="clipsSearch" class="clips-search" placeholder="Filter by text or game">
+            <select id="clipsSort" class="clips-sort" aria-label="Sort clips">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="largest">Largest first</option>
+            </select>
+            <span id="clipsCount" class="clips-count"></span>
+        </div>
+
+        <div id="clipsSelection" class="clips-selection" hidden>
+            <label class="clips-select-all">
+                <input type="checkbox" id="clipsSelectAll"> <span>Select all shown</span>
+            </label>
+            <button type="button" id="clipsDeleteSelected" class="clips-delete-selected" disabled>🗑 Delete selected</button>
+        </div>
+
+        <div id="clipsStatus" class="clips-status" role="status" hidden></div>
+        <div id="clipsList" class="clips-list"></div>
+        <p id="clipsEmpty" class="clips-empty" hidden>
+            No clips yet. Use <strong>Save clip for later</strong> on a line in the Text Feed.
+        </p>
+    </div>
+
+    {% include 'components/settings-modal.html' %}
+
+    <div id="trashModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="trashModalTitle">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="trashModalTitle">Move to the trash?</h3>
+                <button type="button" class="close-btn" data-modal-close aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="trashModalMessage"></p>
+                <ul id="trashModalList" class="clips-trash-list" lang="ja"></ul>
+                <p class="clips-modal-note">You can restore them from the system trash; restored clips show up here again.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="action-btn" data-modal-close>Cancel</button>
+                <button type="button" class="action-btn danger" data-modal-confirm>Move to trash</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="enrichModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="enrichModalTitle">
+        <div class="modal-content clips-modal">
+            <div class="modal-header">
+                <h3 id="enrichModalTitle">Enrich the latest card?</h3>
+                <button type="button" class="close-btn" data-modal-close aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <ul id="enrichWarnings" class="clips-warnings"></ul>
+                <div class="clips-compare">
+                    <section class="clips-compare-side">
+                        <h4>Latest card in Anki</h4>
+                        <p id="enrichCardWord" class="clips-compare-word"></p>
+                        <p id="enrichCardSentence" class="clips-compare-sentence" lang="ja"></p>
+                        <img id="enrichCardPicture" class="clips-compare-picture" alt="Current picture on the card" hidden>
+                        <audio id="enrichCardAudio" controls preload="none" hidden></audio>
+                        <p id="enrichCardNoMedia" class="clips-compare-empty" hidden>No audio or picture yet.</p>
+                    </section>
+                    <section class="clips-compare-side">
+                        <h4>Clip</h4>
+                        <p id="enrichSavedSentence" class="clips-compare-sentence" lang="ja"></p>
+                        <audio id="enrichSavedAudio" controls preload="none"></audio>
+                    </section>
+                </div>
+                <p class="clips-modal-note">
+                    Enriching replaces the card's sentence, audio and picture with the clip's. The desktop
+                    confirmation dialog still lets you adjust or cancel.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="action-btn" data-modal-close>Cancel</button>
+                <button type="button" class="action-btn primary" data-modal-confirm>Enrich anyway</button>
+            </div>
+        </div>
+    </div>
+
+    {% set page_specific_js = 'clips.js' %}
+    {% include 'components/js-config.html' %}
+</body>
+</html>

@@ -347,7 +347,7 @@ def test_find_matching_line_reports_no_match_instead_of_falling_back(monkeypatch
     assert text_log.get_matching_line(card, [line]) is line
 
 
-def test_find_matching_line_can_ignore_the_replay_window_for_saved_lines(monkeypatch):
+def test_find_matching_line_can_ignore_the_replay_window_for_clips(monkeypatch):
     _matcher_config(monkeypatch)
     old = datetime.now() - timedelta(days=3)
     saved = text_log.GameLine(id="s", text="心当たりはねえのかこの声の主", time=old, prev=None, next=None)

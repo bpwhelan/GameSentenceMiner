@@ -10,7 +10,7 @@ from itertools import pairwise
 import numpy as np
 import pytest
 
-from GameSentenceMiner.util import saved_lines
+from GameSentenceMiner.util import clips
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.text_log import GameLine
 
@@ -41,53 +41,53 @@ def _seconds(delta_time):
 def test_window_includes_close_previous_line_and_next_line_context():
     prev, line, nxt = _chain(("p", "前", 10), ("l", "今", 20), ("n", "次", 25))
 
-    window = saved_lines.plan_clip_window([line])
+    window = clips.plan_clip_window([line])
 
     assert window.previous_line is prev
     assert window.next_line is nxt
-    assert _seconds(window.start_time) == pytest.approx(10 - saved_lines.LEAD_SECONDS)
-    assert _seconds(window.end_time) == pytest.approx(25 + saved_lines.NEXT_LINE_CONTEXT_SECONDS)
+    assert _seconds(window.start_time) == pytest.approx(10 - clips.LEAD_SECONDS)
+    assert _seconds(window.end_time) == pytest.approx(25 + clips.NEXT_LINE_CONTEXT_SECONDS)
 
 
 def test_window_skips_previous_line_that_is_too_far_back():
-    _, line = _chain(("p", "前", 0), ("l", "今", 20 + saved_lines.PREVIOUS_LINE_MAX_GAP_SECONDS))
+    _, line = _chain(("p", "前", 0), ("l", "今", 20 + clips.PREVIOUS_LINE_MAX_GAP_SECONDS))
 
-    window = saved_lines.plan_clip_window([line])
+    window = clips.plan_clip_window([line])
 
     assert window.previous_line is None
-    assert window.start_time == line.time - timedelta(seconds=saved_lines.LEAD_SECONDS)
+    assert window.start_time == line.time - timedelta(seconds=clips.LEAD_SECONDS)
 
 
 def test_window_end_stops_shortly_after_the_line_following_next():
     _, nxt, after = _chain(("l", "今", 20), ("n", "次", 22), ("a", "後", 24))
 
-    window = saved_lines.plan_clip_window([nxt.prev])
+    window = clips.plan_clip_window([nxt.prev])
 
-    assert window.end_time == after.time + timedelta(seconds=saved_lines.TRAIL_SECONDS)
+    assert window.end_time == after.time + timedelta(seconds=clips.TRAIL_SECONDS)
 
 
 def test_window_for_newest_line_leaves_room_for_the_voice():
     (line,) = _chain(("l", "今", 20))
 
-    window = saved_lines.plan_clip_window([line])
+    window = clips.plan_clip_window([line])
 
     assert window.next_line is None
-    assert window.end_time == line.time + timedelta(seconds=saved_lines.NEWEST_LINE_WINDOW_SECONDS)
+    assert window.end_time == line.time + timedelta(seconds=clips.NEWEST_LINE_WINDOW_SECONDS)
 
 
 def test_window_adds_source_padding_before_the_first_line():
     (line,) = _chain(("l", "今", 20))
     line.source_padding = 2.5
 
-    window = saved_lines.plan_clip_window([line])
+    window = clips.plan_clip_window([line])
 
-    assert window.start_time == line.time - timedelta(seconds=saved_lines.LEAD_SECONDS + 2.5)
+    assert window.start_time == line.time - timedelta(seconds=clips.LEAD_SECONDS + 2.5)
 
 
 def test_window_orders_lines_chronologically():
     first, _, last = _chain(("a", "一", 10), ("b", "二", 30), ("c", "三", 50))
 
-    window = saved_lines.plan_clip_window([last, first])
+    window = clips.plan_clip_window([last, first])
 
     assert window.lines == [first, last]
 
@@ -96,21 +96,21 @@ def test_wait_is_needed_until_the_planned_end_is_recorded():
     (line,) = _chain(("l", "今", 20))
     now = line.time + timedelta(seconds=3)
 
-    wait = saved_lines.seconds_until_clip_ready([line], now=now)
+    wait = clips.seconds_until_clip_ready([line], now=now)
 
-    assert wait == pytest.approx(saved_lines.NEWEST_LINE_WINDOW_SECONDS - 3)
+    assert wait == pytest.approx(clips.NEWEST_LINE_WINDOW_SECONDS - 3)
 
 
 def test_no_wait_for_old_lines_and_wait_is_capped():
     (line,) = _chain(("l", "今", 20))
 
-    assert saved_lines.seconds_until_clip_ready([line], now=line.time + timedelta(minutes=1)) == 0
-    assert saved_lines.seconds_until_clip_ready([line], now=line.time - timedelta(minutes=5)) == pytest.approx(
-        saved_lines.MAX_WAIT_SECONDS
+    assert clips.seconds_until_clip_ready([line], now=line.time + timedelta(minutes=1)) == 0
+    assert clips.seconds_until_clip_ready([line], now=line.time - timedelta(minutes=5)) == pytest.approx(
+        clips.MAX_WAIT_SECONDS
     )
 
 
-# --- save_lines_to_disk -----------------------------------------------------
+# --- save_clip -----------------------------------------------------
 
 
 def _make_replay(path, duration=40, keyframe_interval=3):
@@ -157,18 +157,16 @@ def _audio(path, start, seconds=2.0):
 
 
 @requires_ffmpeg
-def test_saved_clip_is_shaped_like_an_obs_replay(tmp_path):
+def test_clip_is_shaped_like_an_obs_replay(tmp_path):
     # OBS replays can have keyframes ~17s apart, so the copy starts well before the requested time.
     replay = tmp_path / "Replay 2026-09-27 12-01-30.mkv"
     length = _make_replay(replay, duration=90, keyframe_interval=17)
     replay_end = BASE + timedelta(seconds=length)
     prev, line, nxt = _chain(("p", "前の行", 44), ("l", "保存する行", 50), ("n", "次の行", 54))
 
-    folder = saved_lines.save_lines_to_disk(
-        str(replay), [line], str(tmp_path / "Saved"), game="Test Game", replay_end_time=replay_end
-    )
+    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"), game="Test Game", replay_end_time=replay_end)
 
-    manifest = saved_lines.read_manifest(folder)
+    manifest = clips.read_manifest(folder)
     clip = os.path.join(folder, manifest["clip"]["file"])
     assert clip.endswith(".mkv")
     streams = ffmpeg.FFmpegHelper.get_probe_json(clip, "stream=codec_type", "")["streams"]
@@ -192,7 +190,7 @@ def test_manifest_records_selected_and_context_lines(tmp_path):
     length = _make_replay(replay)
     _, first, second, _ = _chain(("p", "前", 12), ("a", "一", 16), ("b", "二", 19), ("n", "次", 23))
 
-    folder = saved_lines.save_lines_to_disk(
+    folder = clips.save_clip(
         str(replay),
         [second, first],
         str(tmp_path / "Saved"),
@@ -200,8 +198,8 @@ def test_manifest_records_selected_and_context_lines(tmp_path):
         replay_end_time=BASE + timedelta(seconds=length),
     )
 
-    manifest = saved_lines.read_manifest(folder)
-    assert manifest["version"] == saved_lines.MANIFEST_VERSION
+    manifest = clips.read_manifest(folder)
+    assert manifest["version"] == clips.MANIFEST_VERSION
     assert manifest["game"] == "Test Game"
     assert manifest["sentence"] == "一二"
     assert manifest["selected_line_ids"] == ["a", "b"]
@@ -212,7 +210,7 @@ def test_manifest_records_selected_and_context_lines(tmp_path):
         ("n", "next"),
     ]
     assert datetime.fromisoformat(manifest["lines"][1]["time"]) == first.time
-    assert sorted(os.listdir(folder)) == ["clip.mkv", saved_lines.MANIFEST_NAME]
+    assert sorted(os.listdir(folder)) == ["clip.mkv", clips.MANIFEST_NAME]
     assert os.path.dirname(os.path.dirname(folder)) == str(tmp_path / "Saved")
 
 
@@ -222,8 +220,8 @@ def test_line_older_than_the_replay_is_refused(tmp_path):
     length = _make_replay(replay, duration=10)
     (line,) = _chain(("l", "古い", 0))
 
-    with pytest.raises(saved_lines.LineOutsideReplayError):
-        saved_lines.save_lines_to_disk(
+    with pytest.raises(clips.LineOutsideReplayError):
+        clips.save_clip(
             str(replay),
             [line],
             str(tmp_path / "Saved"),
@@ -234,9 +232,9 @@ def test_line_older_than_the_replay_is_refused(tmp_path):
 
 
 def test_read_manifest_round_trips(tmp_path):
-    (tmp_path / saved_lines.MANIFEST_NAME).write_text(json.dumps({"version": 1}), encoding="utf-8")
+    (tmp_path / clips.MANIFEST_NAME).write_text(json.dumps({"version": 1}), encoding="utf-8")
 
-    assert saved_lines.read_manifest(str(tmp_path)) == {"version": 1}
+    assert clips.read_manifest(str(tmp_path)) == {"version": 1}
 
 
 @requires_ffmpeg
@@ -247,28 +245,28 @@ def test_saving_the_same_line_again_reuses_its_folder(tmp_path):
     line.first_seen_time = line.time - timedelta(milliseconds=250)
     kwargs = {"replay_end_time": BASE + timedelta(seconds=length)}
 
-    first = saved_lines.save_lines_to_disk(str(replay), [line], str(tmp_path / "Saved"), **kwargs)
+    first = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"), **kwargs)
     line.text = "今（改訂）"
     line.time += timedelta(seconds=1)  # a later revision moves `time`, not `first_seen_time`
-    second = saved_lines.save_lines_to_disk(str(replay), [line], str(tmp_path / "Saved"), **kwargs)
+    second = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"), **kwargs)
 
     assert second == first
     assert os.path.basename(first).startswith("12-00-15-750_")
     assert len(os.listdir(os.path.dirname(first))) == 1
 
 
-def test_find_saved_folder_matches_the_same_selection_only(tmp_path):
+def test_find_clip_folder_matches_the_same_selection_only(tmp_path):
     a, b = _chain(("a", "一", 10), ("b", "二", 12))
     folder = tmp_path / "2026-09-27" / "12-00-10-000_一"
     folder.mkdir(parents=True)
-    (folder / saved_lines.MANIFEST_NAME).write_text(json.dumps({"selected_line_ids": ["a"]}), encoding="utf-8")
+    (folder / clips.MANIFEST_NAME).write_text(json.dumps({"selected_line_ids": ["a"]}), encoding="utf-8")
 
-    assert saved_lines.find_saved_folder(str(tmp_path), [a]) == str(folder)
-    assert saved_lines.find_saved_folder(str(tmp_path), [a, b]) is None
-    assert saved_lines.find_saved_folder(str(tmp_path), [b]) is None
+    assert clips.find_clip_folder(str(tmp_path), [a]) == str(folder)
+    assert clips.find_clip_folder(str(tmp_path), [a, b]) is None
+    assert clips.find_clip_folder(str(tmp_path), [b]) is None
 
 
-# --- reading saved lines back ------------------------------------------------
+# --- reading clip lines back ------------------------------------------------
 
 
 def _write_saved(root, name, entries, end_seconds, game="Game"):
@@ -285,7 +283,7 @@ def _write_saved(root, name, entries, end_seconds, game="Game"):
         ],
         "clip": {"file": "clip.mkv", "end_time": (BASE + timedelta(seconds=end_seconds)).isoformat()},
     }
-    (folder / saved_lines.MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    (folder / clips.MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     (folder / "clip.mkv").write_bytes(b"")
     return folder
 
@@ -308,70 +306,70 @@ def matcher_config(monkeypatch):
     )
 
 
-def test_load_saved_line_rebuilds_linked_lines_ending_at_the_clip(tmp_path):
+def test_load_clip_rebuilds_linked_lines_ending_at_the_clip(tmp_path):
     folder = _write_saved(
         tmp_path, "a", [("p", "前", "previous", 10), ("l", "今", "selected", 15), ("n", "次", "next", 20)], 28
     )
 
-    saved = saved_lines.load_saved_line(str(folder))
+    clip = clips.load_clip(str(folder))
 
-    prev, line, nxt = saved.lines
-    assert [line.id for line in saved.selected] == ["l"]
+    prev, line, nxt = clip.lines
+    assert [line.id for line in clip.selected] == ["l"]
     assert (prev.next, line.prev, line.next, nxt.prev, nxt.next) == (line, prev, nxt, line, None)
-    assert saved.clip_end_time == BASE + timedelta(seconds=28)
+    assert clip.clip_end_time == BASE + timedelta(seconds=28)
     # mined_time lets next_line() cut the audio at the following line, as in the live flow.
     assert line.next_line() is nxt and line.get_next_time() == nxt.time
-    assert saved.clip_path == str(folder / "clip.mkv")
-    assert saved.game == "Game"
+    assert clip.clip_path == str(folder / "clip.mkv")
+    assert clip.game == "Game"
 
 
-def test_saved_lines_keep_their_neighbours_as_translation_context(tmp_path):
+def test_clips_keep_their_neighbours_as_translation_context(tmp_path):
     folder = _write_saved(tmp_path, "a", [("p", "前", "previous", 10), ("l", "今", "selected", 15)], 20)
 
-    saved = saved_lines.load_saved_line(str(folder))
+    clip = clips.load_clip(str(folder))
 
-    line = saved.selected[0]
-    assert line.saved_context_lines == saved.lines
-    assert line.saved_context_lines[line.index] is line
+    line = clip.selected[0]
+    assert line.clip_context_lines == clip.lines
+    assert line.clip_context_lines[line.index] is line
 
 
-def test_card_is_matched_to_the_saved_line_with_the_same_ranking(tmp_path, matcher_config):
+def test_card_is_matched_to_the_clip_with_the_same_ranking(tmp_path, matcher_config):
     _write_saved(tmp_path, "a", [("a", "心当たりはねえのかこの声の主", "selected", 10)], 15)
     _write_saved(tmp_path, "b", [("b", "何度も同じ事を言わせるな", "selected", 30)], 35)
 
-    match = saved_lines.match_card_to_saved_line(_card("何度も<b>同じ事</b>を言わせるな", "同じ"), str(tmp_path))
+    match = clips.match_card_to_clip(_card("何度も<b>同じ事</b>を言わせるな", "同じ"), str(tmp_path))
 
-    saved, line = match
-    assert line.id == "b" and os.path.basename(saved.folder) == "b"
+    clip, line = match
+    assert line.id == "b" and os.path.basename(clip.folder) == "b"
 
 
-def test_card_matching_prefers_the_newest_saved_line_on_a_tie(tmp_path, matcher_config):
+def test_card_matching_prefers_the_newest_clip_on_a_tie(tmp_path, matcher_config):
     _write_saved(tmp_path, "old", [("old", "同じ台詞です", "selected", 10)], 15)
     _write_saved(tmp_path, "new", [("new", "同じ台詞です", "selected", 60)], 65)
 
-    saved, _ = saved_lines.match_card_to_saved_line(_card("同じ台詞です"), str(tmp_path))
+    clip, _ = clips.match_card_to_clip(_card("同じ台詞です"), str(tmp_path))
 
-    assert os.path.basename(saved.folder) == "new"
+    assert os.path.basename(clip.folder) == "new"
 
 
-def test_no_saved_match_returns_none_and_unreadable_folders_are_skipped(tmp_path, matcher_config):
+def test_no_clip_match_returns_none_and_unreadable_folders_are_skipped(tmp_path, matcher_config):
     _write_saved(tmp_path, "a", [("a", "心当たりはねえのか", "selected", 10)], 15)
     broken = tmp_path / "2026-09-27" / "broken"
     broken.mkdir()
-    (broken / saved_lines.MANIFEST_NAME).write_text("{not json", encoding="utf-8")
+    (broken / clips.MANIFEST_NAME).write_text("{not json", encoding="utf-8")
 
-    assert saved_lines.match_card_to_saved_line(_card("全く関係のない文"), str(tmp_path)) is None
-    assert saved_lines.match_card_to_saved_line(_card("x"), str(tmp_path / "missing")) is None
-    assert len(list(saved_lines.iter_saved_lines(str(tmp_path)))) == 1
+    assert clips.match_card_to_clip(_card("全く関係のない文"), str(tmp_path)) is None
+    assert clips.match_card_to_clip(_card("x"), str(tmp_path / "missing")) is None
+    assert len(list(clips.iter_clips(str(tmp_path)))) == 1
 
 
 def test_record_card_appends_to_the_manifest(tmp_path):
     folder = _write_saved(tmp_path, "a", [("a", "今", "selected", 10)], 15)
 
-    saved_lines.record_card(str(folder), note_id=123, word="今")
-    saved_lines.record_card(str(folder), note_id=456, word="今日")
+    clips.record_card(str(folder), note_id=123, word="今")
+    clips.record_card(str(folder), note_id=456, word="今日")
 
-    cards = saved_lines.read_manifest(str(folder))["cards"]
+    cards = clips.read_manifest(str(folder))["cards"]
     assert [(c["note_id"], c["word"]) for c in cards] == [(123, "今"), (456, "今日")]
 
 
@@ -380,12 +378,16 @@ def test_line_audio_runs_from_the_line_to_the_next_one(tmp_path):
     replay = tmp_path / "replay.mkv"
     length = _make_replay(replay)
     _, line, nxt = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
-    folder = saved_lines.save_lines_to_disk(
+    folder = clips.save_clip(
         str(replay), [line], str(tmp_path / "Saved"), replay_end_time=BASE + timedelta(seconds=length)
     )
-    saved = saved_lines.load_saved_line(folder)
+    clip = clips.load_clip(folder)
 
-    audio = saved_lines.extract_line_audio(saved, str(tmp_path / "line.mp3"))
+    audio = clips.extract_clip_audio(clip, str(tmp_path / "line.mp3"))
 
     duration = ffmpeg.get_audio_length(audio)
-    assert duration == pytest.approx((nxt.time - line.time).total_seconds() + saved_lines.AUDIO_LEAD_SECONDS, abs=0.3)
+    assert duration == pytest.approx((nxt.time - line.time).total_seconds() + clips.AUDIO_LEAD_SECONDS, abs=0.3)
+
+
+def test_clips_live_in_the_clips_folder_of_the_output_folder():
+    assert clips.get_clips_root("/out") == os.path.join("/out", "Clips")

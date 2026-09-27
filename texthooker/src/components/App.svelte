@@ -71,7 +71,7 @@
 		trimAudioWithVAD$,
 		trimVideoWithVAD$,
 		texthookerAudioEvents$,
-		lineSaveEvents$,
+		clipSaveEvents$,
 	} from '../stores/stores';
 	import {
 		type LineItem,
@@ -126,11 +126,11 @@
 	let pipResizeTimeout: number;
 	let hasPipFocus = false;
 	let audioEventsSub: Subscription | undefined;
-	let lineSaveEventsSub: Subscription | undefined;
-	let savingLineIds: string[] = [];
-	let savedLineIds: string[] = [];
-	let saveToast: { message: string; isError: boolean } | undefined;
-	let saveToastTimeout: ReturnType<typeof setTimeout> | undefined;
+	let clipSaveEventsSub: Subscription | undefined;
+	let savingClipIds: string[] = [];
+	let savedClipIds: string[] = [];
+	let clipToast: { message: string; isError: boolean } | undefined;
+	let clipToastTimeout: ReturnType<typeof setTimeout> | undefined;
 	let audioElement: HTMLAudioElement | undefined;
 	let audioWidgetVisible = false;
 	let audioWidgetText = '';
@@ -346,13 +346,13 @@
 		initializeAudioElement();
 		void fetchGSMTextIntakePausedState();
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
-		lineSaveEventsSub = lineSaveEvents$.subscribe(handleLineSaveEvent);
+		clipSaveEventsSub = clipSaveEvents$.subscribe(handleClipSaveEvent);
 
 		return () => {
 			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
-			lineSaveEventsSub?.unsubscribe();
-			clearTimeout(saveToastTimeout);
+			clipSaveEventsSub?.unsubscribe();
+			clearTimeout(clipToastTimeout);
 			if (audioElement) {
 				audioElement.pause();
 				audioElement.src = '';
@@ -713,20 +713,20 @@
 		}
 	}
 
-	function showSaveToast(message: string, isError = false) {
-		saveToast = { message, isError };
-		clearTimeout(saveToastTimeout);
-		saveToastTimeout = setTimeout(() => (saveToast = undefined), isError ? 6000 : 3000);
+	function showClipToast(message: string, isError = false) {
+		clipToast = { message, isError };
+		clearTimeout(clipToastTimeout);
+		clipToastTimeout = setTimeout(() => (clipToast = undefined), isError ? 6000 : 3000);
 	}
 
-	async function handleSaveForLater(event: CustomEvent<{ lineId: string }>) {
+	async function handleSaveClip(event: CustomEvent<{ lineId: string }>) {
 		const { lineId } = event.detail;
-		if (savingLineIds.includes(lineId)) {
+		if (savingClipIds.includes(lineId)) {
 			return;
 		}
-		savingLineIds = [...savingLineIds, lineId];
+		savingClipIds = [...savingClipIds, lineId];
 		try {
-			const response = await fetch(getGSMEndpoint('/save-lines'), {
+			const response = await fetch(getGSMEndpoint('/save-clip'), {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ ids: [lineId] }),
@@ -736,24 +736,24 @@
 				throw new Error(data.error || `HTTP error: ${response.status}`);
 			}
 			if (data.already_saved) {
-				savingLineIds = savingLineIds.filter((id) => id !== lineId);
-				savedLineIds = [...new Set([...savedLineIds, lineId])];
-				showSaveToast('Already saved for later');
+				savingClipIds = savingClipIds.filter((id) => id !== lineId);
+				savedClipIds = [...new Set([...savedClipIds, lineId])];
+				showClipToast('Clip already saved for later');
 			}
 		} catch (error) {
-			savingLineIds = savingLineIds.filter((id) => id !== lineId);
-			showSaveToast(`Could not save line: ${getErrorMessage(error)}`, true);
+			savingClipIds = savingClipIds.filter((id) => id !== lineId);
+			showClipToast(`Could not save clip: ${getErrorMessage(error)}`, true);
 		}
 	}
 
-	function handleLineSaveEvent(payload: Record<string, any>) {
+	function handleClipSaveEvent(payload: Record<string, any>) {
 		const lineIds: string[] = Array.isArray(payload.line_ids) ? payload.line_ids : [];
-		savingLineIds = savingLineIds.filter((id) => !lineIds.includes(id));
-		if (payload.event === 'line_saved') {
-			savedLineIds = [...new Set([...savedLineIds, ...lineIds])];
-			showSaveToast('Saved for later');
+		savingClipIds = savingClipIds.filter((id) => !lineIds.includes(id));
+		if (payload.event === 'clip_saved') {
+			savedClipIds = [...new Set([...savedClipIds, ...lineIds])];
+			showClipToast('Clip saved for later');
 		} else {
-			showSaveToast(`Could not save line: ${payload.error || 'Unknown error'}`, true);
+			showClipToast(`Could not save clip: ${payload.error || 'Unknown error'}`, true);
 		}
 	}
 
@@ -1396,10 +1396,10 @@
 
 <DialogManager />
 
-{#if saveToast}
+{#if clipToast}
 	<div class="toast toast-center toast-bottom z-50" transition:fade={{ duration: 150 }}>
-		<div class="alert" class:alert-error={saveToast.isError} class:alert-success={!saveToast.isError} role="status">
-			<span>{saveToast.message}</span>
+		<div class="alert" class:alert-error={clipToast.isError} class:alert-success={!clipToast.isError} role="status">
+			<span>{clipToast.message}</span>
 		</div>
 	</div>
 {/if}
@@ -1495,12 +1495,12 @@
 			/>
 		</div>
 	{/if}
-	<div role="button" class="mr-1 hover:text-primary sm:mr-2" title="Open Saved Lines">
+	<div role="button" class="mr-1 hover:text-primary sm:mr-2" title="Open Clips to mine">
 		<Icon
 			path={mdiContentSaveAll}
 			width={iconSize}
 			height={iconSize}
-			on:click={() => window.open('/saved', '_blank')}
+			on:click={() => window.open('/clips', '_blank')}
 		/>
 	</div>
 	<div
@@ -1566,9 +1566,9 @@
 			on:edit={handleLineEdit}
 			on:audioToggle={handleAudioToggle}
 			on:videoTrim={handleVideoTrim}
-			on:saveForLater={handleSaveForLater}
-			isSaving={savingLineIds.includes(line.id)}
-			isSaved={savedLineIds.includes(line.id)}
+			on:saveClip={handleSaveClip}
+			isSavingClip={savingClipIds.includes(line.id)}
+			isClipSaved={savedClipIds.includes(line.id)}
 		/>
 	{/each}
 	
@@ -1649,9 +1649,9 @@
 				audioPendingLineId={pendingAudioLineId}
 				on:audioToggle={handleAudioToggle}
 				on:videoTrim={handleVideoTrim}
-				on:saveForLater={handleSaveForLater}
-				isSaving={savingLineIds.includes(line.id)}
-				isSaved={savedLineIds.includes(line.id)}
+				on:saveClip={handleSaveClip}
+				isSavingClip={savingClipIds.includes(line.id)}
+				isClipSaved={savedClipIds.includes(line.id)}
 			/>
 		{/each}
 	{/if}

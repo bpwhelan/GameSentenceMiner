@@ -1,4 +1,4 @@
-# Proposal: Save for later
+# Proposal: Save clip for later / Clips to mine
 
 Draft for the upstream feature request. Fork-only notes; drop this file before opening a PR.
 
@@ -19,25 +19,25 @@ Sometimes I want to understand the text now but create the card later, for examp
 
 ## Solution
 
-- Add a "Save for later" option to each line in the Text Feed.
+- Add a "Save clip for later" option to each line in the Text Feed.
 - It saves the line and its timestamps together with a video clip, so the card can be generated later without the OBS buffer's time limit.
 - This removes the time pressure on card creation, lets users choose their own workflow, and lets them prioritize immersion if they prefer.
 
 ## Design notes
 
-- **Phase 1 (fork branch `feat/save-to-disk`):** each save writes `Output/Saved/<date>/<time>_<text>/` containing:
+- **Phase 1 (fork branch `feat/clips-to-mine`):** each save writes `Output/Clips/<date>/<time>_<text>/` containing:
   - `clip.<ext>`: a lossless stream copy of the replay span, from shortly before the previous line to shortly after the next one. Same container and every audio track.
   - `manifest.json`: the selected and neighbouring lines with timestamps, the game, and the clip's end time.
 - The clip is shaped like an OBS replay: its modification time is the wall-clock time of its last frame. The existing Anki flow locates lines in it the same way it does in a fresh replay, so later changes to the Anki flow apply without extra work. Verified on a real OBS replay: GSM's Anki audio extraction from the saved clip matches the original within 13ms.
 - Separate from the existing "Create media folder" (Migaku helper) button, which keeps its purpose.
-- **Phase 2 (same branch):** making cards from saved lines, with the normal Anki flow (confirmation dialog, screenshot picker, audio start/end editing) running on a temporary copy of the saved clip instead of a fresh OBS replay.
-  - **Automatic:** a new card is matched in this order: checked lines, live lines in the replay window, then saved lines (same ranking as live lines), then the existing latest-line fallback. Saved lines are only consulted when nothing live matches, so every card that works today is handled as before.
-  - **Manual:** a "Saved lines" page (`/saved`, linked from the dashboard nav and the text feed) with **Enrich latest card**, which works with OBS closed and for cards synced from AnkiMobile/AnkiDroid. A mismatched sentence or existing media asks for confirmation, then rewrites the card from the saved line.
-  - **Safety:** saved-line jobs run on the same worker as live cards, so dialogs never overlap; notes enriched from a saved line are skipped by the live flow.
-  - Each saved line records the cards made from it and stays available for more. Play serves the line's audio as MP3 (works on phones), and Delete moves the folder to the system trash, from which it can be restored.
+- **Phase 2 (same branch):** making cards from clips, with the normal Anki flow (confirmation dialog, screenshot picker, audio start/end editing) running on a temporary copy of the saved clip instead of a fresh OBS replay.
+  - **Automatic:** a new card is matched in this order: checked lines, live lines in the replay window, then clips (same ranking as live lines), then the existing latest-line fallback. Clips are only consulted when nothing live matches, so every card that works today is handled as before.
+  - **Manual:** a "Clips to mine" page (`/clips`, linked from the dashboard nav and the text feed) with **Enrich latest card**, which works with OBS closed and for cards synced from AnkiMobile/AnkiDroid. A mismatched sentence or existing media asks for confirmation, then rewrites the card from the clip.
+  - **Safety:** clip jobs run on the same worker as live cards, so dialogs never overlap; notes enriched from a clip are skipped by the live flow.
+  - Each clip records the cards made from it and stays available for more. Play serves the line's audio as MP3 (works on phones), and Delete moves the folder to the system trash, from which it can be restored.
 
 ## Demo material to capture
 
-- Tablet: tapping "Save for later" on a line while the game runs full screen on the PC.
+- Tablet: tapping "Save clip for later" on a line while the game runs full screen on the PC.
 - The resulting folder, and the clip playing back.
-- Phase 2: making a card from a saved line after the session.
+- Phase 2: making a card from a clip after the session.

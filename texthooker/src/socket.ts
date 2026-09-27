@@ -2,7 +2,7 @@ import { BehaviorSubject, NEVER, Subscription, filter, switchMap } from 'rxjs';
 import {
 	continuousReconnect$,
 	lineData$,
-	lineSaveEvents$,
+	clipSaveEvents$,
 	maxLines$,
 	newLine$,
 	reconnectSecondarySocket$,
@@ -263,8 +263,8 @@ export class SocketConnection {
 				texthookerAudioEvents$.next(payload);
 				return;
 			}
-			if (payload.event === 'line_saved' || payload.event === 'line_save_failed') {
-				lineSaveEvents$.next(payload);
+			if (payload.event === 'clip_saved' || payload.event === 'clip_save_failed') {
+				clipSaveEvents$.next(payload);
 				return;
 			}
 		}

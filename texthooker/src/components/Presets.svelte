@@ -54,7 +54,7 @@
 		showTimer$,
 		trimAudioWithVAD$,
 		showTrimVideoButton$,
-		showSaveForLaterButton$,
+		showSaveClipButton$,
 		trimVideoWithVAD$,
 		showTrimmedVideoInExplorer$,
 		skipResetConfirmations$,
@@ -133,7 +133,7 @@
 			showGSMCheckboxes$: $showGSMCheckboxes$,
 			trimAudioWithVAD$: $trimAudioWithVAD$,
 			showTrimVideoButton$: $showTrimVideoButton$,
-			showSaveForLaterButton$: $showSaveForLaterButton$,
+			showSaveClipButton$: $showSaveClipButton$,
 			trimVideoWithVAD$: $trimVideoWithVAD$,
 			showTrimmedVideoInExplorer$: $showTrimmedVideoInExplorer$,
 		};
@@ -211,7 +211,7 @@
 		showGSMCheckboxes$.next(preset.settings.showGSMCheckboxes$ ?? defaultSettings.showGSMCheckboxes$);
 		trimAudioWithVAD$.next(preset.settings.trimAudioWithVAD$ ?? defaultSettings.trimAudioWithVAD$);
 		showTrimVideoButton$.next(preset.settings.showTrimVideoButton$ ?? defaultSettings.showTrimVideoButton$);
-		showSaveForLaterButton$.next(preset.settings.showSaveForLaterButton$ ?? defaultSettings.showSaveForLaterButton$);
+		showSaveClipButton$.next(preset.settings.showSaveClipButton$ ?? defaultSettings.showSaveClipButton$);
 		trimVideoWithVAD$.next(preset.settings.trimVideoWithVAD$ ?? defaultSettings.trimVideoWithVAD$);
 		showTrimmedVideoInExplorer$.next(
 			preset.settings.showTrimmedVideoInExplorer$ ?? defaultSettings.showTrimmedVideoInExplorer$,

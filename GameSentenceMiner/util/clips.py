@@ -1,6 +1,6 @@
 """Save for later: keep text feed lines as an OBS-shaped replay clip plus a manifest.
 
-A saved clip keeps the replay's container and streams, and its modification time is the
+A clip keeps the replay's container and streams, and its modification time is the
 wall-clock time of its last frame, so the Anki flow can process it later exactly like a
 fresh OBS replay.
 """
@@ -15,7 +15,7 @@ from GameSentenceMiner.util.gsm_utils import get_file_modification_time, sanitiz
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.text_log import GameLine, find_matching_line
 
-SAVED_FOLDER_NAME = "Saved"
+CLIPS_FOLDER_NAME = "Clips"
 MANIFEST_NAME = "manifest.json"
 MANIFEST_VERSION = 1
 
@@ -72,8 +72,8 @@ def seconds_until_clip_ready(lines: list[GameLine], now: datetime | None = None)
     return min(max(0.0, remaining), MAX_WAIT_SECONDS)
 
 
-def get_saved_lines_root(output_folder: str | None = None) -> str:
-    return os.path.join(output_folder or get_config().paths.output_folder, SAVED_FOLDER_NAME)
+def get_clips_root(output_folder: str | None = None) -> str:
+    return os.path.join(output_folder or get_config().paths.output_folder, CLIPS_FOLDER_NAME)
 
 
 def _line_entry(line: GameLine, role: str) -> dict:
@@ -98,11 +98,11 @@ def _folder_prefix(line: GameLine) -> tuple[str, str]:
     return moment.strftime("%Y-%m-%d"), f"{moment.strftime('%H-%M-%S')}-{moment.microsecond // 1000:03d}_"
 
 
-def find_saved_folder(saved_root: str, lines: list[GameLine]) -> str | None:
-    """Return the folder these exact lines were already saved to, if any."""
+def find_clip_folder(clips_root: str, lines: list[GameLine]) -> str | None:
+    """Return the folder these exact lines were already clip to, if any."""
     lines = sorted(lines, key=lambda line: line.time)
     day, prefix = _folder_prefix(lines[0])
-    day_folder = os.path.join(saved_root, day)
+    day_folder = os.path.join(clips_root, day)
     if not os.path.isdir(day_folder):
         return None
     line_ids = [line.id for line in lines]
@@ -118,10 +118,10 @@ def find_saved_folder(saved_root: str, lines: list[GameLine]) -> str | None:
     return None
 
 
-def _make_folder(saved_root: str, first_line: GameLine, full_text: str) -> str:
+def _make_folder(clips_root: str, first_line: GameLine, full_text: str) -> str:
     name = sanitize_filename(full_text.strip())[:32].strip() or "line"
     day, prefix = _folder_prefix(first_line)
-    folder = os.path.join(saved_root, day, f"{prefix}{name}")
+    folder = os.path.join(clips_root, day, f"{prefix}{name}")
     suffix = 2
     candidate = folder
     while os.path.exists(candidate):
@@ -131,20 +131,20 @@ def _make_folder(saved_root: str, first_line: GameLine, full_text: str) -> str:
     return candidate
 
 
-def save_lines_to_disk(
+def save_clip(
     video_path: str,
     lines: list[GameLine],
-    saved_root: str,
+    clips_root: str,
     game: str = "",
     replay_end_time: datetime | None = None,
 ) -> str:
-    """Copy the replay span around lines into a new folder under saved_root and return its path.
+    """Copy the replay span around lines into a new folder under clips_root and return its path.
 
     Saving the same lines again returns their existing folder instead of copying a second clip.
     """
-    existing = find_saved_folder(saved_root, lines)
+    existing = find_clip_folder(clips_root, lines)
     if existing:
-        logger.info(f"Line(s) already saved for later: {existing}")
+        logger.info(f"Line(s) already clip for later: {existing}")
         return existing
 
     window = plan_clip_window(lines)
@@ -156,18 +156,18 @@ def save_lines_to_disk(
         return replay_length - (replay_end_time - moment).total_seconds()
 
     if offset(lines[0].time) < 0:
-        raise LineOutsideReplayError("The line is older than the replay buffer, so it can no longer be saved.")
+        raise LineOutsideReplayError("The line is older than the replay buffer, so it can no longer be clip.")
 
     requested_start = max(0.0, offset(window.start_time))
     end = min(replay_length, max(offset(window.end_time), offset(lines[-1].time)))
 
     full_text = "".join(line.text for line in lines if line.text)
-    folder = _make_folder(saved_root, lines[0], full_text)
+    folder = _make_folder(clips_root, lines[0], full_text)
     clip_name = "clip" + (os.path.splitext(video_path)[1] or ".mkv")
     clip_path = os.path.join(folder, clip_name)
     clip_start = ffmpeg.copy_replay_segment(video_path, requested_start, end, clip_path)
     if clip_start is None:
-        raise RuntimeError(f"ffmpeg did not produce the saved clip: {clip_path}")
+        raise RuntimeError(f"ffmpeg did not produce the clip: {clip_path}")
 
     clip_length = ffmpeg.get_video_duration(clip_path)
     clip_end_time = replay_end_time - timedelta(seconds=replay_length - (clip_start + clip_length))
@@ -215,7 +215,7 @@ def _write_manifest(folder: str, manifest: dict) -> None:
 
 
 @dataclass
-class SavedLine:
+class Clip:
     folder: str
     manifest: dict
     lines: list[GameLine]
@@ -225,8 +225,8 @@ class SavedLine:
     game: str
 
 
-def load_saved_line(folder: str) -> SavedLine:
-    """Rebuild a saved line's GameLines, linked like the live text log but only within the clip."""
+def load_clip(folder: str) -> Clip:
+    """Rebuild a clip line's GameLines, linked like the live text log but only within the clip."""
     manifest = read_manifest(folder)
     clip_end_time = datetime.fromisoformat(manifest["clip"]["end_time"])
     lines = []
@@ -253,9 +253,9 @@ def load_saved_line(folder: str) -> SavedLine:
     game = manifest.get("game", "") or ""
     for line in lines:
         # The Anki flow reads these instead of the live session's log and OBS scene.
-        line.saved_context_lines = lines
-        line.saved_game = game
-    return SavedLine(
+        line.clip_context_lines = lines
+        line.clip_game = game
+    return Clip(
         folder=folder,
         manifest=manifest,
         lines=lines,
@@ -266,12 +266,12 @@ def load_saved_line(folder: str) -> SavedLine:
     )
 
 
-def iter_saved_lines(saved_root: str):
-    """Yield every readable saved line under saved_root; restored folders are picked up again."""
-    if not os.path.isdir(saved_root):
+def iter_clips(clips_root: str):
+    """Yield every readable clip line under clips_root; restored folders are picked up again."""
+    if not os.path.isdir(clips_root):
         return
-    for day in sorted(os.listdir(saved_root)):
-        day_folder = os.path.join(saved_root, day)
+    for day in sorted(os.listdir(clips_root)):
+        day_folder = os.path.join(clips_root, day)
         if not os.path.isdir(day_folder):
             continue
         for name in sorted(os.listdir(day_folder)):
@@ -279,18 +279,18 @@ def iter_saved_lines(saved_root: str):
             if not os.path.isfile(os.path.join(folder, MANIFEST_NAME)):
                 continue
             try:
-                yield load_saved_line(folder)
+                yield load_clip(folder)
             except (OSError, ValueError, KeyError, TypeError) as e:
-                logger.debug(f"Skipping unreadable saved line {folder}: {e}")
+                logger.debug(f"Skipping unreadable clip line {folder}: {e}")
 
 
-def match_card_to_saved_line(card, saved_root: str) -> tuple[SavedLine, GameLine] | None:
-    """Match a card's sentence against every saved line using the live matcher's ranking."""
+def match_card_to_clip(card, clips_root: str) -> tuple[Clip, GameLine] | None:
+    """Match a card's sentence against every clip line using the live matcher's ranking."""
     owners = {}
     candidates = []
-    for saved in iter_saved_lines(saved_root):
-        for line in saved.selected:
-            owners[id(line)] = saved
+    for clip in iter_clips(clips_root):
+        for line in clip.selected:
+            owners[id(line)] = clip
             candidates.append(line)
     candidates.sort(key=lambda line: line.time)
     best = find_matching_line(card, candidates, respect_replay_window=False)
@@ -305,19 +305,19 @@ def record_card(folder: str, note_id, word: str) -> None:
     _write_manifest(folder, manifest)
 
 
-def extract_line_audio(saved: SavedLine, output_path: str) -> str:
-    """Write the saved line's audio (from just before it to the next line) as an MP3 any browser plays."""
-    duration = ffmpeg.get_video_duration(saved.clip_path)
+def extract_clip_audio(clip: Clip, output_path: str) -> str:
+    """Write the clip line's audio (from just before it to the next line) as an MP3 any browser plays."""
+    duration = ffmpeg.get_video_duration(clip.clip_path)
 
     def offset(moment: datetime) -> float:
-        return duration - (saved.clip_end_time - moment).total_seconds()
+        return duration - (clip.clip_end_time - moment).total_seconds()
 
-    first, last = saved.selected[0], saved.selected[-1]
+    first, last = clip.selected[0], clip.selected[-1]
     start = max(0.0, offset(first.time) - first.source_padding - AUDIO_LEAD_SECONDS)
     end = min(duration, offset(last.next.time)) if last.next else duration
     ffmpeg.FFmpegHelper.run(
         ffmpeg_base_command_list
-        + ["-ss", str(start), "-to", str(end), "-i", saved.clip_path]
+        + ["-ss", str(start), "-to", str(end), "-i", clip.clip_path]
         + ["-vn", "-map", "0:a:0", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "96k", "-y", output_path],
         check=False,
     )

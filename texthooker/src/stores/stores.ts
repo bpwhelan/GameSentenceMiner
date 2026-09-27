@@ -74,7 +74,7 @@ export const defaultSettings: Settings = {
 	showAudioButton$: true,
 	trimAudioWithVAD$: false,
 	showTrimVideoButton$: false,
-	showSaveForLaterButton$: true,
+	showSaveClipButton$: true,
 	trimVideoWithVAD$: false,
 	showTrimmedVideoInExplorer$: false,
 	showGSMCheckboxes$: true,
@@ -308,7 +308,7 @@ export const isPaused$ = writableSubject<boolean>(true);
 
 export const newLine$ = new Subject<[string, LineType, string, Partial<LineItem>?]>();
 export const texthookerAudioEvents$ = new Subject<Record<string, any>>();
-export const lineSaveEvents$ = new Subject<Record<string, any>>();
+export const clipSaveEvents$ = new Subject<Record<string, any>>();
 export const textfeedSessionSync$ = new Subject<TextFeedSessionSync>();
 
 export const reconnectSocket$ = new Subject<void>();
@@ -335,7 +335,7 @@ export const trimAudioWithVAD$ = writableBooleanSubject()('bannou-texthooker-tri
 
 export const showTrimVideoButton$ = writableBooleanSubject()('bannou-texthooker-showTrimVideoButton', false);
 
-export const showSaveForLaterButton$ = writableBooleanSubject()('bannou-texthooker-showSaveForLaterButton', true);
+export const showSaveClipButton$ = writableBooleanSubject()('bannou-texthooker-showSaveClipButton', true);
 
 export const trimVideoWithVAD$ = writableBooleanSubject()('bannou-texthooker-trimVideoWithVAD', false);
 
@@ -433,7 +433,7 @@ export async function resetAllData() {
 	showAudioButton$.next(defaultSettings.showAudioButton$);
 	trimAudioWithVAD$.next(defaultSettings.trimAudioWithVAD$);
 	showTrimVideoButton$.next(defaultSettings.showTrimVideoButton$);
-	showSaveForLaterButton$.next(defaultSettings.showSaveForLaterButton$);
+	showSaveClipButton$.next(defaultSettings.showSaveClipButton$);
 	trimVideoWithVAD$.next(defaultSettings.trimVideoWithVAD$);
 	showTrimmedVideoInExplorer$.next(defaultSettings.showTrimmedVideoInExplorer$);
 	showGSMCheckboxes$.next(defaultSettings.showGSMCheckboxes$);

@@ -1213,7 +1213,7 @@ def prefetch_ai_translation(sentence_to_translate: str, game_line: "GameLine") -
             return response.text
 
         # LLM path (UNCHANGED)
-        context_lines = getattr(game_line, "saved_context_lines", None) or get_all_lines()
+        context_lines = getattr(game_line, "clip_context_lines", None) or get_all_lines()
         translation = (
             _get_ai_prompt_result()(context_lines, sentence_to_translate, game_line, _game_name_for(game_line)) or ""
         )
@@ -1500,8 +1500,8 @@ def _get_prefetched_animated_screenshot_path(assets: MediaAssets) -> str:
 
 
 def _game_name_for(game_line=None) -> str:
-    """The game a line came from: saved lines remember theirs, live lines use the OBS scene."""
-    return getattr(game_line, "saved_game", "") or get_current_game()
+    """The game a line came from: clips remember theirs, live lines use the OBS scene."""
+    return getattr(game_line, "clip_game", "") or get_current_game()
 
 
 def _prepare_anki_tags(game_line=None) -> List[str]:
@@ -3576,20 +3576,20 @@ def update_single_card(card):
                     logger.exception("Could not offer recommended Anki setup for missing fields")
             if issue.blocks_mining:
                 return
-    if card.noteId in gsm_state.saved_line_note_ids:
-        logger.info(f"Note {card.noteId} was enriched from a saved line; leaving it alone.")
+    if card.noteId in gsm_state.clip_note_ids:
+        logger.info(f"Note {card.noteId} was enriched from a clip; leaving it alone.")
         return
     gsm_status.add_word_being_processed(card.get_field(get_config().anki.word_field))
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}")
     lines = _get_texthooking_page_module().get_selected_lines()
     if not lines:
-        from GameSentenceMiner import saved_line_cards
+        from GameSentenceMiner import clip_cards
 
-        saved_match = saved_line_cards.match_new_card(card)
-        if saved_match:
-            saved, saved_line = saved_match
-            logger.info(f"New card matches a line saved for later; using its clip: {saved.folder}")
-            saved_line_cards.enrich_from_saved_line(card, saved, saved_line)
+        clip_match = clip_cards.match_new_card(card)
+        if clip_match:
+            clip, clip_line = clip_match
+            logger.info(f"New card matches a clip to mine; using it: {clip.folder}")
+            clip_cards.enrich_from_clip(card, clip, clip_line)
             return
     game_line = _resolve_mined_line_for_card(card, lines)
     game_line.mined_time = datetime.now()
