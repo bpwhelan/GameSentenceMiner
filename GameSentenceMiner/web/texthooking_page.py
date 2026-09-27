@@ -1182,6 +1182,54 @@ def create_media():
     return jsonify({"queued": True, "count": len(lines)}), 200
 
 
+def _queue_line_save(lines, wait_seconds):
+    """Save an OBS replay once it covers the lines; the replay handler writes the clip."""
+
+    def run():
+        if wait_seconds > 0:
+            time.sleep(wait_seconds)
+        gsm_state.pending_line_saves.append(lines)
+        try:
+            obs.save_replay_buffer()
+        except Exception as e:
+            logger.exception(f"Failed to save OBS replay for Save to disk: {e}")
+            if lines in gsm_state.pending_line_saves:
+                gsm_state.pending_line_saves.remove(lines)
+            from GameSentenceMiner.web.service import _send_texthooker_audio_event
+
+            _send_texthooker_audio_event(
+                "line_save_failed",
+                line_ids=[line.id for line in lines],
+                error=f"Could not save the OBS replay: {e}",
+            )
+
+    threading.Thread(target=run, name="gsm-save-line", daemon=True).start()
+
+
+@app.route("/save-lines", methods=["POST"])
+def save_lines():
+    """Save the given line(s) to disk as an OBS-shaped clip plus manifest, for card creation later."""
+    from GameSentenceMiner.util import saved_lines
+
+    data = request.get_json() or {}
+    ids = data.get("ids") or ([data["id"]] if data.get("id") else [])
+    if not ids:
+        return jsonify({"error": "Missing id"}), 400
+    if not get_config().paths.output_folder:
+        return jsonify(
+            {"error": "No output folder is set. Set an Output Folder in the Paths settings, then try again."}
+        ), 400
+
+    lines = [line for event_id in ids if (line := get_event_line_by_id(event_id)) is not None]
+    if not lines:
+        return jsonify({"error": "Invalid id"}), 400
+    lines.sort(key=lambda line: line.time)
+
+    wait_seconds = saved_lines.seconds_until_clip_ready(lines)
+    _queue_line_save(lines, wait_seconds)
+    return jsonify({"queued": True, "line_ids": [line.id for line in lines], "wait_seconds": wait_seconds}), 200
+
+
 @app.route("/texthooker/audio/<token>", methods=["GET"])
 def get_texthooker_audio(token: str):
     assets = gsm_state.texthooker_audio_assets or {}

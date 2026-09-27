@@ -70,6 +70,7 @@
 		trimAudioWithVAD$,
 		trimVideoWithVAD$,
 		texthookerAudioEvents$,
+		lineSaveEvents$,
 	} from '../stores/stores';
 	import {
 		type LineItem,
@@ -124,6 +125,11 @@
 	let pipResizeTimeout: number;
 	let hasPipFocus = false;
 	let audioEventsSub: Subscription | undefined;
+	let lineSaveEventsSub: Subscription | undefined;
+	let savingLineIds: string[] = [];
+	let savedLineIds: string[] = [];
+	let saveToast: { message: string; isError: boolean } | undefined;
+	let saveToastTimeout: ReturnType<typeof setTimeout> | undefined;
 	let audioElement: HTMLAudioElement | undefined;
 	let audioWidgetVisible = false;
 	let audioWidgetText = '';
@@ -339,10 +345,13 @@
 		initializeAudioElement();
 		void fetchGSMTextIntakePausedState();
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
+		lineSaveEventsSub = lineSaveEvents$.subscribe(handleLineSaveEvent);
 
 		return () => {
 			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
+			lineSaveEventsSub?.unsubscribe();
+			clearTimeout(saveToastTimeout);
 			if (audioElement) {
 				audioElement.pause();
 				audioElement.src = '';
@@ -700,6 +709,45 @@
 			}
 		} catch (error) {
 			console.error('Error requesting video trim:', error);
+		}
+	}
+
+	function showSaveToast(message: string, isError = false) {
+		saveToast = { message, isError };
+		clearTimeout(saveToastTimeout);
+		saveToastTimeout = setTimeout(() => (saveToast = undefined), isError ? 6000 : 3000);
+	}
+
+	async function handleSaveToDisk(event: CustomEvent<{ lineId: string }>) {
+		const { lineId } = event.detail;
+		if (savingLineIds.includes(lineId)) {
+			return;
+		}
+		savingLineIds = [...savingLineIds, lineId];
+		try {
+			const response = await fetch(getGSMEndpoint('/save-lines'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ ids: [lineId] }),
+			});
+			if (!response.ok) {
+				const data = await response.json().catch(() => ({}));
+				throw new Error(data.error || `HTTP error: ${response.status}`);
+			}
+		} catch (error) {
+			savingLineIds = savingLineIds.filter((id) => id !== lineId);
+			showSaveToast(`Could not save line: ${getErrorMessage(error)}`, true);
+		}
+	}
+
+	function handleLineSaveEvent(payload: Record<string, any>) {
+		const lineIds: string[] = Array.isArray(payload.line_ids) ? payload.line_ids : [];
+		savingLineIds = savingLineIds.filter((id) => !lineIds.includes(id));
+		if (payload.event === 'line_saved') {
+			savedLineIds = [...new Set([...savedLineIds, ...lineIds])];
+			showSaveToast('Line saved to disk');
+		} else {
+			showSaveToast(`Could not save line: ${payload.error || 'Unknown error'}`, true);
 		}
 	}
 
@@ -1342,6 +1390,13 @@
 
 <DialogManager />
 
+{#if saveToast}
+	<div class="toast toast-center toast-bottom z-50" transition:fade={{ duration: 150 }}>
+		<div class="alert" class:alert-error={saveToast.isError} class:alert-success={!saveToast.isError} role="status">
+			<span>{saveToast.message}</span>
+		</div>
+	</div>
+{/if}
 <header class="fixed top-0 right-0 flex justify-end items-center p-2 bg-base-100" bind:this={settingsContainer}>
 	<Stats on:afkBlur={onAfkBlur} />
 	{#if $websocketUrl$}
@@ -1497,6 +1552,9 @@
 			on:edit={handleLineEdit}
 			on:audioToggle={handleAudioToggle}
 			on:videoTrim={handleVideoTrim}
+			on:saveToDisk={handleSaveToDisk}
+			isSaving={savingLineIds.includes(line.id)}
+			isSaved={savedLineIds.includes(line.id)}
 		/>
 	{/each}
 	
@@ -1577,6 +1635,9 @@
 				audioPendingLineId={pendingAudioLineId}
 				on:audioToggle={handleAudioToggle}
 				on:videoTrim={handleVideoTrim}
+				on:saveToDisk={handleSaveToDisk}
+				isSaving={savingLineIds.includes(line.id)}
+				isSaved={savedLineIds.includes(line.id)}
 			/>
 		{/each}
 	{/if}

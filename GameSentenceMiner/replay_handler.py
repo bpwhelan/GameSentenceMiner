@@ -192,6 +192,7 @@ class ReplayAudioExtractor:
                 or gsm_state.line_for_screenshot
                 or gsm_state.line_for_video_trim
                 or gsm_state.lines_for_media_creation
+                or gsm_state.pending_line_saves
             ):
                 return _TEXTHOOKER_REPLAY_JOB
             if anki.card_queue:

@@ -307,6 +307,7 @@ export const isPaused$ = writableSubject<boolean>(true);
 
 export const newLine$ = new Subject<[string, LineType, string, Partial<LineItem>?]>();
 export const texthookerAudioEvents$ = new Subject<Record<string, any>>();
+export const lineSaveEvents$ = new Subject<Record<string, any>>();
 export const textfeedSessionSync$ = new Subject<TextFeedSessionSync>();
 
 export const reconnectSocket$ = new Subject<void>();

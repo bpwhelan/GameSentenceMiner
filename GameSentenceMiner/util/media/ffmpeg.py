@@ -1860,6 +1860,49 @@ def trim_replay_for_gameline(video_path, start_time, end_time, accurate=False):
     return trimmed_video
 
 
+def _get_format_start_time(file_path):
+    info = FFmpegHelper.get_probe_json(file_path, "format=start_time", "")
+    try:
+        return float(info["format"]["start_time"])
+    except (TypeError, KeyError, ValueError):
+        return None
+
+
+def copy_replay_segment(video_path, start_time, end_time, output_path):
+    """Losslessly copy [start_time, end_time] of a replay into a zero-based clip keeping every stream.
+
+    Stream copy snaps the start back to a keyframe, so the returned value is where the clip really
+    begins, in seconds from the start of the source. Returns None if the copy failed.
+    """
+    root, ext = os.path.splitext(output_path)
+    staged_path = f"{root}.staging{ext}"
+    # -copyts keeps source timestamps, which reveals the keyframe the copy actually started on.
+    FFmpegHelper.run(
+        ffmpeg_base_command_list
+        + ["-ss", str(start_time), "-to", str(end_time), "-i", video_path]
+        + ["-map", "0", "-c", "copy", "-copyts", "-y", staged_path],
+        check=False,
+    )
+    try:
+        staged_start = _get_format_start_time(staged_path) if os.path.isfile(staged_path) else None
+        if staged_start is None:
+            logger.error(f"Failed to copy replay segment {start_time:.2f}s-{end_time:.2f}s of {video_path}")
+            return None
+        FFmpegHelper.run(
+            ffmpeg_base_command_list + ["-i", staged_path, "-map", "0", "-c", "copy", "-y", output_path],
+            check=False,
+        )
+        if not os.path.isfile(output_path):
+            return None
+        source_start = _get_format_start_time(video_path) or 0.0
+        clip_start = max(0.0, staged_start - source_start)
+        logger.info(f"Copied replay segment starting at {clip_start:.2f}s of {video_path} to {output_path}")
+        return clip_start
+    finally:
+        if os.path.exists(staged_path):
+            os.remove(staged_path)
+
+
 def is_video_big_enough(file_path, min_size_kb=250):
     try:
         file_size = os.path.getsize(file_path)

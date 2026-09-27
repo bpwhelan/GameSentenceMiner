@@ -42,6 +42,8 @@
 	export let audioLineId = '';
 	export let audioIsPlaying = false;
 	export let audioPendingLineId = '';
+	export let isSaving = false;
+	export let isSaved = false;
 
 	export function deselect() {
 		isSelected = false;
@@ -57,6 +59,7 @@
 		edit: LineItemEditEvent;
 		audioToggle: { lineId: string; text: string };
 		videoTrim: { lineId: string; text: string };
+		saveToDisk: { lineId: string };
 	}>();
 
 	let paragraph: HTMLElement;
@@ -269,6 +272,11 @@
 	function handleVideoTrim() {
 		closeActionsMenu();
 		dispatch('videoTrim', { lineId: line.id, text: line.text });
+	}
+
+	function handleSaveToDisk() {
+		closeActionsMenu();
+		dispatch('saveToDisk', { lineId: line.id });
 	}
 
 	function openAIHelp() {
@@ -561,6 +569,14 @@
 								<button on:click={handleVideoTrim}>
 									<span aria-hidden="true">🎬</span>
 									<span>Save cropped replay</span>
+								</button>
+								<button
+									on:click={handleSaveToDisk}
+									disabled={isSaving}
+									title="Keep this line's replay clip so a card can be made later"
+								>
+									<span aria-hidden="true">{isSaved ? '✅' : '💾'}</span>
+									<span>{isSaving ? 'Saving…' : isSaved ? 'Saved to disk' : 'Save to disk'}</span>
 								</button>
 								<button on:click={handleAudioToggle} disabled={isAudioPending}>
 									<Icon
