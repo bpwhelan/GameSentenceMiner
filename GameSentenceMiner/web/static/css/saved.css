@@ -14,6 +14,21 @@
     font-weight: 600;
 }
 
+.saved-help-intro {
+    margin: 10px 0 0;
+    color: var(--text-primary);
+}
+
+.saved-help-caution {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border-left: 3px solid var(--warning-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
 .saved-help-steps {
     margin: 10px 0 0;
     padding-left: 22px;
