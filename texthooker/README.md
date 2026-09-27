@@ -50,6 +50,7 @@ The page can be opened via the index.html inside the "docs" folder and is usable
 ### How do I customize the page with CSS?
 
 -   You can use normal CSS syntax and rules via the "Custom CSS" Field. The content will be appended as style node to the page header
+-   To share one stylesheet across devices, paste a direct link to a raw CSS file (e.g. a GitHub Gist's "Raw" link) into the "Custom CSS URL" Field. It is fetched when the page loads; rules in the "Custom CSS" Field are applied after it
 
 ### How can I delete lines?
 
@@ -104,7 +105,7 @@ _Note_: By default, the undo history is stored in memory only. If you want to ke
 -	No - (Desktop) Chromium Browser are currently the only browser having the required api implemented
 
 ### What options / actions are applied to the floating Window?
--	Applied: Font Size, Online Font, Max Lines (floating window),Reverse Line Order, Preserve Whitespace, Enable Line Animation, AFK Blur, Custom CSS
+-	Applied: Font Size, Online Font, Max Lines (floating window),Reverse Line Order, Preserve Whitespace, Enable Line Animation, AFK Blur, Custom CSS URL, Custom CSS
 -	Implicit: All Line related text adjustments like replacement patterns, duplicate management, line start merges, jp content filter etc.
 -	Not available: Vertical Display, Main window actions, timer / stats, keybinds, pasting and line actions like selecting or editing
 
@@ -185,6 +186,7 @@ The following section contains explanations and details on the settings you can 
 | Enable AFK Blur | If enabled the screen will be blurred when the afk timer gets activated. You can exit by double clicking/tapping on the page. |
 | Restart Timer after AFK Blur | If enabled the timer will automatically restart when you exit the afk blur mode. |
 | Continuous Reconnect | If enabled, supresses Connection Error Messages and retries to connect to the Websocket Url continuously. |
+| Custom CSS URL | Loads a stylesheet from a URL (e.g. a GitHub Gist's raw link) so several devices share the same styling. Custom CSS is applied on top of it. |
 | Custom CSS | Lets you insert custom CSS rules to customize the page further. |
 
 </details>

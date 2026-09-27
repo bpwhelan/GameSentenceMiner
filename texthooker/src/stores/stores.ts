@@ -66,6 +66,7 @@ export const defaultSettings: Settings = {
 	continuousReconnect$: true,
 	showConnectionErrors$: false,
 	customCSS$: '',
+	customCSSUrl$: '',
 	autoTranslateLines$: false,
 	blurAutoTranslatedLines$: false,
 	unblurTLTimer$: 0,
@@ -269,6 +270,14 @@ export const showConnectionErrors$ = writableBooleanSubject()(
 
 export const customCSS$ = writableStringSubject()('bannou-texthooker-customCSS', defaultSettings.customCSS$);
 
+export const customCSSUrl$ = writableStringSubject()(
+	'bannou-texthooker-customCSSUrl',
+	defaultSettings.customCSSUrl$,
+);
+
+// Sheet fetched from customCSSUrl$, applied before Custom CSS
+export const remoteCSS$ = writable('');
+
 export const settingsOpen$ = writable(false);
 
 export const timeValue$ = writableNumberSubject()('bannou-texthooker-timeValue', 0, persistStats$);
@@ -421,6 +430,7 @@ export async function resetAllData() {
 	continuousReconnect$.next(defaultSettings.continuousReconnect$);
 	showConnectionErrors$.next(defaultSettings.showConnectionErrors$);
 	customCSS$.next(defaultSettings.customCSS$);
+	customCSSUrl$.next(defaultSettings.customCSSUrl$);
 	autoTranslateLines$.next(defaultSettings.autoTranslateLines$);
 	blurAutoTranslatedLines$.next(defaultSettings.blurAutoTranslatedLines$);
 	unblurTLTimer$.next(defaultSettings.unblurTLTimer$);

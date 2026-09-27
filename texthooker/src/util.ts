@@ -138,24 +138,25 @@ export function applyReplacements(originalText: string, replacements: Replacemen
 	return adjustedText;
 }
 
-export function applyCustomCSS(document: Document, customCSS: string) {
-	const textNode = document.createTextNode(customCSS || '');
+export function applyCustomCSS(document: Document, customCSS: string, remoteCSS = '') {
+	// Created in this order so local Custom CSS can override the shared sheet per device
+	const remoteStyleElement = getStyleElement(document, 'user-css-url');
+	const styleElement = getStyleElement(document, 'user-css');
 
-	let styleElement = document.getElementById('user-css');
+	remoteStyleElement.textContent = remoteCSS;
+	styleElement.textContent = customCSS || '';
+}
 
-	if (styleElement) {
-		if (styleElement.firstChild) {
-			styleElement.replaceChild(textNode, styleElement.firstChild);
-		} else {
-			styleElement.appendChild(textNode);
-		}
-	} else {
+function getStyleElement(document: Document, id: string) {
+	let styleElement = document.getElementById(id);
+
+	if (!styleElement) {
 		styleElement = document.createElement('style');
-		styleElement.id = 'user-css';
-
-		styleElement.appendChild(textNode);
+		styleElement.id = id;
 		document.head.append(styleElement);
 	}
+
+	return styleElement;
 }
 
 export function applyAfkBlur(document: Document, isAfk: boolean) {
