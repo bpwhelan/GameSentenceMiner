@@ -24,6 +24,7 @@ def register_routes() -> None:
         register_tokenization_api_routes,
     )
     from GameSentenceMiner.web.yomitan_api import register_yomitan_api_routes
+    from GameSentenceMiner.web.saved_lines_api import register_saved_lines_api_routes
 
     register_database_api_routes(app)
     register_jiten_database_api_routes(app)
@@ -39,6 +40,7 @@ def register_routes() -> None:
     register_yomitan_api_routes(app)
     register_anki_api_endpoints(app)
     register_tokenization_api_routes(app)
+    register_saved_lines_api_routes(app)
     from GameSentenceMiner.web.cloud_sync_api import register_cloud_sync_api_routes
 
     register_cloud_sync_api_routes(app)

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{% set page_title = 'GSM - Saved lines' %}
+{% set page_specific_css = 'saved.css' %}
+{% set include_dashboard_css = true %}
+{% include 'components/html-head.html' %}
+
+<body>
+    <div class="container">
+        <h1>GSM - Saved lines</h1>
+
+        {% include 'components/navigation.html' %}
+
+        <p class="saved-help">
+            Look up a word with Yomitan and add a card, then press <strong>Enrich latest card</strong> on its line to
+            add the audio and screenshot from the saved clip. Cards added while GSM is watching Anki are matched to
+            their saved line automatically.
+        </p>
+
+        <div class="saved-toolbar">
+            <input type="search" id="savedSearch" class="saved-search" placeholder="Filter by text or game">
+            <span id="savedCount" class="saved-count"></span>
+        </div>
+
+        <div id="savedStatus" class="saved-status" role="status" hidden></div>
+        <div id="savedList" class="saved-list"></div>
+        <p id="savedEmpty" class="saved-empty" hidden>
+            No saved lines yet. Use <strong>Save for later</strong> on a line in the Text Feed.
+        </p>
+    </div>
+
+    {% include 'components/settings-modal.html' %}
+
+    {% set page_specific_js = 'saved.js' %}
+    {% include 'components/js-config.html' %}
+</body>
+</html>

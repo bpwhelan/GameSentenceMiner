@@ -1570,6 +1570,12 @@ def games():
     return render_template("games.html")
 
 
+@app.route("/saved")
+def saved_lines_page():
+    """Renders the lines saved for later."""
+    return render_template("saved.html")
+
+
 @app.route("/game/<game_id>")
 def game_detail(game_id):
     """Renders the individual game detail/stats page."""

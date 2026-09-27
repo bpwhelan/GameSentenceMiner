@@ -373,3 +373,19 @@ def test_record_card_appends_to_the_manifest(tmp_path):
 
     cards = saved_lines.read_manifest(str(folder))["cards"]
     assert [(c["note_id"], c["word"]) for c in cards] == [(123, "今"), (456, "今日")]
+
+
+@requires_ffmpeg
+def test_line_audio_runs_from_the_line_to_the_next_one(tmp_path):
+    replay = tmp_path / "replay.mkv"
+    length = _make_replay(replay)
+    _, line, nxt = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
+    folder = saved_lines.save_lines_to_disk(
+        str(replay), [line], str(tmp_path / "Saved"), replay_end_time=BASE + timedelta(seconds=length)
+    )
+    saved = saved_lines.load_saved_line(folder)
+
+    audio = saved_lines.extract_line_audio(saved, str(tmp_path / "line.mp3"))
+
+    duration = ffmpeg.get_audio_length(audio)
+    assert duration == pytest.approx((nxt.time - line.time).total_seconds() + saved_lines.AUDIO_LEAD_SECONDS, abs=0.3)

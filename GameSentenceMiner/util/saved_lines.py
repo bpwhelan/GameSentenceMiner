@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from GameSentenceMiner.util.config.configuration import get_config, logger
+from GameSentenceMiner.util.config.configuration import ffmpeg_base_command_list, get_config, logger
 from GameSentenceMiner.util.gsm_utils import get_file_modification_time, sanitize_filename
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.text_log import GameLine, find_matching_line
@@ -25,6 +25,7 @@ PREVIOUS_LINE_MAX_GAP_SECONDS = 15.0
 NEXT_LINE_CONTEXT_SECONDS = 10.0
 NEWEST_LINE_WINDOW_SECONDS = 10.0
 MAX_WAIT_SECONDS = 20.0
+AUDIO_LEAD_SECONDS = 0.5
 
 
 class LineOutsideReplayError(RuntimeError):
@@ -302,3 +303,22 @@ def record_card(folder: str, note_id, word: str) -> None:
         {"note_id": note_id, "word": word, "created_at": datetime.now().isoformat()}
     )
     _write_manifest(folder, manifest)
+
+
+def extract_line_audio(saved: SavedLine, output_path: str) -> str:
+    """Write the saved line's audio (from just before it to the next line) as an MP3 any browser plays."""
+    duration = ffmpeg.get_video_duration(saved.clip_path)
+
+    def offset(moment: datetime) -> float:
+        return duration - (saved.clip_end_time - moment).total_seconds()
+
+    first, last = saved.selected[0], saved.selected[-1]
+    start = max(0.0, offset(first.time) - first.source_padding - AUDIO_LEAD_SECONDS)
+    end = min(duration, offset(last.next.time)) if last.next else duration
+    ffmpeg.FFmpegHelper.run(
+        ffmpeg_base_command_list
+        + ["-ss", str(start), "-to", str(end), "-i", saved.clip_path]
+        + ["-vn", "-map", "0:a:0", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "96k", "-y", output_path],
+        check=False,
+    )
+    return output_path

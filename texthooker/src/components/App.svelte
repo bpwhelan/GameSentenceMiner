@@ -8,6 +8,7 @@
 		mdiChevronRight,
 		mdiChevronUp,
 		mdiCog,
+		mdiContentSaveAll,
 		mdiDelete,
 		mdiDeleteForever,
 		mdiDatabase,
@@ -1494,6 +1495,14 @@
 			/>
 		</div>
 	{/if}
+	<div role="button" class="mr-1 hover:text-primary sm:mr-2" title="Open Saved Lines">
+		<Icon
+			path={mdiContentSaveAll}
+			width={iconSize}
+			height={iconSize}
+			on:click={() => window.open('/saved', '_blank')}
+		/>
+	</div>
 	<div
 		role="button"
 		class="mr-1 hover:text-primary sm:mr-2"
