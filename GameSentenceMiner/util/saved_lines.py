@@ -1,4 +1,4 @@
-"""Save text feed lines to disk as an OBS-shaped replay clip plus a manifest.
+"""Save for later: keep text feed lines as an OBS-shaped replay clip plus a manifest.
 
 A saved clip keeps the replay's container and streams, and its modification time is the
 wall-clock time of its last frame, so the Anki flow can process it later exactly like a
@@ -157,10 +157,8 @@ def save_lines_to_disk(
     }
     with open(os.path.join(folder, MANIFEST_NAME), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
-    with open(os.path.join(folder, "sentence.txt"), "w", encoding="utf-8") as f:
-        f.write(full_text)
 
-    logger.info(f"Saved {len(lines)} line(s) to disk: {folder}")
+    logger.info(f"Saved {len(lines)} line(s) for later: {folder}")
     return folder
 
 

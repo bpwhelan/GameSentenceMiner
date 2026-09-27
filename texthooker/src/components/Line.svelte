@@ -59,7 +59,7 @@
 		edit: LineItemEditEvent;
 		audioToggle: { lineId: string; text: string };
 		videoTrim: { lineId: string; text: string };
-		saveToDisk: { lineId: string };
+		saveForLater: { lineId: string };
 	}>();
 
 	let paragraph: HTMLElement;
@@ -274,9 +274,9 @@
 		dispatch('videoTrim', { lineId: line.id, text: line.text });
 	}
 
-	function handleSaveToDisk() {
+	function handleSaveForLater() {
 		closeActionsMenu();
-		dispatch('saveToDisk', { lineId: line.id });
+		dispatch('saveForLater', { lineId: line.id });
 	}
 
 	function openAIHelp() {
@@ -571,12 +571,12 @@
 									<span>Save cropped replay</span>
 								</button>
 								<button
-									on:click={handleSaveToDisk}
+									on:click={handleSaveForLater}
 									disabled={isSaving}
 									title="Keep this line's replay clip so a card can be made later"
 								>
 									<span aria-hidden="true">{isSaved ? '✅' : '💾'}</span>
-									<span>{isSaving ? 'Saving…' : isSaved ? 'Saved to disk' : 'Save to disk'}</span>
+									<span>{isSaving ? 'Saving…' : isSaved ? 'Saved for later' : 'Save for later'}</span>
 								</button>
 								<button on:click={handleAudioToggle} disabled={isAudioPending}>
 									<Icon

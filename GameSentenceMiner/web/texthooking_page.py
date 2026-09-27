@@ -1192,7 +1192,7 @@ def _queue_line_save(lines, wait_seconds):
         try:
             obs.save_replay_buffer()
         except Exception as e:
-            logger.exception(f"Failed to save OBS replay for Save to disk: {e}")
+            logger.exception(f"Failed to save OBS replay for Save for later: {e}")
             if lines in gsm_state.pending_line_saves:
                 gsm_state.pending_line_saves.remove(lines)
             from GameSentenceMiner.web.service import _send_texthooker_audio_event
@@ -1208,7 +1208,7 @@ def _queue_line_save(lines, wait_seconds):
 
 @app.route("/save-lines", methods=["POST"])
 def save_lines():
-    """Save the given line(s) to disk as an OBS-shaped clip plus manifest, for card creation later."""
+    """Save for later: keep the line(s) as an OBS-shaped clip plus manifest, for card creation later."""
     from GameSentenceMiner.util import saved_lines
 
     data = request.get_json() or {}

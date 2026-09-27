@@ -351,11 +351,11 @@ def save_lines_from_replay(video_path=""):
             game=obs.get_current_game() or "",
         )
     except saved_lines.LineOutsideReplayError as e:
-        logger.warning(f"Could not save line(s) to disk: {e}")
+        logger.warning(f"Could not save line(s) for later: {e}")
         _send_texthooker_audio_event("line_save_failed", line_ids=line_ids, error=str(e))
         return
     except Exception as e:
-        logger.exception(f"Failed to save line(s) to disk: {e}")
+        logger.exception(f"Failed to save line(s) for later: {e}")
         _send_texthooker_audio_event("line_save_failed", line_ids=line_ids, error=f"Saving failed: {e}")
         return
     _send_texthooker_audio_event("line_saved", line_ids=line_ids, folder=folder)

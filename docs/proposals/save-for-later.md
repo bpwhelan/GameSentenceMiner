@@ -28,7 +28,6 @@ Sometimes I want to understand the text now but create the card later, for examp
 - **Phase 1 (fork branch `feat/save-to-disk`):** each save writes `Output/Saved/<date>/<time>_<text>/` containing:
   - `clip.<ext>`: a lossless stream copy of the replay span, from shortly before the previous line to shortly after the next one. Same container and every audio track.
   - `manifest.json`: the selected and neighbouring lines with timestamps, the game, and the clip's end time.
-  - `sentence.txt`.
 - The clip is shaped like an OBS replay: its modification time is the wall-clock time of its last frame. The existing Anki flow locates lines in it the same way it does in a fresh replay, so later changes to the Anki flow apply without extra work. Verified on a real OBS replay: GSM's Anki audio extraction from the saved clip matches the original within 13ms.
 - Separate from the existing "Create media folder" (Migaku helper) button, which keeps its purpose.
 - **Phase 2:** a "Saved lines" view that lists saved folders and runs the normal Anki flow (confirmation dialog, screenshot picker, audio start/end editing) on a saved clip instead of a fresh OBS replay.

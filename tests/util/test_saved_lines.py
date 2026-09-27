@@ -212,8 +212,7 @@ def test_manifest_records_selected_and_context_lines(tmp_path):
         ("n", "next"),
     ]
     assert datetime.fromisoformat(manifest["lines"][1]["time"]) == first.time
-    with open(os.path.join(folder, "sentence.txt"), encoding="utf-8") as f:
-        assert f.read() == "一二"
+    assert sorted(os.listdir(folder)) == ["clip.mkv", saved_lines.MANIFEST_NAME]
     assert os.path.dirname(os.path.dirname(folder)) == str(tmp_path / "Saved")
 
 

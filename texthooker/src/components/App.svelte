@@ -718,7 +718,7 @@
 		saveToastTimeout = setTimeout(() => (saveToast = undefined), isError ? 6000 : 3000);
 	}
 
-	async function handleSaveToDisk(event: CustomEvent<{ lineId: string }>) {
+	async function handleSaveForLater(event: CustomEvent<{ lineId: string }>) {
 		const { lineId } = event.detail;
 		if (savingLineIds.includes(lineId)) {
 			return;
@@ -745,7 +745,7 @@
 		savingLineIds = savingLineIds.filter((id) => !lineIds.includes(id));
 		if (payload.event === 'line_saved') {
 			savedLineIds = [...new Set([...savedLineIds, ...lineIds])];
-			showSaveToast('Line saved to disk');
+			showSaveToast('Saved for later');
 		} else {
 			showSaveToast(`Could not save line: ${payload.error || 'Unknown error'}`, true);
 		}
@@ -1552,7 +1552,7 @@
 			on:edit={handleLineEdit}
 			on:audioToggle={handleAudioToggle}
 			on:videoTrim={handleVideoTrim}
-			on:saveToDisk={handleSaveToDisk}
+			on:saveForLater={handleSaveForLater}
 			isSaving={savingLineIds.includes(line.id)}
 			isSaved={savedLineIds.includes(line.id)}
 		/>
@@ -1635,7 +1635,7 @@
 				audioPendingLineId={pendingAudioLineId}
 				on:audioToggle={handleAudioToggle}
 				on:videoTrim={handleVideoTrim}
-				on:saveToDisk={handleSaveToDisk}
+				on:saveForLater={handleSaveForLater}
 				isSaving={savingLineIds.includes(line.id)}
 				isSaved={savedLineIds.includes(line.id)}
 			/>
