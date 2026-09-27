@@ -162,3 +162,52 @@ def test_saved_page_renders():
 
     assert response.status_code == 200
     assert b"Saved lines" in response.data
+
+
+def _anki(monkeypatch, fields, note_id=42, media=None):
+    import base64
+
+    media = media or {}
+    monkeypatch.setattr(anki, "get_last_anki_card", lambda: SimpleNamespace(noteId=note_id))
+    monkeypatch.setattr(
+        saved_lines_api,
+        "get_config",
+        lambda: SimpleNamespace(
+            anki=SimpleNamespace(sentence_audio_field="SentenceAudio", picture_field="Picture"),
+            paths=SimpleNamespace(output_folder="/out"),
+        ),
+    )
+
+    def fake_invoke(action, **params):
+        if action == "notesInfo":
+            assert params["notes"] == [note_id]
+            return [{"noteId": note_id, "fields": {k: {"value": v} for k, v in fields.items()}}]
+        if action == "retrieveMediaFile":
+            data = media.get(params["filename"])
+            return base64.b64encode(data).decode() if data is not None else False
+        raise AssertionError(action)
+
+    monkeypatch.setattr(anki, "invoke", fake_invoke)
+
+
+def test_card_media_serves_the_latest_cards_audio_and_picture(client, monkeypatch):
+    _anki(
+        monkeypatch,
+        {"SentenceAudio": "[sound:line.mp3]", "Picture": '<img src="shot.webp">'},
+        media={"line.mp3": b"ID3audio", "shot.webp": b"RIFFwebp"},
+    )
+
+    audio = client.get("/api/saved-lines/card-media", query_string={"note_id": 42, "kind": "audio"})
+    picture = client.get("/api/saved-lines/card-media", query_string={"note_id": 42, "kind": "picture"})
+
+    assert (audio.status_code, audio.mimetype, audio.data) == (200, "audio/mpeg", b"ID3audio")
+    assert (picture.status_code, picture.mimetype, picture.data) == (200, "image/webp", b"RIFFwebp")
+
+
+def test_card_media_only_serves_the_latest_card_and_existing_media(client, monkeypatch):
+    _anki(monkeypatch, {"SentenceAudio": "", "Picture": '<img src="gone.png">'})
+
+    assert client.get("/api/saved-lines/card-media", query_string={"note_id": 7, "kind": "audio"}).status_code == 404
+    assert client.get("/api/saved-lines/card-media", query_string={"note_id": 42, "kind": "audio"}).status_code == 404
+    assert client.get("/api/saved-lines/card-media", query_string={"note_id": 42, "kind": "picture"}).status_code == 404
+    assert client.get("/api/saved-lines/card-media", query_string={"note_id": 42, "kind": "video"}).status_code == 404

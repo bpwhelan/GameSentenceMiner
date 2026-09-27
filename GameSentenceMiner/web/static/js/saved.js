@@ -6,6 +6,18 @@
     const count = document.getElementById('savedCount');
     const empty = document.getElementById('savedEmpty');
     const player = new Audio();
+    const modal = document.getElementById('enrichModal');
+    const modalParts = {
+        warnings: document.getElementById('enrichWarnings'),
+        cardWord: document.getElementById('enrichCardWord'),
+        cardSentence: document.getElementById('enrichCardSentence'),
+        cardPicture: document.getElementById('enrichCardPicture'),
+        cardAudio: document.getElementById('enrichCardAudio'),
+        cardNoMedia: document.getElementById('enrichCardNoMedia'),
+        savedSentence: document.getElementById('enrichSavedSentence'),
+        savedAudio: document.getElementById('enrichSavedAudio'),
+        confirm: document.getElementById('enrichConfirm'),
+    };
     let items = [];
     let playingId = '';
 
@@ -117,6 +129,51 @@
         render();
     });
 
+    function cardMediaUrl(noteId, kind) {
+        return `/api/saved-lines/card-media?note_id=${encodeURIComponent(noteId)}&kind=${kind}&t=${Date.now()}`;
+    }
+
+    // Shows the latest card next to the saved line; resolves true when the user chooses to enrich.
+    function confirmEnrich(data, id) {
+        const parts = modalParts;
+        const media = data.card_media || {};
+        parts.warnings.replaceChildren(...(data.warnings || []).map((warning) => element('li', '', warning.message)));
+        parts.cardWord.textContent = data.card_word || '';
+        parts.cardSentence.textContent = data.card_sentence || '';
+        parts.savedSentence.textContent = data.saved_sentence || '';
+        parts.cardPicture.hidden = !media.picture;
+        parts.cardPicture.src = media.picture ? cardMediaUrl(data.note_id, 'picture') : '';
+        parts.cardAudio.hidden = !media.audio;
+        parts.cardAudio.src = media.audio ? cardMediaUrl(data.note_id, 'audio') : '';
+        parts.cardNoMedia.hidden = Boolean(media.audio || media.picture);
+        parts.savedAudio.src = `/api/saved-lines/audio?id=${encodeURIComponent(id)}`;
+        player.pause();
+        playingId = '';
+        render();
+        modal.classList.add('show');
+        parts.confirm.focus();
+
+        return new Promise((resolve) => {
+            const close = (result) => {
+                modal.classList.remove('show');
+                parts.cardAudio.pause();
+                parts.savedAudio.pause();
+                modal.removeEventListener('click', onClick);
+                document.removeEventListener('keydown', onKey);
+                resolve(result);
+            };
+            const onClick = (event) => {
+                if (event.target === modal || event.target.closest('[data-enrich-close]')) close(false);
+                else if (event.target === parts.confirm) close(true);
+            };
+            const onKey = (event) => {
+                if (event.key === 'Escape') close(false);
+            };
+            modal.addEventListener('click', onClick);
+            document.addEventListener('keydown', onKey);
+        });
+    }
+
     async function enrichLatest(id, button, confirm = false) {
         button.disabled = true;
         try {
@@ -132,12 +189,10 @@
                 return;
             }
             if (response.status === 409) {
-                const reasons = (data.warnings || []).map((warning) => `• ${warning.message}`).join('\n');
-                const details = `Latest card: ${data.card_word || ''} — ${data.card_sentence || ''}\nSaved line: ${data.saved_sentence || ''}`;
-                if (data.can_confirm && window.confirm(`${reasons}\n\n${details}\n\nEnrich it anyway?`)) {
+                if (!data.can_confirm) {
+                    showStatus((data.warnings || []).map((warning) => warning.message).join('\n'), true);
+                } else if (await confirmEnrich(data, id)) {
                     await enrichLatest(id, button, true);
-                } else if (!data.can_confirm) {
-                    showStatus(reasons, true);
                 }
                 return;
             }

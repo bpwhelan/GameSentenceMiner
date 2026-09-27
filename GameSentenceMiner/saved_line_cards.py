@@ -74,8 +74,12 @@ def check_enrich(card, saved: SavedLine) -> dict:
         warnings.append(
             {"code": "sentence_mismatch", "message": "The latest card's sentence doesn't match this saved line."}
         )
-    media_fields = (config.anki.sentence_audio_field, config.anki.picture_field)
-    if any(name and card.has_field(name) and card.get_field(name) for name in media_fields):
+
+    def has_value(name):
+        return bool(name and card.has_field(name) and card.get_field(name))
+
+    card_media = {"audio": has_value(config.anki.sentence_audio_field), "picture": has_value(config.anki.picture_field)}
+    if any(card_media.values()):
         warnings.append(
             {"code": "has_media", "message": "The latest card already has audio or a picture; it will be replaced."}
         )
@@ -88,6 +92,7 @@ def check_enrich(card, saved: SavedLine) -> dict:
         "card_word": _word(card),
         "card_sentence": card_sentence,
         "saved_sentence": saved.manifest.get("sentence", ""),
+        "card_media": card_media,
         "warnings": warnings,
     }
 

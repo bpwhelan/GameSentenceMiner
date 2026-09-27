@@ -271,6 +271,7 @@ def test_enrich_check_warns_about_mismatch_existing_media_and_pending_live_work(
 
     assert {w["code"] for w in result["warnings"]} == {"sentence_mismatch", "has_media", "live_pending"}
     assert result["card_sentence"] == "全く関係のない文"
+    assert result["card_media"] == {"audio": True, "picture": False}
 
 
 # --- saved game name and translation context -----------------------------

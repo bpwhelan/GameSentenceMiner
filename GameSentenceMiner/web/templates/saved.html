@@ -32,6 +32,41 @@
 
     {% include 'components/settings-modal.html' %}
 
+    <div id="enrichModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="enrichModalTitle">
+        <div class="modal-content saved-modal">
+            <div class="modal-header">
+                <h3 id="enrichModalTitle">Enrich the latest card?</h3>
+                <button type="button" class="close-btn" data-enrich-close aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <ul id="enrichWarnings" class="saved-warnings"></ul>
+                <div class="saved-compare">
+                    <section class="saved-compare-side">
+                        <h4>Latest card in Anki</h4>
+                        <p id="enrichCardWord" class="saved-compare-word"></p>
+                        <p id="enrichCardSentence" class="saved-compare-sentence" lang="ja"></p>
+                        <img id="enrichCardPicture" class="saved-compare-picture" alt="Current picture on the card" hidden>
+                        <audio id="enrichCardAudio" controls preload="none" hidden></audio>
+                        <p id="enrichCardNoMedia" class="saved-compare-empty" hidden>No audio or picture yet.</p>
+                    </section>
+                    <section class="saved-compare-side">
+                        <h4>Saved line</h4>
+                        <p id="enrichSavedSentence" class="saved-compare-sentence" lang="ja"></p>
+                        <audio id="enrichSavedAudio" controls preload="none"></audio>
+                    </section>
+                </div>
+                <p class="saved-modal-note">
+                    Enriching replaces the card's sentence, audio and picture with the saved line's. The desktop
+                    confirmation dialog still lets you adjust or cancel.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="action-btn" data-enrich-close>Cancel</button>
+                <button type="button" class="action-btn primary" id="enrichConfirm">Enrich anyway</button>
+            </div>
+        </div>
+    </div>
+
     {% set page_specific_js = 'saved.js' %}
     {% include 'components/js-config.html' %}
 </body>
