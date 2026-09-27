@@ -266,3 +266,110 @@ def test_find_saved_folder_matches_the_same_selection_only(tmp_path):
     assert saved_lines.find_saved_folder(str(tmp_path), [a]) == str(folder)
     assert saved_lines.find_saved_folder(str(tmp_path), [a, b]) is None
     assert saved_lines.find_saved_folder(str(tmp_path), [b]) is None
+
+
+# --- reading saved lines back ------------------------------------------------
+
+
+def _write_saved(root, name, entries, end_seconds, game="Game"):
+    folder = root / "2026-09-27" / name
+    folder.mkdir(parents=True)
+    manifest = {
+        "version": 1,
+        "game": game,
+        "sentence": "".join(e[1] for e in entries if e[2] == "selected"),
+        "selected_line_ids": [e[0] for e in entries if e[2] == "selected"],
+        "lines": [
+            {"id": i, "text": t, "time": (BASE + timedelta(seconds=s)).isoformat(), "role": r, "source_padding": 0}
+            for i, t, r, s in ((e[0], e[1], e[2], e[3]) for e in entries)
+        ],
+        "clip": {"file": "clip.mkv", "end_time": (BASE + timedelta(seconds=end_seconds)).isoformat()},
+    }
+    (folder / saved_lines.MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    (folder / "clip.mkv").write_bytes(b"")
+    return folder
+
+
+def _card(sentence, expression=""):
+    fields = {"Sentence": sentence, "Expression": expression}
+    return type("Card", (), {"get_field": lambda self, field: fields[field]})()
+
+
+@pytest.fixture
+def matcher_config(monkeypatch):
+    from types import SimpleNamespace
+
+    from GameSentenceMiner.util import text_log
+
+    monkeypatch.setattr(
+        text_log,
+        "get_config",
+        lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence", word_field="Expression")),
+    )
+
+
+def test_load_saved_line_rebuilds_linked_lines_ending_at_the_clip(tmp_path):
+    folder = _write_saved(
+        tmp_path, "a", [("p", "前", "previous", 10), ("l", "今", "selected", 15), ("n", "次", "next", 20)], 28
+    )
+
+    saved = saved_lines.load_saved_line(str(folder))
+
+    prev, line, nxt = saved.lines
+    assert [line.id for line in saved.selected] == ["l"]
+    assert (prev.next, line.prev, line.next, nxt.prev, nxt.next) == (line, prev, nxt, line, None)
+    assert saved.clip_end_time == BASE + timedelta(seconds=28)
+    # mined_time lets next_line() cut the audio at the following line, as in the live flow.
+    assert line.next_line() is nxt and line.get_next_time() == nxt.time
+    assert saved.clip_path == str(folder / "clip.mkv")
+    assert saved.game == "Game"
+
+
+def test_saved_lines_keep_their_neighbours_as_translation_context(tmp_path):
+    folder = _write_saved(tmp_path, "a", [("p", "前", "previous", 10), ("l", "今", "selected", 15)], 20)
+
+    saved = saved_lines.load_saved_line(str(folder))
+
+    line = saved.selected[0]
+    assert line.saved_context_lines == saved.lines
+    assert line.saved_context_lines[line.index] is line
+
+
+def test_card_is_matched_to_the_saved_line_with_the_same_ranking(tmp_path, matcher_config):
+    _write_saved(tmp_path, "a", [("a", "心当たりはねえのかこの声の主", "selected", 10)], 15)
+    _write_saved(tmp_path, "b", [("b", "何度も同じ事を言わせるな", "selected", 30)], 35)
+
+    match = saved_lines.match_card_to_saved_line(_card("何度も<b>同じ事</b>を言わせるな", "同じ"), str(tmp_path))
+
+    saved, line = match
+    assert line.id == "b" and os.path.basename(saved.folder) == "b"
+
+
+def test_card_matching_prefers_the_newest_saved_line_on_a_tie(tmp_path, matcher_config):
+    _write_saved(tmp_path, "old", [("old", "同じ台詞です", "selected", 10)], 15)
+    _write_saved(tmp_path, "new", [("new", "同じ台詞です", "selected", 60)], 65)
+
+    saved, _ = saved_lines.match_card_to_saved_line(_card("同じ台詞です"), str(tmp_path))
+
+    assert os.path.basename(saved.folder) == "new"
+
+
+def test_no_saved_match_returns_none_and_unreadable_folders_are_skipped(tmp_path, matcher_config):
+    _write_saved(tmp_path, "a", [("a", "心当たりはねえのか", "selected", 10)], 15)
+    broken = tmp_path / "2026-09-27" / "broken"
+    broken.mkdir()
+    (broken / saved_lines.MANIFEST_NAME).write_text("{not json", encoding="utf-8")
+
+    assert saved_lines.match_card_to_saved_line(_card("全く関係のない文"), str(tmp_path)) is None
+    assert saved_lines.match_card_to_saved_line(_card("x"), str(tmp_path / "missing")) is None
+    assert len(list(saved_lines.iter_saved_lines(str(tmp_path)))) == 1
+
+
+def test_record_card_appends_to_the_manifest(tmp_path):
+    folder = _write_saved(tmp_path, "a", [("a", "今", "selected", 10)], 15)
+
+    saved_lines.record_card(str(folder), note_id=123, word="今")
+    saved_lines.record_card(str(folder), note_id=456, word="今日")
+
+    cards = saved_lines.read_manifest(str(folder))["cards"]
+    assert [(c["note_id"], c["word"]) for c in cards] == [(123, "今"), (456, "今日")]

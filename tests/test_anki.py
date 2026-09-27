@@ -1708,7 +1708,7 @@ def test_confirmation_previous_screenshot_uses_latest_line_with_text(
     monkeypatch.setattr(anki.ffmpeg, "get_screenshot_time", screenshot_time, raising=False)
     monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
-    monkeypatch.setattr(anki, "_prepare_anki_tags", list)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
     qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
 
     def launch_confirmation(*args, **_kwargs):
@@ -2640,7 +2640,7 @@ def test_confirmation_audio_choice_controls_voice_only_animation(monkeypatch, ke
     cfg.paths.remove_video = False
     monkeypatch.setattr(anki, "get_config", lambda: cfg)
     monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
     qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
     qt_main_stub.launch_anki_confirmation = lambda *args, **_kwargs: (
         keep_audio,
@@ -2782,7 +2782,7 @@ def test_update_anki_card_confirmation_marks_reused_media(monkeypatch):
     monkeypatch.setattr(anki, "get_config", lambda: cfg)
     monkeypatch.setattr(anki, "_wait_for_reuse_result", lambda *_args, **_kwargs: (True, 0.0))
     monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
 
     anki.anki_results["source-line"] = anki.AnkiUpdateResult(
         success=True,
@@ -2864,7 +2864,7 @@ def test_update_anki_card_confirmation_delete_card_deletes_note_and_skips_update
     monkeypatch.setattr(anki, "get_config", lambda: cfg)
     monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
-    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
 
     qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
     qt_main_stub.launch_anki_confirmation = lambda *_args, **_kwargs: {
@@ -2902,7 +2902,7 @@ def test_update_anki_card_does_not_enter_field_grouping_path_when_disabled(monke
     monkeypatch.setattr(anki, "_determine_update_conditions", lambda _note: (False, False))
     monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *args, **kwargs: None)
     monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
-    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
     monkeypatch.setattr(
         anki,
         "_resolve_field_grouping_decision",
@@ -2949,7 +2949,7 @@ def test_update_anki_card_marks_video_pending_for_background_work(monkeypatch):
     monkeypatch.setattr(anki, "_generate_media_files", lambda *args, **kwargs: assets)
     monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *args, **kwargs: None)
     monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
-    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
     monkeypatch.setattr(anki, "submit_background_work", lambda func: None)
 
     video_path = "C:/Users/test/Videos/GSM/Replay.mp4"

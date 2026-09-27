@@ -621,6 +621,7 @@ class ReplayAudioExtractor:
                         os.remove(video_path)
                 except Exception as e:
                     logger.exception(f"Error removing video file {video_path}: {e}")
+        return context
 
     @staticmethod
     def get_audio(
@@ -808,8 +809,33 @@ class ReplayAudioExtractor:
         )
 
 
+_active_watcher = None
+_fallback_card_executor = None
+_fallback_extractor = None
+
+
+def get_card_executor():
+    """The single worker live cards run on; other card jobs share it so dialogs never overlap."""
+    global _fallback_card_executor
+    if _active_watcher is not None:
+        return _active_watcher._executor
+    if _fallback_card_executor is None:
+        _fallback_card_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gsm-replay")
+    return _fallback_card_executor
+
+
+def get_replay_extractor():
+    global _fallback_extractor
+    if _active_watcher is not None:
+        return _active_watcher._extractor
+    if _fallback_extractor is None:
+        _fallback_extractor = ReplayAudioExtractor()
+    return _fallback_extractor
+
+
 class ReplayFileWatcher(FileSystemEventHandler):
     def __init__(self, extractor: ReplayAudioExtractor, executor=None, refresh_executor=None):
+        global _active_watcher
         super().__init__()
         self._extractor = extractor
         # Keep ordinary cards serialized so their shared Anki/dialog state cannot
@@ -819,6 +845,7 @@ class ReplayFileWatcher(FileSystemEventHandler):
         self._refresh_executor = refresh_executor or ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="gsm-dialogue-replay"
         )
+        _active_watcher = self
 
     def _process_created_replay(self, path, queued_job):
         wait_for_stable_file(path)

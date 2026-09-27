@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from GameSentenceMiner.util.config.configuration import get_config, logger
 from GameSentenceMiner.util.gsm_utils import get_file_modification_time, sanitize_filename
 from GameSentenceMiner.util.media import ffmpeg
-from GameSentenceMiner.util.text_log import GameLine
+from GameSentenceMiner.util.text_log import GameLine, find_matching_line
 
 SAVED_FOLDER_NAME = "Saved"
 MANIFEST_NAME = "manifest.json"
@@ -203,3 +203,102 @@ def save_lines_to_disk(
 def read_manifest(folder: str) -> dict:
     with open(os.path.join(folder, MANIFEST_NAME), encoding="utf-8") as f:
         return json.load(f)
+
+
+def _write_manifest(folder: str, manifest: dict) -> None:
+    path = os.path.join(folder, MANIFEST_NAME)
+    staged = f"{path}.tmp"
+    with open(staged, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    os.replace(staged, path)
+
+
+@dataclass
+class SavedLine:
+    folder: str
+    manifest: dict
+    lines: list[GameLine]
+    selected: list[GameLine]
+    clip_path: str
+    clip_end_time: datetime
+    game: str
+
+
+def load_saved_line(folder: str) -> SavedLine:
+    """Rebuild a saved line's GameLines, linked like the live text log but only within the clip."""
+    manifest = read_manifest(folder)
+    clip_end_time = datetime.fromisoformat(manifest["clip"]["end_time"])
+    lines = []
+    selected = []
+    for index, entry in enumerate(manifest["lines"]):
+        line = GameLine(
+            id=entry["id"],
+            text=entry["text"],
+            time=datetime.fromisoformat(entry["time"]),
+            prev=lines[-1] if lines else None,
+            next=None,
+            index=index,
+            scene=entry.get("scene", "") or "",
+            source=entry.get("source"),
+            source_padding=float(entry.get("source_padding", 0) or 0),
+            # next_line() only follows links older than mined_time; the clip end bounds them.
+            mined_time=clip_end_time,
+        )
+        if lines:
+            lines[-1].next = line
+        lines.append(line)
+        if entry.get("role") == "selected":
+            selected.append(line)
+    game = manifest.get("game", "") or ""
+    for line in lines:
+        # The Anki flow reads these instead of the live session's log and OBS scene.
+        line.saved_context_lines = lines
+        line.saved_game = game
+    return SavedLine(
+        folder=folder,
+        manifest=manifest,
+        lines=lines,
+        selected=selected,
+        clip_path=os.path.join(folder, manifest["clip"]["file"]),
+        clip_end_time=clip_end_time,
+        game=game,
+    )
+
+
+def iter_saved_lines(saved_root: str):
+    """Yield every readable saved line under saved_root; restored folders are picked up again."""
+    if not os.path.isdir(saved_root):
+        return
+    for day in sorted(os.listdir(saved_root)):
+        day_folder = os.path.join(saved_root, day)
+        if not os.path.isdir(day_folder):
+            continue
+        for name in sorted(os.listdir(day_folder)):
+            folder = os.path.join(day_folder, name)
+            if not os.path.isfile(os.path.join(folder, MANIFEST_NAME)):
+                continue
+            try:
+                yield load_saved_line(folder)
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                logger.debug(f"Skipping unreadable saved line {folder}: {e}")
+
+
+def match_card_to_saved_line(card, saved_root: str) -> tuple[SavedLine, GameLine] | None:
+    """Match a card's sentence against every saved line using the live matcher's ranking."""
+    owners = {}
+    candidates = []
+    for saved in iter_saved_lines(saved_root):
+        for line in saved.selected:
+            owners[id(line)] = saved
+            candidates.append(line)
+    candidates.sort(key=lambda line: line.time)
+    best = find_matching_line(card, candidates, respect_replay_window=False)
+    return (owners[id(best)], best) if best is not None else None
+
+
+def record_card(folder: str, note_id, word: str) -> None:
+    manifest = read_manifest(folder)
+    manifest.setdefault("cards", []).append(
+        {"note_id": note_id, "word": word, "created_at": datetime.now().isoformat()}
+    )
+    _write_manifest(folder, manifest)
