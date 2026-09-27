@@ -12,11 +12,18 @@
 
         {% include 'components/navigation.html' %}
 
-        <p class="saved-help">
-            Look up a word with Yomitan and add a card, then press <strong>Enrich latest card</strong> on its line to
-            add the audio and screenshot from the saved clip. Cards added while GSM is watching Anki are matched to
-            their saved line automatically.
-        </p>
+        <details class="saved-help" id="savedHelp" open>
+            <summary>How to make cards from saved lines</summary>
+            <ol class="saved-help-steps">
+                <li>Look up a word in one of the lines below with Yomitan, and add the card to Anki.</li>
+                <li>GSM recognises the saved line and adds its audio and screenshot, with the usual confirmation dialog on the desktop.</li>
+                <li>If that doesn't happen (for example, Anki isn't connected to GSM), press <strong>✨ Enrich latest card</strong> on the line.</li>
+            </ol>
+            <p class="saved-help-note">
+                Save lines from the Text Feed with <strong>💾 Save for later</strong>. A saved line stays here after
+                you make a card from it, so you can make more cards from the same sentence.
+            </p>
+        </details>
 
         <div id="savedDisk" class="saved-disk" hidden>
             <div class="saved-disk-bar" role="img" id="savedDiskBar">

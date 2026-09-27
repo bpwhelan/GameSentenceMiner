@@ -1,7 +1,32 @@
 .saved-help {
-    color: var(--text-secondary);
     margin: 0 0 20px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
     line-height: 1.5;
+}
+
+.saved-help summary {
+    cursor: pointer;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.saved-help-steps {
+    margin: 10px 0 0;
+    padding-left: 22px;
+}
+
+.saved-help-steps li {
+    margin-bottom: 4px;
+}
+
+.saved-help-note {
+    margin: 10px 0 0;
+    font-size: 0.9rem;
+    color: var(--text-tertiary);
 }
 
 .saved-toolbar {

@@ -333,6 +333,21 @@
         load();
     }
 
+    // Remember whether the instructions were collapsed (per browser only).
+    const help = $('savedHelp');
+    try {
+        if (localStorage.getItem('gsm-saved-help-collapsed') === '1') help.open = false;
+    } catch (error) {
+        // Storage can be unavailable; the instructions just stay open.
+    }
+    help.addEventListener('toggle', () => {
+        try {
+            localStorage.setItem('gsm-saved-help-collapsed', help.open ? '0' : '1');
+        } catch (error) {
+            // Ignore: remembering the choice is only a convenience.
+        }
+    });
+
     selectAll.addEventListener('change', () => {
         for (const item of shownItems()) {
             if (selectAll.checked) selected.add(item.id);
