@@ -7,7 +7,7 @@
     const sort = $('clipsSort');
     const count = $('clipsCount');
     const empty = $('clipsEmpty');
-    const selectionBar = $('clipsSelection');
+    const noResults = $('clipsNoResults');
     const selectAll = $('clipsSelectAll');
     const deleteSelected = $('clipsDeleteSelected');
     const player = new Audio();
@@ -45,16 +45,12 @@
         return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
     }
 
-    function formatTime(iso) {
+    // Same format as the Search page's result dates.
+    function formatDate(iso) {
         const date = new Date(iso);
-        return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-
-    function formatDay(iso) {
-        const date = new Date(iso);
-        return Number.isNaN(date.getTime())
-            ? 'Unknown date'
-            : date.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        if (Number.isNaN(date.getTime())) return '';
+        const pad = (value) => String(value).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${date.toTimeString().split(' ')[0]}`;
     }
 
     function element(tag, className, text) {
@@ -74,10 +70,18 @@
         return shown;
     }
 
-    function renderItem(item, grouped) {
-        const card = element('article', 'clips-item');
+    function metadataItem(label, value, title) {
+        const node = element('div', 'metadata-item');
+        node.append(element('span', 'metadata-label', label), element('span', 'metadata-value', value));
+        if (title) node.title = title;
+        return node;
+    }
+
+    // Laid out like a Search page result: checkbox, sentence, then a metadata row.
+    function renderItem(item) {
+        const card = element('div', 'search-result clips-result');
         card.classList.toggle('is-selected', selected.has(item.id));
-        const pick = element('input', 'clips-item-select');
+        const pick = element('input', 'line-checkbox');
         pick.type = 'checkbox';
         pick.checked = selected.has(item.id);
         pick.setAttribute('aria-label', 'Select this clip');
@@ -86,41 +90,43 @@
             else selected.delete(item.id);
             render();
         });
-        card.append(pick);
 
+        const content = element('div', 'clips-result-content');
         const before = item.lines.filter((line) => line.role === 'previous').map((line) => line.text).join('\n');
         const after = item.lines.filter((line) => line.role === 'next').map((line) => line.text).join('\n');
-        if (before) card.append(element('p', 'clips-context', before));
-        const sentence = element('p', 'clips-sentence', item.sentence);
+        if (before) content.append(element('p', 'clips-context', before));
+        const sentence = element('div', 'result-sentence', item.sentence);
         sentence.lang = 'ja';
-        card.append(sentence);
-        if (after) card.append(element('p', 'clips-context', after));
+        content.append(sentence);
+        if (after) content.append(element('p', 'clips-context', after));
 
-        const meta = element('div', 'clips-meta');
-        if (item.game) meta.append(element('span', '', item.game));
-        const when = grouped ? formatTime(item.line_time) : `${formatDay(item.line_time)} ${formatTime(item.line_time)}`;
-        meta.append(element('span', '', when));
-        const size = element('span', 'clips-size', formatBytes(item.size_bytes));
-        size.title = 'Disk space used by this clip';
-        meta.append(size);
-        if (item.cards.length) {
-            const badge = element('span', 'clips-badge', item.cards.length === 1 ? '1 card' : `${item.cards.length} cards`);
-            badge.title = item.cards.map((c) => c.word).filter(Boolean).join(', ');
-            meta.append(badge);
+        const meta = element('div', 'result-metadata');
+        if (item.game) {
+            const game = element('div', 'metadata-item');
+            game.append(element('span', 'game-tag', item.game));
+            meta.append(game);
         }
-        card.append(meta);
+        meta.append(metadataItem('📅', formatDate(item.line_time)));
+        meta.append(metadataItem('💾', formatBytes(item.size_bytes), 'Disk space used by this clip'));
+        if (item.cards.length) {
+            const words = item.cards.map((c) => c.word).filter(Boolean).join(', ');
+            meta.append(metadataItem('🃏', item.cards.length === 1 ? '1 card' : `${item.cards.length} cards`, words));
+        }
+        content.append(meta);
 
         const actions = element('div', 'clips-actions');
-        const play = element('button', 'clips-play', playingId === item.id ? '⏹ Stop' : '▶ Play');
+        const play = element('button', 'action-btn', playingId === item.id ? '⏹ Stop' : '▶ Play');
         play.addEventListener('click', () => togglePlay(item.id));
-        const enrich = element('button', 'clips-enrich', '✨ Enrich latest card');
+        const enrich = element('button', 'action-btn primary', '✨ Enrich latest card');
         enrich.title = "Add this clip's audio and screenshot to the card you added to Anki most recently";
         enrich.addEventListener('click', () => enrichLatest(item.id, enrich));
-        const trash = element('button', 'clips-delete', '🗑 Delete');
+        const trash = element('button', 'action-btn danger clips-delete', '🗑 Delete');
         trash.title = 'Move to the trash (can be restored from there)';
         trash.addEventListener('click', () => trashItems([item.id]));
         actions.append(play, enrich, trash);
-        card.append(actions);
+        content.append(actions);
+
+        card.append(pick, content);
         return card;
     }
 
@@ -146,36 +152,26 @@
 
     function render() {
         const shown = shownItems();
-        const grouped = sort.value !== 'largest';
-        list.replaceChildren();
-        let currentDay = '';
-        for (const item of shown) {
-            const day = formatDay(item.line_time);
-            if (grouped && day !== currentDay) {
-                list.append(element('h2', 'clips-day', day));
-                currentDay = day;
-            }
-            list.append(renderItem(item, grouped));
-        }
+        list.replaceChildren(...shown.map(renderItem));
 
         for (const id of [...selected]) if (!items.some((item) => item.id === id)) selected.delete(id);
         const shownSelected = shown.filter((item) => selected.has(item.id)).length;
-        selectAll.checked = shown.length > 0 && shownSelected === shown.length;
-        selectAll.indeterminate = shownSelected > 0 && shownSelected < shown.length;
+        selectAll.disabled = shown.length === 0;
+        selectAll.textContent = shown.length > 0 && shownSelected === shown.length ? 'Deselect All' : 'Select All';
         const selectedBytes = items.filter((item) => selected.has(item.id)).reduce((sum, item) => sum + item.size_bytes, 0);
         deleteSelected.disabled = selected.size === 0;
         deleteSelected.textContent = selected.size
-            ? `🗑 Delete selected (${selected.size} · ${formatBytes(selectedBytes)})`
-            : '🗑 Delete selected';
-        selectionBar.hidden = items.length === 0;
+            ? `Delete Selected (${selected.size} · ${formatBytes(selectedBytes)})`
+            : 'Delete Selected';
 
         const noun = items.length === 1 ? 'clip' : 'clips';
         count.textContent = items.length
             ? shown.length === items.length
                 ? `${items.length} ${noun}`
                 : `${shown.length} of ${items.length} ${noun}`
-            : '';
+            : 'No clips';
         empty.hidden = items.length > 0;
+        noResults.hidden = items.length === 0 || shown.length > 0;
         renderDisk();
     }
 
@@ -333,25 +329,34 @@
         load();
     }
 
-    // Remember whether the instructions were collapsed (per browser only).
+    // Instructions toggle, like the Search page's advanced options; the choice is remembered per browser.
     const help = $('clipsHelp');
-    try {
-        if (localStorage.getItem('gsm-clips-help-collapsed') === '1') help.open = false;
-    } catch (error) {
-        // Storage can be unavailable; the instructions just stay open.
+    const helpToggle = $('clipsHelpToggle');
+    function setHelpOpen(open) {
+        help.hidden = !open;
+        helpToggle.setAttribute('aria-expanded', String(open));
+        helpToggle.querySelector('.clips-toggle-icon').textContent = open ? '▼' : '▶';
     }
-    help.addEventListener('toggle', () => {
+    try {
+        setHelpOpen(localStorage.getItem('gsm-clips-help-collapsed') !== '1');
+    } catch (error) {
+        setHelpOpen(true);
+    }
+    helpToggle.addEventListener('click', () => {
+        setHelpOpen(help.hidden);
         try {
-            localStorage.setItem('gsm-clips-help-collapsed', help.open ? '0' : '1');
+            localStorage.setItem('gsm-clips-help-collapsed', help.hidden ? '1' : '0');
         } catch (error) {
             // Ignore: remembering the choice is only a convenience.
         }
     });
 
-    selectAll.addEventListener('change', () => {
-        for (const item of shownItems()) {
-            if (selectAll.checked) selected.add(item.id);
-            else selected.delete(item.id);
+    selectAll.addEventListener('click', () => {
+        const shown = shownItems();
+        const allSelected = shown.every((item) => selected.has(item.id));
+        for (const item of shown) {
+            if (allSelected) selected.delete(item.id);
+            else selected.add(item.id);
         }
         render();
     });

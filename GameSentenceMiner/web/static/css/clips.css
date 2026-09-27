@@ -1,48 +1,47 @@
-.clips-help {
-    margin: 0 0 20px;
-    padding: 12px 16px;
-    border-radius: 10px;
+/* Clips to mine: builds on the shared Search styles (search-container, search-result, ...). */
+
+/* Same look as the Search page's "Show Advanced Search" toggle. */
+.clips-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
     background: var(--bg-secondary);
+    color: var(--text-primary);
     border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.clips-toggle-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-color);
+}
+
+.clips-toggle-icon {
+    font-size: 12px;
+}
+
+.clips-help {
+    margin-top: 12px;
+    padding: 15px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
     color: var(--text-secondary);
+    font-size: 14px;
     line-height: 1.5;
 }
 
-.clips-help summary {
-    cursor: pointer;
-    color: var(--text-primary);
-    font-weight: 600;
-}
-
-.clips-help-intro {
-    margin: 10px 0 0;
-    color: var(--text-primary);
-}
-
-.clips-storage {
-    margin: 0 0 20px;
-    padding: 12px 16px;
-    border-radius: 10px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-}
-
-.clips-storage-note {
-    margin: 0;
-    padding: 8px 12px;
-    border-radius: 6px;
-    border-left: 3px solid var(--warning-color);
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-}
-
-.clips-disk:not([hidden]) + .clips-storage-note {
-    margin-top: 12px;
+.clips-help[hidden] {
+    display: none;
 }
 
 .clips-help-steps {
-    margin: 10px 0 0;
+    margin: 0;
     padding-left: 22px;
 }
 
@@ -52,40 +51,16 @@
 
 .clips-help-note {
     margin: 10px 0 0;
-    font-size: 0.9rem;
     color: var(--text-tertiary);
 }
 
-.clips-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    align-items: center;
-    margin-bottom: 20px;
+.search-container .search-filters {
+    margin-top: 20px;
+    border-top-color: var(--border-color);
 }
 
-.clips-search {
-    flex: 1;
-    min-width: 200px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 1rem;
-}
-
-.clips-sort {
-    padding: 10px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 0.95rem;
-}
-
-.clips-disk {
-    margin: 0;
+.clips-storage {
+    margin-bottom: 10px;
 }
 
 .clips-disk-bar {
@@ -97,13 +72,13 @@
     border: 1px solid var(--border-color);
 }
 
-.clips-disk-share[hidden] {
-    display: none;
-}
-
 .clips-disk-share {
     background: var(--accent-color);
     min-width: 4px;
+}
+
+.clips-disk-share[hidden] {
+    display: none;
 }
 
 .clips-disk-other {
@@ -117,7 +92,7 @@
     gap: 6px 18px;
     margin-top: 8px;
     color: var(--text-secondary);
-    font-size: 0.85rem;
+    font-size: 13px;
 }
 
 .clips-swatch {
@@ -143,82 +118,44 @@
     border: 1px solid var(--border-color);
 }
 
-.clips-selection {
+.clips-storage-note {
+    margin: 0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border-left: 3px solid var(--warning-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.clips-disk:not([hidden]) + .clips-storage-note {
+    margin-top: 12px;
+}
+
+.clips-results-controls {
     display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
     align-items: center;
-    margin-bottom: 8px;
-}
-
-.clips-selection[hidden] {
-    display: none;
-}
-
-.clips-select-all {
-    display: flex;
     gap: 8px;
-    align-items: center;
-    color: var(--text-secondary);
-    cursor: pointer;
+    margin-left: auto;
 }
 
-.clips-delete-selected {
-    min-height: 36px;
-    padding: 6px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--danger-color);
-    background: transparent;
-    color: var(--danger-color);
-    cursor: pointer;
-}
-
-.clips-delete-selected:disabled {
-    opacity: 0.45;
-    border-color: var(--border-color);
-    color: var(--text-tertiary);
+.clips-results-controls .delete-btn:disabled,
+.clips-results-controls .action-btn:disabled {
+    opacity: 0.5;
     cursor: default;
-}
-
-.clips-item {
-    position: relative;
-}
-
-.clips-item.is-selected {
-    border-color: var(--accent-color);
-    box-shadow: 0 0 0 1px var(--accent-color);
-}
-
-.clips-item-select {
-    position: absolute;
-    top: 14px;
-    right: 14px;
-    width: 22px;
-    height: 22px;
-    cursor: pointer;
-}
-
-.clips-trash-list {
-    max-height: 200px;
-    overflow-y: auto;
-    padding-left: 20px;
-    color: var(--text-secondary);
-}
-
-.clips-count {
-    color: var(--text-tertiary);
 }
 
 .clips-status {
     position: sticky;
     top: 8px;
     z-index: 10;
-    box-shadow: 0 2px 8px var(--shadow-color);
-    margin-bottom: 16px;
-    padding: 12px 14px;
+    margin-bottom: 15px;
+    padding: 12px 16px;
     border-radius: 8px;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-left: 4px solid var(--accent-color);
+    box-shadow: 0 2px 8px var(--shadow-color);
     color: var(--text-primary);
     white-space: pre-line;
 }
@@ -227,103 +164,56 @@
     border-left-color: var(--danger-color);
 }
 
-.clips-day {
-    margin: 28px 0 12px;
-    color: var(--text-secondary);
-    font-size: 1rem;
-    font-weight: 600;
+.clips-result {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
 }
 
-.clips-item {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    box-shadow: 0 2px 8px var(--shadow-color);
-    padding: 16px 18px;
-    margin-bottom: 12px;
+.clips-result.is-selected {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 1px var(--accent-color);
 }
 
-.clips-item .clips-context,
-.clips-item .clips-sentence {
-    padding-right: 32px;
+.clips-result-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.clips-result .result-sentence {
+    font-size: 18px;
+    margin-bottom: 8px;
+    white-space: pre-line;
 }
 
 .clips-context {
+    margin: 0 0 6px;
     color: var(--text-tertiary);
-    font-size: 0.9rem;
-    margin: 0;
+    font-size: 13px;
     white-space: pre-line;
 }
 
-.clips-sentence {
-    color: var(--text-primary);
-    font-size: 1.35rem;
-    line-height: 1.6;
-    margin: 6px 0;
-    white-space: pre-line;
-}
-
-.clips-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 14px;
-    align-items: center;
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-    margin: 10px 0 12px;
-}
-
-.clips-badge {
-    padding: 2px 10px;
-    border-radius: 999px;
-    background: var(--success-color);
-    color: #fff;
-    font-size: 0.8rem;
+.clips-result .result-metadata {
+    margin-top: 12px;
 }
 
 .clips-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    margin-top: 15px;
 }
 
-.clips-actions button {
-    min-height: 40px;
-    padding: 8px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-size: 0.95rem;
-    cursor: pointer;
-}
-
-.clips-actions button:hover:not(:disabled) {
-    border-color: var(--accent-color);
-}
-
-.clips-actions button:disabled {
+.clips-actions .action-btn:disabled {
     opacity: 0.6;
     cursor: wait;
 }
 
-.clips-actions .clips-enrich {
-    background: var(--accent-color);
-    border-color: var(--accent-color);
-    color: #fff;
-}
-
 .clips-actions .clips-delete {
     margin-left: auto;
-    color: var(--danger-color);
 }
 
-.clips-empty {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 40px 0;
-}
-
+/* Enrich confirmation modal */
 .clips-modal {
     max-width: 860px;
     max-height: 90vh;
@@ -393,20 +283,32 @@
     margin: 16px 0 0;
 }
 
+.clips-trash-list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding-left: 20px;
+    color: var(--text-secondary);
+}
+
 @media (max-width: 600px) {
+    .search-container {
+        padding: 18px;
+    }
+
+    .search-stats {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .clips-results-controls {
+        margin-left: 0;
+    }
+
     .clips-compare {
         grid-template-columns: 1fr;
     }
 
-    .clips-item {
-        padding: 14px;
-    }
-
-    .clips-sentence {
-        font-size: 1.2rem;
-    }
-
-    .clips-actions button {
+    .clips-actions .action-btn {
         flex: 1 1 auto;
     }
 

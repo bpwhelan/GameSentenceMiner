@@ -7,17 +7,29 @@
 {% include 'components/html-head.html' %}
 
 <body>
-    <div class="container">
-        <h1>GSM - Clips to mine</h1>
+<div class="container">
+    <h1>GSM - Clips to mine</h1>
 
-        {% include 'components/navigation.html' %}
+    {% include 'components/navigation.html' %}
 
-        <details class="clips-help" id="clipsHelp" open>
-            <summary>How to make cards from clips</summary>
-            <p class="clips-help-intro">
-                Clips let you make Anki cards at your own pace, after the OBS replay buffer has moved on, for example
-                once your gaming session is over.
+    <div class="search-container">
+        <div class="search-header">
+            <h2>Make Cards From Your Clips</h2>
+            <p class="search-description">
+                Clips let you make Anki cards at your own pace, after the OBS replay buffer has moved on
             </p>
+        </div>
+
+        <div class="search-input-container">
+            <input type="search" id="clipsSearch" class="search-input" placeholder="Filter clips by text or game..."
+                   autocomplete="off">
+        </div>
+
+        <button type="button" id="clipsHelpToggle" class="clips-toggle-btn" aria-expanded="true"
+                aria-controls="clipsHelp">
+            <span class="clips-toggle-icon" aria-hidden="true">▼</span> How to make cards from clips
+        </button>
+        <div id="clipsHelp" class="clips-help">
             <ol class="clips-help-steps">
                 <li>Look up a word in one of the clips below with Yomitan, and add the card to Anki.</li>
                 <li>GSM recognises the clip and adds its audio and screenshot, with the usual confirmation dialog on the desktop.</li>
@@ -27,7 +39,18 @@
                 Save clips from the Text Feed with <strong>💾 Save clip for later</strong>. A clip stays here after you
                 make a card from it, so you can make more cards from the same sentence.
             </p>
-        </details>
+        </div>
+
+        <div class="search-filters">
+            <div class="filter-group">
+                <label class="filter-label" for="clipsSort">Sort by:</label>
+                <select id="clipsSort" class="filter-select">
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="largest">Largest First</option>
+                </select>
+            </div>
+        </div>
 
         <section class="clips-storage" aria-label="Disk space">
             <div id="clipsDisk" class="clips-disk" hidden>
@@ -47,31 +70,34 @@
             </p>
         </section>
 
-        <div class="clips-toolbar">
-            <input type="search" id="clipsSearch" class="clips-search" placeholder="Filter by text or game">
-            <select id="clipsSort" class="clips-sort" aria-label="Sort clips">
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-                <option value="largest">Largest first</option>
-            </select>
-            <span id="clipsCount" class="clips-count"></span>
+        <div class="search-stats">
+            <span id="clipsCount">Loading clips…</span>
+            <div class="clips-results-controls">
+                <button type="button" id="clipsSelectAll" class="action-btn" disabled>Select All</button>
+                <button type="button" id="clipsDeleteSelected" class="delete-btn" disabled>Delete Selected</button>
+            </div>
         </div>
+    </div>
 
-        <div id="clipsSelection" class="clips-selection" hidden>
-            <label class="clips-select-all">
-                <input type="checkbox" id="clipsSelectAll"> <span>Select all shown</span>
-            </label>
-            <button type="button" id="clipsDeleteSelected" class="clips-delete-selected" disabled>🗑 Delete selected</button>
+    <div id="clipsStatus" class="clips-status" role="status" hidden></div>
+
+    <div class="results-container">
+        <div id="clipsEmpty" class="empty-state" hidden>
+            <div class="empty-state-icon">🎬</div>
+            <h3>No Clips Yet</h3>
+            <p>Use <strong>💾 Save clip for later</strong> on a line in the Text Feed.<br>
+            Its clip shows up here, ready to make cards from.</p>
         </div>
-
-        <div id="clipsStatus" class="clips-status" role="status" hidden></div>
-        <div id="clipsList" class="clips-list"></div>
-        <p id="clipsEmpty" class="clips-empty" hidden>
-            No clips yet. Use <strong>Save clip for later</strong> on a line in the Text Feed.
-        </p>
+        <div id="clipsNoResults" class="no-results" hidden>
+            <div class="no-results-icon">📭</div>
+            <h3>No Clips Match</h3>
+            <p>Try a different filter</p>
+        </div>
+        <div id="clipsList"></div>
     </div>
 
     {% include 'components/settings-modal.html' %}
+</div>
 
     <div id="trashModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="trashModalTitle">
         <div class="modal-content">
