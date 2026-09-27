@@ -28,6 +28,10 @@
 }
 
 .saved-status {
+    position: sticky;
+    top: 8px;
+    z-index: 10;
+    box-shadow: 0 2px 8px var(--shadow-color);
     margin-bottom: 16px;
     padding: 12px 14px;
     border-radius: 8px;

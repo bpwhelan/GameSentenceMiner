@@ -13,6 +13,7 @@
         status.textContent = message;
         status.classList.toggle('is-error', isError);
         status.hidden = !message;
+        if (message) status.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
     function formatTime(iso) {
