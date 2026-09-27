@@ -74,6 +74,7 @@ export const defaultSettings: Settings = {
 	showAudioButton$: true,
 	trimAudioWithVAD$: false,
 	showTrimVideoButton$: false,
+	showSaveForLaterButton$: true,
 	trimVideoWithVAD$: false,
 	showTrimmedVideoInExplorer$: false,
 	showGSMCheckboxes$: true,
@@ -334,6 +335,8 @@ export const trimAudioWithVAD$ = writableBooleanSubject()('bannou-texthooker-tri
 
 export const showTrimVideoButton$ = writableBooleanSubject()('bannou-texthooker-showTrimVideoButton', false);
 
+export const showSaveForLaterButton$ = writableBooleanSubject()('bannou-texthooker-showSaveForLaterButton', true);
+
 export const trimVideoWithVAD$ = writableBooleanSubject()('bannou-texthooker-trimVideoWithVAD', false);
 
 export const showTrimmedVideoInExplorer$ = writableBooleanSubject()(
@@ -430,6 +433,7 @@ export async function resetAllData() {
 	showAudioButton$.next(defaultSettings.showAudioButton$);
 	trimAudioWithVAD$.next(defaultSettings.trimAudioWithVAD$);
 	showTrimVideoButton$.next(defaultSettings.showTrimVideoButton$);
+	showSaveForLaterButton$.next(defaultSettings.showSaveForLaterButton$);
 	trimVideoWithVAD$.next(defaultSettings.trimVideoWithVAD$);
 	showTrimmedVideoInExplorer$.next(defaultSettings.showTrimmedVideoInExplorer$);
 	showGSMCheckboxes$.next(defaultSettings.showGSMCheckboxes$);

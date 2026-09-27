@@ -81,6 +81,7 @@
 		showAudioButton$,
 		trimAudioWithVAD$,
 		showTrimVideoButton$,
+		showSaveForLaterButton$,
 		trimVideoWithVAD$,
 		showGSMCheckboxes$,
 		unblurTLTimer$,
@@ -1144,6 +1145,8 @@
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimAudioWithVAD$} />
 			<span class="label-text col-span-2">Pin Save Cropped Replay Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimVideoButton$} />
+			<span class="label-text col-span-2">Pin Save For Later Button</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showSaveForLaterButton$} />
 			<span class="label-text col-span-2">Trim Video With VAD</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimVideoWithVAD$} />
 			<span class="label-text col-span-2">Show Checkboxes</span>

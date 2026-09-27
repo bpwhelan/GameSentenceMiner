@@ -1,5 +1,15 @@
 <script lang="ts">
-	import { mdiClockOutline, mdiCreationOutline, mdiHistory, mdiMenu, mdiPlay, mdiStop, mdiTrophy } from '@mdi/js';
+	import {
+		mdiClockOutline,
+		mdiContentSave,
+		mdiContentSaveCheck,
+		mdiCreationOutline,
+		mdiHistory,
+		mdiMenu,
+		mdiPlay,
+		mdiStop,
+		mdiTrophy,
+	} from '@mdi/js';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import {
@@ -19,6 +29,7 @@
 		showScreenshotButton$,
 		showAudioButton$,
 		showTrimVideoButton$,
+		showSaveForLaterButton$,
 		showTranslateButton$,
 		settingsOpen$,
 	} from '../stores/stores';
@@ -471,6 +482,19 @@
 							tabindex="-1"
 						>
 							🎬
+						</button>
+					{/if}
+					{#if $showSaveForLaterButton$}
+						<!-- Kept visible on small screens: saving from a phone or tablet is the main use. -->
+						<button
+							class="action-button"
+							on:click={handleSaveForLater}
+							title={isSaving ? 'Saving…' : isSaved ? 'Saved for later' : 'Save for later'}
+							aria-label={isSaved ? 'Saved for later' : 'Save for later'}
+							tabindex="-1"
+							disabled={isSaving}
+						>
+							<Icon path={isSaved ? mdiContentSaveCheck : mdiContentSave} width="16px" height="16px" />
 						</button>
 					{/if}
 					{#if $showAudioButton$}
