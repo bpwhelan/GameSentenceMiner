@@ -218,7 +218,11 @@ def test_list_reports_disk_space_per_line_and_in_total(client, tmp_path, monkeyp
     big = _write_saved(tmp_path, "2026-09-27", "big", "長い", 20)
     (small / "clip.mkv").write_bytes(b"x" * 1000)
     (big / "clip.mkv").write_bytes(b"x" * 5000)
-    monkeypatch.setattr(saved_lines_api.shutil, "disk_usage", lambda path: SimpleNamespace(free=123456789))
+    monkeypatch.setattr(
+        saved_lines_api.shutil,
+        "disk_usage",
+        lambda path: SimpleNamespace(total=999999999, used=876543210, free=123456789),
+    )
 
     data = client.get("/api/saved-lines").get_json()
 
@@ -228,3 +232,26 @@ def test_list_reports_disk_space_per_line_and_in_total(client, tmp_path, monkeyp
     assert sizes["2026-09-27/big"] == 5000 + (big / saved_lines.MANIFEST_NAME).stat().st_size
     assert data["total_bytes"] == sum(sizes.values())
     assert data["disk_free_bytes"] == 123456789
+    assert data["disk_total_bytes"] == 999999999
+    assert data["disk_used_bytes"] == 876543210
+
+
+def test_batch_trash_moves_every_valid_line_and_reports_the_rest(client, tmp_path, monkeypatch):
+    first = _write_saved(tmp_path, "2026-09-27", "a", "一", 10)
+    second = _write_saved(tmp_path, "2026-09-27", "b", "二", 20)
+    trashed = []
+    monkeypatch.setattr(saved_lines_api, "send2trash", trashed.append)
+
+    response = client.post(
+        "/api/saved-lines/trash", json={"ids": ["2026-09-27/a", "2026-09-27/b", "../outside", "2026-09-27/missing"]}
+    )
+
+    data = response.get_json()
+    assert response.status_code == 200
+    assert trashed == [str(first), str(second)]
+    assert data["trashed"] == ["2026-09-27/a", "2026-09-27/b"]
+    assert [failure["id"] for failure in data["failed"]] == ["../outside", "2026-09-27/missing"]
+
+
+def test_batch_trash_requires_ids(client):
+    assert client.post("/api/saved-lines/trash", json={}).status_code == 400

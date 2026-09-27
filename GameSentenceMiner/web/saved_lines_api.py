@@ -69,28 +69,52 @@ def register_saved_lines_api_routes(app):
         items = [_summary(saved, os.path.realpath(root)) for saved in saved_lines.iter_saved_lines(root)]
         items.sort(key=lambda item: item["line_time"], reverse=True)
         try:
-            disk_free = shutil.disk_usage(root if os.path.isdir(root) else os.path.dirname(root)).free
+            disk = shutil.disk_usage(root if os.path.isdir(root) else os.path.dirname(root))
         except OSError:
-            disk_free = None
+            disk = None
         return jsonify(
             {
                 "saved_lines": items,
                 "total_bytes": sum(item["size_bytes"] for item in items),
-                "disk_free_bytes": disk_free,
+                "disk_total_bytes": disk.total if disk else None,
+                "disk_used_bytes": disk.used if disk else None,
+                "disk_free_bytes": disk.free if disk else None,
             }
         )
 
-    @app.route("/api/saved-lines", methods=["DELETE"])
-    def saved_lines_delete():
-        folder = _resolve(request.args.get("id"))
+    def _trash(saved_id: str) -> str | None:
+        """Move one saved line to the system trash; return an error message, or None on success."""
+        folder = _resolve(saved_id)
         if not folder:
-            return jsonify({"error": "Saved line not found."}), 404
+            return "Saved line not found."
         try:
             send2trash(folder)
         except Exception as e:
             logger.exception(f"Failed to move saved line to the trash: {folder}")
-            return jsonify({"error": f"Could not move it to the trash: {e}"}), 500
-        return jsonify({"trashed": request.args.get("id")})
+            return f"Could not move it to the trash: {e}"
+        return None
+
+    @app.route("/api/saved-lines", methods=["DELETE"])
+    def saved_lines_delete():
+        saved_id = request.args.get("id")
+        error = _trash(saved_id)
+        if error:
+            return jsonify({"error": error}), 404 if error == "Saved line not found." else 500
+        return jsonify({"trashed": saved_id})
+
+    @app.route("/api/saved-lines/trash", methods=["POST"])
+    def saved_lines_trash_many():
+        ids = (request.get_json() or {}).get("ids") or []
+        if not isinstance(ids, list) or not ids:
+            return jsonify({"error": "No saved lines selected."}), 400
+        trashed, failed = [], []
+        for saved_id in ids:
+            error = _trash(saved_id) if isinstance(saved_id, str) else "Saved line not found."
+            if error:
+                failed.append({"id": saved_id, "error": error})
+            else:
+                trashed.append(saved_id)
+        return jsonify({"trashed": trashed, "failed": failed})
 
     @app.route("/api/saved-lines/audio", methods=["GET"])
     def saved_lines_audio():
