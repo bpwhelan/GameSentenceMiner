@@ -344,7 +344,9 @@ def build_game_pausing_tab(window: ConfigWindow, i18n: dict) -> QWidget:
                 default_tooltip=(
                     "Process name to pause on Linux (e.g. 'eldenring.exe' under Proton or a "
                     "native binary name). Required when OBS/X11 auto-detection is unavailable "
-                    "(e.g. Wayland sessions). Leave blank to use automatic X11 detection."
+                    "(e.g. Wayland sessions). Switching to an OBS scene with a Game executable "
+                    "set on the Home tab replaces this with that executable's name. Leave blank "
+                    "to use automatic X11 detection."
                 ),
             ),
             window.process_pausing_linux_target_process_edit,

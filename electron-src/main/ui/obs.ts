@@ -22,6 +22,7 @@ import { sendStartOBS } from '../main.js';
 import axios from 'axios';
 import extract from 'extract-zip';
 import { installSessionManager } from '../services/install_session_state.js';
+import { syncProcessPausingTargetForScene } from '../services/process_pausing_target.js';
 import type {
     InstallProgressKind,
     InstallStageStatus,
@@ -2429,6 +2430,9 @@ function setOBSSceneSwitcherCallback() {
     obs.on('CurrentProgramSceneChanged', (data) => {
         console.log(`Switched to OBS scene: ${data.sceneName}`);
         handleOBSSceneChanged({ id: data.sceneUuid, name: data.sceneName });
+        void syncProcessPausingTargetForScene(data.sceneName).catch((error) =>
+            console.warn(`Could not sync the process-pausing target for "${data.sceneName}":`, error)
+        );
     });
     obs.on('SceneNameChanged', (data) => {
         renameWindowSceneSwitcherRule(data.sceneUuid, data.sceneName);

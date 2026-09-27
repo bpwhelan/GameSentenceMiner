@@ -26,6 +26,7 @@ import {
 import { resolveWineLaunch, findLinuxGamePid, type WineLaunchContext } from './linux_wine.js';
 import { startWineFridaConnection, type WineProcessConnection } from './wine_frida.js';
 import { getConfiguredSinglePort } from '../gsm_config.js';
+import { syncProcessPausingTarget } from '../services/process_pausing_target.js';
 import {
     getGameExePathForScene,
     setGameExePathForScene,
@@ -2236,11 +2237,7 @@ export function registerTextHookIPC(): void {
             // Write the exe basename through to the Python process-pausing target so the
             // "Wayland override" (process_pausing.linux_target_process) stays in sync.
             try {
-                await fetch(gsmBackendUrl('/linux/set_target_process'), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ target: exePath }),
-                });
+                await syncProcessPausingTarget(exePath);
             } catch (err) {
                 emitLog(
                     `Could not sync game executable to process-pausing target: ${(err as Error).message}`,
