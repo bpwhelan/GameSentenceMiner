@@ -1148,7 +1148,7 @@
 		<span class="label-text" style="grid-column: 1/5;">Custom CSS URL</span>
 		<input
 			type="url"
-			class="input input-bordered h-8"
+			class="input input-bordered h-8 w-full"
 			style="grid-column: 1/5;"
 			placeholder="https://gist.githubusercontent.com/user/id/raw/texthooker.css"
 			value={$customCSSUrl$}
