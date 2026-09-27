@@ -211,3 +211,20 @@ def test_card_media_only_serves_the_latest_card_and_existing_media(client, monke
     assert client.get("/api/saved-lines/card-media", query_string={"note_id": 42, "kind": "audio"}).status_code == 404
     assert client.get("/api/saved-lines/card-media", query_string={"note_id": 42, "kind": "picture"}).status_code == 404
     assert client.get("/api/saved-lines/card-media", query_string={"note_id": 42, "kind": "video"}).status_code == 404
+
+
+def test_list_reports_disk_space_per_line_and_in_total(client, tmp_path, monkeypatch):
+    small = _write_saved(tmp_path, "2026-09-27", "small", "短い", 10)
+    big = _write_saved(tmp_path, "2026-09-27", "big", "長い", 20)
+    (small / "clip.mkv").write_bytes(b"x" * 1000)
+    (big / "clip.mkv").write_bytes(b"x" * 5000)
+    monkeypatch.setattr(saved_lines_api.shutil, "disk_usage", lambda path: SimpleNamespace(free=123456789))
+
+    data = client.get("/api/saved-lines").get_json()
+
+    sizes = {item["id"]: item["size_bytes"] for item in data["saved_lines"]}
+    manifest_bytes = (small / saved_lines.MANIFEST_NAME).stat().st_size
+    assert sizes["2026-09-27/small"] == 1000 + manifest_bytes
+    assert sizes["2026-09-27/big"] == 5000 + (big / saved_lines.MANIFEST_NAME).stat().st_size
+    assert data["total_bytes"] == sum(sizes.values())
+    assert data["disk_free_bytes"] == 123456789

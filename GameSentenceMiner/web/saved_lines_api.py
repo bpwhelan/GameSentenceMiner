@@ -5,6 +5,7 @@ import hashlib
 import mimetypes
 import os
 import re
+import shutil
 
 from flask import Response, jsonify, request, send_file
 from send2trash import send2trash
@@ -31,6 +32,14 @@ def _resolve(saved_id: str | None) -> str | None:
     return folder if os.path.isfile(os.path.join(folder, saved_lines.MANIFEST_NAME)) else None
 
 
+def _folder_size(folder: str) -> int:
+    total = 0
+    for entry in os.scandir(folder):
+        if entry.is_file(follow_symlinks=False):
+            total += entry.stat(follow_symlinks=False).st_size
+    return total
+
+
 def _summary(saved: saved_lines.SavedLine, root: str) -> dict:
     first = saved.selected[0] if saved.selected else None
     return {
@@ -40,6 +49,7 @@ def _summary(saved: saved_lines.SavedLine, root: str) -> dict:
         "line_time": first.time.isoformat() if first else "",
         "saved_at": saved.manifest.get("saved_at", ""),
         "cards": saved.manifest.get("cards", []),
+        "size_bytes": _folder_size(saved.folder),
         "lines": [{"text": entry["text"], "role": entry.get("role", "")} for entry in saved.manifest["lines"]],
     }
 
@@ -58,7 +68,17 @@ def register_saved_lines_api_routes(app):
             return jsonify({"saved_lines": [], "error": "No output folder is set in the Paths settings."})
         items = [_summary(saved, os.path.realpath(root)) for saved in saved_lines.iter_saved_lines(root)]
         items.sort(key=lambda item: item["line_time"], reverse=True)
-        return jsonify({"saved_lines": items})
+        try:
+            disk_free = shutil.disk_usage(root if os.path.isdir(root) else os.path.dirname(root)).free
+        except OSError:
+            disk_free = None
+        return jsonify(
+            {
+                "saved_lines": items,
+                "total_bytes": sum(item["size_bytes"] for item in items),
+                "disk_free_bytes": disk_free,
+            }
+        )
 
     @app.route("/api/saved-lines", methods=["DELETE"])
     def saved_lines_delete():

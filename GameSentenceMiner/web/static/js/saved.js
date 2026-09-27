@@ -19,6 +19,8 @@
         confirm: document.getElementById('enrichConfirm'),
     };
     let items = [];
+    let totalBytes = 0;
+    let diskFreeBytes = null;
     let playingId = '';
 
     function showStatus(message, isError = false) {
@@ -26,6 +28,18 @@
         status.classList.toggle('is-error', isError);
         status.hidden = !message;
         if (message) status.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    function formatBytes(bytes) {
+        if (!Number.isFinite(bytes)) return '';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = bytes;
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024;
+            unit += 1;
+        }
+        return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
     }
 
     function formatTime(iso) {
@@ -60,6 +74,9 @@
         const meta = element('div', 'saved-meta');
         if (item.game) meta.append(element('span', '', item.game));
         meta.append(element('span', '', formatTime(item.line_time)));
+        const size = element('span', 'saved-size', formatBytes(item.size_bytes));
+        size.title = 'Disk space used by this saved line';
+        meta.append(size);
         if (item.cards.length) {
             const badge = element('span', 'saved-badge', item.cards.length === 1 ? '1 card' : `${item.cards.length} cards`);
             badge.title = item.cards.map((c) => c.word).filter(Boolean).join(', ');
@@ -96,7 +113,13 @@
             }
             list.append(renderItem(item));
         }
-        count.textContent = items.length ? `${shown.length} of ${items.length}` : '';
+        const parts = [];
+        if (items.length) {
+            parts.push(shown.length === items.length ? `${items.length} lines` : `${shown.length} of ${items.length} lines`);
+            parts.push(`${formatBytes(totalBytes)} on disk`);
+            if (diskFreeBytes !== null) parts.push(`${formatBytes(diskFreeBytes)} free`);
+        }
+        count.textContent = parts.join(' · ');
         empty.hidden = items.length > 0;
     }
 
@@ -105,6 +128,8 @@
             const response = await fetch('/api/saved-lines', { cache: 'no-store' });
             const data = await response.json();
             items = data.saved_lines || [];
+            totalBytes = data.total_bytes || 0;
+            diskFreeBytes = Number.isFinite(data.disk_free_bytes) ? data.disk_free_bytes : null;
             if (data.error) showStatus(data.error, true);
             render();
         } catch (error) {
@@ -217,7 +242,7 @@
             playingId = '';
         }
         items = items.filter((item) => item.id !== id);
-        render();
+        load();
     }
 
     search.addEventListener('input', render);
