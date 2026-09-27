@@ -27,23 +27,25 @@
                 Save clips from the Text Feed with <strong>💾 Save clip for later</strong>. A clip stays here after you
                 make a card from it, so you can make more cards from the same sentence.
             </p>
-            <p class="clips-help-caution">
+        </details>
+
+        <section class="clips-storage" aria-label="Disk space">
+            <div id="clipsDisk" class="clips-disk" hidden>
+                <div class="clips-disk-bar" role="img" id="clipsDiskBar">
+                    <span class="clips-disk-share" id="clipsDiskShare"></span>
+                    <span class="clips-disk-other" id="clipsDiskOther"></span>
+                </div>
+                <div class="clips-disk-legend">
+                    <span><i class="clips-swatch clips-swatch-share"></i><span id="clipsDiskShareLabel"></span></span>
+                    <span><i class="clips-swatch clips-swatch-other"></i><span id="clipsDiskOtherLabel"></span></span>
+                    <span><i class="clips-swatch clips-swatch-free"></i><span id="clipsDiskFreeLabel"></span></span>
+                </div>
+            </div>
+            <p class="clips-storage-note">
                 ⚠️ Each clip is a video file, often 10–40 MB, so this isn't meant as a long-term collection of
                 sentences. Once you've made your cards, delete the clips you no longer need.
             </p>
-        </details>
-
-        <div id="clipsDisk" class="clips-disk" hidden>
-            <div class="clips-disk-bar" role="img" id="clipsDiskBar">
-                <span class="clips-disk-share" id="clipsDiskShare"></span>
-                <span class="clips-disk-other" id="clipsDiskOther"></span>
-            </div>
-            <div class="clips-disk-legend">
-                <span><i class="clips-swatch clips-swatch-share"></i><span id="clipsDiskShareLabel"></span></span>
-                <span><i class="clips-swatch clips-swatch-other"></i><span id="clipsDiskOtherLabel"></span></span>
-                <span><i class="clips-swatch clips-swatch-free"></i><span id="clipsDiskFreeLabel"></span></span>
-            </div>
-        </div>
+        </section>
 
         <div class="clips-toolbar">
             <input type="search" id="clipsSearch" class="clips-search" placeholder="Filter by text or game">
