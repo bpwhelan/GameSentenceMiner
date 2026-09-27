@@ -443,6 +443,10 @@ _CRITICAL_DENYLIST: List[str] = [
 # Emit the Wayland auto-detection warning at most once per session.
 _wayland_warn_shown: bool = False
 
+# The active OBS scene's Game executable, set by Electron on each scene change. Held in memory
+# only: it overrides process_pausing.linux_target_process without replacing a value set by hand.
+_scene_linux_target: str = ""
+
 _window_state_monitor: Optional["BaseWindowStateMonitor"] = None
 _suspended_pids: Dict[int, Dict[str, Any]] = {}  # pid -> {'suspended_at': float, 'created': int, 'exe': str}
 _suspended_pids_lock = threading.RLock()
@@ -707,7 +711,16 @@ def _resolve_pause_target_hwnd(hwnd: Optional[int]) -> Optional[int]:
 # --- Linux process resolution ---
 
 
+def set_scene_linux_target(target: str) -> str:
+    """Set the scene's game executable as the pause target; empty falls back to the config."""
+    global _scene_linux_target
+    _scene_linux_target = os.path.basename((target or "").strip().replace("\\", "/"))
+    return _scene_linux_target
+
+
 def _get_configured_linux_target() -> str:
+    if _scene_linux_target:
+        return _scene_linux_target
     process_cfg = getattr(get_config(), "process_pausing", None)
     return (getattr(process_cfg, "linux_target_process", "") or "") if process_cfg else ""
 

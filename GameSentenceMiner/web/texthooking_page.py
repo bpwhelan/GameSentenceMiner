@@ -1444,6 +1444,16 @@ def linux_set_target_process():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/linux/set_scene_target_process", methods=["POST"])
+def linux_set_scene_target_process():
+    """Hold the active scene's game-exe basename as the pause target, without saving it."""
+    from GameSentenceMiner.util.platform.base_window_monitor import set_scene_linux_target
+
+    data = request.get_json(silent=True) or {}
+    basename = set_scene_linux_target(str(data.get("target") or ""))
+    return jsonify({"success": True, "scene_target_process": basename}), 200
+
+
 @app.template_filter("datetimeformat")
 def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
     """Formats a timestamp into a human-readable string."""

@@ -97,6 +97,7 @@ import {
     setOBSSceneByUuid,
     shouldRetryElectronManagedOBSLaunch,
     suggestWindowSceneSwitcherRule,
+    syncProcessPausingTargetForCurrentScene,
 } from './ui/obs.js';
 import {
     configureWindowSceneSwitcherRuntime,
@@ -1080,6 +1081,7 @@ async function pollBackendStatusOnce(): Promise<void> {
         clearBackendStatusPollTimer();
         maybeActivateReadyTrayIndicator();
         refreshTrayPresentation();
+        syncProcessPausingTargetForCurrentScene(true);
     } catch {
         // Keep polling until ready.
     } finally {
