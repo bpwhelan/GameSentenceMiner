@@ -508,15 +508,32 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
             "No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config."
         )
 
-    last_line = lines[-1]  # Store reference to the latest line
+    best_line = find_matching_line(last_note, lines, prefer_recent=prefer_recent)
+    if best_line is not None:
+        return best_line
 
-    if not last_note:
-        return last_line
+    if last_note and last_note.get_field(get_config().anki.sentence_field):
+        logger.info(
+            "Could not find matching sentence from GSM's history within the time window. Using the latest line."
+        )
+    return lines[-1]
+
+
+def find_matching_line(
+    last_note: AnkiCard, lines, *, prefer_recent: bool = False, respect_replay_window: bool = True
+) -> GameLine | None:
+    """Return the line that best matches the card's sentence, or None when nothing matches.
+
+    Saved lines pass respect_replay_window=False: their footage lives in a saved clip, so age
+    does not rule them out.
+    """
+    if not last_note or not lines:
+        return None
 
     anki_config = get_config().anki
     sentence = last_note.get_field(anki_config.sentence_field)
     if not sentence:
-        return last_line
+        return None
 
     anki_sentence = remove_html_and_cloze_tags(sentence)
     normalized_anki_sentence = normalize_text_for_comparison(anki_sentence)
@@ -534,7 +551,11 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
         sentence,
         expression,
     )
-    time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
+    time_window = (
+        datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
+        if respect_replay_window
+        else None
+    )
 
     # Collect every valid candidate before ranking. A short recycled fragment
     # (e.g. "性質を……入れ替える？") can be contained in a longer mined sentence,
@@ -543,7 +564,7 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
     expression_context_candidates = []
     expression_context_scores = {}
     for line in reversed(lines):
-        if line.time < time_window:
+        if time_window is not None and line.time < time_window:
             # Authoritative stream order is independent of capture time. A slow
             # source can legitimately append an older media timestamp after a newer
             # line, so never assume the remaining list is timestamp-sorted.
@@ -598,11 +619,7 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
             if score >= 100:
                 break
 
-    if best_line is not None:
-        return best_line
-
-    logger.info("Could not find matching sentence from GSM's history within the time window. Using the latest line.")
-    return last_line
+    return best_line
 
 
 def get_text_event(last_note) -> GameLine:
