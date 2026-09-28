@@ -15,6 +15,11 @@ from GameSentenceMiner.util.gsm_utils import get_file_modification_time, sanitiz
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.text_log import GameLine, find_matching_line
 
+try:  # Pause-silence removal is a separate feature; clips work without it.
+    from GameSentenceMiner.util.media import pause_history
+except ImportError:
+    pause_history = None
+
 CLIPS_FOLDER_NAME = "Clips"
 MANIFEST_NAME = "manifest.json"
 MANIFEST_VERSION = 1
@@ -194,6 +199,11 @@ def save_clip(
             "source_replay": os.path.basename(video_path),
         },
     }
+    if pause_history:
+        # Game pauses in the clip (epoch seconds), so their silence can be removed however late it is mined.
+        clip_start_time = clip_end_time - timedelta(seconds=clip_length)
+        spans = pause_history.get_pauses_between(clip_start_time.timestamp(), clip_end_time.timestamp())
+        manifest["pauses"] = [list(span) for span in spans]
     with open(os.path.join(folder, MANIFEST_NAME), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
 
@@ -229,6 +239,8 @@ def load_clip(folder: str) -> Clip:
     """Rebuild a clip line's GameLines, linked like the live text log but only within the clip."""
     manifest = read_manifest(folder)
     clip_end_time = datetime.fromisoformat(manifest["clip"]["end_time"])
+    if pause_history and manifest.get("pauses"):
+        pause_history.remember_pauses(manifest["pauses"])
     lines = []
     selected = []
     for index, entry in enumerate(manifest["lines"]):
