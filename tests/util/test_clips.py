@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta
 from itertools import pairwise
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -387,6 +388,38 @@ def test_line_audio_runs_from_the_line_to_the_next_one(tmp_path):
 
     duration = ffmpeg.get_audio_length(audio)
     assert duration == pytest.approx((nxt.time - line.time).total_seconds() + clips.AUDIO_LEAD_SECONDS, abs=0.3)
+
+
+@requires_ffmpeg
+def test_line_audio_leaves_out_pause_silence_when_the_build_removes_it(tmp_path, monkeypatch):
+    replay = tmp_path / "replay.mkv"
+    length = _make_replay(replay)
+    _, line, nxt = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
+    folder = clips.save_clip(
+        str(replay), [line], str(tmp_path / "Saved"), replay_end_time=BASE + timedelta(seconds=length)
+    )
+    clip = clips.load_clip(folder)
+    cleaned_paths = []
+
+    def remove_pause_silence(clip_path, output, end_time):
+        # A 2s pause began 1s into the line.
+        start = ffmpeg.get_video_duration(clip_path) - (end_time - line.time).total_seconds() + 1.0
+        end = start + 2.0
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-i", clip_path, "-map", "0:a:0"]
+            + ["-af", f"aselect='not(between(t,{start},{end}))',asetpts=N/SR/TB", output],
+            check=True,
+        )
+        cleaned_paths.append(output)
+        return SimpleNamespace(to_audio=lambda t: t if t <= start else (start if t < end else t - 2.0))
+
+    monkeypatch.setattr(clips.ffmpeg, "extract_audio_without_pauses", remove_pause_silence, raising=False)
+
+    audio = clips.extract_clip_audio(clip, str(tmp_path / "line.mp3"))
+
+    expected = (nxt.time - line.time).total_seconds() + clips.AUDIO_LEAD_SECONDS - 2.0
+    assert ffmpeg.get_audio_length(audio) == pytest.approx(expected, abs=0.3)
+    assert cleaned_paths and not os.path.exists(cleaned_paths[0])
 
 
 def test_clips_live_in_the_clips_folder_of_the_output_folder():
