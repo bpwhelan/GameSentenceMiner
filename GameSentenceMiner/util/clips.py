@@ -10,13 +10,8 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from GameSentenceMiner.util.config.configuration import (
-    ffmpeg_base_command_list,
-    get_config,
-    get_temporary_directory,
-    logger,
-)
-from GameSentenceMiner.util.gsm_utils import get_file_modification_time, make_unique_file_name, sanitize_filename
+from GameSentenceMiner.util.config.configuration import get_config, logger
+from GameSentenceMiner.util.gsm_utils import get_file_modification_time, sanitize_filename
 from GameSentenceMiner.util.media import ffmpeg, pause_history
 from GameSentenceMiner.util.text_log import GameLine, find_matching_line
 
@@ -30,7 +25,6 @@ PREVIOUS_LINE_MAX_GAP_SECONDS = 15.0
 NEXT_LINE_CONTEXT_SECONDS = 10.0
 NEWEST_LINE_WINDOW_SECONDS = 10.0
 MAX_WAIT_SECONDS = 20.0
-AUDIO_LEAD_SECONDS = 0.5
 
 
 class LineOutsideReplayError(RuntimeError):
@@ -313,34 +307,3 @@ def record_card(folder: str, note_id, word: str) -> None:
         {"note_id": note_id, "word": word, "created_at": datetime.now().isoformat()}
     )
     _write_manifest(folder, manifest)
-
-
-def extract_clip_audio(clip: Clip, output_path: str) -> str:
-    """Write the clip line's audio (from just before it to the next line) as an MP3 any browser plays."""
-    duration = ffmpeg.get_video_duration(clip.clip_path)
-
-    def offset(moment: datetime) -> float:
-        return duration - (clip.clip_end_time - moment).total_seconds()
-
-    first, last = clip.selected[0], clip.selected[-1]
-    start = max(0.0, offset(first.time) - first.source_padding - AUDIO_LEAD_SECONDS)
-    end = min(duration, offset(last.next.time)) if last.next else duration
-
-    source = clip.clip_path
-    # Lossless, so the MP3 below is the only lossy generation.
-    cleaned = make_unique_file_name(os.path.join(get_temporary_directory(), "clip_cleaned.wav"))
-    # Silence left by GSM pausing the game is removed, as for cards.
-    timeline = ffmpeg.extract_audio_without_pauses(clip.clip_path, cleaned, clip.clip_end_time)
-    if timeline:
-        source, start, end = cleaned, timeline.to_audio(start), timeline.to_audio(end)
-    try:
-        ffmpeg.FFmpegHelper.run(
-            ffmpeg_base_command_list
-            + ["-ss", str(start), "-to", str(end), "-i", source]
-            + ["-vn", "-map", "0:a:0", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "96k", "-y", output_path],
-            check=False,
-        )
-    finally:
-        if timeline:
-            os.remove(cleaned)
-    return output_path

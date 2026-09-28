@@ -149,6 +149,24 @@ def _process_replay(video_path, queued_job):
     return replay_handler.get_replay_extractor().process_replay(video_path, queued_job=queued_job)
 
 
+def clip_line_audio(clip: Clip) -> str:
+    """The clip line's audio cut by the card pipeline, so the preview is what a card would get."""
+    from GameSentenceMiner import replay_handler
+
+    first, last = clip.selected[0], clip.selected[-1]
+    next_line = getattr(last, "next", None)
+    cutoff = next_line.time if next_line is not None and next_line.time <= clip.clip_end_time else 0
+    return replay_handler.ReplayAudioExtractor.get_audio(
+        first,
+        cutoff,
+        clip.clip_path,
+        clip.clip_end_time,
+        temporary=True,
+        use_vad_postprocessing=False,
+        full_text="".join(line.text for line in clip.selected),
+    )
+
+
 def _process_clip_card(card, clip: Clip, line, rewrite: bool) -> None:
     try:
         clip_path = _copy_clip(clip)

@@ -1,7 +1,7 @@
 """API behind the Clips to mine page: list clips, play their audio, enrich a card, move to trash."""
 
 import base64
-import hashlib
+import contextlib
 import mimetypes
 import os
 import re
@@ -12,7 +12,10 @@ from send2trash import send2trash
 
 from GameSentenceMiner import anki, clip_cards
 from GameSentenceMiner.util import clips
-from GameSentenceMiner.util.config.configuration import get_config, get_temporary_directory, logger
+from GameSentenceMiner.util.config.configuration import get_config, logger
+
+# Latest preview audio per clip folder, so replays of it don't pile up in temp.
+_preview_audio: dict[str, str] = {}
 
 
 def _clips_root() -> str:
@@ -121,13 +124,16 @@ def register_clips_api_routes(app):
         folder = _resolve(request.args.get("id"))
         if not folder:
             return jsonify({"error": "Clip not found."}), 404
-        clip = clips.load_clip(folder)
-        name = hashlib.sha1(folder.encode("utf-8")).hexdigest()[:16]
-        output_path = os.path.join(get_temporary_directory(), f"clip_audio_{name}.mp3")
-        clips.extract_clip_audio(clip, output_path)
-        if not os.path.isfile(output_path):
+        audio = clip_cards.clip_line_audio(clips.load_clip(folder))
+        if not audio or not os.path.isfile(audio):
             return jsonify({"error": "Could not extract the line's audio."}), 500
-        return send_file(output_path, mimetype="audio/mpeg", conditional=True)
+        # One preview file per clip; one still being streamed (Windows) waits for the startup temp wipe.
+        previous = _preview_audio.pop(folder, None)
+        if previous and previous != audio:
+            with contextlib.suppress(OSError):
+                os.remove(previous)
+        _preview_audio[folder] = audio
+        return send_file(audio, mimetype="audio/wav", conditional=True)
 
     @app.route("/api/clips/card-media", methods=["GET"])
     def clips_card_media():

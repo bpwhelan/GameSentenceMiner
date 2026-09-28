@@ -73,21 +73,36 @@ def test_delete_sends_the_folder_to_the_trash(client, tmp_path, monkeypatch):
     assert trashed == [str(folder)]
 
 
-def test_audio_is_served_as_mp3(client, tmp_path, monkeypatch):
+def test_audio_is_the_card_pipeline_preview_served_as_wav(client, tmp_path, monkeypatch):
+    folder = _write_saved(tmp_path, "2026-09-27", "a", "行", 10)
+    previews = [tmp_path / "first.wav", tmp_path / "second.wav"]
+    for index, preview in enumerate(previews):
+        preview.write_bytes(b"RIFF%d" % index)
+    loaded = []
+
+    def fake_line_audio(clip):
+        loaded.append(clip.folder)
+        return str(previews[len(loaded) - 1])
+
+    monkeypatch.setattr(clip_cards, "clip_line_audio", fake_line_audio)
+    monkeypatch.setattr(clips_api, "_preview_audio", {})
+
+    first = client.get("/api/clips/audio", query_string={"id": "2026-09-27/a"})
+    first.close()
+    second = client.get("/api/clips/audio", query_string={"id": "2026-09-27/a"})
+
+    assert (first.status_code, first.mimetype) == (200, "audio/wav")
+    assert second.data == b"RIFF1"
+    assert loaded == [str(folder)] * 2
+    # A clip keeps only its latest preview in temp.
+    assert not previews[0].exists() and previews[1].exists()
+
+
+def test_audio_failure_is_reported(client, tmp_path, monkeypatch):
     _write_saved(tmp_path, "2026-09-27", "a", "行", 10)
+    monkeypatch.setattr(clip_cards, "clip_line_audio", lambda clip: "")
 
-    def fake_extract(clip, output_path):
-        with open(output_path, "wb") as f:
-            f.write(b"ID3fake")
-        return output_path
-
-    monkeypatch.setattr(clips, "extract_clip_audio", fake_extract)
-
-    response = client.get("/api/clips/audio", query_string={"id": "2026-09-27/a"})
-
-    assert response.status_code == 200
-    assert response.mimetype == "audio/mpeg"
-    assert response.data == b"ID3fake"
+    assert client.get("/api/clips/audio", query_string={"id": "2026-09-27/a"}).status_code == 500
 
 
 class _Card:

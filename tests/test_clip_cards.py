@@ -300,3 +300,45 @@ def test_ai_translation_uses_the_clip_neighbours_as_context(config, monkeypatch)
 
     assert anki.prefetch_ai_translation("今", line) == "translation"
     assert captured == {"lines": context, "game": "FFVII"}
+
+
+def test_preview_audio_asks_the_card_pipeline_for_the_whole_selection(tmp_path, monkeypatch):
+    from GameSentenceMiner import replay_handler
+
+    folder = _write_saved(
+        tmp_path,
+        "pair",
+        [("a", "一行目", "selected", 10), ("b", "二行目", "selected", 12), ("c", "次", "context", 15)],
+        20,
+    )
+    clip = clips.load_clip(str(folder))
+    calls = []
+    monkeypatch.setattr(
+        replay_handler.ReplayAudioExtractor,
+        "get_audio",
+        staticmethod(lambda *args, **kwargs: calls.append((args, kwargs)) or "/tmp/line.wav"),
+    )
+
+    assert clip_cards.clip_line_audio(clip) == "/tmp/line.wav"
+
+    ((args, kwargs),) = calls
+    first, cutoff, video_path, end_time = args
+    assert first.id == "a" and cutoff == BASE + timedelta(seconds=15)
+    assert (video_path, end_time) == (clip.clip_path, clip.clip_end_time)
+    assert kwargs == {"temporary": True, "use_vad_postprocessing": False, "full_text": "一行目二行目"}
+
+
+def test_preview_audio_runs_to_the_clip_end_after_the_newest_line(tmp_path, monkeypatch):
+    from GameSentenceMiner import replay_handler
+
+    folder = _write_saved(tmp_path, "last", [("a", "最後", "selected", 10)], 20)
+    calls = []
+    monkeypatch.setattr(
+        replay_handler.ReplayAudioExtractor,
+        "get_audio",
+        staticmethod(lambda *args, **kwargs: calls.append(args) or "/tmp/line.wav"),
+    )
+
+    clip_cards.clip_line_audio(clips.load_clip(str(folder)))
+
+    assert calls[0][1] == 0

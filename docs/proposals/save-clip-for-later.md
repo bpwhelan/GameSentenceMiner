@@ -34,7 +34,7 @@ Sometimes I want to understand the text now but create the card later, for examp
   - **Automatic:** a new card is matched in this order: checked lines, live lines in the replay window, then clips (same ranking as live lines), then the existing latest-line fallback. Clips are only consulted when nothing live matches, so every card that works today is handled as before.
   - **Manual:** a "Clips to mine" page (`/clips`, linked from the dashboard nav and the text feed) with **Enrich latest card**, which works with OBS closed and for cards synced from AnkiMobile/AnkiDroid. A mismatched sentence or existing media asks for confirmation, then rewrites the card from the clip.
   - **Safety:** clip jobs run on the same worker as live cards, so dialogs never overlap; notes enriched from a clip are skipped by the live flow.
-  - Each clip records the cards made from it and stays available for more. Play serves the line's audio as MP3 (works on phones), and Delete moves the folder to the system trash, from which it can be restored.
+  - Each clip records the cards made from it and stays available for more. Play serves the line's audio as the card pipeline cuts it, as WAV (works on phones), and Delete moves the folder to the system trash, from which it can be restored.
 
 ## Demo material to capture
 

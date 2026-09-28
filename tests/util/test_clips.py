@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timedelta
 from itertools import pairwise
 from types import SimpleNamespace
@@ -11,7 +12,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import GameSentenceMiner
+from GameSentenceMiner import clip_cards
 from GameSentenceMiner.util import clips
+from GameSentenceMiner.util.config.configuration import get_config
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.text_log import GameLine
 
@@ -374,35 +378,48 @@ def test_record_card_appends_to_the_manifest(tmp_path):
     assert [(c["note_id"], c["word"]) for c in cards] == [(123, "今"), (456, "今日")]
 
 
-@requires_ffmpeg
-def test_line_audio_runs_from_the_line_to_the_next_one(tmp_path):
+@pytest.fixture
+def audio_offsets(monkeypatch):
+    """Card audio offsets the preview must follow, on a real replay_handler (other tests leave a stubbed one)."""
+    monkeypatch.delitem(sys.modules, "GameSentenceMiner.replay_handler", raising=False)
+    monkeypatch.delattr(GameSentenceMiner, "replay_handler", raising=False)
+    audio = get_config().audio
+    monkeypatch.setattr(audio, "beginning_offset", -1.0)
+    monkeypatch.setattr(audio, "pre_vad_end_offset", 0.5)
+    return audio
+
+
+def _saved_clip(tmp_path):
     replay = tmp_path / "replay.mkv"
     length = _make_replay(replay)
     _, line, nxt = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
     folder = clips.save_clip(
         str(replay), [line], str(tmp_path / "Saved"), replay_end_time=BASE + timedelta(seconds=length)
     )
-    clip = clips.load_clip(folder)
-
-    audio = clips.extract_clip_audio(clip, str(tmp_path / "line.mp3"))
-
-    duration = ffmpeg.get_audio_length(audio)
-    assert duration == pytest.approx((nxt.time - line.time).total_seconds() + clips.AUDIO_LEAD_SECONDS, abs=0.3)
+    return clips.load_clip(folder), line, nxt
 
 
 @requires_ffmpeg
-def test_line_audio_leaves_out_pause_silence_when_the_build_removes_it(tmp_path, monkeypatch):
-    replay = tmp_path / "replay.mkv"
-    length = _make_replay(replay)
-    _, line, nxt = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
-    folder = clips.save_clip(
-        str(replay), [line], str(tmp_path / "Saved"), replay_end_time=BASE + timedelta(seconds=length)
+def test_preview_audio_is_cut_like_card_audio(tmp_path, audio_offsets):
+    clip, line, nxt = _saved_clip(tmp_path)
+
+    audio = clip_cards.clip_line_audio(clip)
+
+    expected = (
+        (nxt.time - line.time).total_seconds() - audio_offsets.beginning_offset + audio_offsets.pre_vad_end_offset
     )
-    clip = clips.load_clip(folder)
-    cleaned_paths = []
+    assert audio.endswith(".wav")
+    assert ffmpeg.get_audio_length(audio) == pytest.approx(expected, abs=0.3)
+
+
+@requires_ffmpeg
+def test_preview_audio_leaves_out_pause_silence(tmp_path, audio_offsets, monkeypatch):
+    clip, line, nxt = _saved_clip(tmp_path)
+    seen = {}
 
     def remove_pause_silence(clip_path, output, end_time):
         # A 2s pause began 1s into the line.
+        seen["end_time"] = end_time
         start = ffmpeg.get_video_duration(clip_path) - (end_time - line.time).total_seconds() + 1.0
         end = start + 2.0
         subprocess.run(
@@ -410,16 +427,17 @@ def test_line_audio_leaves_out_pause_silence_when_the_build_removes_it(tmp_path,
             + ["-af", f"aselect='not(between(t,{start},{end}))',asetpts=N/SR/TB", output],
             check=True,
         )
-        cleaned_paths.append(output)
         return SimpleNamespace(to_audio=lambda t: t if t <= start else (start if t < end else t - 2.0))
 
-    monkeypatch.setattr(clips.ffmpeg, "extract_audio_without_pauses", remove_pause_silence)
+    monkeypatch.setattr(ffmpeg, "extract_audio_without_pauses", remove_pause_silence)
 
-    audio = clips.extract_clip_audio(clip, str(tmp_path / "line.mp3"))
+    audio = clip_cards.clip_line_audio(clip)
 
-    expected = (nxt.time - line.time).total_seconds() + clips.AUDIO_LEAD_SECONDS - 2.0
+    expected = (
+        (nxt.time - line.time).total_seconds() - audio_offsets.beginning_offset + audio_offsets.pre_vad_end_offset - 2.0
+    )
+    assert seen["end_time"] == clip.clip_end_time
     assert ffmpeg.get_audio_length(audio) == pytest.approx(expected, abs=0.3)
-    assert cleaned_paths and not os.path.exists(cleaned_paths[0])
 
 
 @requires_ffmpeg
