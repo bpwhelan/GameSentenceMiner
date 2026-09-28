@@ -20,28 +20,47 @@
             </p>
         </div>
 
+        <div class="clips-overview">
+            <section class="clips-panel" aria-labelledby="clipsHowTitle">
+                <h3 id="clipsHowTitle" class="clips-panel-title">How to make cards from clips</h3>
+                <ol class="clips-help-steps">
+                    <li>Look up a word in one of the clips below with Yomitan, and add the card to Anki.</li>
+                    <li>GSM recognises the clip and adds its audio and screenshot, with the usual confirmation dialog on the desktop.</li>
+                    <li>If that doesn't happen (for example, Anki isn't connected to GSM), press <strong>✨ Enrich latest card</strong> on the clip.</li>
+                </ol>
+                <p class="clips-help-note">
+                    Save clips from the Text Feed with <strong>💾 Save clip for later</strong>. A clip stays here after
+                    you make a card from it, so you can make more cards from the same sentence.
+                </p>
+            </section>
+
+            <section class="clips-panel" aria-labelledby="clipsDiskTitle">
+                <h3 id="clipsDiskTitle" class="clips-panel-title">Disk space</h3>
+                <div id="clipsDisk" class="clips-disk" hidden>
+                    <div class="clips-disk-bar" role="img" id="clipsDiskBar">
+                        <span class="clips-disk-share" id="clipsDiskShare"></span>
+                        <span class="clips-disk-other" id="clipsDiskOther"></span>
+                    </div>
+                    <div class="clips-disk-legend">
+                        <span><i class="clips-swatch clips-swatch-share"></i><span id="clipsDiskShareLabel"></span></span>
+                        <span><i class="clips-swatch clips-swatch-other"></i><span id="clipsDiskOtherLabel"></span></span>
+                        <span><i class="clips-swatch clips-swatch-free"></i><span id="clipsDiskFreeLabel"></span></span>
+                    </div>
+                </div>
+                <p class="clips-storage-note">
+                    ⚠️ Each clip is a video file, often 10–40 MB, so this isn't meant as a long-term collection of
+                    sentences. Once you've made your cards, delete the clips you no longer need.
+                </p>
+            </section>
+        </div>
+    </div>
+
+    <div class="clips-toolbar">
         <div class="search-input-container">
             <input type="search" id="clipsSearch" class="search-input" placeholder="Filter clips by text or game..."
                    autocomplete="off">
         </div>
-
-        <button type="button" id="clipsHelpToggle" class="clips-toggle-btn" aria-expanded="true"
-                aria-controls="clipsHelp">
-            <span class="clips-toggle-icon" aria-hidden="true">▼</span> How to make cards from clips
-        </button>
-        <div id="clipsHelp" class="clips-help">
-            <ol class="clips-help-steps">
-                <li>Look up a word in one of the clips below with Yomitan, and add the card to Anki.</li>
-                <li>GSM recognises the clip and adds its audio and screenshot, with the usual confirmation dialog on the desktop.</li>
-                <li>If that doesn't happen (for example, Anki isn't connected to GSM), press <strong>✨ Enrich latest card</strong> on the clip.</li>
-            </ol>
-            <p class="clips-help-note">
-                Save clips from the Text Feed with <strong>💾 Save clip for later</strong>. A clip stays here after you
-                make a card from it, so you can make more cards from the same sentence.
-            </p>
-        </div>
-
-        <div class="search-filters">
+        <div class="clips-toolbar-row">
             <div class="filter-group">
                 <label class="filter-label" for="clipsSort">Sort by:</label>
                 <select id="clipsSort" class="filter-select">
@@ -50,28 +69,7 @@
                     <option value="largest">Largest First</option>
                 </select>
             </div>
-        </div>
-
-        <section class="clips-storage" aria-label="Disk space">
-            <div id="clipsDisk" class="clips-disk" hidden>
-                <div class="clips-disk-bar" role="img" id="clipsDiskBar">
-                    <span class="clips-disk-share" id="clipsDiskShare"></span>
-                    <span class="clips-disk-other" id="clipsDiskOther"></span>
-                </div>
-                <div class="clips-disk-legend">
-                    <span><i class="clips-swatch clips-swatch-share"></i><span id="clipsDiskShareLabel"></span></span>
-                    <span><i class="clips-swatch clips-swatch-other"></i><span id="clipsDiskOtherLabel"></span></span>
-                    <span><i class="clips-swatch clips-swatch-free"></i><span id="clipsDiskFreeLabel"></span></span>
-                </div>
-            </div>
-            <p class="clips-storage-note">
-                ⚠️ Each clip is a video file, often 10–40 MB, so this isn't meant as a long-term collection of
-                sentences. Once you've made your cards, delete the clips you no longer need.
-            </p>
-        </section>
-
-        <div class="search-stats">
-            <span id="clipsCount">Loading clips…</span>
+            <span id="clipsCount" class="clips-count">Loading clips…</span>
             <div class="clips-results-controls">
                 <button type="button" id="clipsSelectAll" class="action-btn" disabled>Select All</button>
                 <button type="button" id="clipsDeleteSelected" class="delete-btn" disabled>Delete Selected</button>

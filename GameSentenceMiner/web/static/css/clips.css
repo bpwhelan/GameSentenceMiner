@@ -1,43 +1,26 @@
 /* Clips to mine: builds on the shared Search styles (search-container, search-result, ...). */
 
-/* Same look as the Search page's "Show Advanced Search" toggle. */
-.clips-toggle-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.2s ease;
+.clips-overview {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
 }
 
-.clips-toggle-btn:hover {
-    background: var(--bg-tertiary);
-    border-color: var(--accent-color);
-}
-
-.clips-toggle-icon {
-    font-size: 12px;
-}
-
-.clips-help {
-    margin-top: 12px;
-    padding: 15px;
+.clips-panel {
+    padding: 15px 18px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     color: var(--text-secondary);
     font-size: 14px;
     line-height: 1.5;
+    min-width: 0;
 }
 
-.clips-help[hidden] {
-    display: none;
+.clips-panel-title {
+    margin: 0 0 10px;
+    color: var(--text-primary);
+    font-size: 15px;
 }
 
 .clips-help-steps {
@@ -54,13 +37,24 @@
     color: var(--text-tertiary);
 }
 
-.search-container .search-filters {
-    margin-top: 20px;
-    border-top-color: var(--border-color);
+.clips-toolbar {
+    margin-bottom: 20px;
 }
 
-.clips-storage {
-    margin-bottom: 10px;
+.clips-toolbar .search-input-container {
+    margin-bottom: 12px;
+}
+
+.clips-toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 16px;
+}
+
+.clips-count {
+    color: var(--text-tertiary);
+    font-size: 14px;
 }
 
 .clips-disk-bar {
@@ -68,7 +62,7 @@
     height: 14px;
     border-radius: 7px;
     overflow: hidden;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     border: 1px solid var(--border-color);
 }
 
@@ -114,7 +108,7 @@
 }
 
 .clips-swatch-free {
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     border: 1px solid var(--border-color);
 }
 
@@ -123,7 +117,7 @@
     padding: 8px 12px;
     border-radius: 6px;
     border-left: 3px solid var(--warning-color);
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     color: var(--text-secondary);
     font-size: 13px;
 }
@@ -290,14 +284,15 @@
     color: var(--text-secondary);
 }
 
+@media (max-width: 768px) {
+    .clips-overview {
+        grid-template-columns: 1fr;
+    }
+}
+
 @media (max-width: 600px) {
     .search-container {
         padding: 18px;
-    }
-
-    .search-stats {
-        flex-wrap: wrap;
-        gap: 10px;
     }
 
     .clips-results-controls {

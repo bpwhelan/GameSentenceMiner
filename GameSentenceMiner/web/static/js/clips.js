@@ -329,28 +329,6 @@
         load();
     }
 
-    // Instructions toggle, like the Search page's advanced options; the choice is remembered per browser.
-    const help = $('clipsHelp');
-    const helpToggle = $('clipsHelpToggle');
-    function setHelpOpen(open) {
-        help.hidden = !open;
-        helpToggle.setAttribute('aria-expanded', String(open));
-        helpToggle.querySelector('.clips-toggle-icon').textContent = open ? '▼' : '▶';
-    }
-    try {
-        setHelpOpen(localStorage.getItem('gsm-clips-help-collapsed') !== '1');
-    } catch (error) {
-        setHelpOpen(true);
-    }
-    helpToggle.addEventListener('click', () => {
-        setHelpOpen(help.hidden);
-        try {
-            localStorage.setItem('gsm-clips-help-collapsed', help.hidden ? '1' : '0');
-        } catch (error) {
-            // Ignore: remembering the choice is only a convenience.
-        }
-    });
-
     selectAll.addEventListener('click', () => {
         const shown = shownItems();
         const allSelected = shown.every((item) => selected.has(item.id));
