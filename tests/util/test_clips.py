@@ -413,7 +413,7 @@ def test_line_audio_leaves_out_pause_silence_when_the_build_removes_it(tmp_path,
         cleaned_paths.append(output)
         return SimpleNamespace(to_audio=lambda t: t if t <= start else (start if t < end else t - 2.0))
 
-    monkeypatch.setattr(clips.ffmpeg, "extract_audio_without_pauses", remove_pause_silence, raising=False)
+    monkeypatch.setattr(clips.ffmpeg, "extract_audio_without_pauses", remove_pause_silence)
 
     audio = clips.extract_clip_audio(clip, str(tmp_path / "line.mp3"))
 
@@ -450,21 +450,6 @@ def test_clip_keeps_the_game_pauses_it_contains(tmp_path, monkeypatch):
 
     clips.load_clip(folder)
     assert seen["remembered"] == manifest["pauses"]
-
-
-@requires_ffmpeg
-def test_clips_work_without_pause_removal(tmp_path, monkeypatch):
-    monkeypatch.setattr(clips, "pause_history", None)
-    replay = tmp_path / "replay.mkv"
-    length = _make_replay(replay)
-    _, line, _ = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
-
-    folder = clips.save_clip(
-        str(replay), [line], str(tmp_path / "Saved"), replay_end_time=BASE + timedelta(seconds=length)
-    )
-
-    assert "pauses" not in clips.read_manifest(folder)
-    assert clips.load_clip(folder).selected[0].text == "今"
 
 
 def test_clips_live_in_the_clips_folder_of_the_output_folder():

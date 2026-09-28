@@ -1,8 +1,9 @@
-"""Wall-clock spans GSM held the game suspended, kept as long as a replay can still contain them."""
+"""Wall-clock spans GSM held the game suspended: recent ones on disk, older ones brought back by saved clips."""
 
 import json
 import threading
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
@@ -17,6 +18,7 @@ PauseSpan = tuple[float, float]
 _lock = threading.Lock()
 _save_lock = threading.Lock()
 _spans: list[PauseSpan] | None = None
+_remembered: set[PauseSpan] = set()
 _history_file: Path | None = None
 
 
@@ -62,10 +64,16 @@ def _save() -> None:
             logger.debug(f"Could not save process pause history: {e}")
 
 
+def remember_pauses(spans: Iterable[Iterable[float]]) -> None:
+    """Make pauses saved with a clip available for this session, however old they are."""
+    with _lock:
+        _remembered.update((float(start), float(end)) for start, end in spans)
+
+
 def get_pauses_between(start: float, end: float) -> list[PauseSpan]:
     """Pauses overlapping the wall-clock window [start, end] (epoch seconds)."""
     with _lock:
-        return [span for span in _load() if span[1] > start and span[0] < end]
+        return sorted({span for span in (*_load(), *_remembered) if span[1] > start and span[0] < end})
 
 
 def _reset_for_tests(history_file: Path | None = None) -> None:
@@ -73,3 +81,4 @@ def _reset_for_tests(history_file: Path | None = None) -> None:
     with _lock:
         _spans = None
         _history_file = history_file
+        _remembered.clear()

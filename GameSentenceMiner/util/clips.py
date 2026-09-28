@@ -17,13 +17,8 @@ from GameSentenceMiner.util.config.configuration import (
     logger,
 )
 from GameSentenceMiner.util.gsm_utils import get_file_modification_time, make_unique_file_name, sanitize_filename
-from GameSentenceMiner.util.media import ffmpeg
+from GameSentenceMiner.util.media import ffmpeg, pause_history
 from GameSentenceMiner.util.text_log import GameLine, find_matching_line
-
-try:  # Pause-silence removal is a separate feature; clips work without it.
-    from GameSentenceMiner.util.media import pause_history
-except ImportError:
-    pause_history = None
 
 CLIPS_FOLDER_NAME = "Clips"
 MANIFEST_NAME = "manifest.json"
@@ -204,11 +199,10 @@ def save_clip(
             "source_replay": os.path.basename(video_path),
         },
     }
-    if pause_history:
-        # Game pauses in the clip (epoch seconds), so their silence can be removed however late it is mined.
-        clip_start_time = clip_end_time - timedelta(seconds=clip_length)
-        spans = pause_history.get_pauses_between(clip_start_time.timestamp(), clip_end_time.timestamp())
-        manifest["pauses"] = [list(span) for span in spans]
+    # Game pauses in the clip (epoch seconds), so their silence can be removed however late it is mined.
+    clip_start_time = clip_end_time - timedelta(seconds=clip_length)
+    spans = pause_history.get_pauses_between(clip_start_time.timestamp(), clip_end_time.timestamp())
+    manifest["pauses"] = [list(span) for span in spans]
     with open(os.path.join(folder, MANIFEST_NAME), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
 
@@ -244,8 +238,7 @@ def load_clip(folder: str) -> Clip:
     """Rebuild a clip line's GameLines, linked like the live text log but only within the clip."""
     manifest = read_manifest(folder)
     clip_end_time = datetime.fromisoformat(manifest["clip"]["end_time"])
-    if pause_history and manifest.get("pauses"):
-        pause_history.remember_pauses(manifest["pauses"])
+    pause_history.remember_pauses(manifest.get("pauses", []))
     lines = []
     selected = []
     for index, entry in enumerate(manifest["lines"]):
@@ -336,9 +329,8 @@ def extract_clip_audio(clip: Clip, output_path: str) -> str:
     source = clip.clip_path
     # Lossless, so the MP3 below is the only lossy generation.
     cleaned = make_unique_file_name(os.path.join(get_temporary_directory(), "clip_cleaned.wav"))
-    # Silence left by GSM pausing the game is removed when this build has that feature, as for cards.
-    remove_pause_silence = getattr(ffmpeg, "extract_audio_without_pauses", None)
-    timeline = remove_pause_silence(clip.clip_path, cleaned, clip.clip_end_time) if remove_pause_silence else None
+    # Silence left by GSM pausing the game is removed, as for cards.
+    timeline = ffmpeg.extract_audio_without_pauses(clip.clip_path, cleaned, clip.clip_end_time)
     if timeline:
         source, start, end = cleaned, timeline.to_audio(start), timeline.to_audio(end)
     try:

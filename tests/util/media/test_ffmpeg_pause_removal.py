@@ -96,6 +96,19 @@ def test_leaves_extraction_to_the_caller_without_a_matching_pause(tmp_path):
 
 
 @requires_ffmpeg
+def test_writes_lossless_audio_for_a_wav_output(tmp_path):
+    replay, length = _replay_with_pause(tmp_path)
+    _record_pause(length, offset=3.2, duration=3.0)
+    output = tmp_path / "cleaned.wav"
+
+    timeline = ffmpeg.extract_audio_without_pauses(str(replay), str(output), END)
+
+    info = soundfile.info(str(output))
+    assert info.subtype == "PCM_16"
+    assert info.duration == pytest.approx(length - timeline.removed_seconds, abs=0.05)
+
+
+@requires_ffmpeg
 def test_line_trim_lands_on_the_same_audio_after_pause_removal(tmp_path, monkeypatch):
     replay, length = _replay_with_pause(tmp_path)
     _record_pause(length, offset=4.0, duration=3.0)
