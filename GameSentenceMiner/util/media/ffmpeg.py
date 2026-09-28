@@ -1677,13 +1677,16 @@ def trim_audio(
     command = ffmpeg_base_command_list.copy()
     command.extend(["-i", input_audio])
 
+    fade_in_start = 0
     if trim_beginning and start_time > 0:
         logger.debug(f"trimming beginning to {start_time}")
         command.extend(["-ss", f"{start_time:.2f}"])
+        fade_in_start = start_time
 
     fade_filter = []
     if fade_in_duration > 0:
-        fade_filter.append(f"afade=t=in:d={fade_in_duration}")
+        # -ss after -i still hands the filter the input's timestamps, so fade in from the cut, not from 0.
+        fade_filter.append(f"afade=t=in:st={fade_in_start:.2f}:d={fade_in_duration}")
     if fade_out_duration > 0:
         fade_filter.append(f"afade=t=out:st={end_time - fade_out_duration:.2f}:d={fade_out_duration}")
 
