@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, List, Tuple, Optional, Any
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.qt_main import DialogManager
 
+import numpy as np
+
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.config.configuration import (
     ANIMATED_SCREENSHOT_CODEC_DEFAULT,
@@ -40,6 +42,9 @@ from GameSentenceMiner.util.media.avif_sizing import (
     sample_ranges,
     size_candidates,
 )
+from GameSentenceMiner.util.media import pause_gaps
+from GameSentenceMiner.util.media.pause_gaps import AudioTimeline
+from GameSentenceMiner.util.media import pause_history
 
 
 supported_formats = {
@@ -1420,29 +1425,81 @@ def get_audio_codec(video_path):
 
 
 def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time):
-    codec = get_audio_codec(video_path)
+    """Returns (untrimmed, trimmed, start, end, timeline); times are on the video, `timeline.to_audio` maps them."""
     target_ext = get_config().audio.extension
-
-    if codec == target_ext:
-        codec_command = ["-c:a", "copy"]
-        logger.debug(f"Extracting {target_ext} from video")
-    else:
-        codec_command = ["-c:a", f"{supported_formats[target_ext]['codec']}"]
-        logger.debug(f"Re-encoding {codec} to {target_ext}")
-
     untrimmed_audio = tempfile.NamedTemporaryFile(
         dir=configuration.get_temporary_directory(), suffix=f"_untrimmed.{target_ext}"
     ).name
 
-    command = ffmpeg_base_command_list + ["-i", video_path, "-map", "0:a"] + codec_command + [untrimmed_audio]
+    timeline = extract_audio_without_pauses(video_path, untrimmed_audio, anki_card_creation_time)
+    if timeline is None:
+        timeline = AudioTimeline()
+        codec = get_audio_codec(video_path)
+        if codec == target_ext:
+            codec_command = ["-c:a", "copy"]
+            logger.debug(f"Extracting {target_ext} from video")
+        else:
+            codec_command = ["-c:a", f"{supported_formats[target_ext]['codec']}"]
+            logger.debug(f"Re-encoding {codec} to {target_ext}")
 
-    logger.debug("Doing initial audio extraction")
-    FFmpegHelper.run(command, check=False)
+        command = ffmpeg_base_command_list + ["-i", video_path, "-map", "0:a"] + codec_command + [untrimmed_audio]
+
+        logger.debug("Doing initial audio extraction")
+        FFmpegHelper.run(command, check=False)
 
     trimmed_audio, start_time, end_time = trim_audio_based_on_last_line(
-        untrimmed_audio, video_path, game_line, next_line_time, anki_card_creation_time
+        untrimmed_audio, video_path, game_line, next_line_time, anki_card_creation_time, timeline
     )
-    return untrimmed_audio, trimmed_audio, start_time, end_time
+    return untrimmed_audio, trimmed_audio, start_time, end_time, timeline
+
+
+# Upper bound on a replay's length, so replays with no pause are never probed.
+MAX_REPLAY_SECONDS = 3 * 60 * 60
+
+
+def extract_audio_without_pauses(video_path, output_audio, recording_end_time=None) -> Optional[AudioTimeline]:
+    """Write the replay audio minus the silence of recorded game pauses; None, writing nothing, if there is none."""
+    recording_end = (recording_end_time or get_file_modification_time(video_path)).timestamp()
+    pauses = pause_history.get_pauses_between(recording_end - MAX_REPLAY_SECONDS, recording_end)
+    if not pauses:
+        return None
+    try:
+        probe = FFmpegHelper.get_probe_json(video_path, "format=duration:stream=sample_rate,channels", "a") or {}
+        streams = probe.get("streams", [])
+        if len(streams) != 1:
+            logger.debug(f"Skipping pause silence removal: {len(streams)} audio streams in {video_path}")
+            return None
+        gaps = pause_gaps.expected_gaps(pauses, recording_end, float(probe["format"]["duration"]))
+        if not gaps:
+            return None
+
+        sample_rate, channels = int(streams[0]["sample_rate"]), int(streams[0]["channels"])
+        decode = ffmpeg_base_command_list + ["-i", video_path, "-map", "0:a:0", "-f", "f32le", "-"]
+        decoded = FFmpegHelper.run(decode, check=False, text=False)
+        if decoded.returncode != 0:
+            return None
+        samples = np.frombuffer(decoded.stdout, dtype=np.float32).reshape(-1, channels)
+        pieces, timeline = pause_gaps.remove_pause_gaps(samples, sample_rate, gaps)
+        if not timeline:
+            logger.debug(f"{len(gaps)} game pause(s) in the replay, but no matching silence to remove.")
+            return None
+
+        spec = supported_formats[get_config().audio.extension]
+        encode = ffmpeg_base_command_list + ["-f", "f32le", "-ar", str(sample_rate), "-ac", str(channels), "-i", "-"]
+        encode += ["-c:a", spec["codec"], "-f", spec["format"], output_audio]
+        with subprocess.Popen(encode, stdin=subprocess.PIPE) as proc:
+            for piece in pieces:
+                proc.stdin.write(np.ascontiguousarray(piece).data)
+            proc.stdin.close()
+        if proc.returncode == 0:
+            logger.info(f"Removed {timeline.removed_seconds:.2f}s of silence left by {len(gaps)} game pause(s).")
+            return timeline
+    except (OSError, ValueError, KeyError) as e:
+        logger.warning(f"Pause silence removal failed, using the audio as recorded: {e}")
+    # A partial output would block the caller's fallback extraction (ffmpeg won't overwrite).
+    if os.path.exists(output_audio):
+        os.remove(output_audio)
+    return None
 
 
 def get_video_duration(file_path):
@@ -1475,7 +1532,9 @@ def get_video_duration(file_path):
         return 0.0
 
 
-def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_line, anki_card_creation_time):
+def trim_audio_based_on_last_line(
+    untrimmed_audio, video_path, game_line, next_line, anki_card_creation_time, timeline: AudioTimeline
+):
     trimmed_audio = tempfile.NamedTemporaryFile(
         dir=configuration.get_temporary_directory(),
         suffix=f".{get_config().audio.extension}",
@@ -1490,30 +1549,35 @@ def trim_audio_based_on_last_line(untrimmed_audio, video_path, game_line, next_l
         if source_padding is None:
             source_padding = TextSource.padding_seconds(getattr(game_line, "source", None))
         start_trim_time = max(0, start_trim_time - float(source_padding))
+    # Trim times stay on the video timeline; the audio may have had pause silence removed.
+    audio_start = timeline.to_audio(start_trim_time)
 
     ffmpeg_command = ffmpeg_base_command_list + [
         "-i",
         untrimmed_audio,
         "-ss",
-        str(start_trim_time),
+        str(audio_start),
     ]
 
+    audio_end = 0
     if next_line and next_line > game_line.time and total_seconds:
         end_trim_seconds = (
             total_seconds + (next_line - game_line.time).total_seconds() + get_config().audio.pre_vad_end_offset
         )
-        ffmpeg_command.extend(["-to", f"{end_trim_seconds:.3f}"])
+        audio_end = timeline.to_audio(end_trim_seconds)
+        ffmpeg_command.extend(["-to", f"{audio_end:.3f}"])
         logger.debug(f"Trimming end of audio to {end_trim_seconds:.3f} seconds")
     elif get_config().audio.pre_vad_end_offset and get_config().audio.pre_vad_end_offset < 0:
         end_trim_seconds = file_length + get_config().audio.pre_vad_end_offset
-        ffmpeg_command.extend(["-to", str(end_trim_seconds)])
+        audio_end = timeline.to_audio(end_trim_seconds)
+        ffmpeg_command.extend(["-to", str(audio_end)])
         logger.debug(f"Trimming end of audio to {end_trim_seconds} seconds")
 
     ffmpeg_command.extend(["-c", "copy", trimmed_audio])
 
     FFmpegHelper.run(ffmpeg_command, check=False)
 
-    gsm_state.previous_trim_args = (untrimmed_audio, start_trim_time, end_trim_seconds)
+    gsm_state.previous_trim_args = (untrimmed_audio, audio_start, audio_end)
     logger.debug(f"{total_seconds_after_offset} trimmed off of beginning")
     if source_padding:
         logger.debug(

@@ -43,6 +43,7 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.config.feature_flags import (
     process_pausing_feature,
 )
+from GameSentenceMiner.util.media import pause_history
 from GameSentenceMiner.util.platform.monitor_selection import (
     get_mss_monitor_descriptors,
     set_overlay_monitor_identity_from_index,
@@ -501,7 +502,7 @@ def _load_suspended_pids():
                         logger.warning(f"Skipping resume for PID {pid}: process does not match recorded info.")
                         continue
 
-                    if _resume_process(pid):
+                    if _resume_and_record(pid, record):
                         logger.info(f"Resumed orphaned suspended process PID {pid} from previous session.")
                     else:
                         logger.debug(f"Could not resume PID {pid} (may have already terminated).")
@@ -527,6 +528,15 @@ def _save_suspended_pids():
             json.dump({"pids": entries}, f)
     except Exception as e:
         logger.debug(f"Error saving suspended PIDs: {e}")
+
+
+def _resume_and_record(pid: int, record: Dict[str, Any]) -> bool:
+    """Resume a tracked process and log its pause, so the audio pipeline can remove the silence it left."""
+    if not _resume_process(pid):
+        return False
+    if record.get("suspended_at"):
+        pause_history.record_pause(record["suspended_at"], time.time())
+    return True
 
 
 @process_pausing_feature()
@@ -605,7 +615,7 @@ def force_resume_suspended_processes() -> Dict[str, int]:
             result["stale"] += 1
             continue
 
-        if _resume_process(pid):
+        if _resume_and_record(pid, record):
             logger.info(f"Resumed suspended process PID {pid}")
             result["resumed"] += 1
         else:
@@ -1522,7 +1532,7 @@ def _auto_resume_monitor():
                     _suspended_pids.pop(pid, None)
                 _save_suspended_pids()
                 continue
-            if _resume_process(pid):
+            if _resume_and_record(pid, record):
                 with _suspended_pids_lock:
                     _suspended_pids.pop(pid, None)
                 _save_suspended_pids()
@@ -1559,7 +1569,7 @@ def _resume_tracked_process(pid: int, context: str) -> bool:
         _save_suspended_pids()
         return False
 
-    if _resume_process(pid):
+    if _resume_and_record(pid, record):
         with _suspended_pids_lock:
             _suspended_pids.pop(pid, None)
         _save_suspended_pids()

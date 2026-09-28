@@ -1165,3 +1165,21 @@ def test_refine_proton_pid_returns_zero_on_psutil_error(monkeypatch):
 
     monkeypatch.setattr(window_state_monitor.psutil, "Process", _raise)
     assert window_state_monitor._refine_proton_pid(999) == 0
+
+
+def test_resuming_a_tracked_process_records_the_pause_span(monkeypatch):
+    recorded = []
+    monkeypatch.setattr(
+        window_state_monitor,
+        "_suspended_pids",
+        {4242: {"created": 1, "exe": "game.exe", "suspended_at": 1000.0}},
+        raising=False,
+    )
+    monkeypatch.setattr(window_state_monitor, "_process_matches_record", lambda pid, record: True)
+    monkeypatch.setattr(window_state_monitor, "_resume_process", lambda pid: True)
+    monkeypatch.setattr(window_state_monitor, "_save_suspended_pids", lambda: None)
+    monkeypatch.setattr(window_state_monitor.time, "time", lambda: 1012.5)
+    monkeypatch.setattr(window_state_monitor.pause_history, "record_pause", lambda *span: recorded.append(span))
+
+    assert window_state_monitor._resume_tracked_process(4242, "test") is True
+    assert recorded == [(1000.0, 1012.5)]
