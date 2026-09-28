@@ -10,8 +10,13 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from GameSentenceMiner.util.config.configuration import ffmpeg_base_command_list, get_config, logger
-from GameSentenceMiner.util.gsm_utils import get_file_modification_time, sanitize_filename
+from GameSentenceMiner.util.config.configuration import (
+    ffmpeg_base_command_list,
+    get_config,
+    get_temporary_directory,
+    logger,
+)
+from GameSentenceMiner.util.gsm_utils import get_file_modification_time, make_unique_file_name, sanitize_filename
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.text_log import GameLine, find_matching_line
 
@@ -329,7 +334,8 @@ def extract_clip_audio(clip: Clip, output_path: str) -> str:
     end = min(duration, offset(last.next.time)) if last.next else duration
 
     source = clip.clip_path
-    cleaned = f"{output_path}.cleaned.{get_config().audio.extension}"
+    # Lossless, so the MP3 below is the only lossy generation.
+    cleaned = make_unique_file_name(os.path.join(get_temporary_directory(), "clip_cleaned.wav"))
     # Silence left by GSM pausing the game is removed when this build has that feature, as for cards.
     remove_pause_silence = getattr(ffmpeg, "extract_audio_without_pauses", None)
     timeline = remove_pause_silence(clip.clip_path, cleaned, clip.clip_end_time) if remove_pause_silence else None
@@ -343,6 +349,6 @@ def extract_clip_audio(clip: Clip, output_path: str) -> str:
             check=False,
         )
     finally:
-        if timeline and os.path.exists(cleaned):
+        if timeline:
             os.remove(cleaned)
     return output_path
