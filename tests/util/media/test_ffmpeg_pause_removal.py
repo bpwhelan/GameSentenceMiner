@@ -20,10 +20,35 @@ END = datetime.now().replace(microsecond=0) - timedelta(seconds=30)  # noqa: DTZ
 
 
 @pytest.fixture(autouse=True)
-def history(tmp_path):
+def history(tmp_path, monkeypatch):
+    # On Windows GSM looks for ffmpeg in its app folder; use the system binaries, with production's flags.
+    command = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin"]
+    monkeypatch.setattr(ffmpeg, "ffmpeg_base_command_list", command)
+    monkeypatch.setattr(ffmpeg, "get_ffprobe_path", lambda: shutil.which("ffprobe") or "ffprobe")
     pause_history._reset_for_tests(tmp_path / "process_pause_history.json")
     yield
     pause_history._reset_for_tests()
+
+
+def _decoded_seconds(path):
+    """Length of the decoded audio; container durations add codec padding that varies by ffmpeg build."""
+    command = [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-i",
+        str(path),
+        "-map",
+        "0:a:0",
+        "-ac",
+        "1",
+        "-ar",
+        str(SR),
+        "-f",
+        "f32le",
+        "-",
+    ]
+    return len(subprocess.run(command, capture_output=True, check=True).stdout) / 4 / SR
 
 
 def _replay_with_pause(tmp_path, seconds=12.0, pause=(4.0, 7.0)):
@@ -56,7 +81,7 @@ def test_extracts_audio_without_the_recorded_pause(tmp_path):
 
     assert timeline is not None
     assert timeline.removed_seconds == pytest.approx(3.0, abs=0.05)
-    assert ffmpeg.get_audio_length(str(output)) == pytest.approx(length - timeline.removed_seconds, abs=0.05)
+    assert _decoded_seconds(output) == pytest.approx(_decoded_seconds(replay) - timeline.removed_seconds, abs=0.03)
 
 
 @requires_ffmpeg
