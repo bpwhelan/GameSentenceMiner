@@ -1,3 +1,5 @@
+import os
+import time
 from types import SimpleNamespace
 import wave
 
@@ -410,3 +412,72 @@ def test_firered_cmvn_parser_reads_bundled_stats():
     assert inverse_std_variances.shape == (80,)
     assert means.dtype == np.float32
     assert inverse_std_variances.dtype == np.float32
+
+
+def test_extract_audio_and_combine_segments_waits_for_all_trims(monkeypatch, tmp_path):
+    trimmed = []
+    combined = []
+
+    def fake_trim_audio(input_audio, start, end, output, **kwargs):
+        time.sleep(0.05)
+        with open(output, "wb") as f:
+            f.write(b"segment")
+        trimmed.append(output)
+
+    def fake_combine(files, output):
+        assert all(os.path.exists(f) for f in files)
+        combined.append(list(files))
+        with open(output, "wb") as f:
+            f.write(b"combined")
+
+    monkeypatch.setattr(vad, "get_config", lambda: SimpleNamespace(audio=SimpleNamespace(extension="opus")))
+    monkeypatch.setattr(vad, "get_temporary_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(vad.ffmpeg, "trim_audio", fake_trim_audio)
+    monkeypatch.setattr(vad.ffmpeg, "combine_audio_files", fake_combine)
+
+    output = tmp_path / "out.opus"
+    segments = [vad.Segment(start=0.0, end=1.0), vad.Segment(start=3.0, end=4.0), vad.Segment(start=6.0, end=7.0)]
+    vad.VADProcessor.extract_audio_and_combine_segments("input.opus", segments, str(output))
+
+    assert len(trimmed) == 3
+    assert len(combined) == 1 and sorted(combined[0]) == sorted(trimmed)
+    assert output.read_bytes() == b"combined"
+    assert not any(os.path.exists(f) for f in trimmed)
+
+
+def test_extract_audio_and_combine_segments_skips_failed_trims(monkeypatch, tmp_path):
+    combined = []
+
+    def flaky_trim_audio(input_audio, start, end, output, **kwargs):
+        if start > 2:
+            raise RuntimeError("ffmpeg exploded")
+        with open(output, "wb") as f:
+            f.write(b"segment")
+
+    def fake_combine(files, output):
+        combined.append(list(files))
+
+    monkeypatch.setattr(vad, "get_config", lambda: SimpleNamespace(audio=SimpleNamespace(extension="opus")))
+    monkeypatch.setattr(vad, "get_temporary_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(vad.ffmpeg, "trim_audio", flaky_trim_audio)
+    monkeypatch.setattr(vad.ffmpeg, "combine_audio_files", fake_combine)
+
+    output = tmp_path / "out.opus"
+    segments = [vad.Segment(start=0.0, end=1.0), vad.Segment(start=3.0, end=4.0)]
+    vad.VADProcessor.extract_audio_and_combine_segments("input.opus", segments, str(output))
+
+    assert combined == []
+    assert output.read_bytes() == b"segment"
+
+
+def test_extract_audio_and_combine_segments_raises_when_every_trim_fails(monkeypatch, tmp_path):
+    def failing_trim_audio(*_args, **_kwargs):
+        raise RuntimeError("ffmpeg exploded")
+
+    monkeypatch.setattr(vad, "get_config", lambda: SimpleNamespace(audio=SimpleNamespace(extension="opus")))
+    monkeypatch.setattr(vad, "get_temporary_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(vad.ffmpeg, "trim_audio", failing_trim_audio)
+
+    segments = [vad.Segment(start=0.0, end=1.0), vad.Segment(start=3.0, end=4.0)]
+    with pytest.raises(RuntimeError, match="no valid segment files"):
+        vad.VADProcessor.extract_audio_and_combine_segments("input.opus", segments, str(tmp_path / "out.opus"))

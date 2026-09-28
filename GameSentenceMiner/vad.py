@@ -454,7 +454,7 @@ class VADProcessor(ABC):
         input_audio, segments: list[Segment], output_audio, padding=0.1, end_padding=0.0
     ):
         files = []
-        ffmpeg_threads = []
+        ffmpeg_futures = []
         logger.info(f"Extracting {len(segments)} segments from {input_audio} with padding {padding} seconds.")
 
         current_start = None
@@ -473,7 +473,7 @@ class VADProcessor(ABC):
             end = segment.end + (padding / 2)
             if i == len(segments) - 1:
                 end += end_padding
-            ffmpeg_threads.append(
+            ffmpeg_futures.append(
                 submit_background_work(
                     partial(
                         ffmpeg.trim_audio,
@@ -487,8 +487,12 @@ class VADProcessor(ABC):
             )
             current_start = None
 
-        for thread in ffmpeg_threads:
-            thread.join()
+        for future in ffmpeg_futures:
+            try:
+                future.result()
+            except Exception as e:
+                # Missing output is filtered out below; keep the remaining segments.
+                logger.warning(f"Failed to trim VAD segment: {e}")
 
         # Verify each segment was actually written; filter out any that are missing or empty
         valid_files = [f for f in files if os.path.exists(f) and os.path.getsize(f) > 0]
