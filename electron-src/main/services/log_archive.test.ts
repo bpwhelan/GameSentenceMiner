@@ -96,10 +96,54 @@ describe('anonymized log archives', () => {
 
     it('only selects regular supported log files', async () => {
         for (const name of ['main.log', 'old.log.1', 'old.log.zip', 'old.txt.gz', 'other.LOG', 'ignored.log.png', 'config.json']) {
-            fs.writeFileSync(path.join(logsDirectory, name), '');
+            fs.writeFileSync(path.join(logsDirectory, name), 'diagnostic');
         }
         fs.mkdirSync(path.join(logsDirectory, 'folder.log'));
         expect((await listLogFiles(logsDirectory)).sort()).toEqual(['other.LOG', 'main.log', 'old.log.1', 'old.log.zip', 'old.txt.gz'].sort());
+    });
+
+    it('exports OCR diagnostics and nested history with their readable folder layout', async () => {
+        fs.mkdirSync(path.join(logsDirectory, 'history'));
+        fs.writeFileSync(path.join(logsDirectory, 'ocr.log'), 'OCR engine started for alice');
+        fs.writeFileSync(path.join(logsDirectory, 'ocr-debug.jsonl'), '{"event":"ocr.result","token":"private-token"}\n');
+        fs.writeFileSync(path.join(logsDirectory, 'history', 'ocr.log.1'), 'previous OCR session');
+        fs.writeFileSync(path.join(logsDirectory, 'history', 'ocr-debug.jsonl.1'), '{"event":"previous"}\n');
+        fs.writeFileSync(path.join(logsDirectory, 'empty.log'), '');
+        fs.mkdirSync(path.join(logsDirectory, '.locks'));
+        fs.writeFileSync(path.join(logsDirectory, '.locks', 'ignored.log'), 'internal');
+        const output = path.join(directory, 'ocr.zip');
+        await createAnonymizedLogsArchive(logsDirectory, output, redact);
+        const extracted = path.join(directory, 'extracted');
+        await extract(output, { dir: extracted });
+        expect(fs.readFileSync(path.join(extracted, 'ocr.log'), 'utf8')).toContain('OCR engine started');
+        expect(fs.readFileSync(path.join(extracted, 'ocr-debug.jsonl'), 'utf8')).not.toContain('private-token');
+        expect(fs.readFileSync(path.join(extracted, 'history', 'ocr.log.1'), 'utf8')).toBe('previous OCR session');
+        expect(fs.existsSync(path.join(extracted, 'history', 'ocr-debug.jsonl.1'))).toBe(true);
+        expect(fs.existsSync(path.join(extracted, 'empty.log'))).toBe(false);
+        expect(fs.existsSync(path.join(extracted, '.locks'))).toBe(false);
+    });
+
+    it('does not follow directory links outside the logs folder', async () => {
+        const external = path.join(directory, 'private');
+        fs.mkdirSync(external);
+        fs.writeFileSync(path.join(external, 'private.log'), 'do not export');
+        fs.symlinkSync(external, path.join(logsDirectory, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+        expect(await listLogFiles(logsDirectory)).toEqual([]);
+    });
+
+    it('keeps usable logs and explains files that rotate away during export', async () => {
+        fs.writeFileSync(path.join(logsDirectory, 'backend.log'), 'backend ready');
+        const disappearing = path.join(logsDirectory, 'ocr.log.5');
+        fs.writeFileSync(disappearing, 'old history');
+        const output = path.join(directory, 'live.zip');
+        await createAnonymizedLogsArchive(logsDirectory, output, (text) => {
+            if (text === 'backend ready') fs.unlinkSync(disappearing);
+            return redact(text);
+        });
+        const extracted = path.join(directory, 'extracted');
+        await extract(output, { dir: extracted });
+        expect(fs.readFileSync(path.join(extracted, 'backend.log'), 'utf8')).toBe('backend ready');
+        expect(fs.readFileSync(path.join(extracted, 'EXPORT_NOTES.txt'), 'utf8')).toContain('ocr.log.5');
     });
 
     it('never lets the export overwrite a source log archive', async () => {

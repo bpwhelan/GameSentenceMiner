@@ -52,7 +52,6 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
     get_ocr_config,
     get_scene_furigana_filter_sensitivity,
 )
-from GameSentenceMiner.ocr.process_logging import start_ocr_process_log
 from GameSentenceMiner.owocr.owocr import ocr_runtime
 from GameSentenceMiner.owocr.owocr.ocr import normalize_japanese_ocr_dashes, normalize_japanese_ocr_text_and_segments
 from GameSentenceMiner.owocr.owocr.ocr_runtime import TextFiltering
@@ -3696,7 +3695,7 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
         if section_changed:
             reload_electron_config()
             if get_ocr_advanced_debug_logging():
-                debug_path, created = start_ocr_debug_log(get_temporary_directory(), max_files=3)
+                debug_path, created = start_ocr_debug_log()
                 if created:
                     logger.info("Advanced OCR debug log: {}", debug_path)
             else:
@@ -4021,9 +4020,8 @@ def process_task_queue():
 
 def _setup_ocr_process_logging(runtime_logger):
     try:
-        start_ocr_process_log(runtime_logger, get_temporary_directory(), max_files=3)
         if get_ocr_advanced_debug_logging():
-            debug_path, created = start_ocr_debug_log(get_temporary_directory(), max_files=3)
+            debug_path, created = start_ocr_debug_log()
             if created:
                 runtime_logger.info("Advanced OCR debug log: {}", debug_path)
     except Exception:
@@ -4075,8 +4073,9 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
             combo_pause=global_pause_hotkey,
             disable_user_input=True,  # Disable stdin user input to avoid conflicts with IPC
             logger_level="INFO",
-            # owocr replaces GSM's stdout handlers first; add the diagnostic
-            # file afterward so routine subprocess logs stay out of GSM output.
+            # Keep GSM's persistent sink, including all early startup diagnostics.
+            # The runtime must not replace the process-global Loguru handlers.
+            configure_logger=False,
             logger_setup_callback=_setup_ocr_process_logging,
             # Manual mode explicitly requests OCR2 for both slots. Avoid loading
             # the configured stability engine until a menu OCR path needs it.

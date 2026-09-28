@@ -4,17 +4,17 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any
+
+from GameSentenceMiner.util.log_paths import SharedRotatingLog
 
 _LOGGER_NAME = "GameSentenceMiner.anki_card_timing"
-_LOG_FILENAME = "anki_card_timing.log"
-_MAX_LOG_BYTES = 5 * 1024 * 1024
-_BACKUP_COUNT = 5
+_LOG_FILENAME = "anki-timing.log"
 
 _logger = logging.getLogger(_LOGGER_NAME)
 _logger.setLevel(logging.INFO)
@@ -64,12 +64,7 @@ def configure_anki_card_timing_logging(enabled: bool, log_directory: str | Path)
         return log_path
 
     _remove_handlers()
-    handler = RotatingFileHandler(
-        log_path,
-        maxBytes=_MAX_LOG_BYTES,
-        backupCount=_BACKUP_COUNT,
-        encoding="utf-8",
-    )
+    handler = logging.StreamHandler(SharedRotatingLog(log_path))
     handler.setFormatter(logging.Formatter("%(message)s"))
     _logger.addHandler(handler)
     _configured_path = log_path

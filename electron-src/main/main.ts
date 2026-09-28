@@ -50,6 +50,7 @@ import { performDataMove, validateTargetDir, type RelocateProgress } from './ser
 import { fileURLToPath } from 'node:url';
 
 import log from 'electron-log/main.js';
+import { recordProcessOutput } from './services/logging.js';
 import {
     getAutoUpdateGSMApp,
     getPullPreReleases,
@@ -1483,6 +1484,7 @@ function handleBackendMessage(msg: BackendMessage): void {
 function attachBackendLogForwarding(proc: ChildProcessWithoutNullStreams): void {
     let stdoutBuffer = '';
     proc.stdout.on('data', (data: Buffer) => {
+        recordProcessOutput('backend', 'stdout', data.toString());
         stdoutBuffer += data.toString();
         const lines = stdoutBuffer.split(/\r?\n/);
         stdoutBuffer = lines.pop() ?? '';
@@ -1496,6 +1498,7 @@ function attachBackendLogForwarding(proc: ChildProcessWithoutNullStreams): void 
         }
     });
     proc.stderr.on('data', (data: Buffer) => {
+        recordProcessOutput('backend', 'stderr', data.toString());
         sendTerminalLog({
             message: data.toString() + '\r\n',
             stream: 'stderr',

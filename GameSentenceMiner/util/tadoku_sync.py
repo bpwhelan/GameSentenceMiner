@@ -23,12 +23,30 @@ TADOKU_GAME_TAG = "game"
 TADOKU_GSM_TAG = "gsm"
 TADOKU_REQUEST_TIMEOUT_SECONDS = 20
 TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS = 5_000
+TADOKU_LOG_DESCRIPTION_MAX_LENGTH = 255
 
 _sync_lock = threading.Lock()
 
 
 class TadokuSyncError(RuntimeError):
     """Raised when an incremental Tadoku sync cannot be completed safely."""
+
+
+def normalize_tadoku_log_descriptions(log_descriptions: dict[str, str] | None) -> dict[str, str]:
+    """Validate optional per-game titles for a single manual sync."""
+    if log_descriptions is None:
+        return {}
+    if not isinstance(log_descriptions, dict):
+        raise TypeError("Tadoku log descriptions must map game keys to text")
+    normalized = {}
+    for game_key, description in log_descriptions.items():
+        if not isinstance(game_key, str) or not game_key.strip() or not isinstance(description, str):
+            raise ValueError("Tadoku log descriptions must map game keys to text")
+        description = description.strip()
+        if not 1 <= len(description) <= TADOKU_LOG_DESCRIPTION_MAX_LENGTH:
+            raise ValueError("Tadoku log titles must contain between 1 and 255 characters")
+        normalized[game_key] = description
+    return normalized
 
 
 def initialize_tadoku_cursor(now: float | None = None) -> float:
@@ -389,8 +407,10 @@ def run_tadoku_sync(
     deduplicate: bool = False,
     minimum_characters_per_game: int = 0,
     game_whitelist: set[str] | None = None,
+    log_descriptions: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Upload eligible per-game Character logs without consuming deferred games."""
+    descriptions = normalize_tadoku_log_descriptions(log_descriptions)
     if not _sync_lock.acquire(blocking=False):
         raise TadokuSyncError("A Tadoku sync is already running")
 
@@ -469,7 +489,9 @@ def run_tadoku_sync(
                     "amount": entry["characters"],
                     "unit_id": unit_id,
                     "tags": [entry["media_tag"], TADOKU_GSM_TAG],
-                    "description": entry["game_name"][:255],
+                    "description": descriptions.get(
+                        entry["game_key"], entry["game_name"][:TADOKU_LOG_DESCRIPTION_MAX_LENGTH]
+                    ),
                     "registration_ids": registration_ids,
                 }
                 created = tadoku_client.create_log(payload)

@@ -9,8 +9,8 @@ import { gunzip } from 'node:zlib';
 import { createLogRedactor } from './log_redaction.js';
 
 const unzipGzip = promisify(gunzip);
-const TEXT_LOG = /\.(?:log|txt)(?:\.\d+)?$/i;
-const COMPRESSED_LOG = /\.(?:log|txt)(?:\.\d+)?\.(?:zip|gz)$/i;
+const TEXT_LOG = /\.(?:log|txt|jsonl)(?:\.\d+)?$/i;
+const COMPRESSED_LOG = /\.(?:log|txt|jsonl)(?:\.\d+)?\.(?:zip|gz)$/i;
 const MAX_LOG_BYTES = 64 * 1024 * 1024;
 
 export const LOG_ANONYMIZATION_NOTICE = [
@@ -21,6 +21,9 @@ export const LOG_ANONYMIZATION_NOTICE = [
     'remote IP/MAC addresses, and common password, API key, token and cookie formats.',
     'Compressed log history is decompressed and redacted too. Original logs are unchanged.',
     'Loopback addresses, timestamps, error messages and diagnostic context are retained.',
+    'Current logs are at the top level; rotated and imported logs are in history/.',
+    'ocr.log contains persistent OCR diagnostics. ocr-debug.jsonl is present when advanced',
+    'OCR debugging has recorded events. Empty logs and internal lock files are omitted.',
     '',
     'Automatic redaction may miss personal details in free text, game text or unusual formats.',
     'Review the exported logs before sharing them.',
@@ -28,10 +31,26 @@ export const LOG_ANONYMIZATION_NOTICE = [
 ].join('\n');
 
 export async function listLogFiles(logsDirectory: string): Promise<string[]> {
-    return (await fs.promises.readdir(logsDirectory, { withFileTypes: true }))
-        .filter((entry) => entry.isFile() && (TEXT_LOG.test(entry.name) || COMPRESSED_LOG.test(entry.name)))
-        .map((entry) => entry.name)
-        .sort();
+    const files: string[] = [];
+    const visit = async (relativeDirectory: string) => {
+        const entries = await fs.promises.readdir(path.join(logsDirectory, relativeDirectory), { withFileTypes: true });
+        for (const entry of entries) {
+            // Never traverse links/junctions or internal working directories.
+            if (entry.isSymbolicLink() || entry.name.startsWith('.')) continue;
+            const relativePath = path.join(relativeDirectory, entry.name);
+            if (entry.isDirectory()) {
+                await visit(relativePath);
+            } else if (entry.isFile() && (TEXT_LOG.test(entry.name) || COMPRESSED_LOG.test(entry.name))) {
+                try {
+                    if ((await fs.promises.stat(path.join(logsDirectory, relativePath))).size > 0) files.push(relativePath);
+                } catch (error: any) {
+                    if (error.code !== 'ENOENT') throw error; // A live log may rotate during enumeration.
+                }
+            }
+        }
+    };
+    await visit('');
+    return files.sort();
 }
 
 async function readLog(filePath: string): Promise<string> {
@@ -74,14 +93,25 @@ export async function createAnonymizedLogsArchive(
         completion = pipeline(archive, fs.createWriteStream(temporaryArchive));
         // A write failure can happen while sources are still being read.
         void completion.catch(() => {});
-        const names = new Set<string>(['anonymization.txt']);
+        const names = new Set<string>(['anonymization.txt', 'export_notes.txt']);
+        const skipped: string[] = [];
         const appendLog = async (filePath: string, sourceName: string) => {
-            const content = redact(await readLog(filePath));
-            // Flatten paths and sanitize the name too; archive metadata must not leak identities.
-            const baseName = redact(sourceName).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
+            let content: string;
+            try {
+                content = redact(await readLog(filePath));
+            } catch (error: any) {
+                if (error.code !== 'ENOENT') throw error;
+                skipped.push(sourceName);
+                return;
+            }
+            // Retain the useful folder layout and redact every path component.
+            const baseName = sourceName.split(/[/\\]/).map((segment) => {
+                const safe = redact(segment).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
+                return !safe || safe === '.' || safe === '..' ? '_' : safe;
+            }).join('/');
             let name = baseName;
             let suffix = 2;
-            while (names.has(name.toLowerCase())) name = `${suffix++}-${baseName}`;
+            while (names.has(name.toLowerCase())) name = path.posix.join(path.posix.dirname(baseName), `${suffix++}-${path.posix.basename(baseName)}`);
             names.add(name.toLowerCase());
             archive.append(content, { name });
         };
@@ -98,6 +128,10 @@ export async function createAnonymizedLogsArchive(
             // Extract into a private working directory and remove it even on failure.
             const extracted = await fs.promises.mkdtemp(path.join(staging, 'rotation-'));
             try {
+                const stat = await fs.promises.lstat(source);
+                if (!stat.isFile() || stat.size > MAX_LOG_BYTES) {
+                    throw new Error('A compressed log is not a regular file or exceeds the 64 MiB export limit.');
+                }
                 let totalBytes = 0;
                 await extract(source, {
                     dir: extracted,
@@ -114,11 +148,20 @@ export async function createAnonymizedLogsArchive(
                 const entries = await fs.promises.readdir(extracted, { recursive: true, withFileTypes: true });
                 for (const entry of entries) {
                     if (!entry.isFile()) continue;
-                    await appendLog(path.join(entry.parentPath, entry.name), `${file.slice(0, -4)}-${entry.name}`);
+                    const extractedPath = path.join(entry.parentPath, entry.name);
+                    await appendLog(extractedPath, path.join(path.dirname(file), path.relative(extracted, extractedPath)));
                 }
+            } catch (error: any) {
+                if (error.code !== 'ENOENT' || fs.existsSync(source)) throw error;
+                skipped.push(file);
             } finally {
                 await fs.promises.rm(extracted, { recursive: true, force: true });
             }
+        }
+        if (skipped.length) {
+            archive.append(redact(`These logs rotated or were removed while the export was being read:\n${skipped.join('\n')}\n`), {
+                name: 'EXPORT_NOTES.txt',
+            });
         }
         await archive.finalize();
         await completion;

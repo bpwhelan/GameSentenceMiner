@@ -333,7 +333,8 @@ function Get-InternalWebSocketPort {
     }
 
     $logFiles = @(
-        Get-ChildItem -LiteralPath $Directory -Filter "gamesentenceminer*.log" -File -ErrorAction SilentlyContinue |
+        Get-ChildItem -LiteralPath $Directory -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq "backend.log" -or $_.Name -like "gamesentenceminer*.log" } |
             Sort-Object LastWriteTime -Descending
     )
     foreach ($logFile in $logFiles) {
@@ -392,7 +393,10 @@ function Collect-TextLogs {
     New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
     $files = @(
         Get-ChildItem -LiteralPath $Directory -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Extension -in @(".log", ".txt") } |
+            Where-Object {
+                $_.Name -match '\.(log|txt|jsonl)(\.\d+)?$' -and
+                $_.FullName -notmatch '[/\\]\.locks[/\\]' -and $_.Length -gt 0
+            } |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 40
     )
