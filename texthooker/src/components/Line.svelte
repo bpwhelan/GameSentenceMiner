@@ -71,6 +71,7 @@
 		audioToggle: { lineId: string; text: string };
 		videoTrim: { lineId: string; text: string };
 		saveClip: { lineId: string };
+		deleteClip: { lineId: string };
 	}>();
 
 	let paragraph: HTMLElement;
@@ -290,6 +291,13 @@
 		dispatch('saveClip', { lineId: line.id });
 	}
 
+	function handleDeleteClip() {
+		closeActionsMenu();
+		if (getActionsWindow().confirm('Move this clip to the trash? You can restore it from there.')) {
+			dispatch('deleteClip', { lineId: line.id });
+		}
+	}
+
 	function openAIHelp() {
 		closeActionsMenu();
 		aiHelpOpen = true;
@@ -398,7 +406,7 @@
 </script>
 
 {#key line.text}
-	<div class="textline2">
+	<div class="textline2" class:clip-saved={isClipSaved}>
 		{#if $showGSMCheckboxes$}
 			<input
 				type="checkbox"
@@ -453,6 +461,11 @@
 			</p>
 		{/if}
 		<div class="line-actions-container" class:hidden={$settingsOpen$}>
+			{#if isClipSaved}
+				<div class="line-badge clip-badge unselectable" title="Saved as a clip: you can still make a card from it" tabindex="-1">
+					Clip
+				</div>
+			{/if}
 			{#if line.excludedFromStats}
 				<div
 					class="line-badge unselectable"
@@ -615,6 +628,12 @@
 								<span aria-hidden="true">🌐</span>
 								<span>Translate</span>
 							</button>
+							{#if isClipSaved}
+								<button on:click={handleDeleteClip}>
+									<span aria-hidden="true">🗑️</span>
+									<span>Delete clip</span>
+								</button>
+							{/if}
 							{#if isActiveGSMLine}
 								<button on:click={handleDeleteFromStats}>
 									<span aria-hidden="true">🗑️</span>
@@ -812,6 +831,19 @@
 		align-items: center;
 		justify-content: flex-end;
 		gap: 10px;
+	}
+
+	.clip-saved {
+		border-left: 4px solid var(--color-primary);
+		background: color-mix(in oklab, var(--color-primary) 18%, transparent);
+		border-radius: 6px;
+	}
+
+	.line-badge.clip-badge {
+		background: var(--color-primary);
+		border-color: var(--color-primary);
+		color: var(--color-primary-content);
+		font-weight: 600;
 	}
 
 	.line-badge {

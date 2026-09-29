@@ -3578,9 +3578,6 @@ def update_single_card(card):
                     logger.exception("Could not offer recommended Anki setup for missing fields")
             if issue.blocks_mining:
                 return
-    if card.noteId in gsm_state.clip_note_ids:
-        logger.info(f"Note {card.noteId} was enriched from a clip; leaving it alone.")
-        return
     gsm_status.add_word_being_processed(card.get_field(get_config().anki.word_field))
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}")
     lines = _get_texthooking_page_module().get_selected_lines()

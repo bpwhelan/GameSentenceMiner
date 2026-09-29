@@ -1575,12 +1575,6 @@ def games():
     return render_template("games.html")
 
 
-@app.route("/clips")
-def clips_page():
-    """Renders the clips to mine."""
-    return render_template("clips.html")
-
-
 @app.route("/game/<game_id>")
 def game_detail(game_id):
     """Renders the individual game detail/stats page."""

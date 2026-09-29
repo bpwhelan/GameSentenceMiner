@@ -78,6 +78,7 @@
 		type LineItemEditEvent,
 		LineType,
 		OnlineFont,
+		type SavedClip,
 		type TextFeedSessionSync,
 		Theme,
 	} from '../types';
@@ -129,6 +130,8 @@
 	let clipSaveEventsSub: Subscription | undefined;
 	let savingClipIds: string[] = [];
 	let savedClipIds: string[] = [];
+	let savedClips: SavedClip[] = [];
+	let clipsViewOpen = false;
 	let clipToast: { message: string; isError: boolean } | undefined;
 	let clipToastTimeout: ReturnType<typeof setTimeout> | undefined;
 	let audioElement: HTMLAudioElement | undefined;
@@ -347,14 +350,14 @@
 		void fetchGSMTextIntakePausedState();
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
 		clipSaveEventsSub = clipSaveEvents$.subscribe(handleClipSaveEvent);
-		void loadSavedClipIds();
-		window.addEventListener('focus', loadSavedClipIds);
+		void loadSavedClips();
+		window.addEventListener('focus', loadSavedClips);
 
 		return () => {
 			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
 			clipSaveEventsSub?.unsubscribe();
-			window.removeEventListener('focus', loadSavedClipIds);
+			window.removeEventListener('focus', loadSavedClips);
 			clearTimeout(clipToastTimeout);
 			if (audioElement) {
 				audioElement.pause();
@@ -722,15 +725,54 @@
 		clipToastTimeout = setTimeout(() => (clipToast = undefined), isError ? 6000 : 3000);
 	}
 
-	// Saved lines keep their replay buttons after leaving the OBS buffer; clips can be trashed on the Clips page.
-	async function loadSavedClipIds() {
+	// Clips live on disk, not in this browser's history: saved lines keep their replay buttons and are listed in the Clips view.
+	async function loadSavedClips() {
 		try {
 			const response = await fetch(getGSMEndpoint('/api/clips'));
 			const data = await response.json();
-			savedClipIds = (data.clips || []).flatMap((clip: { line_ids?: string[] }) => clip.line_ids || []);
+			savedClips = data.clips || [];
+			savedClipIds = savedClips.flatMap((clip) => clip.lines.map((line) => line.id));
 		} catch (error) {
 			console.warn('Could not load the saved clips:', error);
 		}
+	}
+
+	function toggleClipsView() {
+		clipsViewOpen = !clipsViewOpen;
+		if (clipsViewOpen) {
+			void loadSavedClips();
+		}
+	}
+
+	async function handleDeleteClip(event: CustomEvent<{ lineId: string }>) {
+		const clip = savedClips.find((item) => item.lines.some((line) => line.id === event.detail.lineId));
+		if (!clip) {
+			return;
+		}
+		try {
+			const response = await fetch(getGSMEndpoint('/api/clips/trash'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ ids: [clip.id] }),
+			});
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || data.failed?.length) {
+				throw new Error(data.failed?.[0]?.error || data.error || `HTTP error: ${response.status}`);
+			}
+			showClipToast('Clip moved to the trash');
+		} catch (error) {
+			showClipToast(`Could not delete clip: ${getErrorMessage(error)}`, true);
+		}
+		await loadSavedClips();
+	}
+
+	$: clipLines = savedClips.flatMap((clip) =>
+		clip.lines.map((line) => ({ id: line.id, text: line.text, clipTitle: clipTitle(clip) })),
+	);
+
+	function clipTitle(clip: SavedClip) {
+		const cards = clip.cards.length ? ` · ${clip.cards.length} card${clip.cards.length > 1 ? 's' : ''}` : '';
+		return `${clip.game ? `${clip.game} · ` : ''}${clip.line_time.replace('T', ' ').slice(0, 16)}${cards}`;
 	}
 
 	async function handleSaveClip(event: CustomEvent<{ lineId: string }>) {
@@ -1509,13 +1551,13 @@
 			/>
 		</div>
 	{/if}
-	<div role="button" class="mr-1 hover:text-primary sm:mr-2" title="Open Clips to mine">
-		<Icon
-			path={mdiContentSaveAll}
-			width={iconSize}
-			height={iconSize}
-			on:click={() => window.open('/clips', '_blank')}
-		/>
+	<div
+		role="button"
+		class="mr-1 hover:text-primary sm:mr-2"
+		class:text-primary={clipsViewOpen}
+		title={clipsViewOpen ? 'Back to the Text Feed' : 'Show saved clips'}
+	>
+		<Icon path={mdiContentSaveAll} width={iconSize} height={iconSize} on:click={toggleClipsView} />
 	</div>
 	<div
 		role="button"
@@ -1562,29 +1604,54 @@
 	bind:this={lineContainer}
 >
 	{@html newLineCharacter}
-	{#each $lineData$ as line, index (line.id)}
-		<Line
-			{line}
-			{index}
-			isLast={$lineData$.length - 1 === index}
-			audioLineId={activeAudioLineId}
-			audioIsPlaying={browserAudioPlaying}
-			audioPendingLineId={pendingAudioLineId}
-			bind:this={lineElements[index]}
-			on:selected={({ detail }) => {
-				selectedLineIds = [...selectedLineIds, detail];
-			}}
-			on:deselected={({ detail }) => {
-				selectedLineIds = selectedLineIds.filter((selectedLineId) => selectedLineId !== detail);
-			}}
-			on:edit={handleLineEdit}
-			on:audioToggle={handleAudioToggle}
-			on:videoTrim={handleVideoTrim}
-			on:saveClip={handleSaveClip}
-			isSavingClip={savingClipIds.includes(line.id)}
-			isClipSaved={savedClipIds.includes(line.id)}
-		/>
-	{/each}
+	{#if clipsViewOpen}
+		<p class="my-4 text-sm opacity-70 select-none">
+			{clipLines.length
+				? `Saved clips, newest first (${clipLines.length}). Each is a video file of 10–40 MB: delete the ones you no longer need.`
+				: 'No saved clips yet. Use 💾 on a line to keep a clip of it, so you can make a card from it later.'}
+		</p>
+		{#each clipLines as line, index (line.id)}
+			<div title={line.clipTitle}>
+				<Line
+					{line}
+					{index}
+					isLast={clipLines.length - 1 === index}
+					audioLineId={activeAudioLineId}
+					audioIsPlaying={browserAudioPlaying}
+					audioPendingLineId={pendingAudioLineId}
+					on:audioToggle={handleAudioToggle}
+					on:videoTrim={handleVideoTrim}
+					on:deleteClip={handleDeleteClip}
+					isClipSaved
+				/>
+			</div>
+		{/each}
+	{:else}
+		{#each $lineData$ as line, index (line.id)}
+			<Line
+				{line}
+				{index}
+				isLast={$lineData$.length - 1 === index}
+				audioLineId={activeAudioLineId}
+				audioIsPlaying={browserAudioPlaying}
+				audioPendingLineId={pendingAudioLineId}
+				bind:this={lineElements[index]}
+				on:selected={({ detail }) => {
+					selectedLineIds = [...selectedLineIds, detail];
+				}}
+				on:deselected={({ detail }) => {
+					selectedLineIds = selectedLineIds.filter((selectedLineId) => selectedLineId !== detail);
+				}}
+				on:edit={handleLineEdit}
+				on:audioToggle={handleAudioToggle}
+				on:videoTrim={handleVideoTrim}
+				on:saveClip={handleSaveClip}
+				on:deleteClip={handleDeleteClip}
+				isSavingClip={savingClipIds.includes(line.id)}
+				isClipSaved={savedClipIds.includes(line.id)}
+			/>
+		{/each}
+	{/if}
 	
 	
 </main>

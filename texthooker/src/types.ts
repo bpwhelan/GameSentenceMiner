@@ -175,6 +175,15 @@ export interface TextFeedSessionSync {
 	requestedIds: string[];
 }
 
+/** A clip saved for later, as listed by GSM's /api/clips. */
+export interface SavedClip {
+	id: string;
+	game: string;
+	line_time: string;
+	cards: { note_id: number; word: string }[];
+	lines: { id: string; text: string }[];
+}
+
 export interface LineItemEditEvent {
 	inEdit: boolean;
 	data?: LineItemEditData;

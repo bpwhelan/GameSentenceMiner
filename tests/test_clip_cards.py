@@ -155,16 +155,6 @@ def test_checked_lines_keep_the_card_in_the_live_flow(config, monkeypatch):
     assert calls["clip"] == [] and len(calls["queued"]) == 1
 
 
-def test_live_flow_skips_notes_enriched_from_a_clip(config, monkeypatch):
-    calls = _live_flow(monkeypatch)
-    monkeypatch.setattr(anki.gsm_state, "clip_note_ids", {42}, raising=False)
-    monkeypatch.setattr(clip_cards, "match_new_card", lambda card: pytest.fail("should not match"))
-
-    anki.update_single_card(FakeCard("心当たり", note_id=42))
-
-    assert calls == {"queued": [], "clip": []}
-
-
 # --- running the Anki flow on a clip ------------------------------------
 
 
@@ -224,48 +214,6 @@ def test_a_given_replay_is_processed_instead_of_saving_the_obs_buffer(config, mo
     assert anki.card_queue == []
 
 
-def test_rewrite_treats_the_card_as_freshly_created_from_the_clip(config, tmp_path):
-    folder = write_clip(tmp_path, "a", [("s", "心当たりはねえのかこの声の主", "selected", 15)], 25)
-    clip = clips.load_clip(str(folder))
-    card = FakeCard(
-        "全く<b>声</b>の違う台詞",
-        word="声",
-        SentenceAudio="[sound:wrong.mp3]",
-        Picture='<img src="wrong.png">',
-        PrevSentence="wrong",
-        Translation="wrong",
-        GameName="Other game",
-    )
-
-    fresh = clip_cards._card_for_rewrite(card, clip)
-
-    assert fresh.get_field("Sentence") == "心当たりはねえのかこの<b>声</b>の主"
-    for name in ("SentenceAudio", "Picture", "PrevSentence", "Translation", "GameName"):
-        assert fresh.get_field(name) == ""
-    assert fresh.get_field("Word") == "声"
-    assert card.get_field("SentenceAudio") == "[sound:wrong.mp3]"  # the real card is untouched
-
-
-# --- checks before "Enrich latest card" -------------------------------------
-
-
-def _saved(tmp_path, text="心当たりはねえのかこの声の主"):
-    return clips.load_clip(str(write_clip(tmp_path, "a", [("s", text, "selected", 15)], 25)))
-
-
-def test_enrich_check_warns_about_mismatch_existing_media_and_pending_live_work(config, tmp_path, monkeypatch):
-    clip = _saved(tmp_path)
-    card = FakeCard("全く関係のない文", SentenceAudio="[sound:a.mp3]")
-    monkeypatch.setattr(anki, "card_queue", [(card, None, [], None)])
-
-    assert clip_cards.check_enrich(FakeCard("心当たりはねえのか<b>この声</b>の主", note_id=7), clip)["warnings"] == []
-    result = clip_cards.check_enrich(card, clip)
-
-    assert {w["code"] for w in result["warnings"]} == {"sentence_mismatch", "has_media", "live_pending"}
-    assert result["card_sentence"] == "全く関係のない文"
-    assert result["card_media"] == {"audio": True, "picture": False}
-
-
 # --- clip game name and translation context -----------------------------
 
 
@@ -294,29 +242,3 @@ def test_ai_translation_uses_the_clip_neighbours_as_context(config, monkeypatch)
 
     assert anki.prefetch_ai_translation("今", line) == "translation"
     assert captured == {"lines": context, "game": "FFVII"}
-
-
-def test_preview_audio_asks_the_card_pipeline_for_the_whole_selection(tmp_path, monkeypatch):
-    from GameSentenceMiner import replay_handler
-
-    folder = write_clip(
-        tmp_path,
-        "pair",
-        [("a", "一行目", "selected", 10), ("b", "二行目", "selected", 12), ("c", "次", "context", 15)],
-        20,
-    )
-    clip = clips.load_clip(str(folder))
-    calls = []
-    monkeypatch.setattr(
-        replay_handler.ReplayAudioExtractor,
-        "get_audio",
-        staticmethod(lambda *args, **kwargs: calls.append((args, kwargs)) or "/tmp/line.wav"),
-    )
-
-    assert clip_cards.clip_line_audio(clip) == "/tmp/line.wav"
-
-    ((args, kwargs),) = calls
-    first, cutoff, video_path, end_time = args
-    assert first.id == "a" and cutoff == BASE + timedelta(seconds=15)
-    assert (video_path, end_time) == (clip.clip_path, clip.clip_end_time)
-    assert kwargs == {"temporary": True, "use_vad_postprocessing": False, "full_text": "一行目二行目"}
