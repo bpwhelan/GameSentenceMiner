@@ -1573,7 +1573,7 @@
 		role="button"
 		class="mr-1 hover:text-primary sm:mr-2"
 		class:text-primary={clipsViewOpen}
-		title={clipsViewOpen ? 'Back to the Text Feed' : 'Show saved clips'}
+		title={clipsViewOpen ? 'Back to TextFeed' : 'Show Saved Clips'}
 	>
 		<Icon path={mdiContentSaveAll} width={iconSize} height={iconSize} on:click={toggleClipsView} />
 	</div>
