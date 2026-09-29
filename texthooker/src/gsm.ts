@@ -1,5 +1,4 @@
 import type { SavedClip } from './types';
-import { formatMegabytes } from './util';
 
 export function getGSMEndpoint(endpoint: string) {
 	if (window.location.port === '4173' || window.location.port === '5174') {
@@ -23,6 +22,11 @@ export async function trashSavedClips(clips: SavedClip[]) {
 	if (!response.ok || data.failed?.length) {
 		throw new Error(data.failed?.[0]?.error || data.error || `HTTP error: ${response.status}`);
 	}
+}
+
+export function formatMegabytes(bytes: number) {
+	const megabytes = bytes / 1024 / 1024;
+	return `${megabytes.toFixed(megabytes < 10 ? 1 : 0)} MB`;
 }
 
 export function describeSavedClips(clips: SavedClip[], noun = 'saved clip') {

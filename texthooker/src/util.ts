@@ -35,11 +35,6 @@ export function getErrorMessage(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export function formatMegabytes(bytes: number) {
-	const megabytes = bytes / 1024 / 1024;
-	return `${megabytes.toFixed(megabytes < 10 ? 1 : 0)} MB`;
-}
-
 // Within `threshold` px of the newest line, across all four layout modes.
 export function isScrolledToEnd(
 	window: Window,

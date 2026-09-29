@@ -36,7 +36,6 @@
 	import type { LineItem, LineItemEditEvent } from '../types';
 	import {
 		dummyFn,
-		formatMegabytes,
 		getAutoScrollStick,
 		isScrolledToEnd,
 		newLineCharacter,
@@ -45,7 +44,7 @@
 	} from '../util';
 	import Icon from './Icon.svelte';
 	import AIHelp from './AIHelp.svelte';
-	import { getGSMEndpoint } from '../gsm';
+	import { formatMegabytes, getGSMEndpoint } from '../gsm';
 
 	export let line: LineItem;
 	export let index: number;
