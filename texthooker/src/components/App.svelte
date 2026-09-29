@@ -726,7 +726,8 @@
 		$openDialog$ = { type: 'error', message, showCancel: false };
 	}
 
-	// Clips live on disk, not in this browser's history: saved lines keep their replay buttons and are listed in the Clips view.
+	// Clips live on disk, not in this browser's history: saved lines keep their replay buttons
+	// and are listed in the Clips view.
 	async function loadSavedClips() {
 		try {
 			savedClips = await fetchSavedClips();

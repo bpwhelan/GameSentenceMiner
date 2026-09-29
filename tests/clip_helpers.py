@@ -1,4 +1,4 @@
-"""Shared builders for the Clips to mine tests."""
+"""Shared builders for the saved clip tests."""
 
 import json
 from datetime import datetime, timedelta

@@ -160,7 +160,8 @@
 		// GSM may not be running; the rest of the reset doesn't need it.
 		const clips = await fetchSavedClips().catch(() => []);
 		const removedLines = $lineData$;
-		if (!(await resetAllData(clips.length ? `, and ${describeSavedClips(clips)} will be moved to the trash` : ''))) {
+		const clipsNote = clips.length ? `, and ${describeSavedClips(clips)} will be moved to the trash` : '';
+		if (!(await resetAllData(clipsNote))) {
 			return;
 		}
 		if (removedLines.length) {

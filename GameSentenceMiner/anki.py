@@ -3743,18 +3743,19 @@ def queue_card_for_processing(
     if replay_path:
         from GameSentenceMiner import replay_handler
 
-        replay_handler.process_replay_file(replay_path, card_queue_item)
+        enqueue = lambda item: replay_handler.process_replay_file(replay_path, item)  # noqa: E731
     else:
-        try:
-            card_queue.append(card_queue_item)
-        except Exception as error:
-            if translation_future is not None:
-                translation_future.cancel()
-            reason = f"Anki media queue is backpressured for note {last_card.noteId}: {error}"
-            logger.error(reason)
-            _mark_anki_update_failure(last_mined_line.id if last_mined_line else None, reason, current_word)
-            _notify_anki_enhancement_failure(reason)
-            return
+        enqueue = card_queue.append
+    try:
+        enqueue(card_queue_item)
+    except Exception as error:
+        if translation_future is not None:
+            translation_future.cancel()
+        reason = f"Anki media queue is backpressured for note {last_card.noteId}: {error}"
+        logger.error(reason)
+        _mark_anki_update_failure(last_mined_line.id if last_mined_line else None, reason, current_word)
+        _notify_anki_enhancement_failure(reason)
+        return
     reuse_key = _build_sentence_audio_key(last_mined_line, lines)
     previous_entry = sentence_audio_cache.get(reuse_key) if reuse_key else None
     _set_sentence_audio_cache_entry(reuse_key, last_mined_line.id, current_word)

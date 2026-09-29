@@ -30,41 +30,37 @@ class LineOutsideReplayError(RuntimeError):
 
 @dataclass
 class ClipWindow:
-    lines: list[GameLine]
     start_time: datetime
     end_time: datetime
     previous_line: GameLine | None = None
     next_line: GameLine | None = None
 
 
-def plan_clip_window(lines: list[GameLine]) -> ClipWindow:
-    """Pick the wall-clock span to keep: the lines plus enough context for later editing."""
-    lines = sorted(lines, key=lambda line: line.time)
-    first, last = lines[0], lines[-1]
-
-    previous_line = first.prev
-    if previous_line and (first.time - previous_line.time).total_seconds() > PREVIOUS_LINE_MAX_GAP_SECONDS:
+def plan_clip_window(line: GameLine) -> ClipWindow:
+    """Pick the wall-clock span to keep: the line plus enough context for later editing."""
+    previous_line = line.prev
+    if previous_line and (line.time - previous_line.time).total_seconds() > PREVIOUS_LINE_MAX_GAP_SECONDS:
         previous_line = None
-    context_start = previous_line.time if previous_line else first.time
-    lead = LEAD_SECONDS + float(first.source_padding or 0)
+    context_start = previous_line.time if previous_line else line.time
+    lead = LEAD_SECONDS + float(line.source_padding or 0)
     start_time = context_start - timedelta(seconds=lead)
 
-    next_line = last.next
+    next_line = line.next
     if next_line:
         end_time = next_line.time + timedelta(seconds=NEXT_LINE_CONTEXT_SECONDS)
         if next_line.next:
             end_time = min(end_time, next_line.next.time + timedelta(seconds=TRAIL_SECONDS))
     else:
         # Nothing follows yet, so leave room for the voice line to finish.
-        end_time = last.time + timedelta(seconds=NEWEST_LINE_WINDOW_SECONDS)
+        end_time = line.time + timedelta(seconds=NEWEST_LINE_WINDOW_SECONDS)
 
-    return ClipWindow(lines, start_time, end_time, previous_line, next_line)
+    return ClipWindow(start_time, end_time, previous_line, next_line)
 
 
-def seconds_until_clip_ready(lines: list[GameLine], now: datetime | None = None) -> float:
+def seconds_until_clip_ready(line: GameLine, now: datetime | None = None) -> float:
     """How long to wait before saving the replay so it covers the planned window."""
     now = now or datetime.now()
-    remaining = (plan_clip_window(lines).end_time - now).total_seconds()
+    remaining = (plan_clip_window(line).end_time - now).total_seconds()
     return min(max(0.0, remaining), MAX_WAIT_SECONDS)
 
 
@@ -96,29 +92,28 @@ def _folder_prefix(line: GameLine) -> tuple[str, str]:
     return moment.strftime("%Y-%m-%d"), f"{moment.strftime('%H-%M-%S')}-{moment.microsecond // 1000:03d}_"
 
 
-def find_clip_folder(clips_root: str, lines: list[GameLine]) -> str | None:
-    """Return the folder these exact lines were already saved to, if any."""
-    lines = sorted(lines, key=lambda line: line.time)
-    day, prefix = _folder_prefix(lines[0])
+def find_clip_folder(clips_root: str, line: GameLine) -> str | None:
+    """Return the folder this line was already saved to, if any."""
+    day, prefix = _folder_prefix(line)
     day_folder = os.path.join(clips_root, day)
     if not os.path.isdir(day_folder):
         return None
-    line_ids = [line.id for line in lines]
     for name in sorted(os.listdir(day_folder)):
         if not name.startswith(prefix):
             continue
         folder = os.path.join(day_folder, name)
         try:
-            if _selected_ids(read_manifest(folder)) == line_ids:
+            entries = read_manifest(folder)["lines"]
+            if [entry["id"] for entry in entries if entry.get("role") == "selected"] == [line.id]:
                 return folder
         except (OSError, ValueError, KeyError):
             continue
     return None
 
 
-def _make_folder(clips_root: str, first_line: GameLine, full_text: str) -> str:
-    name = sanitize_filename(full_text.strip())[:32].strip() or "line"
-    day, prefix = _folder_prefix(first_line)
+def _make_folder(clips_root: str, line: GameLine) -> str:
+    name = sanitize_filename((line.text or "").strip())[:32].strip() or "line"
+    day, prefix = _folder_prefix(line)
     folder = os.path.join(clips_root, day, f"{prefix}{name}")
     suffix = 2
     candidate = folder
@@ -129,29 +124,27 @@ def _make_folder(clips_root: str, first_line: GameLine, full_text: str) -> str:
     return candidate
 
 
-def save_clip(video_path: str, lines: list[GameLine], clips_root: str) -> str:
-    """Copy the replay span around lines into a folder under clips_root (reused if already saved)."""
-    existing = find_clip_folder(clips_root, lines)
+def save_clip(video_path: str, line: GameLine, clips_root: str) -> str:
+    """Copy the replay span around the line into a folder under clips_root (reused if already saved)."""
+    existing = find_clip_folder(clips_root, line)
     if existing:
-        logger.info(f"Line(s) already saved for later: {existing}")
+        logger.info(f"Line already saved for later: {existing}")
         return existing
 
-    window = plan_clip_window(lines)
-    lines = window.lines
+    window = plan_clip_window(line)
     replay_end_time = get_file_modification_time(video_path)
     replay_length = ffmpeg.get_video_duration(video_path)
 
     def offset(moment: datetime) -> float:
         return replay_length - (replay_end_time - moment).total_seconds()
 
-    if offset(lines[0].time) < 0:
+    if offset(line.time) < 0:
         raise LineOutsideReplayError("The line is older than the replay buffer, so its clip can no longer be saved.")
 
     requested_start = max(0.0, offset(window.start_time))
-    end = min(replay_length, max(offset(window.end_time), offset(lines[-1].time)))
+    end = min(replay_length, max(offset(window.end_time), offset(line.time)))
 
-    full_text = "".join(line.text for line in lines if line.text)
-    folder = _make_folder(clips_root, lines[0], full_text)
+    folder = _make_folder(clips_root, line)
     clip_name = "clip" + (os.path.splitext(video_path)[1] or ".mkv")
     clip_path = os.path.join(folder, clip_name)
     clip_start = ffmpeg.copy_replay_segment(video_path, requested_start, end, clip_path)
@@ -165,7 +158,7 @@ def save_clip(video_path: str, lines: list[GameLine], clips_root: str) -> str:
     entries = []
     if window.previous_line:
         entries.append(_line_entry(window.previous_line, "previous"))
-    entries.extend(_line_entry(line, "selected") for line in lines)
+    entries.append(_line_entry(line, "selected"))
     if window.next_line and offset(window.next_line.time) <= clip_start + clip_length:
         entries.append(_line_entry(window.next_line, "next"))
 
@@ -179,12 +172,8 @@ def save_clip(video_path: str, lines: list[GameLine], clips_root: str) -> str:
     }
     _write_manifest(folder, manifest)
 
-    logger.info(f"Saved {len(lines)} line(s) for later: {folder}")
+    logger.info(f"Saved the line for later: {folder}")
     return folder
-
-
-def _selected_ids(manifest: dict) -> list[str]:
-    return [entry["id"] for entry in manifest["lines"] if entry.get("role") == "selected"]
 
 
 def read_manifest(folder: str) -> dict:

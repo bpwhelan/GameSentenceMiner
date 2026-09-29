@@ -11,29 +11,18 @@ from GameSentenceMiner.util.text_log import GameLine
 from tests.clip_helpers import BASE, write_clip
 
 
-def _config(output_folder="/out"):
+def _config():
     return SimpleNamespace(
         anki=SimpleNamespace(
             sentence_field="Sentence",
             word_field="Word",
-            sentence_audio_field="SentenceAudio",
-            picture_field="Picture",
-            previous_image_field="PrevImage",
-            video_field="",
-            previous_sentence_field="PrevSentence",
-            sentence_furigana_field="SentenceFurigana",
-            game_name_field="GameName",
             add_game_tag=True,
             parent_tag="",
             custom_tags=[],
             tags_to_check=[],
-            reuse_audio_for_same_selected_lines_different_mined_line=True,
-            reuse_screenshot_for_same_selected_lines_different_mined_line=False,
         ),
-        ai=SimpleNamespace(anki_field="Translation", provider="gemini", add_to_anki=False),
-        paths=SimpleNamespace(output_folder=output_folder),
+        ai=SimpleNamespace(add_to_anki=False),
         obs=SimpleNamespace(get_game_from_scene=False),
-        screenshot=SimpleNamespace(animated=False),
     )
 
 
@@ -204,10 +193,10 @@ def test_a_given_replay_is_processed_instead_of_saving_the_obs_buffer(config, mo
     assert anki.card_queue == []
 
 
-# --- clip game name and translation context -----------------------------
+# --- saved line game name and translation context -----------------------------
 
 
-def test_tags_and_game_field_use_the_clip_game(config, monkeypatch):
+def test_tags_and_game_field_use_the_saved_line_scene(config, monkeypatch):
     monkeypatch.setattr(anki, "get_current_game", lambda *a, **k: "Live game")
     clip_line = SimpleNamespace(clip=object(), scene="FFVII Rebirth")
 

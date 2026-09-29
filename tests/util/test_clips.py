@@ -40,7 +40,7 @@ def _seconds(delta_time):
 def test_window_includes_close_previous_line_and_next_line_context():
     prev, line, nxt = _chain(("p", "前", 10), ("l", "今", 20), ("n", "次", 25))
 
-    window = clips.plan_clip_window([line])
+    window = clips.plan_clip_window(line)
 
     assert window.previous_line is prev
     assert window.next_line is nxt
@@ -51,7 +51,7 @@ def test_window_includes_close_previous_line_and_next_line_context():
 def test_window_skips_previous_line_that_is_too_far_back():
     _, line = _chain(("p", "前", 0), ("l", "今", 20 + clips.PREVIOUS_LINE_MAX_GAP_SECONDS))
 
-    window = clips.plan_clip_window([line])
+    window = clips.plan_clip_window(line)
 
     assert window.previous_line is None
     assert window.start_time == line.time - timedelta(seconds=clips.LEAD_SECONDS)
@@ -60,7 +60,7 @@ def test_window_skips_previous_line_that_is_too_far_back():
 def test_window_end_stops_shortly_after_the_line_following_next():
     _, nxt, after = _chain(("l", "今", 20), ("n", "次", 22), ("a", "後", 24))
 
-    window = clips.plan_clip_window([nxt.prev])
+    window = clips.plan_clip_window(nxt.prev)
 
     assert window.end_time == after.time + timedelta(seconds=clips.TRAIL_SECONDS)
 
@@ -68,34 +68,26 @@ def test_window_end_stops_shortly_after_the_line_following_next():
 def test_window_for_newest_line_leaves_room_for_the_voice():
     (line,) = _chain(("l", "今", 20))
 
-    window = clips.plan_clip_window([line])
+    window = clips.plan_clip_window(line)
 
     assert window.next_line is None
     assert window.end_time == line.time + timedelta(seconds=clips.NEWEST_LINE_WINDOW_SECONDS)
 
 
-def test_window_adds_source_padding_before_the_first_line():
+def test_window_adds_source_padding_before_the_line():
     (line,) = _chain(("l", "今", 20))
     line.source_padding = 2.5
 
-    window = clips.plan_clip_window([line])
+    window = clips.plan_clip_window(line)
 
     assert window.start_time == line.time - timedelta(seconds=clips.LEAD_SECONDS + 2.5)
-
-
-def test_window_orders_lines_chronologically():
-    first, _, last = _chain(("a", "一", 10), ("b", "二", 30), ("c", "三", 50))
-
-    window = clips.plan_clip_window([last, first])
-
-    assert window.lines == [first, last]
 
 
 def test_wait_is_needed_until_the_planned_end_is_recorded():
     (line,) = _chain(("l", "今", 20))
     now = line.time + timedelta(seconds=3)
 
-    wait = clips.seconds_until_clip_ready([line], now=now)
+    wait = clips.seconds_until_clip_ready(line, now=now)
 
     assert wait == pytest.approx(clips.NEWEST_LINE_WINDOW_SECONDS - 3)
 
@@ -103,8 +95,8 @@ def test_wait_is_needed_until_the_planned_end_is_recorded():
 def test_no_wait_for_old_lines_and_wait_is_capped():
     (line,) = _chain(("l", "今", 20))
 
-    assert clips.seconds_until_clip_ready([line], now=line.time + timedelta(minutes=1)) == 0
-    assert clips.seconds_until_clip_ready([line], now=line.time - timedelta(minutes=5)) == pytest.approx(
+    assert clips.seconds_until_clip_ready(line, now=line.time + timedelta(minutes=1)) == 0
+    assert clips.seconds_until_clip_ready(line, now=line.time - timedelta(minutes=5)) == pytest.approx(
         clips.MAX_WAIT_SECONDS
     )
 
@@ -172,7 +164,7 @@ def test_clip_is_shaped_like_an_obs_replay(tmp_path, monkeypatch):
         clips, "pause_history", SimpleNamespace(get_pauses_between=lambda *window: windows.append(window) or [(1, 2)])
     )
 
-    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
+    folder = clips.save_clip(str(replay), line, str(tmp_path / "Saved"))
 
     manifest = clips.read_manifest(folder)
     assert [(entry["id"], entry["role"]) for entry in manifest["lines"]] == [
@@ -209,7 +201,7 @@ def test_line_older_than_the_replay_is_refused(tmp_path):
     (line,) = _chain(("l", "古い", 0))
 
     with pytest.raises(clips.LineOutsideReplayError):
-        clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
+        clips.save_clip(str(replay), line, str(tmp_path / "Saved"))
 
     assert not (tmp_path / "Saved").exists()
 
@@ -222,10 +214,10 @@ def test_saving_the_same_line_again_reuses_its_folder(tmp_path):
     line.first_seen_time = line.time - timedelta(milliseconds=250)
     _end_replay_at(replay, BASE + timedelta(seconds=length))
 
-    first = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
+    first = clips.save_clip(str(replay), line, str(tmp_path / "Saved"))
     line.text = "今（改訂）"
     line.time += timedelta(seconds=1)  # a later revision moves `time`, not `first_seen_time`
-    second = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
+    second = clips.save_clip(str(replay), line, str(tmp_path / "Saved"))
 
     assert second == first
     assert os.path.basename(first).startswith("12-00-15-750_")

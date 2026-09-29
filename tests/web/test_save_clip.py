@@ -23,14 +23,14 @@ def _capture_events(monkeypatch):
 
 
 def test_replay_is_routed_to_the_oldest_pending_save(monkeypatch, tmp_path):
-    first, second = [_line("a", 0)], [_line("b", 5)]
+    first, second = _line("a", 0), _line("b", 5)
     monkeypatch.setattr(service.gsm_state, "pending_clip_saves", [first, second], raising=False)
     monkeypatch.setattr(service.gsm_state, "videos_to_remove", set(), raising=False)
     monkeypatch.setattr(clips, "get_clips_root", lambda: str(tmp_path))
     calls = []
 
-    def fake_save(video_path, lines, clips_root):
-        calls.append((video_path, lines, clips_root))
+    def fake_save(video_path, line, clips_root):
+        calls.append((video_path, line, clips_root))
         return str(tmp_path / "folder")
 
     monkeypatch.setattr(clips, "save_clip", fake_save)
@@ -52,15 +52,15 @@ def test_save_clip_queues_the_line(monkeypatch):
     queued = []
     monkeypatch.setattr(texthooking_page, "get_config", lambda: _config("/out"))
     monkeypatch.setattr(texthooking_page, "get_event_line_by_id", {"a": line}.get)
-    monkeypatch.setattr(clips, "find_clip_folder", lambda root, lines: None)
-    monkeypatch.setattr(clips, "seconds_until_clip_ready", lambda selected: 3.0)
+    monkeypatch.setattr(clips, "find_clip_folder", lambda root, line: None)
+    monkeypatch.setattr(clips, "seconds_until_clip_ready", lambda line: 3.0)
     monkeypatch.setattr(texthooking_page, "_queue_clip_save", lambda selected, wait: queued.append((selected, wait)))
 
     response = texthooking_page.app.test_client().post("/save-clip", json={"id": "a"})
 
     assert response.status_code == 200
     assert response.get_json() == {"queued": True, "line_ids": ["a"], "wait_seconds": 3.0}
-    assert queued == [([line], 3.0)]
+    assert queued == [(line, 3.0)]
 
 
 def test_a_saved_line_is_not_queued_again(monkeypatch):
@@ -69,7 +69,7 @@ def test_a_saved_line_is_not_queued_again(monkeypatch):
     monkeypatch.setattr(texthooking_page, "get_config", lambda: _config("/out"))
     monkeypatch.setattr(texthooking_page, "get_event_line_by_id", {"a": line}.get)
     monkeypatch.setattr(clips, "get_clips_root", lambda: "/out/Clips")
-    monkeypatch.setattr(clips, "find_clip_folder", lambda root, lines: "/out/Clips/day/folder")
+    monkeypatch.setattr(clips, "find_clip_folder", lambda root, line: "/out/Clips/day/folder")
     monkeypatch.setattr(texthooking_page, "_queue_clip_save", lambda selected, wait: queued.append(selected))
 
     response = texthooking_page.app.test_client().post("/save-clip", json={"id": "a"})
@@ -92,13 +92,13 @@ def test_text_feed_actions_run_on_the_saved_clip_once_the_line_left_the_buffer(m
     monkeypatch.setattr(texthooking_page.obs, "save_replay_buffer", lambda: saved.append(True))
     monkeypatch.setattr(clip_cards, "replay_for_lines", lambda lines: "clip-copy.mkv" if lines[0].id == "a" else None)
 
-    texthooking_page._run_on_replay([_line("a", 0)], reuse_previous=False)
-    texthooking_page._run_on_replay([_line("b", 0)], reuse_previous=False)
+    texthooking_page._save_replay_for([_line("a", 0)])
+    texthooking_page._save_replay_for([_line("b", 0)])
 
     assert (handled, saved) == (["clip-copy.mkv"], [True])
 
 
-def test_saved_lines_are_found_after_a_restart(monkeypatch):
+def test_saved_clip_lines_are_found_after_a_restart(monkeypatch):
     saved = _line("a", 0)
     monkeypatch.setattr(texthooking_page, "get_line_by_id", lambda line_id: None)
     monkeypatch.setattr(clips, "find_saved_line", {"a": saved}.get)

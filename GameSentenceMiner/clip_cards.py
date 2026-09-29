@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from GameSentenceMiner import anki
 from GameSentenceMiner.util.config.configuration import get_config, gsm_state, logger
 from GameSentenceMiner.util.gsm_utils import make_unique_temp_file, remove_html_and_cloze_tags
-from GameSentenceMiner.util.clips import Clip
 from GameSentenceMiner.util import clips
 from GameSentenceMiner.util.media import pause_history
 from GameSentenceMiner.util.text_log import find_matching_line, get_all_lines, lines_match
@@ -38,7 +37,7 @@ def match_new_card(card):
         return None
 
 
-def replay_copy(clip: Clip) -> str:
+def replay_copy(clip: clips.Clip) -> str:
     """A link (or copy) of the clip that the replay flows can use, then delete, like an OBS replay."""
     pause_history.remember_pauses(clip.manifest.get("pauses", []))
     path = make_unique_temp_file(clip.clip_path)
@@ -69,7 +68,7 @@ def queue_clip_card(card, line, **queue_kwargs):
     logger.info(f"Making a card from clip {clip.folder}")
     anki.queue_card_for_processing(
         card,
-        clip.selected if len(clip.selected) > 1 else [],
+        [],
         line,
         replay_path=replay_copy(clip),
         created_at=clip.clip_end_time,

@@ -1003,15 +1003,17 @@ def get_screenshot():
     if not line:
         return jsonify({"error": "Invalid id"}), 400
     gsm_state.line_for_screenshot = line
-    _run_on_replay(
-        [line],
-        reuse_previous=(
-            gsm_state.previous_line_for_screenshot
-            and gsm_state.line_for_screenshot == gsm_state.previous_line_for_screenshot
-            or gsm_state.previous_line_for_audio
-            and gsm_state.line_for_screenshot == gsm_state.previous_line_for_audio
-        ),
-    )
+    if (
+        gsm_state.previous_line_for_screenshot
+        and gsm_state.line_for_screenshot == gsm_state.previous_line_for_screenshot
+        or gsm_state.previous_line_for_audio
+        and gsm_state.line_for_screenshot == gsm_state.previous_line_for_audio
+    ):
+        from GameSentenceMiner.web.service import handle_texthooker_button
+
+        handle_texthooker_button(gsm_state.previous_replay)
+    else:
+        _save_replay_for([line])
     return jsonify({}), 200
 
 
@@ -1068,15 +1070,15 @@ def play_audio():
         handle_texthooker_button(gsm_state.previous_replay or "")
         return jsonify({"queued": False, "line_id": event_id, "from_cache": True}), 200
 
-    _run_on_replay(
-        [line],
-        reuse_previous=(
-            gsm_state.previous_line_for_audio
-            and gsm_state.line_for_audio == gsm_state.previous_line_for_audio
-            or gsm_state.previous_line_for_screenshot
-            and gsm_state.line_for_audio == gsm_state.previous_line_for_screenshot
-        ),
-    )
+    if (
+        gsm_state.previous_line_for_audio
+        and gsm_state.line_for_audio == gsm_state.previous_line_for_audio
+        or gsm_state.previous_line_for_screenshot
+        and gsm_state.line_for_audio == gsm_state.previous_line_for_screenshot
+    ):
+        handle_texthooker_button(gsm_state.previous_replay)
+    else:
+        _save_replay_for([line])
     return jsonify({"queued": True, "line_id": event_id}), 200
 
 
@@ -1101,28 +1103,29 @@ def trim_video():
         "show_in_explorer": show_in_explorer,
     }
 
-    _run_on_replay(
-        [line],
-        reuse_previous=(
-            gsm_state.previous_line_for_video_trim
-            and gsm_state.line_for_video_trim == gsm_state.previous_line_for_video_trim
-            or gsm_state.previous_line_for_audio
-            and gsm_state.line_for_video_trim == gsm_state.previous_line_for_audio
-            or gsm_state.previous_line_for_screenshot
-            and gsm_state.line_for_video_trim == gsm_state.previous_line_for_screenshot
-        ),
-    )
+    from GameSentenceMiner.web.service import handle_texthooker_button
+
+    if (
+        gsm_state.previous_line_for_video_trim
+        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_video_trim
+        or gsm_state.previous_line_for_audio
+        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_audio
+        or gsm_state.previous_line_for_screenshot
+        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_screenshot
+    ):
+        handle_texthooker_button(gsm_state.previous_replay)
+    else:
+        _save_replay_for([line])
+
     return jsonify({"queued": True, "line_id": event_id}), 200
 
 
-def _run_on_replay(lines, reuse_previous):
-    """Run the queued Text Feed action on the previous replay, a saved clip once lines left the buffer, or a new replay."""
+def _save_replay_for(lines):
+    """Run the queued Text Feed action on a saved clip once lines left the buffer, else save an OBS replay."""
     from GameSentenceMiner import clip_cards
     from GameSentenceMiner.web.service import handle_texthooker_button
 
-    if reuse_previous:
-        handle_texthooker_button(gsm_state.previous_replay)
-    elif clip_replay := clip_cards.replay_for_lines(lines):
+    if clip_replay := clip_cards.replay_for_lines(lines):
         handle_texthooker_button(clip_replay)
     else:
         obs.save_replay_buffer()
@@ -1176,36 +1179,39 @@ def create_media():
         "open_folder": True,
     }
 
+    from GameSentenceMiner.web.service import handle_texthooker_button
+
+    primary_line = lines[0]
     previous_lines = gsm_state.previous_lines_for_media_creation or []
-    _run_on_replay(
-        lines,
-        reuse_previous=(
-            gsm_state.previous_replay
-            and previous_lines
-            and previous_lines[0] is lines[0]
-            and len(previous_lines) == len(lines)
-        ),
+    reuse_replay = (
+        gsm_state.previous_replay
+        and previous_lines
+        and previous_lines[0] is primary_line
+        and len(previous_lines) == len(lines)
     )
+    if reuse_replay:
+        handle_texthooker_button(gsm_state.previous_replay)
+    else:
+        _save_replay_for(lines)
+
     return jsonify({"queued": True, "count": len(lines)}), 200
 
 
-def _queue_clip_save(lines, wait_seconds):
-    """Save an OBS replay once it covers the lines; the replay handler writes the clip."""
+def _queue_clip_save(line, wait_seconds):
+    """Save an OBS replay once it covers the line; the replay handler writes the clip."""
 
     def run():
-        gsm_state.pending_clip_saves.append(lines)
+        gsm_state.pending_clip_saves.append(line)
         try:
             obs.save_replay_buffer()
         except Exception as e:
             logger.exception(f"Failed to save OBS replay for Save clip for later: {e}")
-            if lines in gsm_state.pending_clip_saves:
-                gsm_state.pending_clip_saves.remove(lines)
+            if line in gsm_state.pending_clip_saves:
+                gsm_state.pending_clip_saves.remove(line)
             from GameSentenceMiner.web.service import _send_texthooker_audio_event
 
             _send_texthooker_audio_event(
-                "clip_save_failed",
-                line_ids=[line.id for line in lines],
-                error=f"Could not save the OBS replay: {e}",
+                "clip_save_failed", line_ids=[line.id], error=f"Could not save the OBS replay: {e}"
             )
 
     timer = threading.Timer(wait_seconds, run)
@@ -1227,16 +1233,14 @@ def save_clip():
     line = get_event_line_by_id(event_id)
     if line is None:
         return jsonify({"error": "Invalid id"}), 400
-    lines = [line]
-    line_ids = [line.id]
 
-    existing = clips.find_clip_folder(clips.get_clips_root(), lines)
+    existing = clips.find_clip_folder(clips.get_clips_root(), line)
     if existing:
-        return jsonify({"queued": False, "already_saved": True, "line_ids": line_ids, "folder": existing}), 200
+        return jsonify({"queued": False, "already_saved": True, "line_ids": [line.id], "folder": existing}), 200
 
-    wait_seconds = clips.seconds_until_clip_ready(lines)
-    _queue_clip_save(lines, wait_seconds)
-    return jsonify({"queued": True, "line_ids": line_ids, "wait_seconds": wait_seconds}), 200
+    wait_seconds = clips.seconds_until_clip_ready(line)
+    _queue_clip_save(line, wait_seconds)
+    return jsonify({"queued": True, "line_ids": [line.id], "wait_seconds": wait_seconds}), 200
 
 
 @app.route("/texthooker/audio/<token>", methods=["GET"])

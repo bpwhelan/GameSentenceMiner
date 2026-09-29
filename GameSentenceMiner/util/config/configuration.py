@@ -2779,7 +2779,7 @@ class GsmAppState:
         self.lines_for_media_creation = None
         self.previous_lines_for_media_creation = None
         self.media_creation_request = {}
-        # Save clip for later: queued line groups, one per saved OBS replay.
+        # Save clip for later: queued lines, one per saved OBS replay.
         self.pending_clip_saves = []
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
         self.disable_anki_confirmation_session = False
