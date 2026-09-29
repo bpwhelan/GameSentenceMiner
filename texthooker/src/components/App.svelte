@@ -790,14 +790,7 @@
 	}
 
 	$: clipSizes = new Map(savedClips.flatMap((clip) => clip.lines.map((line) => [line.id, clip.size_bytes])));
-	$: clipLines = savedClips.flatMap((clip) =>
-		clip.lines.map((line) => ({ id: line.id, text: line.text, clipTitle: clipTitle(clip) })),
-	);
-
-	function clipTitle(clip: SavedClip) {
-		const cards = clip.cards.length ? ` · ${clip.cards.length} card${clip.cards.length > 1 ? 's' : ''}` : '';
-		return `${clip.game ? `${clip.game} · ` : ''}${clip.line_time.replace('T', ' ').slice(0, 16)}${cards}`;
-	}
+	$: clipLines = savedClips.flatMap((clip) => clip.lines);
 
 	async function handleSaveClip(event: CustomEvent<{ lineId: string }>) {
 		const { lineId } = event.detail;
@@ -1630,28 +1623,22 @@
 >
 	{@html newLineCharacter}
 	{#if clipsViewOpen}
-		<p class="my-4 text-sm opacity-70 select-none">
-			{clipLines.length
-				? `Saved clips, newest first (${clipLines.length}). Each is a video file of 10–40 MB: delete the ones you no longer need.`
-				: 'No saved clips yet. Use 💾 on a line to keep a clip of it, so you can make a card from it later.'}
-		</p>
+		<h2 class="my-4 text-2xl font-semibold select-none">Saved clips</h2>
 		{#each clipLines as line, index (line.id)}
-			<div title={line.clipTitle}>
-				<Line
-					{line}
-					{index}
-					isLast={clipLines.length - 1 === index}
-					audioLineId={activeAudioLineId}
-					audioIsPlaying={browserAudioPlaying}
-					audioPendingLineId={pendingAudioLineId}
-					on:audioToggle={handleAudioToggle}
-					on:videoTrim={handleVideoTrim}
-					on:deleteClip={handleDeleteClip}
-					on:openClipFolder={handleOpenClipFolder}
-					isClipSaved
-					clipSizeBytes={clipSizes.get(line.id)}
-				/>
-			</div>
+			<Line
+				{line}
+				{index}
+				isLast={clipLines.length - 1 === index}
+				audioLineId={activeAudioLineId}
+				audioIsPlaying={browserAudioPlaying}
+				audioPendingLineId={pendingAudioLineId}
+				on:audioToggle={handleAudioToggle}
+				on:videoTrim={handleVideoTrim}
+				on:deleteClip={handleDeleteClip}
+				on:openClipFolder={handleOpenClipFolder}
+				isClipSaved
+				clipSizeBytes={clipSizes.get(line.id)}
+			/>
 		{/each}
 	{:else}
 		{#each $lineData$ as line, index (line.id)}
