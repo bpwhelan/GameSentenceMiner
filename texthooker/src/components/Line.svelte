@@ -97,18 +97,6 @@
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
 	$: isActiveGSMLine = line.gsmStatus === 'active' || (!line.gsmStatus && $lineIDs$?.includes(line.id));
 	$: isTimedOutGSMLine = line.gsmStatus === 'timed_out' || (!line.gsmStatus && $timedOutIDs$.includes(line.id));
-	// The rightmost slot shows the line's state: a saved clip, the save button, or why replay actions are unavailable.
-	$: statusKind = isClipSaved
-		? 'saved'
-		: isActiveGSMLine
-			? $showSaveClipButton$
-				? 'save'
-				: ''
-			: isTimedOutGSMLine
-				? 'expired'
-				: line.gsmStatus === 'external'
-					? ''
-					: 'history';
 	$: clipSizeLabel = clipSizeBytes ? `${(clipSizeBytes / 1024 / 1024).toFixed(1)} MB` : '';
 	$: canAskAI = !!line.id && (isActiveGSMLine || isTimedOutGSMLine || isClipSaved || line.gsmStatus === 'external');
 
@@ -517,6 +505,31 @@
 							🎬
 						</button>
 					{/if}
+					{#if isClipSaved}
+						<button
+							class="action-button clip-status"
+							class:menu-open={openMenu === 'clip'}
+							on:click={(event) => toggleMenu(event, 'clip')}
+							title="Clip saved for later"
+							aria-label="Clip saved for later"
+							aria-expanded={openMenu === 'clip'}
+							tabindex="-1"
+						>
+							<Icon path={mdiContentSaveCheck} width="16px" height="16px" />
+						</button>
+					{:else if $showSaveClipButton$}
+						<!-- Kept visible on small screens: saving from a phone or tablet is the main use. -->
+						<button
+							class="action-button"
+							on:click={handleSaveClip}
+							title={isSavingClip ? 'Saving…' : 'Save clip for later'}
+							aria-label="Save clip for later"
+							tabindex="-1"
+							disabled={isSavingClip}
+						>
+							<Icon path={mdiContentSave} width="16px" height="16px" />
+						</button>
+					{/if}
 					{#if $showAudioButton$}
 						<button
 							class="hide-on-mobile action-button"
@@ -540,7 +553,27 @@
 						</button>
 					{/if}
 				</div>
-			{:else if isTimedOutGSMLine || line.gsmStatus === 'external'}
+			{:else if isTimedOutGSMLine}
+				<div
+					class="line-indicator unselectable"
+					title="Line is outside replay buffer"
+					tabindex="-1"
+					style="color: #666;"
+				>
+					<Icon path={mdiClockOutline} width="32px" height="32px" />
+				</div>
+				{#if $showTranslateButton$}
+					<button
+						class="action-button"
+						on:click={() => handleAction(line.id, 'TL')}
+						title="Translate"
+						style="margin-left: 5px;"
+						tabindex="-1"
+					>
+						🌐
+					</button>
+				{/if}
+			{:else if line.gsmStatus === 'external'}
 				{#if $showTranslateButton$}
 					<button
 						class="action-button"
@@ -551,6 +584,16 @@
 						🌐
 					</button>
 				{/if}
+			{:else}
+				<!-- Show different icon for lines that are from before GSM was started. -->
+				<div
+					class="line-indicator unselectable"
+					title="Line is from before GSM was started"
+					tabindex="-1"
+					style="color: #666;"
+				>
+					<Icon path={mdiHistory} width="32px" height="32px" />
+				</div>
 			{/if}
 			{#if canAskAI}
 				<div class="actions-menu">
@@ -565,43 +608,6 @@
 					>
 						<Icon path={mdiMenu} width="16px" height="16px" />
 					</button>
-				</div>
-			{/if}
-			{#if statusKind}
-				<div class="line-status unselectable">
-					{#if statusKind === 'saved'}
-						<button
-							class="action-button clip-status"
-							class:menu-open={openMenu === 'clip'}
-							on:click={(event) => toggleMenu(event, 'clip')}
-							title="Clip saved for later"
-							aria-label="Clip saved for later"
-							aria-expanded={openMenu === 'clip'}
-							tabindex="-1"
-						>
-							<Icon path={mdiContentSaveCheck} width="16px" height="16px" />
-						</button>
-					{:else if statusKind === 'save'}
-						<!-- Kept visible on small screens: saving from a phone or tablet is the main use. -->
-						<button
-							class="action-button"
-							on:click={handleSaveClip}
-							title={isSavingClip ? 'Saving…' : 'Save clip for later'}
-							aria-label="Save clip for later"
-							tabindex="-1"
-							disabled={isSavingClip}
-						>
-							<Icon path={mdiContentSave} width="16px" height="16px" />
-						</button>
-					{:else if statusKind === 'expired'}
-						<div class="line-indicator" title="Line is outside replay buffer" style="color: #666;">
-							<Icon path={mdiClockOutline} width="32px" height="32px" />
-						</div>
-					{:else}
-						<div class="line-indicator" title="Line is from before GSM was started" style="color: #666;">
-							<Icon path={mdiHistory} width="32px" height="32px" />
-						</div>
-					{/if}
 				</div>
 			{/if}
 			{#if openMenu}
@@ -848,16 +854,6 @@
 
 	.line-indicator:hover {
 		opacity: 1;
-	}
-
-	.line-status {
-		display: flex;
-		justify-content: center;
-		min-width: 32px;
-	}
-
-	.line-status .line-indicator {
-		margin-left: 0;
 	}
 
 	.clip-status {
