@@ -21,6 +21,14 @@ requires_ffmpeg = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def system_ffmpeg(monkeypatch):
+    # On Windows GSM looks for ffmpeg in its app folder; use the system binaries, with production's flags.
+    command = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin"]
+    monkeypatch.setattr(ffmpeg, "ffmpeg_base_command_list", command)
+    monkeypatch.setattr(ffmpeg, "get_ffprobe_path", lambda: shutil.which("ffprobe") or "ffprobe")
+
+
 def _chain(*specs):
     """Build linked GameLines from (id, text, seconds_after_BASE) tuples."""
     lines = [GameLine(id=i, text=t, time=BASE + timedelta(seconds=s), prev=None, next=None) for i, t, s in specs]

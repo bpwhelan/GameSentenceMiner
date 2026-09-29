@@ -14,7 +14,9 @@ def _resolve(clip_id: str | None) -> str | None:
     """Map an id like "2026-09-28/00-21-27-412_text" to its folder, refusing anything outside Clips/."""
     root = clips.get_clips_root()
     folder = safe_join(root, clip_id) if root and clip_id else None
-    return folder if folder and os.path.isfile(os.path.join(folder, clips.MANIFEST_NAME)) else None
+    if not folder or not os.path.isfile(os.path.join(folder, clips.MANIFEST_NAME)):
+        return None
+    return os.path.normpath(folder)  # safe_join keeps the id's "/" separators, even on Windows
 
 
 def _summary(clip: clips.Clip, root: str) -> dict:
@@ -41,7 +43,7 @@ def register_clips_api_routes(app):
             return "Clip not found."
         try:
             send2trash(folder)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - one clip failing must not stop the others
             logger.exception(f"Failed to move clip to the trash: {folder}")
             return f"Could not move it to the trash: {e}"
         return None
