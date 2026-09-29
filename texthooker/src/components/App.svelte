@@ -744,8 +744,31 @@
 		}
 	}
 
+	function findSavedClip(lineId: string) {
+		return savedClips.find((item) => item.lines.some((line) => line.id === lineId));
+	}
+
+	async function handleOpenClipFolder(event: CustomEvent<{ lineId: string }>) {
+		const clip = findSavedClip(event.detail.lineId);
+		if (!clip) {
+			return;
+		}
+		try {
+			const response = await fetch(getGSMEndpoint('/api/clips/open'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id: clip.id }),
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP error: ${response.status}`);
+			}
+		} catch (error) {
+			showClipToast(`Could not open the clip folder: ${getErrorMessage(error)}`, true);
+		}
+	}
+
 	async function handleDeleteClip(event: CustomEvent<{ lineId: string }>) {
-		const clip = savedClips.find((item) => item.lines.some((line) => line.id === event.detail.lineId));
+		const clip = findSavedClip(event.detail.lineId);
 		if (!clip) {
 			return;
 		}
@@ -766,6 +789,7 @@
 		await loadSavedClips();
 	}
 
+	$: clipSizes = new Map(savedClips.flatMap((clip) => clip.lines.map((line) => [line.id, clip.size_bytes])));
 	$: clipLines = savedClips.flatMap((clip) =>
 		clip.lines.map((line) => ({ id: line.id, text: line.text, clipTitle: clipTitle(clip) })),
 	);
@@ -808,6 +832,7 @@
 		if (payload.event === 'clip_saved') {
 			savedClipIds = [...new Set([...savedClipIds, ...lineIds])];
 			showClipToast('Clip saved for later');
+			void loadSavedClips();
 		} else {
 			showClipToast(`Could not save clip: ${payload.error || 'Unknown error'}`, true);
 		}
@@ -1622,7 +1647,9 @@
 					on:audioToggle={handleAudioToggle}
 					on:videoTrim={handleVideoTrim}
 					on:deleteClip={handleDeleteClip}
+					on:openClipFolder={handleOpenClipFolder}
 					isClipSaved
+					clipSizeBytes={clipSizes.get(line.id)}
 				/>
 			</div>
 		{/each}
@@ -1647,8 +1674,10 @@
 				on:videoTrim={handleVideoTrim}
 				on:saveClip={handleSaveClip}
 				on:deleteClip={handleDeleteClip}
+				on:openClipFolder={handleOpenClipFolder}
 				isSavingClip={savingClipIds.includes(line.id)}
 				isClipSaved={savedClipIds.includes(line.id)}
+				clipSizeBytes={clipSizes.get(line.id)}
 			/>
 		{/each}
 	{/if}
@@ -1731,8 +1760,11 @@
 				on:audioToggle={handleAudioToggle}
 				on:videoTrim={handleVideoTrim}
 				on:saveClip={handleSaveClip}
+				on:deleteClip={handleDeleteClip}
+				on:openClipFolder={handleOpenClipFolder}
 				isSavingClip={savingClipIds.includes(line.id)}
 				isClipSaved={savedClipIds.includes(line.id)}
+				clipSizeBytes={clipSizes.get(line.id)}
 			/>
 		{/each}
 	{/if}

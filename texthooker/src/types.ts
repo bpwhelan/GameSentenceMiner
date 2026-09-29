@@ -181,6 +181,7 @@ export interface SavedClip {
 	game: string;
 	line_time: string;
 	cards: { note_id: number; word: string }[];
+	size_bytes: number;
 	lines: { id: string; text: string }[];
 }
 

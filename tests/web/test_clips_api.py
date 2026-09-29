@@ -25,6 +25,7 @@ def test_list_returns_clips_newest_first(client, tmp_path):
     assert [item["id"] for item in items] == ["2026-09-28/new", "2026-09-27/old"]
     assert items[1]["cards"] == [{"note_id": 1, "word": "古い"}]
     assert items[0]["lines"] == [{"id": "new", "text": "新しい行"}] and items[0]["game"] == "FFVII"
+    assert items[0]["size_bytes"] == sum(f.stat().st_size for f in (tmp_path / "2026-09-28" / "new").iterdir())
 
 
 def test_ids_outside_the_clips_folder_are_rejected(client, tmp_path):
@@ -32,6 +33,7 @@ def test_ids_outside_the_clips_folder_are_rejected(client, tmp_path):
 
     for bad_id in ("../outside", "/etc", "2026-09-27/../../outside", ""):
         assert client.post("/api/clips/trash", json={"ids": [bad_id]}).get_json()["trashed"] == []
+        assert client.post("/api/clips/open", json={"id": bad_id}).status_code == 404
 
 
 def test_batch_trash_moves_every_valid_line_and_reports_the_rest(client, tmp_path, monkeypatch):
@@ -49,3 +51,14 @@ def test_batch_trash_moves_every_valid_line_and_reports_the_rest(client, tmp_pat
     assert trashed == [str(first), str(second)]
     assert data["trashed"] == ["2026-09-27/a", "2026-09-27/b"]
     assert [failure["id"] for failure in data["failed"]] == ["../outside", "2026-09-27/missing"]
+
+
+def test_open_folder_opens_the_clip_folder(client, tmp_path, monkeypatch):
+    from GameSentenceMiner.web import service
+
+    folder = write_clip(tmp_path, "a", [("a", "一", "selected", 10)], 20)
+    opened = []
+    monkeypatch.setattr(service, "_open_folder", opened.append)
+
+    assert client.post("/api/clips/open", json={"id": "2026-09-27/a"}).status_code == 200
+    assert opened == [str(folder)]

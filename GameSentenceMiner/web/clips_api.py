@@ -1,4 +1,4 @@
-"""API behind the Text Feed's Clips view: list the saved clips and move them to the trash."""
+"""API behind the Text Feed's saved clips: list them, open their folder and move them to the trash."""
 
 import os
 
@@ -28,6 +28,7 @@ def _summary(clip: clips.Clip, root: str) -> dict:
         "game": clip.game,
         "line_time": first.time.isoformat() if first else "",
         "cards": clip.manifest.get("cards", []),
+        "size_bytes": sum(entry.stat().st_size for entry in os.scandir(clip.folder) if entry.is_file()),
         "lines": [{"id": line.id, "text": line.text} for line in clip.selected],
     }
 
@@ -53,6 +54,16 @@ def register_clips_api_routes(app):
             logger.exception(f"Failed to move clip to the trash: {folder}")
             return f"Could not move it to the trash: {e}"
         return None
+
+    @app.route("/api/clips/open", methods=["POST"])
+    def clips_open_folder():
+        folder = _resolve((request.get_json() or {}).get("id"))
+        if not folder:
+            return jsonify({"error": "Clip not found."}), 404
+        from GameSentenceMiner.web.service import _open_folder
+
+        _open_folder(folder)
+        return jsonify({"opened": True})
 
     @app.route("/api/clips/trash", methods=["POST"])
     def clips_trash_many():

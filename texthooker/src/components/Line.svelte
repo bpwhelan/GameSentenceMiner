@@ -55,6 +55,7 @@
 	export let audioPendingLineId = '';
 	export let isSavingClip = false;
 	export let isClipSaved = false;
+	export let clipSizeBytes: number | undefined = undefined;
 
 	export function deselect() {
 		isSelected = false;
@@ -72,6 +73,7 @@
 		videoTrim: { lineId: string; text: string };
 		saveClip: { lineId: string };
 		deleteClip: { lineId: string };
+		openClipFolder: { lineId: string };
 	}>();
 
 	let paragraph: HTMLElement;
@@ -81,18 +83,33 @@
 	let autoTranslationRevision = -1;
 	let isSelected = false;
 	let isEditable = false;
-	let actionsMenuOpen = false;
+	// One popover for the line's menus: the ☰ actions, or the saved clip's own menu.
+	let openMenu: 'actions' | 'clip' | null = null;
+	let menuAnchor: HTMLElement | undefined;
 	let aiHelpOpen = false;
-	let actionsMenuElement: HTMLElement;
 	let actionsMenuButton: HTMLButtonElement;
 	let actionsMenuPopover: HTMLElement;
 	let actionsMenuStyle = 'visibility: hidden;';
 	let aiError = '';
+	$: actionsMenuOpen = openMenu === 'actions';
 	$: isAudioLine = audioLineId === line.id;
 	$: isAudioPending = audioPendingLineId === line.id;
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
 	$: isActiveGSMLine = line.gsmStatus === 'active' || (!line.gsmStatus && $lineIDs$?.includes(line.id));
 	$: isTimedOutGSMLine = line.gsmStatus === 'timed_out' || (!line.gsmStatus && $timedOutIDs$.includes(line.id));
+	// The rightmost slot shows the line's state: a saved clip, the save button, or why replay actions are unavailable.
+	$: statusKind = isClipSaved
+		? 'saved'
+		: isActiveGSMLine
+			? $showSaveClipButton$
+				? 'save'
+				: ''
+			: isTimedOutGSMLine
+				? 'expired'
+				: line.gsmStatus === 'external'
+					? ''
+					: 'history';
+	$: clipSizeLabel = clipSizeBytes ? `${(clipSizeBytes / 1024 / 1024).toFixed(1)} MB` : '';
 	$: canAskAI = !!line.id && (isActiveGSMLine || isTimedOutGSMLine || isClipSaved || line.gsmStatus === 'external');
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
@@ -164,18 +181,18 @@
 	}
 
 	function closeActionsMenu() {
-		actionsMenuOpen = false;
+		openMenu = null;
 		actionsMenuStyle = 'visibility: hidden;';
 		removeActionsMenuListeners();
 	}
 
 	function positionActionsMenu() {
-		if (!actionsMenuButton || !actionsMenuPopover) {
+		if (!menuAnchor || !actionsMenuPopover) {
 			return;
 		}
 
 		const view = getActionsWindow();
-		const buttonRect = actionsMenuButton.getBoundingClientRect();
+		const buttonRect = menuAnchor.getBoundingClientRect();
 		const menuRect = actionsMenuPopover.getBoundingClientRect();
 		const viewportGap = 8;
 		const menuGap = 5;
@@ -189,14 +206,16 @@
 		actionsMenuStyle = `left: ${Math.round(left)}px; top: ${Math.round(top)}px; visibility: visible;`;
 	}
 
-	function toggleActionsMenu(event: MouseEvent) {
+	function toggleMenu(event: MouseEvent, menu: 'actions' | 'clip') {
 		event.stopPropagation();
-		if (actionsMenuOpen) {
-			closeActionsMenu();
+		const wasOpen = openMenu === menu;
+		closeActionsMenu();
+		if (wasOpen) {
 			return;
 		}
 
-		actionsMenuOpen = true;
+		openMenu = menu;
+		menuAnchor = event.currentTarget as HTMLElement;
 		tick().then(() => {
 			positionActionsMenu();
 			getActionsDocument().addEventListener('click', actionsMenuClickOutsideHandler, false);
@@ -207,7 +226,8 @@
 	}
 
 	function actionsMenuClickOutsideHandler(event: MouseEvent) {
-		if (!actionsMenuElement?.contains(event.target as Node)) {
+		const target = event.target as Node;
+		if (!actionsMenuPopover?.contains(target) && !menuAnchor?.contains(target)) {
 			closeActionsMenu();
 		}
 	}
@@ -289,6 +309,11 @@
 	function handleSaveClip() {
 		closeActionsMenu();
 		dispatch('saveClip', { lineId: line.id });
+	}
+
+	function handleOpenClipFolder() {
+		closeActionsMenu();
+		dispatch('openClipFolder', { lineId: line.id });
 	}
 
 	function handleDeleteClip() {
@@ -492,19 +517,6 @@
 							🎬
 						</button>
 					{/if}
-					{#if $showSaveClipButton$}
-						<!-- Kept visible on small screens: saving from a phone or tablet is the main use. -->
-						<button
-							class="action-button"
-							on:click={handleSaveClip}
-							title={isSavingClip ? 'Saving…' : isClipSaved ? 'Clip saved for later' : 'Save clip for later'}
-							aria-label={isClipSaved ? 'Clip saved for later' : 'Save clip for later'}
-							tabindex="-1"
-							disabled={isSavingClip}
-						>
-							<Icon path={isClipSaved ? mdiContentSaveCheck : mdiContentSave} width="16px" height="16px" />
-						</button>
-					{/if}
 					{#if $showAudioButton$}
 						<button
 							class="hide-on-mobile action-button"
@@ -528,27 +540,7 @@
 						</button>
 					{/if}
 				</div>
-			{:else if isTimedOutGSMLine}
-				<div
-					class="line-indicator unselectable"
-					title="Line is outside replay buffer"
-					tabindex="-1"
-					style="color: #666;"
-				>
-					<Icon path={mdiClockOutline} width="32px" height="32px" />
-				</div>
-				{#if $showTranslateButton$}
-					<button
-						class="action-button"
-						on:click={() => handleAction(line.id, 'TL')}
-						title="Translate"
-						style="margin-left: 5px;"
-						tabindex="-1"
-					>
-						🌐
-					</button>
-				{/if}
-			{:else if line.gsmStatus === 'external'}
+			{:else if isTimedOutGSMLine || line.gsmStatus === 'external'}
 				{#if $showTranslateButton$}
 					<button
 						class="action-button"
@@ -559,23 +551,13 @@
 						🌐
 					</button>
 				{/if}
-			{:else}
-				<!-- Show different icon for lines that are from before GSM was started. -->
-				<div
-					class="line-indicator unselectable"
-					title="Line is from before GSM was started"
-					tabindex="-1"
-					style="color: #666;"
-				>
-					<Icon path={mdiHistory} width="32px" height="32px" />
-				</div>
 			{/if}
 			{#if canAskAI}
-				<div class="actions-menu" bind:this={actionsMenuElement}>
+				<div class="actions-menu">
 					<button
 						class="action-button menu-toggle"
 						class:menu-open={actionsMenuOpen}
-						on:click={toggleActionsMenu}
+						on:click={(event) => toggleMenu(event, 'actions')}
 						title="More line actions"
 						aria-label="More line actions"
 						aria-expanded={actionsMenuOpen}
@@ -583,59 +565,108 @@
 					>
 						<Icon path={mdiMenu} width="16px" height="16px" />
 					</button>
-					{#if actionsMenuOpen}
-						<div
-							class="actions-menu-popover"
-							style={actionsMenuStyle}
-							bind:this={actionsMenuPopover}
+				</div>
+			{/if}
+			{#if statusKind}
+				<div class="line-status unselectable">
+					{#if statusKind === 'saved'}
+						<button
+							class="action-button clip-status"
+							class:menu-open={openMenu === 'clip'}
+							on:click={(event) => toggleMenu(event, 'clip')}
+							title="Clip saved for later"
+							aria-label="Clip saved for later"
+							aria-expanded={openMenu === 'clip'}
+							tabindex="-1"
 						>
-							<button on:click={openAIHelp}>
-								<Icon path={mdiCreationOutline} width="16px" height="16px" />
-								<span>Ask AI</span>
+							<Icon path={mdiContentSaveCheck} width="16px" height="16px" />
+						</button>
+					{:else if statusKind === 'save'}
+						<!-- Kept visible on small screens: saving from a phone or tablet is the main use. -->
+						<button
+							class="action-button"
+							on:click={handleSaveClip}
+							title={isSavingClip ? 'Saving…' : 'Save clip for later'}
+							aria-label="Save clip for later"
+							tabindex="-1"
+							disabled={isSavingClip}
+						>
+							<Icon path={mdiContentSave} width="16px" height="16px" />
+						</button>
+					{:else if statusKind === 'expired'}
+						<div class="line-indicator" title="Line is outside replay buffer" style="color: #666;">
+							<Icon path={mdiClockOutline} width="32px" height="32px" />
+						</div>
+					{:else}
+						<div class="line-indicator" title="Line is from before GSM was started" style="color: #666;">
+							<Icon path={mdiHistory} width="32px" height="32px" />
+						</div>
+					{/if}
+				</div>
+			{/if}
+			{#if openMenu}
+				<div
+					class="actions-menu-popover"
+					class:clip-menu={openMenu === 'clip'}
+					style={actionsMenuStyle}
+					bind:this={actionsMenuPopover}
+				>
+					{#if openMenu === 'clip'}
+						<div class="clip-menu-info" title="Disk space used by this clip">
+							<span aria-hidden="true">💾</span>
+							<span>Clip{clipSizeLabel ? ` · ${clipSizeLabel}` : ''}</span>
+						</div>
+						<button on:click={handleOpenClipFolder} title="Open clip folder">
+							<span aria-hidden="true">📂</span>
+							<span>Open clip folder</span>
+						</button>
+						<button on:click={handleDeleteClip} title="Delete clip">
+							<span aria-hidden="true">🗑️</span>
+							<span>Delete clip</span>
+						</button>
+					{:else}
+						<button on:click={openAIHelp}>
+							<Icon path={mdiCreationOutline} width="16px" height="16px" />
+							<span>Ask AI</span>
+						</button>
+						{#if isActiveGSMLine || isClipSaved}
+							<button on:click={() => handleAction(line.id, 'Screenshot')}>
+								<span aria-hidden="true">📷</span>
+								<span>Screenshot</span>
 							</button>
-							{#if isActiveGSMLine || isClipSaved}
-								<button on:click={() => handleAction(line.id, 'Screenshot')}>
-									<span aria-hidden="true">📷</span>
-									<span>Screenshot</span>
-								</button>
-								<button on:click={handleVideoTrim}>
-									<span aria-hidden="true">🎬</span>
-									<span>Save cropped replay</span>
-								</button>
+							<button on:click={handleVideoTrim}>
+								<span aria-hidden="true">🎬</span>
+								<span>Save cropped replay</span>
+							</button>
+							{#if !isClipSaved}
 								<button
 									on:click={handleSaveClip}
 									disabled={isSavingClip}
 									title="Keep a replay clip of this line so a card can be made later"
 								>
-									<span aria-hidden="true">{isClipSaved ? '✅' : '💾'}</span>
-									<span>{isSavingClip ? 'Saving…' : isClipSaved ? 'Clip saved for later' : 'Save clip for later'}</span>
-								</button>
-								<button on:click={handleAudioToggle} disabled={isAudioPending}>
-									<Icon
-										path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay}
-										width="16px"
-										height="16px"
-									/>
-									<span>{audioButtonTitle}</span>
+									<span aria-hidden="true">💾</span>
+									<span>{isSavingClip ? 'Saving…' : 'Save clip for later'}</span>
 								</button>
 							{/if}
-							<button on:click={() => handleAction(line.id, 'TL')}>
-								<span aria-hidden="true">🌐</span>
-								<span>Translate</span>
+							<button on:click={handleAudioToggle} disabled={isAudioPending}>
+								<Icon
+									path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay}
+									width="16px"
+									height="16px"
+								/>
+								<span>{audioButtonTitle}</span>
 							</button>
-							{#if isClipSaved}
-								<button on:click={handleDeleteClip}>
-									<span aria-hidden="true">🗑️</span>
-									<span>Delete clip</span>
-								</button>
-							{/if}
-							{#if isActiveGSMLine}
-								<button on:click={handleDeleteFromStats}>
-									<span aria-hidden="true">🗑️</span>
-									<span>Delete from stats</span>
-								</button>
-							{/if}
-						</div>
+						{/if}
+						<button on:click={() => handleAction(line.id, 'TL')} title="Translate">
+							<span aria-hidden="true">🌐</span>
+							<span>Translate</span>
+						</button>
+						{#if isActiveGSMLine}
+							<button on:click={handleDeleteFromStats}>
+								<span aria-hidden="true">🗑️</span>
+								<span>Delete from stats</span>
+							</button>
+						{/if}
 					{/if}
 				</div>
 			{/if}
@@ -817,6 +848,28 @@
 
 	.line-indicator:hover {
 		opacity: 1;
+	}
+
+	.line-status {
+		display: flex;
+		justify-content: center;
+		min-width: 32px;
+	}
+
+	.line-status .line-indicator {
+		margin-left: 0;
+	}
+
+	.clip-status {
+		color: var(--color-success);
+	}
+
+	.clip-menu-info {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		padding: 7px 10px;
+		opacity: 0.7;
 	}
 
 	.line-actions-container {
