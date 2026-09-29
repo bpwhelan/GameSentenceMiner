@@ -1120,6 +1120,25 @@ def trim_video():
     return jsonify({"queued": True, "line_id": event_id}), 200
 
 
+def _missing_output_folder_response():
+    """No destination configured: open the settings to the Paths tab so the user can set one."""
+    try:
+        settings_window = gsm_state.config_app
+        if settings_window is None:
+            factory = getattr(gsm_state, "config_app_factory", None)
+            settings_window = factory() if callable(factory) else None
+        if settings_window:
+            settings_window.show_window(root_tab_key="general", subtab_key="paths")
+    except Exception as e:
+        logger.debug(f"Failed to open settings for output folder: {e}")
+    return jsonify(
+        {
+            "error": ("No output folder is set. Set an Output Folder in the Paths settings, then try again."),
+            "open_settings": True,
+        }
+    ), 400
+
+
 @app.route("/create-media", methods=["POST"])
 def create_media():
     """Generate media (screenshot/audio/trimmed video) into the output folder for the given
@@ -1129,22 +1148,7 @@ def create_media():
     trim_with_vad = bool(data.get("trim_with_vad", False))
 
     if not get_config().paths.output_folder:
-        # No destination configured: open the settings to the Paths tab so the user can set one.
-        try:
-            settings_window = gsm_state.config_app
-            if settings_window is None:
-                factory = getattr(gsm_state, "config_app_factory", None)
-                settings_window = factory() if callable(factory) else None
-            if settings_window:
-                settings_window.show_window(root_tab_key="general", subtab_key="paths")
-        except Exception as e:
-            logger.debug(f"Failed to open settings for output folder: {e}")
-        return jsonify(
-            {
-                "error": ("No output folder is set. Set an Output Folder in the Paths settings, then try again."),
-                "open_settings": True,
-            }
-        ), 400
+        return _missing_output_folder_response()
 
     lines = [line for event_id in ids if (line := get_event_line_by_id(event_id)) is not None]
     if not lines:
@@ -1186,8 +1190,6 @@ def _queue_clip_save(lines, wait_seconds):
     """Save an OBS replay once it covers the lines; the replay handler writes the clip."""
 
     def run():
-        if wait_seconds > 0:
-            time.sleep(wait_seconds)
         gsm_state.pending_clip_saves.append(lines)
         try:
             obs.save_replay_buffer()
@@ -1203,7 +1205,9 @@ def _queue_clip_save(lines, wait_seconds):
                 error=f"Could not save the OBS replay: {e}",
             )
 
-    threading.Thread(target=run, name="gsm-save-line", daemon=True).start()
+    timer = threading.Timer(wait_seconds, run)
+    timer.daemon = True
+    timer.start()
 
 
 @app.route("/save-clip", methods=["POST"])
@@ -1216,9 +1220,7 @@ def save_clip():
     if not ids:
         return jsonify({"error": "Missing id"}), 400
     if not get_config().paths.output_folder:
-        return jsonify(
-            {"error": "No output folder is set. Set an Output Folder in the Paths settings, then try again."}
-        ), 400
+        return _missing_output_folder_response()
 
     lines = [line for event_id in ids if (line := get_event_line_by_id(event_id)) is not None]
     if not lines:

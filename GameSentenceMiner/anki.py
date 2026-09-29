@@ -1213,7 +1213,8 @@ def prefetch_ai_translation(sentence_to_translate: str, game_line: "GameLine") -
             return response.text
 
         # LLM path (UNCHANGED)
-        context_lines = getattr(game_line, "clip_context_lines", None) or get_all_lines()
+        clip = getattr(game_line, "clip", None)
+        context_lines = clip.lines if clip else get_all_lines()
         translation = (
             _get_ai_prompt_result()(context_lines, sentence_to_translate, game_line, _game_name_for(game_line)) or ""
         )
@@ -1501,7 +1502,8 @@ def _get_prefetched_animated_screenshot_path(assets: MediaAssets) -> str:
 
 def _game_name_for(game_line=None) -> str:
     """The game a line came from: clips remember theirs, live lines use the OBS scene."""
-    return getattr(game_line, "clip_game", "") or get_current_game()
+    clip = getattr(game_line, "clip", None)
+    return (clip.game if clip else "") or get_current_game()
 
 
 def _prepare_anki_tags(game_line=None) -> List[str]:
@@ -3582,16 +3584,11 @@ def update_single_card(card):
     gsm_status.add_word_being_processed(card.get_field(get_config().anki.word_field))
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}")
     lines = _get_texthooking_page_module().get_selected_lines()
-    if not lines:
-        from GameSentenceMiner import clip_cards
+    from GameSentenceMiner import clip_cards
 
-        clip_match = clip_cards.match_new_card(card)
-        if clip_match:
-            clip, clip_line = clip_match
-            logger.info(f"New card matches a clip to mine; using it: {clip.folder}")
-            clip_cards.enrich_from_clip(card, clip, clip_line)
-            return
-    game_line = _resolve_mined_line_for_card(card, lines)
+    # A saved clip stands in for the OBS replay when no live line matches.
+    clip_line = None if lines else clip_cards.match_new_card(card)
+    game_line = clip_line or _resolve_mined_line_for_card(card, lines)
     game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
     timing_context = new_anki_card_timing_context(
@@ -3695,7 +3692,10 @@ def update_single_card(card):
         }
         if timing_context is not None:
             queue_kwargs["timing_context"] = timing_context
-        queue_card_for_processing(card, lines, game_line, **queue_kwargs)
+        if clip_line is not None:
+            clip_cards.queue_clip_card(card, clip_line, **queue_kwargs)
+        else:
+            queue_card_for_processing(card, lines, game_line, **queue_kwargs)
 
 
 def queue_card_for_processing(
@@ -3705,7 +3705,13 @@ def queue_card_for_processing(
     reuse_audio_result_id: Optional[str] = None,
     reuse_screenshot_result_id: Optional[str] = None,
     timing_context: Optional[AnkiCardTimingContext] = None,
+    replay_path: Optional[str] = None,
+    created_at: Optional[datetime] = None,
 ):
+    """Queue a card for the next OBS replay, or for replay_path (e.g. a saved clip) when given.
+
+    With replay_path, returns the Future of its processing.
+    """
     current_word = last_card.get_field(get_config().anki.word_field) if last_card else ""
     if timing_context is None:
         timing_context = new_anki_card_timing_context(
@@ -3735,7 +3741,7 @@ def queue_card_for_processing(
 
     card_queue_item = (
         last_card,
-        datetime.now(),
+        created_at or datetime.now(),
         lines,
         last_mined_line,
         reuse_audio_result_id,
@@ -3743,16 +3749,21 @@ def queue_card_for_processing(
         timing_context,
         translation_future,
     )
-    try:
-        card_queue.append(card_queue_item)
-    except Exception as error:
-        if translation_future is not None:
-            translation_future.cancel()
-        reason = f"Anki media queue is backpressured for note {last_card.noteId}: {error}"
-        logger.error(reason)
-        _mark_anki_update_failure(last_mined_line.id if last_mined_line else None, reason, current_word)
-        _notify_anki_enhancement_failure(reason)
-        return
+    if replay_path:
+        from GameSentenceMiner import replay_handler
+
+        replay_future = replay_handler.process_replay_file(replay_path, card_queue_item)
+    else:
+        try:
+            card_queue.append(card_queue_item)
+        except Exception as error:
+            if translation_future is not None:
+                translation_future.cancel()
+            reason = f"Anki media queue is backpressured for note {last_card.noteId}: {error}"
+            logger.error(reason)
+            _mark_anki_update_failure(last_mined_line.id if last_mined_line else None, reason, current_word)
+            _notify_anki_enhancement_failure(reason)
+            return
     reuse_key = _build_sentence_audio_key(last_mined_line, lines)
     previous_entry = sentence_audio_cache.get(reuse_key) if reuse_key else None
     _set_sentence_audio_cache_entry(reuse_key, last_mined_line.id, current_word)
@@ -3764,6 +3775,8 @@ def queue_card_for_processing(
         reuse_audio_result_id=reuse_audio_result_id or "",
         reuse_screenshot_result_id=reuse_screenshot_result_id or "",
     )
+    if replay_path:
+        return replay_future
     try:
         with time_anki_card_block(timing_context, "anki.obs_save_replay_buffer", queue_depth=len(card_queue)):
             obs.save_replay_buffer()

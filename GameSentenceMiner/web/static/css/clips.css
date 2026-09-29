@@ -1,42 +1,5 @@
 /* Clips to mine: builds on the shared Search styles (search-container, search-result, ...). */
 
-.clips-overview {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-}
-
-.clips-panel {
-    padding: 15px 18px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    color: var(--text-secondary);
-    font-size: 14px;
-    line-height: 1.5;
-    min-width: 0;
-}
-
-.clips-panel-title {
-    margin: 0 0 10px;
-    color: var(--text-primary);
-    font-size: 15px;
-}
-
-.clips-help-steps {
-    margin: 0;
-    padding-left: 22px;
-}
-
-.clips-help-steps li {
-    margin-bottom: 4px;
-}
-
-.clips-help-note {
-    margin: 10px 0 0;
-    color: var(--text-tertiary);
-}
-
 .clips-toolbar {
     margin-bottom: 20px;
 }
@@ -57,73 +20,14 @@
     font-size: 14px;
 }
 
-.clips-disk-bar {
-    display: flex;
-    height: 14px;
-    border-radius: 7px;
-    overflow: hidden;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-}
-
-.clips-disk-share {
-    background: var(--accent-color);
-    min-width: 4px;
-}
-
-.clips-disk-share[hidden] {
-    display: none;
-}
-
-.clips-disk-other {
-    background: var(--text-tertiary);
-    opacity: 0.45;
-}
-
-.clips-disk-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 18px;
-    margin-top: 8px;
-    color: var(--text-secondary);
-    font-size: 13px;
-}
-
-.clips-swatch {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    margin-right: 6px;
-    vertical-align: -1px;
-}
-
-.clips-swatch-share {
-    background: var(--accent-color);
-}
-
-.clips-swatch-other {
-    background: var(--text-tertiary);
-    opacity: 0.45;
-}
-
-.clips-swatch-free {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-}
-
 .clips-storage-note {
-    margin: 0;
+    margin: 12px 0 0;
     padding: 8px 12px;
     border-radius: 6px;
     border-left: 3px solid var(--warning-color);
     background: var(--bg-secondary);
     color: var(--text-secondary);
     font-size: 13px;
-}
-
-.clips-disk:not([hidden]) + .clips-storage-note {
-    margin-top: 12px;
 }
 
 .clips-results-controls {
@@ -282,12 +186,6 @@
     overflow-y: auto;
     padding-left: 20px;
     color: var(--text-secondary);
-}
-
-@media (max-width: 768px) {
-    .clips-overview {
-        grid-template-columns: 1fr;
-    }
 }
 
 @media (max-width: 600px) {

@@ -102,15 +102,15 @@ def test_queued_save_triggers_an_obs_replay(monkeypatch):
     monkeypatch.setattr(texthooking_page.obs, "save_replay_buffer", lambda: clip.append(True))
     started = []
 
-    class ImmediateThread:
-        def __init__(self, target, **kwargs):
-            self.target = target
+    class ImmediateTimer:
+        def __init__(self, interval, function):
+            self.function = function
 
         def start(self):
             started.append(True)
-            self.target()
+            self.function()
 
-    monkeypatch.setattr(texthooking_page.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(texthooking_page.threading, "Timer", ImmediateTimer)
 
     texthooking_page._queue_clip_save(lines, 0)
 

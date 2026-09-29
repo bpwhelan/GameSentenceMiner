@@ -71,8 +71,10 @@ def seconds_until_clip_ready(lines: list[GameLine], now: datetime | None = None)
     return min(max(0.0, remaining), MAX_WAIT_SECONDS)
 
 
-def get_clips_root(output_folder: str | None = None) -> str:
-    return os.path.join(output_folder or get_config().paths.output_folder, CLIPS_FOLDER_NAME)
+def get_clips_root() -> str:
+    """The Clips folder in the output folder, or "" when no output folder is set."""
+    output_folder = get_config().paths.output_folder
+    return os.path.join(output_folder, CLIPS_FOLDER_NAME) if output_folder else ""
 
 
 def _line_entry(line: GameLine, role: str) -> dict:
@@ -135,7 +137,6 @@ def save_clip(
     lines: list[GameLine],
     clips_root: str,
     game: str = "",
-    replay_end_time: datetime | None = None,
 ) -> str:
     """Copy the replay span around lines into a new folder under clips_root and return its path.
 
@@ -148,7 +149,7 @@ def save_clip(
 
     window = plan_clip_window(lines)
     lines = window.lines
-    replay_end_time = replay_end_time or get_file_modification_time(video_path)
+    replay_end_time = get_file_modification_time(video_path)
     replay_length = ffmpeg.get_video_duration(video_path)
 
     def offset(moment: datetime) -> float:
@@ -197,8 +198,7 @@ def save_clip(
     clip_start_time = clip_end_time - timedelta(seconds=clip_length)
     spans = pause_history.get_pauses_between(clip_start_time.timestamp(), clip_end_time.timestamp())
     manifest["pauses"] = [list(span) for span in spans]
-    with open(os.path.join(folder, MANIFEST_NAME), "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    _write_manifest(folder, manifest)
 
     logger.info(f"Saved {len(lines)} line(s) for later: {folder}")
     return folder
@@ -232,7 +232,6 @@ def load_clip(folder: str) -> Clip:
     """Rebuild a clip line's GameLines, linked like the live text log but only within the clip."""
     manifest = read_manifest(folder)
     clip_end_time = datetime.fromisoformat(manifest["clip"]["end_time"])
-    pause_history.remember_pauses(manifest.get("pauses", []))
     lines = []
     selected = []
     for index, entry in enumerate(manifest["lines"]):
@@ -254,20 +253,19 @@ def load_clip(folder: str) -> Clip:
         lines.append(line)
         if entry.get("role") == "selected":
             selected.append(line)
-    game = manifest.get("game", "") or ""
-    for line in lines:
-        # The Anki flow reads these instead of the live session's log and OBS scene.
-        line.clip_context_lines = lines
-        line.clip_game = game
-    return Clip(
+    clip = Clip(
         folder=folder,
         manifest=manifest,
         lines=lines,
         selected=selected,
         clip_path=os.path.join(folder, manifest["clip"]["file"]),
         clip_end_time=clip_end_time,
-        game=game,
+        game=manifest.get("game", "") or "",
     )
+    for line in lines:
+        # The Anki flow reads the clip's game and lines instead of the live OBS scene and log.
+        line.clip = clip
+    return clip
 
 
 def iter_clips(clips_root: str):
@@ -288,17 +286,10 @@ def iter_clips(clips_root: str):
                 logger.debug(f"Skipping unreadable clip line {folder}: {e}")
 
 
-def match_card_to_clip(card, clips_root: str) -> tuple[Clip, GameLine] | None:
+def match_card_to_clip(card, clips_root: str) -> GameLine | None:
     """Match a card's sentence against every clip line using the live matcher's ranking."""
-    owners = {}
-    candidates = []
-    for clip in iter_clips(clips_root):
-        for line in clip.selected:
-            owners[id(line)] = clip
-            candidates.append(line)
-    candidates.sort(key=lambda line: line.time)
-    best = find_matching_line(card, candidates, respect_replay_window=False)
-    return (owners[id(best)], best) if best is not None else None
+    candidates = sorted((line for clip in iter_clips(clips_root) for line in clip.selected), key=lambda line: line.time)
+    return find_matching_line(card, candidates, respect_replay_window=False)
 
 
 def record_card(folder: str, note_id, word: str) -> None:

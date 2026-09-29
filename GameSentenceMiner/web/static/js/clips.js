@@ -22,7 +22,6 @@
         clipsAudio: $('enrichSavedAudio'),
     };
     let items = [];
-    let disk = { clips: 0, total: null, used: null, free: null };
     let playingId = '';
     const selected = new Set();
 
@@ -31,18 +30,6 @@
         status.classList.toggle('is-error', isError);
         status.hidden = !message;
         if (message) status.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
-
-    function formatBytes(bytes) {
-        if (!Number.isFinite(bytes)) return '';
-        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        let value = bytes;
-        let unit = 0;
-        while (value >= 1024 && unit < units.length - 1) {
-            value /= 1024;
-            unit += 1;
-        }
-        return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
     }
 
     // Same format as the Search page's result dates.
@@ -65,8 +52,7 @@
         const shown = items.filter(
             (item) => !query || item.sentence.toLowerCase().includes(query) || item.game.toLowerCase().includes(query)
         );
-        if (sort.value === 'largest') shown.sort((a, b) => b.size_bytes - a.size_bytes);
-        else if (sort.value === 'oldest') shown.sort((a, b) => a.line_time.localeCompare(b.line_time));
+        if (sort.value === 'oldest') shown.sort((a, b) => a.line_time.localeCompare(b.line_time));
         return shown;
     }
 
@@ -107,7 +93,6 @@
             meta.append(game);
         }
         meta.append(metadataItem('📅', formatDate(item.line_time)));
-        meta.append(metadataItem('💾', formatBytes(item.size_bytes), 'Disk space used by this clip'));
         if (item.cards.length) {
             const words = item.cards.map((c) => c.word).filter(Boolean).join(', ');
             meta.append(metadataItem('🃏', item.cards.length === 1 ? '1 card' : `${item.cards.length} cards`, words));
@@ -130,26 +115,6 @@
         return card;
     }
 
-    function renderDisk() {
-        const box = $('clipsDisk');
-        if (!Number.isFinite(disk.total) || disk.total <= 0) {
-            box.hidden = true;
-            return;
-        }
-        box.hidden = false;
-        const other = Math.max(0, (disk.used || 0) - disk.clips);
-        $('clipsDiskShare').style.width = `${(disk.clips / disk.total) * 100}%`;
-        $('clipsDiskShare').hidden = disk.clips === 0;
-        $('clipsDiskOther').style.width = `${(other / disk.total) * 100}%`;
-        $('clipsDiskShareLabel').textContent = `Clips ${formatBytes(disk.clips)}`;
-        $('clipsDiskOtherLabel').textContent = `Other files ${formatBytes(other)}`;
-        $('clipsDiskFreeLabel').textContent = `Free ${formatBytes(disk.free)} of ${formatBytes(disk.total)}`;
-        $('clipsDiskBar').setAttribute(
-            'aria-label',
-            `Clips use ${formatBytes(disk.clips)}; ${formatBytes(disk.free)} of ${formatBytes(disk.total)} free`
-        );
-    }
-
     function render() {
         const shown = shownItems();
         list.replaceChildren(...shown.map(renderItem));
@@ -158,11 +123,8 @@
         const shownSelected = shown.filter((item) => selected.has(item.id)).length;
         selectAll.disabled = shown.length === 0;
         selectAll.textContent = shown.length > 0 && shownSelected === shown.length ? 'Deselect All' : 'Select All';
-        const selectedBytes = items.filter((item) => selected.has(item.id)).reduce((sum, item) => sum + item.size_bytes, 0);
         deleteSelected.disabled = selected.size === 0;
-        deleteSelected.textContent = selected.size
-            ? `Delete Selected (${selected.size} · ${formatBytes(selectedBytes)})`
-            : 'Delete Selected';
+        deleteSelected.textContent = selected.size ? `Delete Selected (${selected.size})` : 'Delete Selected';
 
         const noun = items.length === 1 ? 'clip' : 'clips';
         count.textContent = items.length
@@ -172,7 +134,6 @@
             : 'No clips';
         empty.hidden = items.length > 0;
         noResults.hidden = items.length === 0 || shown.length > 0;
-        renderDisk();
     }
 
     async function load() {
@@ -180,13 +141,6 @@
             const response = await fetch('/api/clips', { cache: 'no-store' });
             const data = await response.json();
             items = data.clips || [];
-            const number = (value) => (Number.isFinite(value) ? value : null);
-            disk = {
-                clips: data.total_bytes || 0,
-                total: number(data.disk_total_bytes),
-                used: number(data.disk_used_bytes),
-                free: number(data.disk_free_bytes),
-            };
             if (data.error) showStatus(data.error, true);
             render();
         } catch (error) {
@@ -296,9 +250,7 @@
     async function trashItems(ids) {
         const chosen = items.filter((item) => ids.includes(item.id));
         if (!chosen.length) return;
-        const bytes = chosen.reduce((sum, item) => sum + item.size_bytes, 0);
         $('trashModalTitle').textContent = chosen.length === 1 ? 'Move this clip to the trash?' : `Move ${chosen.length} clips to the trash?`;
-        $('trashModalMessage').textContent = `This frees ${formatBytes(bytes)}.`;
         const preview = chosen.slice(0, 8).map((item) => element('li', '', item.sentence.replace(/\s+/g, ' ')));
         if (chosen.length > 8) preview.push(element('li', '', `…and ${chosen.length - 8} more`));
         $('trashModalList').replaceChildren(...preview);

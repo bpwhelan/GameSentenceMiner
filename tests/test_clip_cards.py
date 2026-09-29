@@ -1,5 +1,6 @@
 import json
 import os
+from concurrent.futures import Future
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -32,7 +33,7 @@ def _config(output_folder="/out"):
             reuse_audio_for_same_selected_lines_different_mined_line=True,
             reuse_screenshot_for_same_selected_lines_different_mined_line=False,
         ),
-        ai=SimpleNamespace(anki_field="Translation", provider="gemini"),
+        ai=SimpleNamespace(anki_field="Translation", provider="gemini", add_to_anki=False),
         paths=SimpleNamespace(output_folder=output_folder),
         obs=SimpleNamespace(get_game_from_scene=False),
         screenshot=SimpleNamespace(animated=False),
@@ -42,7 +43,7 @@ def _config(output_folder="/out"):
 @pytest.fixture
 def config(monkeypatch):
     cfg = _config()
-    for module in (text_log, clip_cards, anki):
+    for module in (text_log, clips, clip_cards, anki):
         monkeypatch.setattr(module, "get_config", lambda: cfg)
     return cfg
 
@@ -84,7 +85,7 @@ def _write_saved(root, name, entries, end_seconds, game="FFVII"):
 
 @pytest.fixture
 def clips_root(tmp_path, monkeypatch):
-    monkeypatch.setattr(clips, "get_clips_root", lambda output_folder=None: str(tmp_path))
+    monkeypatch.setattr(clips, "get_clips_root", lambda: str(tmp_path))
     monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
     monkeypatch.setattr(anki.gsm_state, "replay_buffer_length", 300, raising=False)
     return tmp_path
@@ -95,7 +96,8 @@ def test_new_card_goes_to_the_clip_when_no_live_line_matches(config, clips_root,
     live = GameLine(id="live", text="全く関係のない今の台詞", time=datetime.now(), prev=None, next=None)
     monkeypatch.setattr(clip_cards, "get_all_lines", lambda: [live])
 
-    clip, line = clip_cards.match_new_card(FakeCard("心当たりはねえのか<b>この声</b>の主"))
+    line = clip_cards.match_new_card(FakeCard("心当たりはねえのか<b>この声</b>の主"))
+    clip = line.clip
 
     assert line.id == "s" and os.path.basename(clip.folder) == "a"
 
@@ -125,6 +127,7 @@ def test_overlay_scan_line_and_overlay_cards_stay_with_the_live_flow(config, cli
 def test_no_clip_matching_without_an_output_folder(monkeypatch):
     cfg = _config(output_folder="")
     monkeypatch.setattr(clip_cards, "get_config", lambda: cfg)
+    monkeypatch.setattr(clips, "get_config", lambda: cfg)
     monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
     monkeypatch.setattr(clip_cards, "get_all_lines", lambda: [])
 
@@ -143,14 +146,14 @@ def _live_flow(monkeypatch, selected=()):
     )
     monkeypatch.setattr(anki, "find_anki_field_mismatch", lambda *a, **k: None)
     monkeypatch.setattr(anki, "queue_card_for_processing", lambda *a, **k: calls["queued"].append(a))
-    monkeypatch.setattr(clip_cards, "enrich_from_clip", lambda card, clip, line, **k: calls["clip"].append(line))
+    monkeypatch.setattr(clip_cards, "queue_clip_card", lambda card, line, **k: calls["clip"].append(line))
     return calls
 
 
 def test_update_single_card_hands_clip_cards_to_the_clip_flow(config, monkeypatch):
     calls = _live_flow(monkeypatch)
-    line = SimpleNamespace(id="s")
-    monkeypatch.setattr(clip_cards, "match_new_card", lambda card: (SimpleNamespace(folder="clip"), line))
+    line = GameLine(id="s", text="心当たり", time=BASE, prev=None, next=None)
+    monkeypatch.setattr(clip_cards, "match_new_card", lambda card: line)
 
     anki.update_single_card(FakeCard("心当たり"))
 
@@ -181,47 +184,72 @@ def test_live_flow_skips_notes_enriched_from_a_clip(config, monkeypatch):
 # --- running the Anki flow on a clip ------------------------------------
 
 
-def test_clip_job_uses_a_temporary_copy_and_records_the_card(config, tmp_path, monkeypatch):
+def _queue_clip_card(monkeypatch, tmp_path, clip, card, background_update_started=True):
+    temp_copy = tmp_path / "temp" / "clip_copy.mkv"
+    temp_copy.parent.mkdir(exist_ok=True)
+    monkeypatch.setattr(clip_cards, "make_unique_temp_file", lambda path: str(temp_copy))
+    seen = {}
+
+    def fake_queue(last_note, lines, line, **kwargs):
+        seen.update(last_note=last_note, lines=lines, line=line, **kwargs)
+        seen["mtime"] = os.path.getmtime(kwargs["replay_path"])
+        os.remove(kwargs["replay_path"])  # what "remove video" does after a live card
+        future = Future()
+        future.set_result(SimpleNamespace(background_update_started=background_update_started))
+        return future
+
+    monkeypatch.setattr(anki, "queue_card_for_processing", fake_queue)
+    clip_cards.queue_clip_card(card, clip.selected[0])
+    return seen, str(temp_copy)
+
+
+def test_clip_card_runs_the_anki_flow_on_a_copy_and_records_the_card(config, tmp_path, monkeypatch):
     folder = _write_saved(
         tmp_path, "a", [("p", "前", "previous", 10), ("s", "今", "selected", 15), ("n", "次", "next", 20)], 25
     )
     clip = clips.load_clip(str(folder))
-    temp = tmp_path / "temp"
-    temp.mkdir()
-    monkeypatch.setattr(clip_cards, "get_temporary_directory", lambda: str(temp))
-    seen = {}
-
-    def fake_process_replay(video_path, queued_job):
-        seen["video"] = video_path
-        seen["mtime"] = os.path.getmtime(video_path)
-        seen["job"] = queued_job
-        os.remove(video_path)  # what "remove video" does after a live card
-        return SimpleNamespace(background_update_started=True)
-
-    monkeypatch.setattr(clip_cards, "_process_replay", fake_process_replay)
     card = FakeCard("今", word="今")
 
-    clip_cards._process_clip_card(card, clip, clip.selected[0], rewrite=False)
+    seen, temp_copy = _queue_clip_card(monkeypatch, tmp_path, clip, card)
 
-    assert seen["video"] != clip.clip_path and os.path.dirname(seen["video"]) == str(temp)
+    assert seen["replay_path"] == temp_copy
     assert seen["mtime"] == pytest.approx(clip.clip_end_time.timestamp(), abs=0.01)
-    last_note, creation_time, selected, mined_line, *rest = seen["job"]
-    assert (last_note, creation_time, selected, mined_line.id) == (card, clip.clip_end_time, [], "s")
+    assert (seen["last_note"], seen["lines"], seen["line"].id) == (card, [], "s")
+    assert seen["created_at"] == clip.clip_end_time
     assert os.path.isfile(clip.clip_path)
     assert [c["note_id"] for c in clips.read_manifest(str(folder))["cards"]] == [42]
 
 
-def test_cancelled_clip_job_records_nothing(config, tmp_path, monkeypatch):
+def test_cancelled_clip_card_records_nothing(config, tmp_path, monkeypatch):
     folder = _write_saved(tmp_path, "a", [("s", "今", "selected", 15)], 25)
     clip = clips.load_clip(str(folder))
-    monkeypatch.setattr(clip_cards, "get_temporary_directory", lambda: str(tmp_path))
-    monkeypatch.setattr(
-        clip_cards, "_process_replay", lambda v, queued_job: SimpleNamespace(background_update_started=False)
-    )
 
-    clip_cards._process_clip_card(FakeCard("今"), clip, clip.selected[0], rewrite=False)
+    _queue_clip_card(monkeypatch, tmp_path, clip, FakeCard("今"), background_update_started=False)
 
     assert "cards" not in clips.read_manifest(str(folder))
+
+
+def test_a_given_replay_is_processed_instead_of_saving_the_obs_buffer(config, monkeypatch):
+    from GameSentenceMiner import replay_handler
+
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(reset_checked_lines=lambda: None),
+    )
+    monkeypatch.setattr(anki.obs, "save_replay_buffer", lambda: pytest.fail("saved the OBS buffer"))
+    monkeypatch.setattr(anki, "card_queue", [])
+    submitted = []
+    monkeypatch.setattr(
+        replay_handler, "process_replay_file", lambda path, job: submitted.append((path, job)) or "future"
+    )
+    line = GameLine(id="s", text="今", time=BASE, prev=None, next=None)
+
+    result = anki.queue_card_for_processing(FakeCard("今"), [], line, replay_path="/clip.mkv", created_at=BASE)
+
+    ((path, job),) = submitted
+    assert (result, path, job[1], job[3]) == ("future", "/clip.mkv", BASE, line)
+    assert anki.card_queue == []
 
 
 def test_rewrite_treats_the_card_as_freshly_created_from_the_clip(config, tmp_path):
@@ -277,7 +305,7 @@ def test_enrich_check_warns_about_mismatch_existing_media_and_pending_live_work(
 
 def test_tags_and_game_field_use_the_clip_game(config, monkeypatch):
     monkeypatch.setattr(anki, "get_current_game", lambda *a, **k: "Live game")
-    clip_line = SimpleNamespace(clip_game="FFVII Rebirth")
+    clip_line = SimpleNamespace(clip=SimpleNamespace(game="FFVII Rebirth"))
 
     assert anki._prepare_anki_tags(clip_line) == ["FFVIIRebirth"]
     assert anki._prepare_anki_tags() == ["Livegame"]
@@ -296,7 +324,7 @@ def test_ai_translation_uses_the_clip_neighbours_as_context(config, monkeypatch)
 
     monkeypatch.setattr(anki, "_get_ai_prompt_result", lambda: fake_prompt)
     context = [SimpleNamespace(text="前"), SimpleNamespace(text="今")]
-    line = SimpleNamespace(clip_context_lines=context, clip_game="FFVII", translation="")
+    line = SimpleNamespace(clip=SimpleNamespace(lines=context, game="FFVII"), translation="")
 
     assert anki.prefetch_ai_translation("今", line) == "translation"
     assert captured == {"lines": context, "game": "FFVII"}

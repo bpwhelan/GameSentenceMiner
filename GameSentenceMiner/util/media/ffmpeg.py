@@ -1484,12 +1484,9 @@ def extract_audio_without_pauses(video_path, output_audio, recording_end_time=No
             logger.debug(f"{len(gaps)} game pause(s) in the replay, but no matching silence to remove.")
             return None
 
+        spec = supported_formats[get_config().audio.extension]
         encode = ffmpeg_base_command_list + ["-f", "f32le", "-ar", str(sample_rate), "-ac", str(channels), "-i", "-"]
-        if output_audio.endswith(".wav"):  # lossless, for callers that encode it again
-            encode += ["-c:a", "pcm_s16le", output_audio]
-        else:
-            spec = supported_formats[get_config().audio.extension]
-            encode += ["-c:a", spec["codec"], "-f", spec["format"], output_audio]
+        encode += ["-c:a", spec["codec"], "-f", spec["format"], output_audio]
         with subprocess.Popen(encode, stdin=subprocess.PIPE) as proc:
             for piece in pieces:
                 proc.stdin.write(np.ascontiguousarray(piece).data)

@@ -35,7 +35,7 @@ def _write_saved(root, day, name, text, seconds, cards=None):
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(clips_api, "_clips_root", lambda: str(tmp_path))
+    monkeypatch.setattr(clips, "get_clips_root", lambda: str(tmp_path))
     app = flask.Flask(__name__)
     clips_api.register_clips_api_routes(app)
     return app.test_client()
@@ -58,19 +58,8 @@ def test_ids_outside_the_clips_folder_are_rejected(client, tmp_path):
     (tmp_path.parent / "outside").mkdir(exist_ok=True)
 
     for bad_id in ("../outside", "/etc", "2026-09-27/../../outside", ""):
-        assert client.delete("/api/clips", query_string={"id": bad_id}).status_code == 404
+        assert client.post("/api/clips/trash", json={"ids": [bad_id]}).get_json()["trashed"] == []
         assert client.get("/api/clips/audio", query_string={"id": bad_id}).status_code == 404
-
-
-def test_delete_sends_the_folder_to_the_trash(client, tmp_path, monkeypatch):
-    folder = _write_saved(tmp_path, "2026-09-27", "a", "行", 10)
-    trashed = []
-    monkeypatch.setattr(clips_api, "send2trash", trashed.append)
-
-    response = client.delete("/api/clips", query_string={"id": "2026-09-27/a"})
-
-    assert response.status_code == 200
-    assert trashed == [str(folder)]
 
 
 def test_audio_is_the_card_pipeline_preview_served_as_wav(client, tmp_path, monkeypatch):
@@ -89,13 +78,14 @@ def test_audio_is_the_card_pipeline_preview_served_as_wav(client, tmp_path, monk
 
     first = client.get("/api/clips/audio", query_string={"id": "2026-09-27/a"})
     first.close()
-    second = client.get("/api/clips/audio", query_string={"id": "2026-09-27/a"})
+    second = client.get("/api/clips/audio", query_string={"id": "2026-09-27/a"}).get_data()
+    previews[0].unlink()  # temp was wiped
+    third = client.get("/api/clips/audio", query_string={"id": "2026-09-27/a"}).get_data()
 
     assert (first.status_code, first.mimetype) == (200, "audio/wav")
-    assert second.data == b"RIFF1"
+    # Clips never change, so a preview is extracted once and replayed from temp.
+    assert (second, third) == (b"RIFF0", b"RIFF1")
     assert loaded == [str(folder)] * 2
-    # A clip keeps only its latest preview in temp.
-    assert not previews[0].exists() and previews[1].exists()
 
 
 def test_audio_failure_is_reported(client, tmp_path, monkeypatch):
@@ -183,7 +173,8 @@ def _anki(monkeypatch, fields, note_id=42, media=None):
     import base64
 
     media = media or {}
-    monkeypatch.setattr(anki, "get_last_anki_card", lambda: SimpleNamespace(noteId=note_id))
+    card = SimpleNamespace(noteId=note_id, has_field=fields.__contains__, get_field=fields.__getitem__)
+    monkeypatch.setattr(anki, "get_last_anki_card", lambda: card)
     monkeypatch.setattr(
         clips_api,
         "get_config",
@@ -194,9 +185,6 @@ def _anki(monkeypatch, fields, note_id=42, media=None):
     )
 
     def fake_invoke(action, **params):
-        if action == "notesInfo":
-            assert params["notes"] == [note_id]
-            return [{"noteId": note_id, "fields": {k: {"value": v} for k, v in fields.items()}}]
         if action == "retrieveMediaFile":
             data = media.get(params["filename"])
             return base64.b64encode(data).decode() if data is not None else False
@@ -226,29 +214,6 @@ def test_card_media_only_serves_the_latest_card_and_existing_media(client, monke
     assert client.get("/api/clips/card-media", query_string={"note_id": 42, "kind": "audio"}).status_code == 404
     assert client.get("/api/clips/card-media", query_string={"note_id": 42, "kind": "picture"}).status_code == 404
     assert client.get("/api/clips/card-media", query_string={"note_id": 42, "kind": "video"}).status_code == 404
-
-
-def test_list_reports_disk_space_per_line_and_in_total(client, tmp_path, monkeypatch):
-    small = _write_saved(tmp_path, "2026-09-27", "small", "短い", 10)
-    big = _write_saved(tmp_path, "2026-09-27", "big", "長い", 20)
-    (small / "clip.mkv").write_bytes(b"x" * 1000)
-    (big / "clip.mkv").write_bytes(b"x" * 5000)
-    monkeypatch.setattr(
-        clips_api.shutil,
-        "disk_usage",
-        lambda path: SimpleNamespace(total=999999999, used=876543210, free=123456789),
-    )
-
-    data = client.get("/api/clips").get_json()
-
-    sizes = {item["id"]: item["size_bytes"] for item in data["clips"]}
-    manifest_bytes = (small / clips.MANIFEST_NAME).stat().st_size
-    assert sizes["2026-09-27/small"] == 1000 + manifest_bytes
-    assert sizes["2026-09-27/big"] == 5000 + (big / clips.MANIFEST_NAME).stat().st_size
-    assert data["total_bytes"] == sum(sizes.values())
-    assert data["disk_free_bytes"] == 123456789
-    assert data["disk_total_bytes"] == 999999999
-    assert data["disk_used_bytes"] == 876543210
 
 
 def test_batch_trash_moves_every_valid_line_and_reports_the_rest(client, tmp_path, monkeypatch):

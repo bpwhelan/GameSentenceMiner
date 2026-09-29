@@ -151,6 +151,11 @@ def _make_replay(path, duration=40, keyframe_interval=3):
     return ffmpeg.get_video_duration(str(path))
 
 
+def _end_replay_at(replay, end_time):
+    """OBS replays end at their modification time."""
+    os.utime(replay, (end_time.timestamp(), end_time.timestamp()))
+
+
 def _audio(path, start, seconds=2.0):
     raw = subprocess.run(
         ["ffmpeg", "-v", "error", "-ss", str(start), "-i", str(path), "-t", str(seconds)]
@@ -166,10 +171,10 @@ def test_clip_is_shaped_like_an_obs_replay(tmp_path):
     # OBS replays can have keyframes ~17s apart, so the copy starts well before the requested time.
     replay = tmp_path / "Replay 2026-09-27 12-01-30.mkv"
     length = _make_replay(replay, duration=90, keyframe_interval=17)
-    replay_end = BASE + timedelta(seconds=length)
+    _end_replay_at(replay, BASE + timedelta(seconds=length))
     prev, line, nxt = _chain(("p", "前の行", 44), ("l", "保存する行", 50), ("n", "次の行", 54))
 
-    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"), game="Test Game", replay_end_time=replay_end)
+    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"), game="Test Game")
 
     manifest = clips.read_manifest(folder)
     clip = os.path.join(folder, manifest["clip"]["file"])
@@ -193,15 +198,10 @@ def test_clip_is_shaped_like_an_obs_replay(tmp_path):
 def test_manifest_records_selected_and_context_lines(tmp_path):
     replay = tmp_path / "replay.mkv"
     length = _make_replay(replay)
+    _end_replay_at(replay, BASE + timedelta(seconds=length))
     _, first, second, _ = _chain(("p", "前", 12), ("a", "一", 16), ("b", "二", 19), ("n", "次", 23))
 
-    folder = clips.save_clip(
-        str(replay),
-        [second, first],
-        str(tmp_path / "Saved"),
-        game="Test Game",
-        replay_end_time=BASE + timedelta(seconds=length),
-    )
+    folder = clips.save_clip(str(replay), [second, first], str(tmp_path / "Saved"), game="Test Game")
 
     manifest = clips.read_manifest(folder)
     assert manifest["version"] == clips.MANIFEST_VERSION
@@ -223,15 +223,11 @@ def test_manifest_records_selected_and_context_lines(tmp_path):
 def test_line_older_than_the_replay_is_refused(tmp_path):
     replay = tmp_path / "replay.mkv"
     length = _make_replay(replay, duration=10)
+    _end_replay_at(replay, BASE + timedelta(seconds=length + 30))
     (line,) = _chain(("l", "古い", 0))
 
     with pytest.raises(clips.LineOutsideReplayError):
-        clips.save_clip(
-            str(replay),
-            [line],
-            str(tmp_path / "Saved"),
-            replay_end_time=BASE + timedelta(seconds=length + 30),
-        )
+        clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
 
     assert not (tmp_path / "Saved").exists()
 
@@ -248,12 +244,12 @@ def test_saving_the_same_line_again_reuses_its_folder(tmp_path):
     length = _make_replay(replay)
     _, line, _ = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
     line.first_seen_time = line.time - timedelta(milliseconds=250)
-    kwargs = {"replay_end_time": BASE + timedelta(seconds=length)}
+    _end_replay_at(replay, BASE + timedelta(seconds=length))
 
-    first = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"), **kwargs)
+    first = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
     line.text = "今（改訂）"
     line.time += timedelta(seconds=1)  # a later revision moves `time`, not `first_seen_time`
-    second = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"), **kwargs)
+    second = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
 
     assert second == first
     assert os.path.basename(first).startswith("12-00-15-750_")
@@ -334,27 +330,26 @@ def test_clips_keep_their_neighbours_as_translation_context(tmp_path):
     clip = clips.load_clip(str(folder))
 
     line = clip.selected[0]
-    assert line.clip_context_lines == clip.lines
-    assert line.clip_context_lines[line.index] is line
+    assert line.clip is clip
+    assert clip.lines[line.index] is line
 
 
 def test_card_is_matched_to_the_clip_with_the_same_ranking(tmp_path, matcher_config):
     _write_saved(tmp_path, "a", [("a", "心当たりはねえのかこの声の主", "selected", 10)], 15)
     _write_saved(tmp_path, "b", [("b", "何度も同じ事を言わせるな", "selected", 30)], 35)
 
-    match = clips.match_card_to_clip(_card("何度も<b>同じ事</b>を言わせるな", "同じ"), str(tmp_path))
+    line = clips.match_card_to_clip(_card("何度も<b>同じ事</b>を言わせるな", "同じ"), str(tmp_path))
 
-    clip, line = match
-    assert line.id == "b" and os.path.basename(clip.folder) == "b"
+    assert line.id == "b" and os.path.basename(line.clip.folder) == "b"
 
 
 def test_card_matching_prefers_the_newest_clip_on_a_tie(tmp_path, matcher_config):
     _write_saved(tmp_path, "old", [("old", "同じ台詞です", "selected", 10)], 15)
     _write_saved(tmp_path, "new", [("new", "同じ台詞です", "selected", 60)], 65)
 
-    clip, _ = clips.match_card_to_clip(_card("同じ台詞です"), str(tmp_path))
+    line = clips.match_card_to_clip(_card("同じ台詞です"), str(tmp_path))
 
-    assert os.path.basename(clip.folder) == "new"
+    assert os.path.basename(line.clip.folder) == "new"
 
 
 def test_no_clip_match_returns_none_and_unreadable_folders_are_skipped(tmp_path, matcher_config):
@@ -392,10 +387,9 @@ def audio_offsets(monkeypatch):
 def _saved_clip(tmp_path):
     replay = tmp_path / "replay.mkv"
     length = _make_replay(replay)
+    _end_replay_at(replay, BASE + timedelta(seconds=length))
     _, line, nxt = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
-    folder = clips.save_clip(
-        str(replay), [line], str(tmp_path / "Saved"), replay_end_time=BASE + timedelta(seconds=length)
-    )
+    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
     return clips.load_clip(folder), line, nxt
 
 
@@ -452,23 +446,20 @@ def test_clip_keeps_the_game_pauses_it_contains(tmp_path, monkeypatch):
             seen["window"] = (start, end)
             return [(start + 1.0, start + 2.5)]
 
-        def remember_pauses(self, spans):
-            seen["remembered"] = [list(span) for span in spans]
-
     monkeypatch.setattr(clips, "pause_history", History())
 
-    folder = clips.save_clip(
-        str(replay), [line], str(tmp_path / "Saved"), replay_end_time=BASE + timedelta(seconds=length)
-    )
+    _end_replay_at(replay, BASE + timedelta(seconds=length))
+    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
     manifest = clips.read_manifest(folder)
     start, end = seen["window"]
     assert end == pytest.approx(datetime.fromisoformat(manifest["clip"]["end_time"]).timestamp())
     assert end - start == pytest.approx(manifest["clip"]["duration"])
     assert manifest["pauses"] == [[start + 1.0, start + 2.5]]
 
-    clips.load_clip(folder)
-    assert seen["remembered"] == manifest["pauses"]
 
-
-def test_clips_live_in_the_clips_folder_of_the_output_folder():
-    assert clips.get_clips_root("/out") == os.path.join("/out", "Clips")
+def test_clips_live_in_the_clips_folder_of_the_output_folder(monkeypatch):
+    paths = SimpleNamespace(output_folder="/out")
+    monkeypatch.setattr(clips, "get_config", lambda: SimpleNamespace(paths=paths))
+    assert clips.get_clips_root() == os.path.join("/out", "Clips")
+    paths.output_folder = ""
+    assert clips.get_clips_root() == ""

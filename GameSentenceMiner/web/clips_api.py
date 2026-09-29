@@ -1,11 +1,9 @@
 """API behind the Clips to mine page: list clips, play their audio, enrich a card, move to trash."""
 
 import base64
-import contextlib
 import mimetypes
 import os
 import re
-import shutil
 
 from flask import Response, jsonify, request, send_file
 from send2trash import send2trash
@@ -14,18 +12,13 @@ from GameSentenceMiner import anki, clip_cards
 from GameSentenceMiner.util import clips
 from GameSentenceMiner.util.config.configuration import get_config, logger
 
-# Latest preview audio per clip folder, so replays of it don't pile up in temp.
+# Preview audio per clip folder; clips never change, and temp is wiped at startup.
 _preview_audio: dict[str, str] = {}
-
-
-def _clips_root() -> str:
-    output_folder = get_config().paths.output_folder
-    return clips.get_clips_root(output_folder) if output_folder else ""
 
 
 def _resolve(clip_id: str | None) -> str | None:
     """Map an id like "2026-09-28/00-21-27-412_text" to its folder, refusing anything outside Clips/."""
-    root = _clips_root()
+    root = clips.get_clips_root()
     if not root or not clip_id or os.path.isabs(clip_id):
         return None
     root = os.path.realpath(root)
@@ -33,14 +26,6 @@ def _resolve(clip_id: str | None) -> str | None:
     if folder == root or os.path.commonpath([root, folder]) != root:
         return None
     return folder if os.path.isfile(os.path.join(folder, clips.MANIFEST_NAME)) else None
-
-
-def _folder_size(folder: str) -> int:
-    total = 0
-    for entry in os.scandir(folder):
-        if entry.is_file(follow_symlinks=False):
-            total += entry.stat(follow_symlinks=False).st_size
-    return total
 
 
 def _summary(clip: clips.Clip, root: str) -> dict:
@@ -52,7 +37,6 @@ def _summary(clip: clips.Clip, root: str) -> dict:
         "line_time": first.time.isoformat() if first else "",
         "saved_at": clip.manifest.get("saved_at", ""),
         "cards": clip.manifest.get("cards", []),
-        "size_bytes": _folder_size(clip.folder),
         "lines": [{"text": entry["text"], "role": entry.get("role", "")} for entry in clip.manifest["lines"]],
     }
 
@@ -66,24 +50,12 @@ _CARD_MEDIA_PATTERNS = {
 def register_clips_api_routes(app):
     @app.route("/api/clips", methods=["GET"])
     def clips_list():
-        root = _clips_root()
+        root = clips.get_clips_root()
         if not root:
             return jsonify({"clips": [], "error": "No output folder is set in the Paths settings."})
         items = [_summary(clip, os.path.realpath(root)) for clip in clips.iter_clips(root)]
         items.sort(key=lambda item: item["line_time"], reverse=True)
-        try:
-            disk = shutil.disk_usage(root if os.path.isdir(root) else os.path.dirname(root))
-        except OSError:
-            disk = None
-        return jsonify(
-            {
-                "clips": items,
-                "total_bytes": sum(item["size_bytes"] for item in items),
-                "disk_total_bytes": disk.total if disk else None,
-                "disk_used_bytes": disk.used if disk else None,
-                "disk_free_bytes": disk.free if disk else None,
-            }
-        )
+        return jsonify({"clips": items})
 
     def _trash(clip_id: str) -> str | None:
         """Move one clip to the system trash; return an error message, or None on success."""
@@ -96,14 +68,6 @@ def register_clips_api_routes(app):
             logger.exception(f"Failed to move clip to the trash: {folder}")
             return f"Could not move it to the trash: {e}"
         return None
-
-    @app.route("/api/clips", methods=["DELETE"])
-    def clips_delete():
-        clip_id = request.args.get("id")
-        error = _trash(clip_id)
-        if error:
-            return jsonify({"error": error}), 404 if error == "Clip not found." else 500
-        return jsonify({"trashed": clip_id})
 
     @app.route("/api/clips/trash", methods=["POST"])
     def clips_trash_many():
@@ -124,15 +88,12 @@ def register_clips_api_routes(app):
         folder = _resolve(request.args.get("id"))
         if not folder:
             return jsonify({"error": "Clip not found."}), 404
-        audio = clip_cards.clip_line_audio(clips.load_clip(folder))
+        audio = _preview_audio.get(folder)
         if not audio or not os.path.isfile(audio):
-            return jsonify({"error": "Could not extract the line's audio."}), 500
-        # One preview file per clip; one still being streamed (Windows) waits for the startup temp wipe.
-        previous = _preview_audio.pop(folder, None)
-        if previous and previous != audio:
-            with contextlib.suppress(OSError):
-                os.remove(previous)
-        _preview_audio[folder] = audio
+            audio = clip_cards.clip_line_audio(clips.load_clip(folder))
+            if not audio or not os.path.isfile(audio):
+                return jsonify({"error": "Could not extract the line's audio."}), 500
+            _preview_audio[folder] = audio
         return send_file(audio, mimetype="audio/wav", conditional=True)
 
     @app.route("/api/clips/card-media", methods=["GET"])
@@ -153,8 +114,7 @@ def register_clips_api_routes(app):
                 return jsonify({"error": "Only the latest card's media can be shown."}), 404
             config = get_config()
             field = config.anki.sentence_audio_field if kind == "audio" else config.anki.picture_field
-            note = anki.invoke("notesInfo", notes=[note_id])[0]
-            match = pattern.search(note["fields"].get(field, {}).get("value", "") or "")
+            match = pattern.search(latest.get_field(field) if latest.has_field(field) else "")
             data = anki.invoke("retrieveMediaFile", filename=match.group(1)) if match else False
         except Exception as e:
             logger.warning(f"Could not fetch the latest card's {kind} from Anki: {e}")
