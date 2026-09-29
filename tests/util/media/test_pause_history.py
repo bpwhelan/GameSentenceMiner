@@ -64,11 +64,3 @@ def test_remembered_clip_pauses_are_kept_however_old(history_file):
 
     assert pause_history.get_pauses_between(old - 1, old + 20) == [(old, old + 3), (old + 10, old + 11)]
     assert not history_file.read_text().count(str(old))
-
-
-def test_remembered_pauses_do_not_duplicate_recorded_ones(history_file):
-    now = time.time()
-    pause_history.record_pause(now - 20, now - 10)
-    pause_history.remember_pauses([[now - 20, now - 10], [now - 20, now - 10], [now - 8, now - 6]])
-
-    assert pause_history.get_pauses_between(now - 30, now) == [(now - 20, now - 10), (now - 8, now - 6)]

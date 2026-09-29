@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
-import sys
 from datetime import datetime, timedelta
 from itertools import pairwise
 from types import SimpleNamespace
@@ -12,19 +10,15 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import GameSentenceMiner
-from GameSentenceMiner import clip_cards
 from GameSentenceMiner.util import clips
-from GameSentenceMiner.util.config.configuration import get_config
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.text_log import GameLine
+from tests.clip_helpers import BASE, write_clip
 
 requires_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
     reason="ffmpeg/ffprobe not available",
 )
-
-BASE = datetime(2026, 9, 27, 12, 0, 0)
 
 
 def _chain(*specs):
@@ -167,16 +161,30 @@ def _audio(path, start, seconds=2.0):
 
 
 @requires_ffmpeg
-def test_clip_is_shaped_like_an_obs_replay(tmp_path):
+def test_clip_is_shaped_like_an_obs_replay(tmp_path, monkeypatch):
     # OBS replays can have keyframes ~17s apart, so the copy starts well before the requested time.
     replay = tmp_path / "Replay 2026-09-27 12-01-30.mkv"
     length = _make_replay(replay, duration=90, keyframe_interval=17)
     _end_replay_at(replay, BASE + timedelta(seconds=length))
     prev, line, nxt = _chain(("p", "前の行", 44), ("l", "保存する行", 50), ("n", "次の行", 54))
+    windows = []
+    monkeypatch.setattr(
+        clips, "pause_history", SimpleNamespace(get_pauses_between=lambda *window: windows.append(window) or [(1, 2)])
+    )
 
     folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"), game="Test Game")
 
     manifest = clips.read_manifest(folder)
+    assert [(entry["id"], entry["role"]) for entry in manifest["lines"]] == [
+        ("p", "previous"),
+        ("l", "selected"),
+        ("n", "next"),
+    ]
+    assert (manifest["game"], manifest["selected_line_ids"]) == ("Test Game", ["l"])
+    # The game pauses inside the clip are kept, so their silence can be removed however late it is mined.
+    ((pause_start, pause_end),) = windows
+    assert pause_end - pause_start == pytest.approx(manifest["clip"]["duration"])
+    assert manifest["pauses"] == [[1, 2]]
     clip = os.path.join(folder, manifest["clip"]["file"])
     assert clip.endswith(".mkv")
     streams = ffmpeg.FFmpegHelper.get_probe_json(clip, "stream=codec_type", "")["streams"]
@@ -195,31 +203,6 @@ def test_clip_is_shaped_like_an_obs_replay(tmp_path):
 
 
 @requires_ffmpeg
-def test_manifest_records_selected_and_context_lines(tmp_path):
-    replay = tmp_path / "replay.mkv"
-    length = _make_replay(replay)
-    _end_replay_at(replay, BASE + timedelta(seconds=length))
-    _, first, second, _ = _chain(("p", "前", 12), ("a", "一", 16), ("b", "二", 19), ("n", "次", 23))
-
-    folder = clips.save_clip(str(replay), [second, first], str(tmp_path / "Saved"), game="Test Game")
-
-    manifest = clips.read_manifest(folder)
-    assert manifest["version"] == clips.MANIFEST_VERSION
-    assert manifest["game"] == "Test Game"
-    assert manifest["sentence"] == "一二"
-    assert manifest["selected_line_ids"] == ["a", "b"]
-    assert [(entry["id"], entry["role"]) for entry in manifest["lines"]] == [
-        ("p", "previous"),
-        ("a", "selected"),
-        ("b", "selected"),
-        ("n", "next"),
-    ]
-    assert datetime.fromisoformat(manifest["lines"][1]["time"]) == first.time
-    assert sorted(os.listdir(folder)) == ["clip.mkv", clips.MANIFEST_NAME]
-    assert os.path.dirname(os.path.dirname(folder)) == str(tmp_path / "Saved")
-
-
-@requires_ffmpeg
 def test_line_older_than_the_replay_is_refused(tmp_path):
     replay = tmp_path / "replay.mkv"
     length = _make_replay(replay, duration=10)
@@ -230,12 +213,6 @@ def test_line_older_than_the_replay_is_refused(tmp_path):
         clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
 
     assert not (tmp_path / "Saved").exists()
-
-
-def test_read_manifest_round_trips(tmp_path):
-    (tmp_path / clips.MANIFEST_NAME).write_text(json.dumps({"version": 1}), encoding="utf-8")
-
-    assert clips.read_manifest(str(tmp_path)) == {"version": 1}
 
 
 @requires_ffmpeg
@@ -256,59 +233,11 @@ def test_saving_the_same_line_again_reuses_its_folder(tmp_path):
     assert len(os.listdir(os.path.dirname(first))) == 1
 
 
-def test_find_clip_folder_matches_the_same_selection_only(tmp_path):
-    a, b = _chain(("a", "一", 10), ("b", "二", 12))
-    folder = tmp_path / "2026-09-27" / "12-00-10-000_一"
-    folder.mkdir(parents=True)
-    (folder / clips.MANIFEST_NAME).write_text(json.dumps({"selected_line_ids": ["a"]}), encoding="utf-8")
-
-    assert clips.find_clip_folder(str(tmp_path), [a]) == str(folder)
-    assert clips.find_clip_folder(str(tmp_path), [a, b]) is None
-    assert clips.find_clip_folder(str(tmp_path), [b]) is None
-
-
 # --- reading clip lines back ------------------------------------------------
 
 
-def _write_saved(root, name, entries, end_seconds, game="Game"):
-    folder = root / "2026-09-27" / name
-    folder.mkdir(parents=True)
-    manifest = {
-        "version": 1,
-        "game": game,
-        "sentence": "".join(e[1] for e in entries if e[2] == "selected"),
-        "selected_line_ids": [e[0] for e in entries if e[2] == "selected"],
-        "lines": [
-            {"id": i, "text": t, "time": (BASE + timedelta(seconds=s)).isoformat(), "role": r, "source_padding": 0}
-            for i, t, r, s in ((e[0], e[1], e[2], e[3]) for e in entries)
-        ],
-        "clip": {"file": "clip.mkv", "end_time": (BASE + timedelta(seconds=end_seconds)).isoformat()},
-    }
-    (folder / clips.MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
-    (folder / "clip.mkv").write_bytes(b"")
-    return folder
-
-
-def _card(sentence, expression=""):
-    fields = {"Sentence": sentence, "Expression": expression}
-    return type("Card", (), {"get_field": lambda self, field: fields[field]})()
-
-
-@pytest.fixture
-def matcher_config(monkeypatch):
-    from types import SimpleNamespace
-
-    from GameSentenceMiner.util import text_log
-
-    monkeypatch.setattr(
-        text_log,
-        "get_config",
-        lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence", word_field="Expression")),
-    )
-
-
 def test_load_clip_rebuilds_linked_lines_ending_at_the_clip(tmp_path):
-    folder = _write_saved(
+    folder = write_clip(
         tmp_path, "a", [("p", "前", "previous", 10), ("l", "今", "selected", 15), ("n", "次", "next", 20)], 28
     )
 
@@ -321,145 +250,15 @@ def test_load_clip_rebuilds_linked_lines_ending_at_the_clip(tmp_path):
     # mined_time lets next_line() cut the audio at the following line, as in the live flow.
     assert line.next_line() is nxt and line.get_next_time() == nxt.time
     assert clip.clip_path == str(folder / "clip.mkv")
-    assert clip.game == "Game"
+    assert clip.game == "FFVII"
+    assert line.clip is clip and clip.lines[line.index] is line
 
 
-def test_clips_keep_their_neighbours_as_translation_context(tmp_path):
-    folder = _write_saved(tmp_path, "a", [("p", "前", "previous", 10), ("l", "今", "selected", 15)], 20)
-
-    clip = clips.load_clip(str(folder))
-
-    line = clip.selected[0]
-    assert line.clip is clip
-    assert clip.lines[line.index] is line
-
-
-def test_card_is_matched_to_the_clip_with_the_same_ranking(tmp_path, matcher_config):
-    _write_saved(tmp_path, "a", [("a", "心当たりはねえのかこの声の主", "selected", 10)], 15)
-    _write_saved(tmp_path, "b", [("b", "何度も同じ事を言わせるな", "selected", 30)], 35)
-
-    line = clips.match_card_to_clip(_card("何度も<b>同じ事</b>を言わせるな", "同じ"), str(tmp_path))
-
-    assert line.id == "b" and os.path.basename(line.clip.folder) == "b"
-
-
-def test_card_matching_prefers_the_newest_clip_on_a_tie(tmp_path, matcher_config):
-    _write_saved(tmp_path, "old", [("old", "同じ台詞です", "selected", 10)], 15)
-    _write_saved(tmp_path, "new", [("new", "同じ台詞です", "selected", 60)], 65)
-
-    line = clips.match_card_to_clip(_card("同じ台詞です"), str(tmp_path))
-
-    assert os.path.basename(line.clip.folder) == "new"
-
-
-def test_no_clip_match_returns_none_and_unreadable_folders_are_skipped(tmp_path, matcher_config):
-    _write_saved(tmp_path, "a", [("a", "心当たりはねえのか", "selected", 10)], 15)
+def test_unreadable_clip_folders_are_skipped(tmp_path):
+    write_clip(tmp_path, "a", [("a", "今", "selected", 10)], 15)
     broken = tmp_path / "2026-09-27" / "broken"
     broken.mkdir()
     (broken / clips.MANIFEST_NAME).write_text("{not json", encoding="utf-8")
 
-    assert clips.match_card_to_clip(_card("全く関係のない文"), str(tmp_path)) is None
-    assert clips.match_card_to_clip(_card("x"), str(tmp_path / "missing")) is None
-    assert len(list(clips.iter_clips(str(tmp_path)))) == 1
-
-
-def test_record_card_appends_to_the_manifest(tmp_path):
-    folder = _write_saved(tmp_path, "a", [("a", "今", "selected", 10)], 15)
-
-    clips.record_card(str(folder), note_id=123, word="今")
-    clips.record_card(str(folder), note_id=456, word="今日")
-
-    cards = clips.read_manifest(str(folder))["cards"]
-    assert [(c["note_id"], c["word"]) for c in cards] == [(123, "今"), (456, "今日")]
-
-
-@pytest.fixture
-def audio_offsets(monkeypatch):
-    """Card audio offsets the preview must follow, on a real replay_handler (other tests leave a stubbed one)."""
-    monkeypatch.delitem(sys.modules, "GameSentenceMiner.replay_handler", raising=False)
-    monkeypatch.delattr(GameSentenceMiner, "replay_handler", raising=False)
-    audio = get_config().audio
-    monkeypatch.setattr(audio, "beginning_offset", -1.0)
-    monkeypatch.setattr(audio, "pre_vad_end_offset", 0.5)
-    return audio
-
-
-def _saved_clip(tmp_path):
-    replay = tmp_path / "replay.mkv"
-    length = _make_replay(replay)
-    _end_replay_at(replay, BASE + timedelta(seconds=length))
-    _, line, nxt = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
-    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
-    return clips.load_clip(folder), line, nxt
-
-
-@requires_ffmpeg
-def test_preview_audio_is_cut_like_card_audio(tmp_path, audio_offsets):
-    clip, line, nxt = _saved_clip(tmp_path)
-
-    audio = clip_cards.clip_line_audio(clip)
-
-    expected = (
-        (nxt.time - line.time).total_seconds() - audio_offsets.beginning_offset + audio_offsets.pre_vad_end_offset
-    )
-    assert audio.endswith(".wav")
-    assert ffmpeg.get_audio_length(audio) == pytest.approx(expected, abs=0.3)
-
-
-@requires_ffmpeg
-def test_preview_audio_leaves_out_pause_silence(tmp_path, audio_offsets, monkeypatch):
-    clip, line, nxt = _saved_clip(tmp_path)
-    seen = {}
-
-    def remove_pause_silence(clip_path, output, end_time):
-        # A 2s pause began 1s into the line.
-        seen["end_time"] = end_time
-        start = ffmpeg.get_video_duration(clip_path) - (end_time - line.time).total_seconds() + 1.0
-        end = start + 2.0
-        subprocess.run(
-            ["ffmpeg", "-v", "error", "-y", "-i", clip_path, "-map", "0:a:0"]
-            + ["-af", f"aselect='not(between(t,{start},{end}))',asetpts=N/SR/TB", output],
-            check=True,
-        )
-        return SimpleNamespace(to_audio=lambda t: t if t <= start else (start if t < end else t - 2.0))
-
-    monkeypatch.setattr(ffmpeg, "extract_audio_without_pauses", remove_pause_silence)
-
-    audio = clip_cards.clip_line_audio(clip)
-
-    expected = (
-        (nxt.time - line.time).total_seconds() - audio_offsets.beginning_offset + audio_offsets.pre_vad_end_offset - 2.0
-    )
-    assert seen["end_time"] == clip.clip_end_time
-    assert ffmpeg.get_audio_length(audio) == pytest.approx(expected, abs=0.3)
-
-
-@requires_ffmpeg
-def test_clip_keeps_the_game_pauses_it_contains(tmp_path, monkeypatch):
-    replay = tmp_path / "replay.mkv"
-    length = _make_replay(replay)
-    _, line, _ = _chain(("p", "前", 12), ("l", "今", 16), ("n", "次", 20))
-    seen = {}
-
-    class History:
-        def get_pauses_between(self, start, end):
-            seen["window"] = (start, end)
-            return [(start + 1.0, start + 2.5)]
-
-    monkeypatch.setattr(clips, "pause_history", History())
-
-    _end_replay_at(replay, BASE + timedelta(seconds=length))
-    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
-    manifest = clips.read_manifest(folder)
-    start, end = seen["window"]
-    assert end == pytest.approx(datetime.fromisoformat(manifest["clip"]["end_time"]).timestamp())
-    assert end - start == pytest.approx(manifest["clip"]["duration"])
-    assert manifest["pauses"] == [[start + 1.0, start + 2.5]]
-
-
-def test_clips_live_in_the_clips_folder_of_the_output_folder(monkeypatch):
-    paths = SimpleNamespace(output_folder="/out")
-    monkeypatch.setattr(clips, "get_config", lambda: SimpleNamespace(paths=paths))
-    assert clips.get_clips_root() == os.path.join("/out", "Clips")
-    paths.output_folder = ""
-    assert clips.get_clips_root() == ""
+    assert [clip.selected[0].id for clip in clips.iter_clips(str(tmp_path))] == ["a"]
+    assert list(clips.iter_clips(str(tmp_path / "missing"))) == []

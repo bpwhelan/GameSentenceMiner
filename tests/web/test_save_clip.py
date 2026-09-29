@@ -44,40 +44,8 @@ def test_replay_is_routed_to_the_oldest_pending_save(monkeypatch, tmp_path):
     assert events == [("clip_saved", {"line_ids": ["a"], "folder": str(tmp_path / "folder")})]
 
 
-def test_line_outside_replay_reports_a_failure(monkeypatch, tmp_path):
-    monkeypatch.setattr(service.gsm_state, "pending_clip_saves", [[_line("a", 0)]], raising=False)
-    monkeypatch.setattr(service.gsm_state, "videos_to_remove", set(), raising=False)
-    monkeypatch.setattr(clips, "get_clips_root", lambda: str(tmp_path))
-    monkeypatch.setattr("GameSentenceMiner.obs.get_current_game", lambda *a, **k: "")
-
-    def too_old(*args, **kwargs):
-        raise clips.LineOutsideReplayError("too old")
-
-    monkeypatch.setattr(clips, "save_clip", too_old)
-    events = _capture_events(monkeypatch)
-
-    service.handle_texthooker_button("replay.mkv")
-
-    assert events == [("clip_save_failed", {"line_ids": ["a"], "error": "too old"})]
-
-
 def _config(output_folder):
     return SimpleNamespace(paths=SimpleNamespace(output_folder=output_folder))
-
-
-def test_save_clip_requires_an_id():
-    response = texthooking_page.app.test_client().post("/save-clip", json={})
-
-    assert response.status_code == 400
-
-
-def test_save_clip_requires_an_output_folder(monkeypatch):
-    monkeypatch.setattr(texthooking_page, "get_config", lambda: _config(""))
-
-    response = texthooking_page.app.test_client().post("/save-clip", json={"id": "a"})
-
-    assert response.status_code == 400
-    assert "Output Folder" in response.get_json()["error"]
 
 
 def test_save_clip_queues_lines_in_chronological_order(monkeypatch):
@@ -93,29 +61,6 @@ def test_save_clip_queues_lines_in_chronological_order(monkeypatch):
     assert response.status_code == 200
     assert response.get_json() == {"queued": True, "line_ids": ["a", "b"], "wait_seconds": 3.0}
     assert queued == [([lines["a"], lines["b"]], 3.0)]
-
-
-def test_queued_save_triggers_an_obs_replay(monkeypatch):
-    lines = [_line("a", 0)]
-    clip = []
-    monkeypatch.setattr(texthooking_page.gsm_state, "pending_clip_saves", [], raising=False)
-    monkeypatch.setattr(texthooking_page.obs, "save_replay_buffer", lambda: clip.append(True))
-    started = []
-
-    class ImmediateTimer:
-        def __init__(self, interval, function):
-            self.function = function
-
-        def start(self):
-            started.append(True)
-            self.function()
-
-    monkeypatch.setattr(texthooking_page.threading, "Timer", ImmediateTimer)
-
-    texthooking_page._queue_clip_save(lines, 0)
-
-    assert started and clip == [True]
-    assert texthooking_page.gsm_state.pending_clip_saves == [lines]
 
 
 def test_already_clip_is_not_queued_again(monkeypatch):

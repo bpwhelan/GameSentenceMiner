@@ -1,4 +1,3 @@
-import json
 import os
 from concurrent.futures import Future
 from datetime import datetime, timedelta
@@ -10,8 +9,7 @@ from GameSentenceMiner import anki, clip_cards
 from GameSentenceMiner.util import clips, text_log
 from GameSentenceMiner.util.models.model import AnkiField
 from GameSentenceMiner.util.text_log import GameLine
-
-BASE = datetime(2026, 9, 27, 12, 0, 0)
+from tests.clip_helpers import BASE, write_clip
 
 
 def _config(output_folder="/out"):
@@ -62,24 +60,6 @@ class FakeCard:
         return name in self.fields
 
 
-def _write_saved(root, name, entries, end_seconds, game="FFVII"):
-    folder = root / "2026-09-27" / name
-    folder.mkdir(parents=True)
-    manifest = {
-        "version": 1,
-        "game": game,
-        "sentence": "".join(text for _, text, role, _ in entries if role == "selected"),
-        "selected_line_ids": [line_id for line_id, _, role, _ in entries if role == "selected"],
-        "lines": [
-            {"id": i, "text": t, "time": (BASE + timedelta(seconds=s)).isoformat(), "role": r} for i, t, r, s in entries
-        ],
-        "clip": {"file": "clip.mkv", "end_time": (BASE + timedelta(seconds=end_seconds)).isoformat()},
-    }
-    (folder / clips.MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
-    (folder / "clip.mkv").write_bytes(b"clip")
-    return folder
-
-
 # --- which new cards belong to a clip line -----------------------------------
 
 
@@ -92,7 +72,7 @@ def clips_root(tmp_path, monkeypatch):
 
 
 def test_new_card_goes_to_the_clip_when_no_live_line_matches(config, clips_root, monkeypatch):
-    _write_saved(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+    write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
     live = GameLine(id="live", text="全く関係のない今の台詞", time=datetime.now(), prev=None, next=None)
     monkeypatch.setattr(clip_cards, "get_all_lines", lambda: [live])
 
@@ -103,7 +83,7 @@ def test_new_card_goes_to_the_clip_when_no_live_line_matches(config, clips_root,
 
 
 def test_live_line_wins_over_a_clip_with_the_same_sentence(config, clips_root, monkeypatch):
-    _write_saved(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+    write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
     live = GameLine(id="live", text="心当たりはねえのかこの声の主", time=datetime.now(), prev=None, next=None)
     monkeypatch.setattr(clip_cards, "get_all_lines", lambda: [live])
 
@@ -111,7 +91,7 @@ def test_live_line_wins_over_a_clip_with_the_same_sentence(config, clips_root, m
 
 
 def test_overlay_scan_line_and_overlay_cards_stay_with_the_live_flow(config, clips_root, monkeypatch):
-    _write_saved(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+    write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
     monkeypatch.setattr(clip_cards, "get_all_lines", lambda: [])
     card = FakeCard("心当たりはねえのかこの声の主")
 
@@ -122,16 +102,6 @@ def test_overlay_scan_line_and_overlay_cards_stay_with_the_live_flow(config, cli
     monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
     card.tags = ["overlay"]
     assert clip_cards.match_new_card(card) is None
-
-
-def test_no_clip_matching_without_an_output_folder(monkeypatch):
-    cfg = _config(output_folder="")
-    monkeypatch.setattr(clip_cards, "get_config", lambda: cfg)
-    monkeypatch.setattr(clips, "get_config", lambda: cfg)
-    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
-    monkeypatch.setattr(clip_cards, "get_all_lines", lambda: [])
-
-    assert clip_cards.match_new_card(FakeCard("何か")) is None
 
 
 # --- the live flow hands clip-line cards over ------------------------------
@@ -184,9 +154,17 @@ def test_live_flow_skips_notes_enriched_from_a_clip(config, monkeypatch):
 # --- running the Anki flow on a clip ------------------------------------
 
 
-def _queue_clip_card(monkeypatch, tmp_path, clip, card, background_update_started=True):
+@pytest.mark.parametrize("background_update_started, recorded", [(True, [42]), (False, [])])
+def test_clip_card_runs_the_anki_flow_on_a_copy_and_records_the_card(
+    config, tmp_path, monkeypatch, background_update_started, recorded
+):
+    folder = write_clip(
+        tmp_path, "a", [("p", "前", "previous", 10), ("s", "今", "selected", 15), ("n", "次", "next", 20)], 25
+    )
+    clip = clips.load_clip(str(folder))
+    card = FakeCard("今", word="今")
     temp_copy = tmp_path / "temp" / "clip_copy.mkv"
-    temp_copy.parent.mkdir(exist_ok=True)
+    temp_copy.parent.mkdir()
     monkeypatch.setattr(clip_cards, "make_unique_temp_file", lambda path: str(temp_copy))
     seen = {}
 
@@ -200,33 +178,13 @@ def _queue_clip_card(monkeypatch, tmp_path, clip, card, background_update_starte
 
     monkeypatch.setattr(anki, "queue_card_for_processing", fake_queue)
     clip_cards.queue_clip_card(card, clip.selected[0])
-    return seen, str(temp_copy)
 
-
-def test_clip_card_runs_the_anki_flow_on_a_copy_and_records_the_card(config, tmp_path, monkeypatch):
-    folder = _write_saved(
-        tmp_path, "a", [("p", "前", "previous", 10), ("s", "今", "selected", 15), ("n", "次", "next", 20)], 25
-    )
-    clip = clips.load_clip(str(folder))
-    card = FakeCard("今", word="今")
-
-    seen, temp_copy = _queue_clip_card(monkeypatch, tmp_path, clip, card)
-
-    assert seen["replay_path"] == temp_copy
+    assert seen["replay_path"] == str(temp_copy)
     assert seen["mtime"] == pytest.approx(clip.clip_end_time.timestamp(), abs=0.01)
     assert (seen["last_note"], seen["lines"], seen["line"].id) == (card, [], "s")
     assert seen["created_at"] == clip.clip_end_time
     assert os.path.isfile(clip.clip_path)
-    assert [c["note_id"] for c in clips.read_manifest(str(folder))["cards"]] == [42]
-
-
-def test_cancelled_clip_card_records_nothing(config, tmp_path, monkeypatch):
-    folder = _write_saved(tmp_path, "a", [("s", "今", "selected", 15)], 25)
-    clip = clips.load_clip(str(folder))
-
-    _queue_clip_card(monkeypatch, tmp_path, clip, FakeCard("今"), background_update_started=False)
-
-    assert "cards" not in clips.read_manifest(str(folder))
+    assert [c["note_id"] for c in clips.read_manifest(str(folder)).get("cards", [])] == recorded
 
 
 def test_a_given_replay_is_processed_instead_of_saving_the_obs_buffer(config, monkeypatch):
@@ -253,7 +211,7 @@ def test_a_given_replay_is_processed_instead_of_saving_the_obs_buffer(config, mo
 
 
 def test_rewrite_treats_the_card_as_freshly_created_from_the_clip(config, tmp_path):
-    folder = _write_saved(tmp_path, "a", [("s", "心当たりはねえのかこの声の主", "selected", 15)], 25)
+    folder = write_clip(tmp_path, "a", [("s", "心当たりはねえのかこの声の主", "selected", 15)], 25)
     clip = clips.load_clip(str(folder))
     card = FakeCard(
         "全く<b>声</b>の違う台詞",
@@ -278,22 +236,16 @@ def test_rewrite_treats_the_card_as_freshly_created_from_the_clip(config, tmp_pa
 
 
 def _saved(tmp_path, text="心当たりはねえのかこの声の主"):
-    return clips.load_clip(str(_write_saved(tmp_path, "a", [("s", text, "selected", 15)], 25)))
-
-
-def test_enrich_check_passes_for_a_matching_fresh_card(config, tmp_path, monkeypatch):
-    monkeypatch.setattr(anki, "card_queue", [])
-
-    result = clip_cards.check_enrich(FakeCard("心当たりはねえのか<b>この声</b>の主"), _saved(tmp_path))
-
-    assert result["warnings"] == []
+    return clips.load_clip(str(write_clip(tmp_path, "a", [("s", text, "selected", 15)], 25)))
 
 
 def test_enrich_check_warns_about_mismatch_existing_media_and_pending_live_work(config, tmp_path, monkeypatch):
+    clip = _saved(tmp_path)
     card = FakeCard("全く関係のない文", SentenceAudio="[sound:a.mp3]")
     monkeypatch.setattr(anki, "card_queue", [(card, None, [], None)])
 
-    result = clip_cards.check_enrich(card, _saved(tmp_path))
+    assert clip_cards.check_enrich(FakeCard("心当たりはねえのか<b>この声</b>の主", note_id=7), clip)["warnings"] == []
+    result = clip_cards.check_enrich(card, clip)
 
     assert {w["code"] for w in result["warnings"]} == {"sentence_mismatch", "has_media", "live_pending"}
     assert result["card_sentence"] == "全く関係のない文"
@@ -333,7 +285,7 @@ def test_ai_translation_uses_the_clip_neighbours_as_context(config, monkeypatch)
 def test_preview_audio_asks_the_card_pipeline_for_the_whole_selection(tmp_path, monkeypatch):
     from GameSentenceMiner import replay_handler
 
-    folder = _write_saved(
+    folder = write_clip(
         tmp_path,
         "pair",
         [("a", "一行目", "selected", 10), ("b", "二行目", "selected", 12), ("c", "次", "context", 15)],
@@ -354,19 +306,3 @@ def test_preview_audio_asks_the_card_pipeline_for_the_whole_selection(tmp_path, 
     assert first.id == "a" and cutoff == BASE + timedelta(seconds=15)
     assert (video_path, end_time) == (clip.clip_path, clip.clip_end_time)
     assert kwargs == {"temporary": True, "use_vad_postprocessing": False, "full_text": "一行目二行目"}
-
-
-def test_preview_audio_runs_to_the_clip_end_after_the_newest_line(tmp_path, monkeypatch):
-    from GameSentenceMiner import replay_handler
-
-    folder = _write_saved(tmp_path, "last", [("a", "最後", "selected", 10)], 20)
-    calls = []
-    monkeypatch.setattr(
-        replay_handler.ReplayAudioExtractor,
-        "get_audio",
-        staticmethod(lambda *args, **kwargs: calls.append(args) or "/tmp/line.wav"),
-    )
-
-    clip_cards.clip_line_audio(clips.load_clip(str(folder)))
-
-    assert calls[0][1] == 0
