@@ -1003,17 +1003,15 @@ def get_screenshot():
     if not line:
         return jsonify({"error": "Invalid id"}), 400
     gsm_state.line_for_screenshot = line
-    if (
-        gsm_state.previous_line_for_screenshot
-        and gsm_state.line_for_screenshot == gsm_state.previous_line_for_screenshot
-        or gsm_state.previous_line_for_audio
-        and gsm_state.line_for_screenshot == gsm_state.previous_line_for_audio
-    ):
-        from GameSentenceMiner.web.service import handle_texthooker_button
-
-        handle_texthooker_button(gsm_state.previous_replay)
-    else:
-        obs.save_replay_buffer()
+    _run_on_replay(
+        [line],
+        reuse_previous=(
+            gsm_state.previous_line_for_screenshot
+            and gsm_state.line_for_screenshot == gsm_state.previous_line_for_screenshot
+            or gsm_state.previous_line_for_audio
+            and gsm_state.line_for_screenshot == gsm_state.previous_line_for_audio
+        ),
+    )
     return jsonify({}), 200
 
 
@@ -1070,15 +1068,15 @@ def play_audio():
         handle_texthooker_button(gsm_state.previous_replay or "")
         return jsonify({"queued": False, "line_id": event_id, "from_cache": True}), 200
 
-    if (
-        gsm_state.previous_line_for_audio
-        and gsm_state.line_for_audio == gsm_state.previous_line_for_audio
-        or gsm_state.previous_line_for_screenshot
-        and gsm_state.line_for_audio == gsm_state.previous_line_for_screenshot
-    ):
-        handle_texthooker_button(gsm_state.previous_replay)
-    else:
-        obs.save_replay_buffer()
+    _run_on_replay(
+        [line],
+        reuse_previous=(
+            gsm_state.previous_line_for_audio
+            and gsm_state.line_for_audio == gsm_state.previous_line_for_audio
+            or gsm_state.previous_line_for_screenshot
+            and gsm_state.line_for_audio == gsm_state.previous_line_for_screenshot
+        ),
+    )
     return jsonify({"queued": True, "line_id": event_id}), 200
 
 
@@ -1103,21 +1101,31 @@ def trim_video():
         "show_in_explorer": show_in_explorer,
     }
 
+    _run_on_replay(
+        [line],
+        reuse_previous=(
+            gsm_state.previous_line_for_video_trim
+            and gsm_state.line_for_video_trim == gsm_state.previous_line_for_video_trim
+            or gsm_state.previous_line_for_audio
+            and gsm_state.line_for_video_trim == gsm_state.previous_line_for_audio
+            or gsm_state.previous_line_for_screenshot
+            and gsm_state.line_for_video_trim == gsm_state.previous_line_for_screenshot
+        ),
+    )
+    return jsonify({"queued": True, "line_id": event_id}), 200
+
+
+def _run_on_replay(lines, reuse_previous):
+    """Run the queued Text Feed action on the previous replay, a saved clip once lines left the buffer, or a new replay."""
+    from GameSentenceMiner import clip_cards
     from GameSentenceMiner.web.service import handle_texthooker_button
 
-    if (
-        gsm_state.previous_line_for_video_trim
-        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_video_trim
-        or gsm_state.previous_line_for_audio
-        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_audio
-        or gsm_state.previous_line_for_screenshot
-        and gsm_state.line_for_video_trim == gsm_state.previous_line_for_screenshot
-    ):
+    if reuse_previous:
         handle_texthooker_button(gsm_state.previous_replay)
+    elif clip_replay := clip_cards.replay_for_lines(lines):
+        handle_texthooker_button(clip_replay)
     else:
         obs.save_replay_buffer()
-
-    return jsonify({"queued": True, "line_id": event_id}), 200
 
 
 def _missing_output_folder_response():
@@ -1168,21 +1176,16 @@ def create_media():
         "open_folder": True,
     }
 
-    from GameSentenceMiner.web.service import handle_texthooker_button
-
-    primary_line = lines[0]
     previous_lines = gsm_state.previous_lines_for_media_creation or []
-    reuse_replay = (
-        gsm_state.previous_replay
-        and previous_lines
-        and previous_lines[0] is primary_line
-        and len(previous_lines) == len(lines)
+    _run_on_replay(
+        lines,
+        reuse_previous=(
+            gsm_state.previous_replay
+            and previous_lines
+            and previous_lines[0] is lines[0]
+            and len(previous_lines) == len(lines)
+        ),
     )
-    if reuse_replay:
-        handle_texthooker_button(gsm_state.previous_replay)
-    else:
-        obs.save_replay_buffer()
-
     return jsonify({"queued": True, "count": len(lines)}), 200
 
 
@@ -1633,7 +1636,12 @@ def get_event_line_by_id(event_id: str):
         return line
 
     event = event_manager.get(event_id)
-    return event.line if event else None
+    if event:
+        return event.line
+    # A saved line outlives the session's text log.
+    from GameSentenceMiner.util import clips
+
+    return clips.find_saved_line(event_id)
 
 
 def are_lines_selected():

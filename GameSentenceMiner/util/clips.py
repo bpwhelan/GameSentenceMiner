@@ -286,6 +286,18 @@ def iter_clips(clips_root: str):
                 logger.debug(f"Skipping unreadable clip line {folder}: {e}")
 
 
+def find_saved_line(line_id: str) -> GameLine | None:
+    """The saved line with this id (its clip is line.clip), or None."""
+    clips_root = get_clips_root()
+    if not clips_root:
+        return None
+    for clip in iter_clips(clips_root):
+        for line in clip.selected:
+            if line.id == line_id:
+                return line
+    return None
+
+
 def match_card_to_clip(card, clips_root: str) -> GameLine | None:
     """Match a card's sentence against every clip line using the live matcher's ranking."""
     candidates = sorted((line for clip in iter_clips(clips_root) for line in clip.selected), key=lambda line: line.time)

@@ -34,6 +34,7 @@ def _summary(clip: clips.Clip, root: str) -> dict:
         "id": os.path.relpath(clip.folder, root).replace(os.sep, "/"),
         "game": clip.game,
         "sentence": clip.manifest.get("sentence", ""),
+        "line_ids": [line.id for line in clip.selected],
         "line_time": first.time.isoformat() if first else "",
         "saved_at": clip.manifest.get("saved_at", ""),
         "cards": clip.manifest.get("cards", []),

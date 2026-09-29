@@ -104,6 +104,20 @@ def test_overlay_scan_line_and_overlay_cards_stay_with_the_live_flow(config, cli
     assert clip_cards.match_new_card(card) is None
 
 
+def test_lines_that_left_the_buffer_use_their_saved_clip_as_the_replay(clips_root, monkeypatch):
+    write_clip(clips_root, "a", [("s", "今", "selected", 10)], 20)
+    monkeypatch.setattr(clip_cards, "make_unique_temp_file", lambda path: str(clips_root / "copy.mkv"))
+    expired = GameLine(id="s", text="今", time=BASE, prev=None, next=None)
+
+    replay = clip_cards.replay_for_lines([expired])
+
+    assert replay == str(clips_root / "copy.mkv")
+    assert os.path.getmtime(replay) == pytest.approx((BASE + timedelta(seconds=20)).timestamp(), abs=0.01)
+    # Still in the buffer, or never saved: the Text Feed saves a new OBS replay as usual.
+    assert clip_cards.replay_for_lines([GameLine(id="s", text="今", time=datetime.now(), prev=None, next=None)]) is None
+    assert clip_cards.replay_for_lines([GameLine(id="other", text="今", time=BASE, prev=None, next=None)]) is None
+
+
 # --- the live flow hands clip-line cards over ------------------------------
 
 

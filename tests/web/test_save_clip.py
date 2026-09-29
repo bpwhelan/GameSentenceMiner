@@ -82,3 +82,26 @@ def test_already_clip_is_not_queued_again(monkeypatch):
         "folder": "/out/Clips/day/folder",
     }
     assert queued == []
+
+
+def test_text_feed_actions_run_on_the_saved_clip_once_the_line_left_the_buffer(monkeypatch):
+    from GameSentenceMiner import clip_cards
+
+    handled, saved = [], []
+    monkeypatch.setattr(service, "handle_texthooker_button", handled.append)
+    monkeypatch.setattr(texthooking_page.obs, "save_replay_buffer", lambda: saved.append(True))
+    monkeypatch.setattr(clip_cards, "replay_for_lines", lambda lines: "clip-copy.mkv" if lines[0].id == "a" else None)
+
+    texthooking_page._run_on_replay([_line("a", 0)], reuse_previous=False)
+    texthooking_page._run_on_replay([_line("b", 0)], reuse_previous=False)
+
+    assert (handled, saved) == (["clip-copy.mkv"], [True])
+
+
+def test_saved_lines_are_found_after_a_restart(monkeypatch):
+    saved = _line("a", 0)
+    monkeypatch.setattr(texthooking_page, "get_line_by_id", lambda line_id: None)
+    monkeypatch.setattr(clips, "find_saved_line", {"a": saved}.get)
+
+    assert texthooking_page.get_event_line_by_id("a") is saved
+    assert texthooking_page.get_event_line_by_id("unknown") is None

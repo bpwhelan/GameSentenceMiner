@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 from dataclasses import replace
+from datetime import datetime, timedelta
 
 from GameSentenceMiner import anki
 from GameSentenceMiner.util.config.configuration import get_config, gsm_state, logger
@@ -127,8 +128,9 @@ def _card_for_rewrite(card, clip: Clip):
     return fresh
 
 
-def _replay_copy(clip: Clip) -> str:
-    """The Anki flow may delete its video afterwards, so it gets a link (or copy) shaped like the original."""
+def replay_copy(clip: Clip) -> str:
+    """A link (or copy) of the clip that the replay flows can use, then delete, like a fresh OBS replay."""
+    pause_history.remember_pauses(clip.manifest.get("pauses", []))
     path = make_unique_temp_file(clip.clip_path)
     try:
         os.link(clip.clip_path, path)
@@ -137,6 +139,18 @@ def _replay_copy(clip: Clip) -> str:
     end = clip.clip_end_time.timestamp()
     os.utime(path, (end, end))
     return path
+
+
+def replay_for_lines(lines) -> str | None:
+    """A saved clip holding lines once they have left the replay buffer, so Text Feed buttons keep working."""
+    cutoff = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length)
+    if not lines or lines[0].time >= cutoff:
+        return None
+    saved = clips.find_saved_line(lines[0].id)
+    if saved is None or not {line.id for line in lines} <= {line.id for line in saved.clip.selected}:
+        return None
+    logger.info(f"Using clip {saved.clip.folder} for a line outside the replay buffer")
+    return replay_copy(saved.clip)
 
 
 def clip_line_audio(clip: Clip) -> str:
@@ -159,7 +173,6 @@ def clip_line_audio(clip: Clip) -> str:
 def queue_clip_card(card, line, *, rewrite: bool = False, **queue_kwargs):
     """Queue the normal Anki flow for card with line's clip standing in for the OBS replay."""
     clip = line.clip
-    pause_history.remember_pauses(clip.manifest.get("pauses", []))
     last_note = _card_for_rewrite(card, clip) if rewrite else card
     selected = clip.selected if len(clip.selected) > 1 else []
     logger.info(f"Making a card from clip {clip.folder}")
@@ -167,7 +180,7 @@ def queue_clip_card(card, line, *, rewrite: bool = False, **queue_kwargs):
         last_note,
         selected,
         line,
-        replay_path=_replay_copy(clip),
+        replay_path=replay_copy(clip),
         created_at=clip.clip_end_time,
         **queue_kwargs,
     )

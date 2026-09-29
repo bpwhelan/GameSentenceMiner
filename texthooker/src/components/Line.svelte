@@ -92,7 +92,7 @@
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
 	$: isActiveGSMLine = line.gsmStatus === 'active' || (!line.gsmStatus && $lineIDs$?.includes(line.id));
 	$: isTimedOutGSMLine = line.gsmStatus === 'timed_out' || (!line.gsmStatus && $timedOutIDs$.includes(line.id));
-	$: canAskAI = !!line.id && (isActiveGSMLine || isTimedOutGSMLine || line.gsmStatus === 'external');
+	$: canAskAI = !!line.id && (isActiveGSMLine || isTimedOutGSMLine || isClipSaved || line.gsmStatus === 'external');
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
 	$: if (
@@ -462,7 +462,7 @@
 					Not in GSM stats
 				</div>
 			{/if}
-			{#if isActiveGSMLine}
+			{#if isActiveGSMLine || isClipSaved}
 				<div class="textline-buttons unselectable">
 					{#if $showScreenshotButton$}
 						<button
@@ -585,7 +585,7 @@
 								<Icon path={mdiCreationOutline} width="16px" height="16px" />
 								<span>Ask AI</span>
 							</button>
-							{#if isActiveGSMLine}
+							{#if isActiveGSMLine || isClipSaved}
 								<button on:click={() => handleAction(line.id, 'Screenshot')}>
 									<span aria-hidden="true">📷</span>
 									<span>Screenshot</span>

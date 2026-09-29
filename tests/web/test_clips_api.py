@@ -28,6 +28,7 @@ def test_list_returns_clips_newest_first(client, tmp_path):
     assert [item["id"] for item in items] == ["2026-09-28/new", "2026-09-27/old"]
     assert items[1]["cards"] == [{"note_id": 1, "word": "古い"}]
     assert items[0]["sentence"] == "新しい行" and items[0]["game"] == "FFVII"
+    assert items[0]["line_ids"] == ["new"]  # the Text Feed keeps replay buttons on these
 
 
 def test_ids_outside_the_clips_folder_are_rejected(client, tmp_path):

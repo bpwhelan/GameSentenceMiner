@@ -347,11 +347,14 @@
 		void fetchGSMTextIntakePausedState();
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
 		clipSaveEventsSub = clipSaveEvents$.subscribe(handleClipSaveEvent);
+		void loadSavedClipIds();
+		window.addEventListener('focus', loadSavedClipIds);
 
 		return () => {
 			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
 			clipSaveEventsSub?.unsubscribe();
+			window.removeEventListener('focus', loadSavedClipIds);
 			clearTimeout(clipToastTimeout);
 			if (audioElement) {
 				audioElement.pause();
@@ -717,6 +720,17 @@
 		clipToast = { message, isError };
 		clearTimeout(clipToastTimeout);
 		clipToastTimeout = setTimeout(() => (clipToast = undefined), isError ? 6000 : 3000);
+	}
+
+	// Saved lines keep their replay buttons after leaving the OBS buffer; clips can be trashed on the Clips page.
+	async function loadSavedClipIds() {
+		try {
+			const response = await fetch(getGSMEndpoint('/api/clips'));
+			const data = await response.json();
+			savedClipIds = (data.clips || []).flatMap((clip: { line_ids?: string[] }) => clip.line_ids || []);
+		} catch (error) {
+			console.warn('Could not load the saved clips:', error);
+		}
 	}
 
 	async function handleSaveClip(event: CustomEvent<{ lineId: string }>) {
