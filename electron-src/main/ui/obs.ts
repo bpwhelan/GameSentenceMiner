@@ -22,6 +22,7 @@ import { sendStartOBS } from '../main.js';
 import axios from 'axios';
 import extract from 'extract-zip';
 import { installSessionManager } from '../services/install_session_state.js';
+import { syncProcessPausingTargetForScene } from '../services/process_pausing_target.js';
 import type {
     InstallProgressKind,
     InstallStageStatus,
@@ -2320,6 +2321,7 @@ async function connectOBSWebSocket(
                 sceneSwitcherRegistered = true;
             }
             notifySceneSwitcherOBSConnected();
+            syncProcessPausingTargetForCurrentScene();
 
             return;
         } catch (error) {
@@ -2425,10 +2427,23 @@ export function openOBSWindow() {
     registerOBSIPC();
 }
 
+function syncProcessPausingTarget(scene: ObsScene, force = false): void {
+    void syncProcessPausingTargetForScene(scene, { force }).catch((error) =>
+        console.warn(`Could not sync the process-pausing target for "${scene.name}":`, error)
+    );
+}
+
+/** Sync process pausing to the active scene; `force` after a backend restart, which forgets it. */
+export function syncProcessPausingTargetForCurrentScene(force = false): void {
+    void getCurrentScene().then((scene) => syncProcessPausingTarget(scene, force));
+}
+
 function setOBSSceneSwitcherCallback() {
     obs.on('CurrentProgramSceneChanged', (data) => {
         console.log(`Switched to OBS scene: ${data.sceneName}`);
-        handleOBSSceneChanged({ id: data.sceneUuid, name: data.sceneName });
+        const scene = { id: data.sceneUuid, name: data.sceneName };
+        handleOBSSceneChanged(scene);
+        syncProcessPausingTarget(scene);
     });
     obs.on('SceneNameChanged', (data) => {
         renameWindowSceneSwitcherRule(data.sceneUuid, data.sceneName);

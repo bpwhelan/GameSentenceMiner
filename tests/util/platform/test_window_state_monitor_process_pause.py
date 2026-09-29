@@ -439,6 +439,46 @@ def test_resolve_linux_target_pid_returns_zero_without_target(monkeypatch):
     assert source == "none"
 
 
+def _configured_target(monkeypatch, value):
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(process_pausing=SimpleNamespace(linux_target_process=value, denylist=[])),
+    )
+
+
+def test_scene_linux_target_keeps_the_executable_basename(monkeypatch):
+    monkeypatch.setattr(window_state_monitor, "_scene_linux_target", "")
+
+    assert window_state_monitor.set_scene_linux_target("S:\\Games\\Game\\Win64\\game_.exe") == "game_.exe"
+    assert window_state_monitor.set_scene_linux_target("/games/native-game/game") == "game"
+    assert window_state_monitor.set_scene_linux_target("  ") == ""
+
+
+def test_scene_linux_target_takes_precedence_over_configured(monkeypatch):
+    monkeypatch.setattr(window_state_monitor, "_scene_linux_target", "")
+    _configured_target(monkeypatch, "manual.exe")
+
+    window_state_monitor.set_scene_linux_target("/games/scene-game/scene-game")
+    assert window_state_monitor._get_configured_linux_target() == "scene-game"
+
+    window_state_monitor.set_scene_linux_target("")
+    assert window_state_monitor._get_configured_linux_target() == "manual.exe"
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc process scan")
+def test_resolve_linux_target_pid_uses_scene_target(monkeypatch, sleeper):
+    monkeypatch.setattr(window_state_monitor, "_scene_linux_target", "")
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    _configured_target(monkeypatch, "not-running-game")
+
+    window_state_monitor.set_scene_linux_target("/usr/bin/sleep")
+    pid, source = window_state_monitor._resolve_linux_target_pid("test")
+    assert pid > 0
+    assert source == "config_name"
+
+
 import os as _os
 
 
