@@ -2,7 +2,6 @@ import { BehaviorSubject, NEVER, Subscription, filter, switchMap } from 'rxjs';
 import {
 	continuousReconnect$,
 	lineData$,
-	clipSaveEvents$,
 	maxLines$,
 	newLine$,
 	reconnectSecondarySocket$,
@@ -259,12 +258,8 @@ export class SocketConnection {
 				newLine$.next(['', LineType.RESETCHECKBOXES, '']);
 				return;
 			}
-			if (payload.event === 'reset_buttons' || String(payload.event).startsWith('audio_')) {
+			if (payload.event === 'reset_buttons' || /^(audio|clip)_/.test(String(payload.event))) {
 				texthookerAudioEvents$.next(payload);
-				return;
-			}
-			if (payload.event === 'clip_saved' || payload.event === 'clip_save_failed') {
-				clipSaveEvents$.next(payload);
 				return;
 			}
 		}

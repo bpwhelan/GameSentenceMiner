@@ -1215,21 +1215,20 @@ def _queue_clip_save(lines, wait_seconds):
 
 @app.route("/save-clip", methods=["POST"])
 def save_clip():
-    """Save clip for later: keep the line(s) as an OBS-shaped clip plus manifest, for card creation later."""
+    """Keep the line as an OBS-shaped clip plus manifest, so a card can be made from it later."""
     from GameSentenceMiner.util import clips
 
-    data = request.get_json() or {}
-    ids = data.get("ids") or ([data["id"]] if data.get("id") else [])
-    if not ids:
+    event_id = (request.get_json() or {}).get("id")
+    if not event_id:
         return jsonify({"error": "Missing id"}), 400
     if not get_config().paths.output_folder:
         return _missing_output_folder_response()
 
-    lines = [line for event_id in ids if (line := get_event_line_by_id(event_id)) is not None]
-    if not lines:
+    line = get_event_line_by_id(event_id)
+    if line is None:
         return jsonify({"error": "Invalid id"}), 400
-    lines.sort(key=lambda line: line.time)
-    line_ids = [line.id for line in lines]
+    lines = [line]
+    line_ids = [line.id]
 
     existing = clips.find_clip_folder(clips.get_clips_root(), lines)
     if existing:

@@ -172,7 +172,7 @@ def test_clip_is_shaped_like_an_obs_replay(tmp_path, monkeypatch):
         clips, "pause_history", SimpleNamespace(get_pauses_between=lambda *window: windows.append(window) or [(1, 2)])
     )
 
-    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"), game="Test Game")
+    folder = clips.save_clip(str(replay), [line], str(tmp_path / "Saved"))
 
     manifest = clips.read_manifest(folder)
     assert [(entry["id"], entry["role"]) for entry in manifest["lines"]] == [
@@ -180,12 +180,11 @@ def test_clip_is_shaped_like_an_obs_replay(tmp_path, monkeypatch):
         ("l", "selected"),
         ("n", "next"),
     ]
-    assert (manifest["game"], manifest["selected_line_ids"]) == ("Test Game", ["l"])
+    clip = os.path.join(folder, manifest["clip"]["file"])
     # The game pauses inside the clip are kept, so their silence can be removed however late it is mined.
     ((pause_start, pause_end),) = windows
-    assert pause_end - pause_start == pytest.approx(manifest["clip"]["duration"])
+    assert pause_end - pause_start == pytest.approx(ffmpeg.get_video_duration(clip))
     assert manifest["pauses"] == [[1, 2]]
-    clip = os.path.join(folder, manifest["clip"]["file"])
     assert clip.endswith(".mkv")
     streams = ffmpeg.FFmpegHelper.get_probe_json(clip, "stream=codec_type", "")["streams"]
     assert {s["codec_type"] for s in streams} == {"video", "audio"}
@@ -250,7 +249,7 @@ def test_load_clip_rebuilds_linked_lines_ending_at_the_clip(tmp_path):
     # mined_time lets next_line() cut the audio at the following line, as in the live flow.
     assert line.next_line() is nxt and line.get_next_time() == nxt.time
     assert clip.clip_path == str(folder / "clip.mkv")
-    assert clip.game == "FFVII"
+    assert line.scene == "FFVII"
     assert line.clip is clip and clip.lines[line.index] is line
 
 

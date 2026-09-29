@@ -336,7 +336,6 @@ def create_media_for_lines(video_path=""):
 
 def save_clip_from_replay(video_path=""):
     """Keep an OBS-shaped clip of the oldest queued line group so a card can be made later."""
-    from GameSentenceMiner import obs
     from GameSentenceMiner.util import clips
 
     lines = gsm_state.pending_clip_saves.pop(0) if gsm_state.pending_clip_saves else []
@@ -344,12 +343,7 @@ def save_clip_from_replay(video_path=""):
         return
     line_ids = [line.id for line in lines]
     try:
-        folder = clips.save_clip(
-            video_path,
-            lines,
-            clips.get_clips_root(),
-            game=obs.get_current_game() or "",
-        )
+        folder = clips.save_clip(video_path, lines, clips.get_clips_root())
     except clips.LineOutsideReplayError as e:
         logger.warning(f"Could not save clip for later: {e}")
         _send_texthooker_audio_event("clip_save_failed", line_ids=line_ids, error=str(e))

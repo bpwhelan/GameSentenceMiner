@@ -1,5 +1,4 @@
 import os
-from concurrent.futures import Future
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -158,10 +157,7 @@ def test_checked_lines_keep_the_card_in_the_live_flow(config, monkeypatch):
 # --- running the Anki flow on a clip ------------------------------------
 
 
-@pytest.mark.parametrize("background_update_started, recorded", [(True, [42]), (False, [])])
-def test_clip_card_runs_the_anki_flow_on_a_copy_and_records_the_card(
-    config, tmp_path, monkeypatch, background_update_started, recorded
-):
+def test_clip_card_runs_the_anki_flow_on_a_copy(config, tmp_path, monkeypatch):
     folder = write_clip(
         tmp_path, "a", [("p", "前", "previous", 10), ("s", "今", "selected", 15), ("n", "次", "next", 20)], 25
     )
@@ -176,9 +172,6 @@ def test_clip_card_runs_the_anki_flow_on_a_copy_and_records_the_card(
         seen.update(last_note=last_note, lines=lines, line=line, **kwargs)
         seen["mtime"] = os.path.getmtime(kwargs["replay_path"])
         os.remove(kwargs["replay_path"])  # what "remove video" does after a live card
-        future = Future()
-        future.set_result(SimpleNamespace(background_update_started=background_update_started))
-        return future
 
     monkeypatch.setattr(anki, "queue_card_for_processing", fake_queue)
     clip_cards.queue_clip_card(card, clip.selected[0])
@@ -188,7 +181,6 @@ def test_clip_card_runs_the_anki_flow_on_a_copy_and_records_the_card(
     assert (seen["last_note"], seen["lines"], seen["line"].id) == (card, [], "s")
     assert seen["created_at"] == clip.clip_end_time
     assert os.path.isfile(clip.clip_path)
-    assert [c["note_id"] for c in clips.read_manifest(str(folder)).get("cards", [])] == recorded
 
 
 def test_a_given_replay_is_processed_instead_of_saving_the_obs_buffer(config, monkeypatch):
@@ -202,15 +194,13 @@ def test_a_given_replay_is_processed_instead_of_saving_the_obs_buffer(config, mo
     monkeypatch.setattr(anki.obs, "save_replay_buffer", lambda: pytest.fail("saved the OBS buffer"))
     monkeypatch.setattr(anki, "card_queue", [])
     submitted = []
-    monkeypatch.setattr(
-        replay_handler, "process_replay_file", lambda path, job: submitted.append((path, job)) or "future"
-    )
+    monkeypatch.setattr(replay_handler, "process_replay_file", lambda path, job: submitted.append((path, job)))
     line = GameLine(id="s", text="今", time=BASE, prev=None, next=None)
 
-    result = anki.queue_card_for_processing(FakeCard("今"), [], line, replay_path="/clip.mkv", created_at=BASE)
+    anki.queue_card_for_processing(FakeCard("今"), [], line, replay_path="/clip.mkv", created_at=BASE)
 
     ((path, job),) = submitted
-    assert (result, path, job[1], job[3]) == ("future", "/clip.mkv", BASE, line)
+    assert (path, job[1], job[3]) == ("/clip.mkv", BASE, line)
     assert anki.card_queue == []
 
 
@@ -219,26 +209,18 @@ def test_a_given_replay_is_processed_instead_of_saving_the_obs_buffer(config, mo
 
 def test_tags_and_game_field_use_the_clip_game(config, monkeypatch):
     monkeypatch.setattr(anki, "get_current_game", lambda *a, **k: "Live game")
-    clip_line = SimpleNamespace(clip=SimpleNamespace(game="FFVII Rebirth"))
+    clip_line = SimpleNamespace(clip=object(), scene="FFVII Rebirth")
 
     assert anki._prepare_anki_tags(clip_line) == ["FFVIIRebirth"]
     assert anki._prepare_anki_tags() == ["Livegame"]
     assert anki._game_name_for(clip_line) == "FFVII Rebirth"
 
 
-def test_ai_translation_uses_the_clip_neighbours_as_context(config, monkeypatch):
-    live_lines = [SimpleNamespace(text="live")]
-    monkeypatch.setattr(anki, "get_all_lines", lambda: live_lines)
-    monkeypatch.setattr(anki, "get_current_game", lambda *a, **k: "Live game")
-    captured = {}
+def test_ai_context_of_a_saved_line_is_its_clip():
+    from GameSentenceMiner.ai import ai_prompting
 
-    def fake_prompt(lines, sentence, line, game):
-        captured.update(lines=lines, game=game)
-        return "translation"
-
-    monkeypatch.setattr(anki, "_get_ai_prompt_result", lambda: fake_prompt)
     context = [SimpleNamespace(text="前"), SimpleNamespace(text="今")]
-    line = SimpleNamespace(clip=SimpleNamespace(lines=context, game="FFVII"), translation="")
+    saved = SimpleNamespace(clip=SimpleNamespace(lines=context), scene="FFVII")
 
-    assert anki.prefetch_ai_translation("今", line) == "translation"
-    assert captured == {"lines": context, "game": "FFVII"}
+    assert ai_prompting._clip_context(["live"], saved, "Live game") == (context, "FFVII")
+    assert ai_prompting._clip_context(["live"], SimpleNamespace(), "Live game") == (["live"], "Live game")

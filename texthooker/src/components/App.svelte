@@ -71,7 +71,6 @@
 		trimAudioWithVAD$,
 		trimVideoWithVAD$,
 		texthookerAudioEvents$,
-		clipSaveEvents$,
 	} from '../stores/stores';
 	import {
 		type LineItem,
@@ -111,7 +110,7 @@
 	import SocketConnector from './SocketConnector.svelte';
 	import Spinner from './Spinner.svelte';
 	import Stats from './Stats.svelte';
-	import { getGSMEndpoint } from '../gsm';
+	import { describeSavedClips, fetchSavedClips, getGSMEndpoint, trashSavedClips } from '../gsm';
 
 	let isSmFactor = false;
 	let settingsComponent: Settings;
@@ -127,13 +126,9 @@
 	let pipResizeTimeout: number;
 	let hasPipFocus = false;
 	let audioEventsSub: Subscription | undefined;
-	let clipSaveEventsSub: Subscription | undefined;
 	let savingClipIds: string[] = [];
-	let savedClipIds: string[] = [];
 	let savedClips: SavedClip[] = [];
 	let clipsViewOpen = false;
-	let clipToast: { message: string; isError: boolean } | undefined;
-	let clipToastTimeout: ReturnType<typeof setTimeout> | undefined;
 	let audioElement: HTMLAudioElement | undefined;
 	let audioWidgetVisible = false;
 	let audioWidgetText = '';
@@ -349,16 +344,13 @@
 		initializeAudioElement();
 		void fetchGSMTextIntakePausedState();
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
-		clipSaveEventsSub = clipSaveEvents$.subscribe(handleClipSaveEvent);
 		void loadSavedClips();
 		window.addEventListener('focus', loadSavedClips);
 
 		return () => {
 			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
-			clipSaveEventsSub?.unsubscribe();
 			window.removeEventListener('focus', loadSavedClips);
-			clearTimeout(clipToastTimeout);
 			if (audioElement) {
 				audioElement.pause();
 				audioElement.src = '';
@@ -578,6 +570,17 @@
 			return;
 		}
 
+		if (eventType === 'clip_saved' || eventType === 'clip_save_failed') {
+			const lineIds: string[] = Array.isArray(payload.line_ids) ? payload.line_ids : [];
+			savingClipIds = savingClipIds.filter((id) => !lineIds.includes(id));
+			if (eventType === 'clip_saved') {
+				void loadSavedClips();
+			} else {
+				showClipError(`Could not save clip: ${payload.error || 'Unknown error'}`);
+			}
+			return;
+		}
+
 		if (eventType === 'audio_ready') {
 			const lineId = payload.line_id || '';
 			const audioUrl = payload.audio_url || '';
@@ -719,19 +722,14 @@
 		}
 	}
 
-	function showClipToast(message: string, isError = false) {
-		clipToast = { message, isError };
-		clearTimeout(clipToastTimeout);
-		clipToastTimeout = setTimeout(() => (clipToast = undefined), isError ? 6000 : 3000);
+	function showClipError(message: string) {
+		$openDialog$ = { type: 'error', message, showCancel: false };
 	}
 
 	// Clips live on disk, not in this browser's history: saved lines keep their replay buttons and are listed in the Clips view.
 	async function loadSavedClips() {
 		try {
-			const response = await fetch(getGSMEndpoint('/api/clips'));
-			const data = await response.json();
-			savedClips = data.clips || [];
-			savedClipIds = savedClips.flatMap((clip) => clip.lines.map((line) => line.id));
+			savedClips = await fetchSavedClips();
 		} catch (error) {
 			console.warn('Could not load the saved clips:', error);
 		}
@@ -744,53 +742,37 @@
 		}
 	}
 
-	function findSavedClip(lineId: string) {
-		return savedClips.find((item) => item.lines.some((line) => line.id === lineId));
-	}
+	$: clipByLine = new Map(savedClips.flatMap((clip) => clip.lines.map((line) => [line.id, clip])));
+	$: clipLines = savedClips.flatMap((clip) => clip.lines);
 
 	async function handleOpenClipFolder(event: CustomEvent<{ lineId: string }>) {
-		const clip = findSavedClip(event.detail.lineId);
-		if (!clip) {
-			return;
-		}
+		const clip = clipByLine.get(event.detail.lineId);
 		try {
 			const response = await fetch(getGSMEndpoint('/api/clips/open'), {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ id: clip.id }),
+				body: JSON.stringify({ id: clip?.id }),
 			});
 			if (!response.ok) {
 				throw new Error(`HTTP error: ${response.status}`);
 			}
 		} catch (error) {
-			showClipToast(`Could not open the clip folder: ${getErrorMessage(error)}`, true);
+			showClipError(`Could not open the clip folder: ${getErrorMessage(error)}`);
 		}
 	}
 
 	async function handleDeleteClip(event: CustomEvent<{ lineId: string }>) {
-		const clip = findSavedClip(event.detail.lineId);
+		const clip = clipByLine.get(event.detail.lineId);
 		if (!clip) {
 			return;
 		}
 		try {
-			const response = await fetch(getGSMEndpoint('/api/clips/trash'), {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ ids: [clip.id] }),
-			});
-			const data = await response.json().catch(() => ({}));
-			if (!response.ok || data.failed?.length) {
-				throw new Error(data.failed?.[0]?.error || data.error || `HTTP error: ${response.status}`);
-			}
-			showClipToast('Clip moved to the trash');
+			await trashSavedClips([clip]);
 		} catch (error) {
-			showClipToast(`Could not delete clip: ${getErrorMessage(error)}`, true);
+			showClipError(`Could not delete clip: ${getErrorMessage(error)}`);
 		}
 		await loadSavedClips();
 	}
-
-	$: clipSizes = new Map(savedClips.flatMap((clip) => clip.lines.map((line) => [line.id, clip.size_bytes])));
-	$: clipLines = savedClips.flatMap((clip) => clip.lines);
 
 	async function handleSaveClip(event: CustomEvent<{ lineId: string }>) {
 		const { lineId } = event.detail;
@@ -802,7 +784,7 @@
 			const response = await fetch(getGSMEndpoint('/save-clip'), {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ ids: [lineId] }),
+				body: JSON.stringify({ id: lineId }),
 			});
 			const data = await response.json().catch(() => ({}));
 			if (!response.ok) {
@@ -810,24 +792,11 @@
 			}
 			if (data.already_saved) {
 				savingClipIds = savingClipIds.filter((id) => id !== lineId);
-				savedClipIds = [...new Set([...savedClipIds, lineId])];
-				showClipToast('Clip already saved for later');
+				await loadSavedClips();
 			}
 		} catch (error) {
 			savingClipIds = savingClipIds.filter((id) => id !== lineId);
-			showClipToast(`Could not save clip: ${getErrorMessage(error)}`, true);
-		}
-	}
-
-	function handleClipSaveEvent(payload: Record<string, any>) {
-		const lineIds: string[] = Array.isArray(payload.line_ids) ? payload.line_ids : [];
-		savingClipIds = savingClipIds.filter((id) => !lineIds.includes(id));
-		if (payload.event === 'clip_saved') {
-			savedClipIds = [...new Set([...savedClipIds, ...lineIds])];
-			showClipToast('Clip saved for later');
-			void loadSavedClips();
-		} else {
-			showClipToast(`Could not save clip: ${payload.error || 'Unknown error'}`, true);
+			showClipError(`Could not save clip: ${getErrorMessage(error)}`);
 		}
 	}
 
@@ -1470,13 +1439,6 @@
 
 <DialogManager />
 
-{#if clipToast}
-	<div class="toast toast-center toast-bottom z-50" transition:fade={{ duration: 150 }}>
-		<div class="alert" class:alert-error={clipToast.isError} class:alert-success={!clipToast.isError} role="status">
-			<span>{clipToast.message}</span>
-		</div>
-	</div>
-{/if}
 <header class="fixed top-0 right-0 flex justify-end items-center p-2 bg-base-100" bind:this={settingsContainer}>
 	<Stats on:afkBlur={onAfkBlur} />
 	{#if $websocketUrl$}
@@ -1624,7 +1586,7 @@
 >
 	{@html newLineCharacter}
 	{#if clipsViewOpen}
-		<h2 class="my-4 text-2xl font-semibold select-none">Saved clips</h2>
+		<h2 class="my-4 text-2xl font-semibold select-none">{describeSavedClips(savedClips, 'Saved Clip')}</h2>
 		{#each clipLines as line, index (line.id)}
 			<Line
 				{line}
@@ -1638,7 +1600,7 @@
 				on:deleteClip={handleDeleteClip}
 				on:openClipFolder={handleOpenClipFolder}
 				isClipSaved
-				clipSizeBytes={clipSizes.get(line.id)}
+				clipSizeBytes={clipByLine.get(line.id)?.size_bytes}
 			/>
 		{/each}
 	{:else}
@@ -1664,8 +1626,8 @@
 				on:deleteClip={handleDeleteClip}
 				on:openClipFolder={handleOpenClipFolder}
 				isSavingClip={savingClipIds.includes(line.id)}
-				isClipSaved={savedClipIds.includes(line.id)}
-				clipSizeBytes={clipSizes.get(line.id)}
+				isClipSaved={clipByLine.has(line.id)}
+				clipSizeBytes={clipByLine.get(line.id)?.size_bytes}
 			/>
 		{/each}
 	{/if}
@@ -1751,8 +1713,8 @@
 				on:deleteClip={handleDeleteClip}
 				on:openClipFolder={handleOpenClipFolder}
 				isSavingClip={savingClipIds.includes(line.id)}
-				isClipSaved={savedClipIds.includes(line.id)}
-				clipSizeBytes={clipSizes.get(line.id)}
+				isClipSaved={clipByLine.has(line.id)}
+				clipSizeBytes={clipByLine.get(line.id)?.size_bytes}
 			/>
 		{/each}
 	{/if}

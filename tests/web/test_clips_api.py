@@ -15,7 +15,7 @@ def client(tmp_path, monkeypatch):
 
 
 def test_list_returns_clips_newest_first(client, tmp_path):
-    write_clip(tmp_path, "old", [("old", "古い行", "selected", 10)], 20, cards=[{"note_id": 1, "word": "古い"}])
+    write_clip(tmp_path, "old", [("old", "古い行", "selected", 10)], 20)
     write_clip(tmp_path, "new", [("new", "新しい行", "selected", 20)], 30, day="2026-09-28")
 
     response = client.get("/api/clips")
@@ -23,9 +23,8 @@ def test_list_returns_clips_newest_first(client, tmp_path):
     assert response.status_code == 200
     items = response.get_json()["clips"]
     assert [item["id"] for item in items] == ["2026-09-28/new", "2026-09-27/old"]
-    assert items[1]["cards"] == [{"note_id": 1, "word": "古い"}]
-    assert items[0]["lines"] == [{"id": "new", "text": "新しい行"}] and items[0]["game"] == "FFVII"
-    assert items[0]["size_bytes"] == sum(f.stat().st_size for f in (tmp_path / "2026-09-28" / "new").iterdir())
+    assert items[0]["lines"] == [{"id": "new", "text": "新しい行"}]
+    assert items[0]["size_bytes"] == (tmp_path / "2026-09-28" / "new" / "clip.mkv").stat().st_size
 
 
 def test_ids_outside_the_clips_folder_are_rejected(client, tmp_path):

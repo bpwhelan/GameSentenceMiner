@@ -1,8 +1,6 @@
-"""Save for later: keep text feed lines as an OBS-shaped replay clip plus a manifest.
+"""Clips saved for later: an OBS-shaped replay clip plus a manifest, mined later like a fresh replay.
 
-A clip keeps the replay's container and streams, and its modification time is the
-wall-clock time of its last frame, so the Anki flow can process it later exactly like a
-fresh OBS replay.
+A clip keeps the replay's streams, and its modification time is the wall-clock time of its last frame.
 """
 
 import json
@@ -17,7 +15,6 @@ from GameSentenceMiner.util.text_log import GameLine, find_matching_line
 
 CLIPS_FOLDER_NAME = "Clips"
 MANIFEST_NAME = "manifest.json"
-MANIFEST_VERSION = 1
 
 LEAD_SECONDS = 5.0
 TRAIL_SECONDS = 2.0
@@ -49,7 +46,7 @@ def plan_clip_window(lines: list[GameLine]) -> ClipWindow:
     if previous_line and (first.time - previous_line.time).total_seconds() > PREVIOUS_LINE_MAX_GAP_SECONDS:
         previous_line = None
     context_start = previous_line.time if previous_line else first.time
-    lead = LEAD_SECONDS + float(getattr(first, "source_padding", 0) or 0)
+    lead = LEAD_SECONDS + float(first.source_padding or 0)
     start_time = context_start - timedelta(seconds=lead)
 
     next_line = last.next
@@ -83,15 +80,15 @@ def _line_entry(line: GameLine, role: str) -> dict:
         "text": line.text,
         "time": line.time.isoformat(),
         "role": role,
-        "scene": getattr(line, "scene", "") or "",
-        "source": getattr(line, "source", None),
-        "source_padding": float(getattr(line, "source_padding", 0) or 0),
+        "scene": line.scene or "",
+        "source": line.source,
+        "source_padding": float(line.source_padding or 0),
     }
 
 
 def _identity_time(line: GameLine) -> datetime:
     # Revisions can move `time`; first_seen_time stays put, so it identifies the line.
-    return getattr(line, "first_seen_time", None) or line.time
+    return line.first_seen_time or line.time
 
 
 def _folder_prefix(line: GameLine) -> tuple[str, str]:
@@ -100,7 +97,7 @@ def _folder_prefix(line: GameLine) -> tuple[str, str]:
 
 
 def find_clip_folder(clips_root: str, lines: list[GameLine]) -> str | None:
-    """Return the folder these exact lines were already clip to, if any."""
+    """Return the folder these exact lines were already saved to, if any."""
     lines = sorted(lines, key=lambda line: line.time)
     day, prefix = _folder_prefix(lines[0])
     day_folder = os.path.join(clips_root, day)
@@ -112,9 +109,9 @@ def find_clip_folder(clips_root: str, lines: list[GameLine]) -> str | None:
             continue
         folder = os.path.join(day_folder, name)
         try:
-            if read_manifest(folder).get("selected_line_ids") == line_ids:
+            if _selected_ids(read_manifest(folder)) == line_ids:
                 return folder
-        except (OSError, ValueError):
+        except (OSError, ValueError, KeyError):
             continue
     return None
 
@@ -132,19 +129,11 @@ def _make_folder(clips_root: str, first_line: GameLine, full_text: str) -> str:
     return candidate
 
 
-def save_clip(
-    video_path: str,
-    lines: list[GameLine],
-    clips_root: str,
-    game: str = "",
-) -> str:
-    """Copy the replay span around lines into a new folder under clips_root and return its path.
-
-    Saving the same lines again returns their existing folder instead of copying a second clip.
-    """
+def save_clip(video_path: str, lines: list[GameLine], clips_root: str) -> str:
+    """Copy the replay span around lines into a folder under clips_root (reused if already saved)."""
     existing = find_clip_folder(clips_root, lines)
     if existing:
-        logger.info(f"Line(s) already clip for later: {existing}")
+        logger.info(f"Line(s) already saved for later: {existing}")
         return existing
 
     window = plan_clip_window(lines)
@@ -156,7 +145,7 @@ def save_clip(
         return replay_length - (replay_end_time - moment).total_seconds()
 
     if offset(lines[0].time) < 0:
-        raise LineOutsideReplayError("The line is older than the replay buffer, so it can no longer be clip.")
+        raise LineOutsideReplayError("The line is older than the replay buffer, so its clip can no longer be saved.")
 
     requested_start = max(0.0, offset(window.start_time))
     end = min(replay_length, max(offset(window.end_time), offset(lines[-1].time)))
@@ -180,28 +169,22 @@ def save_clip(
     if window.next_line and offset(window.next_line.time) <= clip_start + clip_length:
         entries.append(_line_entry(window.next_line, "next"))
 
-    manifest = {
-        "version": MANIFEST_VERSION,
-        "saved_at": datetime.now().isoformat(),
-        "game": game or "",
-        "sentence": full_text,
-        "selected_line_ids": [line.id for line in lines],
-        "lines": entries,
-        "clip": {
-            "file": clip_name,
-            "end_time": clip_end_time.isoformat(),
-            "duration": clip_length,
-            "source_replay": os.path.basename(video_path),
-        },
-    }
     # Game pauses in the clip (epoch seconds), so their silence can be removed however late it is mined.
     clip_start_time = clip_end_time - timedelta(seconds=clip_length)
     spans = pause_history.get_pauses_between(clip_start_time.timestamp(), clip_end_time.timestamp())
-    manifest["pauses"] = [list(span) for span in spans]
+    manifest = {
+        "lines": entries,
+        "clip": {"file": clip_name, "end_time": clip_end_time.isoformat()},
+        "pauses": [list(span) for span in spans],
+    }
     _write_manifest(folder, manifest)
 
     logger.info(f"Saved {len(lines)} line(s) for later: {folder}")
     return folder
+
+
+def _selected_ids(manifest: dict) -> list[str]:
+    return [entry["id"] for entry in manifest["lines"] if entry.get("role") == "selected"]
 
 
 def read_manifest(folder: str) -> dict:
@@ -225,11 +208,10 @@ class Clip:
     selected: list[GameLine]
     clip_path: str
     clip_end_time: datetime
-    game: str
 
 
 def load_clip(folder: str) -> Clip:
-    """Rebuild a clip line's GameLines, linked like the live text log but only within the clip."""
+    """Rebuild a clip's GameLines, linked like the live text log but only within the clip."""
     manifest = read_manifest(folder)
     clip_end_time = datetime.fromisoformat(manifest["clip"]["end_time"])
     lines = []
@@ -260,16 +242,15 @@ def load_clip(folder: str) -> Clip:
         selected=selected,
         clip_path=os.path.join(folder, manifest["clip"]["file"]),
         clip_end_time=clip_end_time,
-        game=manifest.get("game", "") or "",
     )
     for line in lines:
-        # The Anki flow reads the clip's game and lines instead of the live OBS scene and log.
+        # The Anki flow and the AI context read the clip through this instead of the live log.
         line.clip = clip
     return clip
 
 
 def iter_clips(clips_root: str):
-    """Yield every readable clip line under clips_root; restored folders are picked up again."""
+    """Yield every readable clip under clips_root; restored folders are picked up again."""
     if not os.path.isdir(clips_root):
         return
     for day in sorted(os.listdir(clips_root)):
@@ -283,7 +264,7 @@ def iter_clips(clips_root: str):
             try:
                 yield load_clip(folder)
             except (OSError, ValueError, KeyError, TypeError) as e:
-                logger.debug(f"Skipping unreadable clip line {folder}: {e}")
+                logger.debug(f"Skipping unreadable clip {folder}: {e}")
 
 
 def find_saved_line(line_id: str) -> GameLine | None:
@@ -299,14 +280,6 @@ def find_saved_line(line_id: str) -> GameLine | None:
 
 
 def match_card_to_clip(card, clips_root: str) -> GameLine | None:
-    """Match a card's sentence against every clip line using the live matcher's ranking."""
+    """Match a card's sentence against every saved line using the live matcher's ranking."""
     candidates = sorted((line for clip in iter_clips(clips_root) for line in clip.selected), key=lambda line: line.time)
     return find_matching_line(card, candidates, respect_replay_window=False)
-
-
-def record_card(folder: str, note_id, word: str) -> None:
-    manifest = read_manifest(folder)
-    manifest.setdefault("cards", []).append(
-        {"note_id": note_id, "word": word, "created_at": datetime.now().isoformat()}
-    )
-    _write_manifest(folder, manifest)

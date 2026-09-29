@@ -178,9 +178,6 @@ export interface TextFeedSessionSync {
 /** A clip saved for later, as listed by GSM's /api/clips. */
 export interface SavedClip {
 	id: string;
-	game: string;
-	line_time: string;
-	cards: { note_id: number; word: string }[];
 	size_bytes: number;
 	lines: { id: string; text: string }[];
 }

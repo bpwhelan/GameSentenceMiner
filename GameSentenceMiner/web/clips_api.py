@@ -4,6 +4,7 @@ import os
 
 from flask import jsonify, request
 from send2trash import send2trash
+from werkzeug.security import safe_join
 
 from GameSentenceMiner.util import clips
 from GameSentenceMiner.util.config.configuration import logger
@@ -12,23 +13,14 @@ from GameSentenceMiner.util.config.configuration import logger
 def _resolve(clip_id: str | None) -> str | None:
     """Map an id like "2026-09-28/00-21-27-412_text" to its folder, refusing anything outside Clips/."""
     root = clips.get_clips_root()
-    if not root or not clip_id or os.path.isabs(clip_id):
-        return None
-    root = os.path.realpath(root)
-    folder = os.path.realpath(os.path.join(root, clip_id))
-    if folder == root or os.path.commonpath([root, folder]) != root:
-        return None
-    return folder if os.path.isfile(os.path.join(folder, clips.MANIFEST_NAME)) else None
+    folder = safe_join(root, clip_id) if root and clip_id else None
+    return folder if folder and os.path.isfile(os.path.join(folder, clips.MANIFEST_NAME)) else None
 
 
 def _summary(clip: clips.Clip, root: str) -> dict:
-    first = clip.selected[0] if clip.selected else None
     return {
         "id": os.path.relpath(clip.folder, root).replace(os.sep, "/"),
-        "game": clip.game,
-        "line_time": first.time.isoformat() if first else "",
-        "cards": clip.manifest.get("cards", []),
-        "size_bytes": sum(entry.stat().st_size for entry in os.scandir(clip.folder) if entry.is_file()),
+        "size_bytes": os.path.getsize(clip.clip_path) if os.path.isfile(clip.clip_path) else 0,
         "lines": [{"id": line.id, "text": line.text} for line in clip.selected],
     }
 
@@ -39,9 +31,8 @@ def register_clips_api_routes(app):
         root = clips.get_clips_root()
         if not root:
             return jsonify({"clips": [], "error": "No output folder is set in the Paths settings."})
-        items = [_summary(clip, os.path.realpath(root)) for clip in clips.iter_clips(root)]
-        items.sort(key=lambda item: item["line_time"], reverse=True)
-        return jsonify({"clips": items})
+        # Folders are named by date and time, so reversed folder order is newest first.
+        return jsonify({"clips": [_summary(clip, root) for clip in reversed(list(clips.iter_clips(root)))]})
 
     def _trash(clip_id: str) -> str | None:
         """Move one clip to the system trash; return an error message, or None on success."""

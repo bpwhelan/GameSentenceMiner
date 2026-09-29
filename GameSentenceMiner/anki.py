@@ -1213,10 +1213,8 @@ def prefetch_ai_translation(sentence_to_translate: str, game_line: "GameLine") -
             return response.text
 
         # LLM path (UNCHANGED)
-        clip = getattr(game_line, "clip", None)
-        context_lines = clip.lines if clip else get_all_lines()
         translation = (
-            _get_ai_prompt_result()(context_lines, sentence_to_translate, game_line, _game_name_for(game_line)) or ""
+            _get_ai_prompt_result()(get_all_lines(), sentence_to_translate, game_line, get_current_game()) or ""
         )
 
         logger.info(f"AI prompt Result: {translation}")
@@ -1501,9 +1499,8 @@ def _get_prefetched_animated_screenshot_path(assets: MediaAssets) -> str:
 
 
 def _game_name_for(game_line=None) -> str:
-    """The game a line came from: clips remember theirs, live lines use the OBS scene."""
-    clip = getattr(game_line, "clip", None)
-    return (clip.game if clip else "") or get_current_game()
+    """The game a line came from: a saved line keeps its capture scene, live lines use the OBS scene."""
+    return (game_line.scene if getattr(game_line, "clip", None) else "") or get_current_game()
 
 
 def _prepare_anki_tags(game_line=None) -> List[str]:
@@ -3705,10 +3702,7 @@ def queue_card_for_processing(
     replay_path: Optional[str] = None,
     created_at: Optional[datetime] = None,
 ):
-    """Queue a card for the next OBS replay, or for replay_path (e.g. a saved clip) when given.
-
-    With replay_path, returns the Future of its processing.
-    """
+    """Queue a card for the next OBS replay, or for replay_path (e.g. a saved clip) when given."""
     current_word = last_card.get_field(get_config().anki.word_field) if last_card else ""
     if timing_context is None:
         timing_context = new_anki_card_timing_context(
@@ -3749,7 +3743,7 @@ def queue_card_for_processing(
     if replay_path:
         from GameSentenceMiner import replay_handler
 
-        replay_future = replay_handler.process_replay_file(replay_path, card_queue_item)
+        replay_handler.process_replay_file(replay_path, card_queue_item)
     else:
         try:
             card_queue.append(card_queue_item)
@@ -3773,7 +3767,7 @@ def queue_card_for_processing(
         reuse_screenshot_result_id=reuse_screenshot_result_id or "",
     )
     if replay_path:
-        return replay_future
+        return
     try:
         with time_anki_card_block(timing_context, "anki.obs_save_replay_buffer", queue_depth=len(card_queue)):
             obs.save_replay_buffer()

@@ -100,11 +100,11 @@
 	} from '../types';
 	import { deduplicateLineData } from '../session-sync';
 	import { clickOutside } from '../use-click-outside';
-	import { applyCustomCSS, dummyFn, formatMegabytes, getErrorMessage, timeStringToSeconds } from '../util';
+	import { applyCustomCSS, dummyFn, getErrorMessage, timeStringToSeconds } from '../util';
 	import Icon from './Icon.svelte';
 	import Presets from './Presets.svelte';
 	import ReplacementSettings from './ReplacementSettings.svelte';
-	import { getGSMEndpoint } from '../gsm';
+	import { describeSavedClips, fetchSavedClips, getGSMEndpoint, trashSavedClips } from '../gsm';
 
 	export let selectedLineIds: string[];
 	export let settingsElement: SVGElement;
@@ -138,59 +138,59 @@
 		}
 	}
 
-	async function handleResetAllData() {
-		const removedLines = $lineData$;
-		await resetAllData();
-		if (removedLines.length && !$lineData$.length) {
-			dispatch('linesRemoved', removedLines);
+	function notify(message: string, isError = true) {
+		return new Promise<DialogResult>((resolve) => {
+			$openDialog$ = isError
+				? { icon: mdiClose, type: 'error', message, showCancel: false, callback: resolve }
+				: { icon: mdiHelpCircle, message, showCancel: false, callback: resolve };
+		});
+	}
+
+	async function trashClips(clips: SavedClip[]) {
+		try {
+			await trashSavedClips(clips);
+		} catch (error) {
+			await notify(`Could not move every clip to the trash: ${getErrorMessage(error)}`);
+		} finally {
+			dispatch('savedClipsChanged');
 		}
 	}
 
-	// Saved clips live on disk in GSM's output folder, so this always asks before moving them to the trash.
+	async function handleResetAllData() {
+		// GSM may not be running; the rest of the reset doesn't need it.
+		const clips = await fetchSavedClips().catch(() => []);
+		const removedLines = $lineData$;
+		if (!(await resetAllData(clips.length ? `, and ${describeSavedClips(clips)} will be moved to the trash` : ''))) {
+			return;
+		}
+		if (removedLines.length) {
+			dispatch('linesRemoved', removedLines);
+		}
+		if (clips.length) {
+			await trashClips(clips);
+		}
+	}
+
+	// Saved clips are files on disk, so resetting them always asks first.
 	async function handleResetSavedClips() {
-		const notify = (message: string, isError = true) =>
-			new Promise<DialogResult>((resolve) => {
-				$openDialog$ = isError
-					? { icon: mdiClose, type: 'error', message, showCancel: false, callback: resolve }
-					: { icon: mdiHelpCircle, message, showCancel: false, callback: resolve };
-			});
 		let clips: SavedClip[];
 		try {
-			const response = await fetch(getGSMEndpoint('/api/clips'));
-			clips = (await response.json()).clips || [];
+			clips = await fetchSavedClips();
 		} catch (error) {
 			return notify(`Could not load the saved clips: ${getErrorMessage(error)}`);
 		}
 		if (!clips.length) {
 			return notify('There are no saved clips.', false);
 		}
-
-		const bytes = clips.reduce((total, clip) => total + clip.size_bytes, 0);
 		const { canceled } = await new Promise<DialogResult>((resolve) => {
 			$openDialog$ = {
 				icon: mdiHelpCircle,
-				message: `${clips.length} saved clip${clips.length === 1 ? '' : 's'} (${formatMegabytes(bytes)}) will be moved to the trash.`,
+				message: `${describeSavedClips(clips)} will be moved to the trash.`,
 				callback: resolve,
 			};
 		});
-		if (canceled) {
-			return;
-		}
-
-		try {
-			const response = await fetch(getGSMEndpoint('/api/clips/trash'), {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ ids: clips.map((clip) => clip.id) }),
-			});
-			const data = await response.json().catch(() => ({}));
-			if (!response.ok || data.failed?.length) {
-				throw new Error(data.failed?.[0]?.error || data.error || `HTTP error: ${response.status}`);
-			}
-		} catch (error) {
-			await notify(`Could not move every clip to the trash: ${getErrorMessage(error)}`);
-		} finally {
-			dispatch('savedClipsChanged');
+		if (!canceled) {
+			await trashClips(clips);
 		}
 	}
 
@@ -830,6 +830,16 @@
 				<div
 					role="button"
 					class="flex flex-col items-center hover:text-primary"
+					on:click={handleResetSavedClips}
+					on:keyup={dummyFn}
+					title="Move every saved clip to the trash"
+				>
+					<Icon path={mdiDelete} />
+					<span class="label-text">Reset Saved Clips</span>
+				</div>
+				<div
+					role="button"
+					class="flex flex-col items-center hover:text-primary"
 					on:click={() => handleReset(false)}
 					on:keyup={dummyFn}
 				>
@@ -844,16 +854,6 @@
 				>
 					<Icon path={mdiDelete} />
 					<span class="label-text">Reset All</span>
-				</div>
-				<div
-					role="button"
-					class="flex flex-col items-center hover:text-primary"
-					on:click={handleResetSavedClips}
-					on:keyup={dummyFn}
-					title="Move every saved clip to the trash"
-				>
-					<Icon path={mdiDelete} />
-					<span class="label-text">Reset Saved Clips</span>
 				</div>
 				<div
 					role="button"

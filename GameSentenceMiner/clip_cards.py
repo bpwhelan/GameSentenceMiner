@@ -1,8 +1,4 @@
-"""Make Anki cards from clips saved for later.
-
-A clip stands in for a fresh OBS replay, so the normal Anki flow (timing, VAD, confirmation
-dialog, uploads) and the Text Feed buttons run unchanged on it.
-"""
+"""A saved clip stands in for a fresh OBS replay, so the Anki flow and Text Feed buttons run unchanged on it."""
 
 import os
 import shutil
@@ -18,12 +14,7 @@ from GameSentenceMiner.util.text_log import find_matching_line, get_all_lines, l
 
 
 def match_new_card(card):
-    """Return the clip line a new card belongs to (its clip is line.clip), else None.
-
-    Live lines always win: the clip lines are only consulted when neither the text log nor the
-    last overlay scan matches, which is exactly when the live flow would fall back to the latest
-    line.
-    """
+    """The saved line a new card belongs to, only when no live line or overlay scan matches it."""
     # This runs inside the live flow, so it must never stop a card from being processed.
     try:
         if anki._is_overlay_mine(card):
@@ -47,15 +38,8 @@ def match_new_card(card):
         return None
 
 
-def _word(card) -> str:
-    try:
-        return card.get_field(get_config().anki.word_field)
-    except (KeyError, ValueError):
-        return ""
-
-
 def replay_copy(clip: Clip) -> str:
-    """A link (or copy) of the clip that the replay flows can use, then delete, like a fresh OBS replay."""
+    """A link (or copy) of the clip that the replay flows can use, then delete, like an OBS replay."""
     pause_history.remember_pauses(clip.manifest.get("pauses", []))
     path = make_unique_temp_file(clip.clip_path)
     try:
@@ -72,7 +56,7 @@ def replay_for_lines(lines) -> str | None:
     cutoff = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length)
     if not lines or lines[0].time >= cutoff:
         return None
-    saved = clips.find_saved_line(lines[0].id)
+    saved = lines[0] if getattr(lines[0], "clip", None) else clips.find_saved_line(lines[0].id)
     if saved is None or not {line.id for line in lines} <= {line.id for line in saved.clip.selected}:
         return None
     logger.info(f"Using clip {saved.clip.folder} for a line outside the replay buffer")
@@ -82,21 +66,12 @@ def replay_for_lines(lines) -> str | None:
 def queue_clip_card(card, line, **queue_kwargs):
     """Queue the normal Anki flow for card with line's clip standing in for the OBS replay."""
     clip = line.clip
-    selected = clip.selected if len(clip.selected) > 1 else []
     logger.info(f"Making a card from clip {clip.folder}")
-    future = anki.queue_card_for_processing(
+    anki.queue_card_for_processing(
         card,
-        selected,
+        clip.selected if len(clip.selected) > 1 else [],
         line,
         replay_path=replay_copy(clip),
         created_at=clip.clip_end_time,
         **queue_kwargs,
     )
-
-    def record(done):
-        context = None if done.cancelled() or done.exception() else done.result()
-        if getattr(context, "background_update_started", False):
-            clips.record_card(clip.folder, card.noteId, _word(card))
-
-    future.add_done_callback(record)
-    return future

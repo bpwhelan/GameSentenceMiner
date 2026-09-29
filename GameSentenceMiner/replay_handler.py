@@ -621,7 +621,6 @@ class ReplayAudioExtractor:
                         os.remove(video_path)
                 except Exception as e:
                     logger.exception(f"Error removing video file {video_path}: {e}")
-        return context
 
     @staticmethod
     def get_audio(
