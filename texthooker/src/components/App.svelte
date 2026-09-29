@@ -1607,6 +1607,7 @@
 		on:layoutChange={executeUpdateScroll}
 		on:linesRemoved={({ detail }) => rememberRemovedGSMLines(detail)}
 		on:maxLinesChange={() => ($lineData$ = applyMaxLinesAndGetRemainingLineData())}
+		on:savedClipsChanged={loadSavedClips}
 	/>
 	<Presets isQuickSwitch={true} on:layoutChange={executeUpdateScroll} />
 </header>

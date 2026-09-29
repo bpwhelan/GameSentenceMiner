@@ -36,6 +36,7 @@
 	import type { LineItem, LineItemEditEvent } from '../types';
 	import {
 		dummyFn,
+		formatMegabytes,
 		getAutoScrollStick,
 		isScrolledToEnd,
 		newLineCharacter,
@@ -97,7 +98,7 @@
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
 	$: isActiveGSMLine = line.gsmStatus === 'active' || (!line.gsmStatus && $lineIDs$?.includes(line.id));
 	$: isTimedOutGSMLine = line.gsmStatus === 'timed_out' || (!line.gsmStatus && $timedOutIDs$.includes(line.id));
-	$: clipSizeLabel = clipSizeBytes ? `${(clipSizeBytes / 1024 / 1024).toFixed(1)} MB` : '';
+	$: clipSizeLabel = clipSizeBytes ? formatMegabytes(clipSizeBytes) : '';
 	$: canAskAI = !!line.id && (isActiveGSMLine || isTimedOutGSMLine || isClipSaved || line.gsmStatus === 'external');
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;

@@ -95,11 +95,12 @@
 		type ExportedData,
 		type ExportedSettings,
 		type LineItem,
+		type SavedClip,
 		type SettingPreset,
 	} from '../types';
 	import { deduplicateLineData } from '../session-sync';
 	import { clickOutside } from '../use-click-outside';
-	import { applyCustomCSS, dummyFn, timeStringToSeconds } from '../util';
+	import { applyCustomCSS, dummyFn, formatMegabytes, getErrorMessage, timeStringToSeconds } from '../util';
 	import Icon from './Icon.svelte';
 	import Presets from './Presets.svelte';
 	import ReplacementSettings from './ReplacementSettings.svelte';
@@ -145,10 +146,59 @@
 		}
 	}
 
+	// Saved clips live on disk in GSM's output folder, so this always asks before moving them to the trash.
+	async function handleResetSavedClips() {
+		const notify = (message: string, isError = true) =>
+			new Promise<DialogResult>((resolve) => {
+				$openDialog$ = isError
+					? { icon: mdiClose, type: 'error', message, showCancel: false, callback: resolve }
+					: { icon: mdiHelpCircle, message, showCancel: false, callback: resolve };
+			});
+		let clips: SavedClip[];
+		try {
+			const response = await fetch(getGSMEndpoint('/api/clips'));
+			clips = (await response.json()).clips || [];
+		} catch (error) {
+			return notify(`Could not load the saved clips: ${getErrorMessage(error)}`);
+		}
+		if (!clips.length) {
+			return notify('There are no saved clips.', false);
+		}
+
+		const bytes = clips.reduce((total, clip) => total + clip.size_bytes, 0);
+		const { canceled } = await new Promise<DialogResult>((resolve) => {
+			$openDialog$ = {
+				icon: mdiHelpCircle,
+				message: `${clips.length} saved clip${clips.length === 1 ? '' : 's'} (${formatMegabytes(bytes)}) will be moved to the trash.`,
+				callback: resolve,
+			};
+		});
+		if (canceled) {
+			return;
+		}
+
+		try {
+			const response = await fetch(getGSMEndpoint('/api/clips/trash'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ ids: clips.map((clip) => clip.id) }),
+			});
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || data.failed?.length) {
+				throw new Error(data.failed?.[0]?.error || data.error || `HTTP error: ${response.status}`);
+			}
+		} catch (error) {
+			await notify(`Could not move every clip to the trash: ${getErrorMessage(error)}`);
+		} finally {
+			dispatch('savedClipsChanged');
+		}
+	}
+
 	const dispatch = createEventDispatcher<{
 		layoutChange: void;
 		linesRemoved: LineItem[];
 		maxLinesChange: void;
+		savedClipsChanged: void;
 	}>();
 	const onlineFonts = [
 		OnlineFont.OFF,
@@ -794,6 +844,16 @@
 				>
 					<Icon path={mdiDelete} />
 					<span class="label-text">Reset All</span>
+				</div>
+				<div
+					role="button"
+					class="flex flex-col items-center hover:text-primary"
+					on:click={handleResetSavedClips}
+					on:keyup={dummyFn}
+					title="Move every saved clip to the trash"
+				>
+					<Icon path={mdiDelete} />
+					<span class="label-text">Reset Saved Clips</span>
 				</div>
 				<div
 					role="button"
