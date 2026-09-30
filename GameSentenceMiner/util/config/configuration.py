@@ -2916,9 +2916,3 @@ ffmpeg_base_command_list_info = [
 ]
 
 add_gpu_dlls_to_path()
-
-# Clean up old logs on module load
-try:
-    cleanup_old_logs()
-except Exception as e:
-    logger.warning(f"Error during log cleanup: {e}")

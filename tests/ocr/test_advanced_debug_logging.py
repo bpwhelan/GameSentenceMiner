@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
-from PIL import Image
 import pytest
+from PIL import Image
 
 from GameSentenceMiner.ocr.debug_logging import (
     close_ocr_debug_log,
@@ -34,7 +34,10 @@ def test_debug_event_is_parseable_and_disabled_logging_is_silent(tmp_path):
     close_ocr_debug_log()
 
     assert created is True
-    assert _debug_payloads(log_path) == [
+    payloads = _debug_payloads(log_path)
+    assert datetime.fromisoformat(payloads[0].pop("timestamp"))
+    assert isinstance(payloads[0].pop("pid"), int)
+    assert payloads == [
         {
             "schema": "gsm_ocr_debug_v1",
             "event": "enabled",
@@ -42,6 +45,21 @@ def test_debug_event_is_parseable_and_disabled_logging_is_silent(tmp_path):
             "text": "recognized",
         }
     ]
+
+
+def test_debug_log_rotates_by_size_and_remains_parseable(tmp_path):
+    path, _ = start_ocr_debug_log(tmp_path, max_bytes=512, backup_count=2)
+    for index in range(20):
+        emit_ocr_debug(True, "ocr.result", text="recognized", frame_id=index)
+    emit_ocr_debug(True, "large.result", text="x" * 2000)
+    close_ocr_debug_log()
+    assert path == tmp_path / "ocr-debug.jsonl"
+    files = [path, *sorted((tmp_path / "history").glob("ocr-debug.jsonl.*"))]
+    assert len(files) == 3
+    for file in files:
+        assert file.stat().st_size <= 512
+        assert _debug_payloads(file)
+    assert _debug_payloads(path)[-1]["event"] == "diagnostic.oversized"
 
 
 def test_v2_logs_no_flush_then_flush_reason(tmp_path):
@@ -63,7 +81,7 @@ def test_v2_logs_no_flush_then_flush_reason(tmp_path):
         get_ocr2_image=lambda _coords, image, _padding=0: image,
     )
     image = Image.new("RGB", (80, 30), "white")
-    now = datetime(2026, 8, 5, 12, 0, 0)
+    now = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
 
     controller.handle_ocr_result("hello", ["hello"], now, image)
     controller.handle_ocr_result("hello", ["hello"], now, image)

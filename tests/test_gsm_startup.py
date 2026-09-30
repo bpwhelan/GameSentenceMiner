@@ -9,7 +9,7 @@ import pytest
 
 import GameSentenceMiner.gsm as gsm_module
 from GameSentenceMiner.util import text_log
-from GameSentenceMiner.util.log_paths import get_process_log_path
+from GameSentenceMiner.util.log_paths import get_component_log_path
 
 
 def test_main_skips_run_when_existing_instance_detected(monkeypatch):
@@ -826,7 +826,7 @@ def test_main_exits_when_single_instance_lock_is_unavailable(monkeypatch):
 def test_open_log_opens_the_current_process_log(monkeypatch, tmp_path):
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    expected_log = get_process_log_path(log_dir, "gamesentenceminer")
+    expected_log = get_component_log_path(log_dir, "backend")
     expected_log.write_text("test log", encoding="utf-8")
     opened_paths = []
 

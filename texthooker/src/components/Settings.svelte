@@ -27,6 +27,8 @@
 		characterMilestone$,
 		continuousReconnect$,
 		customCSS$,
+		customCSSUrl$,
+		remoteCSS$,
 		dialogOpen$,
 		displayVertical$,
 		enableAfkBlur$,
@@ -224,7 +226,9 @@
 
 	$: updateExternalClipboardMonitor($enableExternalClipboardMonitor$);
 
-	$: applyCustomCSS(document, $customCSS$);
+	$: loadCustomCSSUrl($customCSSUrl$);
+
+	$: applyCustomCSS(document, $customCSS$, $remoteCSS$);
 
 	$: getWebsocketPort().then((port) => {
 		// If Protocol is https, do not replace, let them do whatever
@@ -277,26 +281,6 @@
 					addedNode.remove();
 				}
 			}
-		}
-	}
-
-	function updateCustomCSS(customCSS: string) {
-		const textNode = document.createTextNode(customCSS);
-
-		let styleElement = document.getElementById('user-css');
-
-		if (styleElement) {
-			if (styleElement.firstChild) {
-				styleElement.replaceChild(textNode, styleElement.firstChild);
-			} else {
-				styleElement.appendChild(textNode);
-			}
-		} else {
-			styleElement = document.createElement('style');
-			styleElement.id = 'user-css';
-
-			styleElement.appendChild(textNode);
-			document.head.append(styleElement);
 		}
 	}
 
@@ -702,6 +686,18 @@
 
 	function handleCustomCSSBlur(event: FocusEvent) {
 		$customCSS$ = (event.target as HTMLTextAreaElement).value;
+	}
+
+	function loadCustomCSSUrl(url: string) {
+		if (!url) {
+			$remoteCSS$ = '';
+			return;
+		}
+
+		fetch(url, { cache: 'no-cache' })
+			.then((response) => response.text())
+			.then((css) => ($remoteCSS$ = css))
+			.catch((error) => console.warn('Failed to load Custom CSS URL', error));
 	}
 
 	async function handleImport(fileInput: HTMLInputElement, message: string) {
@@ -1213,6 +1209,15 @@
 			<span class="label-text col-span-2">Show Checkboxes</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showGSMCheckboxes$} />
 		</div>
+		<span class="label-text" style="grid-column: 1/5;">Custom CSS URL</span>
+		<input
+			type="url"
+			class="input input-bordered h-8 w-full"
+			style="grid-column: 1/5;"
+			placeholder="https://gist.githubusercontent.com/user/id/raw/texthooker.css"
+			value={$customCSSUrl$}
+			on:change={(event) => ($customCSSUrl$ = event.currentTarget.value)}
+		/>
 		<span class="label-text" style="grid-column: 1/5;">Custom CSS</span>
 		<textarea
 			class="p-1 min-h-[10rem] font-mono"

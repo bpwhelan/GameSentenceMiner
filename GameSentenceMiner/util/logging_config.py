@@ -6,11 +6,9 @@ Provides separate loggers for different components (main app, OCR, overlay) with
 automatic rotation, color coding, and context-aware configuration.
 """
 
-import inspect
-import os
 import sys
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from loguru import Logger
@@ -18,7 +16,7 @@ if TYPE_CHECKING:
 from loguru import logger as _logger
 
 from GameSentenceMiner.util.data_directory import get_app_directory
-from GameSentenceMiner.util.log_paths import get_process_log_path
+from GameSentenceMiner.util.log_paths import SharedRotatingLog, get_component_log_path
 
 # Remove default handler
 _logger.remove()
@@ -31,7 +29,7 @@ class LoggerManager:
     """
 
     # Component to file patterns mapping for automatic context tagging
-    COMPONENT_PATTERNS = {
+    COMPONENT_PATTERNS: ClassVar[dict[str, list[str]]] = {
         "OVERLAY": ["get_overlay_coords.py", "overlay", "gsm_overlay"],
         "VAD": ["vad.py", "voice_activity"],
         "ANKI": ["anki.py", "anki_connect"],
@@ -48,8 +46,9 @@ class LoggerManager:
 
     def __init__(self):
         self._initialized = False
-        self._log_dir: Optional[Path] = None
+        self._log_dir: Path | None = None
         self._handlers = {}
+        self._logger_name = None
 
     def _get_app_directory(self) -> Path:
         """Get the application config directory (platform-aware)."""
@@ -63,37 +62,24 @@ class LoggerManager:
         return self._log_dir
 
     def _determine_logger_name(self) -> str:
-        """
-        Intelligently determine the logger name based on calling context.
-        Returns appropriate name for main app, OCR utilities, or overlay.
-        """
-        frame = inspect.currentframe()
-        try:
-            # Walk up the call stack to find the context
-            while frame:
-                filename = frame.f_code.co_filename
-                if filename.endswith(("gsm.py", "gamesentenceminer.py", "__main__.py")):
-                    return "gamesentenceminer"
-                elif "ocr" in filename.lower() and "overlay" not in filename.lower():
-                    return "misc_ocr_utils"
-                elif "overlay" in filename.lower():
-                    return "gsm_overlay"
-                frame = frame.f_back
-
-            # Fallback: check main module
-            main_module = inspect.getmodule(inspect.stack()[-1][0])
-            if main_module and hasattr(main_module, "__file__"):
-                main_file = os.path.basename(main_module.__file__)
-                if main_file in ("gsm.py", "gamesentenceminer.py"):
-                    return "gamesentenceminer"
-                elif "ocr" in main_file.lower():
-                    return "misc_ocr_utils"
-                elif "overlay" in main_file.lower():
-                    return "gsm_overlay"
-
-            return "gamesentenceminer"  # Default
-        finally:
-            del frame
+        """Determine the process role before loading its runtime."""
+        # Import order must not decide the filename: the backend imports OCR
+        # utilities too. Only use the process entrypoint, never the import stack.
+        entrypoint = (sys.argv[0] if sys.argv else "").replace("\\", "/").lower()
+        if entrypoint == "-m":
+            # runpy imports the containing package before setting argv[0]. OCR's
+            # package initializes logging during that import, so consult the
+            # original interpreter arguments while the filename is unavailable.
+            original_args = getattr(sys, "orig_argv", [])
+            if "-m" in original_args:
+                module_index = original_args.index("-m") + 1
+                if module_index < len(original_args):
+                    entrypoint = original_args[module_index].replace(".", "/").lower()
+        if "overlay" in entrypoint:
+            return "overlay"
+        if "/ocr/" in entrypoint or "ocr" in Path(entrypoint).name:
+            return "ocr"
+        return "backend"
 
     def _detect_component_tag(self, record) -> str:
         """
@@ -105,7 +91,7 @@ class LoggerManager:
             if isinstance(file_path, dict):
                 file_name = file_path.get("path", "")
             else:
-                file_name = str(file_path)
+                file_name = getattr(file_path, "path", str(file_path))
 
             # Normalize path separators
             file_name = file_name.replace("\\", "/")
@@ -118,7 +104,7 @@ class LoggerManager:
                         return f"{component}".ljust(10)
 
             return "MAIN".ljust(10)  # Return 10 spaces for no component
-        except Exception:
+        except Exception:  # noqa: BLE001 - logging must survive malformed diagnostic records.
             return "MAIN".ljust(10)
 
     def _add_console_handler(self, logger_name: str = "gamesentenceminer", level: str = "INFO"):
@@ -144,11 +130,15 @@ class LoggerManager:
     def _add_file_handler(self, logger_name: str = "gamesentenceminer", level: str = "DEBUG"):
         """Add a rotating file handler for the specified logger."""
         log_dir = self._get_log_directory()
-        # Loguru's enqueue option serializes threads using this handler, but
-        # independently launched processes still create independent sinks. On
-        # Windows, sharing one rotating file makes rotation fail with WinError
-        # 32 while another process has the file open.
-        log_file = get_process_log_path(log_dir, logger_name)
+        log_file = get_component_log_path(log_dir, logger_name)
+        process_sink = SharedRotatingLog(log_file)
+        ocr_sink = SharedRotatingLog(log_dir / "ocr.log")
+
+        def write_to_component(message):
+            # The backend also runs OCR for the overlay. Keep those engine
+            # diagnostics alongside standalone OCR without duplicating records.
+            sink = ocr_sink if message.record["extra"]["component_tag"].strip() == "OCR" else process_sink
+            sink.write(message)
 
         def format_with_component(record):
             component_tag = self._detect_component_tag(record)
@@ -158,52 +148,21 @@ class LoggerManager:
 
         # Main log file with rotation
         handler_id = _logger.add(
-            str(log_file),
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {extra[component_tag]}{name}:{function}:{line} | {message}",
+            write_to_component,
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | PID {process.id} | {extra[component_tag]}{name}:{function}:{line} | {message}",
             level=level,
-            rotation="5 MB",
-            retention=5,
-            compression="zip",
-            encoding="utf-8",
-            colorize=True,
+            colorize=False,
             backtrace=True,
-            diagnose=True,
+            diagnose=False,
             enqueue=True,  # Thread-safe logging
             filter=format_with_component,
         )
         self._handlers[f"{logger_name}_file"] = handler_id
         return handler_id
 
-    def _add_error_handler(self):
-        """Add a dedicated error log file for ERROR and CRITICAL messages."""
-        log_dir = self._get_log_directory()
-        error_log = get_process_log_path(log_dir, "error")
-
-        def format_with_component(record):
-            component_tag = self._detect_component_tag(record)
-            record["extra"]["component_tag"] = component_tag
-            # Only log ERROR and above
-            return record["level"].no >= 40
-
-        handler_id = _logger.add(
-            str(error_log),
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {extra[component_tag]}{name}:{function}:{line} - {message}\n{exception}",
-            level="ERROR",
-            rotation="5 MB",
-            retention=5,
-            compression="zip",
-            encoding="utf-8",
-            backtrace=True,
-            diagnose=True,
-            enqueue=True,
-            filter=format_with_component,
-        )
-        self._handlers["error_file"] = handler_id
-        return handler_id
-
     def initialize(
         self,
-        logger_name: Optional[str] = None,
+        logger_name: str | None = None,
         console_level: str = "BACKGROUND",
         file_level: str = "DEBUG",
     ):
@@ -220,17 +179,13 @@ class LoggerManager:
 
         if logger_name is None:
             logger_name = self._determine_logger_name()
+        self._logger_name = logger_name
+        if logger_name == "ocr" and console_level == "BACKGROUND":
+            console_level = "INFO"
 
         # Add handlers
         self._add_console_handler(logger_name, level=console_level)
         self._add_file_handler(logger_name, level=file_level)
-        self._add_error_handler()
-
-        # Configure logger context
-        _logger.configure(
-            extra={"logger_name": logger_name},
-            patcher=lambda record: record.update(name=logger_name),
-        )
 
         self._initialized = True
         _logger.log("BACKGROUND", f"Logging initialized for {logger_name}")
@@ -243,29 +198,9 @@ class LoggerManager:
         Args:
             days: Number of days to retain logs
         """
-        import time
+        from GameSentenceMiner.util.log_maintenance import maintain_logs
 
-        log_dir = self._get_log_directory()
-        now = time.time()
-        cutoff = now - (days * 86400)
-
-        if not log_dir.exists():
-            return
-
-        cleaned_count = 0
-        for log_file in log_dir.iterdir():
-            if log_file.is_file():
-                try:
-                    file_modified = log_file.stat().st_mtime
-                    if file_modified < cutoff:
-                        log_file.unlink()
-                        cleaned_count += 1
-                        _logger.debug(f"Deleted old log file: {log_file}")
-                except Exception as e:
-                    _logger.warning(f"Error deleting log file {log_file}: {e}")
-
-        if cleaned_count > 0:
-            _logger.success(f"Cleaned up {cleaned_count} old log files")
+        maintain_logs(self._get_log_directory(), days=days)
 
     def get_logger(self) -> "Logger":
         """Get the configured loguru logger instance."""
@@ -284,36 +219,36 @@ class LoggerManager:
         """
         _logger.level(name, no=severity, color=color)
 
-    def set_level(self, level: str, handler_type: Optional[str] = None):
+    def set_level(self, level: str, handler_type: str | None = None):
         """
         Change the logging level for specific or all handlers.
 
         Args:
             level: New level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-            handler_type: Specific handler to update (console, file, error) or None for all
+            handler_type: Specific handler to update (console or file) or None for all
         """
         if handler_type:
-            handler_key = f"{self._determine_logger_name()}_{handler_type}"
+            handler_key = f"{self._logger_name}_{handler_type}"
             if handler_key in self._handlers:
                 _logger.remove(self._handlers[handler_key])
                 if handler_type == "console":
-                    self._add_console_handler(level=level)
+                    self._add_console_handler(self._logger_name, level=level)
                 elif handler_type == "file":
-                    self._add_file_handler(level=level)
+                    self._add_file_handler(self._logger_name, level=level)
         else:
             # Update all handlers
             for key in list(self._handlers.keys()):
                 _logger.remove(self._handlers[key])
             self._handlers.clear()
             self._initialized = False
-            self.initialize(file_level=level, console_level=level)
+            self.initialize(logger_name=self._logger_name, file_level=level, console_level=level)
 
 
 # Global logger manager instance
 _manager = LoggerManager()
 
 
-def get_logger(name: Optional[str] = None) -> "Logger":
+def get_logger(name: str | None = None) -> "Logger":
     """
     Get the configured logger instance.
 
@@ -329,7 +264,7 @@ def get_logger(name: Optional[str] = None) -> "Logger":
 
 
 def initialize_logging(
-    logger_name: Optional[str] = None,
+    logger_name: str | None = None,
     console_level: str = "BACKGROUND",
     file_level: str = "DEBUG",
 ):
@@ -363,7 +298,7 @@ def _format_message(message: str, args, kwargs) -> str:
     if args or kwargs:
         try:
             return message.format(*args, **kwargs)
-        except Exception:
+        except Exception:  # noqa: BLE001 - user-defined __format__ must not break logging.
             return message
     return message
 
@@ -371,49 +306,24 @@ def _format_message(message: str, args, kwargs) -> str:
 def display(message: str, *args, **kwargs):
     """Display a message at DISPLAY level (custom level for user-facing messages)."""
     formatted = _format_message(message, args, kwargs)
-    frame = inspect.currentframe().f_back
-    logger.patch(
-        lambda record: record.update(
-            file=frame.f_code.co_filename,
-            line=frame.f_lineno,
-            function=frame.f_code.co_name,
-        )
-    ).log("DISPLAY", formatted)
+    logger.opt(depth=1).log("DISPLAY", formatted)
 
 
 def background(message: str, *args, **kwargs):
     """Log a message at BACKGROUND level (custom level for low-importance background info)."""
     formatted = _format_message(message, args, kwargs)
-    frame = inspect.currentframe().f_back
-    logger.patch(
-        lambda record: record.update(
-            file=frame.f_code.co_filename,
-            line=frame.f_lineno,
-            function=frame.f_code.co_name,
-        )
-    ).log("BACKGROUND", formatted)
+    logger.opt(depth=1).log("BACKGROUND", formatted)
 
-
-# def text_received(message: str, *args, **kwargs):
-#     """Log a message at TEXT_RECEIVED level (custom level for received text)."""
-#     formatted = _format_message(message, args, kwargs)
-#     frame = inspect.currentframe().f_back
-#     logger.patch(lambda record: record.update(
-#         file=frame.f_code.co_filename,
-#         line=frame.f_lineno,
-#         function=frame.f_code.co_name
-#     )).log("TEXT_RECEIVED", formatted)
 
 logger.display = display
 logger.background = background
-# logger.text_received = text_received
 
 __all__ = [
-    "logger",
-    "get_logger",
-    "initialize_logging",
+    "LoggerManager",
+    "background",
     "cleanup_old_logs",
     "display",
-    "background",
-    "LoggerManager",
+    "get_logger",
+    "initialize_logging",
+    "logger",
 ]

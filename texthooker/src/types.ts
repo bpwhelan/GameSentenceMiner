@@ -86,6 +86,7 @@ export interface Settings {
 	continuousReconnect$: boolean;
 	showConnectionErrors$: boolean;
 	customCSS$: string;
+	customCSSUrl$: string;
 	autoTranslateLines$: boolean;
 	blurAutoTranslatedLines$: boolean;
 	unblurTLTimer$: number;

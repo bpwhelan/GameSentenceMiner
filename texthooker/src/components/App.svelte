@@ -35,6 +35,7 @@
 		autoStartTimerDuringPausePaste$,
 		blockCopyOnPage$,
 		customCSS$,
+		remoteCSS$,
 		dialogOpen$,
 		displayVertical$,
 		enabledReplacements$,
@@ -336,7 +337,7 @@
 	$: if (pipWindow) {
 		pipWindow.document.body.dataset.theme = $theme$;
 
-		applyCustomCSS(pipWindow.document, $customCSS$);
+		applyCustomCSS(pipWindow.document, $customCSS$, $remoteCSS$);
 	}
 
 	onMount(() => {
@@ -1138,7 +1139,11 @@
 		activePipWindow.addEventListener('focus', onPipFocusBlur, false);
 
 		[...document.styleSheets].forEach((styleSheet) => {
-			if (styleSheet.ownerNode instanceof Element && styleSheet.ownerNode.id === 'user-css') {
+			// applyCustomCSS keeps the user sheets live in the pip window
+			if (
+				styleSheet.ownerNode instanceof Element &&
+				['user-css', 'user-css-url'].includes(styleSheet.ownerNode.id)
+			) {
 				return;
 			}
 

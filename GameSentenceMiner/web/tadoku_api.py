@@ -12,6 +12,7 @@ from GameSentenceMiner.util.tadoku_sync import (
     TadokuClient,
     TadokuSyncError,
     build_tadoku_preview,
+    normalize_tadoku_log_descriptions,
     run_tadoku_sync,
 )
 
@@ -39,7 +40,13 @@ class TadokuSyncJobManager:
         self._jobs: dict[str, _TadokuJob] = {}
         self._lock = threading.Lock()
 
-    def start(self, *, deduplicate: bool, run_inline: bool = False) -> dict[str, Any]:
+    def start(
+        self,
+        *,
+        deduplicate: bool,
+        log_descriptions: dict[str, str] | None = None,
+        run_inline: bool = False,
+    ) -> dict[str, Any]:
         job = _TadokuJob(job_id=uuid.uuid4().hex)
         with self._lock:
             if any(candidate.status in {"queued", "running"} for candidate in self._jobs.values()):
@@ -47,11 +54,11 @@ class TadokuSyncJobManager:
             self._jobs[job.job_id] = job
 
         if run_inline:
-            self._run(job, deduplicate)
+            self._run(job, deduplicate, log_descriptions)
         else:
             thread = threading.Thread(
                 target=self._run,
-                args=(job, deduplicate),
+                args=(job, deduplicate, log_descriptions),
                 name="gsm-tadoku-sync",
                 daemon=True,
             )
@@ -64,11 +71,11 @@ class TadokuSyncJobManager:
         return job.payload() if job else None
 
     @staticmethod
-    def _run(job: _TadokuJob, deduplicate: bool) -> None:
+    def _run(job: _TadokuJob, deduplicate: bool, log_descriptions: dict[str, str] | None) -> None:
         with job._lock:
             job.status = "running"
         try:
-            result = run_tadoku_sync(deduplicate=deduplicate)
+            result = run_tadoku_sync(deduplicate=deduplicate, log_descriptions=log_descriptions)
         except Exception as exc:
             with job._lock:
                 job.status = "failed"
@@ -111,10 +118,19 @@ def register_tadoku_api_routes(app):
 
     @app.route("/api/tadoku/sync", methods=["POST"])
     def api_tadoku_sync():
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(silent=True)
+        if data is None:
+            data = {}
+        if not isinstance(data, dict):
+            return jsonify({"error": "Tadoku sync options must be an object"}), 400
+        try:
+            log_descriptions = normalize_tadoku_log_descriptions(data.get("log_descriptions"))
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
         try:
             payload = tadoku_sync_job_manager.start(
                 deduplicate=bool(data.get("deduplicate", False)),
+                log_descriptions=log_descriptions,
                 run_inline=bool(current_app.testing),
             )
         except TadokuSyncError as exc:

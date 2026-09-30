@@ -143,3 +143,8 @@ export function getConfiguredSinglePort(
         return DEFAULT_GSM_SINGLE_PORT;
     }
 }
+
+/** Build a URL to the local Python backend (single-port mode). */
+export function gsmBackendUrl(routePath: string): string {
+    return `http://localhost:${getConfiguredSinglePort()}${routePath}`;
+}

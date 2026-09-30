@@ -10,7 +10,7 @@ def test_anki_card_timing_disabled_is_noop(tmp_path):
     anki_card_timing.log_anki_card_timing(context, "test.disabled")
 
     assert context is None
-    assert not (tmp_path / "anki_card_timing.log").exists()
+    assert not (tmp_path / "anki-timing.log").exists()
 
 
 def test_anki_card_timing_writes_json_lines_when_enabled(tmp_path):

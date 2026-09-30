@@ -79,12 +79,20 @@
             <button type="button" id="tadokuPreviewBtn" class="action-btn">Refresh preview</button>
             <button type="button" id="tadokuSyncBtn" class="action-btn primary">Queue manual sync</button>
         </div>
+        <small id="tadokuLogTitleHelp" style="color: var(--text-tertiary); font-size: 12px; margin-top: 12px; display: block;">
+            Edit the log titles below before syncing (up to 255 characters). Title edits apply only to this manual sync.
+        </small>
         <div id="tadokuPreviewSummary" style="color: var(--text-secondary); font-size: 13px; margin-top: 12px;">Loading Tadoku preview…</div>
         <div style="max-height: 180px; overflow: auto; margin-top: 8px;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <table style="width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px;">
+                <colgroup>
+                    <col style="width: 55%;">
+                    <col style="width: 15%;">
+                    <col style="width: 30%;">
+                </colgroup>
                 <thead>
                     <tr style="text-align: left; color: var(--text-secondary);">
-                        <th style="padding: 6px; border-bottom: 1px solid var(--border-color);">Game</th>
+                        <th style="padding: 6px; border-bottom: 1px solid var(--border-color);">Tadoku log title</th>
                         <th style="padding: 6px; border-bottom: 1px solid var(--border-color); text-align: right;">Lines</th>
                         <th style="padding: 6px; border-bottom: 1px solid var(--border-color); text-align: right;">Characters</th>
                     </tr>

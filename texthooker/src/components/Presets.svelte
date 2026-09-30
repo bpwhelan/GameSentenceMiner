@@ -14,6 +14,7 @@
 		characterMilestone$,
 		continuousReconnect$,
 		customCSS$,
+		customCSSUrl$,
 		defaultSettings,
 		displayVertical$,
 		enableAfkBlur$,
@@ -124,6 +125,7 @@
 			continuousReconnect$: $continuousReconnect$,
 			showConnectionErrors$: $showConnectionErrors$,
 			customCSS$: $customCSS$,
+			customCSSUrl$: $customCSSUrl$,
 			autoTranslateLines$: $autoTranslateLines$,
 			blurAutoTranslatedLines$: $blurAutoTranslatedLines$,
 			unblurTLTimer$: $unblurTLTimer$,
@@ -200,6 +202,7 @@
 		continuousReconnect$.next(preset.settings.continuousReconnect$ ?? defaultSettings.continuousReconnect$);
 		showConnectionErrors$.next(preset.settings.showConnectionErrors$ ?? defaultSettings.showConnectionErrors$);
 		customCSS$.next(preset.settings.customCSS$ ?? defaultSettings.customCSS$);
+		customCSSUrl$.next(preset.settings.customCSSUrl$ ?? defaultSettings.customCSSUrl$);
 		autoTranslateLines$.next(preset.settings.autoTranslateLines$ ?? defaultSettings.autoTranslateLines$);
 		blurAutoTranslatedLines$.next(
 			preset.settings.blurAutoTranslatedLines$ ?? defaultSettings.blurAutoTranslatedLines$,

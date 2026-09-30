@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import { BASE_DIR, getSanitizedPythonEnv, getWindowsNamedPythonExecutable } from '../util.js';
 import { getBroker, getBusConnectInfo } from './bus_client.js';
 import { ProcessManager } from './process_manager.js';
+import { recordProcessOutput } from '../services/logging.js';
 
 let manager: ProcessManager | null = null;
 let launchBlocked: () => boolean = () => false;
@@ -35,6 +36,12 @@ export function getProcessManager(): ProcessManager {
             stateFile: path.join(BASE_DIR, 'electron', 'managed_processes.json'),
             resolveExecutable: (command, label) =>
                 label ? getWindowsNamedPythonExecutable(command, label) : command,
+        });
+        manager.on('log', (id: string, output: { stream: string; message: string }) => {
+            recordProcessOutput(id, output.stream, output.message);
+        });
+        manager.on('state-changed', (id: string, state: string) => {
+            recordProcessOutput(id, 'lifecycle', state);
         });
     }
     return manager;

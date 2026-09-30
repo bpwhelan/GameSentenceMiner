@@ -25,7 +25,7 @@ import {
 } from '../util.js';
 import { resolveWineLaunch, findLinuxGamePid, type WineLaunchContext } from './linux_wine.js';
 import { startWineFridaConnection, type WineProcessConnection } from './wine_frida.js';
-import { getConfiguredSinglePort } from '../gsm_config.js';
+import { gsmBackendUrl } from '../gsm_config.js';
 import {
     getGameExePathForScene,
     setGameExePathForScene,
@@ -42,6 +42,7 @@ import {
     getCurrentScene,
     getExecutableNameFromSource,
     getWindowTitleFromSource,
+    syncProcessPausingTargetForCurrentScene,
 } from './obs.js';
 import {
     callAgentUiRpc as callLocalAgentUiRpc,
@@ -2010,11 +2011,6 @@ function notifyTextHookUserStop(status: TextHookRuntimeStatus): void {
 // IPC registration
 // ---------------------------------------------------------------------------
 
-/** Build a URL to the local Python backend (single-port mode). */
-function gsmBackendUrl(routePath: string): string {
-    return `http://localhost:${getConfiguredSinglePort()}${routePath}`;
-}
-
 export function registerTextHookIPC(): void {
     setRuntimeTextHookMaxBufferSize(textHookMaxBufferSize);
     configureAgentHookCallbacks({
@@ -2233,20 +2229,8 @@ export function registerTextHookIPC(): void {
                 return { success: false, error: 'sceneName is required' };
             }
             setGameExePathForScene(sceneName, exePath);
-            // Write the exe basename through to the Python process-pausing target so the
-            // "Wayland override" (process_pausing.linux_target_process) stays in sync.
-            try {
-                await fetch(gsmBackendUrl('/linux/set_target_process'), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ target: exePath }),
-                });
-            } catch (err) {
-                emitLog(
-                    `Could not sync game executable to process-pausing target: ${(err as Error).message}`,
-                    'warn',
-                );
-            }
+            // Only the active scene drives process pausing, and editing another scene leaves it alone.
+            syncProcessPausingTargetForCurrentScene();
             return { success: true };
         },
     );

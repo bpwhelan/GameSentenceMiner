@@ -492,6 +492,11 @@ async function runScreenSelector(options?: { live?: boolean }) {
             }
         });
 
+        process.stderr?.on('data', (data: Buffer) => {
+            console.error(`[Screen Selector STDERR]: ${data.toString()}`);
+            sendToMainWindowFrames('ocr-log', data.toString());
+        });
+
         process.on('close', (code) => {
             console.log(`Screen selector exited with code ${code}`);
             if (code === 0) {
