@@ -784,12 +784,6 @@ class ConfigWindow(QWidget):
             if sources_editor:
                 self.editor.profile.general.websocket_sources = sources_editor.get_sources()
                 self.editor.profile.general.sync_sources_to_csv()
-            selected_monitor_index = int(self.overlay_monitor_combo.currentIndex() or 0)
-            selected_monitor_descriptor = {}
-            overlay_monitor_descriptors = getattr(self, "overlay_monitor_descriptors", [])
-            if 0 <= selected_monitor_index < len(overlay_monitor_descriptors):
-                selected_monitor_descriptor = overlay_monitor_descriptors[selected_monitor_index]
-
             process_pausing = ProcessPausing(
                 enabled=self.process_pausing_enabled_check.isChecked(),
                 auto_resume_seconds=self.process_pausing_auto_resume_seconds_edit.value(),
@@ -1127,11 +1121,10 @@ class ConfigWindow(QWidget):
                 ),
                 # Preserve fields managed only by the overlay UI, including edits
                 # made after this settings window loaded its own config snapshot.
+                # The monitor also follows the game at runtime; the unused legacy
+                # monitor combo must not restore its stale selection on save.
                 overlay=replace(
                     configuration.get_overlay_config(),
-                    monitor_to_capture=selected_monitor_index,
-                    monitor_to_capture_id=str(selected_monitor_descriptor.get("id", "")),
-                    monitor_to_capture_bounds=dict(selected_monitor_descriptor.get("bounds", {})),
                     engine=OverlayEngine(
                         self.overlay_engine_combo.currentText()
                     ).value,  # Keep for backwards compatibility

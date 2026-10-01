@@ -146,6 +146,20 @@
       "github": "GitHub",
       "discord": "Discord"
     },
+    "update": {
+      "available": "Actualización disponible",
+      "previewDescription": "Vista previa de desarrollo con las últimas notas de la versión en línea. La instalación está desactivada.",
+      "availableVersion": "Actualización disponible: {version}",
+      "title": "Actualizar a {version}",
+      "restartDescription": "GSM descargará la actualización y se reiniciará para instalarla.",
+      "install": "Actualizar y reiniciar",
+      "notNow": "Ahora no",
+      "installing": "Actualizando…",
+      "installingDescription": "Descargando la actualización. GSM se reiniciará cuando esté lista.",
+      "installFailed": "No se pudo instalar la actualización. Inténtalo de nuevo o elige «Ahora no».",
+      "notesUnavailable": "No se pudieron cargar las notas de la versión. Puedes reintentarlo o instalar la actualización ahora.",
+      "changed": "La actualización disponible ha cambiado. Cierra esta ventana y vuelve a abrirla para consultar la última versión."
+    },
     "stats": {
       "loading": "Esperando a que se carguen las estadísticas de GSM..."
     },
@@ -501,7 +515,6 @@
       "iconRandomTray": "Aleatorio (icono de bandeja también)",
       "language": "Idioma de visualización (IA):",
       "startMinimized": "Iniciar consola minimizada:",
-      "showYuzuLauncher": "Mostrar lanzador Yuzu:",
       "runTransparencyOnStartup": "Ejecutar herramienta de transparencia al inicio:",
       "runOverlayOnStartup": "Ejecutar superposición al inicio:"
     },

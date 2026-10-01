@@ -8,8 +8,8 @@ their data folder. OCR diagnostics survive OCR restarts and temporary-file clean
 | --- | --- |
 | `backend.log` | Python backend and helper messages, errors, and tracebacks |
 | `ocr.log` | OCR startup, engines, recognition, and errors, including OCR inside the backend; always enabled |
-| `desktop.log` | Desktop startup, updates, console output, and embedded overlay |
-| `process-output.log` | Raw managed child output and lifecycle events, including failures before Python logging starts |
+| `desktop.log` | Desktop startup and version/platform details, installer stages and retries, updater diagnostics, main/renderer console output, renderer failures, and embedded overlay |
+| `process-output.log` | Raw managed child and pip/uv setup output, commands, exit codes, and lifecycle events, including failures before Python logging starts |
 | `ocr-debug.jsonl` | Optional advanced OCR diagnostics, including timestamps and process IDs |
 | `anki-timing.log` | Optional development Anki card timing diagnostics |
 | `history/` | Previous rotations and consolidated diagnostics from older versions |
@@ -27,6 +27,24 @@ Python writers coordinate with OS file locks under `.locks/`, opening and closin
 the log for each write so concurrent helpers can rotate safely on Windows. Process
 IDs and source locations remain inside each record. Desktop and managed child
 output files are owned by the main Electron process.
+
+For installation or update problems, request **Export Logs** after the failed
+attempt. Both Electron files and their history are included automatically, even
+when the backend never started. Dependency output hidden from the on-screen
+terminal is still saved. Install sessions include their origin, ID, stage,
+progress milestones, retries, and result; updater logs include the release
+channel, versions, download milestones, verification/fallback diagnostics, and
+the handoff to the installer. Desktop writes are synchronous so the final
+handoff/error survives an immediate exit. Renderer messages are captured directly
+without forwarding them back to the renderer.
+
+If GSM cannot open, collect the `logs/` folder directly from its data directory
+(by default `%APPDATA%\GameSentenceMiner\logs` on Windows or
+`~/.config/GameSentenceMiner/logs` on macOS/Linux). Desktop logging starts before
+the main application and Python setup load. These logs cover GSM's own setup and
+updater; the external Windows installer runs separately after Electron exits,
+so its internal file-copy/UI activity and failures before GSM ever starts are
+outside this capture.
 
 On upgrade, known PID-named logs, old compressed rotations, and surviving
 `temp/ocr_logs/` files are consolidated by component as `history/legacy-*.log`.

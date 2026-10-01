@@ -51,6 +51,7 @@ function setupActivation(options = {}) {
   context.window.dispatchEvent = () => {};
   context.CustomEvent = class {};
   context.setTimeout = () => 1;
+  context.clearTimeout = () => {};
   for (const method of ['publishNavigationActiveState', 'rememberCurrentSelectionSnapshot',
     'initializeVirtualMousePosition', 'syncVirtualMouseToCurrentSelection', 'showModeIndicator',
     'syncOverlayFocusState', 'releaseOverlayFocus', 'hideVisuals', 'clearCursorPosition',

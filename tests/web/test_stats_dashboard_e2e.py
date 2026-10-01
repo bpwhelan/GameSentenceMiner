@@ -54,8 +54,6 @@ def _timestamp(iso_datetime: str) -> float:
 
 
 def _freeze_stats_today(monkeypatch: pytest.MonkeyPatch) -> None:
-    from types import SimpleNamespace
-
     import GameSentenceMiner.web.rollup_stats as rollup_stats
     import GameSentenceMiner.web.stats as stats_module
     import GameSentenceMiner.web.stats_api as stats_api
@@ -65,11 +63,6 @@ def _freeze_stats_today(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stats_service.datetime, "date", _FrozenDate)
     monkeypatch.setattr(rollup_stats.datetime, "date", _FrozenDate)
     monkeypatch.setattr(stats_module.datetime, "date", _FrozenDate)
-    monkeypatch.setattr(
-        stats_module,
-        "get_stats_config",
-        lambda: SimpleNamespace(reading_time_adaptive_v2=True),
-    )
 
 
 def _seed_games() -> None:

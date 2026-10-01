@@ -229,6 +229,41 @@ describe("HomeTab", () => {
     );
   });
 
+  it("switches between mutually exclusive overlay modes and restores both after a failed save", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let saved = { runOverlayOnStartup: true, runOverlayWithActiveGame: false };
+    let failSave = false;
+    invokeMock.mockImplementation(async (channel: string, patch: Partial<typeof saved>) => {
+      if (channel === "settings.getSettings") return saved;
+      if (channel === "settings.saveSettings") {
+        if (failSave) return { success: false };
+        saved = { ...saved, ...patch };
+        if (patch.runOverlayOnStartup) saved.runOverlayWithActiveGame = false;
+        if (patch.runOverlayWithActiveGame) saved.runOverlayOnStartup = false;
+        return { success: true, settings: saved };
+      }
+      return fallback(channel);
+    });
+    await act(async () => root.render(<I18nProvider><HomeTab active /></I18nProvider>));
+    const startup = container.querySelector<HTMLInputElement>("#home-overlay-startup-toggle")!;
+    const activeGame = container.querySelector<HTMLInputElement>("#home-overlay-active-game-toggle")!;
+    expect(startup.checked).toBe(true);
+    expect(activeGame.checked).toBe(false);
+    await act(async () => activeGame.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", { runOverlayWithActiveGame: true });
+    expect(startup.checked).toBe(false);
+    expect(activeGame.checked).toBe(true);
+    failSave = true;
+    await act(async () => startup.click());
+    expect(startup.checked).toBe(false);
+    expect(activeGame.checked).toBe(true);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not load or save");
+    failSave = false;
+    await act(async () => startup.click());
+    expect(startup.checked).toBe(true);
+    expect(activeGame.checked).toBe(false);
+  });
+
   it("persists the overlay startup toggle from the overlay card", async () => {
     await act(async () => {
       root.render(<HomeTab active />);

@@ -14,6 +14,17 @@ LOW_LATENCY_TOKEN_LIMITS = {
     "context": 192,
 }
 
+# Later Flash models (3.7+) only support LOW and above. Keep MINIMAL scoped
+# to the families that support it instead of assuming every Gemini 3 does.
+# https://ai.google.dev/gemini-api/docs/thinking
+MINIMAL_THINKING_MODEL_PREFIXES = (
+    "gemini-3-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemma-4",
+)
+
 
 class GeminiClient:
     def __init__(self, api_key: str, model_name: str, logger):
@@ -40,14 +51,24 @@ class GeminiClient:
             ),
         ]
         try:
-            self.client = genai.Client(api_key=self.api_key)
+            self.client = genai.Client(
+                api_key=self.api_key,
+                http_options=types.HttpOptions(
+                    retry_options=types.HttpRetryOptions(
+                        # Retry a temporary server failure once. Invalid requests
+                        # and exhausted quotas should go straight to the backup.
+                        attempts=2,
+                        http_status_codes=[408, 500, 502, 503, 504],
+                    )
+                ),
+            )
         except Exception as e:
             self.logger.error(f"Failed to initialize Gemini API: {e}")
 
     @staticmethod
     def _get_thinking_budget(model_name: str) -> Optional[int]:
         model = (model_name or "").lower()
-        if "gemini-2.5" in model or "gemini-3" in model:
+        if model.startswith("gemini-2.5"):
             return -1 if "-pro" in model else 0
         return None
 
@@ -56,9 +77,16 @@ class GeminiClient:
         model = (model_name or "").lower()
         thinking_fields = getattr(types.ThinkingConfig, "model_fields", {})
 
-        if "thinking_level" in thinking_fields and model.startswith("gemma-4"):
+        if "thinking_level" in thinking_fields and model.startswith(("gemini-3", "gemma-4")):
+            # Gemini 3 rejects the legacy zero-token thinking budget. Gemma 4
+            # also uses levels, with MINIMAL disabling its thinking mode.
+            level = (
+                types.ThinkingLevel.MINIMAL
+                if model.startswith(MINIMAL_THINKING_MODEL_PREFIXES)
+                else types.ThinkingLevel.LOW
+            )
             return types.ThinkingConfig(
-                thinking_level=types.ThinkingLevel.MINIMAL,
+                thinking_level=level,
                 include_thoughts=False,
             )
 

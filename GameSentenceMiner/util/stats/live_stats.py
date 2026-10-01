@@ -3,9 +3,6 @@ import time
 from GameSentenceMiner.util.config.configuration import get_stats_config
 from GameSentenceMiner.util.database.db import clean_text_for_stats
 from GameSentenceMiner.util.stats.stats_util import (
-    MAX_SEC_PER_CHAR,
-    FLOOR_SECONDS,
-    ABSOLUTE_CEILING,
     MIN_CHARS_FOR_SPEED,
     MIN_LINES_FOR_CPH,
     adaptive_cap_seconds,
@@ -124,21 +121,15 @@ class LiveSessionTracker:
         self.lines_count = 0
         self.last_line_id = None
         self._line_ledger: dict[str, dict[str, object]] = {}
-        # v2: per-line raw reading speeds (chars/sec) for the adaptive cap.
+        # Per-line raw reading speeds (chars/sec) for the adaptive cap.
         self._speed_samples: list[float] = []
 
     def _credit_gap(self, gap: float):
-        """Credit the time spent reading the previous line, capped per the active algorithm."""
+        """Credit the previous line's reading time, capped at the session's pace."""
         prev_char_count = len(self.last_line_text) if self.last_line_text else 0
-        if get_stats_config().reading_time_adaptive_v2:
-            # v2: cap the gap by a conservative session-median reading speed.
-            if prev_char_count >= MIN_CHARS_FOR_SPEED and gap > 0:
-                self._speed_samples.append(prev_char_count / gap)
-            max_time = adaptive_cap_seconds(prev_char_count, _median(self._speed_samples))
-        else:
-            # v1: fixed seconds-per-char cap on the previous line.
-            max_time = max(FLOOR_SECONDS, prev_char_count * MAX_SEC_PER_CHAR)
-            max_time = min(max_time, ABSOLUTE_CEILING)
+        if prev_char_count >= MIN_CHARS_FOR_SPEED and gap > 0:
+            self._speed_samples.append(prev_char_count / gap)
+        max_time = adaptive_cap_seconds(prev_char_count, _median(self._speed_samples))
         self.total_reading_seconds += min(gap, max_time)
 
     def add_line(
@@ -157,8 +148,8 @@ class LiveSessionTracker:
         line arrives (i.e. when the reader is "done" with it). Crediting them
         together keeps read speed from spiking the instant a huge line appears.
 
-        The maximum time credited for a gap is capped per the active algorithm
-        (v1 fixed seconds-per-char, or v2 adaptive to conservative session median speed).
+        The maximum time credited for a gap adapts to a conservative version of
+        the session's median reading speed.
         """
         stats_config = get_stats_config()
         cleaned = clean_text_for_stats(
@@ -236,9 +227,9 @@ class LiveSessionTracker:
         # Require at least a few seconds of reading to get a stable CPH.
         if self.total_reading_seconds <= 5:
             return 0
-        # v2 anti-spike guard: also require enough lines so a freshly-reset
+        # Anti-spike guard: also require enough lines so a freshly-reset
         # session (e.g. returning from AFK) doesn't flash a bogus huge cph.
-        if get_stats_config().reading_time_adaptive_v2 and self.lines_count < MIN_LINES_FOR_CPH:
+        if self.lines_count < MIN_LINES_FOR_CPH:
             return 0
         hours = self.total_reading_seconds / 3600
         return int(self.total_characters / hours)

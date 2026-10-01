@@ -467,6 +467,54 @@ export class DesktopChangelogManager {
         this.emitManual(null);
     }
 
+    public async getLatestOnlinePreview(
+        currentVersion: string,
+        options: DesktopUpdateChangelogPreviewOptions = {}
+    ): Promise<DesktopUpdateChangelogSnapshot> {
+        const releases = await this.fetchRemoteChangelogReleases(options.includePrereleases === true);
+        const latest = releases
+            .filter((release) => semver.valid(release.version))
+            .sort((a, b) => compareVersions(b.version, a.version))[0];
+        if (!latest) {
+            throw new Error('No online release was found for the selected update channel.');
+        }
+        const section = await this.fetchRemoteChangelogSection(latest);
+        return makeReadySnapshot(
+            { fromVersion: currentVersion, toVersion: latest.version },
+            { title: section.title, markdown: section.markdown, source: 'remote' }
+        );
+    }
+
+    // Read-only preview for an update offer; do not mark it seen or open a second dialog.
+    public async getUpdatePreview(
+        record: DesktopUpdateChangelogPendingRecord,
+        options: DesktopUpdateChangelogPreviewOptions = {}
+    ): Promise<DesktopUpdateChangelogSnapshot> {
+        let remote: DesktopUpdateChangelogSnapshot | null = null;
+        await this.resolveRemoteRange(record, {
+            includePrereleases: options.includePrereleases === true,
+            requireTarget: true,
+            applySnapshot: (snapshot) => { remote = snapshot; },
+        });
+        if (remote) {
+            return remote;
+        }
+        try {
+            const bundled = await this.resolveBundled(record, true);
+            if (!bundled.error) {
+                return bundled;
+            }
+        } catch (error) {
+            log.info(`No bundled update preview: ${String(error)}`);
+        }
+        // A future release may not be bundled. Never describe it as already installed.
+        return {
+            ...makeLoadingSnapshot(record),
+            status: 'failed',
+            error: 'Release notes could not be loaded.',
+        };
+    }
+
     private resolve(record: DesktopUpdateChangelogPendingRecord): void {
         const key = versionKey(record);
         if (this.resolvingKey === key) {
@@ -576,14 +624,15 @@ export class DesktopChangelogManager {
     }
 
     private async resolveBundled(
-        record: DesktopUpdateChangelogPendingRecord
+        record: DesktopUpdateChangelogPendingRecord,
+        requireTarget: boolean = false
     ): Promise<DesktopUpdateChangelogSnapshot> {
         const changelogRoot = path.join(this.options.assetsDir, 'changelog');
         const manifestPath = path.join(changelogRoot, 'manifest.json');
         const parsed = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as ChangelogManifest;
         const entries = selectManifestEntries(parsed, record.fromVersion, record.toVersion);
 
-        if (entries.length === 0) {
+        if (entries.length === 0 || (requireTarget && !entries.some((entry) => entry.version === record.toVersion))) {
             return makeReadySnapshot(record, {
                 source: 'bundled',
                 markdown: fallbackMarkdown(record.toVersion),
@@ -776,6 +825,7 @@ export class DesktopChangelogManager {
         record: DesktopUpdateChangelogPendingRecord,
         options: {
             includePrereleases: boolean;
+            requireTarget?: boolean;
             isCurrent?: () => boolean;
             applySnapshot?: (snapshot: DesktopUpdateChangelogSnapshot) => void;
         }
@@ -795,7 +845,7 @@ export class DesktopChangelogManager {
                 )
                 .sort((a, b) => compareVersions(a.version, b.version));
 
-            if (selected.length === 0) {
+            if (selected.length === 0 || (options.requireTarget && !selected.some((release) => release.version === record.toVersion))) {
                 throw new Error(
                     `No GitHub changelog releases found from ${record.fromVersion} to ${record.toVersion}.`
                 );

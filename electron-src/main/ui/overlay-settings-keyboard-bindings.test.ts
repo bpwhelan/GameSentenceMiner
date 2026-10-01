@@ -17,7 +17,7 @@ function nextTick(delay = 0) {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
-function loadOverlaySettingsPage() {
+function loadOverlaySettingsPage(platform = "win32") {
   const settingsPath = path.resolve(process.cwd(), "GSM_Overlay/settings.html");
   const html = fs.readFileSync(settingsPath, "utf8");
   const sent: Array<{ channel: string; payload: IpcPayload }> = [];
@@ -72,7 +72,7 @@ function loadOverlaySettingsPage() {
         }
         throw new Error(`Unexpected require: ${moduleName}`);
       };
-      window.process = { platform: "win32" };
+      window.process = { platform };
       window.WebSocket = FakeWebSocket;
       window.setInterval = () => 0;
       window.clearInterval = () => {};
@@ -124,6 +124,59 @@ describe("overlay adaptive OCR retry settings", () => {
 });
 
 describe("overlay settings keyboard binding capture", () => {
+  it("defaults to XInput only and saves/restores independent listener switches", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const preload = (settings: Record<string, boolean>) => page.listeners.get("preload-settings")?.(null, {
+        userSettings: settings,
+        defaultSettings: { gamepadXinputEnabled: true, gamepadDinputEnabled: false },
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      preload({ gamepadEnabled: false });
+      await nextTick();
+      const doc = page.dom.window.document;
+      const xinput = doc.getElementById("gamepadXinputEnabled");
+      const dinput = doc.getElementById("gamepadDinputEnabled");
+      expect(xinput.checked).toBe(true);
+      expect(dinput.checked).toBe(false);
+      expect(xinput.disabled).toBe(false);
+      expect(dinput.disabled).toBe(false);
+      expect(xinput.closest('#gamepadSettingsDetails')).toBeNull();
+      expect(doc.getElementById("windows-gamepad-listeners").textContent).toContain("Restart GSM");
+
+      for (const [control, value] of [[xinput, false], [dinput, true]] as const) {
+        control.checked = value;
+        control.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+        await nextTick();
+        expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+          key: control.id, value
+        });
+      }
+      preload({ gamepadXinputEnabled: false, gamepadDinputEnabled: true });
+      await nextTick();
+      expect(xinput.checked).toBe(false);
+      expect(dinput.checked).toBe(true);
+      preload({ gamepadXinputEnabled: false, gamepadDinputEnabled: false });
+      await nextTick();
+      expect(xinput.checked).toBe(false);
+      expect(dinput.checked).toBe(false);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
+  it.each(["linux", "darwin"])("hides Windows listener switches on %s", async (platform) => {
+    const page = loadOverlaySettingsPage(platform);
+    try {
+      await page.ready;
+      await page.dom.window.applyPlatformSpecifics();
+      expect(page.dom.window.document.getElementById("windows-gamepad-listeners").hidden).toBe(true);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
   it("captures, restores, and clears the translation controller binding", async () => {
     const page = loadOverlaySettingsPage();
     try {

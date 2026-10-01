@@ -1,5 +1,6 @@
 import axios from 'axios';
 import extract from 'extract-zip';
+import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BASE_DIR } from './util.js';
@@ -33,6 +34,8 @@ interface ManagedAgentScriptsMetadata {
     checkedAt: number;
     installedAt: number;
     scriptCount: number;
+    // Only files still owned by the updater; local overrides are never enrolled.
+    fileHashes?: Record<string, string>;
 }
 
 interface RemoteAgentScriptsSnapshot {
@@ -88,6 +91,23 @@ function readMetadata(): ManagedAgentScriptsMetadata | null {
         ) {
             return null;
         }
+        if (parsed.fileHashes !== undefined) {
+            if (
+                !parsed.fileHashes ||
+                typeof parsed.fileHashes !== 'object' ||
+                Array.isArray(parsed.fileHashes) ||
+                !Object.values(parsed.fileHashes).every(
+                    (hash) => typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash),
+                )
+            ) {
+                // A damaged manifest must not re-enroll previously protected files.
+                parsed.fileHashes = {};
+            } else {
+                parsed.fileHashes = Object.fromEntries(
+                    Object.entries(parsed.fileHashes).map(([filePath, hash]) => [fileHashKey(filePath), hash]),
+                );
+            }
+        }
         return parsed as ManagedAgentScriptsMetadata;
     } catch {
         return null;
@@ -96,11 +116,106 @@ function readMetadata(): ManagedAgentScriptsMetadata | null {
 
 function writeMetadata(metadata: ManagedAgentScriptsMetadata): void {
     fs.mkdirSync(MANAGED_AGENT_SCRIPTS_ROOT, { recursive: true });
-    fs.writeFileSync(
-        MANAGED_AGENT_SCRIPTS_METADATA_FILE,
-        JSON.stringify(metadata, null, 2),
-        'utf8',
-    );
+    const temporaryPath = `${MANAGED_AGENT_SCRIPTS_METADATA_FILE}.${randomUUID()}.tmp`;
+    try {
+        fs.writeFileSync(temporaryPath, JSON.stringify(metadata, null, 2), { encoding: 'utf8', flag: 'wx' });
+        fs.renameSync(temporaryPath, MANAGED_AGENT_SCRIPTS_METADATA_FILE);
+    } finally {
+        fs.rmSync(temporaryPath, { force: true });
+    }
+}
+
+function fileHashKey(relativePath: string): string {
+    const portablePath = relativePath.split(path.sep).join('/');
+    return process.platform === 'win32' ? portablePath.toLowerCase() : portablePath;
+}
+
+function hashFile(filePath: string): string {
+    return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function collectFileHashes(rootDirectory: string): Record<string, string> {
+    const hashes: Record<string, string> = Object.create(null);
+    const visit = (relativeDirectory: string) => {
+        for (const entry of fs.readdirSync(path.join(rootDirectory, relativeDirectory), { withFileTypes: true })) {
+            const relativePath = path.join(relativeDirectory, entry.name);
+            if (entry.isDirectory()) {
+                visit(relativePath);
+            } else if (entry.isFile()) {
+                hashes[fileHashKey(relativePath)] = hashFile(path.join(rootDirectory, relativePath));
+            }
+        }
+    };
+    visit('');
+    return hashes;
+}
+
+function preserveLocalFiles(
+    extractedRepositoryRoot: string,
+    previousHashes: Record<string, string>,
+    nextHashes: Record<string, string>,
+): void {
+    const localRoot = fs.lstatSync(MANAGED_AGENT_SCRIPTS_PATH, { throwIfNoEntry: false });
+    if (!localRoot) {
+        return;
+    }
+    if (!localRoot.isDirectory()) {
+        throw new Error('The managed Agent scripts path must be a directory, not a symbolic link.');
+    }
+
+    // Remove conflicting entries only from the downloaded staging directory.
+    // Neither custom files nor modified upstream files belong to future updates.
+    const discardIncomingPath = (relativePath: string) => {
+        fs.rmSync(path.join(extractedRepositoryRoot, relativePath), { recursive: true, force: true });
+        const key = fileHashKey(relativePath);
+        for (const incomingKey of Object.keys(nextHashes)) {
+            if (incomingKey === key || incomingKey.startsWith(`${key}/`)) {
+                delete nextHashes[incomingKey];
+            }
+        }
+    };
+    const visit = (relativeDirectory: string) => {
+        const directory = path.join(MANAGED_AGENT_SCRIPTS_PATH, relativeDirectory);
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+            const relativePath = path.join(relativeDirectory, entry.name);
+            const source = path.join(MANAGED_AGENT_SCRIPTS_PATH, relativePath);
+            const destination = path.join(extractedRepositoryRoot, relativePath);
+            if (entry.isDirectory()) {
+                const incoming = fs.lstatSync(destination, { throwIfNoEntry: false });
+                if (incoming && !incoming.isDirectory()) {
+                    discardIncomingPath(relativePath);
+                }
+                fs.mkdirSync(destination, { recursive: true });
+                visit(relativePath);
+            } else {
+                const key = fileHashKey(relativePath);
+                if (
+                    entry.isFile() &&
+                    Object.hasOwn(previousHashes, key) &&
+                    previousHashes[key] === hashFile(source)
+                ) {
+                    continue;
+                }
+                discardIncomingPath(relativePath);
+                if (
+                    entry.isSymbolicLink() &&
+                    process.platform === 'win32' &&
+                    fs.statSync(source, { throwIfNoEntry: false })?.isDirectory()
+                ) {
+                    // Junctions do not require Windows symbolic-link privileges.
+                    const target = path.resolve(path.dirname(source), fs.readlinkSync(source));
+                    fs.symlinkSync(target, destination, 'junction');
+                } else {
+                    fs.cpSync(source, destination, {
+                        recursive: true,
+                        verbatimSymlinks: true,
+                        preserveTimestamps: true,
+                    });
+                }
+            }
+        }
+    };
+    visit('');
 }
 
 function countListableAgentScripts(rootDirectory: string): number {
@@ -230,13 +345,51 @@ function findExtractedRepositoryRoot(extractDirectory: string): string | null {
     return null;
 }
 
-function replaceManagedScriptsDirectory(extractedRepositoryRoot: string): void {
+async function getPreviousFileHashes(
+    metadata: ManagedAgentScriptsMetadata | null,
+    snapshot: RemoteAgentScriptsSnapshot,
+    incomingHashes: Record<string, string>,
+    tempDirectory: string,
+): Promise<Record<string, string>> {
+    if (metadata?.fileHashes) {
+        return metadata.fileHashes;
+    }
+    // Older installs have no manifest. Compare against their pinned upstream
+    // commit, never against current local contents or a moving branch name.
+    if (!metadata || !/^[a-f0-9]{40}$/i.test(metadata.commit)) {
+        return {};
+    }
+    if (metadata.commit === snapshot.commit) {
+        return { ...incomingHashes };
+    }
+    try {
+        const previousDirectory = path.join(tempDirectory, 'previous');
+        fs.mkdirSync(previousDirectory);
+        const previousZip = path.join(tempDirectory, 'previous.zip');
+        await downloadFile(`${GITHUB_API_BASE}/zipball/${encodeURIComponent(metadata.commit)}`, previousZip);
+        await extract(previousZip, { dir: previousDirectory });
+        const previousRoot = findExtractedRepositoryRoot(previousDirectory);
+        if (!previousRoot) {
+            throw new Error('Previous Agent scripts archive did not contain libLoader.js.');
+        }
+        return collectFileHashes(previousRoot);
+    } catch (error) {
+        console.warn('Could not verify previous Agent scripts; preserving all existing files:', error);
+        return {};
+    }
+}
+
+function replaceManagedScriptsDirectory(
+    extractedRepositoryRoot: string,
+    metadata: ManagedAgentScriptsMetadata,
+): void {
     fs.mkdirSync(MANAGED_AGENT_SCRIPTS_ROOT, { recursive: true });
     const backupPath = path.join(
         MANAGED_AGENT_SCRIPTS_ROOT,
-        `scripts-old-${Date.now()}`,
+        `scripts-old-${randomUUID()}`,
     );
     let didMoveExisting = false;
+    let didInstall = false;
 
     if (fs.existsSync(MANAGED_AGENT_SCRIPTS_PATH)) {
         fs.renameSync(MANAGED_AGENT_SCRIPTS_PATH, backupPath);
@@ -245,13 +398,21 @@ function replaceManagedScriptsDirectory(extractedRepositoryRoot: string): void {
 
     try {
         fs.renameSync(extractedRepositoryRoot, MANAGED_AGENT_SCRIPTS_PATH);
+        didInstall = true;
+        writeMetadata(metadata);
     } catch (error) {
-        if (didMoveExisting && fs.existsSync(backupPath)) {
-            try {
-                fs.renameSync(backupPath, MANAGED_AGENT_SCRIPTS_PATH);
-            } catch {
-                // Preserve the original install when possible; surface the install error below.
+        try {
+            if (didInstall) {
+                fs.renameSync(MANAGED_AGENT_SCRIPTS_PATH, extractedRepositoryRoot);
             }
+            if (didMoveExisting) {
+                fs.renameSync(backupPath, MANAGED_AGENT_SCRIPTS_PATH);
+            }
+        } catch (restoreError) {
+            throw new Error(
+                `Agent scripts update failed; the previous install is saved at ${backupPath}: ${restoreError}`,
+                { cause: error },
+            );
         }
         throw error;
     }
@@ -267,35 +428,41 @@ function replaceManagedScriptsDirectory(extractedRepositoryRoot: string): void {
 
 async function installRemoteSnapshot(
     snapshot: RemoteAgentScriptsSnapshot,
+    metadata: ManagedAgentScriptsMetadata | null,
 ): Promise<ManagedAgentScriptsStatus> {
     fs.mkdirSync(MANAGED_AGENT_SCRIPTS_ROOT, { recursive: true });
     const tempDirectory = fs.mkdtempSync(
         path.join(MANAGED_AGENT_SCRIPTS_ROOT, 'download-'),
     );
     const zipPath = path.join(tempDirectory, 'scripts.zip');
+    const extractDirectory = path.join(tempDirectory, 'incoming');
 
     try {
         await downloadFile(snapshot.archiveUrl, zipPath);
-        await extract(zipPath, { dir: tempDirectory });
-        const extractedRepositoryRoot = findExtractedRepositoryRoot(tempDirectory);
+        fs.mkdirSync(extractDirectory);
+        await extract(zipPath, { dir: extractDirectory });
+        const extractedRepositoryRoot = findExtractedRepositoryRoot(extractDirectory);
         if (!extractedRepositoryRoot) {
             throw new Error('Downloaded Agent scripts archive did not contain libLoader.js.');
         }
 
-        const scriptCount = countListableAgentScripts(extractedRepositoryRoot);
-        if (scriptCount === 0) {
+        if (countListableAgentScripts(extractedRepositoryRoot) === 0) {
             throw new Error('Downloaded Agent scripts archive did not contain any scripts.');
         }
 
-        replaceManagedScriptsDirectory(extractedRepositoryRoot);
+        const fileHashes = collectFileHashes(extractedRepositoryRoot);
+        const previousHashes = await getPreviousFileHashes(metadata, snapshot, fileHashes, tempDirectory);
+        preserveLocalFiles(extractedRepositoryRoot, previousHashes, fileHashes);
+        const scriptCount = countListableAgentScripts(extractedRepositoryRoot);
         const now = Date.now();
-        writeMetadata({
+        replaceManagedScriptsDirectory(extractedRepositoryRoot, {
             repository: AGENT_SCRIPTS_REPOSITORY,
             branch: snapshot.branch,
             commit: snapshot.commit,
             checkedAt: now,
             installedAt: now,
             scriptCount,
+            fileHashes,
         });
 
         return {
@@ -360,6 +527,7 @@ async function ensureManagedAgentScriptsCurrentInternal(
     if (!force && hasUsableLocalCopy && metadata?.commit === snapshot.commit) {
         const now = Date.now();
         writeMetadata({
+            ...metadata,
             repository: AGENT_SCRIPTS_REPOSITORY,
             branch: snapshot.branch,
             commit: snapshot.commit,
@@ -379,7 +547,7 @@ async function ensureManagedAgentScriptsCurrentInternal(
         };
     }
 
-    return installRemoteSnapshot(snapshot);
+    return installRemoteSnapshot(snapshot, metadata);
 }
 
 export function getManagedAgentScriptsPath(): string {

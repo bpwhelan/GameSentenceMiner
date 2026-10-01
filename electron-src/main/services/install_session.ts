@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import log from 'electron-log/main.js';
 
 import {
     clampInstallProgress,
@@ -163,6 +164,7 @@ export class InstallSessionManager {
                 retryHandler: retryHandler ?? this.lastFinishedSession.retryHandler,
             };
             this.lastFinishedSession = null;
+            log.info(`[Install ${reusedSnapshot.id}] Retrying ${origin} session.`);
             this.scheduleSnapshotEmit();
             return cloneSnapshot(this.activeSession.snapshot);
         }
@@ -185,6 +187,7 @@ export class InstallSessionManager {
             snapshot,
             retryHandler: retryHandler ?? null,
         };
+        log.info(`[Install ${snapshot.id}] Started ${origin} session.`);
         this.scheduleSnapshotEmit();
         return cloneSnapshot(snapshot);
     }
@@ -255,6 +258,20 @@ export class InstallSessionManager {
         snapshot.stages[stageIndex] = nextStage;
         snapshot.error = nextStatus === 'failed' ? nextStage.error || nextStage.message || 'Installation failed.' : snapshot.error;
         this.activeSession.snapshot = rebuildSnapshot(snapshot);
+        // Keep milestones and changed diagnostics, not every animation/progress tick.
+        const progressBucket = (value: number | null) => Math.floor((value ?? 0) * 10);
+        if (currentStage.status !== nextStage.status || currentStage.error !== nextStage.error
+            || progressBucket(currentStage.progress) !== progressBucket(nextStage.progress)
+            || (nextStage.progressKind !== 'bytes' && currentStage.message !== nextStage.message)) {
+            const write = nextStatus === 'failed' ? log.error : log.info;
+            write(`[Install ${snapshot.id}] ${snapshot.origin}/${nextStage.id}: ${nextStatus}`, {
+                message: nextStage.message,
+                progress: nextStage.progress,
+                downloadedBytes: nextStage.downloadedBytes,
+                totalBytes: nextStage.totalBytes,
+                error: nextStage.error,
+            });
+        }
         this.scheduleSnapshotEmit();
         return cloneSnapshot(this.activeSession.snapshot);
     }
@@ -265,6 +282,11 @@ export class InstallSessionManager {
         }
 
         const snapshot = cloneSnapshot(this.activeSession.snapshot);
+        // Call the logger directly: console is also forwarded here by main.ts.
+        const level = entry.level?.toUpperCase();
+        const write = level === 'ERROR' || level === 'CRITICAL' ? log.error
+            : level === 'WARN' || level === 'WARNING' ? log.warn : log.info;
+        write(`[Install ${snapshot.id}] ${entry.source ?? 'system'}/${entry.stream ?? 'stdout'}:`, entry.message.trimEnd());
         snapshot.logs.push({
             ...entry,
             id: `install-log-${this.logCounter++}`,
@@ -298,6 +320,12 @@ export class InstallSessionManager {
         }
         this.activeSession.snapshot = rebuildSnapshot(snapshot);
         const finished = cloneSnapshot(this.activeSession.snapshot);
+        const write = status === 'failed' ? log.error : log.info;
+        write(`[Install ${finished.id}] ${finished.origin} ${status}`, {
+            message,
+            error: finished.error,
+            durationMs: finished.finishedAt! - finished.startedAt,
+        });
         this.lastFinishedSession = {
             snapshot: finished,
             retryHandler: this.activeSession.retryHandler,

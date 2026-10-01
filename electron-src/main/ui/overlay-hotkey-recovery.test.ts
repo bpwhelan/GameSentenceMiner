@@ -202,7 +202,7 @@ describe("overlay hotkey recovery", () => {
 });
 
 describe("overlay settings window lifecycle", () => {
-  it("opens settings when the main overlay window is unavailable", () => {
+  function createSettingsHarness() {
     const source = fs.readFileSync(
       path.resolve(process.cwd(), "GSM_Overlay/main.js"),
       "utf8"
@@ -216,6 +216,9 @@ describe("overlay settings window lifecycle", () => {
     class FakeBrowserWindow {
       destroyed = false;
       shown = false;
+      minimized = false;
+      foreground = false;
+      alwaysOnTop = false;
       webContents = {
         on: () => {},
         once: () => {},
@@ -226,9 +229,10 @@ describe("overlay settings window lifecycle", () => {
       };
 
       isDestroyed() { return this.destroyed; }
-      setAlwaysOnTop() {}
-      show() { this.shown = true; }
-      focus() {}
+      setAlwaysOnTop(value: boolean) { this.alwaysOnTop = value; }
+      show() { this.shown = true; this.minimized = false; }
+      // Model Windows refusing ordinary focus from an external request.
+      focus = vi.fn();
       removeMenu() {}
       on() {}
       getSize() { return [1200, 980]; }
@@ -237,6 +241,11 @@ describe("overlay settings window lifecycle", () => {
       loadURL() {}
     }
 
+    const forceForegroundWindow = vi.fn((window: FakeBrowserWindow) => {
+      if (!window.shown || window.minimized) return false;
+      window.foreground = true;
+      return true;
+    });
     const module = { exports: {} as any };
     const context = {
       module,
@@ -246,6 +255,7 @@ describe("overlay settings window lifecycle", () => {
       backend: null,
       buildOverlaySettingsPayload: () => ({}),
       enableFindInPage: () => {},
+      forceForegroundWindow,
       getManualHotkeyRuntimeStatus: () => ({}),
       getOverlayAppIconPath: () => "icon.png",
       getOverlayProfileState: () => ({}),
@@ -264,9 +274,40 @@ describe("overlay settings window lifecycle", () => {
       { filename: "GSM_Overlay/main.js#openSettings" }
     );
 
-    expect(() => module.exports.openSettings()).not.toThrow();
-    expect(module.exports.getSettingsWindow()).toBeInstanceOf(FakeBrowserWindow);
-    expect(() => module.exports.openSettings('system')).not.toThrow();
-    expect(module.exports.getSettingsWindow().webContents.send).toHaveBeenCalledWith('select-settings-tab', 'system');
+    return {
+      openSettings: module.exports.openSettings as (tab?: string) => void,
+      getSettingsWindow: module.exports.getSettingsWindow as () => FakeBrowserWindow,
+    };
+  }
+
+  it("opens and foregrounds settings when the main overlay window is unavailable", () => {
+    const { openSettings, getSettingsWindow } = createSettingsHarness();
+
+    openSettings();
+
+    expect(getSettingsWindow().shown).toBe(true);
+    expect(getSettingsWindow().foreground).toBe(true);
+    expect(getSettingsWindow().focus).toHaveBeenCalled();
   });
+
+  it.each(["visible", "hidden", "minimized"])(
+    "foregrounds an existing %s settings window when ordinary focus is refused",
+    (state) => {
+      const { openSettings, getSettingsWindow } = createSettingsHarness();
+      openSettings();
+      const window = getSettingsWindow();
+      window.foreground = false;
+      window.shown = state === "visible";
+      window.minimized = state === "minimized";
+
+      openSettings("system");
+
+      expect(getSettingsWindow()).toBe(window);
+      expect(window.shown).toBe(true);
+      expect(window.minimized).toBe(false);
+      expect(window.foreground).toBe(true);
+      expect(window.alwaysOnTop).toBe(false);
+      expect(window.webContents.send).toHaveBeenCalledWith("select-settings-tab", "system");
+    }
+  );
 });

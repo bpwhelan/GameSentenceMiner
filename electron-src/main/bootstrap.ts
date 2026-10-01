@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { configureLinuxDesktopIdentity } from './linux_desktop_identity.js';
 import { USE_IN_PROCESS_OVERLAY } from './overlay_runtime_config.js';
 import { getBaseDir } from './data_dir.js';
-import { initializeDesktopLogging } from './services/logging.js';
+import { captureRendererDiagnostics, initializeDesktopLogging } from './services/logging.js';
 
 const { app, dialog } = electron;
 const OVERLAY_CHILD_ARG = '--gsm-overlay-child';
@@ -125,7 +125,12 @@ if (process.argv.includes(AGENT_HOST_ARG)) {
         failOverlayBootstrap(`Failed to boot overlay app from ${overlayAppAsarPath}`, error);
     }
 } else {
-    initializeDesktopLogging(getBaseDir());
+    initializeDesktopLogging(getBaseDir(), {
+        appVersion: app.getVersion(),
+        packaged: app.isPackaged,
+        appPath: app.getAppPath(),
+    });
+    app.on('web-contents-created', (_event, contents) => captureRendererDiagnostics(contents));
     traceOverlayBootstrap('main app mode detected');
     void import('./main.js').catch((error) => {
         console.error('GSM startup failed:', error);

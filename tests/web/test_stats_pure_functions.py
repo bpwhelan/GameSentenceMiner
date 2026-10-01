@@ -24,7 +24,6 @@ from GameSentenceMiner.web.stats import (
 )
 from GameSentenceMiner.util.stats.stats_util import (
     MAX_SEC_PER_CHAR as _MAX_SEC_PER_CHAR,
-    FLOOR_SECONDS as _FLOOR_SECONDS,
     ABSOLUTE_CEILING as _ABSOLUTE_CEILING,
     ADAPTIVE_FLOOR_SECONDS,
     ADAPTIVE_MEDIAN_CPS_SCALE,
@@ -191,16 +190,6 @@ class TestCalculateKanjiFrequency:
 
 
 class TestCalculateActualReadingTime:
-    @pytest.fixture(autouse=True)
-    def _disable_v2(self, monkeypatch):
-        import GameSentenceMiner.web.stats as stats_mod
-
-        monkeypatch.setattr(
-            stats_mod,
-            "get_stats_config",
-            lambda: SimpleNamespace(reading_time_adaptive_v2=False),
-        )
-
     def test_empty_timestamps(self):
         assert calculate_actual_reading_time([], line_texts=[]) == 0.0
 
@@ -220,13 +209,13 @@ class TestCalculateActualReadingTime:
             timestamps,
             line_texts=["later", "earliest", "middle"],
         )
-        assert result == 42.0
+        assert result == 100.0
 
-    def test_adaptive_short_line_uses_floor(self):
+    def test_adaptive_short_line_uses_fallback_without_session_pace(self):
         timestamps = [100.0, 160.0]
         line_texts = ["ab", "xx"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == _FLOOR_SECONDS
+        assert result == 6.0
 
     def test_adaptive_long_line_allows_more_time(self):
         timestamps = [100.0, 300.0]
@@ -234,12 +223,11 @@ class TestCalculateActualReadingTime:
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         assert result == 200.0
 
-    def test_adaptive_gap_capped_at_char_based_max(self):
+    def test_adaptive_slow_reading_is_preserved_without_faster_samples(self):
         timestamps = [100.0, 220.0]
         line_texts = ["あ" * 20, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        expected = min(120.0, max(_FLOOR_SECONDS, 20 * _MAX_SEC_PER_CHAR))
-        assert result == expected
+        assert result == 120.0
 
     def test_adaptive_gap_capped_at_absolute_ceiling(self):
         timestamps = [100.0, 600.0]
@@ -251,13 +239,13 @@ class TestCalculateActualReadingTime:
         timestamps = [100.0, 200.0]
         line_texts = ["", "next"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == _FLOOR_SECONDS
+        assert result == ADAPTIVE_FLOOR_SECONDS
 
     def test_adaptive_none_line_text_treated_as_empty(self):
         timestamps = [100.0, 200.0]
         line_texts = [None, "next"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == _FLOOR_SECONDS
+        assert result == ADAPTIVE_FLOOR_SECONDS
 
     def test_adaptive_normal_reading_session(self):
         timestamps = [0.0, 30.0, 60.0, 90.0]
@@ -269,44 +257,29 @@ class TestCalculateActualReadingTime:
         timestamps = [0.0, 30.0, 630.0]
         line_texts = ["あ" * 30, "い" * 10, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        expected_gap1 = 30.0
-        expected_gap2 = min(600.0, max(_FLOOR_SECONDS, 10 * _MAX_SEC_PER_CHAR))
-        assert result == expected_gap1 + expected_gap2
+        # Median pace is (1 + 1/60) / 2 cps. The slow line is capped at
+        # 10 / (median * 0.5) * 2.5 = 6000/61 seconds.
+        assert result == pytest.approx(30.0 + 6000.0 / 61.0)
 
     def test_adaptive_sorts_by_timestamp(self):
         timestamps = [200.0, 100.0]
         line_texts = ["second", "first"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == _FLOOR_SECONDS
+        assert result == 100.0
 
 
 # ---------------------------------------------------------------------------
-# IQR outlier detection in adaptive reading time
+# Session pace in adaptive reading time
 # ---------------------------------------------------------------------------
 
 
-class TestAdaptiveIQRFiltering:
-    """Tests for the Stage 2 IQR-based outlier filtering."""
-
-    @pytest.fixture(autouse=True)
-    def _disable_v2(self, monkeypatch):
-        import GameSentenceMiner.web.stats as stats_mod
-
-        monkeypatch.setattr(
-            stats_mod,
-            "get_stats_config",
-            lambda: SimpleNamespace(reading_time_adaptive_v2=False),
-        )
-
-    def test_iqr_replaces_outlier_slow_lines(self):
+class TestAdaptiveSessionPace:
+    def test_slow_lines_are_capped_at_session_pace(self):
         # Build a session with 12 lines: 10 normal, 2 outlier-slow.
         # Normal: 20 chars, 10s gap → 2 chars/sec
         # Outlier: 20 chars, 55s gap → ~0.36 chars/sec
-        # (55s is under the char-based cap of max(15, 60)=60s,
-        #  so Stage 1 won't cap it — but IQR should catch it.)
         n_normal = 10
         n_outlier = 2
-        total = n_normal + n_outlier
         timestamps = [0.0]
         line_texts = []
         t = 0.0
@@ -328,24 +301,17 @@ class TestAdaptiveIQRFiltering:
 
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
 
-        # Without IQR: sum = 10*10 + 2*55 = 210
-        naive_sum = 10 * 10.0 + 2 * 55.0
-        # With IQR: outliers should be replaced with median-speed estimate.
-        # The result should be less than naive_sum.
-        assert result < naive_sum
+        # Median is 2 cps, so each slow line is capped at 50 seconds.
+        assert result == 10 * 10.0 + 2 * 50.0
 
-    def test_iqr_skipped_with_few_samples(self):
-        # With fewer than MIN_SAMPLES_FOR_IQR lines, IQR should not apply.
+    def test_few_samples_allow_slower_reading(self):
         timestamps = [0.0, 10.0, 65.0]
         line_texts = ["あ" * 20, "あ" * 20, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        # No IQR (only 2 gaps). Stage 1 applies:
-        # Gap1: 10s, max(15,60)=60 → 10s
-        # Gap2: 55s, max(15,60)=60 → 55s
+        # Both gaps remain below the cap at this slower median pace.
         assert result == 10.0 + 55.0
 
-    def test_iqr_handles_uniform_speeds(self):
-        # All lines same speed → IQR=0, lower_bound=Q1, nothing filtered.
+    def test_uniform_speeds_are_preserved(self):
         timestamps = list(range(0, 121, 10))  # 0, 10, 20, ..., 120
         line_texts = ["あ" * 20] * 12 + ["end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
@@ -354,7 +320,7 @@ class TestAdaptiveIQRFiltering:
 
 
 # ---------------------------------------------------------------------------
-# v2 adaptive reading time (shared helpers + calculate_actual_reading_time)
+# Adaptive reading time (shared helpers + calculate_actual_reading_time)
 # ---------------------------------------------------------------------------
 
 
@@ -388,18 +354,17 @@ class TestAdaptiveCapHelpers:
         assert adaptive_cap_seconds(10, 0.0) == max(ADAPTIVE_FLOOR_SECONDS, 10 * _MAX_SEC_PER_CHAR)
 
 
-class TestCalculateActualReadingTimeV2:
-    """calculate_actual_reading_time with stats.reading_time_adaptive_v2 enabled."""
+class TestCalculateActualReadingTimeAtSessionPace:
+    """Adaptive estimates apply regardless of the removed config preference."""
 
-    @pytest.fixture(autouse=True)
-    def _enable_v2(self, monkeypatch):
-        from types import SimpleNamespace
+    @pytest.fixture(autouse=True, params=[{}, {"reading_time_adaptive_v2": False}, {"reading_time_adaptive_v2": True}])
+    def _stats_config(self, monkeypatch, request):
         import GameSentenceMiner.web.stats as stats_mod
 
         monkeypatch.setattr(
             stats_mod,
             "get_stats_config",
-            lambda: SimpleNamespace(reading_time_adaptive_v2=True),
+            lambda: SimpleNamespace(**request.param),
         )
 
     def test_afk_line_trimmed_to_session_pace(self):

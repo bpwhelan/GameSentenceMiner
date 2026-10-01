@@ -59,8 +59,10 @@ impl Device {
     }
 }
 
-fn configure_hints() {
+fn configure_hints(xinput_enabled: bool) {
     for (name, value) in [
+        ("SDL_XINPUT_ENABLED", if xinput_enabled { "1" } else { "0" }),
+        ("SDL_DIRECTINPUT_ENABLED", "1"),
         ("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1"),
         ("SDL_JOYSTICK_HIDAPI", "1"),
         ("SDL_JOYSTICK_HIDAPI_SWITCH", "1"),
@@ -83,8 +85,9 @@ pub(super) fn input_thread(
     states: &'static SharedStates,
     blacklist: SharedDeviceBlacklist,
     cfg: Config,
+    xinput_enabled: bool,
 ) {
-    if let Err(error) = run(tx, states, blacklist, cfg) {
+    if let Err(error) = run(tx, states, blacklist, cfg, xinput_enabled) {
         error!("SDL gamepad input failed: {error}");
     }
 }
@@ -94,8 +97,9 @@ fn run(
     states: &SharedStates,
     blacklist: SharedDeviceBlacklist,
     cfg: Config,
+    xinput_enabled: bool,
 ) -> Result<(), String> {
-    configure_hints();
+    configure_hints(xinput_enabled);
     let sdl = sdl2::init()?;
     let controllers = sdl.game_controller()?;
     let joysticks = sdl.joystick()?;
@@ -104,6 +108,11 @@ fn run(
     let mut pump = sdl.event_pump()?;
     let mut devices = HashMap::new();
     let register = |index, devices: &mut HashMap<usize, Device>| {
+        // With SDL XInput disabled, DirectInput otherwise re-enumerates Xbox
+        // devices. Do not let that bypass the user's XInput listener switch.
+        if !xinput_enabled && is_xinput_device(index) {
+            return;
+        }
         match Device::open(index, &controllers, &joysticks) {
             Ok(device) => {
                 let id = device.id();
@@ -183,6 +192,42 @@ fn run(
             }
         }
         thread::sleep(Duration::from_millis(4));
+    }
+}
+
+fn is_xinput_identity(
+    path: &str,
+    kind: sdl2::sys::SDL_GameControllerType,
+    vendor: u16,
+    product: u16,
+) -> bool {
+    use sdl2::sys::SDL_GameControllerType::*;
+    path.to_ascii_uppercase().contains("IG_")
+        || matches!(
+            kind,
+            SDL_CONTROLLER_TYPE_XBOX360 | SDL_CONTROLLER_TYPE_XBOXONE
+        )
+        || (vendor == 0x28de && product == 0x11ff) // Steam virtual gamepad
+}
+
+fn is_xinput_device(index: u32) -> bool {
+    // SDL owns the returned path; copy it before any device enumeration changes.
+    // These queries are made on the SDL thread for a current joystick index.
+    unsafe {
+        let path = sdl2::sys::SDL_JoystickPathForIndex(index as i32);
+        let path = if path.is_null() {
+            String::new()
+        } else {
+            std::ffi::CStr::from_ptr(path)
+                .to_string_lossy()
+                .into_owned()
+        };
+        is_xinput_identity(
+            &path,
+            sdl2::sys::SDL_GameControllerTypeForIndex(index as i32),
+            sdl2::sys::SDL_JoystickGetDeviceVendor(index as i32),
+            sdl2::sys::SDL_JoystickGetDeviceProduct(index as i32),
+        )
     }
 }
 
@@ -339,6 +384,64 @@ fn translate_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static SDL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn extended_only_disables_xinput_and_its_alternative_sdl_drivers() {
+        let _lock = SDL_TEST_LOCK.lock().unwrap();
+        configure_hints(false);
+        for hint in [
+            "SDL_XINPUT_ENABLED",
+            "SDL_JOYSTICK_RAWINPUT",
+            "SDL_JOYSTICK_HIDAPI_XBOX",
+        ] {
+            assert_eq!(sdl2::hint::get(hint).as_deref(), Some("0"), "{hint}");
+        }
+        assert_eq!(
+            sdl2::hint::get("SDL_DIRECTINPUT_ENABLED").as_deref(),
+            Some("1")
+        );
+        configure_hints(true);
+        assert_eq!(sdl2::hint::get("SDL_XINPUT_ENABLED").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn xinput_devices_cannot_reenter_through_directinput() {
+        use sdl2::sys::SDL_GameControllerType::*;
+        assert!(is_xinput_identity(
+            "hid#vid_1234&ig_00",
+            SDL_CONTROLLER_TYPE_UNKNOWN,
+            0,
+            0
+        ));
+        assert!(is_xinput_identity("", SDL_CONTROLLER_TYPE_XBOXONE, 0, 0));
+        assert!(is_xinput_identity("", SDL_CONTROLLER_TYPE_XBOX360, 0, 0));
+        assert!(is_xinput_identity(
+            "",
+            SDL_CONTROLLER_TYPE_UNKNOWN,
+            0x28de,
+            0x11ff
+        ));
+        assert!(!is_xinput_identity(
+            "hid#vid_1234",
+            SDL_CONTROLLER_TYPE_UNKNOWN,
+            0,
+            0
+        ));
+        assert!(!is_xinput_identity(
+            "",
+            SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO,
+            0x057e,
+            0x2009
+        ));
+        assert!(!is_xinput_identity(
+            "",
+            SDL_CONTROLLER_TYPE_PS5,
+            0x054c,
+            0x0ce6
+        ));
+    }
     use sdl2::joystick::HatState;
     use serde_json::Value;
 
@@ -364,7 +467,8 @@ mod tests {
 
     #[test]
     fn headless_server_keeps_xbox_on_xinput() {
-        configure_hints();
+        let _lock = SDL_TEST_LOCK.lock().unwrap();
+        configure_hints(true);
         // SDL checks these hints before joystick initialization. Raw Input can
         // claim an Xbox pad ahead of the native XInput backend; the HID Xbox
         // driver has the same priority issue for some Windows devices.
@@ -396,7 +500,8 @@ mod tests {
 
     #[test]
     fn sdl_virtual_devices_stay_idle_and_deliver_single_button_edges() {
-        configure_hints();
+        let _lock = SDL_TEST_LOCK.lock().unwrap();
+        configure_hints(true);
         let sdl = sdl2::init().unwrap();
         let controllers = sdl.game_controller().unwrap();
         let joysticks = sdl.joystick().unwrap();

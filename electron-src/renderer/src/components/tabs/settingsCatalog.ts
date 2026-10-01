@@ -96,7 +96,6 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
       "close to tray",
       "dont ask again",
       "don't ask again",
-      "show yuzu launcher",
       "anime girl",
       "cute",
       "jacked",

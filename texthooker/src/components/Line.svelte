@@ -61,6 +61,7 @@
 
 	let paragraph: HTMLElement;
 	let originalText = '';
+	let previousLineText = line.text;
 	let componentMounted = false;
 	let lineTextMounted = false;
 	let autoTranslationRevision = -1;
@@ -81,6 +82,10 @@
 	$: canAskAI = !!line.id && (isActiveGSMLine || isTimedOutGSMLine || line.gsmStatus === 'external');
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
+	$: if (line.text !== previousLineText) {
+		previousLineText = line.text;
+		void followUpdatedLineText();
+	}
 	$: if (
 		componentMounted &&
 		line.recordState === 'frozen' &&
@@ -131,6 +136,29 @@
 		if (isActiveGSMLine && !line.recordState && !line.sessionBackfill && $autoTranslateLines$) {
 			handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
 		}
+	}
+
+	async function followUpdatedLineText() {
+		if (!lineTextMounted || !isLast || !paragraph) {
+			return;
+		}
+		// Revisions reuse this component, so onMount cannot follow growing speech
+		// transcripts. Capture the reader's position before the keyed text rerenders.
+		const view = pipWindow || window;
+		const container = paragraph.parentElement?.parentElement ?? null;
+		if (
+			!shouldAutoScroll(
+				$alwaysScrollToNewest$,
+				isScrolledToEnd(view, container, $reverseLineOrder$, isVerticalDisplay),
+			)
+		) {
+			return;
+		}
+		await tick();
+		if (!componentMounted || !isLast) {
+			return;
+		}
+		updateScroll(view, container, $reverseLineOrder$, isVerticalDisplay, $enableLineAnimation$ ? 'smooth' : 'auto');
 	}
 
 	function getActionsWindow() {

@@ -25,6 +25,9 @@ import { devFaultInjector } from './dev_fault_injection.js';
 import Logger from 'electron-log';
 import { shouldAutoRebuildManagedPythonEnv } from './managed_python_repair.js';
 import { installSessionManager } from './install_session_state.js';
+import type { AppUpdateStatus } from '../../shared/app_update.js';
+
+export type { AppUpdateStatus } from '../../shared/app_update.js';
 
 type EnsureAndRunFn = (pythonPath: string) => Promise<void>;
 type CloseAllFn = () => Promise<void>;
@@ -46,16 +49,6 @@ export interface BackendUpdateStatus {
     checkedAt: string | null;
     error: string | null;
     checking: boolean;
-}
-
-export interface AppUpdateStatus {
-    currentVersion: string;
-    latestVersion: string | null;
-    updateAvailable: boolean;
-    checkedAt: string | null;
-    error: string | null;
-    checking: boolean;
-    channel: 'latest' | 'beta';
 }
 
 export interface UpdateStatusSnapshot {
@@ -105,9 +98,11 @@ function startBackendUpdateSession(retryHandler: () => Promise<void>): void {
 
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     const { autoUpdater } = electronUpdater;
+    autoUpdater.logger = log;
     const wantPreRelease = getPullPreReleases();
     const configuredChannel = wantPreRelease ? 'beta' : 'latest';
     autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.allowPrerelease = wantPreRelease;
 
     // Always set channel explicitly to avoid sticky channel state between checks.
@@ -139,6 +134,9 @@ function getAutoUpdater(forceDev: boolean = false): AppUpdater {
 export class UpdateManager {
     private isUpdating = false;
     private isCheckingAppUpdate = false;
+    private isDownloadingAppUpdate = false;
+    private appCheckPromise: Promise<AppUpdateStatus> | null = null;
+    private appStatusListener: ((status: AppUpdateStatus) => void) | null = null;
     private gsmUpdatePromise: Promise<void> = Promise.resolve();
     private lastBackendUpdateSucceeded = true;
     private lastBackendUpdateError: string | null = null;
@@ -157,6 +155,7 @@ export class UpdateManager {
         checkedAt: null,
         error: null,
         checking: false,
+        downloading: false,
         channel: getPullPreReleases() ? 'beta' : 'latest',
     };
 
@@ -167,7 +166,43 @@ export class UpdateManager {
     }
 
     public get anyUpdateInProgress(): boolean {
-        return this.isUpdating || this.isCheckingAppUpdate;
+        return this.isUpdating || this.isCheckingAppUpdate || this.isDownloadingAppUpdate;
+    }
+
+    public setAppUpdateStatusListener(listener: (status: AppUpdateStatus) => void): void {
+        this.appStatusListener = listener;
+    }
+
+    public getAppUpdateStatus(): AppUpdateStatus {
+        const channel = getPullPreReleases() ? 'beta' : 'latest';
+        const channelChanged = channel !== this.appStatusCache.channel && !this.isDownloadingAppUpdate;
+        return {
+            ...this.appStatusCache,
+            ...(channelChanged ? { latestVersion: null, updateAvailable: false, checkedAt: null, error: null } : {}),
+            currentVersion: app.getVersion(),
+            checking: this.isCheckingAppUpdate,
+            downloading: this.isDownloadingAppUpdate,
+            channel: this.isDownloadingAppUpdate ? this.appStatusCache.channel : channel,
+        };
+    }
+
+    private emitAppUpdateStatus(): void {
+        this.appStatusListener?.(this.getAppUpdateStatus());
+    }
+
+    public async installAppUpdate(expectedVersion: string): Promise<AppUpdateStatus> {
+        if (this.isDownloadingAppUpdate) {
+            return this.getAppUpdateStatus();
+        }
+        const status = await this.checkAppUpdateStatus();
+        if (status.error) {
+            throw new Error(status.error);
+        }
+        if (!status.updateAvailable || status.latestVersion !== expectedVersion) {
+            throw new Error('The available update has changed. Reopen the release notes and try again.');
+        }
+        await this.downloadAppUpdate(false, status);
+        return this.getAppUpdateStatus();
     }
 
     public get lastBackendUpdateWasSuccessful(): boolean {
@@ -202,12 +237,7 @@ export class UpdateManager {
                 currentVersion: backendCurrentVersion,
                 checking: this.isUpdating,
             },
-            app: {
-                ...this.appStatusCache,
-                currentVersion: app.getVersion(),
-                checking: this.isCheckingAppUpdate,
-                channel: getPullPreReleases() ? 'beta' : 'latest',
-            },
+            app: this.getAppUpdateStatus(),
             anyUpdateInProgress: this.anyUpdateInProgress,
         };
     }
@@ -237,6 +267,9 @@ export class UpdateManager {
 
     public async autoUpdate(forceUpdate: boolean = false): Promise<void> {
         const status = await this.checkAppUpdateStatus(forceUpdate);
+        if (status.error || status.downloading) {
+            return;
+        }
         if (!status.updateAvailable) {
             log.info(`Application is up to date. Current version: ${app.getVersion()}`);
             return;
@@ -672,6 +705,7 @@ export class UpdateManager {
             checkedAt: new Date().toISOString(),
             error,
             checking: this.isCheckingAppUpdate,
+            downloading: this.isDownloadingAppUpdate,
             channel: getPullPreReleases() ? 'beta' : 'latest',
         };
     }
@@ -681,8 +715,18 @@ export class UpdateManager {
 
         autoUpdater.removeAllListeners('update-downloaded');
         autoUpdater.removeAllListeners('error');
+        autoUpdater.removeAllListeners('download-progress');
 
-        autoUpdater.on('update-downloaded', async () => {
+        let lastProgressBucket = -1;
+        autoUpdater.on('download-progress', (progress) => {
+            const bucket = Math.floor(progress.percent / 10);
+            if (bucket <= lastProgressBucket) return;
+            lastProgressBucket = bucket;
+            log.info(`[Updater] Download ${Math.floor(progress.percent)}%: ${progress.transferred}/${progress.total} bytes (${progress.bytesPerSecond} bytes/sec)`);
+        });
+
+        autoUpdater.on('update-downloaded', async (info) => {
+            log.info('[Updater] Download ready:', { version: info?.version, downloadedFile: info?.downloadedFile });
             log.info(
                 'Application update downloaded. Waiting for Python update process to finish (if any)...'
             );
@@ -693,65 +737,73 @@ export class UpdateManager {
                     'before waiting for backend update promise'
                 );
                 await this.gsmUpdatePromise;
-            } catch (err) {
-                log.error(
-                    `Refusing to install app update because backend update promise rejected: ${toErrorMessage(
-                        err
-                    )}`
-                );
-                return;
-            }
 
-            log.info('Python process is stable. Proceeding with application restart.');
-            await this.deps.closeAllForAppUpdate();
-            const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
-            try {
+                log.info('Python process is stable. Proceeding with application restart.');
+                await this.deps.closeAllForAppUpdate();
+                const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
                 devFaultInjector.maybeFail(
                     'autoupdate.write_update_flag',
                     'before writing backend update marker'
                 );
                 fs.writeFileSync(updateFilePath, '');
                 log.info(`Wrote backend update marker: ${updateFilePath}`);
+                // Run the same NSIS installer silently for updates and relaunch GSM afterward.
+                log.info('[Updater] Handing off to the application installer (silent=true, relaunch=true).');
+                autoUpdater.quitAndInstall(true, true);
             } catch (err) {
-                const message = `Failed to write backend update marker at ${updateFilePath}: ${toErrorMessage(
-                    err
-                )}`;
-                log.error(message);
+                this.failAppUpdate(err);
                 dialog.showErrorBox(
                     'Update Error',
-                    'Downloaded app update could not be finalized because backend update state could not be persisted. Restart and try again.'
+                    'Downloaded app update could not be finalized. Restart and try again.'
                 );
-                return;
             }
-
-            // Run the same NSIS installer silently for updates and relaunch GSM afterward.
-            autoUpdater.quitAndInstall(true, true);
         });
 
         autoUpdater.on('error', (err: any) => {
-            log.error(`Auto-update error: ${String(err?.message ?? err)}`);
+            if (this.isDownloadingAppUpdate) {
+                this.failAppUpdate(err);
+                return;
+            }
+            log.error(`Auto-update error: ${String(err?.message ?? err)}`, err);
         });
 
         return autoUpdater;
     }
 
-    private async checkAppUpdateStatus(forceUpdate: boolean = false): Promise<AppUpdateStatus> {
+    public async checkAppUpdateStatus(forceUpdate: boolean = false): Promise<AppUpdateStatus> {
+        if (this.isDownloadingAppUpdate) {
+            return this.getAppUpdateStatus();
+        }
+        if (!this.appCheckPromise) {
+            this.appCheckPromise = this.checkAppUpdateStatusInternal(forceUpdate).finally(() => {
+                this.appCheckPromise = null;
+            });
+        }
+        await this.appCheckPromise;
+        return this.getAppUpdateStatus();
+    }
+
+    private async checkAppUpdateStatusInternal(forceUpdate: boolean): Promise<AppUpdateStatus> {
+        const checkedChannel = getPullPreReleases() ? 'beta' : 'latest';
         this.isCheckingAppUpdate = true;
         this.appStatusCache = {
-            ...this.appStatusCache,
+            ...this.getAppUpdateStatus(),
             currentVersion: app.getVersion(),
             checking: true,
             error: null,
             channel: getPullPreReleases() ? 'beta' : 'latest',
         };
+        this.emitAppUpdateStatus();
 
         try {
             log.info('Checking for application updates...');
             const autoUpdater = this.configureAutoUpdater(forceUpdate);
             const result = await autoUpdater.checkForUpdates();
             if (!result) {
-                log.warn('Update check returned no result.');
-                this.appStatusCache = this.createAppStatus(null, false, 'Update check returned no result.');
+                throw new Error('Update check returned no result.');
+            }
+            if (checkedChannel !== (getPullPreReleases() ? 'beta' : 'latest')) {
+                this.appStatusCache = this.createAppStatus(null, false);
                 return this.appStatusCache;
             }
 
@@ -781,8 +833,12 @@ export class UpdateManager {
             return this.appStatusCache;
         } catch (err: any) {
             const errorMessage = String(err?.message ?? err);
-            log.error(`Failed to check for application updates: ${errorMessage}`);
-            this.appStatusCache = this.createAppStatus(null, false, errorMessage);
+            log.error(`Failed to check for application updates: ${errorMessage}`, err);
+            this.appStatusCache = {
+                ...this.getAppUpdateStatus(),
+                checkedAt: new Date().toISOString(),
+                error: errorMessage,
+            };
             return this.appStatusCache;
         } finally {
             this.isCheckingAppUpdate = false;
@@ -791,6 +847,7 @@ export class UpdateManager {
                 checking: false,
                 channel: getPullPreReleases() ? 'beta' : 'latest',
             };
+            this.emitAppUpdateStatus();
         }
     }
 
@@ -839,16 +896,29 @@ export class UpdateManager {
         knownStatus?: AppUpdateStatus
     ): Promise<boolean> {
         const status = knownStatus ?? (await this.checkAppUpdateStatus(forceDev));
-        if (!status.updateAvailable) {
+        if (!status.updateAvailable || status.error || this.isDownloadingAppUpdate) {
             return false;
         }
 
-        const autoUpdater = this.configureAutoUpdater(forceDev);
-        await autoUpdater.downloadUpdate();
-        this.appStatusCache = {
-            ...status,
-            checking: false,
-        };
-        return true;
+        this.isDownloadingAppUpdate = true;
+        this.appStatusCache = { ...status, checking: false, error: null };
+        this.emitAppUpdateStatus();
+        try {
+            const autoUpdater = this.configureAutoUpdater(forceDev);
+            log.info(`[Updater] Starting download: current=${status.currentVersion}, target=${status.latestVersion}, channel=${status.channel}`);
+            await autoUpdater.downloadUpdate();
+            // Keep the install guard active until quitAndInstall, including cleanup.
+            return true;
+        } catch (error) {
+            this.failAppUpdate(error);
+            throw error;
+        }
+    }
+
+    private failAppUpdate(error: unknown): void {
+        this.isDownloadingAppUpdate = false;
+        this.appStatusCache = { ...this.appStatusCache, error: toErrorMessage(error) };
+        log.error(`Application update failed: ${toErrorMessage(error)}`, error);
+        this.emitAppUpdateStatus();
     }
 }

@@ -7,8 +7,8 @@ import GameSentenceMiner.obs as obs_module
 from GameSentenceMiner.util.overlay import get_overlay_coords
 
 
-@pytest.mark.parametrize("auto_manage, expected_checks", [(True, 1), (False, 0)])
-def test_window_monitor_tracks_replay_buffer_without_overlay_clients(monkeypatch, auto_manage, expected_checks):
+@pytest.mark.parametrize("auto_manage, expected_wakeups", [(True, 1), (False, 0)])
+def test_window_monitor_tracks_game_without_overlay_clients(monkeypatch, auto_manage, expected_wakeups):
     checks = []
     wakeups = []
 
@@ -40,5 +40,5 @@ def test_window_monitor_tracks_replay_buffer_without_overlay_clients(monkeypatch
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(get_overlay_coords._window_monitor_loop(FakeMonitor()))
 
-    assert len(checks) == expected_checks
-    assert len(wakeups) == expected_checks
+    assert len(checks) == 1
+    assert len(wakeups) == expected_wakeups

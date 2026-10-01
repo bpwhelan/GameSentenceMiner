@@ -6,7 +6,8 @@ import {
     ObsScene
 } from './ui/obs.js';
 import { getOCRRuntimeState, startManualOCR, startOCR, stopOCR } from './ui/ocr.js';
-import { getOverlayRuntimeState, runOverlayWithSource, stopOverlay } from './ui/front.js';
+import { adoptStartupOverlayForAutomation, getOverlayRuntimeState, runOverlayWithSource, stopOverlay } from './ui/front.js';
+import { activeGame } from './active_game.js';
 import {
     getAgentPath,
     getAgentScriptsPath,
@@ -19,6 +20,7 @@ import {
     getObsOcrScenes,
     getGameExePathForScene,
     getRunOverlayOnStartup,
+    getRunOverlayWithActiveGame,
     getSceneLaunchProfileForScene,
     getSteamGames,
     getTextractorPath32,
@@ -50,6 +52,9 @@ type IntegratedTextHookEngine = "textractor" | "luna" | "agent" | "mages";
 
 export class AutoLauncher {
     private intervalId: NodeJS.Timeout | null = null;
+    private overlayIntervalId: NodeJS.Timeout | null = null;
+    private overlayPolling = false;
+    private pollingGeneration = 0;
     private lastHookedPid: number = -1;
     private lastHookedGameId: string = "";
     private readonly defaultPollingInterval: number = 5000;
@@ -135,10 +140,18 @@ export class AutoLauncher {
         this.hasWarnedAboutExternalAgent = false;
         this.lastLauncherPollAt = 0;
         this.lastOcrPollAt = 0;
+        this.pollingGeneration += 1;
+        this.overlayIntervalId = setInterval(() => void this.pollOverlay(), 1000);
+        void this.pollOverlay();
         this.scheduleNextPoll(0);
     }
 
     public stopPolling() {
+        this.pollingGeneration += 1;
+        if (this.overlayIntervalId) {
+            clearInterval(this.overlayIntervalId);
+            this.overlayIntervalId = null;
+        }
         const wasPolling = this.intervalId !== null;
         if (this.intervalId) {
             clearTimeout(this.intervalId);
@@ -395,6 +408,9 @@ export class AutoLauncher {
     }
 
     private async isSceneSessionActive(scene: ObsScene): Promise<boolean | null> {
+        // OCR and overlay automation use the same current capture/window evidence.
+        // Keep the legacy probe for older/standalone backends that never publish it.
+        if (activeGame.hasSnapshot()) return activeGame.get(scene.name);
         this.syncOutputProbeScene(scene);
 
         const executableName = await this.resolveSceneExecutableName(scene);
@@ -433,7 +449,7 @@ export class AutoLauncher {
             return null;
         }
         const scene = value as Partial<ObsScene>;
-        if (typeof scene.id !== "string" || typeof scene.name !== "string") {
+        if (typeof scene.id !== "string" || !scene.id.trim() || typeof scene.name !== "string" || !scene.name.trim()) {
             return null;
         }
         return { id: scene.id, name: scene.name };
@@ -441,13 +457,15 @@ export class AutoLauncher {
 
     private async resolveCurrentScene(): Promise<ObsScene | null> {
         try {
-            return await getCurrentScene();
+            const scene = this.toObsScene(await getCurrentScene());
+            if (scene) return scene;
         } catch (error) {
             const cached = this.toObsScene(runtimeState.get('obs.activeScene'));
             if (cached) return cached;
             this.warnInternal('AutoLauncher: Unable to resolve current OBS scene.', error);
             return null;
         }
+        return this.toObsScene(runtimeState.get('obs.activeScene'));
     }
 
     private resolveDesiredOcrMode(
@@ -558,32 +576,47 @@ export class AutoLauncher {
         }
     }
 
-    private async runOverlayAutomation(currentScene: ObsScene) {
+    private async pollOverlay() {
+        if (this.overlayPolling) return;
+        this.overlayPolling = true;
+        const generation = this.pollingGeneration;
+        try {
+            const scene = await this.resolveCurrentScene();
+            if (generation === this.pollingGeneration) await this.runOverlayAutomation(scene);
+        } catch (error) {
+            this.errorInternal('[AutoLauncher:Overlay] poll error:', error);
+        } finally {
+            this.overlayPolling = false;
+        }
+    }
+
+    private async runOverlayAutomation(currentScene: ObsScene | null) {
         try {
             // Global startup takes precedence while retaining saved scene preferences.
             if (getRunOverlayOnStartup()) {
                 return;
             }
-            this.syncOutputProbeScene(currentScene);
-            const sceneProfile = getSceneLaunchProfileForScene(currentScene);
-            const shouldLaunchOverlay = sceneProfile?.launchOverlay === true;
+            const sceneProfile = currentScene ? getSceneLaunchProfileForScene(currentScene) : null;
+            const shouldLaunchOverlay = getRunOverlayWithActiveGame() || sceneProfile?.launchOverlay === true;
+
+            // Losing contact with OBS is not proof that the selected game closed.
+            if (!currentScene && !getRunOverlayWithActiveGame()) return;
 
             if (!shouldLaunchOverlay) {
                 this.stopOverlayAutomation();
                 return;
             }
 
-            const runtime = getOverlayRuntimeState();
-            if (runtime.isRunning) {
+            adoptStartupOverlayForAutomation();
+            const isSceneActive = activeGame.get(currentScene?.name);
+            if (isSceneActive === false) {
+                this.stopOverlayAutomation();
                 return;
             }
-
-            const isSceneActive = await this.isSceneSessionActive(currentScene);
-            if (!isSceneActive) {
-                return;
-            }
-
+            if (isSceneActive !== true || getOverlayRuntimeState().isRunning) return;
+            const generation = this.pollingGeneration;
             await runOverlayWithSource("auto-launcher");
+            if (generation !== this.pollingGeneration) this.stopOverlayAutomation();
         } catch (error) {
             this.errorInternal('[AutoLauncher:Overlay] poll error:', error);
         }
@@ -1523,12 +1556,13 @@ export class AutoLauncher {
         }
 
         this.isPolling = true;
+        const generation = this.pollingGeneration;
         const startTime = Date.now();
         let keepFastPolling = false;
 
         try {
             const currentScene = await this.resolveCurrentScene();
-            if (!currentScene) {
+            if (!currentScene || generation !== this.pollingGeneration) {
                 return;
             }
 
@@ -1537,9 +1571,10 @@ export class AutoLauncher {
                 this.lastLauncherPollAt = startTime;
             }
 
+            if (generation !== this.pollingGeneration) return;
+
             if (startTime - this.lastOcrPollAt >= this.ocrPollingInterval) {
                 await this.runOcrAutomation(currentScene);
-                await this.runOverlayAutomation(currentScene);
                 this.lastOcrPollAt = startTime;
             }
         } catch (error) {
@@ -1553,7 +1588,7 @@ export class AutoLauncher {
                 );
             }
             const now = Date.now();
-            this.scheduleNextPoll(this.computeNextLoopDelay(now));
+            if (generation === this.pollingGeneration) this.scheduleNextPoll(this.computeNextLoopDelay(now));
         }
     }
 

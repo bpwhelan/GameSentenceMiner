@@ -62,8 +62,8 @@ pub struct FeatureRegistry {
 impl FeatureRegistry {
     pub fn new(baseline: impl IntoIterator<Item = ServiceFeature>) -> Self {
         let mut baseline = baseline.into_iter().collect::<HashSet<_>>();
-        // Gamepad input is the service's inexpensive baseline and cannot be
-        // disabled by an optional-feature client.
+        // Gamepad capability is the baseline and cannot be disabled by an
+        // optional-feature client. Windows listener preferences are separate.
         baseline.insert(ServiceFeature::Gamepad);
         let (changed, _) = watch::channel(0);
         Self {

@@ -359,6 +359,8 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "dismissedExclusiveFullscreenRecommendations",
   "gamepadServerPort",
   "gamepadDeviceBlacklist",
+  "gamepadXinputEnabled",
+  "gamepadDinputEnabled",
   "gamepadJitenApiKey",
   "gamepadJpdbApiKey",
   "gamepadYomitanApiUrl",
@@ -1134,6 +1136,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "showJitenGradingButtons": false,
   // Gamepad navigation settings
   "gamepadEnabled": true,
+  "gamepadXinputEnabled": true, // Windows: original XInput listener
+  "gamepadDinputEnabled": false, // Windows: opt into SDL DirectInput/HID support
   "gamepadActivationMode": "modifier", // "modifier" or "toggle"
   "gamepadModifierButton": 4, // LB
   "gamepadToggleButton": 8, // Back/Select
@@ -1851,14 +1855,78 @@ function normalizePomodoroSettings(settings) {
 
 function setTrackedGameWindowState(state, source = "unknown") {
   const normalized = normalizeTrackedGameWindowState(state);
+  const changed = normalized !== trackedGameWindowState;
   trackedGameWindowState = normalized;
   trackedGameWindowStateUpdatedAt = Date.now();
-  console.log(`[WindowState] Tracked game state -> ${normalized} (${source})`);
+  if (changed) console.log(`[WindowState] Tracked game state -> ${normalized} (${source})`);
   return normalized;
 }
 
 function isTrackedGameWindowVisibleForManualHotkey() {
-  return !isManualHotkeyBlockedByGameWindowState(trackedGameWindowState);
+  return canUseOverlayCapture() && !isManualHotkeyBlockedByGameWindowState(trackedGameWindowState);
+}
+
+function hasValidOverlayCapture() {
+  if (!overlayCaptureAvailable) return false;
+  if (["active", "background"].includes(trackedGameWindowState)) return true;
+  // Preserve an already-open lookup through the existing Magpie focus handoff.
+  return trackedGameWindowState === "obscured" &&
+    (yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
+}
+
+function canUseOverlayCapture() {
+  return hasValidOverlayCapture() && !isTexthookerMode;
+}
+
+function publishOverlayCaptureAvailability() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("overlay-capture-state", { available: canUseOverlayCapture() });
+  }
+}
+
+function invalidateOverlayCapture(reason = "capture-unavailable") {
+  overlayCaptureAvailable = false;
+  clearTimeout(overlayCaptureExpiryTimer);
+  overlayCaptureExpiryTimer = null;
+  cancelManualBackgroundShowWait();
+  cancelManualBackgroundRelease();
+  clearMagpieYomitanCloseVisibilityGuard();
+  resetOverlayInteractionStateForHiddenGameWindow(reason);
+  releaseAllOverlayPauseRequests();
+  resizeMode = false;
+  yomitanShown = false;
+  yomitanForegroundActive = false;
+  if (isTexthookerMode) {
+    isTexthookerMode = false;
+    if (texthookerWindow && !texthookerWindow.isDestroyed()) texthookerWindow.hide();
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (!isLinux()) mainWindow.setIgnoreMouseEvents(true, { forward: true });
+    mainWindow.hide();
+  }
+  publishOverlayCaptureAvailability();
+}
+
+function updateOverlayCaptureStatus(message) {
+  const wasAvailable = hasValidOverlayCapture();
+  setTrackedGameWindowState(message.window_state, "capture-status");
+  overlayCaptureAvailable = message.available === true;
+  if (!hasValidOverlayCapture()) {
+    invalidateOverlayCapture("capture-status");
+    return;
+  }
+  // The backend publishes at least once per second, including after reconnection.
+  // A hung or disconnected backend must never leave an old HWND authorization latched.
+  clearTimeout(overlayCaptureExpiryTimer);
+  overlayCaptureExpiryTimer = setTimeout(() => invalidateOverlayCapture("capture-status-expired"), 5000);
+  publishOverlayCaptureAvailability();
+  if (!wasAvailable && !isTexthookerMode) {
+    if (shouldKeepOverlayVisibleWhenManualInactive()) {
+      showOverlayWithoutFocusForManualVisibleMode("capture-ready");
+    } else {
+      revealAutomaticOverlayForSignal("capture-ready");
+    }
+  }
 }
 
 function isTexthookerDefinitelyVisible() {
@@ -2223,6 +2291,8 @@ let magpieYomitanCloseVisibilityGuardActive = false;
 let magpieYomitanCloseVisibilityGuardTimer = null;
 let trackedGameWindowState = "unknown";
 let trackedGameWindowStateUpdatedAt = 0;
+let overlayCaptureAvailable = false;
+let overlayCaptureExpiryTimer = null;
 let manualHotkeyBackend = MANUAL_HOTKEY_BACKEND_ELECTRON;
 let manualHotkeyBackendReason = "electron";
 let manualHotkeyInputServerConnection = {
@@ -2318,6 +2388,7 @@ const overlayWebSockets = {
 
 function publishOverlaySocketState(type, isOpen) {
   websocketStates[type] = !!isOpen;
+  if (type === "ws2" && !isOpen) invalidateOverlayCapture("backend-disconnected");
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("overlay-websocket-state", { type, open: !!isOpen });
   }
@@ -2482,6 +2553,12 @@ function handleOverlayWebSocketControlMessage(type, data) {
 
   if (!message || typeof message !== "object") {
     return false;
+  }
+
+  if (message.type === "capture_status") {
+    // Only the monitored data connection may grant capture availability.
+    if (type === "ws2" && websocketStates.ws2) updateOverlayCaptureStatus(message);
+    return true;
   }
 
   if (message.type === "anki-setup-yomitan") {
@@ -2882,6 +2959,7 @@ async function startGamepadServer(reason = "unknown") {
         env: {
           ...process.env,
           GSM_OVERLAY_DATA_PATH: dataPath,
+          GSM_GAMEPAD_SETTINGS_PATH: settingsPath,
           GSM_GAMEPAD_TOKENIZER_BACKEND: normalizeGamepadTokenizerBackend(userSettings.gamepadTokenizerBackend),
           GSM_SUDACHI_DICT_KIND: normalizeGamepadSudachiDictionary(userSettings.gamepadSudachiDictionary),
           GSM_GAMEPAD_DEVICE_BLACKLIST: JSON.stringify(normalizeGamepadDeviceBlacklist(userSettings.gamepadDeviceBlacklist)),
@@ -4131,6 +4209,7 @@ function hideAndRestoreFocus(options = {}) {
 }
 
 function showInactiveAndRestoreFocus(options = {}) {
+  if (!canUseOverlayCapture()) return;
   if (mainWindow && !mainWindow.isDestroyed()) {
     ensureMainWindowIsOnConnectedDisplay("showInactiveAndRestoreFocus");
     mainWindow.showInactive();
@@ -4147,6 +4226,7 @@ function releaseOverlayFocusAfterTopmostRecovery(delayMs = 120) {
 }
 
 function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert", options = {}) {
+  if (!canUseOverlayCapture()) return false;
   if (!mainWindow || mainWindow.isDestroyed()) return;
   ensureMainWindowIsOnConnectedDisplay(source);
   const forceShow = !!options.forceShow;
@@ -4243,6 +4323,7 @@ function showOverlayWithoutFocusForManualVisibleMode(source = "manual-visible-sh
 }
 
 function aggressivelyShowOverlayAndReturnFocus() {
+  if (!canUseOverlayCapture()) return;
   if (!mainWindow || mainWindow.isDestroyed()) return;
   reassertOverlayTopmostWithoutFocus("aggressivelyShowOverlayAndReturnFocus", {
     forceShow: true,
@@ -4256,13 +4337,14 @@ function aggressivelyShowOverlayAndReturnFocus() {
 }
 
 function focusOverlayForYomitanLookup() {
+  if (!canUseOverlayCapture()) return;
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
   yomitanForegroundActive = true;
   const focusDelays = [0, 50, 120, 240];
   for (const delay of focusDelays) {
     setTimeout(() => {
-      if (!yomitanForegroundActive || !yomitanShown) return;
+      if (!canUseOverlayCapture() || !yomitanForegroundActive || !yomitanShown) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
 
       ensureMainWindowIsOnConnectedDisplay("yomitan-lookup-focus");
@@ -4325,6 +4407,7 @@ const GAMEPAD_FOCUS_TOGGLE_GUARD_AFTER_LAST_RETRY_MS = 250;
 let gamepadKeyboardToggleSuppressedUntil = 0;
 
 function aggressivelyFocusOverlayForGamepadNavigation() {
+  if (!canUseOverlayCapture()) return;
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
   const lastFocusDelay = GAMEPAD_FOCUS_RETRY_DELAYS_MS[GAMEPAD_FOCUS_RETRY_DELAYS_MS.length - 1] || 0;
@@ -4335,7 +4418,7 @@ function aggressivelyFocusOverlayForGamepadNavigation() {
 
   for (const delay of GAMEPAD_FOCUS_RETRY_DELAYS_MS) {
     setTimeout(() => {
-      if (!gamepadNavigationActive) return;
+      if (!canUseOverlayCapture() || !gamepadNavigationActive) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
 
       if (mainWindow.isMinimized()) {
@@ -4361,6 +4444,7 @@ let gamepadToggleRequestSeq = 0;
 let lastGamepadNavigationToggleRequestAt = Number.NEGATIVE_INFINITY;
 
 function requestGamepadNavigationToggleFromMain(source = "unknown") {
+  if (!gamepadNavigationActive && !canUseOverlayCapture()) return;
   if (!userSettings.gamepadEnabled) {
     console.log(`[Gamepad] Ignoring toggle request from ${source}: gamepad disabled`);
     return;
@@ -4402,6 +4486,7 @@ function requestGamepadNavigationToggleFromMain(source = "unknown") {
   // If renderer misses the first IPC during rapid focus/window transitions, retry once.
   setTimeout(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!gamepadNavigationActive && !canUseOverlayCapture()) return;
     if (gamepadNavigationActive === previousState) {
       console.log(`[Gamepad] Toggle state unchanged after first request from ${source}; retrying id=${requestId}`);
       mainWindow.webContents.send("gamepad-toggle-navigation", { requestId });
@@ -4410,6 +4495,10 @@ function requestGamepadNavigationToggleFromMain(source = "unknown") {
 }
 
 function setGamepadNavigationModeActive(active, triggerSource = "unknown", options = {}) {
+  if (active && !canUseOverlayCapture()) {
+    publishOverlayCaptureAvailability();
+    return;
+  }
   const nextActive = !!active;
   const wasActive = !!gamepadNavigationActive;
   const shouldFocusOverlay = options && options.focusOverlay === true;
@@ -5266,6 +5355,7 @@ function sendGamepadManualPauseStateToRenderer(paused) {
 }
 
 function requestManualOverlayScan(source = "overlay") {
+  if (!canUseOverlayCapture()) return false;
   const safeSource = String(source || "overlay");
   if (!backend || !backend.connected) {
     console.warn(`[OverlayScan] Cannot request manual overlay scan: backend not connected (source=${safeSource})`);
@@ -5291,6 +5381,7 @@ function requestOverlayScanForActivation(source) {
 // BEFORE the overlay steals focus so the mss grab happens while the game still owns the
 // screen (exclusive-fullscreen games drop their frame once focus is lost).
 function requestManualModeBackground(source = "overlay") {
+  if (!canUseOverlayCapture()) return false;
   if (getManualModeBackgroundMode() === "off") return false;
   if (!backend || !backend.connected) {
     console.warn(`[ManualBackground] Cannot request background: backend not connected (source=${source})`);
@@ -5302,6 +5393,7 @@ function requestManualModeBackground(source = "overlay") {
 }
 
 function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY) {
+  if (!canUseOverlayCapture()) return false;
   if (!mainWindow || mainWindow.isDestroyed()) return false;
 
   console.log(`[OverlayActivation] Attempting SHOW (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
@@ -5391,7 +5483,7 @@ function waitForManualBackgroundThenFocus(triggerSource) {
   const doFocus = (reason) => {
     cancelManualBackgroundShowWait();
     try {
-      if (isOverlayVisible && mainWindow && !mainWindow.isDestroyed()) {
+      if (canUseOverlayCapture() && isOverlayVisible && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.setAlwaysOnTop(true, "screen-saver");
         if (typeof mainWindow.moveTop === "function") {
           try { mainWindow.moveTop(); } catch (e) { /* moveTop unavailable on some platforms */ }
@@ -5627,6 +5719,9 @@ function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-h
   manualHotkeyPressed = false;
   manualModeToggleState = false;
   gamepadNavigationActive = false;
+  gamepadKeyboardToggleSuppressedUntil = 0;
+  gamepadReleaseRecoveryVersion += 1;
+  clearGamepadManualPause(reason);
   yomitanForegroundActive = false;
 
   if (hadManualState) {
@@ -5647,6 +5742,7 @@ function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-h
 }
 
 function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
+  if (!canUseOverlayCapture()) return;
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
   }
@@ -5684,13 +5780,13 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
 }
 
 function revealAutomaticOverlayForSignal(source, options = {}) {
+  if (!canUseOverlayCapture()) return false;
   if (!mainWindow || mainWindow.isDestroyed()) {
     return false;
   }
 
   if (!shouldRevealAutomaticOverlay({
     windowState: trackedGameWindowState,
-    outputAvailable: options.outputAvailable === true,
     manualMode: isManualMode(),
     texthookerMode: isTexthookerMode,
   })) {
@@ -5924,6 +6020,7 @@ function registerTexthookerHotkey(oldHotkey) {
   }
 
   const registered = setAppHotkey("texthooker", texthookerHotkey, () => {
+    if (!isTexthookerMode && !hasValidOverlayCapture()) return;
     if (!texthookerWindow || texthookerWindow.isDestroyed()) {
       createTexthookerWindow();
     }
@@ -5932,6 +6029,7 @@ function registerTexthookerHotkey(oldHotkey) {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     isTexthookerMode = !isTexthookerMode;
+    publishOverlayCaptureAvailability();
 
     if (isTexthookerMode) {
       console.log("[TexthookerMode] Showing...");
@@ -5963,6 +6061,8 @@ function registerTexthookerHotkey(oldHotkey) {
       requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
       texthookerWindow.hide();
       requestBackendFocusRestore("texthooker-hotkey-hide", { force: true });
+
+      if (!canUseOverlayCapture()) return;
 
       // Go back to whatever mode it was in before
       if (isManualMode()) {
@@ -6163,6 +6263,8 @@ function openSettings(tab) {
     settingsWindow.setAlwaysOnTop(false);
     settingsWindow.show();
     settingsWindow.focus();
+    // Backend requests can arrive without foreground permission on Windows.
+    forceForegroundWindow(settingsWindow);
     sendRequestedSettingsTab(settingsWindow);
     return;
   }
@@ -6245,6 +6347,8 @@ function openSettings(tab) {
     openedSettingsWindow.setSize(width, height);
     openedSettingsWindow.webContents.invalidate();
     openedSettingsWindow.show();
+    openedSettingsWindow.focus();
+    forceForegroundWindow(openedSettingsWindow);
   }, 500);
 }
 
@@ -6631,6 +6735,7 @@ function updateTrayMenu() {
     {
       label: 'Toggle Window (Alt+Shift+H)',
       click: () => {
+        if (!canUseOverlayCapture()) return;
         if (mainWindow) {
           ensureMainWindowIsOnConnectedDisplay("tray-toggle-window");
           mainWindow.webContents.send('toggle-main-box');
@@ -7151,6 +7256,7 @@ async function startOverlayAppImpl() {
   // clears the id's prior registration in both backends, so it is no longer used.
   function registerToggleWindowHotkey(_oldHotkey) {
     setAppHotkey("toggleWindow", userSettings.toggleWindowHotkey || "Alt+Shift+H", () => {
+      if (!canUseOverlayCapture()) return;
       if (mainWindow) {
         ensureMainWindowIsOnConnectedDisplay("hotkey-toggle-window");
         mainWindow.webContents.send('toggle-main-box');
@@ -7162,6 +7268,7 @@ async function startOverlayAppImpl() {
   // Register minimize hotkey
   function registerMinimizeHotkey(_oldHotkey) {
     setAppHotkey("minimize", userSettings.minimizeHotkey || "Alt+Shift+J", () => {
+      if (!canUseOverlayCapture()) return;
       if (mainWindow) {
         resetActivityTimer();
         if (afkHidden) {
@@ -7577,6 +7684,7 @@ async function startOverlayAppImpl() {
   });
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
+    if (!ignore && !canUseOverlayCapture()) return;
     // console.log("set-ignore-mouse-events", ignore, options, resizeMode, yomitanShown);
     const forceMagpieRelease = !!(options && options.forceMagpieRelease);
     if (forceMagpieRelease && ignore && isYomitanStateLikelyStale()) {
@@ -7623,6 +7731,7 @@ async function startOverlayAppImpl() {
   });
 
   ipcMain.on("show", (event, state) => {
+    if (!canUseOverlayCapture()) return;
     ensureMainWindowIsOnConnectedDisplay("ipc-show");
     syncOverlayWindowsToCurrentMonitor("ipc-show");
     if (shouldKeepOverlayVisibleWhenManualInactive() && !manualHotkeyPressed && !manualModeToggleState) {
@@ -7635,11 +7744,12 @@ async function startOverlayAppImpl() {
   });
 
   ipcMain.on("resize-mode", (event, state) => {
-    resizeMode = state;
+    resizeMode = !!state && canUseOverlayCapture();
   })
 
 
   ipcMain.on("yomitan-event", (event, state) => {
+    if (state && !canUseOverlayCapture()) return;
     // Reset the activity timer on yomitan interaction
     resetActivityTimer();
 
@@ -7699,7 +7809,9 @@ async function startOverlayAppImpl() {
 
   ipcMain.on('release-mouse', () => {
     blurAndRestoreFocus();
-    setTimeout(() => mainWindow.focus(), 50);
+    setTimeout(() => {
+      if (canUseOverlayCapture() && mainWindow && !mainWindow.isDestroyed()) mainWindow.focus();
+    }, 50);
   });
 
 
@@ -7745,6 +7857,7 @@ async function startOverlayAppImpl() {
       // mainWindow.openDevTools({ mode: 'detach' });
     }
     mainWindow.webContents.send("load-settings", buildOverlaySettingsPayload());
+    publishOverlayCaptureAvailability();
     broadcastPomodoroState();
     mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
     mainWindow.webContents.send("gamepad-input-test-active", { active: gamepadInputTestActive });
@@ -7759,6 +7872,7 @@ async function startOverlayAppImpl() {
 
     if (
       !mainWindow.isVisible() &&
+      canUseOverlayCapture() &&
       shouldShowOverlayOnReady({
         hideOverlayOnStartup: userSettings.hideOverlayOnStartup,
         windowState: trackedGameWindowState,
@@ -7869,9 +7983,9 @@ async function startOverlayAppImpl() {
   ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, isExclusiveFullscreen, cursorHidden, recommendManualMode, obsOutputActive }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
-    if (isTexthookerMode) return;
-
     const normalizedWindowState = setTrackedGameWindowState(state, "window-state-changed");
+    publishOverlayCaptureAvailability();
+    if (isTexthookerMode) return;
 
     currentMagpieState = magpieInfo !== undefined
       ? createMagpieState(magpieInfo)
@@ -7997,8 +8111,7 @@ async function startOverlayAppImpl() {
         break;
 
       case "unknown":
-        // Unknown state - don't change anything
-        console.log("Unknown window state, no action taken");
+        invalidateOverlayCapture("window-state:unknown");
         break;
 
       default:
@@ -8138,6 +8251,10 @@ async function startOverlayAppImpl() {
       value = normalizeGamepadJpdbApiKey(value);
     } else if (key === "gamepadDeviceBlacklist") {
       value = normalizeGamepadDeviceBlacklist(value);
+    } else if (key === "gamepadXinputEnabled") {
+      value = value !== false;
+    } else if (key === "gamepadDinputEnabled") {
+      value = value === true;
     } else if (key === "furiganaScale") {
       value = normalizeFuriganaScale(value);
     } else if (key === "furiganaYOffset") {
@@ -8379,6 +8496,12 @@ async function startOverlayAppImpl() {
           syncGamepadServerState("setting-changed:gamepadTokenizerBackend");
         }
         break;
+      case "gamepadXinputEnabled":
+      case "gamepadDinputEnabled":
+        // Native listener selection is read before devices are opened on the
+        // next GSM restart, including when the overlay is not running.
+        console.log(`[Gamepad] Listener setting saved (restart GSM to apply): ${key} = ${value}`);
+        break;
       case "showFurigana":
         syncGamepadServerState("setting-changed:showFurigana");
         break;
@@ -8532,10 +8655,8 @@ async function startOverlayAppImpl() {
       afkHidden = false;
     }
 
-    // Text is itself proof that the capture path is producing output. This closes
-    // the startup race before the periodic OBS output probe has reported, which is
-    // especially important for capture cards and cameras without an HWND.
-    revealAutomaticOverlayForSignal("text-received-output", { outputAvailable: true });
+    // Text may be delayed, cached, or supplied by a hook. It cannot grant capture readiness.
+    revealAutomaticOverlayForSignal("text-received-output");
 
     // === AUTO TRANSLATE (only for JSON-parsable array data) ===
     if (userSettings.autoRequestTranslation && backend && backend.connected) {
@@ -8703,7 +8824,7 @@ async function startOverlayAppImpl() {
 
   // Handler to manually send navigation commands (can be triggered from other sources)
   ipcMain.on("gamepad-navigate", (event, direction) => {
-    if (!userSettings.gamepadEnabled) {
+    if (!userSettings.gamepadEnabled || !canUseOverlayCapture()) {
       return;
     }
     if (mainWindow && !mainWindow.isDestroyed()) {

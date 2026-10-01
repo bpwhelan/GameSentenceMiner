@@ -59,6 +59,20 @@ test('regrouping identical lexical text invalidates the renderer reuse signature
   assert.notEqual(joined.signature, separate.signature);
 });
 
+test('OCR recalibration preserves the text nodes used by an in-flight dictionary lookup', t => {
+  const window = setup(t);
+  window.renderFixture({ data: [line('食べる', 0.1, 0.4, 0.22, 0.04, false, true)] });
+  const box = window.document.querySelector('.text-box');
+  const textNode = box.firstChild;
+  const lookupRange = window.document.createRange();
+  lookupRange.selectNodeContents(textNode);
+  const result = window.renderFixture({ data: [line('食べる', 0.12, 0.4, 0.24, 0.04, false, true)] });
+  assert.equal(result.recalibration, true);
+  assert.equal(window.document.querySelector('.text-box'), box);
+  assert.equal(box.firstChild, textNode);
+  assert.equal(lookupRange.toString(), '食');
+});
+
 test('NVL blocks split only when the coordinate payload is final', t => {
   const window = setup(t);
   const oldLine = line('古い台詞。', 0.1, 0.4, 0.22, 0.04);

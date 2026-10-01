@@ -182,6 +182,7 @@ interface StoreConfig {
     windowTransparencyTarget: string; // Target window for transparency tool
     runWindowTransparencyToolOnStartup: boolean; // Whether to run the transparency tool on startup
     runOverlayOnStartup: boolean; // Whether to run the overlay on startup
+    runOverlayWithActiveGame: boolean;
     quitOnWindowClose: boolean; // Whether the main window X button quits instead of hiding to tray
     textCaptureWizardEnabled: boolean; // Whether to show the text capture wizard after capture setup
     obsOcrScenes: string[];
@@ -325,7 +326,8 @@ export const store = new Store<StoreConfig>({
         windowTransparencyToolHotkey: 'Ctrl+Alt+Y',
         windowTransparencyTarget: '', // Default to empty string if not set
         runWindowTransparencyToolOnStartup: false, // Whether to run the transparency tool on startup
-        runOverlayOnStartup: false, // Whether to run the overlay on startup    
+        runOverlayOnStartup: false, // Whether to run the overlay on startup
+        runOverlayWithActiveGame: false,
         quitOnWindowClose: false,
         textCaptureWizardEnabled: true,
         obsOcrScenes: [],
@@ -860,11 +862,21 @@ export function setRunWindowTransparencyToolOnStartup(run: boolean): void {
 }
 
 export function getRunOverlayOnStartup(): boolean {
-    return store.get("runOverlayOnStartup");
+    return store.get("runOverlayOnStartup") && !getRunOverlayWithActiveGame();
 }
 
 export function setRunOverlayOnStartup(run: boolean): void {
+    if (run) store.set("runOverlayWithActiveGame", false);
     store.set("runOverlayOnStartup", run);
+}
+
+export function getRunOverlayWithActiveGame(): boolean {
+    return store.get("runOverlayWithActiveGame", false);
+}
+
+export function setRunOverlayWithActiveGame(run: boolean): void {
+    if (run) store.set("runOverlayOnStartup", false);
+    store.set("runOverlayWithActiveGame", run);
 }
 
 export function getQuitOnWindowClose(): boolean {
@@ -1353,14 +1365,6 @@ export function getStartConsoleMinimized(): boolean {
 
 export function setStartConsoleMinimized(shouldMinimize: boolean): void {
     store.set("startConsoleMinimized", shouldMinimize);
-}
-
-export function setShowYuzuTab(shouldShow: boolean): void {
-    store.set("showYuzuTab", shouldShow);
-}
-
-export function getShowYuzuTab(): boolean {
-    return store.get("showYuzuTab");
 }
 
 export function getVNs(): VN[] {

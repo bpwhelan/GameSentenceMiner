@@ -22,6 +22,26 @@
 
 const TOGGLE_ACTION_COOLDOWN_MS = 250;
 
+// Priority is deliberate: shared confirm/mine bindings confirm first. Forwarded
+// game controls work outside navigation; popup actions also work for mouse lookups.
+const INPUT_ACTIONS = [
+  ['forwardEnterButton', 'forwardEnterKey', 'forwardEnterToTargetWindow'],
+  ['forwardSpaceButton', 'forwardSpaceKey', 'forwardKeyToTargetWindow', null, 'space'],
+  ['forwardCtrlButton', 'forwardCtrlKey', 'forwardKeyToTargetWindow', null, 'ctrl'],
+  ['forwardEscapeButton', 'forwardEscapeKey', 'forwardKeyToTargetWindow', null, 'escape'],
+  ['forwardClickButton', 'forwardClickKey', 'forwardClickToTargetWindow'],
+  ['manualOverlayScanButton', 'manualOverlayScanKey', 'requestManualOverlayScan'],
+  ['translateButton', null, 'requestTranslation'],
+  ['nextEntryButton', 'nextEntryKey', 'navigateDictionaryNextEntry', 'popup'],
+  ['prevEntryButton', 'prevEntryKey', 'navigateDictionaryPrevEntry', 'popup'],
+  ['confirmButton', 'confirmKey', 'confirmSelection', 'navigation'],
+  ['cancelButton', 'cancelKey', 'cancelSelection', 'navigation'],
+  ['mineButton', null, 'triggerMining', 'navigation'],
+  ['tokenModeToggleButton', 'tokenModeToggleKey', 'toggleTokenMode', 'navigation'],
+  ['pauseToggleButton', 'pauseToggleKey', 'toggleNavigationPause', 'navigation'],
+  [null, 'mineButton', 'triggerMining', 'navigation'],
+];
+
 const GAMEPAD_BUTTON_LABELS = {
   0: 'A',
   1: 'B',
@@ -184,10 +204,15 @@ function parseGamepadBindingValue(value) {
   }
 
   if (Array.isArray(value)) {
+    if (!value.every(button => (typeof button === 'number' ||
+        (typeof button === 'string' && button.trim() !== '')) &&
+        Number.isSafeInteger(Number(button)) && Number(button) >= 0)) {
+      return createGamepadBindingDescriptor([], false, value);
+    }
     return createGamepadBindingDescriptor(value, true, value);
   }
 
-  if (typeof value === 'number' && Number.isFinite(value)) {
+  if (typeof value === 'number' && Number.isSafeInteger(value)) {
     return value >= 0
       ? createGamepadBindingDescriptor([value], true, value)
       : createGamepadBindingDescriptor([], true, value);
@@ -211,7 +236,7 @@ function parseGamepadBindingValue(value) {
     const parsedButtons = [];
     for (const token of tokens) {
       const buttonIndex = parseGamepadButtonToken(token);
-      if (buttonIndex === null || buttonIndex < 0) {
+      if (!Number.isSafeInteger(buttonIndex) || buttonIndex < 0) {
         return createGamepadBindingDescriptor([], false, value);
       }
       parsedButtons.push(buttonIndex);
@@ -489,8 +514,11 @@ function keyboardEventMatchesBinding(binding, keyName, pressedKeys, modifiers) {
     return keyName === binding.key;
   }
 
-  // Modifier-only binding: already satisfied by the modifier checks above
-  return true;
+  // A modifier-only action must be triggered by one of its own modifiers.
+  // Otherwise every ordinary key pressed while Ctrl is held toggles Ctrl's action.
+  const modifier = { ControlLeft: 'ctrl', ControlRight: 'ctrl', AltLeft: 'alt',
+    AltRight: 'alt', ShiftLeft: 'shift', ShiftRight: 'shift', MetaLeft: 'meta', MetaRight: 'meta' }[keyName];
+  return !!(modifier && binding.modifiers[modifier]);
 }
 
 /**
@@ -508,6 +536,7 @@ function isKeyboardBindingHeld(binding, pressedKeys, modifiers) {
 
 class GamepadHandler {
   constructor(options = {}) {
+    this.destroyed = false;
     // Configuration
     this.config = {
       dictionaryReader: options.dictionaryReader || 'yomitan',
@@ -550,8 +579,8 @@ class GamepadHandler {
       dpadRight: options.dpadRight ?? 15,
       
       // Navigation settings
-      repeatDelay: options.repeatDelay || 400, // Initial delay before repeat
-      repeatRate: options.repeatRate || 150, // Repeat rate in ms
+      repeatDelay: options.repeatDelay ?? 400, // Initial delay before repeat
+      repeatRate: options.repeatRate ?? 150, // Repeat rate in ms
       holdNavigation: options.holdNavigation || 'repeat',
       horizontalWrap: options.horizontalWrap || 'adjacent',
       verticalNavigation: options.verticalNavigation || 'lines',
@@ -572,6 +601,7 @@ class GamepadHandler {
       // "jpdb-api": call JPDB API /api/v1/parse directly
       tokenizerBackend: options.tokenizerBackend || 'sudachi',
       localTokenizerFallbackBackend: options.localTokenizerFallbackBackend || 'sudachi',
+      sudachiDictionary: options.sudachiDictionary || 'small',
       yomitanApiUrl: options.yomitanApiUrl || 'http://127.0.0.1:19633',
       yomitanScanLength: Number.isFinite(options.yomitanScanLength) ? options.yomitanScanLength : 10,
       yomitanRequestTimeout: Number.isFinite(options.yomitanRequestTimeout) ? options.yomitanRequestTimeout : 1800,
@@ -637,6 +667,7 @@ class GamepadHandler {
     this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
     this.refreshButtonBindings();
     this.refreshKeyboardBindings();
+    this.normalizeInputTiming();
     
     // WebSocket connection
     this.ws = null;
@@ -648,6 +679,7 @@ class GamepadHandler {
     // State
     this.gamepads = new Map(); // Connected gamepads from server
     this.isActive = false; // Whether controller navigation is active
+    this.activationSource = null; // The input whose modifier owns this navigation session.
     this.toggleModeActive = false; // For toggle activation mode
     this.navigationPauseActive = false; // Manual pause-the-source toggle (only meaningful while navigation is active)
     this.currentBlockIndex = -1; // Currently selected text block
@@ -671,6 +703,8 @@ class GamepadHandler {
     this.jpdbApiReachable = false; // Whether JPDB API is reachable when selected
     this.tokenCacheByBlock = new Map(); // blockIndex -> { text, tokens }
     this.pendingTokenizationByBlock = new Map(); // blockIndex -> text
+    this.pendingTokenizationRequests = new Map(); // blockIndex -> cancellable request identity
+    this.tokenizationRequestId = 0;
     this.pendingTokenizationStartedWhileNavigationActive = new Map(); // blockIndex -> boolean
     this.navigationActivationInProgress = false;
     this.pendingNavigationActivation = false;
@@ -697,8 +731,10 @@ class GamepadHandler {
     this.lookupDismissToken = 0;
     this.lookupDismissTimer = null;
     this.lastLookupAnchorKey = null;
+    this.activeLookup = null; // Lookup intent, including a request whose popup has not opened yet.
     this.navigationAwayHideToken = 0;
     this.navigationAwayHideTimer = null;
+    this.deactivationHideTimer = null;
 
     // Thumbstick and virtual mouse state
     this.virtualMouse = {
@@ -730,8 +766,7 @@ class GamepadHandler {
     // DOM change tracking for live text updates
     this.textMutationObserver = null;
     this.pendingTextRefresh = false;
-    this.skipNextTextRefresh = false;
-    this.preserveSelectionOnNextTextRefresh = false;
+    this.textContentSignature = null;
     this.lastSelectionSnapshot = null; // Last known block rect + anchor position for redraw recovery
     
     // Bind methods
@@ -821,6 +856,9 @@ class GamepadHandler {
   }
 
   destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.deactivateNavigation();
     this.pendingNavigationActivation = false;
     this.pendingJitenEntryPosition = null;
     this.stopJitenNavigationTracking?.();
@@ -828,14 +866,7 @@ class GamepadHandler {
     this.releaseOverlayFocus();
     this.clearPendingMineCandidate();
     this.tokenCacheByBlock.clear();
-    this.pendingTokenizationByBlock.clear();
-    this.pendingTokenizationStartedWhileNavigationActive.clear();
-
-    // Close WebSocket
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
+    this.disconnectWebSocket();
     
     // Clear reconnect timer
     if (this.reconnectTimer) {
@@ -846,6 +877,7 @@ class GamepadHandler {
     // Clear repeat timers
     this.repeatTimers.forEach(timer => clearTimeout(timer));
     this.repeatTimers.clear();
+    this.clearDeactivationHideTimer();
 
     if (this.lookupDismissTimer) {
       clearTimeout(this.lookupDismissTimer);
@@ -882,34 +914,59 @@ class GamepadHandler {
     }
 
     if (this.ws) {
-      this.ws.close();
+      const socket = this.ws;
       this.ws = null;
+      socket.onopen = socket.onclose = socket.onerror = socket.onmessage = null;
+      socket.close();
     }
+    this.resetServerState();
+  }
 
+  resetServerState() {
     this.wsConnected = false;
     this.mecabAvailable = false;
     this.sudachiAvailable = false;
-    this.pendingTokenizationByBlock.clear();
-    this.pendingTokenizationStartedWhileNavigationActive.clear();
+    this.cancelPendingTokenization('Input server disconnected');
+    this.rejectPendingFuriganaRequests('Input server disconnected');
+    this.gamepads.clear();
+    this.resetInputState();
+    this.deactivateNavigation();
+  }
+
+  stopNavigationRepeats() {
+    this.repeatTimers?.forEach(timer => clearTimeout(timer));
+    this.repeatTimers?.clear();
+  }
+
+  resetInputState() {
+    this.stopNavigationRepeats();
+    this.buttonStates.clear();
+    this.pressedKeys.clear();
+    this.keyboardModifiers = { ctrl: false, alt: false, shift: false, meta: false };
+    this.thumbstickLatch.clear();
+    this.virtualMouse.lastUpdateTime = 0;
   }
   
   connectWebSocket() {
-    if (this.config.connectToServer === false) {
+    if (this.destroyed || this.config.connectToServer === false) {
       return;
     }
 
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && this.ws.readyState <= WebSocket.OPEN) {
       return;
     }
     
     console.log(`[GamepadHandler] Connecting to gamepad server: ${this.config.serverUrl}`);
     
     try {
-      this.ws = new WebSocket(this.config.serverUrl);
-      this.ws.onopen = this.onWebSocketOpen;
-      this.ws.onclose = this.onWebSocketClose;
-      this.ws.onerror = this.onWebSocketError;
-      this.ws.onmessage = this.onWebSocketMessage;
+      const socket = new WebSocket(this.config.serverUrl);
+      this.ws = socket;
+      for (const [event, method] of Object.entries({ open: 'onWebSocketOpen',
+        close: 'onWebSocketClose', error: 'onWebSocketError', message: 'onWebSocketMessage' })) {
+        socket[`on${event}`] = data => {
+          if (!this.destroyed && this.ws === socket) this[method](data);
+        };
+      }
     } catch (e) {
       console.error('[GamepadHandler] WebSocket connection error:', e);
       this.scheduleReconnect();
@@ -951,8 +1008,7 @@ class GamepadHandler {
     console.log('[GamepadHandler] Connected to gamepad server');
     this.wsConnected = true;
     this.primeConfiguredLocalTokenizerAvailability();
-    this.pendingTokenizationByBlock.clear();
-    this.pendingTokenizationStartedWhileNavigationActive.clear();
+    this.cancelPendingTokenization('Input server reconnected');
     
     // Clear any pending reconnect
     if (this.reconnectTimer) {
@@ -982,12 +1038,8 @@ class GamepadHandler {
   
   onWebSocketClose() {
     console.log('[GamepadHandler] Disconnected from gamepad server');
-    this.wsConnected = false;
-    this.mecabAvailable = false;
-    this.sudachiAvailable = false;
     this.ws = null;
-    this.pendingTokenizationByBlock.clear();
-    this.pendingTokenizationStartedWhileNavigationActive.clear();
+    this.resetServerState();
     
     // Dispatch event
     window.dispatchEvent(new CustomEvent('gsm-gamepad-server-disconnected'));
@@ -1005,7 +1057,7 @@ class GamepadHandler {
   }
   
   scheduleReconnect() {
-    if (this.config.connectToServer === false) {
+    if (this.destroyed || this.config.connectToServer === false) {
       return;
     }
 
@@ -1070,8 +1122,23 @@ class GamepadHandler {
     }
   }
   
-  onTokensReceived(data) {
-    // Handle tokenization response from server
+  onTokensReceived(data, request = null) {
+    if (this.destroyed) return;
+    const pending = this.pendingTokenizationRequests?.get(data.blockIndex);
+    if (!request && pending?.resolveServer) {
+      // New servers echo requestId; text/backend checks also support older servers.
+      if (data.requestId != null && data.requestId !== pending.id) return;
+      if (data.text !== pending.text || data.tokenSource !== pending.backend) return;
+      pending.resolveServer(data);
+      return;
+    }
+    if (request && !this.isTokenizationRequestCurrent(data.blockIndex, request)) return;
+    if (!request && (pending || data.requestId != null)) return;
+    if (!request && data.tokenSource && !this.pendingTokenizationByBlock.has(data.blockIndex)) return;
+    if (!Number.isInteger(data.blockIndex) || data.blockIndex < 0 || data.blockIndex >= this.textBlocks.length) return;
+    const currentBlockText = this.getBlockText(data.blockIndex, data.blockIndex === this.currentBlockIndex);
+    if (typeof data.text === 'string' && data.text !== currentBlockText) return;
+
     const {
       blockIndex,
       tokens,
@@ -1114,86 +1181,58 @@ class GamepadHandler {
       this.jpdbApiReachable = true;
     }
     
-    if (typeof blockIndex === 'number' && blockIndex >= 0) {
-      const tokenList = Array.isArray(tokens) ? tokens : [];
-      const resolvedText = typeof text === 'string'
-        ? text
-        : this.getBlockText(blockIndex);
-
-      const pendingNavigationStates = this.pendingTokenizationStartedWhileNavigationActive;
-      const tokenizationStartedWhileNavigationActive = pendingNavigationStates?.has(blockIndex)
-        ? pendingNavigationStates.get(blockIndex)
-        : this.isNavigationActive();
-      this.pendingTokenizationByBlock.delete(blockIndex);
-      pendingNavigationStates?.delete(blockIndex);
-      if (!this.shouldTokenizeText(resolvedText)) {
-        this.tokenCacheByBlock.delete(blockIndex);
-        if (blockIndex === this.currentBlockIndex) {
-          this.tokens = [];
-          this.tokensBlockIndex = -1;
-        }
-        this.updateModeIndicatorText();
-        return;
-      }
-
-      if (resolvedText) {
-        this.tokenCacheByBlock.set(blockIndex, {
-          text: resolvedText,
-          tokens: tokenList,
-        });
-      }
-
-      // Only apply directly if it's still for the active block text.
+    const resolvedText = typeof text === 'string' ? text : currentBlockText;
+    const pendingNavigationStates = this.pendingTokenizationStartedWhileNavigationActive;
+    const startedWhileActive = pendingNavigationStates?.has(blockIndex)
+      ? pendingNavigationStates.get(blockIndex)
+      : this.isNavigationActive();
+    this.pendingTokenizationByBlock.delete(blockIndex);
+    pendingNavigationStates?.delete(blockIndex);
+    if (!this.shouldTokenizeText(resolvedText)) {
+      this.tokenCacheByBlock.delete(blockIndex);
       if (blockIndex === this.currentBlockIndex) {
-        const currentText = this.getBlockText(this.currentBlockIndex, true);
-        if (!this.shouldTokenizeText(currentText)) {
-          this.tokens = [];
-          this.tokensBlockIndex = -1;
-          this.tokenCacheByBlock.delete(blockIndex);
-          this.updateModeIndicatorText();
-          return;
-        }
-        const cacheEntry = this.tokenCacheByBlock.get(blockIndex);
-
-        if (cacheEntry && cacheEntry.text === currentText) {
-          const anchorCharIndex = this.getCurrentAnchorCharIndex();
-          this.tokens = cacheEntry.tokens || [];
-          this.tokensBlockIndex = blockIndex;
-          console.log(`[GamepadHandler] Received ${this.tokens.length} tokens for block ${blockIndex}:`,
-            this.tokens.map(t => t.word).join(' | '));
-
-          // Sentence/Jiten jumps deliberately use an exact character anchor.
-          // A late tokenizer response must not reinterpret that index as a word.
-          if (this.tokens.length > 0 && this.tokenMode && !this.lineNavPrefersCharacters && this.isNavigationActive()) {
-            const syncOptions = tokenizationStartedWhileNavigationActive
-              ? { autoConfirm: false }
-              : {};
-            const syncedFromMouse = this.syncSelectionFromVirtualMouse(null, syncOptions);
-            if (syncedFromMouse) {
-              this.syncVirtualMouseToCurrentSelection();
-            } else {
-              this.currentCursorIndex = this.charIndexToTokenIndex(anchorCharIndex >= 0 ? anchorCharIndex : 0);
-              this.currentLineIndex = this.getLineIndexForCursor();
-              this.updateVisuals();
-              // Tokenization can finish after an overlay redraw. Keep the internal
-              // cursor aligned, and only confirm requests that predate navigation.
-              this.syncVirtualMouseToCurrentSelection();
-              if (!tokenizationStartedWhileNavigationActive) {
-                this.autoConfirmSelection();
-              }
-            }
-          }
-        } else if (currentText) {
-          // Response is stale for this index; request fresh tokenization for current text.
-          this.requestTokenizationForBlock(this.currentBlockIndex, currentText);
-        }
+        this.tokens = [];
+        this.tokensBlockIndex = -1;
       }
+      this.updateModeIndicatorText();
+      return;
     }
 
+    const tokenList = this.normalizeNavigationTokens(tokens, resolvedText, tokenSource);
+    this.tokenCacheByBlock.set(blockIndex, { text: resolvedText, tokens: tokenList });
+    if (blockIndex === this.currentBlockIndex) {
+      const anchorCharIndex = Math.max(0, this.getCurrentAnchorCharIndex());
+      this.tokens = tokenList;
+      this.tokensBlockIndex = blockIndex;
+
+      // Sentence/Jiten jumps retain an exact character anchor. Other selections
+      // must be remapped when token boundaries change, including empty results.
+      if (this.tokenMode && !this.lineNavPrefersCharacters && this.isNavigationActive()) {
+        const hasTokens = tokenList.length > 0;
+        const shouldConfirm = !startedWhileActive && Boolean(this.activeLookup);
+        const syncedFromMouse = hasTokens && this.syncSelectionFromVirtualMouse(
+          null, { autoConfirm: shouldConfirm },
+        );
+        if (!syncedFromMouse) {
+          this.currentCursorIndex = hasTokens ? this.charIndexToTokenIndex(anchorCharIndex) : anchorCharIndex;
+          this.currentLineIndex = this.getLineIndexForCursor();
+          this.updateVisuals();
+        }
+        this.syncVirtualMouseToCurrentSelection();
+        if (this.pendingJitenEntryPosition?.blockIndex === blockIndex) {
+          this.pendingJitenEntryPosition.charIndex = this.getCurrentAnchorCharIndex();
+        }
+        if (hasTokens && !syncedFromMouse && shouldConfirm) this.autoConfirmSelection();
+      }
+    }
     this.updateModeIndicatorText();
   }
   
   onFuriganaReceived(data) {
+    if (this.destroyed) return;
+    const pendingRequest = this.pendingFuriganaRequests.get(data.requestId);
+    // A timed-out or cancelled reply must not repaint a newer text frame.
+    if (data.requestId != null && !pendingRequest) return;
     // Handle furigana response from server
     const {
       lineIndex,
@@ -1231,11 +1270,11 @@ class GamepadHandler {
     const normalizedSegments = this.normalizeFuriganaSegments(
       segments || [],
       text,
-      String(this.config.tokenizerBackend || 'sudachi').toLowerCase()
+      pendingRequest?.backend || this.normalizeTokenizerBackend(this.config.tokenizerBackend)
     );
 
-    if (requestId !== undefined && this.pendingFuriganaRequests.has(requestId)) {
-      const { resolve, timeout } = this.pendingFuriganaRequests.get(requestId);
+    if (pendingRequest) {
+      const { resolve, timeout } = pendingRequest;
       clearTimeout(timeout);
       this.pendingFuriganaRequests.delete(requestId);
       
@@ -1267,7 +1306,7 @@ class GamepadHandler {
    * @returns {Promise<{lineIndex: number, text: string, segments: Array, mecabAvailable: boolean}>}
    */
   async requestFurigana(text, lineIndex = 0, timeout = 5000) {
-    if (!text) {
+    if (!text || this.destroyed) {
       return {
         lineIndex,
         text: '',
@@ -1279,6 +1318,7 @@ class GamepadHandler {
 
     let lastError = null;
     for (const backend of this.getBackendAttemptOrder()) {
+      if (this.destroyed) return this.buildFallbackFuriganaResponse(text, lineIndex);
       try {
         return await this.requestFuriganaWithBackend(backend, text, lineIndex, timeout);
       } catch (error) {
@@ -1402,7 +1442,7 @@ class GamepadHandler {
     };
   }
 
-  emitFallbackTokenizationResult(blockIndex, text, tokenSource = null) {
+  emitFallbackTokenizationResult(blockIndex, text, tokenSource = null, request = null) {
     this.onTokensReceived({
       type: 'tokens',
       blockIndex,
@@ -1415,7 +1455,7 @@ class GamepadHandler {
       yomitanApiAvailable: this.yomitanApiReachable,
       jitenApiAvailable: this.jitenApiReachable,
       jpdbApiAvailable: this.jpdbApiReachable,
-    });
+    }, request);
   }
 
   normalizeActivationMode(value) {
@@ -1546,6 +1586,10 @@ class GamepadHandler {
     }
 
     this.buttonStates.set(device, normalizedStates);
+    if (this.config.activationMode === 'modifier' && this.activationSource?.type === 'gamepad' &&
+        this.activationSource.device === device && !this.isButtonBindingHeld(this.buttonBindings.modifierButton, device)) {
+      this.deactivateNavigation();
+    }
   }
 
   bindingContainsButton(binding, buttonIndex) {
@@ -1565,18 +1609,6 @@ class GamepadHandler {
     return this.bindingContainsButton(binding, buttonIndex) && this.isButtonBindingHeld(binding, device);
   }
 
-  areButtonBindingsEquivalent(left, right) {
-    if (!left || !right || left.disabled || right.disabled) {
-      return false;
-    }
-    if (!Array.isArray(left.buttons) || !Array.isArray(right.buttons)) {
-      return false;
-    }
-    if (left.buttons.length !== right.buttons.length) {
-      return false;
-    }
-    return left.buttons.every((buttonIndex, index) => buttonIndex === right.buttons[index]);
-  }
 
   describeButtonBinding(binding) {
     return binding && typeof binding.label === 'string' ? binding.label : 'Disabled';
@@ -1673,6 +1705,40 @@ class GamepadHandler {
     });
   }
 
+  normalizeNavigationTokens(tokens, text, source) {
+    // Overlay boxes and local tokenizers count Unicode characters. Remote
+    // tokenizers use JavaScript/.NET UTF-16 positions, which differ for astral
+    // characters (for example 𠮷). Convert exactly once, when storing the result.
+    const utf16Offsets = ['yomitan-bridge', 'yomitan-api', 'jiten-api', 'jpdb-api'].includes(source);
+    const offsets = new Map([[0, 0]]);
+    let utf16Index = 0;
+    let characterIndex = 0;
+    for (const character of text) {
+      utf16Index += character.length;
+      offsets.set(utf16Index, ++characterIndex);
+    }
+    return (Array.isArray(tokens) ? tokens : []).flatMap(token => {
+      if (!token || !Number.isInteger(token.start)) return [];
+      const rawEnd = token.end ?? (token.start + (token.length ?? 1));
+      const start = utf16Offsets ? offsets.get(token.start) : token.start;
+      const end = utf16Offsets ? offsets.get(rawEnd) : rawEnd;
+      if (!Number.isInteger(start) || !Number.isInteger(end)
+        || start < 0 || end <= start || end > characterIndex) return [];
+      return [{ ...token, start, end }];
+    });
+  }
+
+  buildCharacterTokens(text) {
+    const tokens = [];
+    let start = 0;
+    for (const word of text) {
+      const end = start + word.length;
+      if (word.trim()) tokens.push({ word, start, end });
+      start = end;
+    }
+    return tokens;
+  }
+
   requestFuriganaWithBackend(backend, text, lineIndex = 0, timeout = 5000) {
     const normalizedBackend = this.normalizeTokenizerBackend(backend);
     if (normalizedBackend === 'yomitan-bridge') {
@@ -1693,7 +1759,7 @@ class GamepadHandler {
   requestFuriganaFromServer(text, lineIndex = 0, timeout = 5000, backend = 'sudachi') {
     return new Promise((resolve, reject) => {
       const normalizedBackend = this.normalizeLocalTokenizerFallbackBackend(backend);
-      if (!this.wsConnected || !this.ws) {
+      if (this.destroyed || !this.wsConnected || !this.ws) {
         reject(new Error('Not connected to server'));
         return;
       }
@@ -1720,19 +1786,34 @@ class GamepadHandler {
         resolve,
         reject,
         timeout: timeoutId,
+        backend: normalizedBackend,
       });
 
-      this.ws.send(JSON.stringify({
-        type: 'get_furigana',
-        text,
-        lineIndex,
-        requestId,
-        backend: normalizedBackend,
-        dictionary: normalizedBackend === 'sudachi'
-          ? (this.config.sudachiDictionary || 'small')
-          : undefined,
-      }));
+      try {
+        this.ws.send(JSON.stringify({
+          type: 'get_furigana',
+          text,
+          lineIndex,
+          requestId,
+          backend: normalizedBackend,
+          dictionary: normalizedBackend === 'sudachi'
+            ? (this.config.sudachiDictionary || 'small')
+            : undefined,
+        }));
+      } catch (error) {
+        clearTimeout(timeoutId);
+        this.pendingFuriganaRequests.delete(requestId);
+        reject(error);
+      }
     });
+  }
+
+  rejectPendingFuriganaRequests(reason = 'Tokenizer connection closed') {
+    for (const { reject, timeout } of this.pendingFuriganaRequests?.values() || []) {
+      clearTimeout(timeout);
+      reject(new Error(reason));
+    }
+    this.pendingFuriganaRequests?.clear();
   }
 
   async requestYomitanBridgeTokenize(text, timeout = null) {
@@ -2185,19 +2266,7 @@ class GamepadHandler {
       tokens.push(token);
     });
 
-    if (tokens.length === 0) {
-      for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        if (!char.trim()) continue;
-        tokens.push({
-          word: char,
-          start: i,
-          end: i + 1,
-        });
-      }
-    }
-
-    return tokens;
+    return tokens.length > 0 ? tokens : this.buildCharacterTokens(text);
   }
 
   convertJitenPayloadToFuriganaSegments(payload, text) {
@@ -2333,19 +2402,7 @@ class GamepadHandler {
       tokens.push(token);
     });
 
-    if (tokens.length === 0) {
-      for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        if (!char.trim()) continue;
-        tokens.push({
-          word: char,
-          start: i,
-          end: i + 1,
-        });
-      }
-    }
-
-    return tokens;
+    return tokens.length > 0 ? tokens : this.buildCharacterTokens(text);
   }
 
   convertJpdbPayloadToFuriganaSegments(payload, text) {
@@ -2567,19 +2624,7 @@ class GamepadHandler {
     }
 
     // Fallback to character tokens to keep navigation working if parsing returns no usable tokens.
-    if (tokens.length === 0) {
-      for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        if (!char.trim()) continue;
-        tokens.push({
-          word: char,
-          start: i,
-          end: i + 1,
-        });
-      }
-    }
-
-    return tokens;
+    return tokens.length > 0 ? tokens : this.buildCharacterTokens(text);
   }
 
   convertYomitanContentToFuriganaSegments(content, text) {
@@ -2642,8 +2687,19 @@ class GamepadHandler {
     const device = data.device;
     console.log(`[GamepadHandler] Gamepad disconnected: ${device}`);
     
+    for (const button of Object.keys(this.buttonStates.get(device) || {})) {
+      const timerKey = `${device}-${button}`;
+      if (this.repeatTimers.has(timerKey)) {
+        clearTimeout(this.repeatTimers.get(timerKey));
+        this.repeatTimers.delete(timerKey);
+      }
+    }
     this.gamepads.delete(device);
     this.buttonStates.delete(device);
+    this.thumbstickLatch.delete(device);
+    if (this.activationSource?.type === 'gamepad' && this.activationSource.device === device) {
+      this.deactivateNavigation();
+    }
     
     // Dispatch custom event
     window.dispatchEvent(new CustomEvent('gsm-gamepad-disconnected', {
@@ -2666,11 +2722,13 @@ class GamepadHandler {
   
   onButtonEvent(data) {
     const { device, button, pressed, name } = data;
+    if (this.destroyed || !Number.isSafeInteger(button) || button < 0 || typeof pressed !== 'boolean') return;
     
     // Update button state
     if (!this.buttonStates.has(device)) {
       this.buttonStates.set(device, {});
     }
+    const wasPressed = this.buttonStates.get(device)[button] === true;
     this.buttonStates.get(device)[button] = pressed;
     
     // Update gamepad state
@@ -2678,7 +2736,7 @@ class GamepadHandler {
       this.gamepads.get(device).buttons[button] = pressed;
     }
 
-    if (this.isInputSuppressed()) {
+    if (this.isInputSuppressed() || wasPressed === pressed) {
       return;
     }
     
@@ -2703,6 +2761,7 @@ class GamepadHandler {
   
   onAxisEvent(data) {
     const { device, axis, value } = data;
+    if (this.destroyed || !Number.isFinite(value)) return;
     
     // Update gamepad state
     if (this.gamepads.has(device)) {
@@ -2726,10 +2785,11 @@ class GamepadHandler {
 
   onKeyboardEvent(data) {
     const { key: keyName, pressed, modifiers } = data;
-    if (!keyName) return;
+    if (this.destroyed || typeof keyName !== 'string' || !keyName || typeof pressed !== 'boolean') return;
 
     if (!this.config.keyboardEnabled) return;
 
+    const wasPressed = this.pressedKeys.has(keyName);
     // Track key state
     if (pressed) {
       this.pressedKeys.add(keyName);
@@ -2756,6 +2816,7 @@ class GamepadHandler {
       detail: { key: keyName, pressed, modifiers: this.keyboardModifiers }
     }));
 
+    if (wasPressed === pressed) return;
     if (pressed) {
       this.onKeyboardKeyDown(keyName);
     } else {
@@ -2764,120 +2825,34 @@ class GamepadHandler {
   }
 
   onKeyboardKeyDown(keyName) {
-    const kb = this.keyboardBindings;
-    const mods = this.keyboardModifiers;
-    const keys = this.pressedKeys;
-
-    // Toggle activation (toggle mode only)
-    if (this.config.activationMode === 'toggle' && keyboardEventMatchesBinding(kb.toggleKey, keyName, keys, mods)) {
-      this.toggleNavigationMode();
+    const matches = binding => keyboardEventMatchesBinding(binding, keyName,
+      this.pressedKeys, this.keyboardModifiers);
+    if (this.config.activationMode === 'toggle' && matches(this.keyboardBindings.toggleKey)) {
+      this.toggleNavigationMode({ type: 'keyboard' });
       return;
     }
-
-    // Forward enter
-    if (keyboardEventMatchesBinding(kb.forwardEnterKey, keyName, keys, mods)) {
-      this.forwardEnterToTargetWindow();
-      return;
+    if (this.dispatchInputAction('keyboard', matches)) return;
+    if (!this.shouldProcessKeyboardNavigation()) return;
+    if (matches(this.keyboardBindings.prevJitenWordKey)) return this.navigateJitenWord(-1);
+    if (matches(this.keyboardBindings.nextJitenWordKey)) return this.navigateJitenWord(1);
+    if (this.navigateDirection(this.getKeyboardDirection(keyName))) {
+      this.startInputRepeat(`keyboard-${keyName}`, () =>
+        this.pressedKeys.has(keyName) && this.shouldProcessKeyboardNavigation()
+          ? this.getKeyboardDirection(keyName) : null);
     }
+  }
 
-    // Forward other curated keys (space/ctrl/escape) to the target game window
-    for (const { binding, key } of this.getForwardKeyKeyboardBindings()) {
-      if (keyboardEventMatchesBinding(binding, keyName, keys, mods)) {
-        this.forwardKeyToTargetWindow(key);
-        return;
-      }
+  dispatchInputAction(source, matches) {
+    const bindings = source === 'keyboard' ? this.keyboardBindings : this.buttonBindings;
+    for (const [button, key, method, scope, argument] of INPUT_ACTIONS) {
+      const bindingKey = source === 'keyboard' ? key : button;
+      if (!bindingKey || (scope === 'popup' && !this.dictionaryPopupVisible) ||
+          (scope === 'navigation' && !this.isNavigationActive())) continue;
+      if (!matches(bindings[bindingKey])) continue;
+      this[method](argument);
+      return true;
     }
-
-    // Forward a left click to the center of the target game window
-    if (keyboardEventMatchesBinding(kb.forwardClickKey, keyName, keys, mods)) {
-      this.forwardClickToTargetWindow();
-      return;
-    }
-
-    // Manual overlay scan
-    if (keyboardEventMatchesBinding(kb.manualOverlayScanKey, keyName, keys, mods)) {
-      this.requestManualOverlayScan();
-      return;
-    }
-
-    // Dictionary entry navigation (popup must be visible)
-    if (this.dictionaryPopupVisible) {
-      if (keyboardEventMatchesBinding(kb.nextEntryKey, keyName, keys, mods)) {
-        this.navigateDictionaryNextEntry();
-        return;
-      }
-      if (keyboardEventMatchesBinding(kb.prevEntryKey, keyName, keys, mods)) {
-        this.navigateDictionaryPrevEntry();
-        return;
-      }
-    }
-
-    // Confirm/cancel/token toggle (navigation must be active)
-    if (this.isNavigationActive()) {
-      if (keyboardEventMatchesBinding(kb.confirmKey, keyName, keys, mods)) {
-        this.confirmSelection();
-        return;
-      }
-      if (keyboardEventMatchesBinding(kb.cancelKey, keyName, keys, mods)) {
-        this.cancelSelection();
-        return;
-      }
-      if (keyboardEventMatchesBinding(kb.tokenModeToggleKey, keyName, keys, mods)) {
-        this.toggleTokenMode();
-        return;
-      }
-      if (keyboardEventMatchesBinding(kb.pauseToggleKey, keyName, keys, mods)) {
-        this.toggleNavigationPause();
-        return;
-      }
-      if (keyboardEventMatchesBinding(kb.mineButton, keyName, keys, mods)) {
-        this.triggerMining();
-        return;
-      }
-    }
-
-    // Directional navigation
-    if (this.shouldProcessKeyboardNavigation()) {
-      if (keyboardEventMatchesBinding(kb.prevJitenWordKey, keyName, keys, mods)) {
-        this.navigateJitenWord(-1);
-        return;
-      }
-      if (keyboardEventMatchesBinding(kb.nextJitenWordKey, keyName, keys, mods)) {
-        this.navigateJitenWord(1);
-        return;
-      }
-      let navigated = false;
-      this.hideVirtualMouseCursorForDpadNavigation();
-
-      if (keyboardEventMatchesBinding(kb.navigateUp, keyName, keys, mods)) {
-        this.navigateBlockUp();
-        navigated = true;
-      } else if (keyboardEventMatchesBinding(kb.navigateDown, keyName, keys, mods)) {
-        this.navigateBlockDown();
-        navigated = true;
-      } else if (keyboardEventMatchesBinding(kb.navigateLeft, keyName, keys, mods)) {
-        this.navigateCursorLeft();
-        navigated = true;
-      } else if (keyboardEventMatchesBinding(kb.navigateRight, keyName, keys, mods)) {
-        this.navigateCursorRight();
-        navigated = true;
-      }
-
-      if (navigated) {
-        if (!this.config.autoConfirmSelection) {
-          this.closeDictionaryPopups();
-        }
-        // Set up keyboard repeat (same as DPad repeat)
-        const timerKey = `keyboard-${keyName}`;
-        if (!this.repeatTimers.has(timerKey)) {
-          const timer = setTimeout(() => {
-            this.repeatTimers.delete(timerKey);
-            this.startKeyboardRepeatNavigation(keyName);
-          }, this.config.repeatDelay);
-          this.repeatTimers.set(timerKey, timer);
-        }
-      }
-    }
+    return false;
   }
 
   onKeyboardKeyUp(keyName) {
@@ -2889,7 +2864,7 @@ class GamepadHandler {
     }
 
     // Handle modifier release in modifier mode
-    if (this.config.activationMode === 'modifier' && this.isActive) {
+    if (this.config.activationMode === 'modifier' && this.isActive && this.activationSource?.type === 'keyboard') {
       const kb = this.keyboardBindings;
       if (!kb.modifierKey.disabled && !isKeyboardBindingHeld(kb.modifierKey, this.pressedKeys, this.keyboardModifiers)) {
         this.deactivateNavigation();
@@ -2901,14 +2876,14 @@ class GamepadHandler {
    * Check if keyboard navigation should be processed (parallel to shouldProcessNavigation for gamepad).
    */
   shouldProcessKeyboardNavigation() {
-    if (this.isInputSuppressed()) return false;
+    if (this.destroyed || this.isInputSuppressed() || this.config.keyboardEnabled === false) return false;
 
     if (this.config.activationMode === 'modifier') {
       const modifierHeld = !this.keyboardBindings.modifierKey.disabled
         && isKeyboardBindingHeld(this.keyboardBindings.modifierKey, this.pressedKeys, this.keyboardModifiers);
 
       if (modifierHeld && !this.isActive) {
-        this.activateNavigation();
+        this.activateNavigation({ type: 'keyboard' });
       }
 
       // Allow navigation if modifier is held OR if already active (e.g., via gamepad activation)
@@ -2919,141 +2894,65 @@ class GamepadHandler {
     }
   }
 
-  startKeyboardRepeatNavigation(keyName) {
-    const timerKey = `keyboard-${keyName}`;
-    const kb = this.keyboardBindings;
+  getKeyboardDirection(keyName) {
+    return ['Up', 'Down', 'Left', 'Right'].find(direction =>
+      keyboardEventMatchesBinding(this.keyboardBindings[`navigate${direction}`],
+        keyName, this.pressedKeys, this.keyboardModifiers));
+  }
+
+
+  // One repeat scheduler for both devices. Each tick resolves current bindings,
+  // so a released chord or changed setting cannot keep an old action alive.
+  startInputRepeat(timerKey, getDirection) {
+    if (this.repeatTimers.has(timerKey)) return;
     const startedAt = Date.now();
-    const repeat = () => {
-      // Check if key is still pressed
-      if (!this.pressedKeys.has(keyName) || !this.shouldProcessKeyboardNavigation()) {
+    const schedule = delay => {
+      const timer = setTimeout(() => {
+        if (this.repeatTimers.get(timerKey) !== timer) return;
+        run();
+      }, delay);
+      this.repeatTimers.set(timerKey, timer);
+    };
+    const run = () => {
+      const direction = !this.destroyed && !this.isInputSuppressed() && getDirection();
+      if (!direction) {
         this.repeatTimers.delete(timerKey);
         return;
       }
-
-      this.hideVirtualMouseCursorForDpadNavigation();
-      const mods = this.keyboardModifiers;
-      const keys = this.pressedKeys;
-      if (keyboardEventMatchesBinding(kb.navigateUp, keyName, keys, mods)) {
-        this.navigateBlockUp();
-      } else if (keyboardEventMatchesBinding(kb.navigateDown, keyName, keys, mods)) {
-        this.navigateBlockDown();
-      } else if (keyboardEventMatchesBinding(kb.navigateLeft, keyName, keys, mods)) {
-        this.navigateCursorLeft(true);
-      } else if (keyboardEventMatchesBinding(kb.navigateRight, keyName, keys, mods)) {
-        this.navigateCursorRight(true);
-      }
-
-      // Schedule next repeat
-      const timer = setTimeout(repeat, this.getNavigationRepeatRate(Date.now() - startedAt));
-      this.repeatTimers.set(timerKey, timer);
+      const timer = this.repeatTimers.get(timerKey);
+      this.navigateDirection(direction, true);
+      // An action may synchronously deactivate navigation and cancel this timer.
+      if (this.repeatTimers.get(timerKey) !== timer) return;
+      schedule(this.getNavigationRepeatRate(Date.now() - startedAt));
     };
+    schedule(this.config.repeatDelay);
+  }
 
-    repeat();
+  navigateDirection(direction, isRepeat = false) {
+    const methods = { Up: 'navigateBlockUp', Down: 'navigateBlockDown',
+      Left: 'navigateCursorLeft', Right: 'navigateCursorRight' };
+    const method = methods[direction];
+    if (!method) return false;
+    this.hideVirtualMouseCursorForDpadNavigation();
+    if (direction === 'Up' || direction === 'Down') this[method]();
+    else this[method](isRepeat);
+    if (this.config.autoConfirmSelection === false) this.closeDictionaryPopups();
+    return true;
   }
   
   // ==================== Button Handling ====================
   
   onButtonDown(buttonIndex, device) {
-    const toggleBinding = this.buttonBindings.toggleButton;
-    const forwardEnterBinding = this.buttonBindings.forwardEnterButton;
-    const manualOverlayScanBinding = this.buttonBindings.manualOverlayScanButton;
-    const confirmBinding = this.buttonBindings.confirmButton;
-    const cancelBinding = this.buttonBindings.cancelButton;
-    const tokenModeToggleBinding = this.buttonBindings.tokenModeToggleButton;
-    const pauseToggleBinding = this.buttonBindings.pauseToggleButton;
-    const mineBinding = this.buttonBindings.mineButton;
-    const nextEntryBinding = this.buttonBindings.nextEntryButton;
-    const prevEntryBinding = this.buttonBindings.prevEntryButton;
-
-    // Toggle activation is only valid in toggle mode.
-    if (this.config.activationMode === 'toggle' && this.matchesButtonBindingDown(toggleBinding, device, buttonIndex)) {
-      if (this.config.controllerEnabled) {
-        this.toggleNavigationMode();
-      }
+    const matches = binding => this.matchesButtonBindingDown(binding, device, buttonIndex);
+    if (this.config.activationMode === 'toggle' && matches(this.buttonBindings.toggleButton)) {
+      if (this.config.controllerEnabled) this.toggleNavigationMode({ type: 'gamepad', device });
       return;
     }
-
-    if (this.matchesButtonBindingDown(forwardEnterBinding, device, buttonIndex)) {
-      this.forwardEnterToTargetWindow();
-      return;
-    }
-
-    for (const { binding, key } of this.getForwardKeyButtonBindings()) {
-      if (this.matchesButtonBindingDown(binding, device, buttonIndex)) {
-        this.forwardKeyToTargetWindow(key);
-        return;
-      }
-    }
-
-    if (this.matchesButtonBindingDown(this.buttonBindings.forwardClickButton, device, buttonIndex)) {
-      this.forwardClickToTargetWindow();
-      return;
-    }
-
-    if (this.matchesButtonBindingDown(manualOverlayScanBinding, device, buttonIndex)) {
-      this.requestManualOverlayScan();
-      return;
-    }
-
-    // Translation is available without entering navigation mode.
-    if (this.matchesButtonBindingDown(this.buttonBindings.translateButton, device, buttonIndex)) {
-      this.requestTranslation();
-      return;
-    }
-    
-    // Handle Dictionary entry navigation (popup must be visible)
-    if (this.dictionaryPopupVisible) {
-      if (this.matchesButtonBindingDown(nextEntryBinding, device, buttonIndex)) {
-        this.navigateDictionaryNextEntry();
-        return;
-      }
-      if (this.matchesButtonBindingDown(prevEntryBinding, device, buttonIndex)) {
-        this.navigateDictionaryPrevEntry();
-        return;
-      }
-    }
-    
-    // Handle confirm/cancel buttons
-    if (this.isNavigationActive()) {
-      if (this.matchesButtonBindingDown(confirmBinding, device, buttonIndex)) {
-        this.confirmSelection();
-        return;
-      }
-      if (this.matchesButtonBindingDown(cancelBinding, device, buttonIndex)) {
-        this.cancelSelection();
-        return;
-      }
-      if (
-        !this.areButtonBindingsEquivalent(mineBinding, confirmBinding) &&
-        this.matchesButtonBindingDown(mineBinding, device, buttonIndex)
-      ) {
-        this.triggerMining();
-        return;
-      }
-      // Handle token mode toggle (Y button by default)
-      if (this.matchesButtonBindingDown(tokenModeToggleBinding, device, buttonIndex)) {
-        this.toggleTokenMode();
-        return;
-      }
-      // Pause/resume the text source on demand (only while navigating)
-      if (this.matchesButtonBindingDown(pauseToggleBinding, device, buttonIndex)) {
-        this.toggleNavigationPause();
-        return;
-      }
-    }
-
-    // Handle word jumps and D-Pad navigation using the same activation rules.
-    if (this.shouldProcessNavigation(device)) {
-      if (this.matchesButtonBindingDown(this.buttonBindings.prevJitenWordButton, device, buttonIndex)) {
-        this.navigateJitenWord(-1);
-        return;
-      }
-      if (this.matchesButtonBindingDown(this.buttonBindings.nextJitenWordButton, device, buttonIndex)) {
-        this.navigateJitenWord(1);
-        return;
-      }
-      this.handleDPadNavigation(buttonIndex, device);
-    }
+    if (this.dispatchInputAction('gamepad', matches)) return;
+    if (!this.shouldProcessNavigation(device)) return;
+    if (matches(this.buttonBindings.prevJitenWordButton)) return this.navigateJitenWord(-1);
+    if (matches(this.buttonBindings.nextJitenWordButton)) return this.navigateJitenWord(1);
+    this.handleDPadNavigation(buttonIndex, device);
   }
 
   forwardEnterToTargetWindow() {
@@ -3065,22 +2964,6 @@ class GamepadHandler {
     ipc.send('gamepad-forward-enter');
   }
 
-  // Curated keys (besides Enter) that can be forwarded to the target game window.
-  getForwardKeyButtonBindings() {
-    return [
-      { binding: this.buttonBindings.forwardSpaceButton, key: 'space' },
-      { binding: this.buttonBindings.forwardCtrlButton, key: 'ctrl' },
-      { binding: this.buttonBindings.forwardEscapeButton, key: 'escape' },
-    ];
-  }
-
-  getForwardKeyKeyboardBindings() {
-    return [
-      { binding: this.keyboardBindings.forwardSpaceKey, key: 'space' },
-      { binding: this.keyboardBindings.forwardCtrlKey, key: 'ctrl' },
-      { binding: this.keyboardBindings.forwardEscapeKey, key: 'escape' },
-    ];
-  }
 
   forwardKeyToTargetWindow(key) {
     const ipc = this.getIpcRenderer();
@@ -3159,6 +3042,7 @@ class GamepadHandler {
     if (
       this.config.controllerEnabled &&
       this.config.activationMode === 'modifier' &&
+      this.activationSource?.type === 'gamepad' && this.activationSource.device === device &&
       this.bindingContainsButton(this.buttonBindings.modifierButton, buttonIndex) &&
       !this.isButtonBindingHeld(this.buttonBindings.modifierButton, device)
     ) {
@@ -3169,10 +3053,6 @@ class GamepadHandler {
     // In toggle mode, button releases don't affect navigation state
   }
   
-  isDPadButton(buttonIndex) {
-    return ['dpadUp', 'dpadDown', 'dpadLeft', 'dpadRight'].some(key =>
-      this.bindingContainsButton(this.buttonBindings[key], buttonIndex));
-  }
 
   getDPadDirection(buttonIndex, device) {
     return ['dpadUp', 'dpadDown', 'dpadLeft', 'dpadRight'].find(key =>
@@ -3180,81 +3060,13 @@ class GamepadHandler {
   }
   
   handleDPadNavigation(buttonIndex, device) {
-    // Execute navigation
-    let navigated = false;
-    this.hideVirtualMouseCursorForDpadNavigation();
-    
-    switch (this.getDPadDirection(buttonIndex, device)) {
-      case 'dpadUp':
-        this.navigateBlockUp();
-        navigated = true;
-        break;
-      case 'dpadDown':
-        this.navigateBlockDown();
-        navigated = true;
-        break;
-      case 'dpadLeft':
-        this.navigateCursorLeft();
-        navigated = true;
-        break;
-      case 'dpadRight':
-        this.navigateCursorRight();
-        navigated = true;
-        break;
-    }
-    
-    // Set up repeat
-    if (navigated && this.isDPadButton(buttonIndex)) {
-      if (!this.config.autoConfirmSelection) {
-        this.closeDictionaryPopups()
-      }
-      const timerKey = `${device}-${buttonIndex}`;
-      if (!this.repeatTimers.has(timerKey)) {
-        const timer = setTimeout(() => {
-          this.repeatTimers.delete(timerKey);
-          this.startRepeatNavigation(buttonIndex, device);
-        }, this.config.repeatDelay);
-        this.repeatTimers.set(timerKey, timer);
-      }
-    }
+    const direction = this.getDPadDirection(buttonIndex, device)?.slice(4);
+    if (!this.navigateDirection(direction)) return;
+    this.startInputRepeat(`${device}-${buttonIndex}`, () =>
+      this.shouldProcessNavigation(device)
+        ? this.getDPadDirection(buttonIndex, device)?.slice(4) : null);
   }
-  
-  startRepeatNavigation(buttonIndex, device) {
-    const timerKey = `${device}-${buttonIndex}`;
-    const startedAt = Date.now();
-    
-    const repeat = () => {
-      // Check if button is still pressed
-      const buttonStates = this.buttonStates.get(device);
-      const direction = this.getDPadDirection(buttonIndex, device);
-      if (buttonStates && buttonStates[buttonIndex] && direction && this.shouldProcessNavigation(device)) {
-        this.hideVirtualMouseCursorForDpadNavigation();
-        // Execute navigation
-        switch (direction) {
-          case 'dpadUp':
-            this.navigateBlockUp();
-            break;
-          case 'dpadDown':
-            this.navigateBlockDown();
-            break;
-          case 'dpadLeft':
-            this.navigateCursorLeft(true);
-            break;
-          case 'dpadRight':
-            this.navigateCursorRight(true);
-            break;
-        }
-        
-        // Schedule next repeat
-        const timer = setTimeout(repeat, this.getNavigationRepeatRate(Date.now() - startedAt));
-        this.repeatTimers.set(timerKey, timer);
-      } else {
-        this.repeatTimers.delete(timerKey);
-      }
-    };
-    
-    repeat();
-  }
+
 
   hideVirtualMouseCursorForDpadNavigation() {
     this.virtualMouse.movedByAnalog = false;
@@ -3265,6 +3077,8 @@ class GamepadHandler {
   // ==================== Thumbstick Handling ====================
   
   processThumbstick(device, axis, value) {
+    // Neutral events must release a latch even outside navigation.
+    if (axis === 'right_x' && Math.abs(value) <= 0.2) this.thumbstickLatch.delete(device);
     if (!this.shouldProcessNavigation(device)) return;
 
     const gamepad = this.gamepads.get(device);
@@ -3281,7 +3095,7 @@ class GamepadHandler {
     // - up/down: scroll popup content (up at the top enters Jiten grading)
     // - left/right: choose action button for confirm
     if (axis === 'right_x') {
-      this.processRightStickHorizontalForPopup(value, threshold);
+      this.processRightStickHorizontalForPopup(value, threshold, device);
       return;
     }
 
@@ -3327,7 +3141,8 @@ class GamepadHandler {
   }
 
   applyStickDeadzone(value, deadzone = 0.2) {
-    const magnitude = Math.abs(Number(value) || 0);
+    if (!Number.isFinite(value)) return 0;
+    const magnitude = Math.min(1, Math.abs(value));
     if (magnitude <= deadzone) return 0;
     const normalized = (magnitude - deadzone) / (1 - deadzone);
     return Math.sign(value) * normalized;
@@ -3351,20 +3166,20 @@ class GamepadHandler {
     this.lastPopupScrollTime = now;
   }
 
-  processRightStickHorizontalForPopup(value, threshold) {
+  processRightStickHorizontalForPopup(value, threshold, device = 'default') {
     if (!this.dictionaryPopupVisible) {
-      this.setThumbstickLatch('right_x', false);
+      this.setThumbstickLatch(device, false);
       return;
     }
 
     const activeThreshold = Math.max(0.45, threshold * 0.75);
     const releaseThreshold = activeThreshold * 0.55;
     if (Math.abs(value) <= releaseThreshold) {
-      this.setThumbstickLatch('right_x', false);
+      this.setThumbstickLatch(device, false);
       return;
     }
 
-    if (Math.abs(value) < activeThreshold || this.getThumbstickLatch('right_x')) return;
+    if (Math.abs(value) < activeThreshold || this.getThumbstickLatch(device)) return;
 
     if (!this.popupActionSelectionActive) {
       this.resetDictionaryPopupActionSelection();
@@ -3373,7 +3188,7 @@ class GamepadHandler {
     const direction = value > 0 ? 1 : -1;
     this.popupActionSelectionActive = true;
     this.sendDictionaryControlMessage('select-action', { direction });
-    this.setThumbstickLatch('right_x', true);
+    this.setThumbstickLatch(device, true);
   }
 
   getThumbstickLatch(axis) {
@@ -3450,7 +3265,7 @@ class GamepadHandler {
   // ==================== Navigation Logic ====================
   
   shouldProcessNavigation(device) {
-    if (this.isInputSuppressed()) {
+    if (this.destroyed || this.isInputSuppressed()) {
       return false;
     }
 
@@ -3459,7 +3274,7 @@ class GamepadHandler {
 
       if (this.config.controllerEnabled) {
         if (modifierPressed && !this.isActive) {
-          this.activateNavigation();
+          this.activateNavigation({ type: 'gamepad', device });
         }
         return modifierPressed;
       }
@@ -3502,7 +3317,8 @@ class GamepadHandler {
     return true;
   }
   
-  toggleNavigationMode() {
+  toggleNavigationMode(source = null) {
+    if (this.destroyed || this.isInputSuppressed()) return false;
     const action = 'navigation-mode';
     if (!this.shouldAcceptToggleAction(action)) {
       return false;
@@ -3511,7 +3327,7 @@ class GamepadHandler {
       this.toggleModeActive = !this.toggleModeActive;
 
       if (this.toggleModeActive) {
-        this.activateNavigation();
+        this.activateNavigation(source);
       } else {
         this.deactivateNavigation();
       }
@@ -3525,10 +3341,13 @@ class GamepadHandler {
     }
   }
   
-  activateNavigation() {
-    if (this.isActive) return;
+  activateNavigation(source = null) {
+    if (this.destroyed || this.isInputSuppressed() || this.isActive) return;
 
+    this.clearDeactivationHideTimer();
     this.isActive = true;
+    this.activationSource = source;
+    if (this.config.activationMode === 'toggle') this.toggleModeActive = true;
     this.pendingNavigationActivation = true;
     this.pendingJitenEntryPosition = null;
     this.publishNavigationActiveState(true);
@@ -3579,6 +3398,11 @@ class GamepadHandler {
   }
   
   deactivateNavigation() {
+    this.stopNavigationRepeats();
+    this.toggleModeActive = false;
+    this.activationSource = null;
+    this.thumbstickLatch?.clear();
+    this.clearDeactivationHideTimer();
     const entryWasPending = this.pendingNavigationActivation;
     this.pendingNavigationActivation = false;
     this.pendingJitenEntryPosition = null;
@@ -3614,8 +3438,6 @@ class GamepadHandler {
       this.navigationAwayHideTimer = null;
     }
     this.navigationAwayHideToken += 1;
-    // In toggle mode, don't reset toggleModeActive here - it should only be changed by toggleNavigationMode()
-    // (The toggle button itself controls this state)
     
     this.hideVisuals();
     this.showModeIndicator(false);
@@ -3623,9 +3445,6 @@ class GamepadHandler {
     // Clear cursor position
     this.clearCursorPosition();
     this.releaseOverlayFocus();
-    
-    // Close the dictionary popup
-    this.closeDictionaryPopups();
     
     if (this.config.onModeChange) {
       this.config.onModeChange({ active: false });
@@ -3639,9 +3458,17 @@ class GamepadHandler {
     console.log('[GamepadHandler] Navigation deactivated');
 
     // Repeat dismissal after a short delay to catch a pending popup
-    setTimeout(() => {
-      this.closeDictionaryPopups();
-    }, 500);
+    if (!this.destroyed) {
+      this.deactivationHideTimer = setTimeout(() => {
+        this.deactivationHideTimer = null;
+        if (!this.destroyed && !this.isActive) this.closeDictionaryPopups();
+      }, 500);
+    }
+  }
+
+  clearDeactivationHideTimer() {
+    if (this.deactivationHideTimer != null) clearTimeout(this.deactivationHideTimer);
+    this.deactivationHideTimer = null;
   }
   
   // ==================== Text Block Management ====================
@@ -3656,13 +3483,15 @@ class GamepadHandler {
           const added = Array.from(mutation.addedNodes || []);
           const removed = Array.from(mutation.removedNodes || []);
           const nodes = added.concat(removed);
-          if (nodes.some(node => this.isTextNodeRelevant(node))) {
+          if (this.isInsideOverlayText(mutation.target) || nodes.some(node => this.isTextNodeRelevant(node))) {
             relevant = true;
             break;
           }
         } else if (mutation.type === 'characterData') {
-          relevant = true;
-          break;
+          if (this.isInsideOverlayText(mutation.target)) {
+            relevant = true;
+            break;
+          }
         } else if (mutation.type === 'attributes') {
           if (this.isTextNodeRelevant(mutation.target)) {
             relevant = true;
@@ -3720,7 +3549,8 @@ class GamepadHandler {
       this.dictionaryPopupVisible = false;
       this.popupActionSelectionActive = false;
       this.lastLookupAnchorKey = null;
-      this.setThumbstickLatch('right_x', false);
+      this.activeLookup = null;
+      this.thumbstickLatch.clear();
       this.sendDictionaryControlMessage('clear-action-selection');
       this.clearPendingMineCandidate();
     } else {
@@ -3743,6 +3573,11 @@ class GamepadHandler {
       }
     }
     return false;
+  }
+
+  isInsideOverlayText(node) {
+    const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+    return Boolean(element?.closest?.('.text-box, .text-block-container'));
   }
 
   isElementVisible(element) {
@@ -4073,16 +3908,19 @@ class GamepadHandler {
   }
 
   handleOverlayTextRenderComplete(options = {}) {
+    if (this.destroyed) return;
     const preserveSelection = options.preserveSelection !== false;
     const snapshot = options.snapshot || this.lastSelectionSnapshot;
     const navigationActive = this.isNavigationActive();
+    const previousContentSignature = this.textContentSignature;
 
     if (snapshot) {
       this.lastSelectionSnapshot = snapshot;
     }
 
-    this.skipNextTextRefresh = true;
-    this.preserveSelectionOnNextTextRefresh = preserveSelection;
+    // Consume only the mutations represented by this render. Skipping the next
+    // observer callback also skipped unrelated changes arriving after completion.
+    this.textMutationObserver?.takeRecords();
     this.virtualMouse.movedByAnalog = false;
     this.virtualMouse.lastMoveTime = 0;
     this.updateVirtualMouseCursor();
@@ -4093,61 +3931,58 @@ class GamepadHandler {
     }
 
     this.refreshTextBlocks();
-    const focusedLatestLine = options.focusLatestLine === true && this.focusLatestLineBlock();
+    const contentChanged = previousContentSignature == null || previousContentSignature !== this.textContentSignature;
+    const focusedLatestLine = options.focusLatestLine === true && contentChanged && this.focusLatestLineBlock();
     if (!focusedLatestLine && preserveSelection && snapshot) {
       this.restoreSelectionFromSnapshot(snapshot);
     }
+    if (this.pendingJitenEntryPosition) this.applyPreferredEntryPosition();
     this.prefetchTokenizationForAllBlocks();
     this.syncVirtualMouseToCurrentSelection();
 
     if (navigationActive) {
       this.updateVisuals();
+      this.refreshActiveLookup();
     }
   }
 
   scheduleTextRefresh() {
-    if (this.pendingTextRefresh) return;
+    if (this.destroyed || this.pendingTextRefresh) return;
     this.pendingTextRefresh = true;
 
     requestAnimationFrame(() => {
       this.pendingTextRefresh = false;
-      if (this.skipNextTextRefresh) {
-        this.skipNextTextRefresh = false;
-        this.preserveSelectionOnNextTextRefresh = false;
-        return;
-      }
+      if (this.destroyed) return;
       this.refreshOnTextChange();
     });
   }
 
   refreshOnTextChange() {
+    if (this.destroyed) return;
     if (this.pendingNavigationActivation) {
       this.completeNavigationActivation();
       return;
     }
     const navigationActive = this.isNavigationActive();
-    const preserveSelection = this.preserveSelectionOnNextTextRefresh === true;
-    const selectionSnapshot = preserveSelection
-      ? (this.lastSelectionSnapshot || this.rememberCurrentSelectionSnapshot())
-      : null;
-    this.preserveSelectionOnNextTextRefresh = false;
+    const previousAnchor = this.getCurrentAnchorCharIndex();
+    const previousContentSignature = this.textContentSignature;
     this.virtualMouse.movedByAnalog = false;
     this.virtualMouse.lastMoveTime = 0;
     this.updateVirtualMouseCursor();
-
-    if (navigationActive && !preserveSelection) {
-      this.closeDictionaryPopups();
-    }
 
     const previousBlockCount = this.textBlocks.length;
     const wasOnLastBlock = previousBlockCount > 0 && this.currentBlockIndex === previousBlockCount - 1;
 
     this.refreshTextBlocks();
+    // Jiten temporarily hides/restores OCR boxes while starting its parse, and
+    // highlighting changes their styles. Neither changes the lookupable text.
+    const preserveSelection = previousContentSignature === this.textContentSignature;
     this.prefetchTokenizationForAllBlocks();
 
     if (this.textBlocks.length === 0) {
       if (navigationActive) {
         this.hideVisuals();
+        this.closeDictionaryPopups();
       }
       return;
     }
@@ -4166,14 +4001,18 @@ class GamepadHandler {
       this.refreshCharacters();
     }
 
-    if (preserveSelection && selectionSnapshot) {
-      this.restoreSelectionFromSnapshot(selectionSnapshot);
+    if (preserveSelection && previousAnchor >= 0) {
+      this.currentCursorIndex = this.isUsingTokenNavigation()
+        ? this.charIndexToTokenIndex(previousAnchor) : Math.min(previousAnchor, Math.max(0, this.characters.length - 1));
+      this.currentLineIndex = this.getLineIndexForCursor();
     }
+    if (!preserveSelection && this.pendingJitenEntryPosition) this.applyPreferredEntryPosition();
 
     this.syncVirtualMouseToCurrentSelection();
 
     if (navigationActive) {
       this.updateVisuals();
+      this.refreshActiveLookup();
     }
   }
   
@@ -4199,12 +4038,12 @@ class GamepadHandler {
     }
     for (const blockIndex of Array.from(this.pendingTokenizationByBlock.keys())) {
       if (blockIndex < 0 || blockIndex >= this.textBlocks.length) {
-        this.pendingTokenizationByBlock.delete(blockIndex);
-        this.pendingTokenizationStartedWhileNavigationActive.delete(blockIndex);
+        this.cancelTokenizationForBlock(blockIndex);
       }
     }
 
     if (this.textBlocks.length === 0) {
+      this.textContentSignature = '[]';
       this.currentBlockIndex = -1;
       this.currentCursorIndex = 0;
       this.currentLineIndex = 0;
@@ -4243,6 +4082,7 @@ class GamepadHandler {
     }
 
     this.rememberCurrentSelectionSnapshot();
+    this.textContentSignature = JSON.stringify(this.textBlocks.map((_, index) => this.getBlockText(index)));
   }
   
   refreshCharacters() {
@@ -4285,8 +4125,7 @@ class GamepadHandler {
     }
     if (!shouldTokenizeCurrentBlock) {
       this.tokenCacheByBlock.delete(this.currentBlockIndex);
-      this.pendingTokenizationByBlock.delete(this.currentBlockIndex);
-      this.pendingTokenizationStartedWhileNavigationActive.delete(this.currentBlockIndex);
+      this.cancelTokenizationForBlock(this.currentBlockIndex);
     }
     
     // Validate cursor index
@@ -4316,19 +4155,22 @@ class GamepadHandler {
     if (!this.characters.length) return;
     // Prefer explicit line metadata if present on character spans
     const linesById = new Map();
-    let sawExplicit = false;
+    let hasCompleteLineMetadata = true;
     this.characters.forEach((char, idx) => {
       if (!char || !char.isConnected) return;
       const lineAttr = char.dataset ? char.dataset.lineIndex : undefined;
-      if (lineAttr !== undefined) {
-        sawExplicit = true;
-        const lineId = parseInt(lineAttr, 10);
-        if (!linesById.has(lineId)) linesById.set(lineId, []);
-        linesById.get(lineId).push(idx);
+      const lineId = Number(lineAttr);
+      if (lineAttr === undefined || String(lineAttr).trim() === '' || !Number.isInteger(lineId)) {
+        hasCompleteLineMetadata = false;
+        return;
       }
+      if (!linesById.has(lineId)) linesById.set(lineId, []);
+      linesById.get(lineId).push(idx);
     });
 
-    if (sawExplicit) {
+    // Partial metadata must not silently drop unlabelled glyphs. Geometry can
+    // recover all lines consistently until the complete metadata is available.
+    if (hasCompleteLineMetadata && linesById.size > 0) {
       const lineEntries = [];
       const sortedIds = Array.from(linesById.keys()).sort((a, b) => a - b);
       sortedIds.forEach(lineId => {
@@ -4406,7 +4248,7 @@ class GamepadHandler {
   getCurrentAnchorCharIndex() {
     if (!this.characters.length) return -1;
 
-    if (!this.lineNavPrefersCharacters && this.tokenMode && this.tokens.length > 0 && this.currentCursorIndex >= 0 && this.currentCursorIndex < this.tokens.length) {
+    if (this.isUsingTokenNavigation() && this.currentCursorIndex >= 0 && this.currentCursorIndex < this.tokens.length) {
       const token = this.tokens[this.currentCursorIndex];
       if (token && typeof token.start === 'number') {
         return Math.max(0, Math.min(token.start, this.characters.length - 1));
@@ -4602,17 +4444,15 @@ class GamepadHandler {
   }
 
   async requestTokenizationForBlock(blockIndex, textOverride = null) {
-    if (blockIndex < 0 || blockIndex >= this.textBlocks.length) {
+    if (this.destroyed || blockIndex < 0 || blockIndex >= this.textBlocks.length) {
       return;
     }
 
     const text = typeof textOverride === 'string'
       ? textOverride
       : this.getBlockText(blockIndex, blockIndex === this.currentBlockIndex);
-    if (!text) return;
-    if (!this.shouldTokenizeText(text)) {
-      this.pendingTokenizationByBlock.delete(blockIndex);
-      this.pendingTokenizationStartedWhileNavigationActive.delete(blockIndex);
+    if (!text || !this.shouldTokenizeText(text)) {
+      this.cancelTokenizationForBlock(blockIndex);
       this.tokenCacheByBlock.delete(blockIndex);
       if (blockIndex === this.currentBlockIndex) {
         this.tokens = [];
@@ -4627,11 +4467,15 @@ class GamepadHandler {
       return;
     }
 
-    const pendingText = this.pendingTokenizationByBlock.get(blockIndex);
-    if (pendingText === text) {
+    const pendingRequest = this.pendingTokenizationRequests?.get(blockIndex);
+    if (pendingRequest?.text === text) {
       return;
     }
 
+    this.cancelTokenizationForBlock(blockIndex);
+    const request = { id: this.tokenizationRequestId = (this.tokenizationRequestId || 0) + 1, text };
+    if (!this.pendingTokenizationRequests) this.pendingTokenizationRequests = new Map();
+    this.pendingTokenizationRequests.set(blockIndex, request);
     this.pendingTokenizationByBlock.set(blockIndex, text);
     // Only suppress the lookup for responses requested while navigation was
     // already open. A request started while entering navigation should still
@@ -4640,23 +4484,55 @@ class GamepadHandler {
       blockIndex,
       this.isNavigationActive() && !this.navigationActivationInProgress,
     );
-    let lastError = null;
-    for (const backend of this.getBackendAttemptOrder()) {
-      try {
-        await this.requestTokenizationWithBackend(blockIndex, text, backend);
-        return;
-      } catch (error) {
-        lastError = error;
-        console.warn(`[GamepadHandler] Tokenization backend "${backend}" failed: ${error.message}`);
+    try {
+      let lastError = null;
+      for (const backend of this.getBackendAttemptOrder()) {
+        if (!this.isTokenizationRequestCurrent(blockIndex, request)) return;
+        try {
+          const result = await this.requestTokenizationWithBackend(blockIndex, text, backend);
+          if (!this.isTokenizationRequestCurrent(blockIndex, request)) return;
+          this.onTokensReceived(result, request);
+          return;
+        } catch (error) {
+          if (!this.isTokenizationRequestCurrent(blockIndex, request)) return;
+          lastError = error;
+          console.warn(`[GamepadHandler] Tokenization backend "${backend}" failed: ${error.message}`);
+        }
+      }
+
+      if (lastError) {
+        console.warn(`[GamepadHandler] Tokenization fallback exhausted for block ${blockIndex}: ${lastError.message}`);
+      }
+      this.emitFallbackTokenizationResult(blockIndex, text, null, request);
+    } finally {
+      // A superseded request must never clear the newer request's state.
+      if (this.pendingTokenizationRequests.get(blockIndex) === request) {
+        this.cancelTokenizationForBlock(blockIndex);
       }
     }
+  }
 
+  isTokenizationRequestCurrent(blockIndex, request) {
+    return !this.destroyed
+      && this.pendingTokenizationRequests?.get(blockIndex) === request
+      && this.pendingTokenizationByBlock.get(blockIndex) === request.text
+      && this.getBlockText(blockIndex, blockIndex === this.currentBlockIndex) === request.text;
+  }
+
+  cancelTokenizationForBlock(blockIndex, reason = 'Tokenization request cancelled') {
+    const request = this.pendingTokenizationRequests?.get(blockIndex);
+    this.pendingTokenizationRequests?.delete(blockIndex);
     this.pendingTokenizationByBlock.delete(blockIndex);
-    this.pendingTokenizationStartedWhileNavigationActive.delete(blockIndex);
-    if (lastError) {
-      console.warn(`[GamepadHandler] Tokenization fallback exhausted for block ${blockIndex}: ${lastError.message}`);
+    this.pendingTokenizationStartedWhileNavigationActive?.delete(blockIndex);
+    request?.rejectServer?.(new Error(reason));
+  }
+
+  cancelPendingTokenization(reason = 'Tokenization requests cancelled') {
+    for (const blockIndex of this.pendingTokenizationRequests?.keys() || []) {
+      this.cancelTokenizationForBlock(blockIndex, reason);
     }
-    this.emitFallbackTokenizationResult(blockIndex, text);
+    this.pendingTokenizationByBlock?.clear();
+    this.pendingTokenizationStartedWhileNavigationActive?.clear();
   }
   
   requestTokenization() {
@@ -4705,45 +4581,66 @@ class GamepadHandler {
       throw new Error('MeCab is unavailable');
     }
 
-    this.ws.send(JSON.stringify({
-      type: 'tokenize',
-      blockIndex,
-      text,
-      backend: normalizedBackend,
-      dictionary: normalizedBackend === 'sudachi'
-        ? (this.config.sudachiDictionary || 'small')
-        : undefined,
-    }));
+    const request = this.pendingTokenizationRequests?.get(blockIndex);
+    if (!request || request.text !== text) throw new Error('Tokenization request cancelled');
+    request.backend = normalizedBackend;
+    return new Promise((resolve, reject) => {
+      const finish = (error, result) => {
+        clearTimeout(request.timeout);
+        request.resolveServer = null;
+        request.rejectServer = null;
+        error ? reject(error) : resolve(result);
+      };
+      request.timeout = setTimeout(() => finish(new Error('Tokenization request timed out')), 5000);
+      request.rejectServer = error => finish(error);
+      request.resolveServer = result => {
+        const available = normalizedBackend === 'sudachi' ? result.sudachiAvailable : result.mecabAvailable;
+        if (available === false) {
+          if (normalizedBackend === 'sudachi') this.sudachiAvailable = false;
+          else this.mecabAvailable = false;
+          finish(new Error(`${normalizedBackend} is unavailable`));
+        } else {
+          finish(null, result);
+        }
+      };
+      try {
+        this.ws.send(JSON.stringify({
+          type: 'tokenize', blockIndex, text, requestId: request.id,
+          backend: normalizedBackend,
+          dictionary: normalizedBackend === 'sudachi' ? (this.config.sudachiDictionary || 'small') : undefined,
+        }));
+      } catch (error) {
+        finish(error);
+      }
+    });
   }
 
   async requestTokenizationFromYomitanBridge(blockIndex, text) {
     const content = await this.requestYomitanBridgeTokenize(text, this.config.yomitanRequestTimeout);
     const tokens = this.convertYomitanContentToTokens(content, text);
 
-    this.onTokensReceived({
+    return {
       type: 'tokens',
       blockIndex,
       text,
       tokens,
       tokenSource: 'yomitan-bridge',
-      mecabAvailable: false,
       yomitanBridgeAvailable: true,
-    });
+    };
   }
 
   async requestTokenizationFromYomitanApi(blockIndex, text) {
     const content = await this.requestYomitanTokenize(text, this.config.yomitanRequestTimeout);
     const tokens = this.convertYomitanContentToTokens(content, text);
 
-    this.onTokensReceived({
+    return {
       type: 'tokens',
       blockIndex,
       text,
       tokens,
       tokenSource: 'yomitan-api',
-      mecabAvailable: false,
       yomitanApiAvailable: true,
-    });
+    };
   }
 
   async requestTokenizationFromJitenApi(blockIndex, text) {
@@ -4754,15 +4651,14 @@ class GamepadHandler {
     const payload = await this.requestJitenParse(text, this.config.jitenRequestTimeout);
     const tokens = this.convertJitenPayloadToTokens(payload, text);
 
-    this.onTokensReceived({
+    return {
       type: 'tokens',
       blockIndex,
       text,
       tokens,
       tokenSource: 'jiten-api',
-      mecabAvailable: false,
       jitenApiAvailable: true,
-    });
+    };
   }
 
   async requestTokenizationFromJpdbApi(blockIndex, text) {
@@ -4773,15 +4669,14 @@ class GamepadHandler {
     const payload = await this.requestJpdbParse(text, this.config.jpdbRequestTimeout);
     const tokens = this.convertJpdbPayloadToTokens(payload, text);
 
-    this.onTokensReceived({
+    return {
       type: 'tokens',
       blockIndex,
       text,
       tokens,
       tokenSource: 'jpdb-api',
-      mecabAvailable: false,
       jpdbApiAvailable: true,
-    });
+    };
   }
   
   getNavigationUnits() {
@@ -4927,11 +4822,10 @@ class GamepadHandler {
     return pool[0].index;
   }
 
-  findAdjacentLineUnit(direction, preferredX = null) {
+  findAdjacentLineUnit(direction, preferredX = null, anchorCharIndex = this.getCurrentAnchorCharIndex()) {
     if (direction !== -1 && direction !== 1) return null;
     if (!this.lines || !this.lines.length || !this.characters.length) return null;
 
-    const anchorCharIndex = this.getCurrentAnchorCharIndex();
     if (anchorCharIndex < 0) return null;
 
     const currentLineIndex = this.getLineIndexForCharIndex(anchorCharIndex);
@@ -4941,6 +4835,10 @@ class GamepadHandler {
     const targetX = typeof preferredX === 'number'
       ? preferredX
       : this.getCursorCenterX(anchorCharIndex);
+    return this.findLineEntryTarget(targetLineIndex, targetX);
+  }
+
+  findLineEntryTarget(targetLineIndex, targetX = null) {
     const line = this.lines[targetLineIndex];
     if (!line || !line.indices || !line.indices.length) return null;
 
@@ -4956,21 +4854,20 @@ class GamepadHandler {
     }
 
     const usingTokenNavigation = this.isUsingTokenNavigation();
-    const seenTokenIndices = new Set();
-
     for (const charIndex of orderedCharIndices) {
-      let unitIndex = charIndex;
-      if (usingTokenNavigation) {
-        unitIndex = this.charIndexToTokenIndex(charIndex);
-        if (unitIndex < 0 || unitIndex >= this.tokens.length || seenTokenIndices.has(unitIndex)) continue;
-        seenTokenIndices.add(unitIndex);
-      } else if (unitIndex < 0 || unitIndex >= this.characters.length) {
-        continue;
+      if (this.isNavigationUnitSkippable(charIndex, false)) continue;
+      if (!usingTokenNavigation) return { index: charIndex, useCharacters: false };
+
+      const tokenIndex = this.charIndexToTokenIndex(charIndex);
+      const token = this.tokens[tokenIndex];
+      if (token && this.getLineIndexForCharIndex(token.start) === targetLineIndex &&
+          !this.isNavigationUnitSkippable(tokenIndex, true)) {
+        return { index: tokenIndex, useCharacters: false };
       }
 
-      if (!this.isNavigationUnitSkippable(unitIndex, usingTokenNavigation)) {
-        return unitIndex;
-      }
+      // A word can span visual lines, or tokenization can omit this glyph.
+      // Keep the line reachable instead of jumping to a token on another line.
+      return { index: charIndex, useCharacters: true };
     }
 
     return null;
@@ -5151,161 +5048,124 @@ class GamepadHandler {
   }
   
   navigateBlockUp(allowDirectBlockNavigation = true) {
-    if (allowDirectBlockNavigation && this.navigateDirectBlock(-1)) return;
-    this.dismissLookupForNavigation();
-    if (this.textBlocks.length === 0) {
-      this.refreshTextBlocks();
-    }
-    
-    if (this.textBlocks.length === 0) return;
-
-    const currentCenter = this.getNavigationUnitCenter(this.currentCursorIndex);
-    const targetX = currentCenter ? currentCenter.x : null;
-    if (this.lineNavPrefersCharacters && this.tokenMode && this.tokens.length > 0) {
-      this.currentCursorIndex = this.charIndexToTokenIndex(this.currentCursorIndex);
-    }
-    this.lineNavPrefersCharacters = false;
-
-    // First, try strict adjacent-line movement to avoid skipping visual lines in token mode.
-    const adjacentLineTarget = this.findAdjacentLineUnit(-1, targetX);
-    if (adjacentLineTarget !== null && adjacentLineTarget !== this.currentCursorIndex) {
-      this.currentCursorIndex = adjacentLineTarget;
-      this.currentLineIndex = this.getLineIndexForCursor();
-      this.updateVisuals();
-      this.positionCursorAtCurrentUnit();
-      this.autoConfirmSelection();
-      console.log(`[GamepadHandler] Vertical UP line step: unit ${this.currentCursorIndex}`);
-      return;
-    }
-
-    // Fallback: nearest-neighbor vertical movement within the current block.
-    const intraBlockTarget = this.findClosestVerticalUnit(-1);
-    if (intraBlockTarget !== null) {
-      this.currentCursorIndex = intraBlockTarget;
-      this.currentLineIndex = this.getLineIndexForCursor();
-      this.updateVisuals();
-      this.positionCursorAtCurrentUnit();
-      this.autoConfirmSelection();
-      console.log(`[GamepadHandler] Vertical UP: unit ${this.currentCursorIndex}`);
-      return;
-    }
-
-    // Single block fallback: wrap to the nearest unit on the bottom edge.
-    if (this.textBlocks.length === 1) {
-      this.currentCursorIndex = this.findEdgeEntryUnit(-1, targetX);
-      this.currentLineIndex = this.getLineIndexForCursor();
-      this.updateVisuals();
-      this.positionCursorAtCurrentUnit();
-      this.autoConfirmSelection();
-      console.log('[GamepadHandler] Vertical UP wrap within single block');
-      return;
-    }
-
-    // No candidate above in this block: move to previous block.
-    if (this.currentBlockIndex <= 0) {
-      this.currentBlockIndex = this.textBlocks.length - 1;
-    } else {
-      this.currentBlockIndex--;
-    }
-
-    this.currentCursorIndex = 0;
-    this.refreshCharacters();
-    this.lineNavPrefersCharacters = false;
-    this.currentCursorIndex = this.findFirstNavigableUnitIndex(1);
-    this.applyPreferredEntryPosition(currentCenter);
-    this.currentLineIndex = this.getLineIndexForCursor();
-    this.updateVisuals();
-    this.positionCursorAtCurrentUnit();
-    this.autoConfirmSelection();
-
-    if (this.config.onBlockChange) {
-      this.config.onBlockChange({
-        blockIndex: this.currentBlockIndex,
-        block: this.textBlocks[this.currentBlockIndex],
-        totalBlocks: this.textBlocks.length,
-      });
-    }
-
-    console.log(`[GamepadHandler] Block UP: now at ${this.currentBlockIndex}`);
+    return this.navigateVertical(-1, allowDirectBlockNavigation);
   }
-  
+
   navigateBlockDown(allowDirectBlockNavigation = true) {
-    if (allowDirectBlockNavigation && this.navigateDirectBlock(1)) return;
+    return this.navigateVertical(1, allowDirectBlockNavigation);
+  }
+
+  resumeConfiguredNavigation() {
+    const anchor = this.getCurrentAnchorCharIndex();
+    this.lineNavPrefersCharacters = false;
+    this.currentCursorIndex = this.isUsingTokenNavigation()
+      ? this.charIndexToTokenIndex(anchor)
+      : Math.max(0, anchor);
+  }
+
+  finishNavigation(previousBlockIndex, previousAnchor, { entryOrigin } = {}) {
+    const blockChanged = previousBlockIndex !== this.currentBlockIndex;
+    const anchorChanged = previousAnchor !== this.getCurrentAnchorCharIndex();
+    this.currentLineIndex = this.getLineIndexForCursor();
+    if (!blockChanged && !anchorChanged) {
+      // A character override may have returned to token mode at the same anchor.
+      this.updateVisuals();
+      return false;
+    }
+
     this.dismissLookupForNavigation();
-    if (this.textBlocks.length === 0) {
-      this.refreshTextBlocks();
-    }
-    
-    if (this.textBlocks.length === 0) return;
-
-    const currentCenter = this.getNavigationUnitCenter(this.currentCursorIndex);
-    const targetX = currentCenter ? currentCenter.x : null;
-    if (this.lineNavPrefersCharacters && this.tokenMode && this.tokens.length > 0) {
-      this.currentCursorIndex = this.charIndexToTokenIndex(this.currentCursorIndex);
-    }
-    this.lineNavPrefersCharacters = false;
-
-    // First, try strict adjacent-line movement to avoid skipping visual lines in token mode.
-    const adjacentLineTarget = this.findAdjacentLineUnit(1, targetX);
-    if (adjacentLineTarget !== null && adjacentLineTarget !== this.currentCursorIndex) {
-      this.currentCursorIndex = adjacentLineTarget;
-      this.currentLineIndex = this.getLineIndexForCursor();
-      this.updateVisuals();
-      this.positionCursorAtCurrentUnit();
-      this.autoConfirmSelection();
-      console.log(`[GamepadHandler] Vertical DOWN line step: unit ${this.currentCursorIndex}`);
-      return;
-    }
-
-    // Fallback: nearest-neighbor vertical movement within the current block.
-    const intraBlockTarget = this.findClosestVerticalUnit(1);
-    if (intraBlockTarget !== null) {
-      this.currentCursorIndex = intraBlockTarget;
-      this.currentLineIndex = this.getLineIndexForCursor();
-      this.updateVisuals();
-      this.positionCursorAtCurrentUnit();
-      this.autoConfirmSelection();
-      console.log(`[GamepadHandler] Vertical DOWN: unit ${this.currentCursorIndex}`);
-      return;
-    }
-
-    // Single block fallback: wrap to the nearest unit on the top edge.
-    if (this.textBlocks.length === 1) {
-      this.currentCursorIndex = this.findEdgeEntryUnit(1, targetX);
-      this.currentLineIndex = this.getLineIndexForCursor();
-      this.updateVisuals();
-      this.positionCursorAtCurrentUnit();
-      this.autoConfirmSelection();
-      console.log('[GamepadHandler] Vertical DOWN wrap within single block');
-      return;
-    }
-
-    // No candidate below in this block: move to next block.
-    if (this.currentBlockIndex >= this.textBlocks.length - 1) {
-      this.currentBlockIndex = 0;
-    } else {
-      this.currentBlockIndex++;
-    }
-
-    this.currentCursorIndex = 0;
-    this.refreshCharacters();
-    this.lineNavPrefersCharacters = false;
-    this.currentCursorIndex = this.findFirstNavigableUnitIndex(1);
-    this.applyPreferredEntryPosition(currentCenter);
+    // Resolve the new block's entry position after cancelling the old lookup:
+    // first-new may schedule a fresh position while Reader parsing is pending.
+    if (entryOrigin !== undefined) this.applyPreferredEntryPosition(entryOrigin);
     this.currentLineIndex = this.getLineIndexForCursor();
     this.updateVisuals();
     this.positionCursorAtCurrentUnit();
     this.autoConfirmSelection();
+    this.notifyNavigationSelectionChanged(blockChanged);
+    return true;
+  }
 
-    if (this.config.onBlockChange) {
+  notifyNavigationSelectionChanged(blockChanged) {
+    if (blockChanged && this.config.onBlockChange) {
       this.config.onBlockChange({
         blockIndex: this.currentBlockIndex,
         block: this.textBlocks[this.currentBlockIndex],
         totalBlocks: this.textBlocks.length,
       });
     }
+    if (this.config.onCursorChange) {
+      const isToken = this.isUsingTokenNavigation();
+      const unit = this.getNavigationUnits()[this.currentCursorIndex];
+      this.config.onCursorChange({
+        cursorIndex: this.currentCursorIndex,
+        character: isToken ? unit?.word : unit,
+        totalCharacters: this.getNavigationUnitCount(),
+        isToken,
+      });
+    }
+  }
 
-    console.log(`[GamepadHandler] Block DOWN: now at ${this.currentBlockIndex}`);
+  findAdjacentSelectableBlockIndex(direction) {
+    const count = this.textBlocks.length;
+    for (let step = 1; step <= count; step++) {
+      const index = ((this.currentBlockIndex + direction * step) % count + count) % count;
+      if (this.blockHasSelectableCharacters(this.textBlocks[index])) return index;
+    }
+    return this.currentBlockIndex;
+  }
+
+  enterNavigationBlock(blockIndex) {
+    this.currentBlockIndex = blockIndex;
+    this.currentCursorIndex = 0;
+    this.lineNavPrefersCharacters = false;
+    this.refreshCharacters();
+    this.currentCursorIndex = this.findFirstNavigableUnitIndex(1);
+  }
+
+  navigateVertical(direction, allowDirectBlockNavigation = true) {
+    if (allowDirectBlockNavigation && this.navigateDirectBlock(direction)) return;
+    if (!this.textBlocks.length) this.refreshTextBlocks();
+    if (!this.textBlocks.length) return;
+
+    const previousBlockIndex = this.currentBlockIndex;
+    const previousAnchor = this.getCurrentAnchorCharIndex();
+    const origin = this.getNavigationUnitCenter(this.currentCursorIndex);
+    const targetX = origin?.x ?? null;
+    this.resumeConfiguredNavigation();
+
+    // Horizontal edges call with false: proceed directly to an adjacent block,
+    // without revisiting a visual line in the block we just finished.
+    let target = null;
+    if (allowDirectBlockNavigation) {
+      target = this.findAdjacentLineUnit(direction, targetX, previousAnchor);
+      if (!target) {
+        const index = this.findClosestVerticalUnit(direction);
+        if (index !== null) target = { index, useCharacters: false };
+      }
+    }
+    if (target) {
+      this.lineNavPrefersCharacters = target.useCharacters;
+      this.currentCursorIndex = target.index;
+    } else {
+      const nextBlockIndex = this.findAdjacentSelectableBlockIndex(direction);
+      if (nextBlockIndex !== this.currentBlockIndex) {
+        this.enterNavigationBlock(nextBlockIndex);
+      } else {
+        const edgeTarget = allowDirectBlockNavigation
+          ? this.findLineEntryTarget(direction === 1 ? 0 : this.lines.length - 1, targetX)
+          : null;
+        if (edgeTarget) {
+          this.lineNavPrefersCharacters = edgeTarget.useCharacters;
+          this.currentCursorIndex = edgeTarget.index;
+        } else {
+          this.currentCursorIndex = allowDirectBlockNavigation
+            ? this.findEdgeEntryUnit(direction, targetX)
+            : this.findFirstNavigableUnitIndex(direction);
+        }
+      }
+    }
+    return this.finishNavigation(previousBlockIndex, previousAnchor,
+      previousBlockIndex !== this.currentBlockIndex ? { entryOrigin: origin } : {});
   }
   
   findDirectionalBlockIndex(direction) {
@@ -5335,34 +5195,15 @@ class GamepadHandler {
     if (!['blocks', 'spatial'].includes(this.config.verticalNavigation)) return false;
     if (!this.textBlocks.length) this.refreshTextBlocks();
     if (!this.textBlocks.length) return true;
-    let nextIndex = this.currentBlockIndex;
-    if (this.config.verticalNavigation === 'spatial') {
-      nextIndex = this.findDirectionalBlockIndex(direction);
-    } else {
-      for (let step = 1; step <= this.textBlocks.length; step++) {
-        const index = (this.currentBlockIndex + direction * step + this.textBlocks.length) % this.textBlocks.length;
-        if (this.blockHasSelectableCharacters(this.textBlocks[index])) {
-          nextIndex = index;
-          break;
-        }
-      }
-    }
+    const nextIndex = this.config.verticalNavigation === 'spatial'
+      ? this.findDirectionalBlockIndex(direction)
+      : this.findAdjacentSelectableBlockIndex(direction);
     if (nextIndex === this.currentBlockIndex) return true;
+    const previousBlockIndex = this.currentBlockIndex;
+    const previousAnchor = this.getCurrentAnchorCharIndex();
     const origin = this.getNavigationUnitCenter(this.currentCursorIndex);
-    this.dismissLookupForNavigation();
-    this.currentBlockIndex = nextIndex;
-    this.currentCursorIndex = 0;
-    this.lineNavPrefersCharacters = false;
-    this.refreshCharacters();
-    this.currentCursorIndex = this.findFirstNavigableUnitIndex(1);
-    this.applyPreferredEntryPosition(origin);
-    this.currentLineIndex = this.getLineIndexForCursor();
-    this.updateVisuals();
-    this.positionCursorAtCurrentUnit();
-    this.autoConfirmSelection();
-    if (this.config.onBlockChange) {
-      this.config.onBlockChange({ blockIndex: nextIndex, block: this.textBlocks[nextIndex], totalBlocks: this.textBlocks.length });
-    }
+    this.enterNavigationBlock(nextIndex);
+    this.finishNavigation(previousBlockIndex, previousAnchor, { entryOrigin: origin });
     return true;
   }
 
@@ -5505,7 +5346,7 @@ class GamepadHandler {
   selectNavigationCharacterTarget(target) {
     if (target.blockIndex === this.currentBlockIndex && target.charIndex === this.getCurrentAnchorCharIndex()) return true;
     const previousBlockIndex = this.currentBlockIndex;
-    this.dismissLookupForNavigation();
+    const previousAnchor = this.getCurrentAnchorCharIndex();
     if (target.blockIndex !== this.currentBlockIndex) {
       this.currentBlockIndex = target.blockIndex;
       this.currentCursorIndex = 0;
@@ -5515,18 +5356,7 @@ class GamepadHandler {
     // character; the next ordinary tap restores the user's token/character mode.
     this.lineNavPrefersCharacters = true;
     this.currentCursorIndex = target.charIndex;
-    this.currentLineIndex = this.getLineIndexForCursor();
-    this.updateVisuals();
-    this.positionCursorAtCurrentUnit();
-    this.autoConfirmSelection();
-    if (previousBlockIndex !== this.currentBlockIndex && this.config.onBlockChange) {
-      this.config.onBlockChange({ blockIndex: this.currentBlockIndex,
-        block: this.textBlocks[this.currentBlockIndex], totalBlocks: this.textBlocks.length });
-    }
-    if (this.config.onCursorChange) {
-      this.config.onCursorChange({ cursorIndex: this.currentCursorIndex,
-        character: this.characters[this.currentCursorIndex], totalCharacters: this.characters.length, isToken: false });
-    }
+    this.finishNavigation(previousBlockIndex, previousAnchor);
     return true;
   }
 
@@ -5597,105 +5427,32 @@ class GamepadHandler {
   }
 
   navigateCursorLeft(isRepeat = false) {
-    if (isRepeat && this.navigateSentenceTarget(-1)) return;
-    if (isRepeat && this.navigateJitenTarget(-1)) return;
-    const wasLineCharacterMode = this.lineNavPrefersCharacters;
-    this.lineNavPrefersCharacters = false;
-    this.dismissLookupForNavigation();
-    if (wasLineCharacterMode && this.tokenMode && this.tokens.length > 0) {
-      this.currentCursorIndex = this.charIndexToTokenIndex(this.currentCursorIndex);
-    }
-    const unitCount = this.getNavigationUnitCount();
-    if (unitCount === 0) return;
-
-    let previousNavigableIndex = this.findHorizontalNavigationIndex(-1);
-    if (previousNavigableIndex === null) {
-      if (this.textBlocks.length === 1) {
-        previousNavigableIndex = this.findFirstNavigableUnitIndex(-1);
-      } else {
-        // No navigable unit to the left in this block, move to the previous block.
-        this.navigateBlockUp(false);
-        return; // navigateBlockUp already handles visuals and positioning
-      }
-    }
-    this.currentCursorIndex = previousNavigableIndex;
-    this.currentLineIndex = this.getLineIndexForCursor();
-    
-    this.updateVisuals();
-    
-    // Position cursor based on mode
-    if (this.tokenMode && this.tokens.length > 0) {
-      this.positionCursorAtToken();
-    } else {
-      this.positionCursorAtCharacter();
-    }
-    
-    // Auto-confirm selection when cursor moves
-    this.autoConfirmSelection();
-    
-    if (this.config.onCursorChange) {
-      const unit = this.getNavigationUnits()[this.currentCursorIndex];
-      this.config.onCursorChange({
-        cursorIndex: this.currentCursorIndex,
-        character: this.tokenMode && this.tokens.length > 0 ? unit.word : unit,
-        totalCharacters: unitCount,
-        isToken: this.tokenMode && this.tokens.length > 0,
-      });
-    }
-    
-    const unitType = this.tokenMode && this.tokens.length > 0 ? 'token' : 'char';
-    console.log(`[GamepadHandler] Cursor LEFT: now at ${unitType} ${this.currentCursorIndex}`);
+    return this.navigateHorizontal(-1, isRepeat);
   }
   
   navigateCursorRight(isRepeat = false) {
-    if (isRepeat && this.navigateSentenceTarget(1)) return;
-    if (isRepeat && this.navigateJitenTarget(1)) return;
-    const wasLineCharacterMode = this.lineNavPrefersCharacters;
-    this.lineNavPrefersCharacters = false;
-    this.dismissLookupForNavigation();
-    if (wasLineCharacterMode && this.tokenMode && this.tokens.length > 0) {
-      this.currentCursorIndex = this.charIndexToTokenIndex(this.currentCursorIndex);
-    }
+    return this.navigateHorizontal(1, isRepeat);
+  }
+
+  navigateHorizontal(direction, isRepeat = false) {
+    if (isRepeat && this.navigateSentenceTarget(direction)) return;
+    if (isRepeat && this.navigateJitenTarget(direction)) return;
+    const previousBlockIndex = this.currentBlockIndex;
+    const previousAnchor = this.getCurrentAnchorCharIndex();
+    this.resumeConfiguredNavigation();
     const unitCount = this.getNavigationUnitCount();
     if (unitCount === 0) return;
 
-    let nextNavigableIndex = this.findHorizontalNavigationIndex(1);
+    let nextNavigableIndex = this.findHorizontalNavigationIndex(direction);
     if (nextNavigableIndex === null) {
       if (this.textBlocks.length === 1) {
-        nextNavigableIndex = this.findFirstNavigableUnitIndex(1);
+        nextNavigableIndex = this.findFirstNavigableUnitIndex(direction);
       } else {
-        // No navigable unit to the right in this block, move to the next block.
-        this.navigateBlockDown(false);
-        return; // navigateBlockDown already handles visuals and positioning
+        return direction < 0 ? this.navigateBlockUp(false) : this.navigateBlockDown(false);
       }
     }
     this.currentCursorIndex = nextNavigableIndex;
-    this.currentLineIndex = this.getLineIndexForCursor();
-    
-    this.updateVisuals();
-    
-    // Position cursor based on mode
-    if (this.tokenMode && this.tokens.length > 0) {
-      this.positionCursorAtToken();
-    } else {
-      this.positionCursorAtCharacter();
-    }
-    
-    // Auto-confirm selection when cursor moves
-    this.autoConfirmSelection();
-    
-    if (this.config.onCursorChange) {
-      const unit = this.getNavigationUnits()[this.currentCursorIndex];
-      this.config.onCursorChange({
-        cursorIndex: this.currentCursorIndex,
-        character: this.tokenMode && this.tokens.length > 0 ? unit.word : unit,
-        totalCharacters: unitCount,
-        isToken: this.tokenMode && this.tokens.length > 0,
-      });
-    }
-    
-    const unitType = this.tokenMode && this.tokens.length > 0 ? 'token' : 'char';
-    console.log(`[GamepadHandler] Cursor RIGHT: now at ${unitType} ${this.currentCursorIndex}`);
+    return this.finishNavigation(previousBlockIndex, previousAnchor);
   }
 
   // ==================== Cursor Positioning for Dictionary Lookups ====================
@@ -6118,23 +5875,7 @@ class GamepadHandler {
       this.autoConfirmSelection();
     }
 
-    if (blockChanged && this.config.onBlockChange) {
-      this.config.onBlockChange({
-        blockIndex: this.currentBlockIndex,
-        block: this.textBlocks[this.currentBlockIndex],
-      });
-    }
-
-    if (this.config.onCursorChange) {
-      const unit = this.getNavigationUnits()[this.currentCursorIndex];
-      this.config.onCursorChange({
-        cursorIndex: this.currentCursorIndex,
-        character: this.tokenMode && this.tokens.length > 0 ? unit.word : unit,
-        totalCharacters: unitCount,
-        isToken: this.tokenMode && this.tokens.length > 0,
-      });
-    }
-
+    this.notifyNavigationSelectionChanged(blockChanged);
     return true;
   }
   
@@ -6311,6 +6052,7 @@ class GamepadHandler {
     console.log(`Confirming selection at ${label}: ${targetChar.textContent}`);
 
     this.triggerDictionaryLookup(lookupInfo);
+    this.rememberActiveLookup(lookupInfo);
     this.lastLookupAnchorKey = anchorKey || null;
     
     if (this.config.onConfirm) {
@@ -6338,6 +6080,7 @@ class GamepadHandler {
     if (!result.targetChar) return;
 
     this.triggerDictionaryLookup(result);
+    this.rememberActiveLookup(result);
     this.lastLookupAnchorKey = result.anchorKey || null;
     
     console.log(`[GamepadHandler] Auto-confirmed selection at ${result.label}: ${result.targetChar.textContent}`);
@@ -6357,6 +6100,27 @@ class GamepadHandler {
     }
 
     return lookupInfo;
+  }
+
+  rememberActiveLookup({ targetChar }) {
+    this.activeLookup = { targetChar, text: this.getBlockText(this.currentBlockIndex, true) };
+  }
+
+  refreshActiveLookup() {
+    if (!this.activeLookup || this.destroyed || !this.isActive) return;
+    const { targetChar } = this.getLookupInfoForConfirm();
+    if (!targetChar || !this.isOverlayReady()) {
+      this.closeDictionaryPopups();
+      return;
+    }
+    if (targetChar === this.activeLookup.targetChar &&
+      this.getBlockText(this.currentBlockIndex, true) === this.activeLookup.text) return;
+
+    // OCR retries/regrouping can replace the selected node while the reader is
+    // still searching it. Replace that request directly; a hide would race the
+    // new lookup and invalidate its result in Yomitan.
+    if (this.config.autoConfirmSelection !== false) this.autoConfirmSelection();
+    else this.closeDictionaryPopups();
   }
 
   triggerDictionaryLookup(lookupInfo) {
@@ -6389,7 +6153,7 @@ class GamepadHandler {
     // In token mode, look up the first character of the current token.
     let targetIndex = this.currentCursorIndex;
     let label = 'character index';
-    if (!this.lineNavPrefersCharacters && this.tokenMode && this.tokens.length > 0 && this.currentCursorIndex < this.tokens.length) {
+    if (this.isUsingTokenNavigation() && this.currentCursorIndex < this.tokens.length) {
       const token = this.tokens[this.currentCursorIndex];
       if (token && typeof token.start === 'number') {
         targetIndex = token.start;
@@ -6893,31 +6657,10 @@ class GamepadHandler {
   // ==================== Configuration ====================
   
   toggleTokenMode() {
-    if (!this.shouldAcceptToggleAction('token-mode')) {
+    if (this.destroyed || !this.shouldAcceptToggleAction('token-mode')) {
       return false;
     }
-    const anchorCharIndex = this.getCurrentAnchorCharIndex();
-    const normalizedAnchorCharIndex = this.characters.length > 0
-      ? Math.max(0, Math.min(anchorCharIndex >= 0 ? anchorCharIndex : 0, this.characters.length - 1))
-      : 0;
-
-    // Toggle between token and character navigation
-    this.tokenMode = !this.tokenMode;
-    this.clearPendingMineCandidate();
-    this.lineNavPrefersCharacters = false;
-    
-    // If switching to token mode, request tokenization
-    if (this.tokenMode) {
-      this.currentCursorIndex = this.charIndexToTokenIndex(normalizedAnchorCharIndex);
-      this.prefetchTokenizationForAllBlocks();
-    } else {
-      this.currentCursorIndex = normalizedAnchorCharIndex;
-    }
-    this.currentLineIndex = this.getLineIndexForCursor();
-    
-    // Update visuals
-    this.updateVisuals();
-    this.updateModeIndicatorText();
+    this.setTokenMode(!this.tokenMode);
     
     // Dispatch event so the main application can save this preference
     window.dispatchEvent(new CustomEvent('gsm-gamepad-token-mode-changed', {
@@ -6952,7 +6695,19 @@ class GamepadHandler {
     }
   }
 
+  normalizeInputTiming() {
+    for (const [key, fallback, minimum, maximum] of [
+      ['repeatDelay', 400, 0, 10000], ['repeatRate', 150, 16, 10000],
+      ['thumbstickNavigationThreshold', 0.7, 0.2, 1], ['navigationHideDelay', 200, 0, 10000],
+    ]) {
+      const value = Number(this.config[key]);
+      this.config[key] = Number.isFinite(value) ? Math.max(minimum, Math.min(maximum, value)) : fallback;
+    }
+  }
+
   updateConfig(newConfig) {
+    if (this.destroyed) return;
+    const previousConfig = { ...this.config };
     const oldDictionaryReader = this.config.dictionaryReader;
     const oldServerUrl = this.config.serverUrl;
     const oldActivationMode = this.config.activationMode;
@@ -6969,6 +6724,7 @@ class GamepadHandler {
     const oldFocusOverlayOnEntry = this.config.focusOverlayOnEntry !== false;
 
     Object.assign(this.config, newConfig);
+    this.normalizeInputTiming();
     if (this.config.dictionaryReader !== oldDictionaryReader) {
       this.stopDictionaryPopupTracking?.();
       this.dictionaryNavigation?.control('hide-popup');
@@ -6993,6 +6749,14 @@ class GamepadHandler {
     this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
     this.refreshButtonBindings();
     this.refreshKeyboardBindings();
+    const inputChanged = Object.keys(newConfig).some(key =>
+      (key.startsWith('keyboard') || key.endsWith('Button') || key.startsWith('dpad') ||
+        ['activationMode', 'controllerEnabled', 'repeatRate', 'repeatDelay', 'holdNavigation'].includes(key)) &&
+      JSON.stringify(previousConfig[key]) !== JSON.stringify(this.config[key]));
+    if (inputChanged) {
+      this.resetInputState();
+      if (this.activationSource) this.deactivateNavigation();
+    }
     this.config.connectToServer = this.config.connectToServer !== false;
     this.config.inputSuppressed = this.config.inputSuppressed === true;
     this.config.focusOverlayOnEntry = this.config.focusOverlayOnEntry !== false;
@@ -7047,7 +6811,10 @@ class GamepadHandler {
       this.config.yomitanApiUrl !== oldYomitanApiUrl ||
       this.config.yomitanScanLength !== oldYomitanScanLength ||
       this.config.jitenApiKey !== oldJitenApiKey ||
-      this.config.jpdbApiKey !== oldJpdbApiKey
+      this.config.jpdbApiKey !== oldJpdbApiKey ||
+      ['jitenParseEndpoint', 'jpdbParseEndpoint', 'sudachiDictionary',
+        'yomitanRequestTimeout', 'jitenRequestTimeout', 'jpdbRequestTimeout']
+        .some(key => this.config[key] !== previousConfig[key])
     );
     if (
       this.wsConnected &&
@@ -7066,8 +6833,8 @@ class GamepadHandler {
       this.jitenApiReachable = false;
       this.jpdbApiReachable = false;
       this.tokenCacheByBlock.clear();
-      this.pendingTokenizationByBlock.clear();
-      this.pendingTokenizationStartedWhileNavigationActive.clear();
+      this.cancelPendingTokenization('Tokenizer configuration changed');
+      this.rejectPendingFuriganaRequests('Tokenizer configuration changed');
       if (this.wsConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
         try {
           this.ws.send(JSON.stringify({ type: 'get_state' }));
@@ -7116,11 +6883,7 @@ class GamepadHandler {
   }
 
   enforceInputSuppressedState() {
-    this.repeatTimers.forEach(timer => clearTimeout(timer));
-    this.repeatTimers.clear();
-    this.pressedKeys.clear();
-    this.keyboardModifiers = { ctrl: false, alt: false, shift: false, meta: false };
-    this.toggleModeActive = false;
+    this.resetInputState();
     this.deactivateNavigation();
   }
 
@@ -7219,23 +6982,26 @@ class GamepadHandler {
   }
   
   setTokenMode(enabled) {
-    if (this.tokenMode !== enabled) this.pendingJitenEntryPosition = null;
+    const nextMode = enabled === true;
+    if (this.destroyed || this.tokenMode === nextMode) return false;
+    this.pendingJitenEntryPosition = null;
     const anchorCharIndex = this.getCurrentAnchorCharIndex();
     const normalizedAnchorCharIndex = this.characters.length > 0
       ? Math.max(0, Math.min(anchorCharIndex >= 0 ? anchorCharIndex : 0, this.characters.length - 1))
       : 0;
 
-    this.tokenMode = enabled;
-    if (enabled) {
-      this.currentCursorIndex = this.charIndexToTokenIndex(normalizedAnchorCharIndex);
-      this.prefetchTokenizationForAllBlocks();
-    } else {
-      this.currentCursorIndex = normalizedAnchorCharIndex;
-    }
+    this.tokenMode = nextMode;
+    this.clearPendingMineCandidate();
+    this.lineNavPrefersCharacters = false;
+    this.currentCursorIndex = this.isUsingTokenNavigation()
+      ? this.charIndexToTokenIndex(normalizedAnchorCharIndex)
+      : normalizedAnchorCharIndex;
+    if (nextMode) this.prefetchTokenizationForAllBlocks();
     this.currentLineIndex = this.getLineIndexForCursor();
     this.updateVisuals();
     this.updateModeIndicatorText();
-    console.log(`[GamepadHandler] Token mode set to: ${enabled}`);
+    console.log(`[GamepadHandler] Token mode set to: ${nextMode}`);
+    return true;
   }
 
   /**
@@ -7256,6 +7022,8 @@ class GamepadHandler {
    * Requests popup dismissal through the active reader adapter.
    */
   closeDictionaryPopups() {
+    this.activeLookup = null;
+    this.pendingJitenEntryPosition = null;
     this.clearPendingMineCandidate();
     this.sendDictionaryControlMessage('hide-popup');
   }

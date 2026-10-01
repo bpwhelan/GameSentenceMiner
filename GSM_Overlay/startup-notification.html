@@ -16,7 +16,7 @@
       margin: 0;
       overflow: hidden;
       background: transparent;
-      font-family: "Segoe UI", Arial, sans-serif;
+      font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
       user-select: none;
     }
 
@@ -27,27 +27,70 @@
     }
 
     .startup-notification {
-      padding: 28px 42px;
-      border: 1px solid rgba(0, 255, 136, 0.35);
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      max-width: calc(100% - 48px);
+      padding: 17px 20px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 10px;
-      background: rgba(0, 0, 0, 0.9);
-      box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
-      color: #00ff88;
-      font-size: 24px;
-      font-weight: 700;
-      line-height: 1.2;
-      text-align: center;
+      background: rgba(25, 27, 29, 0.97);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+      color: #f1f3f4;
+      line-height: 20px;
       white-space: nowrap;
-      animation: fade-out 3s ease-out 100ms forwards;
+      animation: notification-lifecycle 3.1s ease both;
     }
 
-    @keyframes fade-out {
-      from { opacity: 1; }
+    .startup-notification__name {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .startup-notification__status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #b6bdc3;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .startup-notification__dot {
+      width: 6px;
+      height: 6px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      background: #82b99a;
+    }
+
+    /* Keep the message legible before fading, within the 3.2s window lifetime. */
+    @keyframes notification-lifecycle {
+      0% { opacity: 0; transform: translateY(5px); }
+      7%, 88% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(0); }
+    }
+
+    @keyframes notification-fade {
+      0%, 88% { opacity: 1; }
       to { opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .startup-notification {
+        animation-name: notification-fade;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="startup-notification">GSM Overlay Loaded &amp; Ready!</div>
+  <div class="startup-notification" role="status">
+    <span class="startup-notification__name">GSM Overlay</span>
+    <span class="startup-notification__status">
+      <span class="startup-notification__dot" aria-hidden="true"></span>
+      Ready
+    </span>
+  </div>
 </body>
 </html>

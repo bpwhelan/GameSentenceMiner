@@ -311,3 +311,25 @@ def test_minimized_invisible_target_survives_hwnd_revalidation(monkeypatch):
 
     assert monitor.target_hwnd == 123
     assert monitor.last_state == "minimized"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only window monitor")
+def test_removing_capture_source_discards_previous_hwnd(monkeypatch):
+    monkeypatch.setattr(_wwm.WindowsWindowStateMonitor, "_start_event_hooks", lambda self: None)
+    monkeypatch.setattr(
+        _wwm, "user32", SimpleNamespace(IsIconic=lambda hwnd: pytest.fail("Old capture HWND was reused"))
+    )
+    monitor = _wwm.WindowsWindowStateMonitor(SimpleNamespace(obs_width=None, obs_height=None))
+    monitor.target_hwnd = 123
+    monitor.last_target_info = {"title": "Game", "exe": "game.exe"}
+    monitor.last_scene_name = "Game"
+    monitor.last_target_scene_name = "Game"
+    monitor.last_monitor_validation_time = time.time()
+    monitor.last_hwnd_refresh_time = time.time()
+    monkeypatch.setattr(_wwm, "get_current_scene", lambda: "Game")
+    monkeypatch.setattr(_wwm, "get_window_info_from_source", lambda **kwargs: None)
+    monkeypatch.setattr(monitor, "find_target_hwnd", lambda: None)
+    monkeypatch.setattr(monitor, "_obs_reports_output", lambda: False)
+    monkeypatch.setattr(monitor, "_obs_reports_no_output", lambda: False)
+    asyncio.run(monitor.check_and_send())
+    assert monitor.target_hwnd is None

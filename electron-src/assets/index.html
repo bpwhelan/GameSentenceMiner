@@ -152,7 +152,6 @@
             <button class="tab-button" data-tab="launcher">Game Settings</button>
             <!--        <button class="tab-button" data-tab="steam">Steam</button>-->
             <!--        <button class="tab-button" data-tab="vn">VN</button>-->
-            <!--        <button class="tab-button" data-tab="yuzu" id="yuzu-button" style="display: none;">Yuzu</button>-->
             <button class="tab-button" data-tab="settings">Settings</button>
             <button class="tab-button" data-tab="python">Python</button>
             <button class="tab-button" data-tab="console">Console</button>
@@ -188,9 +187,6 @@
     </div>
     <div id="vn" class="tab-content">
         <iframe src="VN.html"></iframe>
-    </div>
-    <div id="yuzu" class="tab-content">
-        <iframe src="yuzu.html"></iframe>
     </div>
     <div id="settings" class="tab-content">
         <iframe src="settings.html"></iframe>
@@ -544,12 +540,6 @@
                 // agentScriptsPathInput.value = settings.agentScriptsPath || '';
                 // startConsoleMinimizedCheckbox.checked = settings.startConsoleMinimized || false;
                 // customPythonPackageInput.value = settings.customPythonPackage || 'GameSentenceMiner';
-                // let showYuzuTab = settings.showYuzuTab || false;
-                // if (showYuzuTab) {
-                //     document.getElementById('yuzu-button').style.display = 'inline-block';
-                // } else {
-                //     document.getElementById('yuzu-button').style.display = 'none';
-                // }
                 
                 // Handle visible tabs
                 const visibleTabs = settings.visibleTabs || ['launcher', 'stats', 'python', 'console'];

@@ -1,6 +1,31 @@
 # Gamepad input and generic controllers
 
-On Windows, the Rust input server uses SDL's game controller and joystick APIs.
+On Windows, the Rust input server defaults to the original gilrs XInput backend.
+SDL is not initialized on this path. Existing settings files also receive this
+default; extended support is never enabled automatically by an upgrade.
+
+In **Overlay Settings → Gamepad → Input Server Settings**:
+
+- **Listen for XInput Controllers** defaults on. Turn it off to stop listening
+  to Xbox controllers and XInput emulators.
+- **Enable Extended Controller Support (DirectInput / SDL)** defaults off.
+  Turn it on for native Switch, PlayStation, or generic DirectInput devices.
+- Turn both off to disable controller listening throughout GSM, including
+  controller hotkeys and Anki confirmation. Keyboard navigation, keyboard/mouse
+  hotkeys, and tokenization remain available.
+
+**Restart GSM after changing either setting.** These are global settings, shared
+across game profiles, and are loaded before opening any controller devices, even
+when the overlay is closed. The legacy XInput library keeps an internal polling
+thread alive after its handle is dropped, so a full process restart is necessary
+to stop listening reliably. **Enable Controller Activation** remains a separate
+navigation option; it does not disable listeners.
+
+With extended support on, SDL owns controller input and honors the XInput switch;
+the separate gilrs listener is not started. Leave extended support off when using
+an XInput emulator to avoid reading both a physical controller and its virtual
+counterpart. If both are needed, the ignored-device list can exclude one device.
+
 SDL's native HID drivers decode Switch and PlayStation controllers, while its
 Windows joystick backends support Xbox and generic DirectInput devices. This
 avoids the false button presses seen when Windows Gaming Input's generic parser
@@ -8,7 +33,7 @@ reads a Switch Pro controller's full HID reports. SDL is bundled and statically
 linked: no SDL DLL, controller emulator, or additional runtime installation is
 needed. Linux and macOS continue using gilrs' native backends.
 
-The Windows helper initializes SDL without a video window. It disables SDL's
+With extended support enabled, the Windows helper initializes SDL without a video window. It disables SDL's
 Raw Input and Xbox HID drivers so Xbox controllers use the XInput backend;
 Switch and PlayStation HID decoding and generic DirectInput input remain enabled.
 
@@ -22,7 +47,9 @@ Switch and PlayStation HID decoding and generic DirectInput input remain enabled
 
 Capture and the input test use the Rust server's state while connected, so their
 IDs match navigation even if Chromium assigns different button numbers or cannot
-see the device. Browser input remains a fallback when the server is disconnected.
+see the device. Windows requires the server for capture and testing so browser
+input cannot bypass disabled listeners. Other platforms retain browser fallback
+when the server is disconnected.
 Bindings are shared across devices, as before; use the ignored-device list to
 exclude unwanted controllers.
 
@@ -89,6 +116,7 @@ cargo test --manifest-path GSM_Overlay/input_server/Cargo.toml
 cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
 node --test GSM_Overlay/tests/gamepad_server_capture.test.cjs GSM_Overlay/tests/gamepad_navigation.test.cjs
 npm run test:ts -- electron-src/main/ui/gamepad-bindings.test.ts
+node GSM_Overlay/tests/gamepad-listeners-server-smoke.cjs
 ```
 
 Restart the development app to pick up the newly built server. Packaged releases

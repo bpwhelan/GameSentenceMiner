@@ -1,8 +1,7 @@
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { getBaseDir, getDefaultBaseDir } from './data_dir.js';
+import { getOverlayDataPath } from './overlay_data_dir.js';
 import {
     getOverlayAppAsarPath,
     getOverlayResourcesPath,
@@ -40,13 +39,6 @@ let overlayStopPromise: Promise<void> | null = null;
 let environmentBackup: EnvironmentBackup[] | null = null;
 let overlayRestartPromise: Promise<boolean> | null = null;
 let overlayStopGeneration = 0;
-
-function getOverlayDataPath(): string {
-    const baseDir = getBaseDir();
-    return path.resolve(baseDir) === path.resolve(getDefaultBaseDir())
-        ? path.join(process.env.APPDATA || path.join(os.homedir(), '.config'), 'gsm_overlay')
-        : path.join(baseDir, 'gsm_overlay');
-}
 
 function resolveOverlayModule(): { entryPath: string; rootPath: string } {
     if (isDev) {
