@@ -1,7 +1,7 @@
 """Lightweight stats helpers for GameSentenceMiner."""
 
-from typing import Iterable, Sequence
-
+from collections.abc import Iterable, Sequence
+from math import isfinite
 
 # Adaptive reading time constants
 # These live here (rather than in web.stats) to avoid circular imports,
@@ -9,11 +9,11 @@ from typing import Iterable, Sequence
 MAX_SEC_PER_CHAR = 3.0  # Fallback seconds per character before a session pace is available
 ABSOLUTE_CEILING = 300.0  # Hard upper bound (5 min) on any single line's time
 MIN_CHARS_FOR_SPEED = 5  # Minimum chars for a line to contribute to the session pace
+MIN_GAP_FOR_SPEED = 1.0  # Subsecond text-delivery bursts are not reliable pace samples
 
-# Cap each line at a conservative version of the session's own median reading speed.
-ADAPTIVE_FLOOR_SECONDS = 2.0  # Minimum cap for any line
-ADAPTIVE_TOLERANCE = 2.5  # Slack factor over the expected per-line time
-ADAPTIVE_MEDIAN_CPS_SCALE = 0.5  # Use a conservative 50% of session median speed
+# Cap each line at 2.5 times its expected duration at the actual session median.
+ADAPTIVE_FLOOR_SECONDS = 2.0  # Minimum cap for a nonempty line
+ADAPTIVE_TOLERANCE = 2.5  # Slack for difficult lines and brief lookups
 MIN_LINES_FOR_CPH = 5  # Lines required before live cph is shown (anti-spike guard)
 
 
@@ -29,27 +29,46 @@ def _median(values: Sequence[float]) -> float:
     return (s[mid - 1] + s[mid]) / 2.0
 
 
-def session_median_cps(gaps: Iterable[tuple[float, int]]) -> float:
-    """Median chars/second from (gap_seconds, char_count) pairs.
+def reading_speed_sample(gap_seconds: float, char_count: int) -> float | None:
+    """Return raw chars/second when a gap is usable for learning the pace.
 
-    Tiny lines and zero gaps are ignored so the reference speed reflects real
-    reading. Median is robust to the occasional AFK outlier.
+    Tiny lines and subsecond bursts mostly measure text delivery. Gaps beyond
+    the hard reading-time ceiling cannot be fully credited, so letting them
+    teach the pace would turn repeated long breaks into normal reading.
+
+    Do not filter against the adaptive cap or learn from capped durations:
+    either would bias the median faster and prevent learning a slower pace.
     """
-    speeds = [c / g for g, c in gaps if c >= MIN_CHARS_FOR_SPEED and g > 0]
+    if char_count < MIN_CHARS_FOR_SPEED or not isfinite(gap_seconds):
+        return None
+    if not MIN_GAP_FOR_SPEED <= gap_seconds <= ABSOLUTE_CEILING:
+        return None
+    return char_count / gap_seconds
+
+
+def session_median_cps(gaps: Iterable[tuple[float, int]]) -> float:
+    """Actual median chars/second of usable raw gaps within one session.
+
+    Returns zero when no pace is available. The median tolerates a minority of
+    fast or slow outliers, but timestamps alone cannot distinguish persistent
+    interruptions from genuinely slow reading.
+    """
+    speeds = [speed for gap, chars in gaps if (speed := reading_speed_sample(gap, chars)) is not None]
     return _median(speeds)
 
 
 def adaptive_cap_seconds(char_count: int, median_cps: float) -> float:
     """Max plausible reading seconds for one line at the session's pace.
 
-    cap = char_count / scaled_median_cps * ADAPTIVE_TOLERANCE, with a small
-    floor and the shared absolute ceiling. The median is discounted so unusually
-    fast/easy lines do not make later AFK caps too aggressive. Falls back to the
-    fixed per-char cap until a median speed is available (start of session).
+    cap = char_count / median_cps * ADAPTIVE_TOLERANCE, with a small floor
+    for nonempty lines and the shared absolute ceiling. This is an upper bound,
+    not an assigned duration: callers must also limit credit to the actual gap.
+    Falls back to the fixed per-char cap until a usable pace is available.
     """
-    if median_cps and median_cps > 0:
-        scaled_median_cps = median_cps * ADAPTIVE_MEDIAN_CPS_SCALE
-        cap = max(ADAPTIVE_FLOOR_SECONDS, (char_count / scaled_median_cps) * ADAPTIVE_TOLERANCE)
+    if char_count <= 0:
+        return 0.0
+    if isfinite(median_cps) and median_cps > 0:
+        cap = max(ADAPTIVE_FLOOR_SECONDS, (char_count / median_cps) * ADAPTIVE_TOLERANCE)
     else:
         cap = max(ADAPTIVE_FLOOR_SECONDS, char_count * MAX_SEC_PER_CHAR)
     return min(cap, ABSOLUTE_CEILING)

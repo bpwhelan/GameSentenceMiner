@@ -14,21 +14,21 @@ from __future__ import annotations
 
 import datetime
 from collections import defaultdict
+from math import isfinite
 from typing import Dict, Sequence, Tuple
 
+from GameSentenceMiner.native.text import count_kanji
 from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
     logger,
 )
 from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.util.stats.stats_util import (
-    has_cards,
     adaptive_cap_seconds,
+    has_cards,
     session_median_cps,
 )
-from GameSentenceMiner.native.text import count_kanji
 from GameSentenceMiner.util.text_utils import is_kanji as is_kanji  # noqa: PLC0414 - public compatibility re-export
-
 
 # ---------------------------------------------------------------------------
 # Lazy import helper
@@ -356,26 +356,44 @@ def calculate_actual_reading_time(
     timestamps: Sequence[float],
     line_texts: Sequence[str],
 ) -> float:
-    """Calculate actual reading time with adaptive AFK detection.
+    """Estimate reading time with a separate median pace for each session.
 
-    Caps each line at a conservative version of the session's own median
-    reading speed (shared with the live tracker), with a small floor.
+    Cap each line at 2.5 times its expected duration at that session's actual
+    median speed, using the same sample filters as the live tracker. Gaps over
+    the configured session break are neither credited nor used to learn pace.
+    The final line in each session has no observed duration and gets no credit.
+
+    Batch stats use the complete session; live stats only know gaps seen so far.
+    Callers supply the same cleaned text used for their character totals.
 
     Returns:
-        Actual reading time in seconds.
+        Estimated reading time in seconds.
     """
     if not timestamps or len(timestamps) < 2:
         return 0.0
 
-    sorted_pairs = sorted(zip(timestamps, line_texts), key=lambda p: p[0])
+    sorted_pairs = sorted(
+        ((timestamp, text) for timestamp, text in zip(timestamps, line_texts) if isfinite(timestamp)),
+        key=lambda p: p[0],
+    )
+    session_gap = get_stats_config().session_gap_seconds
     raw_gaps: list[tuple[float, int]] = []
+    total_seconds = 0.0
+
+    def session_seconds() -> float:
+        median_cps = session_median_cps(raw_gaps)
+        return sum(min(gap, adaptive_cap_seconds(chars, median_cps)) for gap, chars in raw_gaps)
+
     for i in range(len(sorted_pairs) - 1):
         raw_gap = sorted_pairs[i + 1][0] - sorted_pairs[i][0]
+        if raw_gap > session_gap:
+            total_seconds += session_seconds()
+            raw_gaps.clear()
+            continue
         char_count = len(sorted_pairs[i][1] or "")
         raw_gaps.append((raw_gap, char_count))
 
-    median_cps = session_median_cps(raw_gaps)
-    return sum(min(raw_gap, adaptive_cap_seconds(char_count, median_cps)) for raw_gap, char_count in raw_gaps)
+    return total_seconds + session_seconds()
 
 
 # ---------------------------------------------------------------------------
