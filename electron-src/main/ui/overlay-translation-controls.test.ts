@@ -87,7 +87,7 @@ it("applies a translation binding edit to the running gamepad configuration", ()
   vm.runInContext([
     between(source, "  const GAMEPAD_NAVIGATION_OPTIONS = [", "  // Keyboard setting keys"),
     "const KEYBOARD_SETTING_KEYS = []; const showFurigana = false;",
-    "const dictionaryReader = 'yomitan'; const gamepadInputSuppressed = false;",
+    "const dictionaryReader = 'yomitan'; const gamepadInputSuppressed = false; const overlayCaptureAvailable = true;",
     between(source, "  function shouldUseGamepadHandler()", "  async function ensureGamepadModuleLoaded()"),
     "let currentConfig; function syncGamepadHandlerLifecycle() { currentConfig = getGamepadHandlerConfig(); }",
     "let update; const ipcRenderer = { on: (_channel, handler) => { update = handler; } };",

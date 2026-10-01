@@ -28,6 +28,9 @@ def test_settings_save_preserves_live_overlay_settings(monkeypatch) -> None:
     try:
         # The overlay UI can change these after the Python editor takes its snapshot.
         live_overlay = configuration.Overlay(
+            monitor_to_capture=1,
+            monitor_to_capture_id="bounds:2560:164:1920:1080",
+            monitor_to_capture_bounds={"left": 2560, "top": 164, "width": 1920, "height": 1080},
             last_sent_ocr_presence_check=True,
             last_sent_ocr_presence_remove_notation=False,
             last_sent_ocr_presence_invalidate_lookups=False,
@@ -39,10 +42,16 @@ def test_settings_save_preserves_live_overlay_settings(monkeypatch) -> None:
             check_previous_lines_for_recycled_indicator=True,
         )
         monkeypatch.setattr(configuration, "get_overlay_config", lambda: live_overlay)
+        # This unused legacy control still has the monitor from when the editor opened.
+        window.overlay_monitor_combo.addItems(["Monitor 1", "Monitor 2"])
+        window.overlay_monitor_combo.setCurrentIndex(0)
         window.periodic_interval_edit.setText("2.5")
         assert window.save_settings(show_indicator=False)
         saved = configuration.Config.load().overlay
         for field in (
+            "monitor_to_capture",
+            "monitor_to_capture_id",
+            "monitor_to_capture_bounds",
             "last_sent_ocr_presence_check",
             "last_sent_ocr_presence_remove_notation",
             "last_sent_ocr_presence_invalidate_lookups",

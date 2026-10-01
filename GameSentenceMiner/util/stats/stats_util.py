@@ -6,17 +6,12 @@ from typing import Iterable, Sequence
 # Adaptive reading time constants
 # These live here (rather than in web.stats) to avoid circular imports,
 # since live_stats.py and stats.py both need them.
-MAX_SEC_PER_CHAR = 3.0  # Max seconds allowed per character in a line
-FLOOR_SECONDS = 15.0  # Minimum time allowed for any line (even empty)
+MAX_SEC_PER_CHAR = 3.0  # Fallback seconds per character before a session pace is available
 ABSOLUTE_CEILING = 300.0  # Hard upper bound (5 min) on any single line's time
-MIN_CHARS_FOR_SPEED = 5  # Minimum chars for a line to be included in IQR analysis
-MIN_SAMPLES_FOR_IQR = 10  # Minimum lines needed before applying IQR filtering
+MIN_CHARS_FOR_SPEED = 5  # Minimum chars for a line to contribute to the session pace
 
-# --- v2 adaptive reading time constants ---
-# v2 caps each line at what it *should* take at a conservative version of the
-# session's own median reading speed, instead of a fixed seconds-per-char. Shared by the live
-# tracker (live_stats.py) and the historical calc (web/stats.py) so both agree.
-ADAPTIVE_FLOOR_SECONDS = 2.0  # Minimum time credited for any line in v2
+# Cap each line at a conservative version of the session's own median reading speed.
+ADAPTIVE_FLOOR_SECONDS = 2.0  # Minimum cap for any line
 ADAPTIVE_TOLERANCE = 2.5  # Slack factor over the expected per-line time
 ADAPTIVE_MEDIAN_CPS_SCALE = 0.5  # Use a conservative 50% of session median speed
 MIN_LINES_FOR_CPH = 5  # Lines required before live cph is shown (anti-spike guard)

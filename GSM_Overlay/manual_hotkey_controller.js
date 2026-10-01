@@ -2,7 +2,7 @@ const MANUAL_HOTKEY_BACKEND_ELECTRON = "electron";
 const MANUAL_HOTKEY_BACKEND_INPUT_SERVER = "input_server";
 const MANUAL_HOTKEY_MODE_HOLD = "hold";
 const MANUAL_HOTKEY_MODE_TOGGLE = "toggle";
-const MANUAL_HOTKEY_BLOCKED_GAME_WINDOW_STATES = new Set(["obscured", "minimized", "closed"]);
+const MANUAL_HOTKEY_ALLOWED_GAME_WINDOW_STATES = new Set(["active", "background"]);
 
 const MODIFIER_TOKENS = Object.freeze(["ctrl", "cmd", "alt", "shift"]);
 const MODIFIER_TOKEN_SET = new Set(MODIFIER_TOKENS);
@@ -35,7 +35,7 @@ function isMouseHotkey(hotkey) {
 
 function isManualHotkeyBlockedByGameWindowState(state) {
   const normalized = String(state || "").trim().toLowerCase();
-  return MANUAL_HOTKEY_BLOCKED_GAME_WINDOW_STATES.has(normalized);
+  return !MANUAL_HOTKEY_ALLOWED_GAME_WINDOW_STATES.has(normalized);
 }
 
 function resolveManualHotkeyBackend(hotkey, options = {}) {

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -96,6 +96,7 @@ export function WhatsChangedDialog({
   installSession,
   backendStatus,
   requiresBackendSync = true,
+  updateOffer,
   onContinue,
   onRetry,
   onOpenLogs,
@@ -105,18 +106,35 @@ export function WhatsChangedDialog({
   installSession: InstallSessionSnapshot | null;
   backendStatus: "pending" | "running" | "completed" | "failed";
   requiresBackendSync?: boolean;
+  updateOffer?: {
+    busy: boolean;
+    disabled: boolean;
+    changed: boolean;
+    preview?: boolean;
+    error: boolean;
+    onAccept: () => void;
+  };
   onContinue: () => void;
   onRetry: () => void;
   onOpenLogs: () => void;
   onQuit: () => void;
 }) {
   const t = useTranslation();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [appliedSettingChoices, setAppliedSettingChoices] = useState<Record<string, string>>({});
   const [pendingSetting, setPendingSetting] = useState<string | null>(null);
   const [settingChoiceError, setSettingChoiceError] = useState(false);
   const isFailed = requiresBackendSync && backendStatus === "failed";
   const canContinue = !requiresBackendSync || backendStatus === "completed";
-  const canApplySettingChoices = !requiresBackendSync || backendStatus === "completed";
+  const canApplySettingChoices = !updateOffer && (!requiresBackendSync || backendStatus === "completed");
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    dialogRef.current?.focus();
+    return () => {
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
+  }, []);
   const progress =
     installSession && typeof installSession.overallProgress === "number"
       ? installSession.overallProgress
@@ -266,7 +284,36 @@ export function WhatsChangedDialog({
 
   return (
     <div className="whats-changed-overlay">
-      <div className="whats-changed-dialog" role="dialog" aria-modal="true">
+      <div
+        className="whats-changed-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        ref={dialogRef}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && canContinue && !updateOffer?.busy) {
+            event.preventDefault();
+            onContinue();
+          }
+          if (event.key === "Tab") {
+            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+              'button:not(:disabled), a[href], iframe, video[controls], [tabindex="0"]'
+            ));
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (!first) {
+              event.preventDefault();
+            } else if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        }}
+      >
         <header className="whats-changed-header">
           <div>
             <p className="whats-changed-kicker">
@@ -277,18 +324,29 @@ export function WhatsChangedDialog({
                     to: changelog.toVersion
                   })}
             </p>
-            <h2>{changelog.title || t("changelog.title")}</h2>
+            <h2 id={titleId}>{updateOffer ? t("app.update.title", { version: changelog.toVersion }) : changelog.title || t("changelog.title")}</h2>
           </div>
-          <div className={`whats-changed-source whats-changed-source-${changelog.source ?? "loading"}`}>
+          {changelog.status !== "failed" ? <div className={`whats-changed-source whats-changed-source-${changelog.source ?? "loading"}`}>
             {changelog.source === "remote"
               ? t("changelog.source.remote")
               : changelog.source === "bundled"
                 ? t("changelog.source.bundled")
                 : t("changelog.source.loading")}
-          </div>
+          </div> : null}
         </header>
 
-        {requiresBackendSync ? (
+        {updateOffer ? (
+          <section className="whats-changed-progress" aria-live="polite">
+            <p>{updateOffer.busy
+              ? t("app.update.installingDescription")
+              : updateOffer.changed
+                ? t("app.update.changed")
+                : updateOffer.preview
+                  ? t("app.update.previewDescription")
+                  : t("app.update.restartDescription")}</p>
+            {updateOffer.error ? <p role="alert">{t("app.update.installFailed")}</p> : null}
+          </section>
+        ) : requiresBackendSync ? (
           <section className="whats-changed-progress" aria-live="polite">
             <div className="whats-changed-progress-top">
               <span>{t("changelog.backend.title")}</span>
@@ -309,6 +367,13 @@ export function WhatsChangedDialog({
             <div className="whats-changed-loading">
               {t("changelog.loading")}
             </div>
+          ) : changelog.status === "failed" && updateOffer ? (
+            <div className="whats-changed-loading">
+              <p>{t("app.update.notesUnavailable")}</p>
+              <button type="button" className="secondary" onClick={onRetry} disabled={updateOffer.busy}>
+                {t("install.retry")}
+              </button>
+            </div>
           ) : (
             <ReactMarkdown
               remarkPlugins={CHANGELOG_REMARK_PLUGINS}
@@ -320,7 +385,7 @@ export function WhatsChangedDialog({
           )}
         </section>
 
-        {changelog.error || settingChoiceError ? (
+        {(changelog.error && changelog.status !== "failed") || settingChoiceError ? (
           <p className={`whats-changed-note${settingChoiceError ? " changelog-setting-choice-error" : ""}`}>
             {changelog.error ? t("changelog.fallbackNote") : null}
             {changelog.error && settingChoiceError ? " " : null}
@@ -329,7 +394,16 @@ export function WhatsChangedDialog({
         ) : null}
 
         <footer className="whats-changed-footer">
-          {isFailed ? (
+          {updateOffer ? (
+            <>
+              <button type="button" className="secondary" onClick={onContinue} disabled={updateOffer.busy}>
+                {t("app.update.notNow")}
+              </button>
+              <button type="button" onClick={updateOffer.onAccept} disabled={updateOffer.busy || updateOffer.disabled}>
+                {updateOffer.busy ? t("app.update.installing") : t("app.update.install")}
+              </button>
+            </>
+          ) : isFailed ? (
             <>
               <button type="button" className="install-btn-retry" onClick={onRetry}>
                 {t("install.retry")}

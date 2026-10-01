@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
 
-function loadSettings() {
+function loadSettings(platform = 'linux') {
   const source = fs.readFileSync(path.join(__dirname, '../settings.html'), 'utf8');
   const section = (start, end) => {
     const from = source.indexOf(start);
@@ -26,6 +26,7 @@ function loadSettings() {
   }
   const context = vm.createContext({
     console, WebSocket: Socket,
+    process: { platform },
     navigator: { getGamepads: () => browserPads },
     document: { getElementById: id => inputs.get(id) || null, activeElement: null },
     setInterval: fn => { const id = timers.size + 1; timers.set(id, fn); return id; },
@@ -53,6 +54,12 @@ function loadSettings() {
   call('connectGamepadStatusSocket(7276)');
   return { call, pads, capture, saved, timers, inputs, socket: () => Socket.current };
 }
+
+test('Windows capture cannot bypass listener preferences through browser fallback', () => {
+  const f = loadSettings('win32');
+  f.socket().close();
+  assert.deepEqual(f.pads(), []);
+});
 
 test('capture uses server IDs even when the browser reports a different layout', () => {
   const f = loadSettings();

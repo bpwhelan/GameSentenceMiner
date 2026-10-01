@@ -81,6 +81,36 @@ def test_get_settings_includes_extra_punctuation_regex(client, monkeypatch):
     assert data["extra_punctuation_regex"] == r"\.?【.*?】"
 
 
+def test_get_settings_omits_legacy_reading_time_toggle(client, monkeypatch):
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.get_stats_config",
+        lambda: _stats_config(reading_time_adaptive_v2=False),
+    )
+
+    response = client.get("/api/settings")
+
+    assert response.status_code == 200
+    assert "reading_time_adaptive_v2" not in response.get_json()
+
+
+def test_post_settings_cannot_disable_adaptive_reading_time(client, monkeypatch):
+    config = _stats_config()
+    saved = []
+    monkeypatch.setattr("GameSentenceMiner.web.database_api.get_stats_config", lambda: config)
+    monkeypatch.setattr("GameSentenceMiner.web.database_api.save_stats_config", lambda updated: saved.append(updated))
+
+    response = client.post(
+        "/api/settings",
+        json={"session_gap_seconds": 900, "reading_time_adaptive_v2": False},
+    )
+
+    assert response.status_code == 200
+    assert "reading_time_adaptive_v2" not in response.get_json()
+    assert not hasattr(config, "reading_time_adaptive_v2")
+    assert config.session_gap_seconds == 900
+    assert saved == [config]
+
+
 def test_get_settings_includes_day_rollover_hour(client, monkeypatch):
     monkeypatch.setattr(
         "GameSentenceMiner.web.database_api.get_stats_config",

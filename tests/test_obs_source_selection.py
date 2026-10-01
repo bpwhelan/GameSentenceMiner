@@ -1402,6 +1402,51 @@ def test_get_window_info_from_source_ignores_empty_scene_name_without_logging(mo
     assert logger_errors == []
 
 
+def test_get_window_info_ignores_disabled_captures(monkeypatch):
+    client = SimpleNamespace(
+        get_scene_item_list=lambda **kwargs: SimpleNamespace(
+            scene_items=[
+                {"sourceName": "Stopped game", "inputKind": "game_capture", "sceneItemEnabled": False},
+                {"sourceName": "Live game", "inputKind": "game_capture", "sceneItemEnabled": True},
+            ]
+        )
+    )
+    monkeypatch.setattr(
+        obs_module, "connection_pool", SimpleNamespace(call=lambda operation, **kwargs: operation(client))
+    )
+    monkeypatch.setattr(obs_module, "connecting", False)
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", True)
+    monkeypatch.setattr(
+        obs_module,
+        "obs_service",
+        SimpleNamespace(
+            state=SimpleNamespace(
+                input_settings_by_name={
+                    "Stopped game": {"window": "Stopped:Game:stopped.exe"},
+                    "Live game": {"window": "Live:Game:live.exe"},
+                }
+            )
+        ),
+    )
+    assert obs_module.get_window_info_from_source(scene_name="Game")["exe"] == "live.exe"
+
+
+def test_output_probe_records_the_scene_that_was_captured(monkeypatch):
+    service = _make_obs_service(monkeypatch)
+    service.state.current_scene = "First scene"
+    monkeypatch.setattr(obs_actions_module, "get_screenshot_PIL", lambda **kwargs: _valid_test_image())
+    service._is_output_active_from_screenshot()
+    assert service.state.source_output_scene == "First scene"
+
+    def capture(**kwargs):
+        service.state.current_scene = "Next scene"
+        return _valid_test_image()
+
+    monkeypatch.setattr(obs_actions_module, "get_screenshot_PIL", capture)
+    assert service._is_output_active_from_screenshot() is None
+    assert service.state.source_output_scene == "First scene"
+
+
 class _ExplodingImage:
     def getextrema(self):
         raise AssertionError("image validation should have been skipped")

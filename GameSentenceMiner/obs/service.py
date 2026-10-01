@@ -241,6 +241,7 @@ class OBSConnectionPool:
 class OBSState:
     current_scene: str = ""
     scene_items_by_scene: Dict[str, List[dict]] = field(default_factory=dict)
+    scene_items_checked_at: Dict[str, float] = field(default_factory=dict)
     input_active_by_name: Dict[str, bool] = field(default_factory=dict)
     input_show_by_name: Dict[str, bool] = field(default_factory=dict)
     input_settings_by_name: Dict[str, dict] = field(default_factory=dict)
@@ -253,6 +254,7 @@ class OBSState:
     # True = capture producing output, False = capture empty, None = undetermined.
     source_output_active: Optional[bool] = None
     source_output_checked_at: float = 0.0
+    source_output_scene: str = ""
     # Timestamp output first became (and has stayed) empty; None once it has output
     # again. Lets consumers require a sustained no-output streak, not a single probe.
     source_output_empty_since: Optional[float] = None
@@ -560,6 +562,11 @@ class OBSService:
         scene_name = getattr(data, "scene_name", None)
         if not scene_name:
             return
+        with self._state_lock:
+            if scene_name == self.state.current_scene:
+                self.state.source_output_active = None
+                self.state.source_output_checked_at = 0
+                self.state.source_output_empty_since = None
         try:
             self._refresh_scene_items(scene_name)
             self._enforce_helper_scene_items_disabled(scene_name)
@@ -739,6 +746,7 @@ class OBSService:
         scene_items = response.scene_items if response else []
         with self._state_lock:
             self.state.scene_items_by_scene[scene_name] = scene_items
+            self.state.scene_items_checked_at[scene_name] = time.time()
             if scene_name == self.state.current_scene:
                 self.state.current_source_name = self._pick_source_name(scene_items)
 
@@ -875,6 +883,9 @@ class OBSService:
     def _is_output_active_from_screenshot(self) -> Optional[bool]:
         from GameSentenceMiner.obs.actions import get_screenshot_PIL
 
+        with self._state_lock:
+            probe_scene = self.state.current_scene
+
         # force_obs=True: this probe decides whether to stop the replay buffer, which
         # records OBS's composited output.  We must sample that same output, not a
         # direct Windows Graphics Capture of the game window — WGC bypasses OBS and can
@@ -883,15 +894,19 @@ class OBSService:
         img = get_screenshot_PIL(compression=50, img_format="jpg", width=8, height=8, force_obs=True)
         result = None if not img else not is_image_empty(img)
         with self._state_lock:
+            if self.state.current_scene != probe_scene:
+                return None
             now = time.time()
+            if self.state.source_output_scene != probe_scene or now - self.state.source_output_checked_at > 30:
+                self.state.source_output_empty_since = None
+            self.state.source_output_scene = probe_scene
             self.state.source_output_active = result
             self.state.source_output_checked_at = now
-            if result is True:
-                # Has output: streak broken.
+            if result is not False:
+                # Visible or unknown output breaks a confirmed-empty streak.
                 self.state.source_output_empty_since = None
             elif result is False and self.state.source_output_empty_since is None:
-                # First confirmed-empty probe; start the streak. None (undetermined)
-                # leaves the streak untouched so transient probe failures don't reset it.
+                # Only continuous confirmed-empty probes establish inactivity.
                 self.state.source_output_empty_since = now
         return result
 

@@ -321,6 +321,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
   const [configuredSceneId, setConfiguredSceneId] = useState("");
   const [sceneProfile, setSceneProfile] = useState<SceneLaunchProfile | null>(null);
   const [runOverlayOnStartup, setRunOverlayOnStartup] = useState<boolean | null>(null);
+  const [runOverlayWithActiveGame, setRunOverlayWithActiveGame] = useState<boolean | null>(null);
   const [candidateDialog, setCandidateDialog] = useState<{
     sceneId: string;
     candidates: AgentScriptCandidate[];
@@ -398,10 +399,12 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
     if (!active) return;
     let cancelled = false;
     setRunOverlayOnStartup(null);
-    void invokeIpc<{ runOverlayOnStartup?: boolean }>("settings.getSettings")
+    setRunOverlayWithActiveGame(null);
+    void invokeIpc<{ runOverlayOnStartup?: boolean; runOverlayWithActiveGame?: boolean }>("settings.getSettings")
       .then((settings) => {
         if (!cancelled) {
           setRunOverlayOnStartup(settings?.runOverlayOnStartup === true);
+          setRunOverlayWithActiveGame(settings?.runOverlayWithActiveGame === true);
         }
       })
       .catch((error) => console.error("Failed to load overlay startup setting:", error));
@@ -1070,7 +1073,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                       type="checkbox"
                       data-tip={t(TOOLTIPS.launchOverlay)}
                       checked={sceneProfile.launchOverlay}
-                      disabled={runOverlayOnStartup !== false}
+                      disabled={runOverlayOnStartup !== false || runOverlayWithActiveGame !== false}
                       onChange={(event) =>
                         void patchSceneProfile({ launchOverlay: event.target.checked })
                       }

@@ -141,6 +141,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
     "windowTransparencyTarget": "",
     "runWindowTransparencyToolOnStartup": False,
     "runOverlayOnStartup": False,
+    "runOverlayWithActiveGame": False,
     "obsOcrScenes": [],
     "pullPreReleases": False,
     "runManualOCROnStartup": False,

@@ -38,11 +38,11 @@ import {
     getPythonPath,
     getQuitOnWindowClose,
     getRunOverlayOnStartup,
+    getRunOverlayWithActiveGame,
     getRunWindowTransparencyToolOnStartup,
     getSceneLaunchProfileForScene,
     getSceneLaunchProfiles,
     getSetupWizardVersion,
-    getShowYuzuTab,
     getStartConsoleMinimized,
     getStatsEndpoint,
     getTextCaptureWizardEnabled,
@@ -77,10 +77,10 @@ import {
     setLaunchAgentMinimized,
     setLaunchTextractorMinimized,
     setRunOverlayOnStartup,
+    setRunOverlayWithActiveGame,
     setRunWindowTransparencyToolOnStartup,
     setSceneLaunchProfiles,
     setSetupWizardVersion,
-    setShowYuzuTab,
     setStartConsoleMinimized,
     setStatsEndpoint,
     setTextCaptureWizardEnabled,
@@ -968,11 +968,11 @@ function getSettingsSnapshot() {
         pullPreReleases: getPullPreReleases(),
         startConsoleMinimized: getStartConsoleMinimized(),
         customPythonPackage: getCustomPythonPackage(),
-        showYuzuTab: getShowYuzuTab(),
         windowTransparencyToolHotkey: getWindowTransparencyToolHotkey(),
         windowTransparencyTarget: store.get('windowTransparencyTarget') || '',
         runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
         runOverlayOnStartup: getRunOverlayOnStartup(),
+        runOverlayWithActiveGame: getRunOverlayWithActiveGame(),
         quitOnWindowClose: getQuitOnWindowClose(),
         textCaptureWizardEnabled: getTextCaptureWizardEnabled(),
         visibleTabs: getVisibleTabs(),
@@ -1030,6 +1030,9 @@ interface SettingsIPCDependencies {
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
+    getAppUpdateStatus?: () => unknown;
+    getAppUpdateChangelog?: () => Promise<unknown>;
+    installAppUpdate?: (version: string) => Promise<unknown>;
     showUpdateChangelogPreview?: (payload: {
         fromVersion: string;
         toVersion: string;
@@ -1052,6 +1055,15 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             return null;
         }
         return await deps.getUpdateStatus();
+    });
+
+    ipcMain.handle('settings.getAppUpdateStatus', () => deps?.getAppUpdateStatus?.() ?? null);
+    ipcMain.handle('settings.getAppUpdateChangelog', () => deps?.getAppUpdateChangelog?.() ?? null);
+    ipcMain.handle('settings.installAppUpdate', async (_event, version: unknown) => {
+        if (typeof version !== 'string' || !version.trim()) {
+            throw new Error('An update version is required.');
+        }
+        return await deps?.installAppUpdate?.(version.trim()) ?? null;
     });
 
     ipcMain.handle('settings.checkForUpdates', async () => {
@@ -1167,9 +1179,6 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         if (typeof payload.customPythonPackage === 'string') {
             setCustomPythonPackage(payload.customPythonPackage);
         }
-        if (typeof payload.showYuzuTab === 'boolean') {
-            setShowYuzuTab(payload.showYuzuTab);
-        }
         if (typeof payload.windowTransparencyToolHotkey === 'string') {
             setWindowTransparencyToolHotkey(payload.windowTransparencyToolHotkey);
         }
@@ -1181,6 +1190,9 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
         if (typeof payload.runOverlayOnStartup === 'boolean') {
             setRunOverlayOnStartup(payload.runOverlayOnStartup);
+        }
+        if (typeof payload.runOverlayWithActiveGame === 'boolean') {
+            setRunOverlayWithActiveGame(payload.runOverlayWithActiveGame);
         }
         if (typeof payload.quitOnWindowClose === 'boolean') {
             setQuitOnWindowClose(payload.quitOnWindowClose);

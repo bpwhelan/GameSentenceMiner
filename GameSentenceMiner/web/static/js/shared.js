@@ -229,7 +229,6 @@ function syncStatsConfigFromSettings(settings) {
         games_target_date: 'gamesTargetDate',
         regex_out_punctuation: 'regexOutPunctuation',
         regex_out_repetitions: 'regexOutRepetitions',
-        reading_time_adaptive_v2: 'readingTimeAdaptiveV2',
         extra_punctuation_regex: 'extraPunctuationRegex',
     };
 
@@ -274,7 +273,6 @@ class SettingsManager {
         this.gamesTargetDateInput = document.getElementById('gamesTargetDate');
         this.regexOutPunctuationInput = document.getElementById('regex_out_punctuation');
         this.regexOutRepetitionsInput = document.getElementById('regex_out_repetitions');
-        this.readingTimeAdaptiveV2Input = document.getElementById('reading_time_adaptive_v2');
         this.extraPunctuationRegexInput = document.getElementById('extra_punctuation_regex');
         this.tadokuUsernameInput = document.getElementById('tadoku_username');
         this.tadokuPasswordInput = document.getElementById('tadoku_password');
@@ -456,9 +454,6 @@ class SettingsManager {
         if (this.regexOutRepetitionsInput) {
             this.regexOutRepetitionsInput.checked = settings.regex_out_repetitions;
         }
-        if (this.readingTimeAdaptiveV2Input) {
-            this.readingTimeAdaptiveV2Input.checked = settings.reading_time_adaptive_v2;
-        }
         if (this.extraPunctuationRegexInput) {
             this.extraPunctuationRegexInput.value = settings.extra_punctuation_regex || '';
         }
@@ -553,10 +548,6 @@ class SettingsManager {
             
             if (this.regexOutRepetitionsInput) {
                 settings.regex_out_repetitions = this.regexOutRepetitionsInput.checked;
-            }
-
-            if (this.readingTimeAdaptiveV2Input) {
-                settings.reading_time_adaptive_v2 = this.readingTimeAdaptiveV2Input.checked;
             }
 
             if (this.extraPunctuationRegexInput) {

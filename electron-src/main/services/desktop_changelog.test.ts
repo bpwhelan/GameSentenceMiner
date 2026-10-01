@@ -131,6 +131,69 @@ describe('getDesktopUpdateChangelogTarget', () => {
     });
 });
 
+describe('read-only update offers', () => {
+    it('loads the latest online changelog even when it is already installed', async () => {
+        const fetchImpl = vi.fn(async (url) => ({
+            ok: true,
+            json: async () => String(url).includes('api.github.com')
+                ? [
+                    { tag_name: 'v1.0.1', draft: false, prerelease: false },
+                    { tag_name: 'v1.0.3-beta.1', draft: false, prerelease: true },
+                    { tag_name: 'v1.0.2', draft: false, prerelease: false },
+                ]
+                : { markdown: '# Latest online notes', title: 'Latest release' },
+        } as Response));
+        const manager = new DesktopChangelogManager(makeStore(), { assetsDir: makeTempAssetsDir(), fetchImpl });
+        const snapshot = await manager.getLatestOnlinePreview('1.0.2');
+        expect(snapshot).toMatchObject({ fromVersion: '1.0.2', toVersion: '1.0.2', source: 'remote', markdown: '# Latest online notes' });
+        expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('/v1.0.2/changelog-v1.0.2.json'), expect.anything());
+    });
+
+    it('loads a future release without opening or marking the installed changelog', async () => {
+        const store = makeStore();
+        const manager = new DesktopChangelogManager(store, {
+            assetsDir: makeTempAssetsDir(),
+            fetchImpl: vi.fn(async (url) => ({
+                ok: true,
+                json: async () => String(url).includes('api.github.com')
+                    ? [{ tag_name: 'v1.0.2', draft: false, prerelease: false }]
+                    : { markdown: '# New release\n\nNew feature.' },
+            } as Response)),
+        });
+        const onPending = vi.fn();
+        const onManual = vi.fn();
+        manager.setSnapshotListener(onPending);
+        manager.setManualSnapshotListener(onManual);
+        const snapshot = await manager.getUpdatePreview({ fromVersion: '1.0.0', toVersion: '1.0.2' });
+        expect(snapshot).toMatchObject({ status: 'ready', source: 'remote', toVersion: '1.0.2' });
+        expect(snapshot.markdown).toContain('New feature.');
+        expect(store.pending).toBeNull();
+        expect(store.seen.size).toBe(0);
+        expect(onPending).not.toHaveBeenCalled();
+        expect(onManual).not.toHaveBeenCalled();
+    });
+
+    it('reports unavailable notes without claiming the future update is installed', async () => {
+        const manager = new DesktopChangelogManager(makeStore(), {
+            assetsDir: makeTempAssetsDir(),
+            fetchImpl: vi.fn(async () => { throw new Error('Offline'); }),
+        });
+        const snapshot = await manager.getUpdatePreview({ fromVersion: '1.0.0', toVersion: '1.0.2' });
+        expect(snapshot).toMatchObject({ status: 'failed', markdown: '', source: null });
+    });
+
+    it('does not use an older bundled release as the changelog for a future update', async () => {
+        const assetsDir = makeTempAssetsDir();
+        writeManifest(assetsDir, [{ version: '1.0.1', markdown: '# Older release' }]);
+        const manager = new DesktopChangelogManager(makeStore(), {
+            assetsDir,
+            fetchImpl: vi.fn(async () => { throw new Error('Offline'); }),
+        });
+        const snapshot = await manager.getUpdatePreview({ fromVersion: '1.0.0', toVersion: '1.0.2' });
+        expect(snapshot).toMatchObject({ status: 'failed', markdown: '' });
+    });
+});
+
 describe('DesktopChangelogManager', () => {
     it('aggregates bundled changelog entries for skipped versions', async () => {
         const assetsDir = makeTempAssetsDir();

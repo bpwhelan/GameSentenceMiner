@@ -129,8 +129,10 @@ describe('manual_hotkey_controller', () => {
     expect(harness.events.filter((event) => event.reason.startsWith('toggle-'))).toHaveLength(2);
   });
 
-  it('only blocks manual activation for explicitly hidden game states', () => {
-    expect(isManualHotkeyBlockedByGameWindowState('unknown')).toBe(false);
+  it('requires a known usable game state for manual activation', () => {
+    expect(isManualHotkeyBlockedByGameWindowState('unknown')).toBe(true);
+    expect(isManualHotkeyBlockedByGameWindowState('')).toBe(true);
+    expect(isManualHotkeyBlockedByGameWindowState('unexpected')).toBe(true);
     expect(isManualHotkeyBlockedByGameWindowState('active')).toBe(false);
     expect(isManualHotkeyBlockedByGameWindowState('background')).toBe(false);
     expect(isManualHotkeyBlockedByGameWindowState('obscured')).toBe(true);

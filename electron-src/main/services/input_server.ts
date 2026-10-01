@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { app } from 'electron';
 
 import { getBaseDir } from '../data_dir.js';
+import { getOverlayDataPath } from '../overlay_data_dir.js';
 
 // Port 0 asks the OS to reserve an available ephemeral port atomically. Never
 // probe a port in Electron and bind it later in Rust: that leaves a race for
@@ -248,6 +249,9 @@ export async function startInputServer(): Promise<boolean> {
                 env: {
                     ...process.env,
                     GSM_OVERLAY_DATA_PATH: path.join(getBaseDir(), 'gsm_overlay'),
+                    // Tokenizer data uses the service directory above, but the
+                    // listener preferences live with the overlay's settings.
+                    GSM_GAMEPAD_SETTINGS_PATH: path.join(getOverlayDataPath(), 'settings.json'),
                 },
             }
         );

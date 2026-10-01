@@ -1834,7 +1834,6 @@ class ProfileConfig:
 class StatsConfig:
     session_gap_seconds: int = 1800
     day_rollover_hour: int = 4  # Hour (0-23) when a new day starts for the Today stats card
-    reading_time_adaptive_v2: bool = True  # v2: cap reading time by conservative session median speed
     streak_requirement_hours: float = 0.01  # 1 second required per day to keep your streak by default
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
     character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
@@ -2579,6 +2578,7 @@ def _remove_deprecated_config_settings(config_data: dict):
     stats = config_data.get("stats")
     if isinstance(stats, dict):
         stats.pop("afk_timer_seconds", None)
+        stats.pop("reading_time_adaptive_v2", None)
 
     def _remove_from_profile(profile_data: dict):
         if not isinstance(profile_data, dict):
