@@ -8,6 +8,14 @@ const { between } = require('./helpers/overlay-startup.cjs');
 
 const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
 
+function loadFunctions(context, names) {
+  for (const name of names) {
+    const match = source.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}`, 'm'));
+    assert.ok(match, `Missing production function ${name}`);
+    vm.runInContext(match[0], context);
+  }
+}
+
 function setup(t) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 10000 });
   const effects = [], messages = [];
@@ -53,14 +61,45 @@ function setup(t) {
     'requestManualOverlayScan', 'requestManualModeBackground', 'restoreAutomaticOverlayPassThrough',
     'showInactiveAndRestoreFocus', 'focusOverlayForYomitanLookup',
   ];
-  for (const name of names) {
-    const match = source.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}`, 'm'));
-    assert.ok(match, `Missing production function ${name}`);
-    vm.runInContext(match[0], context);
-  }
+  loadFunctions(context, names);
   vm.runInContext(between(source, 'const GAMEPAD_FOCUS_RETRY_DELAYS_MS', 'let gamepadToggleRequestSeq'), context);
   vm.runInContext(between(source, '  ipcMain.on("show",', '  ipcMain.on("yomitan-event"'), context);
   return { context, effects, messages, ipcMain };
+}
+
+function setupTextfeed(t) {
+  const fixture = setup(t);
+  const { context: c, effects } = fixture;
+  const hotkeys = new Map();
+  let visible = false;
+  Object.assign(c, {
+    texthookerWindow: {
+      isDestroyed: () => false, isVisible: () => visible,
+      show: () => { visible = true; }, hide: () => { visible = false; },
+      setBounds() {}, setIgnoreMouseEvents() {}, setAlwaysOnTop() {}, focus() {},
+    },
+    DEFAULT_TEXTHOOKER_HOTKEY: 'Alt+Shift+W', TOGGLE_HOTKEY_COOLDOWN_MS: 300,
+    OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY: 'textfeed',
+    OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL: 'gamepad-manual',
+    overlayPauseSourceActive: {},
+    shouldOverlayHotkeyRequestPause: () => true,
+    sendOverlayPauseRequest: (action, source) => { effects.push(`${action}:${source}`); return true; },
+    ensureManualAndTexthookerHotkeysDistinct: () => false,
+    setOverlaySettingValue: (key, value) => { c.userSettings[key] = value; },
+    safeUnregisterHotkey() {},
+    setAppHotkey: (name, _key, handler) => { hotkeys.set(name, handler); return true; },
+    getCurrentOverlayMonitor: () => ({}),
+    getOverlayBoundsForDisplay: () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
+    requestBackendFocusRestore: () => effects.push('restore-game-focus'),
+    blurAndRestoreFocus() {},
+    revealAutomaticOverlayForSignal: () => effects.push('automatic-reveal'),
+  });
+  loadFunctions(c, [
+    'registerTexthookerHotkey', 'requestOverlayPauseForSource',
+    'requestOverlayResumeForSource', 'releaseAllOverlayPauseRequests',
+  ]);
+  c.registerTexthookerHotkey();
+  return { ...fixture, toggleTextfeed: hotkeys.get('texthooker') };
 }
 
 test('every reveal, scan, and focus entry rejects unconfirmed capture', t => {
@@ -108,6 +147,90 @@ test('TextFeed cannot leave stale game state available for overlay entry', t => 
   c.updateOverlayCaptureStatus({ available: false, window_state: 'closed' });
   c.isTexthookerMode = false;
   assert.equal(c.canUseOverlayCapture(), false);
+});
+
+test('an open TextFeed survives obscured capture updates and keeps its pause until closed', t => {
+  const { context: c, effects, messages, toggleTextfeed } = setupTextfeed(t);
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
+  toggleTextfeed();
+  effects.length = 0;
+  for (let heartbeat = 0; heartbeat < 6; heartbeat++) {
+    t.mock.timers.tick(1000);
+    c.updateOverlayCaptureStatus({ available: true, window_state: 'obscured' });
+    assert.equal(c.texthookerWindow.isVisible(), true, 'covering the game must not dismiss TextFeed');
+    assert.equal(c.isTexthookerMode, true);
+    assert.equal(c.overlayPauseSourceActive.textfeed, true);
+    assert.equal(c.canUseOverlayCapture(), false, 'TextFeed still suppresses normal overlay interaction');
+  }
+  assert.ok(!effects.includes('resume:textfeed'));
+  assert.equal(messages.filter(([name]) => name === 'overlay-capture-state').at(-1)[1].available, false);
+  toggleTextfeed();
+  assert.equal(c.texthookerWindow.isVisible(), false);
+  assert.equal(c.isTexthookerMode, false);
+  assert.equal(c.overlayPauseSourceActive.textfeed, false);
+  assert.ok(effects.includes('resume:textfeed'));
+  assert.ok(effects.includes('restore-game-focus'));
+  assert.equal(c.canUseOverlayCapture(), false, 'closing must wait for the game to become visible');
+  assert.ok(!effects.includes('show'));
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'background' });
+  assert.equal(c.canUseOverlayCapture(), true);
+  assert.ok(effects.includes('automatic-reveal'));
+});
+
+for (const [label, loseCapture] of [
+  ['game minimized after focus changes', c => c.updateOverlayCaptureStatus({ available: false, window_state: 'minimized' })],
+  ['game closed or no longer captured', c => c.updateOverlayCaptureStatus({ available: false, window_state: 'closed' })],
+  ['obscured game without valid capture', c => c.updateOverlayCaptureStatus({ available: false, window_state: 'obscured' })],
+  ['capture heartbeat expired', (_c, t) => t.mock.timers.tick(5001)],
+  ['backend disconnected', c => c.publishOverlaySocketState('ws2', false)],
+]) {
+  test(`TextFeed still releases capture and pause with ${label}`, t => {
+    const { context: c, effects, messages, toggleTextfeed } = setupTextfeed(t);
+    c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
+    toggleTextfeed();
+    assert.equal(c.texthookerWindow.isVisible(), true);
+    assert.equal(c.overlayPauseSourceActive.textfeed, true);
+
+    effects.length = 0;
+    loseCapture(c, t);
+    assert.equal(c.texthookerWindow.isVisible(), false);
+    assert.equal(c.isTexthookerMode, false);
+    assert.equal(c.overlayPauseSourceActive.textfeed, false);
+    assert.ok(effects.includes('resume:textfeed'));
+    assert.equal(c.hasValidOverlayCapture(), false);
+    assert.equal(c.canUseOverlayCapture(), false);
+    assert.equal(messages.filter(([name]) => name === 'overlay-capture-state').at(-1)[1].available, false);
+
+    assert.ok(!effects.includes('show'), 'capture loss must not restore the overlay');
+    toggleTextfeed();
+    assert.equal(c.texthookerWindow.isVisible(), false, 'reopening still requires fresh capture');
+  });
+}
+
+test('capture recovery keeps the overlay hidden until TextFeed is closed', t => {
+  const { context: c, effects, toggleTextfeed } = setupTextfeed(t);
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
+  toggleTextfeed();
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'obscured' });
+  effects.length = 0;
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'background' });
+  assert.equal(c.texthookerWindow.isVisible(), true);
+  assert.equal(c.hasValidOverlayCapture(), true);
+  assert.equal(c.canUseOverlayCapture(), false);
+  assert.ok(!effects.includes('show'));
+  assert.ok(!effects.includes('automatic-reveal'));
+  toggleTextfeed();
+  assert.equal(c.texthookerWindow.isVisible(), false);
+  assert.equal(c.canUseOverlayCapture(), true);
+  assert.ok(effects.includes('show'));
+});
+
+test('full overlay cleanup still releases the TextFeed pause', t => {
+  const { context: c, toggleTextfeed } = setupTextfeed(t);
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
+  toggleTextfeed();
+  c.releaseAllOverlayPauseRequests();
+  assert.equal(c.overlayPauseSourceActive.textfeed, false);
 });
 
 test('backend reconnection requires new capture confirmation', t => {

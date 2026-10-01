@@ -1869,9 +1869,11 @@ function isTrackedGameWindowVisibleForManualHotkey() {
 function hasValidOverlayCapture() {
   if (!overlayCaptureAvailable) return false;
   if (["active", "background"].includes(trackedGameWindowState)) return true;
-  // Preserve an already-open lookup through the existing Magpie focus handoff.
+  // TextFeed can cover the game itself; keep its existing visibility exception
+  // consistent with window-state-changed while the backend still confirms capture.
+  // Also preserve an already-open lookup through the Magpie focus handoff.
   return trackedGameWindowState === "obscured" &&
-    (yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
+    (isTexthookerMode || yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
 }
 
 function canUseOverlayCapture() {
@@ -5923,12 +5925,19 @@ function createTexthookerWindow() {
     show: false,
     alwaysOnTop: true,
     resizable: false,
-    title: "GSM Texthooker",
+    title: "GSM Overlay - TextFeed",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       backgroundThrottling: false, // Prevents sleeping
     },
+  });
+
+  // The window monitor recognizes this title marker in both the standalone and
+  // shared Electron runtime. Page titles (including custom titles) must retain it.
+  texthookerWindow.on('page-title-updated', (event, title) => {
+    event.preventDefault();
+    texthookerWindow.setTitle(`GSM Overlay - ${title || "TextFeed"}`);
   });
 
   waitForTexthookerUrl(texthookerWindow, userSettings.texthookerUrl || DEFAULT_TEXTHOOKER_URL);
