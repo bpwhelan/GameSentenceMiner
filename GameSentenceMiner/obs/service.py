@@ -972,8 +972,19 @@ class OBSService:
                     self._source_no_output_timestamp = None
             return
 
-        # A focus change wakes the OBS manager between its usual screenshot probes.
-        # For ordinary auto-starts, confirm OBS has output before starting the buffer.
+        # Use the same game detection as overlay/hook automation. A captured live
+        # window is enough to start buffering, including during a black loading
+        # screen or between the periodic OBS output probes.
+        if source_active is not True:
+            from GameSentenceMiner.obs.active_game import get_active_game_snapshot
+            from GameSentenceMiner.util.platform.window_state_monitor import get_window_state_monitor
+
+            snapshot = get_active_game_snapshot(get_window_state_monitor())
+            if snapshot["sceneName"] == current_scene and snapshot["active"] is True:
+                source_active = True
+
+        # If game detection is still inconclusive, a focus change can confirm OBS
+        # output without waiting for the next scheduled screenshot probe.
         if window_activity == "active" and previous_window_activity != "active" and source_active is None:
             try:
                 source_active = self._is_output_active_from_screenshot()
@@ -1285,7 +1296,7 @@ class OBSConnectionManager(threading.Thread):
         self.last_tick_time = 0
 
     def request_tick(self) -> None:
-        """Wake the OBS loop after a tracked game-window state change."""
+        """Wake the OBS loop after game detection or a tracked window-state change."""
         self._wake_event.set()
 
     def _recover_obs_connection(self) -> bool:
@@ -1356,7 +1367,7 @@ class OBSConnectionManager(threading.Thread):
         import GameSentenceMiner.obs as _obs_pkg
 
         disconnect_sleep_manager = SleepManager(initial_delay=2.0, name="OBS_Disconnect")
-        if self._stop_event.wait(5):
+        if self._stop_event.is_set():
             return
 
         # Initial periodic work
@@ -1447,10 +1458,6 @@ async def connect_to_obs(
                 gsm_status.obs_connected = True
                 logger.success("Connected to OBS WebSocket.")
 
-                if start_manager and not _obs_pkg.obs_connection_manager:
-                    _obs_pkg.obs_connection_manager = OBSConnectionManager(check_output=check_output)
-                    _obs_pkg.obs_connection_manager.start()
-
                 try:
                     from GameSentenceMiner.obs.actions import update_current_game
 
@@ -1464,6 +1471,11 @@ async def connect_to_obs(
                     apply_obs_performance_settings()
                 except Exception:
                     pass
+
+                # Configure outputs before the manager's immediate replay check.
+                if start_manager and not _obs_pkg.obs_connection_manager:
+                    _obs_pkg.obs_connection_manager = OBSConnectionManager(check_output=check_output)
+                    _obs_pkg.obs_connection_manager.start()
 
                 if get_config().features.generate_longplay and check_output and not _is_obs_recording_disabled():
                     try:
@@ -1519,10 +1531,6 @@ def connect_to_obs_sync(
                 gsm_status.obs_connected = True
                 logger.success("Connected to OBS WebSocket.")
 
-                if start_manager and not _obs_pkg.obs_connection_manager:
-                    _obs_pkg.obs_connection_manager = OBSConnectionManager(check_output=check_output)
-                    _obs_pkg.obs_connection_manager.start()
-
                 try:
                     from GameSentenceMiner.obs.actions import update_current_game
 
@@ -1536,6 +1544,11 @@ def connect_to_obs_sync(
                     apply_obs_performance_settings()
                 except Exception:
                     pass
+
+                # Configure outputs before the manager's immediate replay check.
+                if start_manager and not _obs_pkg.obs_connection_manager:
+                    _obs_pkg.obs_connection_manager = OBSConnectionManager(check_output=check_output)
+                    _obs_pkg.obs_connection_manager.start()
 
                 if get_config().features.generate_longplay and check_output and not _is_obs_recording_disabled():
                     try:

@@ -79,5 +79,11 @@ def publish_active_game_state(monitor):
     now = time.time()
     if snapshot == _last_published_snapshot and now - _last_published_at < 1:
         return
+    if snapshot != _last_published_snapshot and snapshot["active"] is True:
+        import GameSentenceMiner.obs as obs_package
+
+        manager = obs_package.obs_connection_manager
+        if manager is not None:
+            manager.request_tick()
     send_message("active_game_state", {**snapshot, "observedAt": now * 1000})
     _last_published_snapshot, _last_published_at = snapshot, now

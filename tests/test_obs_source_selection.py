@@ -12,6 +12,7 @@ import pytest
 import GameSentenceMiner.obs as obs
 import GameSentenceMiner.obs as obs_module
 import GameSentenceMiner.obs.actions as obs_actions_module
+import GameSentenceMiner.obs.active_game as active_game_module
 import GameSentenceMiner.obs.launch as obs_launch_module
 import GameSentenceMiner.obs.service as obs_service_module
 
@@ -451,6 +452,74 @@ def test_replay_buffer_focus_return_respects_external_stop(monkeypatch):
     service._manage_replay_buffer(source_active=None, now=100.0, current_scene="Game")
 
 
+@pytest.fixture
+def detected_replay_game(monkeypatch):
+    service = _make_obs_service(monkeypatch)
+    service.check_output = True
+    service.state.current_scene = "Game"
+    service.state.replay_buffer_active = False
+    monitor = SimpleNamespace(
+        last_target_scene_name="Game",
+        last_state="active",
+        target_hwnd=123,
+        ever_had_target_hwnd=True,
+    )
+    config = SimpleNamespace(obs=SimpleNamespace(automatically_manage_replay_buffer=True, disable_recording=False))
+    actions = []
+
+    def start_replay():
+        actions.append("start")
+        service.state.replay_buffer_active = True
+
+    monkeypatch.setattr(obs_module, "obs_service", service)
+    monkeypatch.setattr(obs_service_module.gsm_status, "obs_connected", True)
+    monkeypatch.setattr(obs_service_module, "get_config", lambda: config)
+    monkeypatch.setattr(obs_service_module, "is_windows", lambda: True)
+    monkeypatch.setattr(active_game_module, "is_windows", lambda: True)
+    monkeypatch.setattr(active_game_module, "user32", SimpleNamespace(IsWindow=lambda hwnd: True))
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.platform.window_state_monitor.get_window_state_monitor", lambda: monitor
+    )
+    monkeypatch.setattr(obs_actions_module, "start_replay_buffer", start_replay)
+    monkeypatch.setattr(service, "_is_output_active_from_screenshot", lambda: None)
+    return service, monitor, config, actions
+
+
+@pytest.mark.parametrize("window_state", ["active", "background", "obscured", "minimized"])
+@pytest.mark.parametrize("source_active", [None, False])
+def test_replay_buffer_starts_as_soon_as_captured_game_is_detected(detected_replay_game, window_state, source_active):
+    service, monitor, _, actions = detected_replay_game
+    monitor.last_state = window_state
+
+    service._manage_replay_buffer(source_active=source_active, now=100.0, current_scene="Game")
+    service._manage_replay_buffer(source_active=source_active, now=101.0, current_scene="Game")
+
+    assert actions == ["start"]
+
+
+@pytest.mark.parametrize("guard", ["manual", "disabled", "external_stop", "other_scene", "closed", "inactive"])
+def test_detected_game_replay_start_respects_guards(detected_replay_game, monkeypatch, guard):
+    service, monitor, config, actions = detected_replay_game
+    if guard == "manual":
+        config.obs.automatically_manage_replay_buffer = False
+    elif guard == "disabled":
+        config.obs.disable_recording = True
+    elif guard == "external_stop":
+        service._auto_start_paused_by_external_replay_stop = True
+    elif guard == "other_scene":
+        monitor.last_target_scene_name = "Other Game"
+    elif guard == "closed":
+        monitor.target_hwnd = None
+    elif guard == "inactive":
+        monitor.last_state = "background"
+        service._window_inactive_since = 100.0
+        monkeypatch.setattr(obs_service_module.time, "monotonic", lambda: 400.0)
+
+    service._manage_replay_buffer(source_active=None, now=400.0, current_scene="Game")
+
+    assert actions == []
+
+
 def test_replay_buffer_window_inactivity_respects_manual_management(monkeypatch):
     service = _make_obs_service(monkeypatch)
     service.check_output = True
@@ -530,6 +599,22 @@ def test_window_state_change_wakes_obs_manager_for_immediate_replay_check(monkey
 
     assert len(tick_options) == 1
     assert tick_options[0].manage_replay_buffer is True
+
+
+def test_obs_manager_checks_replay_without_startup_delay(monkeypatch):
+    manager = obs_service_module.OBSConnectionManager(check_output=True)
+    checks = []
+
+    def initial_check(force):
+        checks.append(force)
+        manager.stop()
+
+    monkeypatch.setattr(manager._stop_event, "wait", lambda timeout: pytest.fail("unexpected startup delay"))
+    monkeypatch.setattr(obs_module, "obs_service", SimpleNamespace(_periodic_work=initial_check))
+
+    manager.run()
+
+    assert checks == [True]
 
 
 def test_get_best_source_for_screenshot_falls_back_to_window_capture(monkeypatch):
@@ -995,8 +1080,9 @@ def test_wait_for_obs_ready_disconnects_probe_client(monkeypatch):
     assert disconnected == [True]
 
 
-def test_connect_to_obs_sync_creates_service_and_manager(monkeypatch):
-    """Verify connect_to_obs_sync creates OBSService and starts OBSConnectionManager."""
+@pytest.mark.parametrize("asynchronous", [False, True])
+def test_connect_to_obs_configures_outputs_before_starting_manager(monkeypatch, asynchronous):
+    calls = []
 
     class _FakePool:
         def __init__(self, *args, **kwargs):
@@ -1019,6 +1105,7 @@ def test_connect_to_obs_sync_creates_service_and_manager(monkeypatch):
 
         def start(self):
             self.started = True
+            calls.append("manager")
 
     monkeypatch.setattr(obs_service_module, "OBSConnectionPool", _FakePool)
     monkeypatch.setattr(obs_service_module.obs, "EventClient", _FakeEventClient)
@@ -1026,7 +1113,7 @@ def test_connect_to_obs_sync_creates_service_and_manager(monkeypatch):
     monkeypatch.setattr(obs_service_module.OBSService, "_register_default_handlers", lambda self: None)
     monkeypatch.setattr(obs_service_module.OBSService, "_initialize_state", lambda self: None)
     monkeypatch.setattr(obs_actions_module, "update_current_game", lambda: None)
-    monkeypatch.setattr(obs_actions_module, "apply_obs_performance_settings", lambda **kwargs: None)
+    monkeypatch.setattr(obs_actions_module, "apply_obs_performance_settings", lambda **kwargs: calls.append("settings"))
 
     # Reset module state
     monkeypatch.setattr(obs_module, "obs_service", None)
@@ -1035,8 +1122,12 @@ def test_connect_to_obs_sync_creates_service_and_manager(monkeypatch):
     monkeypatch.setattr(obs_module, "connecting", False)
     monkeypatch.setattr(obs_module, "obs_connection_manager", None)
 
-    obs_service_module.connect_to_obs_sync(retry=1, connections=2, check_output=False)
+    if asynchronous:
+        asyncio.run(obs_service_module.connect_to_obs(retry=1, connections=2, check_output=False))
+    else:
+        obs_service_module.connect_to_obs_sync(retry=1, connections=2, check_output=False)
 
+    assert calls == ["settings", "manager"]
     assert obs_module.obs_service is not None
     assert obs_module.connection_pool is not None
     assert obs_module.obs_connection_manager is not None

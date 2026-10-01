@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import GameSentenceMiner.obs as obs_module
 from GameSentenceMiner.obs import actions, active_game
 from GameSentenceMiner.obs import service as obs_service
 
@@ -140,3 +141,32 @@ def test_publish_includes_evidence_time(capture, monkeypatch):
     monitor.target_hwnd = None
     active_game.publish_active_game_state(monitor)
     assert sent[-1][1]["active"] is False
+
+
+def test_active_game_detection_wakes_replay_without_waiting_for_window_state_change(capture, monkeypatch):
+    monitor, state, _ = capture
+    wakeups = []
+    monkeypatch.setattr(active_game, "send_message", lambda *args: None)
+    monkeypatch.setattr(
+        obs_module, "obs_connection_manager", SimpleNamespace(request_tick=lambda: wakeups.append(True))
+    )
+
+    active_game.publish_active_game_state(monitor)
+    assert len(wakeups) == 1
+
+    # Heartbeats do not repeatedly wake the OBS worker.
+    monkeypatch.setattr(active_game.time, "time", lambda: 101.0)
+    active_game.publish_active_game_state(monitor)
+    assert len(wakeups) == 1
+
+    monitor.target_hwnd = None
+    active_game.publish_active_game_state(monitor)
+    assert len(wakeups) == 1
+    monitor.target_hwnd = 123
+    active_game.publish_active_game_state(monitor)
+    assert len(wakeups) == 2
+
+    # Two games can have the same window state while their OBS scene changes.
+    state.current_scene = monitor.last_target_scene_name = "Other Game"
+    active_game.publish_active_game_state(monitor)
+    assert len(wakeups) == 3
