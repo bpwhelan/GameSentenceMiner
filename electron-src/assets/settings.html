@@ -85,16 +85,6 @@
                 </div>
 
                 <div class="input-group">
-                    <label for="showYuzuTab">Show Yuzu Launcher:</label>
-                    <input type="checkbox" id="showYuzuTab">
-                    <span class="tooltip tooltip-bottom tooltip-right">❁E
-                        <span class="tooltiptext">
-                            Enables or disables the Yuzu Launcher tab in the launcher interface.
-                        </span>
-                    </span>
-                </div>
-
-                <div class="input-group">
                     <label for="runWindowTransparencyToolOnStartup">Run Window Transparency Tool on Startup:</label>
                     <input type="checkbox" id="runWindowTransparencyToolOnStartup">
                 </div>
@@ -204,7 +194,6 @@
         // const autoUpdateElectronCheckbox = document.getElementById('autoUpdateElectron');
         const startConsoleMinimizedCheckbox = document.getElementById('startConsoleMinimized');
         const customPythonPackageInput = document.getElementById('customPythonPackage');
-        const showYuzuTab = document.getElementById('showYuzuTab');
         const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
         const windowTransparencyToolHotkeyInput = document.getElementById('window-transparency-tool-hotkey');
         const windowTransparencyTargetInput = document.getElementById('window-transparency-target');
@@ -314,7 +303,6 @@
                 // agentScriptsPathInput.value = settings.agentScriptsPath || '';
                 startConsoleMinimizedCheckbox.checked = settings.startConsoleMinimized || false;
                 customPythonPackageInput.value = settings.customPythonPackage || 'GameSentenceMiner';
-                showYuzuTab.checked = settings.showYuzuTab || false;
                 windowTransparencyToolHotkeyInput.value = settings.windowTransparencyToolHotkey || 'Ctrl+Alt+Y';
                 windowTransparencyTargetInput.value = settings.windowTransparencyTarget || '';
                 runWindowTransparencyToolOnStartupCheckbox.checked = settings.runWindowTransparencyToolOnStartup || false;
@@ -344,7 +332,6 @@
                 // agentScriptsPath: agentScriptsPathInput.value,
                 startConsoleMinimized: startConsoleMinimizedCheckbox.checked,
                 customPythonPackage: customPythonPackageInput.value,
-                showYuzuTab: showYuzuTab.checked,
                 windowTransparencyToolHotkey: windowTransparencyToolHotkeyInput.value,
                 windowTransparencyTarget: windowTransparencyTargetInput.value.trim(),
                 runWindowTransparencyToolOnStartup: runWindowTransparencyToolOnStartupCheckbox.checked,
@@ -360,7 +347,6 @@
             iconStyleSelect,
             // autoUpdateElectronCheckbox,
             customPythonPackageInput,
-            showYuzuTab,
             windowTransparencyToolHotkeyInput,
             startConsoleMinimizedCheckbox,
             runWindowTransparencyToolOnStartupCheckbox,

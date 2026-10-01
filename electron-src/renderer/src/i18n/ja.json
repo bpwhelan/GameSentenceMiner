@@ -534,7 +534,6 @@
       "iconRandomTray": "ランダム（トレイアイコンも）",
       "language": "言語:",
       "startMinimized": "コンソール最小化で起動:",
-      "showYuzuLauncher": "Yuzuランチャーを表示:",
       "runTransparencyOnStartup": "起動時に透過ツールを実行:",
       "runOverlayOnStartup": "起動時にオーバーレイを実行:",
       "quitOnWindowClose": "ウィンドウを閉じたときにGSMを終了:",

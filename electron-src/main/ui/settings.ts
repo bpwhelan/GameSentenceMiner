@@ -42,7 +42,6 @@ import {
     getSceneLaunchProfileForScene,
     getSceneLaunchProfiles,
     getSetupWizardVersion,
-    getShowYuzuTab,
     getStartConsoleMinimized,
     getStatsEndpoint,
     getTextCaptureWizardEnabled,
@@ -80,7 +79,6 @@ import {
     setRunWindowTransparencyToolOnStartup,
     setSceneLaunchProfiles,
     setSetupWizardVersion,
-    setShowYuzuTab,
     setStartConsoleMinimized,
     setStatsEndpoint,
     setTextCaptureWizardEnabled,
@@ -968,7 +966,6 @@ function getSettingsSnapshot() {
         pullPreReleases: getPullPreReleases(),
         startConsoleMinimized: getStartConsoleMinimized(),
         customPythonPackage: getCustomPythonPackage(),
-        showYuzuTab: getShowYuzuTab(),
         windowTransparencyToolHotkey: getWindowTransparencyToolHotkey(),
         windowTransparencyTarget: store.get('windowTransparencyTarget') || '',
         runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
@@ -1166,9 +1163,6 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
         if (typeof payload.customPythonPackage === 'string') {
             setCustomPythonPackage(payload.customPythonPackage);
-        }
-        if (typeof payload.showYuzuTab === 'boolean') {
-            setShowYuzuTab(payload.showYuzuTab);
         }
         if (typeof payload.windowTransparencyToolHotkey === 'string') {
             setWindowTransparencyToolHotkey(payload.windowTransparencyToolHotkey);

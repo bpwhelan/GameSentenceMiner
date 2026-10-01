@@ -1355,14 +1355,6 @@ export function setStartConsoleMinimized(shouldMinimize: boolean): void {
     store.set("startConsoleMinimized", shouldMinimize);
 }
 
-export function setShowYuzuTab(shouldShow: boolean): void {
-    store.set("showYuzuTab", shouldShow);
-}
-
-export function getShowYuzuTab(): boolean {
-    return store.get("showYuzuTab");
-}
-
 export function getVNs(): VN[] {
     return store.get('VN.vns');
 }

@@ -499,7 +499,6 @@
       "iconRandomTray": "랜덤 (트레이 아이콘 포함)",
       "language": "표시 언어 (AI):",
       "startMinimized": "콘솔 최소화 시작:",
-      "showYuzuLauncher": "Yuzu 런처 표시:",
       "runTransparencyOnStartup": "시작 시 창 투명도 도구 실행:",
       "runOverlayOnStartup": "시작 시 오버레이 실행:"
     },

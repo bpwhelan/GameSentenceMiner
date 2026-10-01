@@ -534,7 +534,6 @@
       "iconRandomTray": "Випадковий (також іконка в треї)",
       "language": "Мова:",
       "startMinimized": "Запускати консоль згорнутою:",
-      "showYuzuLauncher": "Показувати Yuzu Launcher:",
       "runTransparencyOnStartup": "Запускати інструмент прозорості вікон при старті:",
       "runOverlayOnStartup": "Запускати оверлей при старті:",
       "quitOnWindowClose": "Виходити з GSM під час закриття вікна:",

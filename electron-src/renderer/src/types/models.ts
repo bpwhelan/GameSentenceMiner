@@ -82,7 +82,6 @@ export interface AppSettings {
   iconStyle: string;
   startConsoleMinimized: boolean;
   customPythonPackage: string;
-  showYuzuTab: boolean;
   windowTransparencyToolHotkey: string;
   windowTransparencyTarget: string;
   runWindowTransparencyToolOnStartup: boolean;

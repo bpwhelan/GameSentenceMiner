@@ -48,7 +48,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   iconStyle: "gsm",
   startConsoleMinimized: false,
   customPythonPackage: "GameSentenceMiner",
-  showYuzuTab: false,
   windowTransparencyToolHotkey: "Ctrl+Alt+Y",
   windowTransparencyTarget: "",
   runWindowTransparencyToolOnStartup: false,
@@ -1276,18 +1275,6 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   checked={settings.startConsoleMinimized}
                   onChange={(event) =>
                     patchSettings({ startConsoleMinimized: event.target.checked })
-                  }
-                />
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="show-yuzu-tab">{t("settings.desktop.showYuzuLauncher")}</label>
-                <input
-                  id="show-yuzu-tab"
-                  type="checkbox"
-                  checked={settings.showYuzuTab}
-                  onChange={(event) =>
-                    patchSettings({ showYuzuTab: event.target.checked })
                   }
                 />
               </div>

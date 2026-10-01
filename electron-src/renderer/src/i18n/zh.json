@@ -499,7 +499,6 @@
       "iconRandomTray": "随机（含托盘图标）",
       "language": "显示语言（AI）：",
       "startMinimized": "启动时最小化控制台：",
-      "showYuzuLauncher": "显示 Yuzu 启动器：",
       "runTransparencyOnStartup": "启动时运行窗口透明工具：",
       "runOverlayOnStartup": "启动时运行覆盖层："
     },

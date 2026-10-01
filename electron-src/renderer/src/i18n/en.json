@@ -552,7 +552,6 @@
       "themeHighContrast": "High Contrast",
       "language": "Display Language (AI):",
       "startMinimized": "Start Console Minimized:",
-      "showYuzuLauncher": "Show Yuzu Launcher:",
       "runTransparencyOnStartup": "Run Window Transparency Tool on Startup:",
       "runOverlayOnStartup": "Run Overlay on Startup:",
       "quitOnWindowClose": "Exit GSM when closing the window:",

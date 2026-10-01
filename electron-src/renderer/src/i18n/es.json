@@ -501,7 +501,6 @@
       "iconRandomTray": "Aleatorio (icono de bandeja también)",
       "language": "Idioma de visualización (IA):",
       "startMinimized": "Iniciar consola minimizada:",
-      "showYuzuLauncher": "Mostrar lanzador Yuzu:",
       "runTransparencyOnStartup": "Ejecutar herramienta de transparencia al inicio:",
       "runOverlayOnStartup": "Ejecutar superposición al inicio:"
     },
