@@ -682,6 +682,16 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 if exe_name:
                     exe_lower = exe_name.lower()
 
+                    # Existing desktop builds use these TextFeed titles without the
+                    # "GSM Overlay" marker. The shared runtime also no longer runs
+                    # as gsm_overlay.exe, so recognize the feed in either runtime.
+                    if title_lower in {"gsm texthooker", "gsm textfeed", "gsm text feed"} and exe_lower in {
+                        "gamesentenceminer.exe",
+                        "electron.exe",
+                        "gsm_overlay.exe",
+                    }:
+                        return True
+
                     if any(
                         name in exe_lower
                         for name in [
