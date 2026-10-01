@@ -693,6 +693,10 @@ export function stopOCR(options: OCRStopOptions): boolean {
         ocrStopRequested = true;
         void getProcessManager().stop(OCR_CLIENT_ID, {
             gracefulStopData: buildOcrStopCommand(options.reason),
+        }).catch((error) => {
+            console.error('[OCR] Failed to stop process:', error);
+            const message = error instanceof Error ? error.message : String(error);
+            sendToMainWindowFrames('ocr-ipc-error', `Failed to stop OCR: ${message}`);
         });
         return true;
     }

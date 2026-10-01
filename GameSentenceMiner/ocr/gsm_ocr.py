@@ -165,6 +165,7 @@ TWO_PASS_OCR_V2_BOX_STABILITY_TOL = 3
 
 paused = False
 shutdown_requested = False
+_ocr_cleanup_complete = False
 ocr_metrics_capture_lock = threading.Lock()
 area_select_ocr_hotkey = "ctrl+shift+o"
 add_area_ocr_hotkey = "alt+shift+n"
@@ -2347,17 +2348,32 @@ def initialize_qt_runtime_for_ocr():
 def run_qt_event_loop_for_ocr(qt_main_module=None):
     qt_main = qt_main_module or _get_qt_main_module()
     app = qt_main.get_qt_app()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        cleanup_ocr_runtime()
+
+
+def _queue_qt_quit_for_ocr() -> None:
+    from PyQt6.QtCore import QMetaObject, Qt
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app:
+        # Stop commands run on the bus thread. A direct app.quit() can deadlock
+        # there; post it to the GUI thread, including before exec() has started.
+        QMetaObject.invokeMethod(app, "quit", Qt.ConnectionType.QueuedConnection)
 
 
 def request_clean_shutdown(reason: str = "unknown") -> None:
-    global done, shutdown_requested, _ocr_deadline_scheduler
+    global done, shutdown_requested
 
     if shutdown_requested:
         return
 
     shutdown_requested = True
     done = True
+    ocr_runtime.terminated = True
     emit_ocr_debug(
         get_ocr_advanced_debug_logging(),
         "session.shutdown",
@@ -2365,17 +2381,13 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
     )
     close_ocr_debug_log()
     logger.info(f"OCR clean shutdown requested ({reason})")
-    _get_hotkey_manager().clear()
-
     try:
         _put_latest_second_ocr_task(None)
     except Exception:
         pass
     scheduler = _ocr_deadline_scheduler
-    _ocr_deadline_scheduler = None
     if scheduler is not None:
         scheduler.cancel("ocr.manual.capture")
-        release_runtime_scheduler(scheduler)
 
     try:
         qt_main = _get_qt_main_module()
@@ -2384,13 +2396,41 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
         logger.debug(f"Failed to shutdown Qt app via qt_main helper: {e}")
     finally:
         try:
-            from PyQt6.QtWidgets import QApplication
-
-            app = QApplication.instance()
-            if app:
-                app.quit()
+            _queue_qt_quit_for_ocr()
         except Exception as inner_error:
             logger.debug(f"Fallback Qt shutdown failed: {inner_error}")
+
+
+def cleanup_ocr_runtime() -> None:
+    """Join owned services on the main thread after Qt exits, never on the bus thread."""
+    global _ocr_cleanup_complete, _ocr_deadline_scheduler
+    if _ocr_cleanup_complete:
+        return
+    _ocr_cleanup_complete = True
+    started = perf_counter()
+    request_clean_shutdown("ocr-runtime-exit")
+
+    scheduler = _ocr_deadline_scheduler
+    _ocr_deadline_scheduler = None
+    steps = [
+        ("hotkeys", lambda: _get_hotkey_manager().clear()),
+        ("IPC", ocr_ipc.stop_ipc_listener),
+        ("OBS connection", obs.disconnect_from_obs),
+    ]
+    if scheduler is not None:
+        steps.append(("capture scheduler", lambda: release_runtime_scheduler(scheduler)))
+    # Some capture/config paths access the database. Close it only if loaded;
+    # cleanup must not initialize an otherwise unused database runtime.
+    db_module = sys.modules.get("GameSentenceMiner.util.database.db")
+    if db_module is not None:
+        steps.append(("database", db_module.gsm_db.close))
+    for name, cleanup in steps:
+        try:
+            if cleanup() is False:
+                logger.warning(f"OCR {name} did not finish stopping before its deadline")
+        except Exception:  # noqa: BLE001 - A failed cleanup must not strand the remaining services.
+            logger.exception(f"OCR shutdown failed while stopping {name}")
+    logger.info(f"OCR runtime cleanup completed in {perf_counter() - started:.3f}s")
 
 
 def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
@@ -3389,6 +3429,8 @@ def _save_ocr2_optimization_debug_images(pre_crop_image, cropped_image) -> dict[
 
 
 async def send_result(text, time, response_dict=None, source=TextSource.OCR):
+    if shutdown_requested:
+        return
     if text:
         # Skip expensive overlay coordinate math when no overlay client is
         # connected. The overlay is Windows-only and most users don't enable it.
@@ -4084,15 +4126,10 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
     done = True
-    # Quit Qt app if running
     try:
-        from PyQt6.QtWidgets import QApplication
-
-        app = QApplication.instance()
-        if app:
-            app.quit()
+        _queue_qt_quit_for_ocr()
     except Exception:
-        pass
+        logger.exception("Failed to queue Qt shutdown after the OCR engine exited")
 
 
 def _capture_monitor_image() -> tuple[Image.Image | None, dict[str, Any] | None]:
@@ -4625,3 +4662,6 @@ if __name__ == "__main__":
         logger.debug(e, exc_info=True)
         logger.info("Closing in 5 seconds...")
         time.sleep(5)
+    finally:
+        # Also clean up when startup fails before reaching the Qt event loop.
+        cleanup_ocr_runtime()

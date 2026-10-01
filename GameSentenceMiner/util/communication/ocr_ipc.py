@@ -74,6 +74,8 @@ CommandHandler = Callable[[Dict[str, Any]], None]
 _command_handler: Optional[CommandHandler] = None
 _stdin_thread: Optional[threading.Thread] = None
 _text_outbox = None
+_text_outbox_lock = threading.Lock()
+_stopping = False
 
 
 def _use_bus() -> bool:
@@ -153,6 +155,9 @@ def start_ipc_listener() -> Optional[threading.Thread]:
     On the bus: connect and subscribe to the command topic. Standalone: spawn the
     legacy stdin reader thread.
     """
+    global _stopping
+    with _text_outbox_lock:
+        _stopping = False
     if _use_bus():
         client = bus_client.start_bus()
         client.subscribe(OCR_COMMAND_TOPIC, _on_bus_command)
@@ -170,6 +175,20 @@ def start_ipc_listener() -> Optional[threading.Thread]:
     return _stdin_thread
 
 
+def stop_ipc_listener() -> None:
+    """Drain text delivery and stop the owned bus from outside its callback thread."""
+    global _command_handler, _stopping
+    _command_handler = None
+    with _text_outbox_lock:
+        _stopping = True
+    try:
+        if not stop_text_ingress_outbox():
+            logger.warning("OCR text outbox did not finish stopping before its deadline")
+    finally:
+        if _use_bus():
+            bus_client.get_bus().stop()
+
+
 # Convenience wrappers for common events to Electron
 def announce_started():
     send_event(OCREvent.STARTED.value)
@@ -177,7 +196,8 @@ def announce_started():
 
 def announce_stopped():
     send_event(OCREvent.STOPPED.value)
-    stop_text_ingress_outbox()
+    # This runs inside the bus callback. Joining the outbox here blocks the
+    # same bus it needs to receive acknowledgements. Main-thread cleanup owns it.
 
 
 def announce_paused():
@@ -200,6 +220,8 @@ def announce_error(error: str, details: Optional[Dict[str, Any]] = None):
 
 
 def announce_ocr_result(text: str, metadata: Optional[Dict[str, Any]] = None):
+    if _stopping:
+        return
     data = {"text": text}
     if metadata:
         data.update(metadata)
@@ -223,23 +245,28 @@ def announce_ocr_result(text: str, metadata: Optional[Dict[str, Any]] = None):
         "revisionWindowMs": int(data.get("revisionWindowMs") or 250),
         "mergeFragments": bool(data.get("mergeFragments", False)),
     }
-    if not get_text_ingress_outbox().submit(ingress):
+    outbox = get_text_ingress_outbox()
+    if outbox is not None and not outbox.submit(ingress):
         logger.warning(f"OCR text ingress outbox is full; rejected observation {observation_id}")
 
 
 def get_text_ingress_outbox():
     global _text_outbox
-    if _text_outbox is None:
-        from GameSentenceMiner.util.communication.text_ingress_outbox import TextIngressOutbox
+    with _text_outbox_lock:
+        if _stopping:
+            return None
+        if _text_outbox is None:
+            from GameSentenceMiner.util.communication.text_ingress_outbox import TextIngressOutbox
 
-        _text_outbox = TextIngressOutbox()
-    return _text_outbox
+            _text_outbox = TextIngressOutbox()
+        return _text_outbox
 
 
 def stop_text_ingress_outbox() -> bool:
     global _text_outbox
-    outbox = _text_outbox
-    _text_outbox = None
+    with _text_outbox_lock:
+        outbox = _text_outbox
+        _text_outbox = None
     return True if outbox is None else outbox.stop()
 
 
