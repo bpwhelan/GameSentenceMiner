@@ -6,6 +6,7 @@ import { SettingsTab } from "./components/tabs/SettingsTab";
 import { SetupWizard } from "./components/SetupWizard";
 import { InstallSessionModal } from "./components/InstallSessionModal";
 import { WhatsChangedDialog } from "./components/WhatsChangedDialog";
+import { AppUpdateNotice } from "./components/AppUpdateNotice";
 import type { ControlledTab } from "./types/models";
 import { OCRTab } from "./components/tabs/OCRTab";
 import { getDevPreviewTab } from "./lib/devPreview";
@@ -1256,6 +1257,7 @@ export default function App() {
           ))}
         </div>
         <div className="header-links">
+          <AppUpdateNotice />
           <button
             className="icon-link"
             data-tip={t("app.header.github")}

@@ -144,6 +144,20 @@
       "github": "GitHub",
       "discord": "Discord"
     },
+    "update": {
+      "available": "有可用更新",
+      "previewDescription": "使用最新在线发行说明的开发预览。安装已禁用。",
+      "availableVersion": "有可用更新：{version}",
+      "title": "更新至 {version}",
+      "restartDescription": "GSM 将下载更新并重启以进行安装。",
+      "install": "更新并重启",
+      "notNow": "暂不更新",
+      "installing": "正在更新…",
+      "installingDescription": "正在下载更新。准备就绪后 GSM 将重启。",
+      "installFailed": "无法安装更新。请重试或选择“暂不更新”。",
+      "notesUnavailable": "无法加载更新日志。您可以重试或立即安装更新。",
+      "changed": "可用更新已更改。请关闭并重新打开此窗口以查看最新版本。"
+    },
     "stats": {
       "loading": "等待 GSM 统计数据加载..."
     },

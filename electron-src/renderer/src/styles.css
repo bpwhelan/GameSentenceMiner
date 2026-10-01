@@ -275,6 +275,7 @@ body {
 
 .header-links {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 12px;
 }
@@ -5773,6 +5774,41 @@ body {
 
 .icon-link:hover svg {
   fill: var(--gsm-accent-strong);
+}
+
+.icon-link.app-update-notice {
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--gsm-accent-border);
+  border-radius: 999px;
+  background: var(--gsm-accent-soft);
+  color: var(--gsm-accent-strong);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.icon-link.app-update-notice:hover {
+  background: var(--gsm-surface-hover);
+}
+
+.icon-link.app-update-notice:focus-visible {
+  outline: 2px solid var(--gsm-accent);
+  outline-offset: 3px;
+}
+
+.icon-link.app-update-notice svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 1100px) {
+  .app-update-notice span {
+    display: none;
+  }
 }
 
 /* ---- Modern tab + python panel surface (background only) ---- */

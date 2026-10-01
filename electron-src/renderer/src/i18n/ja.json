@@ -155,6 +155,20 @@
       "github": "GitHub",
       "discord": "Discord"
     },
+    "update": {
+      "available": "更新があります",
+      "previewDescription": "最新のオンラインリリースノートを使った開発用プレビューです。インストールは無効になっています。",
+      "availableVersion": "更新があります: {version}",
+      "title": "{version} に更新",
+      "restartDescription": "更新をダウンロードし、GSM を再起動してインストールします。",
+      "install": "更新して再起動",
+      "notNow": "今はしない",
+      "installing": "更新中…",
+      "installingDescription": "更新をダウンロードしています。準備ができると GSM が再起動します。",
+      "installFailed": "更新をインストールできませんでした。再試行するか、「今はしない」を選択してください。",
+      "notesUnavailable": "リリースノートを読み込めませんでした。再試行するか、このまま更新をインストールできます。",
+      "changed": "利用可能な更新が変わりました。この画面を閉じて開き直し、最新のリリースを確認してください。"
+    },
     "stats": {
       "loading": "GSM統計の読み込みを待機中..."
     },

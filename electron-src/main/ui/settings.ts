@@ -1030,6 +1030,9 @@ interface SettingsIPCDependencies {
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
+    getAppUpdateStatus?: () => unknown;
+    getAppUpdateChangelog?: () => Promise<unknown>;
+    installAppUpdate?: (version: string) => Promise<unknown>;
     showUpdateChangelogPreview?: (payload: {
         fromVersion: string;
         toVersion: string;
@@ -1052,6 +1055,15 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             return null;
         }
         return await deps.getUpdateStatus();
+    });
+
+    ipcMain.handle('settings.getAppUpdateStatus', () => deps?.getAppUpdateStatus?.() ?? null);
+    ipcMain.handle('settings.getAppUpdateChangelog', () => deps?.getAppUpdateChangelog?.() ?? null);
+    ipcMain.handle('settings.installAppUpdate', async (_event, version: unknown) => {
+        if (typeof version !== 'string' || !version.trim()) {
+            throw new Error('An update version is required.');
+        }
+        return await deps?.installAppUpdate?.(version.trim()) ?? null;
     });
 
     ipcMain.handle('settings.checkForUpdates', async () => {

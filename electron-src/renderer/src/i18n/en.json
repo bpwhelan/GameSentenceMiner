@@ -161,6 +161,20 @@
       "github": "GitHub",
       "discord": "Discord"
     },
+    "update": {
+      "available": "Update Available",
+      "previewDescription": "Development preview using the latest online release notes. Installation is disabled.",
+      "availableVersion": "Update available: {version}",
+      "title": "Update to {version}",
+      "restartDescription": "GSM will download the update and restart to install it.",
+      "install": "Update and Restart",
+      "notNow": "Not Now",
+      "installing": "Updating…",
+      "installingDescription": "Downloading the update. GSM will restart when it is ready.",
+      "installFailed": "The update could not be installed. Try again or choose Not Now.",
+      "notesUnavailable": "Release notes could not be loaded. You can retry or install the update now.",
+      "changed": "The available update has changed. Close this dialog and reopen it to review the latest release."
+    },
     "stats": {
       "loading": "Waiting for GSM stats to load..."
     },

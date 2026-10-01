@@ -5,7 +5,6 @@ import {
     dialog,
     ipcMain,
     Menu,
-    MenuItem,
     nativeImage,
     screen,
     shell,
@@ -131,6 +130,8 @@ import { installSessionManager } from './services/install_session_state.js';
 import { recordLatestTextProcessingInput } from './services/latest_text.js';
 import { UpdateManager } from './services/update_manager.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
+import { APP_UPDATE_STATUS_CHANNEL } from '../shared/app_update.js';
+import { DevUpdatePreview } from './services/dev_update_preview.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
 import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
 import {
@@ -802,6 +803,15 @@ const updateManager = new UpdateManager({
     reinstallPython: async () => reinstallPython(),
 });
 
+const devUpdatePreview = new DevUpdatePreview(isDev, () => {
+    safeSendToMainWindow(APP_UPDATE_STATUS_CHANNEL, devUpdatePreview.apply(updateManager.getAppUpdateStatus()));
+});
+
+updateManager.setAppUpdateStatusListener((status) => {
+    if (status.downloading) devUpdatePreview.clear();
+    safeSendToMainWindow(APP_UPDATE_STATUS_CHANNEL, devUpdatePreview.apply(status));
+});
+
 export function isPythonLaunchBlockedByUpdate(): boolean {
     return updateManager.anyUpdateInProgress;
 }
@@ -814,10 +824,6 @@ export async function waitForPythonLaunchReadiness(context: string): Promise<voi
         `[Update Guard] Delaying ${context} until active updates complete.`
     );
     await updateManager.waitForNoActiveUpdates();
-}
-
-async function autoUpdate(forceUpdate: boolean = false): Promise<void> {
-    await updateManager.autoUpdate(forceUpdate);
 }
 
 async function runUpdateChecks(
@@ -1719,6 +1725,25 @@ async function createWindow() {
         getUpdateStatus: async () => await getUpdateStatus(),
         checkForUpdates: async () => await checkForAvailableUpdates(),
         updateNow: async () => await updateAvailableTargets(),
+        getAppUpdateStatus: () => devUpdatePreview.apply(updateManager.getAppUpdateStatus()),
+        getAppUpdateChangelog: async () => {
+            const preview = devUpdatePreview.getChangelog();
+            if (preview) return preview;
+            const status = updateManager.getAppUpdateStatus();
+            if (!status.updateAvailable || !status.latestVersion) {
+                return null;
+            }
+            return await desktopChangelogManager.getUpdatePreview(
+                { fromVersion: status.currentVersion, toVersion: status.latestVersion },
+                { includePrereleases: status.channel === 'beta' }
+            );
+        },
+        installAppUpdate: (version) => {
+            if (devUpdatePreview.getChangelog()) {
+                throw new Error('Installation is disabled for the development update preview.');
+            }
+            return updateManager.installAppUpdate(version);
+        },
         showUpdateChangelogPreview,
         getActiveInstallSession: () => installSessionManager.getActiveSnapshot(),
         retryInstallSession: async () => await installSessionManager.retryLastFailedSession(),
@@ -1819,24 +1844,27 @@ async function createWindow() {
         });
     }
 
-    const menu = Menu.buildFromTemplate(template);
-    Menu.setApplicationMenu(menu);
-
     if (isDev) {
-        menu.append(
-            new MenuItem({
-                label: 'Refresh',
-                click: () => {
-                    if (mainWindow) {
-                        mainWindow.reload();
-                    }
+        template.push({
+            label: 'Development',
+            submenu: [
+                {
+                    label: 'Show Update Available (Latest Online Changelog)',
+                    click: () => { void showDevUpdatePreview(); },
                 },
-            })
-        );
-        // Re-set application menu after append
-        Menu.setApplicationMenu(menu);
+                {
+                    label: 'Clear Update Preview',
+                    click: () => devUpdatePreview.clear(),
+                },
+                { type: 'separator' },
+                { label: 'Reload UI', role: 'reload' },
+                { label: 'Toggle Developer Tools', role: 'toggleDevTools' },
+            ],
+        });
     }
 
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
     mainWindow.setMenu(menu);
 
     console.log = function (...args) {
@@ -1898,6 +1926,20 @@ async function createWindow() {
         }
         mainWindow = null;
     });
+}
+
+async function showDevUpdatePreview(): Promise<void> {
+    if (!isDev || updateManager.anyUpdateInProgress) return;
+    try {
+        await devUpdatePreview.show(() => desktopChangelogManager.getLatestOnlinePreview(
+            app.getVersion(),
+            { includePrereleases: getPullPreReleases() }
+        ));
+        showWindow();
+    } catch (error) {
+        console.error('Failed to load development update preview:', error);
+        dialog.showErrorBox('Update Preview', `Could not load the latest online changelog.\n\n${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 function showManualDesktopChangelog(): void {
@@ -2877,7 +2919,7 @@ if (!app.requestSingleInstanceLock()) {
                 } else {
                     console.log('Checking for updates...');
                 }
-                await autoUpdate();
+                await updateManager.checkAppUpdateStatus();
             }
         }
 
