@@ -27,7 +27,7 @@ describe("automatic overlay visibility", () => {
   it("only performs the default startup reveal while the target state is still usable", () => {
     const { shouldShowOverlayOnReady } = loadVisibilityPolicy();
 
-    expect(shouldShowOverlayOnReady({ windowState: "unknown" })).toBe(true);
+    expect(shouldShowOverlayOnReady({ windowState: "unknown" })).toBe(false);
     expect(shouldShowOverlayOnReady({ windowState: "active" })).toBe(true);
     expect(shouldShowOverlayOnReady({ windowState: "background" })).toBe(true);
     expect(shouldShowOverlayOnReady({ windowState: "minimized" })).toBe(false);
@@ -64,13 +64,13 @@ describe("automatic overlay visibility", () => {
     expect(shouldRevealAutomaticOverlay({ windowState: "background" })).toBe(true);
   });
 
-  it("reveals for OBS output without an HWND", () => {
+  it("does not treat text output as capture confirmation while the window is unknown", () => {
     const { shouldRevealAutomaticOverlay } = loadVisibilityPolicy();
 
     expect(shouldRevealAutomaticOverlay({
       windowState: "unknown",
       outputAvailable: true,
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it("does not override manual modes or a known hidden game window", () => {
@@ -112,7 +112,7 @@ describe("automatic overlay visibility", () => {
       'revealAutomaticOverlayForSignal("window-state-background")'
     );
     expect(textHandler).toContain(
-      'revealAutomaticOverlayForSignal("text-received-output", { outputAvailable: true })'
+      'revealAutomaticOverlayForSignal("text-received-output")'
     );
   });
 });

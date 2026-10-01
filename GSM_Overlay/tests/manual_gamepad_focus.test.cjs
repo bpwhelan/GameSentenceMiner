@@ -49,6 +49,7 @@ function setup(t, settings = {}) {
     lastOverlayTopmostReassertAt: 0, pendingOverlayTopmostReassertTimer: null,
     manualHotkeyPressed: false, manualModeToggleState: false,
     gamepadNavigationActive: false, gamepadReleaseRecoveryVersion: 0,
+    overlayCaptureAvailable: true, trackedGameWindowState: 'active', isTexthookerMode: false,
     isOverlayVisible: false, resizeMode: false, yomitanShown: false,
     yomitanForegroundActive: false, yomitanRecoveryVersion: 0, lastYomitanEventAt: 0,
     currentMagpieState: { active: false },
@@ -64,6 +65,7 @@ function setup(t, settings = {}) {
     beginMagpieYomitanCloseVisibilityGuard() {},
   });
   const functions = [
+    'hasValidOverlayCapture', 'canUseOverlayCapture',
     'isManualMode', 'normalizeManualModeInactiveBehavior',
     'shouldKeepOverlayVisibleWhenManualInactive', 'shouldHideOverlayWindowForManualInactive',
     'requestBackendFocusRestore', 'blurAndRestoreFocus', 'hideAndRestoreFocus',

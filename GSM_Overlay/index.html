@@ -3658,7 +3658,9 @@ background: rgba(202, 12, 12, 0.692);
 
   function applyTextBoxLayout(textBox, sentence, x1, y1, x2, y2, transparentText = false, verticalText = false) {
     const text = sentence[0] == '\n' ? sentence.slice(1) : sentence;
-    textBox.textContent = text;
+    // Recalibration must keep the Text node alive: Yomitan may still hold a
+    // Range into it while its asynchronous lookup is finishing.
+    if (textBox.textContent !== text) textBox.textContent = text;
     textBox.classList.add('interactive');
     textBox.dataset.selectable = 'true';
     textBox.style.left = `${x1 + offsetX}%`;
@@ -5666,6 +5668,7 @@ background: rgba(202, 12, 12, 0.692);
   // (like a game) has focus. The browser Gamepad API doesn't work when unfocused.
   
   let gamepadHandler = null;
+  let overlayCaptureAvailable = false;
   let gamepadModuleLoadPromise = null;
   let gamepadInputSuppressed = false;
   let gamepadStatusHideTimeout = null;
@@ -5801,78 +5804,17 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function getGamepadHandlerConfig() {
+    // Most persisted options map directly to the handler. Keep only runtime
+    // overrides here so new bindings cannot disappear between load and update.
     return {
+      ...gamepadSettings,
       dictionaryReader,
-      serverUrl: gamepadSettings.serverUrl,
-      activationMode: gamepadSettings.activationMode,
-      modifierButton: gamepadSettings.modifierButton,
-      toggleButton: gamepadSettings.toggleButton,
-      confirmButton: gamepadSettings.confirmButton,
-      cancelButton: gamepadSettings.cancelButton,
-      forwardEnterButton: gamepadSettings.forwardEnterButton,
-      forwardSpaceButton: gamepadSettings.forwardSpaceButton,
-      forwardCtrlButton: gamepadSettings.forwardCtrlButton,
-      forwardEscapeButton: gamepadSettings.forwardEscapeButton,
-      forwardClickButton: gamepadSettings.forwardClickButton,
-      manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
-      translateButton: gamepadSettings.translateButton,
-      pauseToggleButton: gamepadSettings.pauseToggleButton,
-      tokenModeToggleButton: gamepadSettings.tokenModeToggleButton,
-      mineButton: gamepadSettings.mineButton,
-      nextEntryButton: gamepadSettings.nextEntryButton,
-      prevEntryButton: gamepadSettings.prevEntryButton,
-      prevJitenWordButton: gamepadSettings.prevJitenWordButton,
-      dpadUp: gamepadSettings.dpadUp,
-      dpadDown: gamepadSettings.dpadDown,
-      dpadLeft: gamepadSettings.dpadLeft,
-      dpadRight: gamepadSettings.dpadRight,
-      nextJitenWordButton: gamepadSettings.nextJitenWordButton,
-      repeatDelay: gamepadSettings.repeatDelay,
-      repeatRate: gamepadSettings.repeatRate,
-      holdNavigation: gamepadSettings.holdNavigation,
-      horizontalWrap: gamepadSettings.horizontalWrap,
-      verticalNavigation: gamepadSettings.verticalNavigation,
-      initialPosition: gamepadSettings.initialPosition,
-      blockJumpAnimation: gamepadSettings.blockJumpAnimation,
-      analogAcceleration: gamepadSettings.analogAcceleration,
-      autoConfirmSelection: gamepadSettings.autoConfirmSelection,
-      focusOverlayOnEntry: gamepadSettings.focusOverlayOnEntry,
-      tokenMode: gamepadSettings.tokenMode,
-      tokenizerBackend: gamepadSettings.tokenizerBackend,
-      localTokenizerFallbackBackend: gamepadSettings.localTokenizerFallbackBackend,
-      sudachiDictionary: gamepadSettings.sudachiDictionary,
-      yomitanApiUrl: gamepadSettings.yomitanApiUrl,
-      yomitanScanLength: gamepadSettings.yomitanScanLength,
-      jitenApiKey: gamepadSettings.jitenApiKey,
-      jpdbApiKey: gamepadSettings.jpdbApiKey,
       controllerEnabled: getEffectiveControllerEnabled(),
       keyboardEnabled: getEffectiveKeyboardEnabled(),
       showModeIndicator: gamepadSettings.showModeIndicator !== false,
       connectToServer: shouldConnectGamepadServer(),
-      inputSuppressed: gamepadInputSuppressed === true,
-      isOverlayReady: () => !isManualInteractionSuppressed() && !pendingManualRevealForBackground,
-      // Keyboard bindings
-      keyboardModifierKey: gamepadSettings.keyboardModifierKey,
-      keyboardToggleKey: gamepadSettings.keyboardToggleKey,
-      keyboardConfirmKey: gamepadSettings.keyboardConfirmKey,
-      keyboardCancelKey: gamepadSettings.keyboardCancelKey,
-      keyboardForwardEnterKey: gamepadSettings.keyboardForwardEnterKey,
-      keyboardForwardSpaceKey: gamepadSettings.keyboardForwardSpaceKey,
-      keyboardForwardCtrlKey: gamepadSettings.keyboardForwardCtrlKey,
-      keyboardForwardEscapeKey: gamepadSettings.keyboardForwardEscapeKey,
-      keyboardForwardClickKey: gamepadSettings.keyboardForwardClickKey,
-      keyboardManualOverlayScanKey: gamepadSettings.keyboardManualOverlayScanKey,
-      keyboardPauseToggleKey: gamepadSettings.keyboardPauseToggleKey,
-      keyboardTokenModeToggleKey: gamepadSettings.keyboardTokenModeToggleKey,
-      keyboardNextEntryKey: gamepadSettings.keyboardNextEntryKey,
-      keyboardPrevEntryKey: gamepadSettings.keyboardPrevEntryKey,
-      keyboardPrevJitenWordKey: gamepadSettings.keyboardPrevJitenWordKey,
-      keyboardNextJitenWordKey: gamepadSettings.keyboardNextJitenWordKey,
-      keyboardNavigateUp: gamepadSettings.keyboardNavigateUp,
-      keyboardNavigateDown: gamepadSettings.keyboardNavigateDown,
-      keyboardNavigateLeft: gamepadSettings.keyboardNavigateLeft,
-      keyboardNavigateRight: gamepadSettings.keyboardNavigateRight,
-      keyboardMineButton: gamepadSettings.keyboardMineButton,
+      inputSuppressed: gamepadInputSuppressed === true || !overlayCaptureAvailable,
+      isOverlayReady: () => overlayCaptureAvailable && !isManualInteractionSuppressed() && !pendingManualRevealForBackground,
     };
   }
 
@@ -5887,9 +5829,17 @@ background: rgba(202, 12, 12, 0.692);
     gamepadModuleLoadPromise = new Promise((resolve) => {
       const script = document.createElement('script');
       script.src = 'gamepad.js';
-      script.onload = () => resolve(typeof window.GamepadHandler === 'function');
-      script.onerror = () => resolve(false);
+      const finish = (loaded) => {
+        script.onload = script.onerror = null;
+        if (!loaded) script.remove();
+        resolve(loaded);
+      };
+      script.onload = () => finish(typeof window.GamepadHandler === 'function');
+      script.onerror = () => finish(false);
       document.head.appendChild(script);
+    }).then((loaded) => {
+      gamepadModuleLoadPromise = null;
+      return loaded;
     });
 
     return gamepadModuleLoadPromise;
@@ -5897,27 +5847,11 @@ background: rgba(202, 12, 12, 0.692);
   
   // Initialize gamepad handler
   async function initGamepad() {
-    if (!shouldUseGamepadHandler()) {
-      if (gamepadHandler) {
-        gamepadHandler.destroy();
-        gamepadHandler = null;
-      }
-      window.gamepadHandler = null;
-      updateGamepadStatusIndicator();
-      return;
-    }
+    return syncGamepadHandlerLifecycle();
+  }
 
-    const loaded = await ensureGamepadModuleLoaded();
-    if (!loaded || typeof window.GamepadHandler !== 'function') {
-      console.error('[Gamepad] Failed to load gamepad module');
-      return;
-    }
-
-    if (gamepadHandler) {
-      gamepadHandler.destroy();
-    }
-    
-    gamepadHandler = new window.GamepadHandler({
+  function createGamepadHandler() {
+    return new window.GamepadHandler({
       ...getGamepadHandlerConfig(),
       
       // Callbacks
@@ -5970,17 +5904,20 @@ background: rgba(202, 12, 12, 0.692);
       },
     });
 
-    window.gamepadHandler = gamepadHandler;
-    updateGamepadStatusIndicator();
-
-    if (shouldConnectGamepadServer()) {
-      console.log('[Gamepad] Handler initialized - connecting to tokenizer/gamepad server at', gamepadSettings.serverUrl);
-    } else {
-      console.log('[Gamepad] Handler initialized without controller server connection (furigana-only mode)');
-    }
   }
 
   async function syncGamepadHandlerLifecycle() {
+    if (shouldUseGamepadHandler() && !gamepadHandler) {
+      const loaded = await ensureGamepadModuleLoaded();
+      if (!loaded) {
+        console.error('[Gamepad] Failed to load gamepad module');
+        return;
+      }
+    }
+
+    // Settings and other callers can change while the script loads. Reconcile
+    // current state after awaiting; never create a second handler or revive a
+    // handler that was disabled during the load.
     if (!shouldUseGamepadHandler()) {
       if (gamepadHandler) {
         gamepadHandler.destroy();
@@ -5992,11 +5929,11 @@ background: rgba(202, 12, 12, 0.692);
     }
 
     if (!gamepadHandler) {
-      await initGamepad();
-      return;
+      gamepadHandler = createGamepadHandler();
+    } else {
+      gamepadHandler.updateConfig(getGamepadHandlerConfig());
     }
 
-    gamepadHandler.updateConfig(getGamepadHandlerConfig());
     if (!gamepadSettings.enabled && typeof gamepadHandler.manualDeactivate === 'function') {
       gamepadHandler.manualDeactivate();
     }
@@ -6117,18 +6054,22 @@ background: rgba(202, 12, 12, 0.692);
   
   // IPC: Toggle gamepad navigation mode (can be triggered by hotkey from main)
   let lastHandledGamepadToggleRequestId = null;
-  ipcRenderer.on('gamepad-toggle-navigation', (event, payload) => {
+  ipcRenderer.on('gamepad-toggle-navigation', async (event, payload) => {
+    if (!gamepadSettings.enabled) return;
+    if (!gamepadHandler) await syncGamepadHandlerLifecycle();
+
     // Dedup main's retry: it reuses the same requestId, so an already-handled press
     // is ignored while a genuinely dropped first send still toggles via the retry.
+    // Check after initialization so concurrent retries cannot both toggle.
     const requestId = payload && payload.requestId;
     if (requestId != null && requestId === lastHandledGamepadToggleRequestId) {
       return;
     }
-    if (requestId != null) {
-      lastHandledGamepadToggleRequestId = requestId;
-    }
     if (gamepadHandler && gamepadSettings.enabled) {
       gamepadHandler.manualToggle();
+      if (requestId != null) {
+        lastHandledGamepadToggleRequestId = requestId;
+      }
     }
   });
 
@@ -6140,15 +6081,26 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   // IPC: Temporarily suppress gamepad handling while settings input test runs.
+  ipcRenderer.on('overlay-capture-state', (event, payload) => {
+    overlayCaptureAvailable = payload?.available === true;
+    gamepadHandler?.setInputSuppressed(gamepadInputSuppressed || !overlayCaptureAvailable);
+    if (!overlayCaptureAvailable) {
+      cancelDeferredManualReveal();
+      void closeYomitanLookups('capture-unavailable');
+      if (dictionaryReader === 'hachidori') void window.gsmHachidoriBridge?.closePopups().catch(console.warn);
+    }
+    updateGamepadStatusIndicator();
+  });
+
   ipcRenderer.on('gamepad-input-test-active', (event, payload) => {
     const active = !!(payload && payload.active);
     gamepadInputSuppressed = active;
     gamepadSettings.inputSuppressed = active;
     if (gamepadHandler) {
       if (typeof gamepadHandler.setInputSuppressed === 'function') {
-        gamepadHandler.setInputSuppressed(active);
+        gamepadHandler.setInputSuppressed(active || !overlayCaptureAvailable);
       } else {
-        gamepadHandler.updateConfig({ inputSuppressed: active });
+        gamepadHandler.updateConfig({ inputSuppressed: active || !overlayCaptureAvailable });
       }
       updateGamepadStatusIndicator();
     }

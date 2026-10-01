@@ -1,4 +1,6 @@
 mod features;
+#[cfg(any(target_os = "windows", test))]
+mod gamepad_input;
 mod jiten_rules;
 mod raw_gamepad;
 #[cfg(target_os = "windows")]
@@ -17,7 +19,6 @@ use ashpd::zbus;
 use clap::Parser;
 use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
-#[cfg(not(target_os = "windows"))]
 use gilrs::{Axis, Button as GamepadButton, Event, EventType, Gilrs};
 #[cfg(not(target_os = "windows"))]
 use rdev::listen as listen_global_keyboard;
@@ -58,8 +59,8 @@ use zip::ZipArchive;
 
 /// GSM shared input and high-performance services host (Rust)
 ///
-/// Gamepad input is the always-on baseline. Keyboard/mouse input and tokenizer
-/// backends are optional capabilities leased by connected GSM clients.
+/// Gamepad capability is the baseline, with configurable Windows listeners.
+/// Keyboard/mouse input and tokenizer backends are leased by connected clients.
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
@@ -72,7 +73,7 @@ struct Args {
     port: u16,
 
     /// Optional baseline capabilities to enable before clients connect.
-    /// Gamepad input is always enabled; other features are normally leased by clients.
+    /// Gamepad capability is always available; its Windows listeners are configurable.
     #[arg(long = "enable", value_delimiter = ',')]
     enable_features: Vec<String>,
 }
@@ -276,7 +277,6 @@ fn tag_gamepad_control_payload(payload: String) -> String {
     value.to_string()
 }
 
-#[cfg(not(target_os = "windows"))]
 fn map_button(btn: GamepadButton) -> Option<ButtonCode> {
     match btn {
         GamepadButton::South => Some(ButtonCode::A),
@@ -306,7 +306,6 @@ fn map_button(btn: GamepadButton) -> Option<ButtonCode> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
 fn axis_name(axis: Axis) -> Option<&'static str> {
     match axis {
         Axis::LeftStickX => Some("left_x"),
@@ -319,7 +318,6 @@ fn axis_name(axis: Axis) -> Option<&'static str> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
 fn digital_pressed(value: f32) -> bool {
     value >= 0.5
 }
@@ -1986,6 +1984,8 @@ enum ClientMsg {
         text: String,
         #[serde(default, rename = "blockIndex")]
         block_index: i64,
+        #[serde(default, rename = "requestId")]
+        request_id: Option<Value>,
         #[serde(default)]
         backend: Option<String>,
         #[serde(default)]
@@ -2025,7 +2025,6 @@ fn normalize_stick(v: f32, deadzone: f32) -> f32 {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
 fn normalize_trigger(v: f32) -> f32 {
     // Robust mapping:
     // If v is already 0..1 keep it; else assume -1..1 and map to 0..1.
@@ -3074,6 +3073,7 @@ async fn handle_socket(
                             Ok(ClientMsg::Tokenize {
                                 text,
                                 block_index,
+                                request_id,
                                 backend,
                                 dictionary,
                             }) => {
@@ -3105,7 +3105,7 @@ async fn handle_socket(
                                     }
                                 };
 
-                                let msg = json!({
+                                let mut msg = json!({
                                     "type": "tokens",
                                     "blockIndex": block_index,
                                     "text": text,
@@ -3116,6 +3116,9 @@ async fn handle_socket(
                                     "featureDisabled": feature_disabled,
                                     "yomitanApiAvailable": false,
                                 });
+                                if let Some(req_id) = request_id {
+                                    msg["requestId"] = req_id;
+                                }
                                 if ws_sink.send(Message::Text(msg.to_string())).await.is_err() {
                                     break;
                                 }
@@ -3293,7 +3296,6 @@ fn emit_input_server_ready(bound_addr: SocketAddr) {
 // ------------------------------ Input loops ----------------------------------
 
 /// Runs on a dedicated OS thread because Gilrs isn't Send.
-#[cfg(not(target_os = "windows"))]
 fn gilrs_input_thread(
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
@@ -4269,7 +4271,7 @@ async fn main() {
         let device_blacklist2 = device_blacklist.clone();
         let cfg2 = cfg.clone();
         #[cfg(target_os = "windows")]
-        thread::spawn(move || sdl_gamepad::input_thread(tx2, states, device_blacklist2, cfg2));
+        thread::spawn(move || gamepad_input::input_thread(tx2, states, device_blacklist2, cfg2));
         #[cfg(not(target_os = "windows"))]
         thread::spawn(move || gilrs_input_thread(tx2, states, device_blacklist2, cfg2));
     }
@@ -4282,6 +4284,20 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tokenization_request_ids_are_optional_and_preserved() {
+        for request_id in [None, Some(json!(17)), Some(json!("generation-2"))] {
+            let mut request = json!({"type": "tokenize", "text": "日本語", "blockIndex": 0});
+            if let Some(value) = request_id.clone() {
+                request["requestId"] = value;
+            }
+            match serde_json::from_value::<ClientMsg>(request).unwrap() {
+                ClientMsg::Tokenize { request_id: actual, .. } => assert_eq!(actual, request_id),
+                _ => panic!("expected tokenization request"),
+            }
+        }
+    }
 
     #[test]
     fn katakana_readings_convert_to_hiragana() {

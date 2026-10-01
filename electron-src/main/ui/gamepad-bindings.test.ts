@@ -178,6 +178,7 @@ describe("gamepad translation binding", () => {
 describe("legacy gamepad toggle debouncing", () => {
   it("ignores a second navigation toggle during a Steam input-mode handoff", () => {
     const handler = Object.create(GamepadHandler.prototype) as {
+      config: Record<string, unknown>;
       toggleModeActive: boolean;
       lastToggleActionTimes: Map<string, number>;
       activateNavigation: ReturnType<typeof vi.fn>;
@@ -185,6 +186,7 @@ describe("legacy gamepad toggle debouncing", () => {
       getToggleTimestamp: ReturnType<typeof vi.fn>;
       toggleNavigationMode: () => boolean;
     };
+    handler.config = {};
     handler.toggleModeActive = false;
     handler.lastToggleActionTimes = new Map();
     handler.activateNavigation = vi.fn();
@@ -210,7 +212,7 @@ describe("legacy gamepad toggle debouncing", () => {
 });
 
 describe("legacy gamepad Sudachi requests", () => {
-  it("includes the configured dictionary in tokenization requests", () => {
+  it("includes the configured dictionary in tokenization requests", async () => {
     const sent: unknown[] = [];
     const handler = Object.create(GamepadHandler.prototype) as {
       config: { sudachiDictionary: string };
@@ -218,14 +220,17 @@ describe("legacy gamepad Sudachi requests", () => {
       ws: { send: (payload: string) => void };
       sudachiAvailable: boolean;
       mecabAvailable: boolean;
+      pendingTokenizationRequests: Map<number, any>;
     };
     handler.config = { sudachiDictionary: "small" };
     handler.wsConnected = true;
     handler.ws = { send: (payload) => sent.push(JSON.parse(payload)) };
     handler.sudachiAvailable = true;
     handler.mecabAvailable = false;
+    const request: any = { id: 1, text: "食べた。" };
+    handler.pendingTokenizationRequests = new Map([[2, request]]);
 
-    GamepadHandler.prototype.requestTokenizationFromServer.call(
+    const result = GamepadHandler.prototype.requestTokenizationFromServer.call(
       handler,
       2,
       "食べた。",
@@ -237,10 +242,13 @@ describe("legacy gamepad Sudachi requests", () => {
         type: "tokenize",
         blockIndex: 2,
         text: "食べた。",
+        requestId: 1,
         backend: "sudachi",
         dictionary: "small"
       }
     ]);
+    request.resolveServer({ sudachiAvailable: true, tokens: [] });
+    await result;
   });
 });
 
@@ -248,6 +256,7 @@ describe("legacy gamepad token refreshes", () => {
   it("does not trigger a lookup when refreshed text finishes tokenizing", () => {
     const handler = Object.create(GamepadHandler.prototype) as any;
     handler.pendingTokenizationByBlock = new Map([[0, true]]);
+    handler.textBlocks = [{}];
     handler.tokenCacheByBlock = new Map();
     handler.currentBlockIndex = 0;
     handler.currentCursorIndex = 1;
@@ -282,6 +291,7 @@ describe("legacy gamepad token refreshes", () => {
   it("suppresses lookup when refreshed tokens resync the virtual cursor", () => {
     const handler = Object.create(GamepadHandler.prototype) as any;
     handler.pendingTokenizationByBlock = new Map([[0, true]]);
+    handler.textBlocks = [{}];
     handler.tokenCacheByBlock = new Map();
     handler.currentBlockIndex = 0;
     handler.tokens = [];
@@ -319,7 +329,9 @@ describe("legacy gamepad token refreshes", () => {
 
   it("confirms the current selection when navigation enters with tokenization pending", () => {
     const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.activeLookup = { targetChar: {}, text: "日本語" };
     handler.pendingTokenizationByBlock = new Map([[0, "日本語"]]);
+    handler.textBlocks = [{}];
     handler.pendingTokenizationStartedWhileNavigationActive = new Map([[0, false]]);
     handler.tokenCacheByBlock = new Map();
     handler.currentBlockIndex = 0;
@@ -902,8 +914,7 @@ describe("legacy gamepad block redraw recovery", () => {
     };
     const handler = Object.create(GamepadHandler.prototype) as {
       lastSelectionSnapshot: typeof snapshot | null;
-      skipNextTextRefresh: boolean;
-      preserveSelectionOnNextTextRefresh: boolean;
+      textMutationObserver: { takeRecords: () => void };
       virtualMouse: { movedByAnalog: boolean; lastMoveTime: number };
       currentBlockIndex: number;
       currentCursorIndex: number;
@@ -917,8 +928,7 @@ describe("legacy gamepad block redraw recovery", () => {
     };
 
     handler.lastSelectionSnapshot = null;
-    handler.skipNextTextRefresh = false;
-    handler.preserveSelectionOnNextTextRefresh = false;
+    handler.textMutationObserver = { takeRecords: () => calls.push("consume-render-mutations") };
     handler.virtualMouse = { movedByAnalog: true, lastMoveTime: 123 };
     handler.currentBlockIndex = 0;
     handler.currentCursorIndex = 0;
@@ -940,12 +950,10 @@ describe("legacy gamepad block redraw recovery", () => {
     });
 
     expect(handler.lastSelectionSnapshot).toBe(snapshot);
-    expect(handler.skipNextTextRefresh).toBe(true);
-    expect(handler.preserveSelectionOnNextTextRefresh).toBe(true);
     expect(handler.virtualMouse).toMatchObject({ movedByAnalog: false, lastMoveTime: 0 });
     expect(handler.currentBlockIndex).toBe(1);
     expect(handler.currentCursorIndex).toBe(3);
-    expect(calls).toEqual(["virtual", "refresh", "restore", "prefetch", "visuals"]);
+    expect(calls).toEqual(["consume-render-mutations", "virtual", "refresh", "restore", "prefetch", "visuals"]);
   });
 
   it("focuses the latest-line block instead of restoring the previous selection", () => {
@@ -961,8 +969,6 @@ describe("legacy gamepad block redraw recovery", () => {
     ];
     const handler = Object.create(GamepadHandler.prototype) as any;
     handler.lastSelectionSnapshot = previousSnapshot;
-    handler.skipNextTextRefresh = false;
-    handler.preserveSelectionOnNextTextRefresh = false;
     handler.virtualMouse = { movedByAnalog: true, lastMoveTime: 123 };
     handler.textBlocks = blocks;
     handler.currentBlockIndex = 0;

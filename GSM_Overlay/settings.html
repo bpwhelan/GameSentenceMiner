@@ -2682,7 +2682,25 @@
           </button>
         </div>
       </label>
+      </div>
       <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Input Server Settings</h5>
+      <div id="windows-gamepad-listeners">
+        <label>
+          <span class="label-text">
+            Listen for XInput Controllers
+            <div class="hotkey-info">Listen to Xbox controllers and XInput emulators. Enabled by default. Turn off to stop XInput input throughout GSM.</div>
+          </span>
+          <input type="checkbox" id="gamepadXinputEnabled" checked />
+        </label>
+        <label>
+          <span class="label-text">
+            Enable Extended Controller Support (DirectInput / SDL)
+            <div class="hotkey-info">Opt in to native Switch, PlayStation, and generic DirectInput controllers. Off by default to keep the original XInput path. If you use a controller emulator, leave this off to avoid detecting both the physical and virtual controller.</div>
+          </span>
+          <input type="checkbox" id="gamepadDinputEnabled" />
+        </label>
+        <div class="hotkey-info">Restart GSM after changing either listener. These settings apply across GSM and all game profiles. Turn both off to stop controller listening; keyboard navigation remains available.</div>
+      </div>
       <label>
         <span class="label-text">
           Server Port
@@ -2730,7 +2748,6 @@
           <button type="button" id="gamepadInputConsoleClear" class="guide-button">Clear</button>
         </div>
         <div id="gamepadInputConsole" class="mini-console-output empty" aria-live="polite">No input events yet.</div>
-      </div>
       </div>
     </div>
     </div>
@@ -3130,6 +3147,7 @@
 
     async function applyPlatformSpecifics() {
       const platform = await ipcRenderer.invoke('get-effective-platform');
+      document.getElementById('windows-gamepad-listeners').hidden = process.platform !== 'win32';
 
       // Settings that are not supported on Linux
       const disabledOnLinuxSettings = [];
@@ -4243,6 +4261,8 @@
         afterApply: () => updateControllerActivationFieldState(),
       }),
       createCheckboxBinding("gamepadKeyboardEnabled", "#gamepadKeyboardEnabled"),
+      createCheckboxBinding("gamepadXinputEnabled", "#gamepadXinputEnabled"),
+      createCheckboxBinding("gamepadDinputEnabled", "#gamepadDinputEnabled"),
       createHotkeyBinding("gamepadKeyboardHotkey", "#gamepadKeyboardHotkey"),
       createNumberBinding("gamepadServerPort", "#gamepadServerPort", {
         fallback: 7276,
@@ -5085,6 +5105,8 @@
         gamepadShowModeIndicator: userSettings.gamepadShowModeIndicator !== false,
         gamepadShowNavigationStatus: userSettings.gamepadShowNavigationStatus !== false,
         gamepadControllerEnabled: userSettings.gamepadControllerEnabled !== false,
+        gamepadXinputEnabled: userSettings.gamepadXinputEnabled !== false,
+        gamepadDinputEnabled: userSettings.gamepadDinputEnabled === true,
         gamepadKeyboardEnabled: userSettings.gamepadKeyboardEnabled !== false,
         gamepadDeviceBlacklist: normalizeGamepadDeviceBlacklistValue(userSettings.gamepadDeviceBlacklist),
       };
@@ -6109,7 +6131,9 @@
       if (gamepadStatusSocket?.readyState === WebSocket.OPEN) {
         return Array.from(serverGamepadStates.values()).filter(g => !isGamepadDeviceBlacklisted(g.id));
       }
-      if (!navigator.getGamepads) return [];
+      // Chromium cannot distinguish XInput from DirectInput reliably. On
+      // Windows, require the server so a disabled listener stays disabled.
+      if (process.platform === 'win32' || !navigator.getGamepads) return [];
       const gamepads = navigator.getGamepads();
       return Array.from(gamepads).filter(g => g !== null && !isGamepadDeviceBlacklisted(g.id));
     }

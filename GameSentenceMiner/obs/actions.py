@@ -1213,6 +1213,8 @@ def get_window_info_from_source(client, scene_name: str = None):
 
     svc = _obs_pkg.obs_service
     for item in candidate_items:
+        if not item.get("sceneItemEnabled", True):
+            continue
         source_name = item.get("sourceName")
         if not source_name:
             continue

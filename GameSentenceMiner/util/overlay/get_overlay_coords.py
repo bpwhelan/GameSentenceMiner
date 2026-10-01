@@ -16,6 +16,7 @@ from typing import Dict, Any, List, Tuple, Optional
 
 # Updated imports to include window info helpers
 from GameSentenceMiner.obs import get_current_game, get_current_scene, get_screenshot_PIL
+from GameSentenceMiner.obs.active_game import publish_active_game_state
 from GameSentenceMiner.ocr.gsm_ocr_config import (
     get_overlay_area_config,
     get_overlay_minimum_character_size as get_scene_overlay_minimum_character_size,
@@ -47,6 +48,7 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.config.electron_config import get_ocr_language
 from GameSentenceMiner.util.platform.monitor_selection import resolve_monitor_descriptor
 from GameSentenceMiner.util.overlay.adaptive_crop import AdaptiveOverlayCrop, shift_ocr_boxes
+from GameSentenceMiner.util.overlay.capture_state import get_overlay_capture_state, publish_overlay_capture_state
 from GameSentenceMiner.util.overlay.last_sent_text_presence import (
     LastSentTextPresenceTracker,
     prepare_presence_candidate,
@@ -146,24 +148,25 @@ def _replay_buffer_needs_window_monitoring() -> bool:
     return bool(service and service.check_output)
 
 
-async def _window_monitor_loop(window_monitor: WindowStateMonitor):
+async def _window_monitor_loop(window_monitor: WindowStateMonitor | None):
     """Monitor the game window for overlay updates and replay buffer management."""
     while True:
         try:
             overlay_connected = websocket_manager.has_clients(ID_OVERLAY)
             replay_monitoring = _replay_buffer_needs_window_monitoring()
-            if overlay_connected or replay_monitoring:
+            if window_monitor:
                 previous_state = window_monitor.last_state
                 await window_monitor.check_and_send()
+                if overlay_connected:
+                    await publish_overlay_capture_state(window_monitor)
                 if replay_monitoring and window_monitor.last_state != previous_state:
                     import GameSentenceMiner.obs as obs_package
 
                     manager = obs_package.obs_connection_manager
                     if manager is not None:
                         manager.request_tick()
-            await asyncio.sleep(
-                window_monitor.poll_interval if overlay_connected else max(1.0, window_monitor.poll_interval)
-            )
+            publish_active_game_state(window_monitor)
+            await asyncio.sleep(min(1.0, window_monitor.poll_interval) if overlay_connected and window_monitor else 1.0)
         except Exception as e:
             logger.debug(f"Window monitor error: {e}")
             await asyncio.sleep(1)
@@ -240,10 +243,9 @@ async def _overlay_loop():
 
 def _configure_overlay_processor_for_loop(loop: asyncio.AbstractEventLoop) -> None:
     overlay_processor.processing_loop = loop
-    if is_windows():
-        window_monitor = WindowStateMonitor(overlay_processor)
-        set_window_state_monitor(window_monitor)
-        overlay_processor.window_monitor = window_monitor
+    window_monitor = WindowStateMonitor(overlay_processor)
+    set_window_state_monitor(window_monitor)
+    overlay_processor.window_monitor = window_monitor
 
 
 def _start_overlay_background_tasks(loop: asyncio.AbstractEventLoop = None) -> None:
@@ -254,8 +256,7 @@ def _start_overlay_background_tasks(loop: asyncio.AbstractEventLoop = None) -> N
         return
 
     create_task = loop.create_task if loop else asyncio.create_task
-    if is_windows() and overlay_processor.window_monitor:
-        _overlay_background_tasks.append(create_task(_window_monitor_loop(overlay_processor.window_monitor)))
+    _overlay_background_tasks.append(create_task(_window_monitor_loop(overlay_processor.window_monitor)))
     _overlay_background_tasks.append(create_task(_overlay_loop()))
 
 
@@ -1483,6 +1484,9 @@ class OverlayProcessor:
         source: TextSource = None,
     ):
         """Sends the detected text boxes to the overlay via WebSocket."""
+        if source == TextSource.HOTKEY and not get_overlay_capture_state(self.window_monitor)["available"]:
+            logger.debug("Ignoring manual overlay scan without a valid capture target.")
+            return
         if sequence is not None and sequence != self._current_sequence:
             logger.debug(f"Skipping outdated overlay request (sequence {sequence}, current {self._current_sequence})")
             return
@@ -2010,6 +2014,8 @@ class OverlayProcessor:
         Triggered by the overlay app the instant manual mode activates (before it steals
         focus from the game), so the fresh mss grab captures the game's last frame.
         """
+        if not get_overlay_capture_state(self.window_monitor)["available"]:
+            return
         if self._get_manual_background_mode() == OverlayManualBackgroundMode.OFF.value:
             return
 

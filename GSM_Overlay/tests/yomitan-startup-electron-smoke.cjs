@@ -120,6 +120,67 @@ app.whenReady().then(async () => {
     return false;
   })()`);
   assert.equal(definition, true, 'the popup must render the actual dictionary definition');
+  for (const name of ['dictionary_navigation.js', 'gamepad.js', 'jiten_highlight.js']) {
+    await win.webContents.executeJavaScript(fs.readFileSync(path.join(overlay, name), 'utf8') + '\nvoid 0;');
+  }
+  const navigation = await win.webContents.executeJavaScript(`(async () => {
+    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const waitFor = async predicate => {
+      for (let i = 0; i < 100; i++) {
+        if (predicate()) return;
+        await delay(50);
+      }
+      throw new Error('Gamepad popup did not become ready');
+    };
+    await gsmYomitanBridge.closePopups();
+    await delay(100);
+    document.querySelector('#word').remove();
+    const handler = new GamepadHandler({ connectToServer: false, keyboardEnabled: false,
+      focusOverlayOnEntry: false, initialPosition: 'first-new' });
+    handler.requestTokenizationForBlock = () => {};
+    let hidden = 0;
+    window.addEventListener('yomitan-popup-hidden', () => hidden++);
+    handler.activateNavigation(); // Enter before OCR has supplied any text.
+    let block = document.createElement('p');
+    block.className = 'text-block-container';
+    block.style.cssText = 'position:absolute;left:80px;top:80px;font:32px sans-serif';
+    for (const glyph of '食べる食べる') {
+      const box = document.createElement('span');
+      box.className = 'text-box';
+      box.dataset.lineIndex = '0';
+      box.textContent = glyph;
+      block.appendChild(box);
+    }
+    document.body.appendChild(block);
+    handler.handleOverlayTextRenderComplete();
+    // Replace the target before the posted lookup can be consumed by Yomitan.
+    const snapshot = handler.prepareForOverlayTextRender();
+    const replacement = block.cloneNode(true);
+    block.replaceWith(replacement);
+    block = replacement;
+    handler.handleOverlayTextRenderComplete({ snapshot });
+    await waitFor(() => handler.dictionaryPopupVisible);
+    const hiddenBeforeParse = hidden;
+    GsmJitenHighlight.requestParse([{ text: block.textContent }]);
+    await delay(20);
+    document.querySelector('#jiten-parse-container p').innerHTML =
+      '<span class="jiten-word mature">食べる</span><span class="jiten-word new">食べる</span>';
+    await waitFor(() => handler.getCurrentAnchorCharIndex() === 3);
+    await delay(400); // Let the real reader and DOM observers finish.
+    const afterParse = { visible: handler.dictionaryPopupVisible, hidden: hidden - hiddenBeforeParse };
+    // An explicit cancel must survive further recalibration/highlighting.
+    handler.cancelSelection();
+    await waitFor(() => !handler.dictionaryPopupVisible);
+    block.style.left = '100px';
+    handler.handleOverlayTextRenderComplete({ snapshot: handler.prepareForOverlayTextRender() });
+    await delay(300);
+    const afterCancel = handler.dictionaryPopupVisible;
+    handler.destroy();
+    GsmJitenHighlight.setEnabled(false);
+    return { afterParse, afterCancel };
+  })()`);
+  assert.deepEqual(navigation, { afterParse: { visible: true, hidden: 0 }, afterCancel: false });
+  console.log('PASS: real gamepad lookup survives early activation, target replacement and late Jiten parsing');
   console.log('PASS:', phase, 'startup, saved dictionary, bridge and real mouse popup without switching readers');
   win.destroy();
   clearTimeout(timeout);

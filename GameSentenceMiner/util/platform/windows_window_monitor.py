@@ -133,7 +133,7 @@ from GameSentenceMiner.util.config.configuration import (
     logger,
 )
 from GameSentenceMiner.util.platform.monitor_selection import (
-    get_mss_monitor_descriptors,
+    build_monitor_descriptors,
     set_overlay_monitor_identity_from_index,
 )
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
@@ -1067,64 +1067,86 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         return None
 
-    def _detect_current_monitor(self, rect: Tuple[int, int, int, int]) -> int:
-        if not mss:
+    def _detect_current_monitor(self, rect: tuple[int, int, int, int], monitors: list[dict[str, int]]) -> int:
+        if not monitors:
             return -1
 
         try:
-            with mss.mss() as sct:
-                monitors = sct.monitors[1:]
-                if not monitors:
-                    return -1
-                max_area = 0
-                best_monitor_idx = -1
+            max_area = 0
+            best_monitor_idx = -1
 
-                wx1, wy1, wx2, wy2 = rect
-                window_area = (wx2 - wx1) * (wy2 - wy1)
-                if window_area <= 0:
-                    return -1
+            wx1, wy1, wx2, wy2 = rect
+            window_area = (wx2 - wx1) * (wy2 - wy1)
+            if window_area <= 0:
+                return -1
 
-                for i, monitor in enumerate(monitors):
-                    mx1, my1 = monitor["left"], monitor["top"]
-                    mx2, my2 = mx1 + monitor["width"], my1 + monitor["height"]
+            for i, monitor in enumerate(monitors):
+                mx1, my1 = monitor["left"], monitor["top"]
+                mx2, my2 = mx1 + monitor["width"], my1 + monitor["height"]
 
-                    ix1 = max(wx1, mx1)
-                    iy1 = max(wy1, my1)
-                    ix2 = min(wx2, mx2)
-                    iy2 = min(wy2, my2)
+                ix1 = max(wx1, mx1)
+                iy1 = max(wy1, my1)
+                ix2 = min(wx2, mx2)
+                iy2 = min(wy2, my2)
 
-                    if ix1 < ix2 and iy1 < iy2:
-                        intersection_area = (ix2 - ix1) * (iy2 - iy1)
-                        if intersection_area > max_area:
-                            max_area = intersection_area
-                            best_monitor_idx = i
+                if ix1 < ix2 and iy1 < iy2:
+                    intersection_area = (ix2 - ix1) * (iy2 - iy1)
+                    if intersection_area > max_area:
+                        max_area = intersection_area
+                        best_monitor_idx = i
 
-                if best_monitor_idx != -1:
-                    return best_monitor_idx
+            if best_monitor_idx != -1:
+                return best_monitor_idx
 
-                window_center_x = (wx1 + wx2) / 2.0
-                window_center_y = (wy1 + wy2) / 2.0
-                nearest_monitor_idx = -1
-                nearest_distance = None
+            window_center_x = (wx1 + wx2) / 2.0
+            window_center_y = (wy1 + wy2) / 2.0
+            nearest_monitor_idx = -1
+            nearest_distance = None
 
-                for i, monitor in enumerate(monitors):
-                    mx1, my1 = monitor["left"], monitor["top"]
-                    mx2, my2 = mx1 + monitor["width"], my1 + monitor["height"]
+            for i, monitor in enumerate(monitors):
+                mx1, my1 = monitor["left"], monitor["top"]
+                mx2, my2 = mx1 + monitor["width"], my1 + monitor["height"]
 
-                    nearest_x = min(max(window_center_x, mx1), mx2)
-                    nearest_y = min(max(window_center_y, my1), my2)
-                    dx = window_center_x - nearest_x
-                    dy = window_center_y - nearest_y
-                    distance_sq = (dx * dx) + (dy * dy)
+                nearest_x = min(max(window_center_x, mx1), mx2)
+                nearest_y = min(max(window_center_y, my1), my2)
+                dx = window_center_x - nearest_x
+                dy = window_center_y - nearest_y
+                distance_sq = (dx * dx) + (dy * dy)
 
-                    if nearest_distance is None or distance_sq < nearest_distance:
-                        nearest_distance = distance_sq
-                        nearest_monitor_idx = i
+                if nearest_distance is None or distance_sq < nearest_distance:
+                    nearest_distance = distance_sq
+                    nearest_monitor_idx = i
 
-                return nearest_monitor_idx
+            return nearest_monitor_idx
         except Exception as e:
             logger.debug(f"Error detecting monitor: {e}")
             return -1
+
+    def _sync_capture_monitor_to_window(self, rect: tuple[int, int, int, int]) -> None:
+        # Reuse the topology already polled by check_and_send. Selecting and
+        # identifying the monitor must use the same snapshot and ordering.
+        monitor_bounds = [
+            {"left": left, "top": top, "width": width, "height": height}
+            for left, top, width, height in (self.last_monitor_layout_signature or ())
+        ]
+        descriptors = build_monitor_descriptors(monitor_bounds)
+        best_monitor = self._detect_current_monitor(rect, monitor_bounds)
+        if best_monitor == -1:
+            return
+
+        descriptor = descriptors[best_monitor]
+        overlay_cfg = get_overlay_config()
+        if (
+            overlay_cfg.monitor_to_capture == descriptor["index"]
+            and getattr(overlay_cfg, "monitor_to_capture_id", "") == descriptor["id"]
+            and getattr(overlay_cfg, "monitor_to_capture_bounds", {}) == descriptor["bounds"]
+        ):
+            return
+
+        logger.info(f"Synchronizing overlay to game window on Monitor {best_monitor + 1}.")
+        set_overlay_monitor_identity_from_index(overlay_cfg, monitor_bounds, best_monitor)
+        get_master_config().save()
+        self._spawn_reprocess_last_results()
 
     def _get_monitor_layout_signature(self) -> Tuple[Tuple[int, int, int, int], ...]:
         if not mss:
@@ -1437,28 +1459,25 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                     self.last_target_info = {}
                     self.last_target_scene_name = None
                     self.ever_had_target_hwnd = False
+                    self._capture_target_changed_at = now
                     scene_changed = True
                     self.last_scene_name = current_scene
 
                 lookup_scene = current_scene or self.last_scene_name
-                new_info = get_window_info_from_source(scene_name=lookup_scene) if lookup_scene else None
+                new_info = (get_window_info_from_source(scene_name=lookup_scene) if lookup_scene else None) or {}
 
-                if new_info and self.last_target_info:
-                    if (
-                        new_info.get("title") != self.last_target_info.get("title")
-                        or new_info.get("window_class") != self.last_target_info.get("window_class")
-                        or new_info.get("exe") != self.last_target_info.get("exe")
-                    ):
-                        logger.info(
-                            f"OBS Source changed from '{self.last_target_info.get('title')}' to '{new_info.get('title')}' - Resetting target."
-                        )
-                        self.target_hwnd = None
-                        self.retry_find_count = 0
-                        self.last_target_info = {}
-                        self.last_target_scene_name = None
-                        self.ever_had_target_hwnd = False
-                        self.overlay_processor.obs_width = None
-                        self.overlay_processor.obs_height = None
+                if any(new_info.get(key) != self.last_target_info.get(key) for key in ("title", "window_class", "exe")):
+                    logger.info(
+                        f"OBS Source changed from '{self.last_target_info.get('title')}' to '{new_info.get('title')}' - Resetting target."
+                    )
+                    self.target_hwnd = None
+                    self.retry_find_count = 0
+                    self.last_target_info = {}
+                    self.last_target_scene_name = None
+                    self.ever_had_target_hwnd = False
+                    self._capture_target_changed_at = now
+                    self.overlay_processor.obs_width = None
+                    self.overlay_processor.obs_height = None
             except Exception:
                 pass
 
@@ -1542,21 +1561,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             elif self.window_stable_count > len(self.backoff_steps):
                 self.poll_interval = self.base_poll_interval
 
-            if current_rect and is_windows() and self.window_stable_count == 2:
-                best_monitor = self._detect_current_monitor(current_rect)
-                overlay_cfg = get_overlay_config()
-                missing_monitor_identity = not getattr(overlay_cfg, "monitor_to_capture_id", "") or not getattr(
-                    overlay_cfg, "monitor_to_capture_bounds", {}
-                )
-                if best_monitor != -1 and (overlay_cfg.monitor_to_capture != best_monitor or missing_monitor_identity):
-                    if overlay_cfg.monitor_to_capture != best_monitor:
-                        logger.info(f"Window moved to Monitor {best_monitor + 1}. Updating config.")
-                    descriptors = get_mss_monitor_descriptors()
-                    monitor_bounds = [descriptor["bounds"] for descriptor in descriptors]
-                    if not set_overlay_monitor_identity_from_index(overlay_cfg, monitor_bounds, best_monitor):
-                        overlay_cfg.monitor_to_capture = best_monitor
-                    get_master_config().save()
-                    self._spawn_reprocess_last_results()
+            if current_rect and self.window_stable_count >= 2:
+                # Settings/profile reloads can change the monitor while the game
+                # stays still. Keep checking after the initial settling period.
+                self._sync_capture_monitor_to_window(current_rect)
 
         self.update_magpie_info()
         magpie_changed = self.magpie_info != self.last_magpie_info

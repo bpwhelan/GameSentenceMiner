@@ -24,7 +24,13 @@
     const top = () => frames().filter(visible).slice(-1);
     return {
       targetAttribute: 'data-gsm-yomitan-lookup-target',
-      subscribe: (shown, hidden) => subscription(window, 'yomitan', shown, hidden),
+      subscribe(shown, hidden) {
+        const stop = subscription(window, 'yomitan', shown, hidden);
+        // Navigation may be enabled after a mouse lookup. Seed the same
+        // anonymous popup count used by Yomitan's show/hide events.
+        for (const frame of frames().filter(visible)) shown({ detail: {} });
+        return stop;
+      },
       control(action, params = {}) {
         const message = { ...params, type: 'gsm-yomitan-control', action };
         post(window, message);
@@ -52,13 +58,22 @@
     return {
       targetAttribute: 'data-gsm-hachidori-lookup-target',
       subscribe(shown, hidden) {
-        let changed = false, disposed = false;
-        const stop = subscription(window, 'gsm-hachidori', event => { changed = true; shown(event); },
-          event => { changed = true; hidden(event); });
+        let disposed = false;
+        const changedIds = new Set();
+        const observe = callback => event => {
+          changedIds.add(event.detail?.popupId);
+          callback(event);
+        };
+        const stop = subscription(window, 'gsm-hachidori', observe(shown), observe(hidden));
         // A settings reload can create the handler while a mouse-opened popup already exists.
         if (typeof window.gsmHachidoriBridge?.state === 'function') {
           void window.gsmHachidoriBridge.state().then(state => {
-            if (!disposed && !changed) for (const detail of state.popups || []) shown({ detail });
+            if (disposed) return;
+            // Only events for the same popup supersede its snapshot. A child
+            // opening/closing must not discard an existing parent's state.
+            for (const detail of state.popups || []) {
+              if (!changedIds.has(detail.popupId)) shown({ detail });
+            }
           }).catch(() => {});
         }
         return () => { disposed = true; stop(); };
