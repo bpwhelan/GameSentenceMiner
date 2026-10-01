@@ -1,3 +1,5 @@
+import pytest
+
 from GameSentenceMiner.util.stats.live_stats import (
     LiveSessionTracker,
     build_live_stats_payload,
@@ -97,7 +99,7 @@ def test_live_stats_field_options_are_copied():
     assert get_live_stats_field_options()[0]["label"] == "Chars/hour"
 
 
-def _enable_v2(monkeypatch):
+def _mock_stats_config(monkeypatch, **overrides):
     from types import SimpleNamespace
     import GameSentenceMiner.util.stats.live_stats as live_mod
 
@@ -105,16 +107,17 @@ def _enable_v2(monkeypatch):
         live_mod,
         "get_stats_config",
         lambda: SimpleNamespace(
-            reading_time_adaptive_v2=True,
             session_gap_seconds=1800,
             regex_out_repetitions=False,
             extra_punctuation_regex="",
+            **overrides,
         ),
     )
 
 
-def test_v2_short_line_after_afk_costs_floor_not_15s(monkeypatch):
-    _enable_v2(monkeypatch)
+@pytest.mark.parametrize("legacy_settings", [{}, {"reading_time_adaptive_v2": False}])
+def test_short_line_after_afk_uses_session_pace(monkeypatch, legacy_settings):
+    _mock_stats_config(monkeypatch, **legacy_settings)
 
     tracker = LiveSessionTracker()
     # Establish a ~2 cps reading pace across several 20-char lines.
@@ -130,8 +133,9 @@ def test_v2_short_line_after_afk_costs_floor_not_15s(monkeypatch):
     assert tracker.total_reading_seconds - before == 2.5
 
 
-def test_v2_cph_guard_blocks_spike_until_enough_lines(monkeypatch):
-    _enable_v2(monkeypatch)
+@pytest.mark.parametrize("legacy_settings", [{}, {"reading_time_adaptive_v2": False}])
+def test_cph_guard_blocks_spike_until_enough_lines(monkeypatch, legacy_settings):
+    _mock_stats_config(monkeypatch, **legacy_settings)
 
     tracker = LiveSessionTracker()
     # A couple of lines with a tiny denominator would otherwise read as a huge cph.
@@ -147,30 +151,17 @@ def test_v2_cph_guard_blocks_spike_until_enough_lines(monkeypatch):
     assert tracker.get_chars_per_hour() > 0
 
 
-def test_v1_disabled_unchanged_floor(monkeypatch):
-    from types import SimpleNamespace
-    import GameSentenceMiner.util.stats.live_stats as live_mod
+def test_short_line_without_session_pace_uses_adaptive_fallback(monkeypatch):
+    _mock_stats_config(monkeypatch)
 
-    monkeypatch.setattr(
-        live_mod,
-        "get_stats_config",
-        lambda: SimpleNamespace(
-            reading_time_adaptive_v2=False,
-            session_gap_seconds=1800,
-            regex_out_repetitions=False,
-            extra_punctuation_regex="",
-        ),
-    )
-
-    # With v2 off, a short line still uses the v1 15s floor.
     tracker = LiveSessionTracker()
     tracker.add_line("ab", 1000.0)
     tracker.add_line("next", 1060.0)
-    assert tracker.total_reading_seconds == 15.0
+    assert tracker.total_reading_seconds == 6.0
 
 
 def test_revising_a_credited_line_adjusts_character_ledger(monkeypatch):
-    _enable_v2(monkeypatch)
+    _mock_stats_config(monkeypatch)
     tracker = LiveSessionTracker()
     tracker.add_line("old", 1000.0, line_id="one", revision=1)
     tracker.add_line("next", 1010.0, line_id="two", revision=1)
@@ -184,7 +175,7 @@ def test_revising_a_credited_line_adjusts_character_ledger(monkeypatch):
 
 
 def test_backward_wall_clock_step_never_creates_negative_reading_time(monkeypatch):
-    _enable_v2(monkeypatch)
+    _mock_stats_config(monkeypatch)
     tracker = LiveSessionTracker()
     tracker.add_line("first", 1000.0, line_id="one")
     tracker.add_line("second", 990.0, line_id="two")

@@ -261,13 +261,6 @@ class TestTodayStatsRoute:
         }
 
     def test_today_stats_with_session_summary(self, client, monkeypatch):
-        import GameSentenceMiner.web.stats as stats_mod
-
-        monkeypatch.setattr(
-            stats_mod,
-            "get_stats_config",
-            lambda: SimpleNamespace(reading_time_adaptive_v2=True),
-        )
         self._patch_time(monkeypatch)
         self._seed_lines()
 
