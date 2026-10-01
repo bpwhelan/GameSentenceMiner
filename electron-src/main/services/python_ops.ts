@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawn } from 'child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 
 import {
     execFileAsync,
@@ -11,6 +11,7 @@ import {
     resolvePreReleaseBackendWheelPath,
 } from '../util.js';
 import { isBackendVersionCompatible } from './backend_version.js';
+import { recordProcessOutput } from './logging.js';
 import {
     getDevPyprojectSyncState,
     markDevPyprojectSynced,
@@ -46,6 +47,23 @@ function toErrorMessage(error: unknown): string {
 function formatCommand(command: string, args: string[]): string {
     const escaped = args.map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg));
     return [command, ...escaped].join(' ');
+}
+
+/** Buffered bootstrap commands need the same diagnostics as streamed pip/uv work. */
+async function runBufferedSetupCommand(command: string, args: string[]): Promise<void> {
+    recordProcessOutput('setup', 'command', formatCommand(command, args));
+    try {
+        const result = await execFileAsync(command, args);
+        recordProcessOutput('setup', 'stdout', result.stdout.toString());
+        recordProcessOutput('setup', 'stderr', result.stderr.toString());
+        recordProcessOutput('setup', 'lifecycle', 'Command completed (exit code 0).');
+    } catch (error) {
+        const failure = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer };
+        recordProcessOutput('setup', 'stdout', failure.stdout?.toString() ?? '');
+        recordProcessOutput('setup', 'stderr', failure.stderr?.toString() ?? '');
+        recordProcessOutput('setup', 'lifecycle', failure.stack ?? toErrorMessage(error));
+        throw error;
+    }
 }
 
 function appendRecentLines(target: string[], chunk: string): void {
@@ -112,6 +130,9 @@ export async function runCommand(
 ): Promise<void> {
     return new Promise((resolve, reject) => {
         const commandLine = formatCommand(command, args);
+        const startedAt = Date.now();
+        let source = 'setup';
+        recordProcessOutput(source, 'command', `${commandLine}\nWorking directory: ${options.cwd ?? process.cwd()}`);
         const recentStdout: string[] = [];
         const recentStderr: string[] = [];
         let settled = false;
@@ -124,6 +145,7 @@ export async function runCommand(
             if (progressTimer) {
                 clearInterval(progressTimer);
             }
+            recordProcessOutput(source, 'lifecycle', `${error ? error.stack ?? error.message : 'Command completed (exit code 0).'} (${Date.now() - startedAt} ms)`);
             if (error) {
                 reject(error);
             } else {
@@ -145,17 +167,26 @@ export async function runCommand(
               }, 800)
             : null;
 
-        const proc = spawn(command, args, {
-            env: {
-                ...getSanitizedPythonEnv(),
-                ...(options.env || {}),
-            },
-            cwd: options.cwd,
-        });
+        let proc: ChildProcessWithoutNullStreams;
+        try {
+            proc = spawn(command, args, {
+                env: {
+                    ...getSanitizedPythonEnv(),
+                    ...(options.env || {}),
+                },
+                cwd: options.cwd,
+            });
+        } catch (error) {
+            finish(new Error(`Failed to start command "${commandLine}": ${toErrorMessage(error)}`));
+            return;
+        }
+        source = `setup:${proc.pid ?? 'unknown'}`;
+        recordProcessOutput(source, 'lifecycle', `Started command: ${commandLine}`);
 
         if (stdout) {
             proc.stdout.on('data', (data) => {
                 const text = data.toString();
+                recordProcessOutput(source, 'stdout', `${prefixText}${text}`);
                 appendRecentLines(recentStdout, text);
                 const parsed = options.onProgress ? parseUvProgressText(text, progress) : null;
                 if (parsed) {
@@ -172,6 +203,7 @@ export async function runCommand(
         if (stderr) {
             proc.stderr.on('data', (data) => {
                 const text = data.toString();
+                recordProcessOutput(source, 'stderr', `${prefixText}${text}`);
                 appendRecentLines(recentStderr, text);
                 const parsed = options.onProgress ? parseUvProgressText(text, progress) : null;
                 if (parsed) {
@@ -272,7 +304,7 @@ export async function checkAndInstallUV(pythonPath: string): Promise<void> {
     }
 
     try {
-        await execFileAsync(pythonPath, [
+        await runBufferedSetupCommand(pythonPath, [
             '-m',
             'pip',
             'install',
@@ -297,7 +329,7 @@ export async function checkAndEnsurePip(pythonPath: string): Promise<void> {
             )})`
         );
         try {
-            await execFileAsync(pythonPath, ['-m', 'ensurepip', '--upgrade']);
+            await runBufferedSetupCommand(pythonPath, ['-m', 'ensurepip', '--upgrade']);
             console.log('ensurepip completed successfully.');
             await execFileAsync(pythonPath, ['-m', 'pip', '--version']);
         } catch (ensureErr) {
@@ -310,14 +342,14 @@ export async function checkAndEnsurePip(pythonPath: string): Promise<void> {
 
 export async function checkAndInstallPython311(pythonPath: string): Promise<void> {
     try {
-        await execFileAsync(pythonPath, [
+        await runBufferedSetupCommand(pythonPath, [
             '-m',
             'uv',
             'python',
             'install',
             '3.13',
         ]);
-        await execFileAsync(pythonPath, [
+        await runBufferedSetupCommand(pythonPath, [
             '-m',
             'uv',
             'pin',

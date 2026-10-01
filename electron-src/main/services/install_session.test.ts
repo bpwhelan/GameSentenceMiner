@@ -1,8 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
+import log from 'electron-log/main.js';
+
+vi.mock('electron-log/main.js', () => ({ default: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
 import { InstallSessionManager } from './install_session.js';
 
 describe('InstallSessionManager', () => {
+    it('persists stages, failures, retries, and completion without a renderer listener', () => {
+        const manager = new InstallSessionManager();
+        const session = manager.startSession('backend_update');
+        manager.updateStage({ stageId: 'lock_sync', status: 'running', message: 'Resolving dependencies', progress: 0.1 });
+        const loggedCalls = vi.mocked(log.info).mock.calls.length;
+        manager.updateStage({ stageId: 'lock_sync', status: 'running', message: 'Resolving dependencies', progress: 0.11 });
+        expect(log.info).toHaveBeenCalledTimes(loggedCalls);
+        manager.appendLog({ message: 'Package download diagnostics', source: 'setup', stream: 'stderr' });
+        manager.updateStage({ stageId: 'lock_sync', status: 'failed', error: 'Network timeout' });
+        manager.finishActive('failed', 'Dependency installation failed');
+        manager.startSession('backend_update');
+        manager.finishActive('completed', 'Backend ready');
+
+        const output = [...vi.mocked(log.info).mock.calls, ...vi.mocked(log.error).mock.calls]
+            .map((args) => JSON.stringify(args)).join('\n');
+        expect(output).toContain(session.id);
+        expect(output).toContain('backend_update');
+        expect(output).toContain('lock_sync');
+        expect(output).toContain('Package download diagnostics');
+        expect(output).toContain('Network timeout');
+        expect(output).toMatch(/retry/i);
+        expect(output).toContain('Backend ready');
+        expect(log.error).toHaveBeenCalled();
+    });
+
     it('computes weighted overall progress from stage updates', () => {
         const manager = new InstallSessionManager();
 

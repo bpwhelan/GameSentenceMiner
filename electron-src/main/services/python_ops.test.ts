@@ -6,8 +6,10 @@ const mockExecFileAsync = vi.fn();
 const mockResolvePreReleaseBackendWheelPath = vi.fn<() => string | null>();
 const mockSpawn = vi.fn();
 const mockMarkSynced = vi.fn();
+const mockRecordProcessOutput = vi.fn();
 
 vi.mock('child_process', () => ({ spawn: mockSpawn }));
+vi.mock('./logging.js', () => ({ recordProcessOutput: mockRecordProcessOutput }));
 vi.mock('./dev_environment_sync.js', () => ({
     getDevPyprojectSyncState: () => ({ changed: true, fingerprint: 'locked-inputs' }),
     markDevPyprojectSynced: mockMarkSynced,
@@ -63,6 +65,91 @@ describe('parseUvProgressText', () => {
             progress: 0.52,
             message: 'Using cached wheel',
         });
+    });
+});
+
+describe('setup command diagnostics', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('retains suppressed dependency output, the command, and its exit status', async () => {
+        const proc = Object.assign(new EventEmitter(), {
+            pid: 1234,
+            stdout: new EventEmitter(),
+            stderr: new EventEmitter(),
+        });
+        mockSpawn.mockReturnValueOnce(proc);
+        const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const { runCommand } = await import('./python_ops.js');
+        const finished = runCommand('python', ['-m', 'uv', 'sync'], true, true, 'Sync: ', {
+            suppressOutput: true, cwd: 'setup-directory',
+        });
+        proc.stdout.emit('data', Buffer.from('Resolved 42 packages\n'));
+        proc.stderr.emit('data', Buffer.from('Downloaded dependency-wheel\n'));
+        proc.emit('close', 0, null);
+        await finished;
+
+        const diagnostics = mockRecordProcessOutput.mock.calls.flat().join('\n');
+        expect(diagnostics).toContain('python -m uv sync');
+        expect(diagnostics).toContain('setup-directory');
+        expect(diagnostics).toContain('1234');
+        expect(diagnostics).toContain('Resolved 42 packages');
+        expect(diagnostics).toContain('Downloaded dependency-wheel');
+        expect(diagnostics).toContain('exit code 0');
+        expect(consoleLog).not.toHaveBeenCalled();
+        expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it.each(['exit', 'signal', 'spawn'] as const)('records a %s failure before rejecting', async (failure) => {
+        const proc = Object.assign(new EventEmitter(), {
+            stdout: new EventEmitter(), stderr: new EventEmitter(),
+        });
+        mockSpawn.mockReturnValueOnce(proc);
+        const { runCommand } = await import('./python_ops.js');
+        const finished = runCommand('python', ['-m', 'pip', 'check'], true, true, '', { suppressOutput: true });
+        if (failure === 'spawn') proc.emit('error', new Error('ENOENT'));
+        else proc.emit('close', failure === 'exit' ? 17 : null, failure === 'signal' ? 'SIGTERM' : null);
+        const expected = failure === 'exit' ? 'exit code 17' : failure === 'signal' ? 'SIGTERM' : 'ENOENT';
+        await expect(finished).rejects.toThrow(expected);
+        expect(mockRecordProcessOutput.mock.calls.flat().join('\n')).toContain(expected);
+    });
+
+    it('retains output from buffered uv bootstrap commands', async () => {
+        mockExecFileAsync.mockResolvedValueOnce({ stdout: 'Version: 0.1.0\n', stderr: '' });
+        mockExecFileAsync.mockResolvedValueOnce({ stdout: 'Installed uv==0.12.4', stderr: 'Retrying package download' });
+        const { checkAndInstallUV } = await import('./python_ops.js');
+        await checkAndInstallUV('python');
+        const diagnostics = mockRecordProcessOutput.mock.calls.flat().join('\n');
+        expect(diagnostics).toContain('Installed uv==0.12.4');
+        expect(diagnostics).toContain('Retrying package download');
+    });
+
+    it('retains buffered failure output that is missing from the exception message', async () => {
+        mockExecFileAsync.mockResolvedValueOnce({ stdout: 'Version: 0.1.0\n', stderr: '' });
+        mockExecFileAsync.mockRejectedValueOnce(Object.assign(new Error('pip failed'), {
+            stdout: 'Attempted index mirror', stderr: 'Certificate validation failed',
+        }));
+        const { checkAndInstallUV } = await import('./python_ops.js');
+        await expect(checkAndInstallUV('python')).rejects.toThrow('pip failed');
+        const diagnostics = mockRecordProcessOutput.mock.calls.flat().join('\n');
+        expect(diagnostics).toContain('Attempted index mirror');
+        expect(diagnostics).toContain('Certificate validation failed');
+    });
+
+    it('records synchronous launch errors and clears the progress timer', async () => {
+        vi.useFakeTimers();
+        try {
+            mockSpawn.mockImplementationOnce(() => { throw new Error('Invalid command path'); });
+            const { runCommand } = await import('./python_ops.js');
+            await expect(runCommand('python', [], true, true, '', { onProgress: vi.fn() }))
+                .rejects.toThrow('Invalid command path');
+            expect(mockRecordProcessOutput.mock.calls.flat().join('\n')).toContain('Invalid command path');
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
