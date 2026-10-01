@@ -14,6 +14,9 @@ const stopOCRMock = vi.fn();
 const getOverlayRuntimeStateMock = vi.fn();
 const runOverlayWithSourceMock = vi.fn();
 const stopOverlayMock = vi.fn();
+const adoptStartupOverlayForAutomationMock = vi.fn();
+const getActiveGameMock = vi.fn();
+const hasActiveGameSnapshotMock = vi.fn();
 const getProfileForMock = vi.fn();
 const getRuntimeStatusMock = vi.fn();
 const setTextHookUserStartListenerMock = vi.fn();
@@ -31,6 +34,7 @@ const getObsOcrScenesMock = vi.fn();
 const getIgnoreActiveSceneForOcrMock = vi.fn();
 const getForceManualOcrAllProfilesMock = vi.fn();
 const getRunOverlayOnStartupMock = vi.fn();
+const getRunOverlayWithActiveGameMock = vi.fn();
 const getSceneLaunchProfileForSceneMock = vi.fn();
 const getSteamGamesMock = vi.fn();
 const getTextractorPath32Mock = vi.fn();
@@ -58,9 +62,14 @@ vi.mock('./ui/ocr.js', () => ({
 }));
 
 vi.mock('./ui/front.js', () => ({
+    adoptStartupOverlayForAutomation: adoptStartupOverlayForAutomationMock,
     getOverlayRuntimeState: getOverlayRuntimeStateMock,
     runOverlayWithSource: runOverlayWithSourceMock,
     stopOverlay: stopOverlayMock,
+}));
+
+vi.mock('./active_game.js', () => ({
+    activeGame: { get: getActiveGameMock, hasSnapshot: hasActiveGameSnapshotMock },
 }));
 
 vi.mock('./ui/texthook.js', () => ({
@@ -83,6 +92,7 @@ vi.mock('./store.js', () => ({
     getIgnoreActiveSceneForOcr: getIgnoreActiveSceneForOcrMock,
     getForceManualOcrAllProfiles: getForceManualOcrAllProfilesMock,
     getRunOverlayOnStartup: getRunOverlayOnStartupMock,
+    getRunOverlayWithActiveGame: getRunOverlayWithActiveGameMock,
     getSceneLaunchProfileForScene: getSceneLaunchProfileForSceneMock,
     getSteamGames: getSteamGamesMock,
     getTextractorPath32: getTextractorPath32Mock,
@@ -148,6 +158,12 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getIgnoreActiveSceneForOcrMock.mockReset();
         getForceManualOcrAllProfilesMock.mockReset();
         getRunOverlayOnStartupMock.mockReset();
+        getRunOverlayWithActiveGameMock.mockReset();
+        getRunOverlayWithActiveGameMock.mockReturnValue(false);
+        getActiveGameMock.mockReset();
+        getActiveGameMock.mockReturnValue(true);
+        hasActiveGameSnapshotMock.mockReset();
+        hasActiveGameSnapshotMock.mockReturnValue(false);
         getSceneLaunchProfileForSceneMock.mockReset();
         getSteamGamesMock.mockReset();
         getTextractorPath32Mock.mockReset();
@@ -394,7 +410,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         }
     });
 
-    it('keeps an auto-launched overlay running regardless of scene inactivity', async () => {
+    it('stops an auto-launched overlay after confirmed session inactivity', async () => {
         const { AutoLauncher } = await loadAutoLauncherModule();
         const launcher = new AutoLauncher() as any;
         const scene = { id: 'scene-1', name: 'Scene 1' };
@@ -411,6 +427,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         });
         getExecutableNameFromSourceMock.mockResolvedValue(null);
         sceneHasVisibleOutputMock.mockResolvedValue(false);
+        getActiveGameMock.mockReturnValue(false);
         getOverlayRuntimeStateMock.mockReturnValue({
             isRunning: true,
             source: 'auto-launcher',
@@ -421,7 +438,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             nowSpy.mockReturnValue(1_000_000 + (60 * 60 * 1000));
             await launcher.runOverlayAutomation(scene);
 
-            expect(stopOverlayMock).not.toHaveBeenCalled();
+            expect(stopOverlayMock).toHaveBeenCalledWith({ onlyIfSource: 'auto-launcher' });
             expect(sceneHasVisibleOutputMock).not.toHaveBeenCalled();
         } finally {
             nowSpy.mockRestore();
@@ -472,6 +489,63 @@ describe('AutoLauncher OCR scene activity fallback', () => {
 
         expect(stopOverlayMock).toHaveBeenCalledWith({ onlyIfSource: 'auto-launcher' });
         expect(runOverlayWithSourceMock).not.toHaveBeenCalled();
+    });
+
+    it('runs the universal option without a per-game profile', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        getRunOverlayWithActiveGameMock.mockReturnValue(true);
+        await launcher.runOverlayAutomation({ id: 'scene-1', name: 'Game' });
+        expect(getActiveGameMock).toHaveBeenCalledWith('Game');
+        expect(runOverlayWithSourceMock).toHaveBeenCalledWith('auto-launcher');
+        expect(sceneHasVisibleOutputMock).not.toHaveBeenCalled();
+    });
+
+    it('does not start or stop on unknown capture evidence', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        getRunOverlayWithActiveGameMock.mockReturnValue(true);
+        getActiveGameMock.mockReturnValue(null);
+        await launcher.runOverlayAutomation({ id: 'scene-1', name: 'Game' });
+        getOverlayRuntimeStateMock.mockReturnValue({ isRunning: true, source: 'auto-launcher' });
+        await launcher.runOverlayAutomation({ id: 'scene-1', name: 'Game' });
+        expect(runOverlayWithSourceMock).not.toHaveBeenCalled();
+        expect(stopOverlayMock).not.toHaveBeenCalled();
+    });
+
+    it('uses shared evidence for OCR even if the process might still be running', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        hasActiveGameSnapshotMock.mockReturnValue(true);
+        getActiveGameMock.mockReturnValue(false);
+        await expect(launcher.isSceneSessionActive({ id: 'scene-1', name: 'Game' })).resolves.toBe(false);
+        expect(getExecutableNameFromSourceMock).not.toHaveBeenCalled();
+        expect(sceneHasVisibleOutputMock).not.toHaveBeenCalled();
+    });
+
+    it('does not let slow text-hook launches block overlay polling', async () => {
+        vi.useFakeTimers();
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        getCurrentSceneMock.mockResolvedValue({ id: 'scene-1', name: 'Game' });
+        getRunOverlayWithActiveGameMock.mockReturnValue(true);
+        let finishHook!: (value: boolean) => void;
+        launcher.runTextHookAutomation = vi.fn(() => new Promise<boolean>((resolve) => { finishHook = resolve; }));
+        launcher.runOcrAutomation = vi.fn();
+        try {
+            launcher.startPolling();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(runOverlayWithSourceMock).toHaveBeenCalled();
+            getOverlayRuntimeStateMock.mockReturnValue({ isRunning: true, source: 'auto-launcher' });
+            getActiveGameMock.mockReturnValue(false);
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(stopOverlayMock).toHaveBeenCalledWith({ onlyIfSource: 'auto-launcher' });
+            finishHook(false);
+            await vi.advanceTimersByTimeAsync(1);
+        } finally {
+            launcher.stopPolling();
+            vi.useRealTimers();
+        }
     });
 
     it('uses the target emulator executable to guard configured Switch Agent launches', async () => {

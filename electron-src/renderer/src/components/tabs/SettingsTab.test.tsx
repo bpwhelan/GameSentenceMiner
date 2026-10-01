@@ -85,6 +85,21 @@ describe("SettingsTab data folder controls", () => {
       .IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  it("turns off active-game mode when startup is enabled from desktop settings", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "settings.getSettings") return { runOverlayWithActiveGame: true, runOverlayOnStartup: false };
+      return fallback(channel);
+    });
+    await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+    const startup = container.querySelector<HTMLInputElement>("#run-overlay-startup")!;
+    await act(async () => startup.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", expect.objectContaining({
+      runOverlayOnStartup: true,
+      runOverlayWithActiveGame: false,
+    }));
+  });
+
   it("shows and starts data relocation from the Settings tab", async () => {
     await act(async () => {
       root.render(

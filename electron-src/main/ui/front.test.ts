@@ -149,6 +149,18 @@ describe('runOverlayWithSource', () => {
         });
     });
 
+    it.each(['manual', 'startup'] as const)('only adopts startup overlays for active-game automation (%s)', async (source) => {
+        isDevValue = true;
+        existsSyncMock.mockReturnValue(true);
+        const processHandle = createProcessHandle();
+        spawnMock.mockReturnValue(processHandle);
+        const { runOverlayWithSource, adoptStartupOverlayForAutomation, getOverlayRuntimeState } = await loadFrontModule();
+        await runOverlayWithSource(source);
+        adoptStartupOverlayForAutomation();
+        expect(getOverlayRuntimeState().source).toBe(source === 'startup' ? 'auto-launcher' : 'manual');
+        processHandle.emit('exit', 0);
+    });
+
     it('loads and unloads the overlay in the main Electron process when enabled', async () => {
         useInProcessOverlayValue = true;
         isInProcessOverlayRunningMock.mockReturnValue(false);

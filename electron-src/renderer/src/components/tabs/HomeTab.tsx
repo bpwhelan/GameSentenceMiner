@@ -317,6 +317,10 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const [statusError, setStatusError] = useState(false);
   const [overlayRunning, setOverlayRunning] = useState(false);
   const [runOverlayOnStartup, setRunOverlayOnStartup] = useState(false);
+  const [runOverlayWithActiveGame, setRunOverlayWithActiveGame] = useState(false);
+  const [overlaySettingsSaving, setOverlaySettingsSaving] = useState(false);
+  const [overlaySettingsLoaded, setOverlaySettingsLoaded] = useState(false);
+  const [overlaySettingsError, setOverlaySettingsError] = useState(false);
   const [ankiBeaconModalOpen, setAnkiBeaconModalOpen] = useState(false);
   const [ankiBeaconNudgeReady, setAnkiBeaconNudgeReady] = useState(false);
   const ankiApiConnected = status?.anki_connected === true;
@@ -354,15 +358,20 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     if (!active) return;
     let cancelled = false;
 
-    void invokeIpc<{ runOverlayOnStartup?: boolean }>("settings.getSettings")
+    setOverlaySettingsLoaded(false);
+    void invokeIpc<{ runOverlayOnStartup?: boolean; runOverlayWithActiveGame?: boolean }>("settings.getSettings")
       .then((settings) => {
         if (!cancelled) {
           setRunOverlayOnStartup(settings?.runOverlayOnStartup === true);
+          setRunOverlayWithActiveGame(settings?.runOverlayWithActiveGame === true);
+          setOverlaySettingsLoaded(true);
+          setOverlaySettingsError(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setRunOverlayOnStartup(false);
+          setOverlaySettingsError(true);
         }
       });
 
@@ -777,19 +786,40 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const openAnkiBeaconModal = useCallback(() => setAnkiBeaconModalOpen(true), []);
   const closeAnkiBeaconModal = useCallback(() => setAnkiBeaconModalOpen(false), []);
   const openExternal = useCallback((url: string) => void invokeIpc("open-external-link", url), []);
-  const handleRunOverlayOnStartupChange = useCallback(async (enabled: boolean) => {
-    setRunOverlayOnStartup(enabled);
+  const handleOverlayAutomationChange = useCallback(async (
+    key: "runOverlayOnStartup" | "runOverlayWithActiveGame", enabled: boolean,
+  ) => {
+    const previousStartup = runOverlayOnStartup;
+    const previousActiveGame = runOverlayWithActiveGame;
+    setOverlaySettingsSaving(true);
+    setOverlaySettingsError(false);
+    if (key === "runOverlayOnStartup") {
+      setRunOverlayOnStartup(enabled);
+      if (enabled) setRunOverlayWithActiveGame(false);
+    } else {
+      setRunOverlayWithActiveGame(enabled);
+      if (enabled) setRunOverlayOnStartup(false);
+    }
     try {
       const result = await invokeIpc<{
-        settings?: { runOverlayOnStartup?: boolean };
-      }>("settings.saveSettings", { runOverlayOnStartup: enabled });
+        success: boolean;
+        settings?: { runOverlayOnStartup?: boolean; runOverlayWithActiveGame?: boolean };
+      }>("settings.saveSettings", { [key]: enabled });
+      if (!result?.success) throw new Error("Overlay settings could not be saved");
       if (typeof result?.settings?.runOverlayOnStartup === "boolean") {
         setRunOverlayOnStartup(result.settings.runOverlayOnStartup);
       }
+      if (typeof result?.settings?.runOverlayWithActiveGame === "boolean") {
+        setRunOverlayWithActiveGame(result.settings.runOverlayWithActiveGame);
+      }
     } catch {
-      setRunOverlayOnStartup(!enabled);
+      setRunOverlayOnStartup(previousStartup);
+      setRunOverlayWithActiveGame(previousActiveGame);
+      setOverlaySettingsError(true);
+    } finally {
+      setOverlaySettingsSaving(false);
     }
-  }, []);
+  }, [runOverlayOnStartup, runOverlayWithActiveGame]);
 
   /* ---- Derived status values ------------------------------------- */
   const gsmReady = status?.ready ?? false;
@@ -1304,19 +1334,38 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     {t("home.overlay.guide")}
                   </button>
                 </div>
-                <label
-                  className="home-toggle home-overlay-card__startup"
-                  htmlFor="home-overlay-startup-toggle"
-                  data-tip={t("home.overlay.runOnStartupTooltip")}
-                >
-                  <input
-                    id="home-overlay-startup-toggle"
-                    type="checkbox"
-                    checked={runOverlayOnStartup}
-                    onChange={(e) => void handleRunOverlayOnStartupChange(e.target.checked)}
-                  />
-                  <span>{t("home.overlay.runOnStartup")}</span>
-                </label>
+                <div className="home-overlay-card__automation">
+                  <label
+                    className="home-toggle home-overlay-card__startup"
+                    htmlFor="home-overlay-active-game-toggle"
+                    data-tip={t("home.overlay.runWithActiveGameTooltip")}
+                  >
+                    <input
+                      id="home-overlay-active-game-toggle"
+                      type="checkbox"
+                      checked={runOverlayWithActiveGame}
+                      disabled={!overlaySettingsLoaded || overlaySettingsSaving}
+                      onChange={(e) => void handleOverlayAutomationChange("runOverlayWithActiveGame", e.target.checked)}
+                    />
+                    <span>{t("home.overlay.runWithActiveGame")}</span>
+                    <span className="home-overlay-card__recommended">{t("home.overlay.recommended")}</span>
+                  </label>
+                  <label
+                    className="home-toggle home-overlay-card__startup"
+                    htmlFor="home-overlay-startup-toggle"
+                    data-tip={t("home.overlay.runOnStartupTooltip")}
+                  >
+                    <input
+                      id="home-overlay-startup-toggle"
+                      type="checkbox"
+                      checked={runOverlayOnStartup}
+                      disabled={!overlaySettingsLoaded || overlaySettingsSaving}
+                      onChange={(e) => void handleOverlayAutomationChange("runOverlayOnStartup", e.target.checked)}
+                    />
+                    <span>{t("home.overlay.runOnStartup")}</span>
+                  </label>
+                  {overlaySettingsError ? <p role="alert">{t("home.overlay.settingsError")}</p> : null}
+                </div>
               </div>
               {!isWindows && (
                 <span className="home-overlay-card__warning">

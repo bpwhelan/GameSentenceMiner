@@ -52,6 +52,10 @@ export interface OverlayRuntimeState {
     source: OverlayLaunchSource | null;
 }
 
+export function adoptStartupOverlayForAutomation(): void {
+    if (overlayLaunchSource === 'startup') overlayLaunchSource = 'auto-launcher';
+}
+
 interface StopOverlayOptions {
     onlyIfSource?: OverlayLaunchSource;
 }

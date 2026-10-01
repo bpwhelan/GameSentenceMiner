@@ -4534,7 +4534,23 @@ body {
 
 .home-tab .home-overlay-card__startup {
   color: var(--gsm-text-secondary);
-  white-space: nowrap;
+}
+
+.home-tab .home-overlay-card__automation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 280px;
+}
+
+.home-tab .home-overlay-card__recommended {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--gsm-radius-pill);
+  background: var(--gsm-success-soft);
+  color: var(--gsm-success);
+  font-size: 0.68rem;
+  font-weight: 600;
 }
 
 /* ---- Quick Actions section ---- */

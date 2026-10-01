@@ -38,6 +38,7 @@ import {
     getPythonPath,
     getQuitOnWindowClose,
     getRunOverlayOnStartup,
+    getRunOverlayWithActiveGame,
     getRunWindowTransparencyToolOnStartup,
     getSceneLaunchProfileForScene,
     getSceneLaunchProfiles,
@@ -76,6 +77,7 @@ import {
     setLaunchAgentMinimized,
     setLaunchTextractorMinimized,
     setRunOverlayOnStartup,
+    setRunOverlayWithActiveGame,
     setRunWindowTransparencyToolOnStartup,
     setSceneLaunchProfiles,
     setSetupWizardVersion,
@@ -970,6 +972,7 @@ function getSettingsSnapshot() {
         windowTransparencyTarget: store.get('windowTransparencyTarget') || '',
         runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
         runOverlayOnStartup: getRunOverlayOnStartup(),
+        runOverlayWithActiveGame: getRunOverlayWithActiveGame(),
         quitOnWindowClose: getQuitOnWindowClose(),
         textCaptureWizardEnabled: getTextCaptureWizardEnabled(),
         visibleTabs: getVisibleTabs(),
@@ -1175,6 +1178,9 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
         if (typeof payload.runOverlayOnStartup === 'boolean') {
             setRunOverlayOnStartup(payload.runOverlayOnStartup);
+        }
+        if (typeof payload.runOverlayWithActiveGame === 'boolean') {
+            setRunOverlayWithActiveGame(payload.runOverlayWithActiveGame);
         }
         if (typeof payload.quitOnWindowClose === 'boolean') {
             setQuitOnWindowClose(payload.quitOnWindowClose);

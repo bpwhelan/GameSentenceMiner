@@ -97,7 +97,11 @@
       "statusStopped": "Not running",
       "guide": "Setup Guide",
       "runOnStartup": "Run on startup",
-      "runOnStartupTooltip": "Start the GSM overlay automatically when GSM starts."
+      "runOnStartupTooltip": "Start the overlay when GSM starts and keep it running. For automatic game sessions, use Open and close with active game instead. Enabling either option turns the other off.",
+      "runWithActiveGame": "Open and close with active game",
+      "runWithActiveGameTooltip": "For every game, open the overlay when its capture or game window is detected and close it when the session ends. Brief detection gaps, alt-tab, and minimization do not close it. Enabling this turns Run on startup off.",
+      "recommended": "Recommended",
+      "settingsError": "Could not load or save overlay options. Reopen Home and try again."
     },
     "actions": {
       "title": "Utilities",
@@ -390,7 +394,7 @@
       "ocrNone": "No OCR",
       "ocrManual": "Manual OCR",
       "ocrAuto": "Auto OCR",
-      "launchOverlay": "Launch overlay with this game",
+      "launchOverlay": "Open and close overlay with this game",
       "openProfiles": "Open Profiles",
       "assignLabel": "Assign this scene to a GSM profile",
       "assignHint": "GSM will switch to this profile automatically whenever scene '{scene}' is active.",
@@ -928,7 +932,7 @@
       "ocrNone": "None",
       "ocrAuto": "Auto OCR",
       "ocrManual": "Manual OCR",
-      "launchOverlay": "Launch Overlay With Game:",
+      "launchOverlay": "Open and Close Overlay With Active Game:",
       "noSceneHint": "Select or switch to an OBS game to configure automation."
     },
     "scriptPicker": {
@@ -984,7 +988,7 @@
       "textHookLuna": "Auto-launch LunaTranslator when this game becomes active.",
       "launchDelay": "Delay before starting the selected text hook launcher for this game.",
       "agentScript": "Agent script path for this game. You can set manually, browse, or search.",
-      "launchOverlay": "Start the GSM overlay when this game's session is active. Gracefully close the overlay launched by this option when switching to an OBS scene where it is disabled. This option is unavailable while Home → Overlay → Run on startup is enabled.",
+      "launchOverlay": "Open the overlay when this game's capture or window is detected. Close it after capture or window loss is confirmed, or when switching to an OBS scene where this option is off. Alt-tab and minimization keep it running. Home → Overlay → Open and close with active game applies this to all games. This option is unavailable while either that option or Run on startup is enabled; your per-game choice is kept.",
       "browseScript": "Open file picker and choose an Agent script for this game.",
       "searchScript": "Search all scripts under Agent Scripts Path, ranked by similarity to the game.",
       "downloadAgent": "Download latest Agent from official GitHub releases. Choose any install folder.",

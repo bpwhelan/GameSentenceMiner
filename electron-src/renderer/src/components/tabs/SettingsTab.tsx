@@ -52,6 +52,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   windowTransparencyTarget: "",
   runWindowTransparencyToolOnStartup: false,
   runOverlayOnStartup: false,
+  runOverlayWithActiveGame: false,
   quitOnWindowClose: false,
   textCaptureWizardEnabled: true,
   visibleTabs: ["launcher", "stats", "python", "console"],
@@ -1305,7 +1306,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     type="checkbox"
                     checked={settings.runOverlayOnStartup}
                     onChange={(event) =>
-                      patchSettings({ runOverlayOnStartup: event.target.checked })
+                      patchSettings({
+                        runOverlayOnStartup: event.target.checked,
+                        ...(event.target.checked ? { runOverlayWithActiveGame: false } : {})
+                      })
                     }
                   />
                 </div>

@@ -13,14 +13,16 @@ describe("GameAutomationTab overlay automation", () => {
   let container: HTMLDivElement;
   let root: Root;
   let runOverlayOnStartup: boolean;
+  let runOverlayWithActiveGame: boolean;
 
   beforeEach(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
     runOverlayOnStartup = false;
+    runOverlayWithActiveGame = false;
     invokeMock.mockReset();
     invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === "settings.getSettings") return { runOverlayOnStartup };
+      if (channel === "settings.getSettings") return { runOverlayOnStartup, runOverlayWithActiveGame };
       if (channel === "obs.getScenes") return [scene];
       if (channel === "obs.getActiveScene") return scene;
       if (channel === "settings.getSceneLaunchProfile") return { launchOverlay: true };
@@ -77,5 +79,18 @@ describe("GameAutomationTab overlay automation", () => {
       scene,
       launchOverlay: false
     }));
+  });
+
+  it("retains per-game preferences while universal active-game mode is enabled", async () => {
+    runOverlayWithActiveGame = true;
+    const toggle = await render();
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.checked).toBe(true);
+    expect(toggle.dataset.tip).toContain("Open and close with active game");
+    await act(async () => toggle.click());
+    expect(invokeMock).not.toHaveBeenCalledWith("settings.saveSceneLaunchProfile", expect.anything());
+    await render(false);
+    runOverlayWithActiveGame = false;
+    expect((await render()).disabled).toBe(false);
   });
 });

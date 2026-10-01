@@ -1,3 +1,4 @@
+import { activeGame } from './active_game.js';
 import {
     app,
     BrowserWindow,
@@ -1375,6 +1376,9 @@ async function showOcrHookRedundantDialog(): Promise<void> {
 }
 
 function handleBackendMessage(msg: BackendMessage): void {
+    if (msg.function === 'active_game_state') {
+        activeGame.update(msg.data);
+    }
     if (msg.function === 'windows_speech_status') {
         safeSendToMainWindow('speech-recognition.status', msg.data ?? {});
     }
