@@ -14,6 +14,8 @@ from itertools import count
 from rapidfuzz import fuzz
 from typing import Dict, Any, List, Tuple, Optional
 
+from GameSentenceMiner.text_pipeline.models import SourceKind
+
 # Updated imports to include window info helpers
 from GameSentenceMiner.obs import get_current_game, get_current_scene, get_screenshot_PIL
 from GameSentenceMiner.obs.active_game import publish_active_game_state
@@ -54,6 +56,7 @@ from GameSentenceMiner.util.overlay.last_sent_text_presence import (
     prepare_presence_candidate,
 )
 from GameSentenceMiner.util.overlay.ocr_retry import AdaptiveOCRRetryState
+from GameSentenceMiner.util.overlay.scan_delay import AdaptiveOverlayScanDelay, OverlayScanTiming
 from GameSentenceMiner.util.platform.window_state_monitor import (
     WindowStateMonitor,
     get_window_client_physical_geometry,
@@ -375,6 +378,7 @@ class OverlayProcessor:
         self._last_sent_presence_task: Optional[asyncio.Task] = None
         self._last_sent_presence_generation = 0
         self._adaptive_crop = AdaptiveOverlayCrop()
+        self._initial_scan_delay = AdaptiveOverlayScanDelay()
 
     def _get_scaled_overlay_area_config(self, width: int, height: int):
         overlay_area_config = get_overlay_area_config()
@@ -2855,6 +2859,7 @@ class OverlayProcessor:
         # logger.background("Finding text for overlay...")
         start_time = datetime.now()
         timing_start = time.time()
+        scan_requested_at = time.monotonic()
         effective_engine = self._get_effective_engine()
 
         if self.ENABLE_DETAILED_TIMING:
@@ -2872,7 +2877,7 @@ class OverlayProcessor:
             line.text.replace(" ", "").replace("\t", "").replace("\n", "").replace("\r", "") if line else None
         )
         self.last_overlay_latest_text = sentence_to_check
-        normalized_sentence_to_check = normalize_text_for_comparison(line.text) if line else None
+        normalized_sentence_to_check = self._normalize_overlay_stabilization_text(line.text) if line else None
         self._log_timing(op_start, "Sentence preprocessing and recycling check")
 
         force_ocr_bypass = self._is_forced_ocr_bypass_payload(dict_from_ocr)
@@ -2905,8 +2910,38 @@ class OverlayProcessor:
             self.init()
             return []
 
-        # if get_config().overlay.scan_delay > 0:
-        #     await asyncio.sleep(get_config().overlay.scan_delay)
+        local_ocr_engine = self.oneocr or self.meikiocr or self.screenai
+        source = line.source if line and line.source else source
+        scan_timing = None
+        initial_scan_delay = 0.0
+        scan_timing_summary = "timing: not_applicable"
+        if (
+            local_ocr_engine
+            # Live GameLines use the text pipeline's canonical source; legacy
+            # direct callers can still supply TextSource.HOOKER.
+            and source in (SourceKind.TEXTHOOK.value, TextSource.HOOKER)
+            and normalized_sentence_to_check
+            and local_ocr_retry > 0
+            and not check_against_last
+            and not precomputed_sent
+        ):
+            # Use cached context only: learning must not query the game, take a
+            # screenshot, or run any OCR beyond the existing workflow.
+            self._initial_scan_delay.use_context(
+                (
+                    getattr(line, "scene", None) or gsm_state.current_game,
+                    getattr(line, "source_instance", None),
+                    getattr(self.window_monitor, "target_hwnd", None),
+                    effective_engine,
+                    getattr(self, "ocr_language", None),
+                )
+            )
+            scan_timing = OverlayScanTiming(reference=normalized_sentence_to_check)
+            initial_scan_delay = self._initial_scan_delay.delay
+            delay_remaining = initial_scan_delay - (time.monotonic() - scan_requested_at)
+            if delay_remaining > 0:
+                # Newer text cancels this wait through the normal task path.
+                await asyncio.sleep(delay_remaining)
 
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
@@ -2921,13 +2956,11 @@ class OverlayProcessor:
             f"Screenshot capture (width: {full_screenshot.width}, height: {full_screenshot.height})",
         )
 
-        local_ocr_engine = self.oneocr or self.meikiocr or self.screenai
         crop_coords_list = []
         oneocr_final = []
         minimum_character_size = self._get_overlay_minimum_character_size()
         if local_ocr_engine:
             # Assume Text from Source is already Stable
-            source = line.source if line and line.source else source
             overlay_config = get_overlay_config()
             text_appears_instantly = overlay_config.text_appears_instantly
             tries = self._resolve_local_ocr_attempts(
@@ -3087,6 +3120,8 @@ class OverlayProcessor:
                         )
                     if retry_state:
                         retry_state.observe("", captured_at=captured_at)
+                    if scan_timing:
+                        scan_timing.observe("", captured_at=captured_at)
                     continue
 
                 op_start = time.time()
@@ -3101,6 +3136,8 @@ class OverlayProcessor:
                         )
                     if retry_state:
                         retry_state.observe("", captured_at=captured_at)
+                    if scan_timing:
+                        scan_timing.observe("", captured_at=captured_at)
                     continue
 
                 if scan_box:
@@ -3137,8 +3174,11 @@ class OverlayProcessor:
                 text_str = self._build_overlay_stabilization_text(oneocr_results, sentence_to_check)
                 previous_attempt_had_text = bool(text_str)
                 self._log_timing(op_start, "Build corrected stabilization text")
+                normalized_text = self._normalize_overlay_stabilization_text(text_str)
+                if scan_timing:
+                    scan_timing.observe(normalized_text, captured_at=captured_at)
                 allow_consecutive_agreement = not retry_state or retry_state.observe(
-                    self._normalize_overlay_stabilization_text(text_str), captured_at=captured_at
+                    normalized_text, captured_at=captured_at
                 )
                 stabilized = self._is_overlay_text_stabilized(
                     text_str,
@@ -3284,6 +3324,14 @@ class OverlayProcessor:
             if retry_state and local_is_final_engine and last_local_payload and not last_local_payload.get("is_final"):
                 await self._send_word_coordinates_with_presence({**last_local_payload, "is_final": True})
 
+            if scan_timing:
+                self._initial_scan_delay.record(scan_timing)
+                scan_timing_summary = scan_timing.summary(
+                    requested_at=scan_requested_at,
+                    initial_delay=initial_scan_delay,
+                    next_delay=self._initial_scan_delay.delay,
+                )
+
             # Only return early if the effective engine is local-only (not Lens)
             # When Lens is configured, we want to continue to the Lens scan with the composite image
             if effective_engine in [
@@ -3292,7 +3340,11 @@ class OverlayProcessor:
                 OverlayEngine.SCREENAI.value,
             ]:
                 if not oneocr_final:
-                    logger.background("Local OCR did not return any text boxes for overlay.")
+                    logger.background(
+                        "Local OCR did not return any text boxes for overlay (source: {}, {}).",
+                        source or "none",
+                        scan_timing_summary,
+                    )
                     return
                 # Log completion with comprehensive details
                 elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
@@ -3306,12 +3358,14 @@ class OverlayProcessor:
                     )
 
                 logger.info(
-                    "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms, tries: {})",
+                    "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms, tries: {}, source: {}, {})",
                     engine_name,
                     len(oneocr_final) if oneocr_final else 0,
                     int(elapsed_ms),
                     int(ocr_ms),
                     attempts_completed,
+                    source or "none",
+                    scan_timing_summary,
                 )
 
                 await self._record_overlay_scan(last_result_flattened, line)
@@ -3460,11 +3514,13 @@ class OverlayProcessor:
             )
 
         logger.info(
-            "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms)",
+            "Overlay OCR complete: {} sent {} text boxes (total: {}ms, OCR: {}ms, source: {}, {})",
             engine_name,
             len(extracted_data),
             int(elapsed_ms),
             int(ocr_ms),
+            source or "none",
+            scan_timing_summary,
         )
 
     async def reprocess_and_send_last_results(self):

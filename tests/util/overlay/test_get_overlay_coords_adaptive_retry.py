@@ -1,13 +1,16 @@
 import asyncio
 import copy
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from PIL import Image
 
+from GameSentenceMiner.text_pipeline.coordinator import TextCoordinatorState
+from GameSentenceMiner.text_pipeline.models import SourceKind, TextObservation
 from GameSentenceMiner.util.overlay import get_overlay_coords
-from GameSentenceMiner.util.text_log import TextSource
+from GameSentenceMiner.util.text_log import GameText, TextSource
 
 
 @pytest.fixture
@@ -56,7 +59,17 @@ def scan_workflow(monkeypatch):
     monkeypatch.setattr(processor, "_send_word_coordinates_with_presence", send)
     monkeypatch.setattr(processor, "_record_overlay_scan", AsyncMock())
 
-    def run(text_at_capture, *, reference=None, source=TextSource.HOOKER, retries=5, ocr_duration=0.02):
+    def run(
+        text_at_capture,
+        *,
+        reference=None,
+        source=SourceKind.TEXTHOOK.value,
+        retries=5,
+        ocr_duration=0.02,
+        scene="test-game",
+        source_instance="test-hook",
+        line=None,
+    ):
         def capture():
             if clock.fail_capture_after is not None and len(captures) >= clock.fail_capture_after:
                 return None, 0, 0, 100, 100
@@ -77,7 +90,11 @@ def scan_workflow(monkeypatch):
         recognize.readable_name = "Fake OCR"
         processor.oneocr = recognize
         monkeypatch.setattr(processor, "get_image_to_ocr", capture)
-        line = SimpleNamespace(id="line-1", text=reference, source=source) if reference else None
+        line = line or (
+            SimpleNamespace(id="line-1", text=reference, source=source, scene=scene, source_instance=source_instance)
+            if reference
+            else None
+        )
         asyncio.run(processor._do_work(line=line, source=source, local_ocr_retry=retries))
 
     return SimpleNamespace(
@@ -364,3 +381,240 @@ def test_adaptive_retry_requires_preserved_text_in_order(previous, current, grow
     state.observe(current, captured_at=0.1)
 
     assert (state.retry_delay == 0.01) is growing
+
+
+def learn_initial_delay(scan, *, early_text="", reference="expected sentence"):
+    for _ in range(3):
+        old_count = len(scan.reads)
+        scan.run(
+            lambda _at, index, first=old_count + 1: early_text if index == first else reference,
+            reference=reference,
+        )
+        assert len(scan.reads) == old_count + 2
+    assert scan.processor._initial_scan_delay.delay == pytest.approx(0.005)
+
+
+@pytest.mark.parametrize("adaptive", [False, True])
+@pytest.mark.parametrize("instant", [False, True])
+@pytest.mark.parametrize("source", [TextSource.HOOKER, SourceKind.TEXTHOOK.value])
+def test_initial_scan_delay_learns_from_existing_retries_without_a_toggle(scan_workflow, adaptive, instant, source):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = adaptive
+    scan.options.text_appears_instantly = instant
+    for late_reveal in [True, False, True, False, True]:
+        old_count = len(scan.reads)
+        started_at = scan.clock.now
+        scan.run(
+            lambda _at, index, first=old_count + 1, late=late_reveal: (
+                "前の台詞" if late and index == first else "expected sentence"
+            ),
+            reference="expected sentence",
+            source=source,
+        )
+        assert scan.reads[old_count] == started_at
+        assert len(scan.reads) - old_count == (2 if late_reveal else 1)
+
+    started_at = scan.clock.now
+    scan.run(lambda _at, _index: "expected sentence", reference="expected sentence", source=source)
+    assert scan.reads[-1] - started_at == pytest.approx(0.005)
+    assert len(scan.reads) == 9
+    assert scan.payloads[-1]["is_final"] is True
+
+
+def test_initial_scan_delay_converges_near_render_time_using_fewer_existing_scans(scan_workflow):
+    scan = scan_workflow
+    reference = "expected sentence"
+    first_captures = []
+    scan_counts = []
+    for _ in range(70):
+        started_at = scan.clock.now
+        old_count = len(scan.reads)
+        scan.run(
+            lambda at, _index, start=started_at: "話者" if at - start < 0.055 else reference,
+            reference=reference,
+            ocr_duration=0.15,
+        )
+        first_captures.append(scan.reads[old_count] - started_at)
+        scan_counts.append(len(scan.reads) - old_count)
+
+    assert first_captures[0] == 0
+    assert all(0.05 <= delay <= 0.065 for delay in first_captures[-10:])
+    assert sum(scan_counts[-10:]) <= 13
+    assert max(scan_counts) <= 2
+
+
+@pytest.mark.parametrize("early_text", [None, "", "ヨシュア"])
+def test_initial_scan_delay_learns_from_blank_or_speaker_before_full_dialogue(scan_workflow, early_text):
+    scan = scan_workflow
+    reference = "かさばるしどうしようかな"
+    learn_initial_delay(scan, early_text=early_text, reference=reference)
+    started_at = scan.clock.now
+    scan.run(lambda _at, _index: reference, reference=reference)
+
+    assert len(scan.reads) == 7
+    assert scan.reads[-1] - started_at == pytest.approx(0.005)
+
+
+@pytest.mark.parametrize("reference", [None, "expected sentence"])
+@pytest.mark.parametrize("source", [TextSource.OCR, TextSource.HOTKEY, TextSource.MANUAL, None])
+def test_learned_delay_does_not_slow_manual_or_periodic_scans(scan_workflow, source, reference):
+    scan = scan_workflow
+    learn_initial_delay(scan)
+    started_at = scan.clock.now
+    scan.run(lambda _at, _index: "expected sentence", reference=reference, source=source, retries=0)
+
+    assert scan.reads[-1] == started_at
+    assert len(scan.reads) == 7
+
+
+@pytest.mark.parametrize("change", [{"scene": "other-game"}, {"source_instance": "other-hook"}])
+def test_initial_scan_delay_resets_when_the_game_or_hook_changes(scan_workflow, change):
+    scan = scan_workflow
+    learn_initial_delay(scan)
+    started_at = scan.clock.now
+    scan.run(lambda _at, _index: "expected sentence", reference="expected sentence", **change)
+
+    assert scan.reads[-1] == started_at
+
+
+def test_initial_scan_delay_is_cancellable_before_capturing(scan_workflow, monkeypatch):
+    scan = scan_workflow
+    learn_initial_delay(scan)
+
+    async def cancel(delay):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(get_overlay_coords.asyncio, "sleep", cancel)
+    with pytest.raises(asyncio.CancelledError):
+        scan.run(lambda _at, _index: "expected sentence", reference="expected sentence")
+    assert len(scan.reads) == 6
+
+
+def test_initial_scan_delay_counts_time_already_spent_preparing_the_scan(scan_workflow, monkeypatch):
+    scan = scan_workflow
+    learn_initial_delay(scan)
+
+    def prepare(_text):
+        scan.clock.now += 0.05
+        return False
+
+    monkeypatch.setattr(scan.processor, "_is_sentence_recycled", prepare)
+    started_at = scan.clock.now
+    old_sleeps = len(scan.sleeps)
+    scan.run(lambda _at, _index: "expected sentence", reference="expected sentence")
+
+    assert scan.reads[-1] - started_at == pytest.approx(0.05)
+    assert len(scan.sleeps) == old_sleeps
+
+
+def test_cancelled_unconfirmed_line_does_not_teach_an_initial_delay(scan_workflow, monkeypatch):
+    scan = scan_workflow
+    fake_sleep = get_overlay_coords.asyncio.sleep
+
+    async def cancel(delay):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(get_overlay_coords.asyncio, "sleep", cancel)
+    with pytest.raises(asyncio.CancelledError):
+        scan.run(lambda _at, _index: "", reference="expected sentence")
+    monkeypatch.setattr(get_overlay_coords.asyncio, "sleep", fake_sleep)
+    started_at = scan.clock.now
+    scan.run(lambda _at, _index: "expected sentence", reference="expected sentence")
+
+    assert scan.reads[-1] == started_at
+    assert len(scan.reads) == 2
+
+
+def test_projected_live_hook_lines_learn_delay_and_log_each_outcome(scan_workflow, monkeypatch):
+    scan = scan_workflow
+    state = TextCoordinatorState(session_id="test-session")
+    game_log = GameText()
+    now = datetime(2026, 9, 28, 21, 8, tzinfo=timezone.utc)
+    summaries = []
+    monkeypatch.setattr(
+        get_overlay_coords.logger, "info", lambda message, *args: summaries.append(message.format(*args))
+    )
+
+    def project(text, observation_id):
+        result = state.ingest(
+            TextObservation(
+                observation_id=observation_id,
+                source_kind=SourceKind.normalize("texthook"),
+                source_instance="sora_1st.exe:#agent",
+                source_display_name="agent · sora_1st.exe · #agent",
+                raw_text=text,
+                captured_at_utc=now,
+                emitted_at_utc=now,
+                received_at_utc=now,
+                received_monotonic_ns=1,
+                revision_window_ms=0,
+                metadata={"scene": "Trails in the Sky 1st Chapter"},
+            ),
+            now=now,
+        )
+        return game_log.upsert_authoritative_line(result.events[0].record)
+
+    line = project("あーあ、完全にグロッキーね。", "line-1")
+    assert line.source == "texthook"
+    scan.run(lambda _at, index: "オリビエ" if index == 1 else line.text, line=line, ocr_duration=0.15)
+    started_at = scan.clock.now
+    line = project("いやあ、飲んだ飲んだ。", "line-2")
+    scan.run(lambda _at, _index: line.text, line=line, ocr_duration=0.15)
+
+    assert scan.reads[-1] == started_at
+    assert len(scan.reads) == 3
+    for index, text in enumerate(["これは次の台詞です。", "最後の確認の台詞です。"], start=3):
+        line = project(text, f"line-{index}")
+        old_count = len(scan.reads)
+        scan.run(
+            lambda _at, index, first=old_count + 1, text=line.text: "オリビエ" if index == first else text,
+            line=line,
+            ocr_duration=0.15,
+        )
+    started_at = scan.clock.now
+    line = project("もう一つの台詞だ。", "line-5")
+    scan.run(lambda _at, _index: line.text, line=line, ocr_duration=0.15)
+
+    assert scan.reads[-1] - started_at == pytest.approx(0.005)
+    assert len(scan.reads) == 8
+    completed = [message for message in summaries if message.startswith("Overlay OCR complete:")]
+    assert len(completed) == 5
+    assert "source: texthook" in completed[0]
+    assert "initial delay: 0ms -> 0ms" in completed[0]
+    assert "initial match: 0%" in completed[0]
+    assert "timing: late_reveal" in completed[0]
+    assert "first capture: 0ms, ready capture: 250ms" in completed[0]
+    assert "initial delay: 0ms -> 0ms" in completed[1]
+    assert "initial match: 100%" in completed[1]
+    assert "timing: first_capture_ready" in completed[1]
+    assert "initial delay: 0ms -> 0ms" in completed[2]
+    assert "initial delay: 0ms -> 5ms" in completed[3]
+    assert "initial delay: 5ms -> 5ms" in completed[4]
+
+
+def test_initial_scan_delay_stays_at_or_below_150ms_even_when_the_game_needs_longer(scan_workflow):
+    scan = scan_workflow
+    for _ in range(100):
+        started_at = scan.clock.now
+        old_count = len(scan.reads)
+        scan.run(
+            lambda at, _index, start=started_at: "話者" if at - start < 0.3 else "expected sentence",
+            reference="expected sentence",
+            ocr_duration=0.15,
+        )
+
+        assert scan.reads[old_count] - started_at <= 0.15 + 1e-9
+        assert len(scan.reads) - old_count >= 2
+
+    assert scan.reads[old_count] - started_at == pytest.approx(0.15)
+
+
+def test_substantial_partial_text_does_not_delay_the_next_line(scan_workflow):
+    scan = scan_workflow
+    reference = "abcdefghijklmnopqrst"
+    scan.run(lambda _at, index: "cdefghijklmnopqrst" if index == 1 else reference, reference=reference)
+    started_at = scan.clock.now
+    scan.run(lambda _at, _index: reference, reference=reference)
+
+    assert scan.reads[-1] == started_at
+    assert len(scan.reads) == 3
