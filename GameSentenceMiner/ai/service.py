@@ -155,9 +155,7 @@ class AIService:
                 raise
 
             self.logger.warning(
-                "Primary AI model failed (%s). Retrying with backup model '%s'.",
-                request.model,
-                backup_model,
+                f"Primary AI model failed ({request.model}). Retrying with backup model '{backup_model}'."
             )
             backup_request = AIRequest(
                 provider=request.provider,
@@ -183,10 +181,7 @@ class AIService:
                 )
             except AIError as backup_error:
                 self.logger.error(
-                    "Backup AI model '%s' also failed after primary model '%s': %s",
-                    backup_model,
-                    request.model,
-                    backup_error,
+                    f"Backup AI model '{backup_model}' also failed after primary model '{request.model}': {backup_error}"
                 )
                 raise primary_error
 
