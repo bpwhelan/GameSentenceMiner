@@ -747,6 +747,81 @@ describe('App install-session integration', () => {
         expect(container.querySelector('.whats-changed-overlay')).toBeNull();
     });
 
+    it('restores a completed backend update when the window loads after the finish event', async () => {
+        const completed = { ...createSnapshot('running', 'backend_update'), status: 'completed', overallProgress: 1 };
+        let resolveChangelog!: (value: DesktopUpdateChangelogSnapshot) => void;
+        const pendingChangelog = new Promise<DesktopUpdateChangelogSnapshot>((resolve) => {
+            resolveChangelog = resolve;
+        });
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') return completed;
+            if (channel === 'changelog.getPendingDesktopUpdate') return pendingChangelog;
+            if (channel === 'settings.getSettings') return { hasCompletedSetup: true };
+            return { success: true };
+        });
+
+        const { default: App } = await import('./App.js');
+        await act(async () => { root.render(<App />); });
+        await act(async () => { resolveChangelog(createChangelogSnapshot()); });
+
+        const continueButton = container.querySelector<HTMLButtonElement>('.whats-changed-continue');
+        expect(continueButton?.textContent).toBe('Continue');
+        expect(continueButton?.disabled).toBe(false);
+        // Loading newer notes must not reset a restored completion to "pending".
+        await act(async () => {
+            for (const callback of listeners.get('changelog.snapshot') ?? []) {
+                callback({}, { ...createChangelogSnapshot(), source: 'remote' });
+            }
+        });
+        expect(continueButton?.disabled).toBe(false);
+        await act(async () => { continueButton?.click(); });
+        expect(invokeMock).toHaveBeenCalledWith('changelog.markDesktopUpdateSeen', '1.0.1');
+        expect(container.querySelector('.whats-changed-overlay')).toBeNull();
+    });
+
+    it('does not let a delayed initial install snapshot overwrite a live completion', async () => {
+        let resolveInitial!: (value: InstallSessionSnapshot) => void;
+        const pendingInitial = new Promise<InstallSessionSnapshot>((resolve) => { resolveInitial = resolve; });
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') return pendingInitial;
+            if (channel === 'changelog.getPendingDesktopUpdate') return createChangelogSnapshot();
+            if (channel === 'settings.getSettings') return { hasCompletedSetup: true };
+            return { success: true };
+        });
+
+        const { default: App } = await import('./App.js');
+        await act(async () => { root.render(<App />); });
+        await act(async () => {
+            for (const callback of listeners.get('install-session.finished') ?? []) {
+                callback({}, { ...createSnapshot('running', 'backend_update'), status: 'completed' });
+            }
+        });
+        await act(async () => { resolveInitial(createSnapshot('running', 'backend_update')); });
+
+        const continueButton = container.querySelector<HTMLButtonElement>('.whats-changed-continue');
+        expect(continueButton?.textContent).toBe('Continue');
+        expect(continueButton?.disabled).toBe(false);
+    });
+
+    it('restores retry and logs after a failed backend update while the window was closed', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') return createSnapshot('failed', 'backend_update');
+            if (channel === 'changelog.getPendingDesktopUpdate') return createChangelogSnapshot();
+            if (channel === 'settings.getSettings') return { hasCompletedSetup: true };
+            return { success: true };
+        });
+
+        const { default: App } = await import('./App.js');
+        await act(async () => { root.render(<App />); });
+        expect(container.querySelector('.whats-changed-continue')).toBeNull();
+        await act(async () => {
+            container.querySelector<HTMLButtonElement>('.install-btn-retry')?.click();
+            container.querySelector<HTMLButtonElement>('.install-btn-logs')?.click();
+        });
+        expect(invokeMock).toHaveBeenCalledWith('install-session.retry');
+        expect(invokeMock).toHaveBeenCalledWith('logs.openFolder');
+    });
+
     it('shows a manual whats changed dialog without marking the version seen', async () => {
         invokeMock.mockImplementation(async (channel: string) => {
             if (channel === 'install-session.getActive') {

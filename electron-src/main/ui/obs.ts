@@ -23,6 +23,7 @@ import axios from 'axios';
 import extract from 'extract-zip';
 import { installSessionManager } from '../services/install_session_state.js';
 import { syncProcessPausingTargetForScene } from '../services/process_pausing_target.js';
+import { getWindowsSystemExecutable } from '../runtime/windows_tools.js';
 import type {
     InstallProgressKind,
     InstallStageStatus,
@@ -1688,7 +1689,7 @@ export async function closeOBSFromElectron(
 
     try {
         if (isWindows()) {
-            await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F']);
+            await execFileAsync(getWindowsSystemExecutable('taskkill.exe'), ['/PID', String(pid), '/T', '/F']);
         } else if (ownedProcess?.pid === pid) {
             ownedProcess.kill('SIGTERM');
         } else {

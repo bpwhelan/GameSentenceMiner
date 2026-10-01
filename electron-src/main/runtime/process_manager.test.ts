@@ -160,6 +160,24 @@ describe('ProcessManager', () => {
         });
     });
 
+    it.skipIf(process.platform !== 'win32')('stops an actual Windows child with an empty PATH', async () => {
+        pm.register({
+            id: 'alive',
+            buildCommand: () => ({ command: process.execPath, args: ['-e', ALIVE_SCRIPT] }),
+        });
+        pm.start('alive');
+
+        try {
+            vi.stubEnv('PATH', '');
+            await pm.stop('alive');
+            expect(pm.isRunning('alive')).toBe(false);
+            expect(pm.getState('alive')).toBe('stopped');
+        } finally {
+            // Restore lookup before afterEach cleans up if the regression fails.
+            vi.unstubAllEnvs();
+        }
+    });
+
     it('coalesces overlapping stop requests while the child is still shutting down', async () => {
         pm.register({
             id: 'alive',

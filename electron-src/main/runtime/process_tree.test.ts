@@ -71,18 +71,41 @@ describe('owned process tree termination', () => {
         await expect(terminateProcessTree(child())).rejects.toThrow('denied');
     });
 
-    it('kills the Windows tree before its launcher and waits for exit', async () => {
+    it.each([
+        [{ SystemRoot: 'D:\\Windows', PATH: '' }, 'D:\\Windows\\System32\\taskkill.exe'],
+        [{ windir: 'E:\\Windows', PATH: '' }, 'E:\\Windows\\System32\\taskkill.exe'],
+        [{ PATH: '' }, 'C:\\Windows\\System32\\taskkill.exe'],
+    ])('kills the Windows tree without relying on PATH (%j)', async (env, command) => {
         const proc = child();
-        vi.stubGlobal('process', { platform: 'win32' });
+        vi.stubGlobal('process', { platform: 'win32', env });
         execFile.mockImplementation((_command, _args, _options, callback) => {
             proc.exitCode = 0;
             proc.emit('exit', 0);
             callback(null, '', '');
         });
         await terminateProcessTree(proc);
-        expect(execFile).toHaveBeenCalledWith('taskkill', ['/PID', '12564', '/T', '/F'],
+        expect(execFile).toHaveBeenCalledWith(command, ['/PID', '12564', '/T', '/F'],
             { windowsHide: true, timeout: 5000 }, expect.any(Function));
         expect(proc.kill).not.toHaveBeenCalled();
+    });
+
+    it('reports a Windows termination failure and allows a later retry', async () => {
+        const proc = child();
+        vi.stubGlobal('process', { platform: 'win32', env: { SystemRoot: 'C:\\Windows' } });
+        const error = Object.assign(new Error('spawn taskkill ENOENT'), { code: 'ENOENT' });
+        execFile.mockImplementationOnce((_command, _args, _options, callback) => callback(error));
+
+        await expect(terminateProcessTree(proc)).rejects.toBe(error);
+        expect(proc.kill).not.toHaveBeenCalled();
+        expect(proc.exitCode).toBeNull();
+
+        execFile.mockImplementationOnce((_command, _args, _options, callback) => {
+            proc.exitCode = 0;
+            proc.emit('exit', 0);
+            callback(null, '', '');
+        });
+        await terminateProcessTree(proc);
+        expect(execFile).toHaveBeenCalledTimes(2);
     });
 
     it('does not treat a sent signal as proof of exit, and removes exit listeners on timeout', async () => {

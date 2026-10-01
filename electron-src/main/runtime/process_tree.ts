@@ -1,5 +1,6 @@
 import { execFile, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
+import { getWindowsSystemExecutable } from './windows_tools.js';
 
 const execFileAsync = promisify(execFile);
 const terminations = new WeakMap<ChildProcess, Promise<void>>();
@@ -69,7 +70,7 @@ async function terminateTree(proc: ChildProcess): Promise<void> {
         }
         try {
             // Killing the launcher first loses the Windows Python worker tree.
-            await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+            await execFileAsync(getWindowsSystemExecutable('taskkill.exe'), ['/PID', String(pid), '/T', '/F'], {
                 windowsHide: true,
                 timeout: 5000,
             });

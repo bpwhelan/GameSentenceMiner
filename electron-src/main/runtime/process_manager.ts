@@ -20,6 +20,7 @@ import { promisify } from 'node:util';
 
 import type { BrokerStartInfo } from './message_bus.js';
 import { hasProcessExited, terminateProcessTree, waitForProcessExit } from './process_tree.js';
+import { getWindowsSystemExecutable } from './windows_tools.js';
 
 // Kept dependency-free on purpose: util.ts statically imports main.ts, so pulling
 // it in here would drag the whole app graph (and its circular init) into anything
@@ -227,7 +228,7 @@ export class ProcessManager extends EventEmitter {
                 const commandLine = await getProcessCommandLine(item.pid);
                 if (commandLine && looksLikeManagedCommand(commandLine, item)) {
                     if (IS_WINDOWS) {
-                        await execFileAsync('taskkill', ['/PID', String(item.pid), '/T', '/F']);
+                        await execFileAsync(getWindowsSystemExecutable('taskkill.exe'), ['/PID', String(item.pid), '/T', '/F']);
                     } else {
                         await execFileAsync('kill', ['-9', String(item.pid)]);
                     }

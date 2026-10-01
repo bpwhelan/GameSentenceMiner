@@ -144,6 +144,11 @@ export class InstallSessionManager {
         return this.lastFinishedSession ? cloneSnapshot(this.lastFinishedSession.snapshot) : null;
     }
 
+    /** A newly loaded renderer may have missed the last session's finish event. */
+    public getRendererSnapshot(): InstallSessionSnapshot | null {
+        return this.getActiveSnapshot() ?? this.getLastFinishedSnapshot();
+    }
+
     public startSession(origin: InstallSessionOrigin, retryHandler?: () => Promise<void>): InstallSessionSnapshot {
         const now = Date.now();
         const shouldReuseFailedSession =
