@@ -8,6 +8,7 @@
 		mdiChevronRight,
 		mdiChevronUp,
 		mdiCog,
+		mdiContentSaveAll,
 		mdiDelete,
 		mdiDeleteForever,
 		mdiDatabase,
@@ -77,6 +78,7 @@
 		type LineItemEditEvent,
 		LineType,
 		OnlineFont,
+		type SavedClip,
 		type TextFeedSessionSync,
 		Theme,
 	} from '../types';
@@ -109,7 +111,7 @@
 	import SocketConnector from './SocketConnector.svelte';
 	import Spinner from './Spinner.svelte';
 	import Stats from './Stats.svelte';
-	import { getGSMEndpoint } from '../gsm';
+	import { describeSavedClips, fetchSavedClips, getGSMEndpoint, trashSavedClips } from '../gsm';
 
 	let isSmFactor = false;
 	let settingsComponent: Settings;
@@ -125,6 +127,9 @@
 	let pipResizeTimeout: number;
 	let hasPipFocus = false;
 	let audioEventsSub: Subscription | undefined;
+	let savingClipIds: string[] = [];
+	let savedClips: SavedClip[] = [];
+	let clipsViewOpen = false;
 	let audioElement: HTMLAudioElement | undefined;
 	let audioWidgetVisible = false;
 	let audioWidgetText = '';
@@ -340,10 +345,13 @@
 		initializeAudioElement();
 		void fetchGSMTextIntakePausedState();
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
+		void loadSavedClips();
+		window.addEventListener('focus', loadSavedClips);
 
 		return () => {
 			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
+			window.removeEventListener('focus', loadSavedClips);
 			if (audioElement) {
 				audioElement.pause();
 				audioElement.src = '';
@@ -563,6 +571,17 @@
 			return;
 		}
 
+		if (eventType === 'clip_saved' || eventType === 'clip_save_failed') {
+			const lineIds: string[] = Array.isArray(payload.line_ids) ? payload.line_ids : [];
+			savingClipIds = savingClipIds.filter((id) => !lineIds.includes(id));
+			if (eventType === 'clip_saved') {
+				void loadSavedClips();
+			} else {
+				showClipError(`Could not save clip: ${payload.error || 'Unknown error'}`);
+			}
+			return;
+		}
+
 		if (eventType === 'audio_ready') {
 			const lineId = payload.line_id || '';
 			const audioUrl = payload.audio_url || '';
@@ -701,6 +720,85 @@
 			}
 		} catch (error) {
 			console.error('Error requesting video trim:', error);
+		}
+	}
+
+	function showClipError(message: string) {
+		$openDialog$ = { type: 'error', message, showCancel: false };
+	}
+
+	// Clips live on disk, not in this browser's history: saved lines keep their replay buttons
+	// and are listed in the Clips view.
+	async function loadSavedClips() {
+		try {
+			savedClips = await fetchSavedClips();
+		} catch (error) {
+			console.warn('Could not load the saved clips:', error);
+		}
+	}
+
+	function toggleClipsView() {
+		clipsViewOpen = !clipsViewOpen;
+		if (clipsViewOpen) {
+			void loadSavedClips();
+		}
+	}
+
+	$: clipByLine = new Map(savedClips.flatMap((clip) => clip.lines.map((line) => [line.id, clip])));
+	$: clipLines = savedClips.flatMap((clip) => clip.lines);
+
+	async function handleOpenClipFolder(event: CustomEvent<{ lineId: string }>) {
+		const clip = clipByLine.get(event.detail.lineId);
+		try {
+			const response = await fetch(getGSMEndpoint('/api/clips/open'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id: clip?.id }),
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP error: ${response.status}`);
+			}
+		} catch (error) {
+			showClipError(`Could not open the clip folder: ${getErrorMessage(error)}`);
+		}
+	}
+
+	async function handleDeleteClip(event: CustomEvent<{ lineId: string }>) {
+		const clip = clipByLine.get(event.detail.lineId);
+		if (!clip) {
+			return;
+		}
+		try {
+			await trashSavedClips([clip]);
+		} catch (error) {
+			showClipError(`Could not delete clip: ${getErrorMessage(error)}`);
+		}
+		await loadSavedClips();
+	}
+
+	async function handleSaveClip(event: CustomEvent<{ lineId: string }>) {
+		const { lineId } = event.detail;
+		if (savingClipIds.includes(lineId)) {
+			return;
+		}
+		savingClipIds = [...savingClipIds, lineId];
+		try {
+			const response = await fetch(getGSMEndpoint('/save-clip'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id: lineId }),
+			});
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(data.error || `HTTP error: ${response.status}`);
+			}
+			if (data.already_saved) {
+				savingClipIds = savingClipIds.filter((id) => id !== lineId);
+				await loadSavedClips();
+			}
+		} catch (error) {
+			savingClipIds = savingClipIds.filter((id) => id !== lineId);
+			showClipError(`Could not save clip: ${getErrorMessage(error)}`);
 		}
 	}
 
@@ -1442,6 +1540,14 @@
 	<div
 		role="button"
 		class="mr-1 hover:text-primary sm:mr-2"
+		class:text-primary={clipsViewOpen}
+		title={clipsViewOpen ? 'Back to TextFeed' : 'Show Saved Clips'}
+	>
+		<Icon path={mdiContentSaveAll} width={iconSize} height={iconSize} on:click={toggleClipsView} />
+	</div>
+	<div
+		role="button"
+		class="mr-1 hover:text-primary sm:mr-2"
 		title="Open Statistics Page"
 	>
 		<Icon
@@ -1469,6 +1575,7 @@
 		on:layoutChange={executeUpdateScroll}
 		on:linesRemoved={({ detail }) => rememberRemovedGSMLines(detail)}
 		on:maxLinesChange={() => ($lineData$ = applyMaxLinesAndGetRemainingLineData())}
+		on:savedClipsChanged={loadSavedClips}
 	/>
 	<Presets isQuickSwitch={true} on:layoutChange={executeUpdateScroll} />
 </header>
@@ -1484,26 +1591,52 @@
 	bind:this={lineContainer}
 >
 	{@html newLineCharacter}
-	{#each $lineData$ as line, index (line.id)}
-		<Line
-			{line}
-			{index}
-			isLast={$lineData$.length - 1 === index}
-			audioLineId={activeAudioLineId}
-			audioIsPlaying={browserAudioPlaying}
-			audioPendingLineId={pendingAudioLineId}
-			bind:this={lineElements[index]}
-			on:selected={({ detail }) => {
-				selectedLineIds = [...selectedLineIds, detail];
-			}}
-			on:deselected={({ detail }) => {
-				selectedLineIds = selectedLineIds.filter((selectedLineId) => selectedLineId !== detail);
-			}}
-			on:edit={handleLineEdit}
-			on:audioToggle={handleAudioToggle}
-			on:videoTrim={handleVideoTrim}
-		/>
-	{/each}
+	{#if clipsViewOpen}
+		<h2 class="my-4 text-2xl font-semibold select-none">{describeSavedClips(savedClips, 'Saved Clip')}</h2>
+		{#each clipLines as line, index (line.id)}
+			<Line
+				{line}
+				{index}
+				isLast={clipLines.length - 1 === index}
+				audioLineId={activeAudioLineId}
+				audioIsPlaying={browserAudioPlaying}
+				audioPendingLineId={pendingAudioLineId}
+				on:audioToggle={handleAudioToggle}
+				on:videoTrim={handleVideoTrim}
+				on:deleteClip={handleDeleteClip}
+				on:openClipFolder={handleOpenClipFolder}
+				isClipSaved
+				clipSizeBytes={clipByLine.get(line.id)?.size_bytes}
+			/>
+		{/each}
+	{:else}
+		{#each $lineData$ as line, index (line.id)}
+			<Line
+				{line}
+				{index}
+				isLast={$lineData$.length - 1 === index}
+				audioLineId={activeAudioLineId}
+				audioIsPlaying={browserAudioPlaying}
+				audioPendingLineId={pendingAudioLineId}
+				bind:this={lineElements[index]}
+				on:selected={({ detail }) => {
+					selectedLineIds = [...selectedLineIds, detail];
+				}}
+				on:deselected={({ detail }) => {
+					selectedLineIds = selectedLineIds.filter((selectedLineId) => selectedLineId !== detail);
+				}}
+				on:edit={handleLineEdit}
+				on:audioToggle={handleAudioToggle}
+				on:videoTrim={handleVideoTrim}
+				on:saveClip={handleSaveClip}
+				on:deleteClip={handleDeleteClip}
+				on:openClipFolder={handleOpenClipFolder}
+				isSavingClip={savingClipIds.includes(line.id)}
+				isClipSaved={clipByLine.has(line.id)}
+				clipSizeBytes={clipByLine.get(line.id)?.size_bytes}
+			/>
+		{/each}
+	{/if}
 	
 	
 </main>
@@ -1582,6 +1715,12 @@
 				audioPendingLineId={pendingAudioLineId}
 				on:audioToggle={handleAudioToggle}
 				on:videoTrim={handleVideoTrim}
+				on:saveClip={handleSaveClip}
+				on:deleteClip={handleDeleteClip}
+				on:openClipFolder={handleOpenClipFolder}
+				isSavingClip={savingClipIds.includes(line.id)}
+				isClipSaved={clipByLine.has(line.id)}
+				clipSizeBytes={clipByLine.get(line.id)?.size_bytes}
 			/>
 		{/each}
 	{/if}

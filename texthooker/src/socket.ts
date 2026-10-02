@@ -258,7 +258,7 @@ export class SocketConnection {
 				newLine$.next(['', LineType.RESETCHECKBOXES, '']);
 				return;
 			}
-			if (payload.event === 'reset_buttons' || String(payload.event).startsWith('audio_')) {
+			if (payload.event === 'reset_buttons' || /^(audio|clip)_/.test(String(payload.event))) {
 				texthookerAudioEvents$.next(payload);
 				return;
 			}

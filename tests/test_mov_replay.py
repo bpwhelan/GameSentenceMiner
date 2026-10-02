@@ -396,7 +396,7 @@ def _ffmpeg_stub(tmp_dir: str):
     m = ModuleType("GameSentenceMiner.util.media.ffmpeg")
     _source = str(Path(tmp_dir) / "source.opus")
     _trimmed = str(Path(tmp_dir) / "trimmed.opus")
-    m.get_audio_and_trim = lambda *_a, **_k: (_source, _trimmed, 0.0, 3.0)
+    m.get_audio_and_trim = lambda *_a, **_k: (_source, _trimmed, 0.0, 3.0, None)
     m.get_audio_length = lambda path: 3.0 if path == _trimmed else 30.0
     m.reencode_file_with_user_config = lambda *_a, **_k: None
     return m
