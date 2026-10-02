@@ -277,6 +277,10 @@ def build_kechimochi_snapshot(*, config=None, state=None, progress_cb=None) -> K
                 }
     finally:
         conn.execute("RELEASE SAVEPOINT kechimochi_snapshot")
+    # Kechimochi rejects logs with neither characters nor whole minutes. Keep
+    # observed_native and media so empty days cannot revive stale rollups and
+    # previously synced activity that became empty is reconciled as a removal.
+    snapshot.logs = {key: row for key, row in snapshot.logs.items() if row["characters"] or row["duration_minutes"]}
     return snapshot
 
 
