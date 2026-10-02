@@ -35,6 +35,7 @@ function setup(t) {
     userSettings: { gamepadEnabled: true },
     backend: { connected: true, send: data => effects.push(data.type) },
     gamepadNavigationActive: false, gamepadKeyboardToggleSuppressedUntil: 0,
+    overlayFocusRequestVersion: 0,
     manualHotkeyPressed: false, manualModeToggleState: false, isOverlayVisible: false,
     yomitanShown: false, yomitanForegroundActive: false, resizeMode: false,
     currentMagpieState: { active: false },
@@ -82,6 +83,7 @@ function setupTextfeed(t) {
     OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY: 'textfeed',
     OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL: 'gamepad-manual',
     overlayPauseSourceActive: {},
+    manualHotkeyController: { reset() {} },
     shouldOverlayHotkeyRequestPause: () => true,
     sendOverlayPauseRequest: (action, source) => { effects.push(`${action}:${source}`); return true; },
     ensureManualAndTexthookerHotkeysDistinct: () => false,
@@ -95,7 +97,7 @@ function setupTextfeed(t) {
     revealAutomaticOverlayForSignal: () => effects.push('automatic-reveal'),
   });
   loadFunctions(c, [
-    'registerTexthookerHotkey', 'requestOverlayPauseForSource',
+    'registerTexthookerHotkey', 'deactivateTexthookerMode', 'clearManualActivationState', 'requestOverlayPauseForSource',
     'requestOverlayResumeForSource', 'releaseAllOverlayPauseRequests',
   ]);
   c.registerTexthookerHotkey();
