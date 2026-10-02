@@ -30,7 +30,7 @@ import {
     upsertSceneLaunchProfile
 } from './store.js';
 import type { SceneLaunchProfile, SceneOcrMode, SceneTextHookMode } from './store.js';
-import { exec, ChildProcess, spawn } from 'child_process';
+import { exec, execFile, ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import {
@@ -626,7 +626,7 @@ export class AutoLauncher {
     private async isAgentAlreadyRunning(): Promise<boolean> {
         return new Promise((resolve) => {
             if (process.platform !== "win32") {
-                exec('pgrep -x Agent', (error, stdout) => {
+                execFile('pgrep', ['-x', 'Agent'], (error, stdout) => {
                     resolve(!error && stdout.trim().length > 0);
                 });
                 return;
@@ -634,8 +634,7 @@ export class AutoLauncher {
 
             const agentPath = getAgentPath();
             const agentExeName = agentPath ? path.basename(agentPath) : 'Agent.exe';
-            const command = `tasklist /FI "IMAGENAME eq ${agentExeName}" /FO CSV /NH`;
-            exec(command, (error, stdout) => {
+            execFile('tasklist', ['/FI', `IMAGENAME eq ${agentExeName}`, '/FO', 'CSV', '/NH'], (error, stdout) => {
                 if (error || stdout.trim().toLowerCase().includes("no tasks are running")) {
                     resolve(false);
                     return;
@@ -654,8 +653,7 @@ export class AutoLauncher {
 
         return new Promise((resolve) => {
             if (process.platform === "win32") {
-                const command = `tasklist /FI "IMAGENAME eq ${processName}" /FO CSV /NH`;
-                exec(command, (error, stdout) => {
+                execFile('tasklist', ['/FI', `IMAGENAME eq ${processName}`, '/FO', 'CSV', '/NH'], (error, stdout) => {
                     if (error || stdout.trim().toLowerCase().includes("no tasks are running")) {
                         resolve(false);
                         return;
@@ -668,7 +666,8 @@ export class AutoLauncher {
             }
 
             const nameWithoutExtension = processName.replace(/\.exe$/i, '');
-            exec(`pgrep -x "${nameWithoutExtension}"`, (error, stdout) => {
+            const literalPattern = `^${nameWithoutExtension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+            execFile('pgrep', [literalPattern], (error, stdout) => {
                 resolve(!error && stdout.trim().length > 0);
             });
         });
@@ -1080,17 +1079,20 @@ export class AutoLauncher {
 
         return new Promise((resolve) => {
             let command: string;
+            let args: string[];
 
             if (process.platform === "win32") {
-                command = `tasklist /FI "IMAGENAME eq ${processName}" /FO CSV /NH`;
+                command = 'tasklist';
+                args = ['/FI', `IMAGENAME eq ${processName}`, '/FO', 'CSV', '/NH'];
             } else {
-                command = `pgrep ${processName}`;
+                command = 'pgrep';
+                args = [`^${processName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`];
             }
 
             const startTime = Date.now();
 
             const tryGetPid = () => {
-                exec(command, (error, stdout) => {
+                execFile(command, args, (error, stdout) => {
                     if (error) {
                         if (Date.now() - startTime >= timeout) {
                             resolve(-1);
@@ -1697,7 +1699,7 @@ export class AutoLauncher {
     private launchAgent(pid: number, scriptPath: string) {
         const command = `"${getAgentPath()}" --script="${scriptPath}" --pname=${pid}`;
         this.logInternal(`AutoLauncher: Launching agent: ${command}`);
-        const child = exec(command, { windowsHide: getLaunchAgentMinimized() }, (error) => {
+        const child = execFile(getAgentPath(), [`--script=${scriptPath}`, `--pname=${pid}`], { windowsHide: getLaunchAgentMinimized() }, (error) => {
             if (error) {
                 this.errorInternal('AutoLauncher: Error launching agent:', error);
             }

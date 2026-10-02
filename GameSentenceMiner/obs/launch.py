@@ -6,7 +6,6 @@ import os
 import psutil
 import queue
 import re
-import shlex
 import shutil
 import socket
 import subprocess
@@ -15,6 +14,7 @@ from typing import Dict, List, Optional
 
 from GameSentenceMiner.obs.screenshot_capture import is_image_empty  # noqa: F401 — re-exported
 from GameSentenceMiner.util.config import configuration
+from GameSentenceMiner.util.command_line import split_command_line
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
     get_config,
@@ -166,9 +166,9 @@ def _resolve_obs_launch_command(obs_path: str):
     if os.path.exists(obs_path):
         return [obs_path], os.path.dirname(obs_path)
     try:
-        cmd = shlex.split(obs_path)
+        cmd = split_command_line(obs_path)
     except ValueError:
-        cmd = obs_path.split()
+        return None, None
     if not cmd:
         return None, None
     exe = cmd[0]

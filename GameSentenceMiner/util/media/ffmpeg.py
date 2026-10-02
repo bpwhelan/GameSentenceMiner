@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from GameSentenceMiner.ui.qt_main import DialogManager
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.util.command_line import split_command_line
 from GameSentenceMiner.util.config.configuration import (
     ANIMATED_SCREENSHOT_CODEC_DEFAULT,
     ANIMATED_SCREENSHOT_CODECS,
@@ -516,23 +517,11 @@ class FFmpegHelper:
         if not custom_settings:
             return pre_input, post_input
 
-        # Check for hwaccel
-        if "-hwaccel" in custom_settings:
-            parts = custom_settings.split()
-            try:
-                idx = parts.index("-hwaccel")
-                # Take -hwaccel and the next argument
-                pre_input = parts[idx : idx + 2]
-                pre_input_str = " ".join(pre_input)
-                # Remove pre_input part from original string to get post_input
-                post_input = custom_settings.replace(pre_input_str, "").split()
-                return pre_input, post_input
-            except (ValueError, IndexError):
-                pass
-
-        # If no hwaccel logic applied, everything is post-input
-        post_input = custom_settings.split()
-        return pre_input, post_input
+        parts = split_command_line(custom_settings)
+        for idx, part in enumerate(parts[:-1]):
+            if part.lower() in ("-hwaccel", "--hwaccel") and not parts[idx + 1].startswith("-"):
+                return parts[idx : idx + 2], parts[:idx] + parts[idx + 2 :]
+        return [], parts
 
     @staticmethod
     def extract_hwaccel_args(custom_settings: str) -> List[str]:
@@ -540,7 +529,7 @@ class FFmpegHelper:
         if not custom_settings:
             return []
 
-        parts = custom_settings.split()
+        parts = split_command_line(custom_settings)
         for idx, part in enumerate(parts):
             normalized = part.lower()
             if normalized in ("-hwaccel", "--hwaccel"):
@@ -1564,9 +1553,7 @@ def reencode_file_with_user_config(input_file, final_output_audio, user_ffmpeg_o
     ext = get_config().audio.extension
     format_spec = supported_formats.get(ext, {})
 
-    command = (
-        ffmpeg_base_command_list + ["-i", input_file, "-map", "0:a"] + user_ffmpeg_options.replace('"', "").split()
-    )
+    command = ffmpeg_base_command_list + ["-i", input_file, "-map", "0:a"] + split_command_line(user_ffmpeg_options)
 
     if "format" in format_spec:
         command.extend(["-f", format_spec["format"]])

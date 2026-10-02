@@ -504,39 +504,52 @@ def write_websocket_configs(obs_path):
             json.dump(websocket_config, config_file, indent=4)
 
 
+def _decode_obs_ini_value(value):
+    # Match OBS's INI decoder, not Python's broader string-escape syntax.
+    escapes = {"\\": "\\", "n": "\n", "r": "\r"}
+    return re.sub(r"\\([\\nr])", lambda match: escapes[match[1]], value)
+
+
 def write_replay_buffer_configs(obs_path):
     # OBS decodes \n and \r escape sequences in INI values. Use forward slashes
     # so Windows usernames beginning with "n" or "r" cannot corrupt the path.
-    replay_directory = f"{os.path.expanduser('~')}/Videos/GSM".replace("\\", "/")
-    basic_ini_path = os.path.join(obs_path, "config", "obs-studio", "basic", "profiles", "GSM")
-    if os.path.exists(os.path.join(basic_ini_path, "basic.ini")):
-        return
-    os.makedirs(basic_ini_path, exist_ok=True)
-    with open(os.path.join(basic_ini_path, "basic.ini"), "w") as basic_ini_file:
-        basic_ini_file.write(
-            "[SimpleOutput]\n"
-            f"FilePath={replay_directory}\n"
-            "RecRB=true\n"
-            "RecRBTime=300\n"
-            "RecRBSize=512\n"
-            "RecAudioEncoder=opus\n"
-            "RecRBPrefix=GSM\n"
-        )
+    unsafe_default = f"{os.path.expanduser('~')}/Videos/GSM"
+    replay_directory = unsafe_default.replace("\\", "/")
 
-    basic_ini_path = os.path.join(obs_path, "config", "obs-studio", "basic", "profiles", "Untitled")
-    if os.path.exists(os.path.join(basic_ini_path, "basic.ini")):
-        return
-    os.makedirs(basic_ini_path, exist_ok=True)
-    with open(os.path.join(basic_ini_path, "basic.ini"), "w") as basic_ini_file:
-        basic_ini_file.write(
-            "[SimpleOutput]\n"
-            f"FilePath={replay_directory}\n"
-            "RecRB=true\n"
-            "RecRBTime=300\n"
-            "RecRBSize=512\n"
-            "RecAudioEncoder=opus\n"
-            "RecRBPrefix=GSM\n"
-        )
+    def repair_default(match):
+        if _decode_obs_ini_value(match[1]) == _decode_obs_ini_value(unsafe_default):
+            return f"FilePath={replay_directory}"
+        return match[0]
+
+    for profile in ("GSM", "Untitled"):
+        profile_dir = os.path.join(obs_path, "config", "obs-studio", "basic", "profiles", profile)
+        ini_path = os.path.join(profile_dir, "basic.ini")
+        if os.path.exists(ini_path):
+            try:
+                with open(ini_path, encoding="utf-8-sig") as basic_ini_file:
+                    contents = basic_ini_file.read()
+            except UnicodeDecodeError:
+                # Older Python installers used the system's ANSI code page.
+                with open(ini_path, encoding="locale") as basic_ini_file:
+                    contents = basic_ini_file.read()
+            # Only repair our generated default. Custom recording paths stay intact.
+            repaired = re.sub(r"^FilePath=([^\r\n]*)", repair_default, contents, count=1, flags=re.MULTILINE)
+            if repaired == contents:
+                continue
+            contents = repaired
+        else:
+            os.makedirs(profile_dir, exist_ok=True)
+            contents = (
+                "[SimpleOutput]\n"
+                f"FilePath={replay_directory}\n"
+                "RecRB=true\n"
+                "RecRBTime=300\n"
+                "RecRBSize=512\n"
+                "RecAudioEncoder=opus\n"
+                "RecRBPrefix=GSM\n"
+            )
+        with open(ini_path, "w", encoding="utf-8") as basic_ini_file:
+            basic_ini_file.write(contents)
 
 
 def write_default_scene_configs(obs_path):

@@ -11,6 +11,7 @@ import {
     isWindows10OrHigher,
 } from '../util.js';
 import { isQuitting } from '../main.js';
+import { splitWindowsCommandLine } from '../windows_command_line.js';
 import { spawn, type ChildProcess } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
 import Store from 'electron-store';
@@ -827,6 +828,7 @@ export function getElectronOBSStartupConfig(): ElectronOBSStartupConfig {
 }
 
 function splitCommandLine(value: string): string[] {
+    if (isWindows()) return splitWindowsCommandLine(value);
     const matches = value.match(/"([^"]*)"|'([^']*)'|[^\s]+/g) ?? [];
     return matches.map((part) => {
         if (

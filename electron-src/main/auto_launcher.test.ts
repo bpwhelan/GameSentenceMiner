@@ -117,6 +117,7 @@ vi.mock('./agent_script_resolver.js', () => ({
 
 vi.mock('child_process', () => ({
     exec: vi.fn(),
+    execFile: vi.fn(),
     spawn: vi.fn(),
 }));
 
@@ -219,6 +220,59 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             value: originalPlatform,
             configurable: true,
         });
+    });
+
+    it('passes Agent executable and script paths literally without a shell', async () => {
+        const { exec, execFile } = await import('child_process');
+        const child = { on: vi.fn() };
+        vi.mocked(exec).mockReturnValue(child as any);
+        vi.mocked(execFile).mockReturnValue(child as any);
+        const executable = String.raw`C:\Users\Sam %TEMP% & 日本語\Agent.exe`;
+        const script = String.raw`C:\Users\O'Brien\Scripts\$1 [game].js`;
+        getAgentPathMock.mockReturnValue(executable);
+        getLaunchAgentMinimizedMock.mockReturnValue(true);
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+
+        launcher.launchAgent(1234, script);
+
+        expect(execFile).toHaveBeenCalledWith(
+            executable,
+            [`--script=${script}`, '--pname=1234'],
+            { windowsHide: true },
+            expect.any(Function),
+        );
+        expect(launcher.agentProcess).toBe(child);
+    });
+
+    it('queries executable names literally without shell expansion', async () => {
+        const { execFile } = await import('child_process');
+        const name = "Sam's %TEMP% & [日本語].exe";
+        getAgentPathMock.mockReturnValue(`C:/Users/Sam/${name}`);
+        vi.mocked(execFile).mockImplementation(((_file: string, _args: string[], callback: Function) => {
+            callback(null, `"${name}","1234","Console","1","100,000 K"`);
+        }) as any);
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+
+        expect(await launcher.isAgentAlreadyRunning()).toBe(true);
+        expect(await launcher.isProcessRunningByName(name)).toBe(true);
+        expect(await launcher.getPidByProcessName(name)).toBe(1234);
+        expect(execFile).toHaveBeenCalledTimes(3);
+        expect(execFile).toHaveBeenCalledWith('tasklist', ['/FI', `IMAGENAME eq ${name}`, '/FO', 'CSV', '/NH'], expect.any(Function));
+    });
+
+    it('escapes regex characters when detecting a process on macOS', async () => {
+        Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+        const { execFile } = await import('child_process');
+        vi.mocked(execFile).mockImplementation(((_file: string, _args: string[], callback: Function) => {
+            callback(null, '1234\n');
+        }) as any);
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+
+        expect(await launcher.isProcessRunningByName('Sam [1] $game.exe')).toBe(true);
+        expect(execFile).toHaveBeenCalledWith('pgrep', [String.raw`^Sam \[1\] \$game$`], expect.any(Function));
     });
 
     it('does not probe OBS scene output when the current scene is not configured for OCR auto-launch', async () => {
