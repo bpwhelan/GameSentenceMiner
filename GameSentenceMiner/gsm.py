@@ -104,6 +104,7 @@ try:
         download_oneocr_dlls_if_needed,
         write_obs_configs,
     )
+    from GameSentenceMiner.util.media_paths import ensure_output_directory, ensure_recording_directory
     from GameSentenceMiner.util.platform.hotkey import hotkey_manager
     from GameSentenceMiner.util.text_log import (
         MAX_PREVIOUS_LINES,
@@ -997,8 +998,7 @@ class GSMApplication:
             except Exception as e:
                 logger.error(f"Error stopping file watcher: {e}")
 
-        watch_path = get_config().paths.folder_to_watch
-        os.makedirs(watch_path, exist_ok=True)
+        watch_path = ensure_recording_directory()
 
         observer = Observer()
         observer.schedule(
@@ -1163,11 +1163,11 @@ class GSMApplication:
             except Exception as e:
                 logger.warning(f"Failed to check/populate rollup table on startup: {e}")
 
+            ensure_recording_directory()
             try:
-                os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)
-                os.makedirs(get_config().paths.output_folder, exist_ok=True)
-            except Exception as e:
-                logger.error(f"Error creating necessary directories, certain directories may not exist: {e}")
+                ensure_output_directory()
+            except OSError as e:
+                logger.error(f"Could not prepare GSM's output folder: {e}")
 
             _set_audio_callback(self._replay_extractor.get_audio)
 
@@ -1754,6 +1754,15 @@ class GSMApplication:
         if current_scene:
             self._check_profile_for_scene_tick(current_scene)
 
+    def _on_obs_recording_directory_changed(self, directory: str) -> None:
+        if self.state.file_watcher_path != directory:
+            self.start_file_watcher()
+
+    def _register_recording_directory_watcher(self) -> None:
+        service = getattr(obs, "obs_service", None)
+        if service:
+            service.on_recording_directory_changed(self._on_obs_recording_directory_changed)
+
     async def register_scene_switcher_callback(self) -> None:
         def scene_switcher_callback(scene):
             logger.info(f"Scene changed to: {scene}")
@@ -1791,6 +1800,7 @@ class GSMApplication:
         if gsm_status.obs_connected:
             await self.register_scene_switcher_callback()
             self._register_scene_observed_profile_check()
+            self._register_recording_directory_watcher()
             self.get_previous_lines_for_game()
             await check_obs_folder_is_correct()
             self.on_config_changed()
@@ -1839,6 +1849,7 @@ class GSMApplication:
 
         await self.register_scene_switcher_callback()
         self._register_scene_observed_profile_check()
+        self._register_recording_directory_watcher()
         self.get_previous_lines_for_game()
         await check_obs_folder_is_correct()
         self.on_config_changed()

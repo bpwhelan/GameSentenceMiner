@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import os
 import socket
 import threading
 import time
@@ -13,12 +14,15 @@ from obsws_python.util import to_snake_case
 
 from GameSentenceMiner.util.config.configuration import (
     get_config,
-    get_master_config,
     gsm_state,
     gsm_status,
     is_windows,
     logger,
-    save_full_config,
+)
+from GameSentenceMiner.util.media_paths import (
+    get_writable_media_directory,
+    same_directory,
+    set_gsm_recording_directory,
 )
 from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
 from GameSentenceMiner.util.concurrency.scheduler import (
@@ -313,6 +317,7 @@ class OBSService:
         self._event_callbacks: Dict[str, Callable] = {}
         self._handler_accepts_event_name: Dict[Callable, bool] = {}
         self._scene_observed_handlers: List[Callable[[str], None]] = []
+        self._recording_directory_handlers: list[Callable[[str], None]] = []
 
         # Replay buffer management
         self._replay_buffer_action_pending: Optional[bool] = None
@@ -479,12 +484,26 @@ class OBSService:
             except Exception as e:
                 logger.debug(f"Scene observed handler failed for '{scene_name}': {e}")
 
+    def on_recording_directory_changed(self, handler: Callable[[str], None]):
+        if handler not in self._recording_directory_handlers:
+            self._recording_directory_handlers.append(handler)
+
+    def _notify_recording_directory_changed(self, directory: str):
+        for handler in list(self._recording_directory_handlers):
+            try:
+                handler(directory)
+            except Exception:
+                logger.exception(f"Could not update GSM's recording file watcher to {directory!r}")
+
     # -- state init ----------------------------------------------------------
 
     def _initialize_state(self):
         try:
 
             def _init(client):
+                if self.check_output:
+                    _sync_obs_recording_directory(client, service=self)
+
                 response = client.get_current_program_scene()
                 scene_name = response.scene_name if response else ""
                 with self._state_lock:
@@ -1602,24 +1621,75 @@ async def wait_for_obs_connected():
     return False
 
 
-async def check_obs_folder_is_correct():
-    if await wait_for_obs_connected():
+def _restart_replay_buffer_for_directory(client, service):
+    try:
+        replay_active = bool(client.get_replay_buffer_status().output_active)
+    except obs.error.OBSSDKRequestError as error:
+        if error.code == 500:  # OutputDisabled: no replay buffer needs restarting.
+            return
+        raise
+    if not replay_active:
+        return
+
+    # OBS stores the new path in its profile, but a running replay output keeps
+    # the old directory until restarted. Do not stop an active recording.
+    if service:
+        service.mark_replay_buffer_action(False)
+    client.stop_replay_buffer()
+    deadline = time.monotonic() + 3.0
+    while client.get_replay_buffer_status().output_active:
+        if time.monotonic() >= deadline:
+            raise RuntimeError("Replay buffer did not stop; restart OBS to use the backup folder")
+        time.sleep(0.05)
+    if service:
+        service.mark_replay_buffer_action(True)
+    client.start_replay_buffer()
+    if service:
+        with service._state_lock:
+            service.state.replay_buffer_active = True
+        service._auto_start_paused_by_external_replay_stop = False
+    gsm_state.replay_buffer_stopped_timestamp = None
+
+
+def _sync_obs_recording_directory(client, service=None):
+    response = client.get_record_directory()
+    if response is None:
+        raise RuntimeError("OBS did not return its recording folder")
+    obs_directory = response.record_directory
+    directory = get_writable_media_directory(obs_directory, "recordings")
+    using_fallback = not same_directory(obs_directory, directory)
+    if using_fallback:
+        # OBS's API saves both Simple and Advanced recording paths. Forward
+        # slashes also keep Windows usernames safe from INI escape decoding.
+        obs_safe_directory = directory.replace("\\", "/") if os.name == "nt" else directory
         try:
-            from GameSentenceMiner.obs.actions import get_record_directory
+            client.set_record_directory(obs_safe_directory)
+            response = client.get_record_directory()
+            if response is None or not same_directory(response.record_directory, directory):
+                raise RuntimeError("OBS did not accept the backup recording folder")
+        except Exception as error:
+            raise RuntimeError(
+                f"Could not switch OBS from {obs_directory!r} to {directory!r}: {error}. "
+                "Stop recording and select the backup folder in OBS Settings > Output."
+            ) from error
+    previous_directory = get_config().paths.folder_to_watch
+    set_gsm_recording_directory(directory)
+    if service and not same_directory(previous_directory, directory):
+        service._notify_recording_directory_changed(directory)
+    if using_fallback:
+        _restart_replay_buffer_for_directory(client, service)
+        logger.warning(f"OBS recording folder was unavailable; switched OBS and GSM to {directory!r}")
 
-            obs_record_directory = get_record_directory()
-            if obs_record_directory and os.path.normpath(obs_record_directory) != os.path.normpath(
-                get_config().paths.folder_to_watch
-            ):
-                logger.info("OBS Path wrong, Setting OBS Recording folder in GSM Config...")
-                get_config().paths.folder_to_watch = os.path.normpath(obs_record_directory)
-                get_master_config().sync_shared_fields()
-                save_full_config(get_master_config())
-            else:
-                logger.debug("OBS Recording path looks correct")
-        except Exception as e:
-            logger.error(f"Error checking OBS folder: {e}")
+    return True
 
 
-# Needed by check_obs_folder_is_correct
-import os  # noqa: E402
+async def check_obs_folder_is_correct():
+    import GameSentenceMiner.obs as _obs_pkg
+
+    if await wait_for_obs_connected():
+        return _call_with_obs_client(
+            lambda client: _sync_obs_recording_directory(client, service=_obs_pkg.obs_service),
+            default=False,
+            error_msg="Error checking OBS recording folder",
+        )
+    return False
