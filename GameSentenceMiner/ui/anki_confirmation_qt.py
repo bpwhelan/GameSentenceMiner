@@ -1613,20 +1613,20 @@ class AnkiConfirmationDialog(QDialog):
         if not line or self._replay_video_duration <= 0 or self._replay_file_mod_time is None:
             return None
 
-        cached = self._dialogue_line_start_cache.get(line.id)
-        if cached is not None:
-            return cached
+        anchor = self._dialogue_line_start_cache.get(line.id)
+        if anchor is None:
+            try:
+                time_delta = self._replay_file_mod_time - line.time
+                anchor = self._replay_video_duration - time_delta.total_seconds() + get_config().audio.beginning_offset
+                anchor = max(0.0, min(anchor, self._replay_video_duration))
+            except Exception as e:
+                logger.debug(f"Failed computing dialogue line anchor: {e}")
+                return None
+            self._dialogue_line_start_cache[line.id] = anchor
 
-        try:
-            time_delta = self._replay_file_mod_time - line.time
-            anchor = self._replay_video_duration - time_delta.total_seconds() + get_config().audio.beginning_offset
-            anchor = max(0.0, min(anchor, self._replay_video_duration))
-        except Exception as e:
-            logger.debug(f"Failed computing dialogue line anchor: {e}")
-            return None
-
-        self._dialogue_line_start_cache[line.id] = anchor
-        return anchor
+        # Anchors are on the video; the edit range is in the audio, which may have pause silence removed.
+        timeline = (self._audio_edit_context or {}).get("timeline")
+        return timeline.to_audio(anchor) if timeline else anchor
 
     def _schedule_auto_line_expand(self, which):
         if not self._dialogue_line_expansion_enabled() or self._dialogue_line_update_in_progress:
@@ -1882,6 +1882,7 @@ class AnkiConfirmationDialog(QDialog):
             "rebase_on_selection_trim": bool(
                 AnkiConfirmationDialog._audio_edit_context_value(context, "rebase_on_selection_trim", False)
             ),
+            "timeline": AnkiConfirmationDialog._audio_edit_context_value(context, "timeline"),
         }
 
     def _load_audio_edit_context(self, context):
@@ -2458,7 +2459,12 @@ class AnkiConfirmationDialog(QDialog):
     def _build_dialog_result_metadata(self):
         audio_edit_range = None
         if self._audio_edit_range:
-            audio_edit_range = (float(self._audio_edit_range[0]), float(self._audio_edit_range[1]))
+            start, end = float(self._audio_edit_range[0]), float(self._audio_edit_range[1])
+            # Consumers cut the video, which still contains any pause silence removed from the audio.
+            timeline = (self._audio_edit_context or {}).get("timeline")
+            if timeline:
+                start, end = timeline.to_source(start), timeline.to_source(end, before_cut=True)
+            audio_edit_range = (start, end)
 
         return {
             "selected_lines": self._selected_lines_for_pipeline(),
