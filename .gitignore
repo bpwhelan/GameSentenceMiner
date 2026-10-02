@@ -152,3 +152,5 @@ electron-src/assets/prerelease.json
 /GameSentenceMiner/_native*.pyd~
 /GameSentenceMiner/_native*.so
 /.tmp_capstone
+/native/gsm-ocr/target
+/native/gsm-ocr/bin
