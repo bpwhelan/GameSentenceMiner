@@ -24,6 +24,7 @@ from GameSentenceMiner.obs.launch import (
     get_preferred_video_source,
     get_video_scene_items,
     is_image_empty,
+    parse_obs_window_target,
     sort_video_sources_by_preference,
 )
 
@@ -1208,8 +1209,6 @@ def get_window_info_from_source(client, scene_name: str = None):
         return None
 
     candidate_items = get_video_scene_items(scene_items_response.scene_items)
-    if not candidate_items:
-        candidate_items = list(scene_items_response.scene_items)
 
     svc = _obs_pkg.obs_service
     for item in candidate_items:
@@ -1232,15 +1231,9 @@ def get_window_info_from_source(client, scene_name: str = None):
                 continue
 
         if input_settings:
-            window_value = input_settings.get("window")
-            if window_value:
-                parts = window_value.split(":")
-                if len(parts) >= 3:
-                    return {
-                        "title": parts[0].strip(),
-                        "window_class": parts[1].strip(),
-                        "exe": parts[2].strip(),
-                    }
+            window_info = parse_obs_window_target(input_settings.get("window"))
+            if window_info:
+                return {**window_info, "source_name": source_name}
 
     return None
 

@@ -134,17 +134,19 @@ def _should_skip_image_validation(source_name: Optional[str] = None, scene_name:
 def parse_obs_window_target(window_string: str) -> Optional[dict]:
     """Parse an OBS window target string ``"Title:Class:exe"`` into its parts.
 
-    The title itself may contain colons, so we split from the right.
+    OBS escapes colons and hashes; also accept older unescaped titles by
+    splitting from the right before decoding each field.
     """
     if not window_string:
         return None
     parts = window_string.rsplit(":", 2)
     if len(parts) < 3:
         return None
+    parts = [part.replace("#3A", ":").replace("#22", "#").strip() for part in parts]
     return {
-        "title": parts[0].strip(),
-        "window_class": parts[1].strip(),
-        "exe": parts[2].strip(),
+        "title": parts[0],
+        "window_class": parts[1],
+        "exe": parts[2],
     }
 
 

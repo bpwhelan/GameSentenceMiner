@@ -492,17 +492,48 @@ class ScreenshotCapture:
         if self._wgc_available is False:
             return False
 
-        # Too many consecutive failures — wait for next HWND refresh
+        # Resolve first so changing the shared target also clears old failures.
+        hwnd = self._get_hwnd(source_name)
         if self._wgc_failed_count >= self._wgc_max_consecutive_failures:
             return False
-
-        # Ensure we have a valid, fresh HWND
-        hwnd = self._get_hwnd(source_name)
         return hwnd is not None
+
+    def _get_monitored_hwnd(self, source_name: str) -> tuple[bool, int | None]:
+        """Use the shared target, including an explicit decision to use no HWND."""
+        from GameSentenceMiner.obs.active_game import get_obs_state
+        from GameSentenceMiner.util.platform.window_state_monitor import get_window_state_monitor
+
+        monitor = get_window_state_monitor()
+        if monitor is None:
+            return False, None
+        state = get_obs_state()
+        info = monitor.last_target_info
+        if (
+            state is None
+            or monitor.last_target_scene_name != state.current_scene
+            or not info
+            or source_name not in (state.current_scene, info.get("source_name"))
+        ):
+            return True, None
+        hwnd = monitor.target_hwnd
+        return True, hwnd if hwnd and self._is_hwnd_valid(hwnd) else None
 
     def _get_hwnd(self, source_name: str) -> Optional[int]:
         """Return cached HWND or refresh if stale/missing."""
         now = time.monotonic()
+
+        monitored, hwnd = self._get_monitored_hwnd(source_name)
+        if monitored:
+            # Do not let the standalone lookup/cache select another browser or
+            # retain the old target after a scene/source change.
+            if hwnd != self._hwnd or source_name != self._hwnd_source_name:
+                self.invalidate_hwnd()
+            self._hwnd = hwnd
+            self._hwnd_source_name = source_name
+            if not self._hwnd_timestamp or now - self._hwnd_timestamp >= _HWND_CACHE_TTL:
+                self._wgc_failed_count = 0
+                self._hwnd_timestamp = now
+            return hwnd
 
         # Check if cache is still valid
         if (
@@ -529,19 +560,12 @@ class ScreenshotCapture:
         """Resolve the HWND for the active game window.
 
         Strategy:
-        1. Use WindowStateMonitor's cached target_hwnd if available and fresh.
-        2. Otherwise, get window info from OBS source settings and find the window.
+        1. Honor WindowStateMonitor's shared target when running in the backend.
+        2. Standalone capture processes resolve from OBS source settings.
         """
-        # Strategy 1: Use WindowStateMonitor if available (already running its own thread)
-        try:
-            from GameSentenceMiner.util.platform.window_state_monitor import get_window_state_monitor
-
-            monitor = get_window_state_monitor()
-            if monitor and monitor.target_hwnd:
-                if self._is_hwnd_valid(monitor.target_hwnd):
-                    return monitor.target_hwnd
-        except Exception:
-            pass
+        monitored, hwnd = self._get_monitored_hwnd(source_name)
+        if monitored:
+            return hwnd
 
         # Strategy 2: Resolve from OBS source settings
         try:

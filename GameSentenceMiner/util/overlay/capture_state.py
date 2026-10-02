@@ -30,8 +30,9 @@ def get_overlay_capture_state(monitor):
             if getattr(monitor, "last_target_info", {}):
                 return {**payload, "available": True, "window_state": monitor.last_state}
             # A title-only match without an OBS window source still needs capture output.
-        # Output from an old frame or another source cannot stand in for a missing game.
-        elif getattr(monitor, "ever_had_target_hwnd", False) or getattr(monitor, "last_target_info", {}):
+        # Losing a positively identified window differs from never resolving one.
+        # Browsers and other untracked OBS sources still support monitor-based OCR.
+        elif getattr(monitor, "ever_had_target_hwnd", False):
             return payload
 
     checked_at = state.source_output_checked_at

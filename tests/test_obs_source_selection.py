@@ -101,6 +101,14 @@ def test_parse_obs_window_target_preserves_colons_in_title():
     }
 
 
+def test_parse_obs_window_target_decodes_obs_escaped_characters_once():
+    assert obs.parse_obs_window_target("Game#3A Chapter #221 (#223A):Chrome_WidgetWin_1:chrome.exe") == {
+        "title": "Game: Chapter #1 (#3A)",
+        "window_class": "Chrome_WidgetWin_1",
+        "exe": "chrome.exe",
+    }
+
+
 def test_build_scheduled_tick_options_respects_intervals():
     service = obs.OBSService.__new__(obs.OBSService)
     service.tick_intervals = obs.OBSTickIntervals(
@@ -1520,6 +1528,37 @@ def test_get_window_info_ignores_disabled_captures(monkeypatch):
         ),
     )
     assert obs_module.get_window_info_from_source(scene_name="Game")["exe"] == "live.exe"
+
+
+def test_window_source_metadata_preserves_browser_title_and_source_identity(monkeypatch):
+    client = SimpleNamespace(
+        get_scene_item_list=lambda **kwargs: SimpleNamespace(
+            scene_items=[{"sourceName": "Browser capture", "inputKind": "window_capture"}]
+        ),
+        get_input_settings=lambda **kwargs: SimpleNamespace(
+            input_settings={"window": "Game: Chapter 1:Chrome_WidgetWin_1:chrome.exe"}
+        ),
+    )
+    monkeypatch.setattr(obs_module, "obs_service", None)
+    assert obs_actions_module.get_window_info_from_source.__wrapped__(client, "Game") == {
+        "title": "Game: Chapter 1",
+        "window_class": "Chrome_WidgetWin_1",
+        "exe": "chrome.exe",
+        "source_name": "Browser capture",
+    }
+
+
+def test_application_audio_source_does_not_identify_a_capture_window(monkeypatch):
+    client = SimpleNamespace(
+        get_scene_item_list=lambda **kwargs: SimpleNamespace(
+            scene_items=[{"sourceName": "Browser audio", "inputKind": "wasapi_process_output_capture"}]
+        ),
+        get_input_settings=lambda **kwargs: SimpleNamespace(
+            input_settings={"window": "Game:Chrome_WidgetWin_1:chrome.exe"}
+        ),
+    )
+    monkeypatch.setattr(obs_module, "obs_service", None)
+    assert obs_actions_module.get_window_info_from_source.__wrapped__(client, "Game") is None
 
 
 def test_output_probe_records_the_scene_that_was_captured(monkeypatch):

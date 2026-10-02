@@ -193,6 +193,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # cleared (e.g. an exclusive-fullscreen game going non-visible while minimized) so
         # focus restore can still re-activate it. See activate_target_window.
         self.last_known_target_hwnd: Optional[int] = None
+        # Browser titles follow the active tab. Remember a positively matched
+        # foreground window for this source instead of reselecting by process.
+        self._browser_target_hwnd: int | None = None
+        self._browser_target_pid: int = 0
         self.hidden_due_to_no_output: bool = False
         self.state_before_no_output_hide: Optional[str] = None
         self.is_fullscreen_before_no_output_hide: bool = False
@@ -735,6 +739,59 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         except Exception:
             return False
 
+    def _reset_capture_target(self) -> None:
+        self.target_hwnd = None
+        self.last_known_target_hwnd = None
+        self._browser_target_hwnd = None
+        self._browser_target_pid = 0
+        self.retry_find_count = 0
+        self.ever_had_target_hwnd = False
+        self._capture_target_changed_at = time.time()
+        self.last_state = "unknown"
+        self.last_window_rect = None
+        self.hidden_due_to_no_output = False
+        if self.overlay_processor:
+            self.overlay_processor.obs_width = None
+            self.overlay_processor.obs_height = None
+
+    def _browser_window_matches_source(self, hwnd: int) -> bool:
+        return bool(
+            hwnd
+            and user32.IsWindow(hwnd)
+            and self._is_browser_window(hwnd)
+            and _exe_names_match(self._get_window_exe_name(hwnd), self.last_target_info.get("exe", ""))
+            and self._get_window_class(hwnd) == self.last_target_info.get("window_class")
+        )
+
+    def _find_browser_target_hwnd(self) -> int | None:
+        hwnd = self._browser_target_hwnd
+        if hwnd:
+            if _get_pid_for_hwnd(hwnd) == self._browser_target_pid and self._browser_window_matches_source(hwnd):
+                return hwnd
+            self._browser_target_hwnd = None
+            self._browser_target_pid = 0
+            self.target_hwnd = None
+            self.last_known_target_hwnd = None
+
+        # Sharing an executable/class is insufficient: every browser window,
+        # popup and profile may share them. Only learn a focused title match.
+        hwnd = user32.GetForegroundWindow()
+        title = self.last_target_info.get("title", "")
+        if (
+            not title
+            or not self._browser_window_matches_source(hwnd)
+            or not user32.IsWindowVisible(hwnd)
+            or user32.IsIconic(hwnd)
+            or self._get_window_title(hwnd).strip().casefold() != title.strip().casefold()
+        ):
+            return None
+        pid = _get_pid_for_hwnd(hwnd)
+        if not pid:
+            return None
+        self._browser_target_hwnd = hwnd
+        self._browser_target_pid = pid
+        return hwnd
+
     def _is_window_obscured(self, hwnd) -> bool:
         """Check if the window is mostly obscured by other windows.
 
@@ -1017,21 +1074,29 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         }
 
     def find_target_hwnd(self) -> Optional[int]:
+        current_scene = get_current_scene()
         try:
-            window_info = get_window_info_from_source(scene_name=get_current_scene())
+            window_info = get_window_info_from_source(scene_name=current_scene) or {}
         except Exception as e:
             logger.exception(f"Error getting window info from source: {e}")
-            window_info = None
+            window_info = {}
 
         current_game = get_current_game()
 
-        if not window_info and not current_game:
-            return None
+        if current_scene != self.last_target_scene_name or window_info != self.last_target_info:
+            self._reset_capture_target()
 
-        self.last_target_info = window_info if window_info else {}
-        self.last_target_scene_name = get_current_scene()
+        self.last_target_info = window_info
+        self.last_target_scene_name = current_scene
         self.last_game_name = current_game if current_game else ""
         self.found_hwnds = []
+
+        # Display/capture-card sources have no window identity. A scene-name
+        # title match must not enable window positioning or input forwarding.
+        if not window_info:
+            return None
+        if _exe_name_matches_set(window_info.get("exe", ""), self.BROWSER_EXES):
+            return self._find_browser_target_hwnd()
 
         # UWP/Store titles host their window in an ApplicationFrameWindow that EnumWindows does
         # not return; resolve it via the desktop child list before the normal enumeration.
@@ -1435,6 +1500,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         if self._target_destroyed:
             self._target_destroyed = False
             self.target_hwnd = None
+            self.last_known_target_hwnd = None
+            self._browser_target_hwnd = None
+            self._browser_target_pid = 0
 
         now = time.time()
         monitor_topology_changed = False
@@ -1452,32 +1520,22 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                         logger.info(
                             f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions."
                         )
-                    self.overlay_processor.obs_width = None
-                    self.overlay_processor.obs_height = None
-                    self.target_hwnd = None
-                    self.retry_find_count = 0
+                    self._reset_capture_target()
                     self.last_target_info = {}
                     self.last_target_scene_name = None
-                    self.ever_had_target_hwnd = False
-                    self._capture_target_changed_at = now
                     scene_changed = True
                     self.last_scene_name = current_scene
 
                 lookup_scene = current_scene or self.last_scene_name
                 new_info = (get_window_info_from_source(scene_name=lookup_scene) if lookup_scene else None) or {}
 
-                if any(new_info.get(key) != self.last_target_info.get(key) for key in ("title", "window_class", "exe")):
+                if new_info != self.last_target_info:
                     logger.info(
                         f"OBS Source changed from '{self.last_target_info.get('title')}' to '{new_info.get('title')}' - Resetting target."
                     )
-                    self.target_hwnd = None
-                    self.retry_find_count = 0
-                    self.last_target_info = {}
-                    self.last_target_scene_name = None
-                    self.ever_had_target_hwnd = False
-                    self._capture_target_changed_at = now
-                    self.overlay_processor.obs_width = None
-                    self.overlay_processor.obs_height = None
+                    self._reset_capture_target()
+                    self.last_target_info = new_info
+                    self.last_target_scene_name = lookup_scene
             except Exception:
                 pass
 

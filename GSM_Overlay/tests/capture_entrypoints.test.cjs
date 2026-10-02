@@ -141,6 +141,23 @@ test('capture loss and heartbeat expiry cancel pending focus and reject stale en
   assert.equal(c.canUseOverlayCapture(), false);
 });
 
+test('confirmed OBS output without a window handle enables reveal, OCR and manual background', t => {
+  const { context: c, effects } = setup(t);
+  c.revealAutomaticOverlayForSignal = () => effects.push('automatic-reveal');
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'background' });
+  assert.equal(c.canUseOverlayCapture(), true);
+  assert.ok(effects.includes('automatic-reveal'));
+  assert.equal(c.requestManualOverlayScan(), true);
+  assert.equal(c.requestManualModeBackground(), true);
+  assert.ok(effects.includes('manual-overlay-scan-request'));
+  assert.ok(effects.includes('manual-mode-background-request'));
+  for (let heartbeat = 0; heartbeat < 6; heartbeat++) {
+    t.mock.timers.tick(1000);
+    c.updateOverlayCaptureStatus({ available: true, window_state: 'background' });
+    assert.equal(c.canUseOverlayCapture(), true);
+  }
+});
+
 test('TextFeed cannot leave stale game state available for overlay entry', t => {
   const { context: c } = setup(t);
   c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });

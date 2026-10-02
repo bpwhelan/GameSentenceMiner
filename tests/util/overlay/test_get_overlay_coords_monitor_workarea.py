@@ -218,6 +218,35 @@ def test_get_screenshot_and_offset_prefers_obs_window_capture(monkeypatch):
     assert processor._last_overlay_capture_content_height == 720
 
 
+def test_unresolved_obs_window_uses_monitor_capture_without_window_offsets(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor.__new__(get_overlay_coords.OverlayProcessor)
+    processor.window_monitor = SimpleNamespace(target_hwnd=None, find_target_hwnd=lambda: None)
+    bounds = {"left": 1920, "top": 50, "width": 4, "height": 3}
+    monkeypatch.setattr(processor, "get_configured_monitor_workarea", lambda: bounds)
+    monkeypatch.setattr(get_overlay_coords, "is_windows", lambda: True)
+    monkeypatch.setattr(get_overlay_coords, "is_wayland", lambda: False)
+    monkeypatch.setattr(
+        get_overlay_coords, "get_overlay_config", lambda: SimpleNamespace(ocr_full_screen_instead_of_obs=False)
+    )
+    monkeypatch.setattr(get_overlay_coords, "SAVE_DEBUG_IMAGES", False)
+    grabs = []
+    context = _FakeMSSContext([])
+    context.grab = lambda rect: grabs.append(rect) or SimpleNamespace(size=(4, 3), bgra=bytes([255] * 48))
+    monkeypatch.setattr(get_overlay_coords, "mss", SimpleNamespace(mss=lambda: context))
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_window_client_physical_geometry",
+        lambda hwnd: pytest.fail("No window geometry is available"),
+    )
+
+    image, off_x, off_y, width, height = processor._get_screenshot_and_offset()
+    assert image.size == (4, 3)
+    assert grabs == [bounds]
+    assert (off_x, off_y, width, height) == (0, 0, 4, 3)
+    assert processor._last_overlay_capture_used_window_handle is False
+    assert processor._last_overlay_capture_source == "monitor_mss"
+
+
 def test_window_capture_coordinates_scale_to_client_size(monkeypatch):
     processor = get_overlay_coords.OverlayProcessor()
     capture_image = Image.new("RGB", (1280, 710), "white")
