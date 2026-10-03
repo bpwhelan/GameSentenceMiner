@@ -264,11 +264,15 @@ export class ProcessManager extends EventEmitter {
         this.applyPriority(entry, proc);
         this.recordPid(entry, executable, args, proc.pid);
 
-        proc.stdout?.on('data', (data: Buffer) => {
-            this.emit('log', entry.spec.id, { stream: 'stdout', message: data.toString() });
+        // A multibyte OCR character can straddle pipe chunks. Let Node retain
+        // incomplete UTF-8 sequences instead of decoding each Buffer alone.
+        proc.stdout?.setEncoding('utf8');
+        proc.stderr?.setEncoding('utf8');
+        proc.stdout?.on('data', (data: string) => {
+            this.emit('log', entry.spec.id, { stream: 'stdout', message: data });
         });
-        proc.stderr?.on('data', (data: Buffer) => {
-            this.emit('log', entry.spec.id, { stream: 'stderr', message: data.toString() });
+        proc.stderr?.on('data', (data: string) => {
+            this.emit('log', entry.spec.id, { stream: 'stderr', message: data });
         });
 
         proc.on('exit', (code, signal) => {

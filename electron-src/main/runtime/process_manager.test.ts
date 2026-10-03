@@ -85,6 +85,20 @@ const ALIVE_SCRIPT = 'setInterval(() => {}, 1000);';
 const CRASH_SCRIPT = 'process.exit(3);';
 
 describe('ProcessManager', () => {
+    it('preserves UTF-8 characters split across child pipe writes', async () => {
+        const chunks: string[] = [];
+        pm.on('log', (_id, log) => chunks.push(log.message));
+        pm.register({
+            id: 'unicode', readyOn: 'spawn', windowsHide: true,
+            buildCommand: () => ({ command: process.execPath, args: ['-e',
+                "const bytes = Buffer.from('日本語'); process.stderr.write(bytes.subarray(0, 1)); setTimeout(() => process.stderr.write(bytes.subarray(1)), 50); setInterval(() => {}, 1000);"
+            ] }),
+        });
+        pm.start('unicode');
+        await vi.waitFor(() => expect(chunks.join('')).toBe('日本語'));
+        await pm.stop('unicode');
+    });
+
     it('spawns and reports ready once the bus reports the client connected', async () => {
         pm.register({
             id: 'alive',
