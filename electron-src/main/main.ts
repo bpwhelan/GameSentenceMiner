@@ -1403,6 +1403,7 @@ function handleBackendMessage(msg: BackendMessage): void {
             typeof snapshot.sequence === 'number'
         ) {
             handleForegroundWindowSnapshot(snapshot as ForegroundWindowSnapshot);
+            autoLauncher.handleForegroundWindowChanged(snapshot as ForegroundWindowSnapshot);
         }
     }
     if (msg.function === 'foreground_window_hook_status') {
@@ -1719,6 +1720,7 @@ async function createWindow() {
         restoreForegroundWindow: (hwnd) => {
             sendBackendCommand('restore_foreground_window', { hwnd });
         },
+        onSceneChanged: () => autoLauncher.handleOBSSceneChanged(),
     });
 
     registerMainIPC({
