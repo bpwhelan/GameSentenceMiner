@@ -59,6 +59,7 @@ export class AutoLauncher {
     private pollingEnabled = false;
     private textHookPollRequested = false;
     private latestForeground: ForegroundWindowSnapshot | null = null;
+    private latestEmulatorWindow: ForegroundWindowSnapshot | null = null;
     private readonly foregroundMaxAgeMs = 2_000;
     private overlayIntervalId: NodeJS.Timeout | null = null;
     private overlayPolling = false;
@@ -159,6 +160,7 @@ export class AutoLauncher {
         this.pollingEnabled = false;
         this.textHookPollRequested = false;
         this.latestForeground = null;
+        this.latestEmulatorWindow = null;
         this.pollingGeneration += 1;
         if (this.ocrIntervalId) {
             clearInterval(this.ocrIntervalId);
@@ -220,10 +222,28 @@ export class AutoLauncher {
         if (!this.isPolling) this.scheduleNextPoll(0);
     }
 
-    private getFreshForeground(): ForegroundWindowSnapshot | null {
-        const snapshot = this.latestForeground;
-        const age = snapshot ? Date.now() - snapshot.capturedAt : Infinity;
-        return snapshot && age >= 0 && age <= this.foregroundMaxAgeMs ? snapshot : null;
+    public handleEmulatorWindowChanged(snapshot: ForegroundWindowSnapshot): void {
+        if (process.platform !== 'win32' || !Number.isInteger(snapshot.pid) || snapshot.pid <= 0) return;
+        const executableName = normalizeExecutableName(snapshot.executableName || snapshot.executablePath);
+        if (!this.isSwitchEmulatorExecutable(executableName)) return;
+        const previous = this.latestEmulatorWindow;
+        if (previous && snapshot.sequence <= previous.sequence && snapshot.capturedAt <= previous.capturedAt) return;
+        this.latestEmulatorWindow = { ...snapshot, executableName };
+        if (!previous || previous.hwnd !== snapshot.hwnd || previous.pid !== snapshot.pid || previous.title !== snapshot.title) {
+            console.info(`[AgentStartup] Window detected: ${executableName} PID ${snapshot.pid}, title=${JSON.stringify(snapshot.title)}.`);
+            this.requestTextHookPoll();
+        }
+    }
+
+    private getFreshTargetWindow(processName?: string, pid?: number): ForegroundWindowSnapshot | null {
+        return [this.latestForeground, this.latestEmulatorWindow]
+            .filter((snapshot): snapshot is ForegroundWindowSnapshot => {
+                if (!snapshot || (pid !== undefined && snapshot.pid !== pid)) return false;
+                if (processName && snapshot.executableName?.toLowerCase() !== normalizeExecutableName(processName).toLowerCase()) return false;
+                const age = Date.now() - snapshot.capturedAt;
+                return age >= 0 && age <= this.foregroundMaxAgeMs;
+            })
+            .sort((left, right) => right.capturedAt - left.capturedAt)[0] ?? null;
     }
 
     private async pollOcr(): Promise<void> {
@@ -1093,6 +1113,12 @@ export class AutoLauncher {
         }
 
         if (generation !== this.pollingGeneration || (validateContext && !(await validateContext(gamePid)))) return;
+        const targetWindow = this.getFreshTargetWindow(exeName, gamePid);
+        const arch = targetWindow?.processArchitecture;
+        const requestStartedAt = Date.now();
+        if (engine === 'agent') {
+            console.info(`[AgentStartup] Attach requested: ${exeName} PID ${gamePid}; window age=${targetWindow ? requestStartedAt - targetWindow.capturedAt : 'unknown'}ms; architecture=${arch ?? 'detect'}.`);
+        }
         const result = await startHookSession({
             engine,
             exeName,
@@ -1100,7 +1126,11 @@ export class AutoLauncher {
             source: "auto-launcher",
             sceneId,
             agentScriptPath,
+            ...(arch === 'x86' || arch === 'x64' ? { archOverride: arch } : {}),
         });
+        if (engine === 'agent') {
+            console.info(`[AgentStartup] Attach ${result.success ? 'ready' : 'failed'}: ${exeName} PID ${gamePid} in ${Date.now() - requestStartedAt}ms.`);
+        }
         const failureKey = `${engine}:${exeName}:${gamePid}:${result.error ?? "unknown"}`;
 
         if (!result.success) {
@@ -1123,8 +1153,8 @@ export class AutoLauncher {
     // On Windows, fetch the live window title for a PID using PowerShell (MainWindowTitle).
     // Returns null if unavailable or on non-Windows platforms.
     private async getLiveWindowTitle(pid: number): Promise<string | null> {
-        const foreground = this.getFreshForeground();
-        if (foreground?.pid === pid) return foreground.title || null;
+        const foreground = this.getFreshTargetWindow(undefined, pid);
+        if (foreground) return foreground.title || null;
         return new Promise((resolve) => {
             if (process.platform !== "win32" || pid <= 0) return resolve(null);
 
@@ -1138,8 +1168,8 @@ export class AutoLauncher {
     }
 
     private async getPidByProcessName(processName: string): Promise<number> {
-        const foreground = this.getFreshForeground();
-        if (foreground?.executableName && foreground.executableName.toLowerCase() === normalizeExecutableName(processName).toLowerCase()) {
+        const foreground = this.getFreshTargetWindow(processName);
+        if (foreground) {
             return foreground.pid;
         }
         if (process.platform === "linux") {

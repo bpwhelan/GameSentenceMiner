@@ -13,6 +13,9 @@ import psutil
 
 EVENT_SYSTEM_FOREGROUND = 0x0003
 EVENT_OBJECT_NAMECHANGE = 0x800C
+EVENT_OBJECT_SHOW = 0x8002
+GA_ROOT = 2
+SWITCH_EMULATOR_NAMES = {f"{name}.exe" for name in ("eden", "yuzu", "suyu", "ryujinx", "citron", "sudachi", "torzu")}
 WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
 WM_QUIT = 0x0012
@@ -74,6 +77,10 @@ def _configure_windows_api(user32, kernel32) -> None:
         user32.PostThreadMessageW.restype = wintypes.BOOL
         user32.IsWindow.argtypes = [wintypes.HWND]
         user32.IsWindow.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        user32.GetAncestor.restype = wintypes.HWND
         user32.IsIconic.argtypes = [wintypes.HWND]
         user32.IsIconic.restype = wintypes.BOOL
         user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
@@ -83,6 +90,19 @@ def _configure_windows_api(user32, kernel32) -> None:
         kernel32.GetCurrentThreadId.restype = wintypes.DWORD
     except (AttributeError, TypeError):
         # Test doubles deliberately do not expose ctypes function metadata.
+        pass
+    try:
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.IsWow64Process2.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.WORD),
+            ctypes.POINTER(wintypes.WORD),
+        ]
+        kernel32.IsWow64Process2.restype = wintypes.BOOL
+    except (AttributeError, TypeError):
         pass
 
 
@@ -94,6 +114,7 @@ class ForegroundWindowHook:
         on_snapshot: ForegroundSnapshotCallback,
         on_status: Optional[StatusCallback] = None,
         *,
+        on_emulator_snapshot: Optional[ForegroundSnapshotCallback] = None,
         user32=None,
         kernel32=None,
     ) -> None:
@@ -103,9 +124,13 @@ class ForegroundWindowHook:
         if self._user32 is not None and self._kernel32 is not None:
             _configure_windows_api(self._user32, self._kernel32)
         self._on_snapshot = on_snapshot
+        self._on_emulator_snapshot = on_emulator_snapshot
         self._on_status = on_status
         self._event_thread: Optional[threading.Thread] = None
         self._worker_thread: Optional[threading.Thread] = None
+        self._emulator_worker_thread: Optional[threading.Thread] = None
+        self._emulator_hwnds: queue.Queue[int] = queue.Queue(maxsize=128)
+        self._pending_emulator_hwnds: set[int] = set()
         self._event_thread_id = 0
         self._hook_handles: list[int] = []
         self._event_proc = None
@@ -145,6 +170,11 @@ class ForegroundWindowHook:
             daemon=True,
         )
         self._worker_thread.start()
+        if self._on_emulator_snapshot:
+            self._emulator_worker_thread = threading.Thread(
+                target=self._emulator_worker_loop, name="EmulatorWindowResolver", daemon=True
+            )
+            self._emulator_worker_thread.start()
         self._event_thread.start()
         self._ready_event.wait(timeout=2.0)
         if not self._hook_handles:
@@ -167,6 +197,9 @@ class ForegroundWindowHook:
             self._event_thread.join(timeout=2.0)
         if self._worker_thread and self._worker_thread is not threading.current_thread():
             self._worker_thread.join(timeout=2.0)
+        if self._emulator_worker_thread and self._emulator_worker_thread is not threading.current_thread():
+            self._emulator_worker_thread.join(timeout=2.0)
+        self._emulator_worker_thread = None
         self._event_thread = None
         self._worker_thread = None
         self._event_thread_id = 0
@@ -221,20 +254,29 @@ class ForegroundWindowHook:
         if foreground and foreground != processed_hwnd:
             self._replace_queued_hwnd(foreground)
 
+    def _handle_window_event(self, event: int, hwnd: int, id_object: int, id_child: int) -> None:
+        if not hwnd or self._stop_event.is_set():
+            return
+        if event in (EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_SHOW):
+            if self._on_emulator_snapshot and id_object == 0 and id_child == 0:
+                with self._queue_lock:
+                    if hwnd not in self._pending_emulator_hwnds:
+                        try:
+                            self._emulator_hwnds.put_nowait(hwnd)
+                            self._pending_emulator_hwnds.add(hwnd)
+                        except queue.Full:
+                            pass
+            if hwnd != int(self._user32.GetForegroundWindow() or 0):
+                return
+        self._replace_queued_hwnd(hwnd)
+
     def _event_loop(self) -> None:
         assert self._user32 is not None
         assert self._kernel32 is not None
 
         def on_event(_hook, event, hwnd, _id_object, _id_child, _thread, _time):
             try:
-                resolved_hwnd = int(hwnd or 0)
-                if not resolved_hwnd:
-                    return
-                if event == EVENT_OBJECT_NAMECHANGE:
-                    foreground = int(self._user32.GetForegroundWindow() or 0)
-                    if resolved_hwnd != foreground:
-                        return
-                self._replace_queued_hwnd(resolved_hwnd)
+                self._handle_window_event(event, int(hwnd or 0), _id_object, _id_child)
             except Exception:
                 return
 
@@ -260,6 +302,7 @@ class ForegroundWindowHook:
                     0,
                     flags,
                 ),
+                self._user32.SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, None, self._event_proc, 0, 0, flags),
             ]
             self._hook_handles = [int(hook) for hook in hooks if hook]
             self._event_thread_id = int(self._kernel32.GetCurrentThreadId())
@@ -324,12 +367,65 @@ class ForegroundWindowHook:
                 # latest window is not dependent on another WinEvent arriving.
                 self._reconcile_foreground(hwnd)
 
-    def _resolve_snapshot(self, hwnd: int) -> Optional[dict[str, Any]]:
+    def _emulator_worker_loop(self) -> None:
+        previous: dict[int, tuple] = {}
+        while not self._stop_event.is_set():
+            try:
+                hwnd = self._emulator_hwnds.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            with self._queue_lock:
+                self._pending_emulator_hwnds.discard(hwnd)
+            snapshot = self._resolve_emulator_snapshot(hwnd)
+            if snapshot is None:
+                previous.pop(hwnd, None)
+                continue
+            key = (snapshot["pid"], snapshot["title"], snapshot["executablePath"], snapshot.get("processArchitecture"))
+            if previous.get(hwnd) == key:
+                continue
+            if len(previous) >= 128:
+                previous.pop(next(iter(previous)))
+            previous[hwnd] = key
+            with self._snapshot_lock:
+                self._sequence += 1
+                snapshot["sequence"] = self._sequence
+            try:
+                if self._on_emulator_snapshot:
+                    self._on_emulator_snapshot(snapshot)
+            except Exception:
+                # A disconnected desktop must not end native window discovery.
+                continue
+
+    def _resolve_emulator_snapshot(self, hwnd: int) -> Optional[dict[str, Any]]:
+        try:
+            if not self._user32.IsWindowVisible(hwnd) or int(self._user32.GetAncestor(hwnd, GA_ROOT) or 0) != hwnd:
+                return None
+        except (AttributeError, OSError):
+            return None
+        return self._resolve_snapshot(hwnd, emulator_only=True)
+
+    def _resolve_process_architecture(self, pid: int) -> Optional[str]:
+        handle = None
+        try:
+            handle = self._kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return None
+            process_machine, native_machine = wintypes.WORD(), wintypes.WORD()
+            if self._kernel32.IsWow64Process2(handle, ctypes.byref(process_machine), ctypes.byref(native_machine)):
+                return {0x14C: "x86", 0x8664: "x64"}.get(process_machine.value or native_machine.value)
+        except (AttributeError, OSError):
+            return None
+        finally:
+            if handle:
+                self._kernel32.CloseHandle(handle)
+        return None
+
+    def _resolve_snapshot(self, hwnd: int, *, emulator_only: bool = False) -> Optional[dict[str, Any]]:
         if self._user32 is None:
             return None
         try:
             foreground = int(self._user32.GetForegroundWindow() or 0)
-            if foreground != hwnd:
+            if not emulator_only and foreground != hwnd:
                 return None
             length = int(self._user32.GetWindowTextLengthW(hwnd) or 0)
             buffer = ctypes.create_unicode_buffer(max(1, length + 1))
@@ -358,8 +454,10 @@ class ForegroundWindowHook:
                 pass
         if not executable_name and executable_path:
             executable_name = Path(executable_path).name
+        if emulator_only and executable_name.lower() not in SWITCH_EMULATOR_NAMES:
+            return None
 
-        return {
+        snapshot = {
             "hwnd": str(hwnd),
             "pid": pid,
             "title": title,
@@ -368,3 +466,7 @@ class ForegroundWindowHook:
             "capturedAt": int(time.time() * 1000),
             "sequence": 0,
         }
+        architecture = self._resolve_process_architecture(pid) if pid > 0 else None
+        if architecture:
+            snapshot["processArchitecture"] = architecture
+        return snapshot

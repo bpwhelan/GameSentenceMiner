@@ -1196,13 +1196,16 @@ class GSMApplication:
             def on_snapshot(snapshot: dict) -> None:
                 send_message(FunctionName.FOREGROUND_WINDOW_CHANGED.value, snapshot)
 
+            def on_emulator_snapshot(snapshot: dict) -> None:
+                send_message(FunctionName.EMULATOR_WINDOW_CHANGED.value, snapshot)
+
             def on_status(status: str, error: str = "") -> None:
                 send_message(
                     FunctionName.FOREGROUND_WINDOW_HOOK_STATUS.value,
                     {"status": status, "error": error},
                 )
 
-            hook = ForegroundWindowHook(on_snapshot, on_status)
+            hook = ForegroundWindowHook(on_snapshot, on_status, on_emulator_snapshot=on_emulator_snapshot)
             self.foreground_window_hook = hook
             hook.start()
         except Exception as exc:

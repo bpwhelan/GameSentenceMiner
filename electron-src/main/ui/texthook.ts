@@ -1421,7 +1421,7 @@ export interface StartHookOptions {
     source?: TextHookStartSource;
     /** Override the auto-detected host PID (used by the auto-launcher). */
     pidOverride?: number;
-    /** Internal recovery path: force a specific hook engine architecture. */
+    /** Architecture from native process metadata, or an internal recovery override. */
     archOverride?: TextHookArchitecture;
     /** Internal recovery path: prevent architecture retry loops. */
     architectureFallbackAttempted?: boolean;

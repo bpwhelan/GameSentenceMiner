@@ -1393,7 +1393,7 @@ function handleBackendMessage(msg: BackendMessage): void {
     if (msg.function === 'windows_speech_log') {
         safeSendToMainWindow('speech-recognition.log', msg.data ?? {});
     }
-    if (msg.function === 'foreground_window_changed' && msg.data) {
+    if ((msg.function === 'foreground_window_changed' || msg.function === 'emulator_window_changed') && msg.data) {
         const snapshot = msg.data as Partial<ForegroundWindowSnapshot>;
         if (
             typeof snapshot.hwnd === 'string' &&
@@ -1402,8 +1402,12 @@ function handleBackendMessage(msg: BackendMessage): void {
             typeof snapshot.capturedAt === 'number' &&
             typeof snapshot.sequence === 'number'
         ) {
-            handleForegroundWindowSnapshot(snapshot as ForegroundWindowSnapshot);
-            autoLauncher.handleForegroundWindowChanged(snapshot as ForegroundWindowSnapshot);
+            if (msg.function === 'emulator_window_changed') {
+                autoLauncher.handleEmulatorWindowChanged(snapshot as ForegroundWindowSnapshot);
+            } else {
+                handleForegroundWindowSnapshot(snapshot as ForegroundWindowSnapshot);
+                autoLauncher.handleForegroundWindowChanged(snapshot as ForegroundWindowSnapshot);
+            }
         }
     }
     if (msg.function === 'foreground_window_hook_status') {

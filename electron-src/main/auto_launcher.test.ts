@@ -797,6 +797,50 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         }
     });
 
+    it('attaches from a background Eden title event using native architecture metadata', async () => {
+        vi.useFakeTimers();
+        const { exec, execFile } = await import('child_process');
+        const launcher = await prepareEdenLauncher();
+        const profile = getProfileForMock('eden.exe', edenScene.id);
+        getProfileForMock.mockReturnValue(null);
+        try {
+            launcher.startPolling();
+            await vi.advanceTimersByTimeAsync(1);
+            getProfileForMock.mockReturnValue(profile);
+            launcher.handleForegroundWindowChanged({ ...edenSnapshot(), executableName: 'explorer.exe', pid: 100 });
+            launcher.handleEmulatorWindowChanged({ ...edenSnapshot(), sequence: 2, processArchitecture: 'x64' });
+            await vi.advanceTimersByTimeAsync(1);
+            expect(startHookSessionMock).toHaveBeenCalledExactlyOnceWith({
+                engine: 'agent', exeName: 'eden.exe', pidOverride: 4242,
+                source: 'auto-launcher', sceneId: edenScene.id, archOverride: 'x64',
+            });
+            expect(exec).not.toHaveBeenCalled();
+            expect(execFile).not.toHaveBeenCalled();
+            expect(launcher.latestForeground.executableName).toBe('explorer.exe');
+        } finally {
+            launcher.stopPolling();
+            vi.useRealTimers();
+        }
+    });
+
+    it('expires background emulator snapshots and does not accept other process names', async () => {
+        vi.useFakeTimers();
+        const launcher = await prepareEdenLauncher();
+        const { execFile } = await import('child_process');
+        vi.mocked(execFile).mockImplementation(((_file: string, _args: string[], callback: Function) => {
+            callback(null, '"eden.exe","9999","Console","1","100,000 K"');
+        }) as any);
+        try {
+            launcher.handleEmulatorWindowChanged(edenSnapshot());
+            launcher.handleEmulatorWindowChanged({ ...edenSnapshot(), sequence: 2, pid: 1, executableName: 'other.exe' });
+            expect(await launcher.getPidByProcessName('eden.exe')).toBe(4242);
+            await vi.advanceTimersByTimeAsync(3000);
+            expect(await launcher.getPidByProcessName('eden.exe')).toBe(9999);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('ignores out-of-order snapshots and does not reuse a PID for a different executable', async () => {
         const launcher = await prepareEdenLauncher();
         const snapshot = edenSnapshot();
