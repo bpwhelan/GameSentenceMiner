@@ -44,6 +44,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           await (message.request.term.expression === '犬' ? focusScenario.first : focusScenario.later).promise;
         }
         payload = { canAdd: true, state: 'ready', action: 'add' }; break;
+      case 'hd_anki_preflight_batch':
+        if (focusScenario) await focusScenario.first.promise;
+        payload = { replies: message.requests.map(() => ({ canAdd: true, state: 'ready', action: 'add' })) }; break;
       case 'hd_anki_submit': payload = { state: 'added', noteId: 1234 }; break;
       case 'hd_audio_play': {
         const scenario = focusScenario;
@@ -79,12 +82,8 @@ app.whenReady().then(async () => {
   fs.mkdirSync(path.dirname(page));
   const vendor = path.join(__dirname, '../hachidori');
   const manifest = JSON.parse(fs.readFileSync(path.join(vendor, 'manifest.json')));
-  const resources = new Set([...manifest.content_scripts[0].js, ...manifest.content_scripts[0].css,
-    ...manifest.web_accessible_resources.flatMap(item => item.resources)]);
-  for (const file of resources) {
-    fs.mkdirSync(path.dirname(path.join(extension, file)), { recursive: true });
-    fs.copyFileSync(path.join(vendor, file), path.join(extension, file));
-  }
+  // Include wildcard resources and modules loaded dynamically by upstream themes.
+  fs.cpSync(vendor, extension, { recursive: true });
   fs.writeFileSync(path.join(extension, 'background.js'), background);
   fs.writeFileSync(path.join(extension, 'manifest.json'), JSON.stringify({
     manifest_version: 3, name: 'GSM Hachidori smoke', version: '1.0', permissions: ['storage'],
@@ -180,13 +179,14 @@ app.whenReady().then(async () => {
     handler.cancelSelection();
     await new Promise(resolve => setTimeout(resolve, 400));
     assert(!handler.dictionaryPopupVisible, 'Late lookup must not reopen a canceled popup');
-    // Enable just the current entry while other entries' Anki checks remain pending.
+    // Complete Anki readiness while audio remains busy or has no result.
+    // Upstream may check entries individually or batch them by Anki Template.
     // There is no popup lifecycle event or controller input to repair the default.
     for (const mode of ['playing', 'no-result']) {
       await gsmHachidoriBridge.invoke('status', { focusScenario: mode });
       handler.triggerDictionaryLookup({ targetChar: document.querySelector('.text-box'), centerX: 95, centerY: 100 });
       await wait(() => handler.dictionaryPopupVisible, 'focus scenario popup: ' + mode);
-      await wait(() => root().querySelector('.gsm-controller-selected[data-action="add"]:not(:disabled)'), 'first entry ready');
+      await wait(() => root().querySelectorAll('.gsm-hoshidicts-mine-button:disabled').length >= 2, 'pending Anki checks');
       handler.navigateDictionaryNextEntry();
       await wait(async () => (await gsmHachidoriBridge.invoke('selection')).index === 1, 'pending entry selected');
       const audio = () => root().querySelectorAll('.gsm-hoshidicts-audio-button')[1];
@@ -194,13 +194,12 @@ app.whenReady().then(async () => {
       await wait(() => mode === 'playing' ? audio()?.getAttribute('aria-busy') === 'true'
         : audio()?.dataset.state === 'error', 'audio scenario: ' + mode);
       await wait(() => audio()?.classList.contains('gsm-controller-selected'), 'provisional audio default');
-      await wait(() => root().querySelectorAll('.gsm-hoshidicts-mine-button:disabled').length === 2, 'pending entry checks');
+      await wait(() => root().querySelectorAll('.gsm-hoshidicts-mine-button:disabled').length >= 2, 'pending entry checks');
       await new Promise(resolve => setTimeout(resolve, 100));
       await gsmHachidoriBridge.invoke('status', { releaseFirst: true });
       const mine = () => root().querySelectorAll('.gsm-hoshidicts-mine-button')[1];
       await wait(() => !mine().disabled, 'current entry ready');
       assert(mine().classList.contains('gsm-controller-selected'), 'Mining must be selected as soon as it is ready: ' + mode);
-      assert(root().querySelector('.gsm-hoshidicts-mine-button:disabled'), 'Other entries must still be checking Anki');
       if (mode === 'playing') assert(audio().getAttribute('aria-busy') === 'true', 'Audio must still be playing');
       await gsmHachidoriBridge.invoke('status', { finishFocus: true });
       await wait(() => !root().querySelector('.gsm-hoshidicts-mine-button:disabled')
