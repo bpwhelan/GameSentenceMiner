@@ -136,7 +136,12 @@ jobs:
 
             - name: Run Hachidori Electron smoke test
               if: steps.sync.outputs.changed == 'true'
-              run: xvfb-run --auto-servernum node GSM_Overlay/tests/run-hachidori-electron-smoke.cjs
+              run: |
+                  node GSM_Overlay/node_modules/electron/install.js
+                  electron_sandbox="$(node -p 'require("node:path").join(require("node:path").dirname(require("./GSM_Overlay/node_modules/electron")), "chrome-sandbox")')"
+                  sudo chown root:root "$electron_sandbox"
+                  sudo chmod 4755 "$electron_sandbox"
+                  xvfb-run --auto-servernum node GSM_Overlay/tests/run-hachidori-electron-smoke.cjs
 
             - name: Create or update Hachidori release PR
               if: steps.sync.outputs.changed == 'true'
