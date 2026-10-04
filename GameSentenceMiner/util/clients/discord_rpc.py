@@ -187,6 +187,7 @@ class DiscordRPCManager:
 
     @disabled_guard
     def stop(self, inactivity=False):
+        """Stop Discord presence while the stats tracker owns its session gap."""
         scheduler = self._deadline_scheduler
         self._deadline_scheduler = None
         if scheduler is not None:
@@ -205,7 +206,6 @@ class DiscordRPCManager:
             self.rpc_thread = None
             self.last_game_name = None
             self.start_time = None
-            live_stats_tracker.reset()
 
     @disabled_guard
     def clear(self):

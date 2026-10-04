@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
     DEFAULT_GSM_SINGLE_PORT,
     getConfiguredSinglePort,
+    getConfiguredTargetLanguage,
     resolveSinglePortFromConfigData,
 } from './gsm_config.js';
 
@@ -14,6 +15,31 @@ afterEach(() => {
     for (const dir of tempDirs.splice(0)) {
         fs.rmSync(dir, { recursive: true, force: true });
     }
+});
+
+describe('GSM target language', () => {
+    it('reads the current profile and picks up language changes without restarting', () => {
+        const configPath = writeTempConfig({
+            current_profile: 'Korean',
+            configs: {
+                Default: { general: { target_language: 'ja' } },
+                Korean: { general: { target_language: 'ko' } },
+            },
+        });
+        expect(getConfiguredTargetLanguage(configPath)).toBe('ko');
+        fs.writeFileSync(configPath, JSON.stringify({ general: { target_language: 'zh-Hant' } }));
+        expect(getConfiguredTargetLanguage(configPath)).toBe('zh-hant');
+    });
+
+    it('uses the GSM default for missing, malformed, and older configurations', () => {
+        expect(getConfiguredTargetLanguage(writeTempConfig({}))).toBe('ja');
+        expect(getConfiguredTargetLanguage(writeTempConfig({ general: { target_language: 42 } }))).toBe('ja');
+        expect(getConfiguredTargetLanguage(writeTempConfig({ general: { target_language: ' ' } }))).toBe('ja');
+        const configPath = writeTempConfig({});
+        fs.writeFileSync(configPath, '{');
+        expect(getConfiguredTargetLanguage(configPath)).toBe('ja');
+        expect(getConfiguredTargetLanguage(path.join(os.tmpdir(), 'missing-gsm-config.json'))).toBe('ja');
+    });
 });
 
 function writeTempConfig(data: unknown): string {

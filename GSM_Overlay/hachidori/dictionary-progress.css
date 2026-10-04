@@ -64,6 +64,15 @@
   margin-top: 6px;
 }
 
+/* Inherits the normal text colour: a note is not an error. */
+.setup-dictionary-notes {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .setup-track.is-determinate .track-fill {
   width: var(--progress, 0%);
   animation: none;

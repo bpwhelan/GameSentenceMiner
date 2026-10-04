@@ -278,6 +278,7 @@ class SettingsManager {
         this.tadokuPasswordInput = document.getElementById('tadoku_password');
         this.tadokuClearCredentialsInput = document.getElementById('tadoku_clear_credentials');
         this.tadokuLanguageCodeInput = document.getElementById('tadoku_language_code');
+        this.tadokuTitleSourceInput = document.getElementById('tadoku_title_source');
         this.tadokuDailySyncEnabledInput = document.getElementById('tadoku_daily_sync_enabled');
         this.tadokuDailySyncTimeInput = document.getElementById('tadoku_daily_sync_time');
         this.tadokuDailySyncDeduplicateInput = document.getElementById('tadoku_daily_sync_deduplicate');
@@ -332,6 +333,12 @@ class SettingsManager {
         }
         if (this.tadokuManualSyncDeduplicateInput) {
             this.tadokuManualSyncDeduplicateInput.addEventListener('change', () => this.loadTadokuPreview());
+        }
+        if (this.tadokuTitleSourceInput) {
+            this.tadokuTitleSourceInput.addEventListener('change', () => {
+                this.clearTadokuMessages();
+                this.loadTadokuPreview();
+            });
         }
         if (this.tadokuWhitelistSelectAllBtn) {
             this.tadokuWhitelistSelectAllBtn.addEventListener('click', () => {
@@ -615,6 +622,7 @@ class SettingsManager {
             const settings = {
                 tadoku_clear_credentials: clearCredentials,
                 tadoku_language_code: languageCode,
+                tadoku_title_source: this.tadokuTitleSourceInput?.value || 'english',
                 tadoku_daily_sync_enabled: Boolean(this.tadokuDailySyncEnabledInput?.checked),
                 tadoku_daily_sync_time: this.tadokuDailySyncTimeInput?.value || '00:01',
                 tadoku_daily_sync_deduplicate: Boolean(this.tadokuDailySyncDeduplicateInput?.checked),
@@ -691,6 +699,9 @@ class SettingsManager {
         }
         if (this.tadokuLanguageCodeInput) {
             this.tadokuLanguageCodeInput.value = settings.tadoku_language_code || 'jpn';
+        }
+        if (this.tadokuTitleSourceInput) {
+            this.tadokuTitleSourceInput.value = settings.tadoku_title_source || 'english';
         }
         if (this.tadokuDailySyncEnabledInput) {
             this.tadokuDailySyncEnabledInput.checked = Boolean(settings.tadoku_daily_sync_enabled);
@@ -810,7 +821,8 @@ class SettingsManager {
             this.tadokuSyncBtn.disabled = true;
         }
         try {
-            const response = await fetch(`/api/tadoku/preview?deduplicate=${deduplicate}`);
+            const titleSource = this.tadokuTitleSourceInput?.value || 'english';
+            const response = await fetch(`/api/tadoku/preview?deduplicate=${deduplicate}&title_source=${encodeURIComponent(titleSource)}`);
             const preview = await response.json();
             if (!response.ok) {
                 throw new Error(preview.error || 'Failed to load Tadoku preview');
@@ -883,7 +895,7 @@ class SettingsManager {
         this.tadokuSyncInProgress = true;
         this.clearTadokuMessages();
         const deduplicate = Boolean(this.tadokuManualSyncDeduplicateInput?.checked);
-        const controls = [this.tadokuPreviewBtn, this.tadokuManualSyncDeduplicateInput].filter(Boolean);
+        const controls = [this.tadokuPreviewBtn, this.tadokuManualSyncDeduplicateInput, this.tadokuTitleSourceInput].filter(Boolean);
         controls.forEach(control => { control.disabled = true; });
         try {
             const preview = await this.loadTadokuPreview();

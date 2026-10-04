@@ -95,6 +95,7 @@
           panel.style.fontSize = `${--fontSize}px`;
         }
       });
+      document.defaultView?.GSMWindowOcclusion?.refresh(layer);
     }
 
     function error(payload) {

@@ -37,11 +37,11 @@ export const LINKED_ANKI_REQUESTS = new Set([
 ]);
 
 // Which runtime messages a linked client sends to the host instead of its own
-// engine or worker. Screenshot capture/discard and captured-media sessions stay
+// engine or worker. Screenshot capture/discard stays
 // in the reading browser; the host owns every Anki and generation decision.
 export const FORWARDED_REQUESTS = {
   "hoshidicts-offscreen": new Set([
-    "hd_lookup", "hd_lookup_dictionary", "hd_kanji", "hd_styles", "hd_media", "hd_status", "hd_memory",
+    "hd_lookup", "hd_lookup_dictionary", "hd_kanji", "hd_styles", "hd_media", "hd_status", "hd_memory", "hd_memory_total",
     "hd_custom_append", "hd_custom_save", "hd_apply_state", "hd_reload", "hd_remove", "hd_import",
   ]),
   "hoshidicts-worker": new Set([
@@ -117,7 +117,6 @@ export function browserName(navigator) {
   const brands = (navigator?.userAgentData?.brands ?? []).map(entry => String(entry?.brand ?? "")).filter(brand => brand !== "" && !/not.?a.?brand/iu.test(brand));
   const brand = brands.find(name => name !== "Chromium") ?? brands[0];
   if (brand) return brand;
-  if (/\bFirefox\//u.test(String(navigator?.userAgent ?? ""))) return "Firefox";
   return "another browser";
 }
 
@@ -153,8 +152,8 @@ export function assertLinkedAnkiFrame(text) {
 
 const MINING_REQUEST_FIELDS = [
   "term", "trace", "generation", "sentence", "matchOffset", "matched", "popupSelectionText",
-  "searchQuery", "documentTitle", "audioSelection", "capturePin", "dictionaryAliases", "dictionaryIds",
-  "frequencyDictionaries", "configKey", "screenshot", "captureJobId", "captureUnavailable",
+  "searchQuery", "documentTitle", "pageUrl", "audioSelection", "dictionaryAliases", "dictionaryIds",
+  "frequencyDictionaries", "configKey", "screenshot", "captureUnavailable",
   "clientSpeech", "templateId",
 ];
 

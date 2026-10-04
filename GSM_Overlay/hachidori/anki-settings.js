@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { ankiAvailability } from "./anki.js";
 import { ankiSetupFamily } from "./anki-setup.js";
-import { ANKI_TEMPLATE_MARKER_OPTIONS, ankiFieldNames, ankiTemplateErrors, applyAnkiPreset, resolveAnkiTemplates } from "./anki-templates.js";
+import { ANKI_TEMPLATE_MARKER_OPTIONS, ankiFieldNames, ankiMappedFieldNames, ankiTemplateErrors, applyAnkiPreset, resolveAnkiTemplates } from "./anki-templates.js";
 import { reorderSettingsRows, setStatusOutput } from "./settings-dom.js";
 
 function setAttributeIfChanged(element, name, value) {
@@ -374,15 +374,7 @@ export function createAnkiSettingsController({
         unavailable: new Set(resolved.staleFields),
       };
     }
-    const names = [...fields];
-    const folded = new Set(names.map(field => field.toLowerCase()));
-    for (const semantic of ANKI_FIELDS) {
-      const field = config.fields[semantic];
-      if (field && !folded.has(field.toLowerCase())) {
-        names.push(field);
-        folded.add(field.toLowerCase());
-      }
-    }
+    const names = ankiMappedFieldNames(config, fields);
     const display = resolveAnkiTemplates(config, names);
     const available = ankiFieldNames(fields);
     return {

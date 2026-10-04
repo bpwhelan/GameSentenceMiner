@@ -1849,6 +1849,7 @@ class StatsConfig:
     tadoku_password: str = ""
     tadoku_session_cookie: str = ""
     tadoku_language_code: str = "jpn"
+    tadoku_title_source: str = "english"
     tadoku_daily_sync_enabled: bool = False
     tadoku_daily_sync_time: str = "00:01"
     tadoku_daily_sync_deduplicate: bool = True

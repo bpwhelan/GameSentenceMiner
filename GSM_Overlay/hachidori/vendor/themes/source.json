@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/bee-san/hachidori-themes",
+  "revision": "9174d9ccc8963f97b9b26c9b6414d581a6be525d",
+  "paths": {
+    "default": "themes/default",
+    "nazeka": "themes/nazeka",
+    "plain": "themes/plain",
+    "jl": "themes/jl",
+    "bee": "themes/bee"
+  }
+}

@@ -1,6 +1,6 @@
 // Hachidori's own stored ZIP64 format; loaded only for explicit backup work.
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { BlobReader, BlobWriter, ZipReader, ZipWriter } from "./vendor/zip.js";
+import { BlobReader, Writer, ZipReader, ZipWriter } from "./vendor/zip.js";
 import { assertLookupStatsRows, emptyLookupStats } from "./lookup-stats.js";
 
 const MANIFEST = "hachidori-backup.json";
@@ -11,6 +11,25 @@ const ZIP_OPTIONS = {
   extendedTimestamp: false,
   lastModDate: new Date(1980, 0, 1),
 };
+
+// BlobWriter consumes a Response stream, whose cancellation in Chromium workers
+// can surface as zip.js's "setting outputSize" error. Snapshot each chunk into
+// a Blob instead, without flattening a ZIP64 archive into one typed array.
+class BackupBlobWriter extends Writer {
+  constructor(type = "") {
+    super();
+    this.type = type;
+    this.parts = [];
+  }
+
+  writeUint8Array(bytes) {
+    this.parts.push(new Blob([bytes]));
+  }
+
+  getData() {
+    return new Blob(this.parts, { type: this.type });
+  }
+}
 
 export function assertBackupPath(path) {
   if (typeof path !== "string" || /[\\\u0000-\u001f\u007f]/u.test(path)
@@ -51,7 +70,7 @@ export async function createBackupArchive(snapshot, files, lookupStatsRows, crea
   assertLookupStatsRows(snapshot?.lookupStats, lookupStatsRows);
   const manifest = { format: "hachidori-backup", version: 2, createdAt, snapshot, lookupStatsRows, files: entries };
   /** @type {{add(name: string, reader: object): Promise<unknown>, close(): Promise<Blob>}} */
-  const writer = new ZipWriter(new BlobWriter("application/zip"), ZIP_OPTIONS);
+  const writer = new ZipWriter(new BackupBlobWriter("application/zip"), ZIP_OPTIONS);
   await writer.add(MANIFEST, new BlobReader(new Blob([JSON.stringify(manifest)])));
   for (const file of files) await writer.add(file.path, new BlobReader(file.data));
   return writer.close();
@@ -69,7 +88,7 @@ function assertRegularEntry(entry) {
 }
 
 function readEntry(entry) {
-  return entry.getData(new BlobWriter(), {
+  return entry.getData(new BackupBlobWriter(), {
     useWebWorkers: false, checkSignature: true, checkOverlappingEntry: true, checkAmbiguity: true,
   });
 }

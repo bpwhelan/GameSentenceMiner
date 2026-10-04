@@ -1034,9 +1034,15 @@
       "luna": "Luna Hook",
       "textractor": "Textractor"
     },
+    "agent": {
+      "search": "搜索脚本",
+      "browse": "选择文件…"
+    },
     "profile": {
-      "title": "已保存配置",
+      "title": "保存以供下次使用",
       "saved": "已保存",
+      "recommended": "推荐",
+      "saveHint": "保存可用的挂接，下次即可继续使用。",
       "autoHook": "下次启动时自动附加挂接",
       "flushDelay": "文本修订窗口（ms）：",
       "manualHook": "手动挂接代码（H/R-code，可选）：",
@@ -1049,11 +1055,26 @@
       "title": "检测到的挂接",
       "count": "{count} 个挂接",
       "waiting": "等待挂接中。请在游戏中触发文本。",
-      "notRunning": "点击“开始”启动引擎。",
-      "noTextYet": "（尚无文本）"
+      "notRunning": "启动文本捕获以查找钩子。",
+      "noTextYet": "（尚无文本）",
+      "rankingHint": "优先显示符合目标语言（{language}）的可读文本。语言提示基于文字系统，仅供参考。已选挂接始终可见。",
+      "readabilityHint": "优先显示可读文本。已选挂接始终可见。",
+      "showNoise": "显示疑似杂讯（{count}）",
+      "onlyNoise": "目前只有疑似杂讯。可显示杂讯进行检查，或推进游戏中的文本。",
+      "quality": {
+        "targetLanguage": "很可能符合目标语言",
+        "possibleLanguage": "可能符合目标语言",
+        "readable": "可读文本",
+        "mixed": "文本混有杂讯",
+        "paths": "路径或技术文本",
+        "garbled": "可能是乱码",
+        "repetitive": "重复文本",
+        "symbols": "主要为数字或符号"
+      }
     },
     "output": {
       "title": "所选挂接输出",
+      "checkHint": "确认这里的文本与游戏中的文本一致。",
       "waiting": "等待所选挂接输出文本…",
       "selectHook": "从列表中选择一个挂接以预览其文本。"
     },
@@ -1066,9 +1087,14 @@
       "ready": "就绪",
       "noTarget": "无目标"
     },
+    "layout": {
+      "captureOptions": "文本捕获选项",
+      "troubleshooting": "故障排除"
+    },
     "actions": {
       "start": "开始",
-      "stop": "停止"
+      "stop": "停止",
+      "preparing": "正在准备文本捕获…"
     },
     "notices": {
       "started": "已附加到 {exe}（PID {pid}）。",

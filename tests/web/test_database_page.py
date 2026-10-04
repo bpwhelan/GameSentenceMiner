@@ -113,6 +113,7 @@ def test_tools_page_renders_tadoku_sync_card(client):
     assert 'class="management-card tadoku-sync"' in html
     assert 'id="tadoku_username"' in html
     assert 'id="tadoku_password"' in html
+    assert 'id="tadoku_title_source"' in html
     assert 'id="tadokuSaveSettingsBtn"' in html
     assert 'id="tadokuRefreshAuthBtn"' in html
     assert 'id="tadoku_manual_sync_deduplicate"' in html

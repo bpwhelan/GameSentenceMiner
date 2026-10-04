@@ -4,7 +4,7 @@
 // (Luna Hook and Textractor CLI builds). These files are not bundled with the
 // app to avoid antivirus false-positive triggers from the DLL injection code.
 //
-// Files are fetched from an R2 manifest, with a pinned GitHub fallback, and stored under
+// A verified ZIP is fetched from R2 and its runtime files are stored under
 // %APPDATA%/GameSentenceMiner/texthook/ (same sub-path structure as the old
 // bundled assets dir so getEngineCliPath() can check both transparently).
 
@@ -14,15 +14,14 @@ import * as crypto from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { net } from 'electron';
+import semver from 'semver';
+import extract from 'extract-zip';
 import { BASE_DIR } from '../util.js';
-import { mainWindow } from '../main.js';
-import fallbackSnapshot from './texthook_fallback_manifest.js';
+import type { EngineStatus, EngineDownloadProgress } from '../../shared/texthook_updates.js';
+export type { EngineStatus, EngineDownloadProgress } from '../../shared/texthook_updates.js';
 
-const MANIFEST_URL = 'https://r2.gamesentenceminer.com/texthook/texthook_manifest.json';
-const FILES_BASE_URL = 'https://r2.gamesentenceminer.com/texthook';
-// The tiny manifest ships with GSM; the executable files still download on demand.
-// Regenerate with scripts/generate-texthook-fallback.mjs when publishing new engines.
-const FALLBACK_BASE_URL = `https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/${fallbackSnapshot.revision}/electron-src/assets/texthook`;
+const FILES_BASE_URL = 'https://r2.gamesentenceminer.com/texthook/zip';
+const MANIFEST_URL = `${FILES_BASE_URL}/texthook_manifest.json`;
 const MANIFEST_TIMEOUT_MS = 10_000;
 const FILE_TIMEOUT_MS = 120_000;
 const DOWNLOAD_ATTEMPTS = 2;
@@ -38,6 +37,8 @@ export const TEXTHOOK_DOWNLOAD_DIR = path.join(BASE_DIR, 'texthook');
  */
 export const FORCE_TEXTHOOK_DOWNLOAD = true;
 const LOCAL_MANIFEST_PATH = path.join(TEXTHOOK_DOWNLOAD_DIR, 'texthook_manifest.json');
+const PACKAGES_DIR = path.join(TEXTHOOK_DOWNLOAD_DIR, 'packages');
+const PACKAGE_DIRECTORY_PATTERN = /^packages\/[a-f\d]{32}$/;
 
 // Must all exist for the engines to be considered installed.
 const SENTINEL_FILES = [
@@ -67,34 +68,39 @@ interface ManifestEntry {
     sha256: string;
 }
 
-interface TexhookManifest {
+export interface TexhookManifest {
     version: string;
+    /** Absent only in manifests from installations made before ZIP downloads. */
+    archive?: ManifestEntry;
     files: ManifestEntry[];
 }
 
-export interface EngineStatus {
-    installed: boolean;
-    version: string | null;
-    updateAvailable: boolean;
-    remoteVersion: string | null;
+interface LocalManifest extends TexhookManifest {
+    packageDirectory?: string;
+    previousPackageDirectory?: string;
 }
 
-export interface EngineDownloadProgress {
-    file: string;
-    fileIndex: number;
-    totalFiles: number;
-    bytesDownloaded: number;
-    bytesTotal: number | null;
+export interface PreparedTexthookUpdate {
+    manifest: TexhookManifest;
+    directory: string;
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function loadLocalManifest(): TexhookManifest | null {
+function loadLocalManifest(): LocalManifest | null {
     try {
         if (!fs.existsSync(LOCAL_MANIFEST_PATH)) return null;
-        return validateManifest(JSON.parse(fs.readFileSync(LOCAL_MANIFEST_PATH, 'utf-8')));
+        const data = JSON.parse(fs.readFileSync(LOCAL_MANIFEST_PATH, 'utf-8'));
+        const manifest: LocalManifest = validateManifest(data);
+        for (const key of ['packageDirectory', 'previousPackageDirectory'] as const) {
+            if (data[key] !== undefined) {
+                if (typeof data[key] !== 'string' || !PACKAGE_DIRECTORY_PATTERN.test(data[key])) return null;
+                manifest[key] = data[key];
+            }
+        }
+        return manifest;
     } catch {
         return null;
     }
@@ -103,7 +109,7 @@ function loadLocalManifest(): TexhookManifest | null {
 function validateManifest(value: unknown): TexhookManifest {
     if (!value || typeof value !== 'object') throw new Error('Invalid texthook manifest: expected an object.');
     const manifest = value as Record<string, unknown>;
-    if (typeof manifest.version !== 'string' || !manifest.version.trim() || !Array.isArray(manifest.files)) {
+    if (typeof manifest.version !== 'string' || !semver.valid(manifest.version) || !Array.isArray(manifest.files)) {
         throw new Error('Invalid texthook manifest: missing version or files.');
     }
     const paths = new Set<string>();
@@ -112,6 +118,7 @@ function validateManifest(value: unknown): TexhookManifest {
         const file = entry as Record<string, unknown>;
         if (typeof file.path !== 'string' || !/^[\w.-]+(?:\/[\w.-]+)*$/.test(file.path)
             || file.path.split('/').some((part) => part === '.' || part === '..' || part.endsWith('.'))
+            || !/^(NOTICE\.md|(?:luna_builds|textractor_builds)\/.+)$/.test(file.path)
             || paths.has(file.path.toLowerCase())
             || typeof file.sha256 !== 'string' || !/^[a-f\d]{64}$/i.test(file.sha256)) {
             throw new Error('Invalid texthook manifest: unsafe path, duplicate file or invalid SHA-256.');
@@ -122,7 +129,16 @@ function validateManifest(value: unknown): TexhookManifest {
     if (!SENTINEL_FILES.every((file) => paths.has(file.toLowerCase()))) {
         throw new Error('Invalid texthook manifest: required engine files are missing.');
     }
-    return { version: manifest.version, files };
+    let archive: ManifestEntry | undefined;
+    if (manifest.archive !== undefined) {
+        const entry = manifest.archive as ManifestEntry | null;
+        if (!entry || entry.path !== 'texthook.zip'
+            || typeof entry.sha256 !== 'string' || !/^[a-f\d]{64}$/i.test(entry.sha256)) {
+            throw new Error('Invalid texthook manifest: invalid archive path or SHA-256.');
+        }
+        archive = { path: entry.path, sha256: entry.sha256.toLowerCase() };
+    }
+    return { version: manifest.version, files, ...(archive ? { archive } : {}) };
 }
 
 function describeError(error: unknown, depth = 0): string {
@@ -178,12 +194,30 @@ async function fetchResponse(url: string, signal: AbortSignal): Promise<Response
 async function fetchRemoteManifest(): Promise<TexhookManifest> {
     return withDownloadRetries(MANIFEST_URL, MANIFEST_TIMEOUT_MS, async (signal) => {
         const response = await fetchResponse(MANIFEST_URL, signal);
-        return validateManifest(await response.json());
+        const manifest = validateManifest(await response.json());
+        if (!manifest.archive) throw new Error('Invalid texthook manifest: missing ZIP archive.');
+        return manifest;
     });
 }
 
 export function isTexthookInstalled(): boolean {
-    return SENTINEL_FILES.every((f) => fs.existsSync(path.join(TEXTHOOK_DOWNLOAD_DIR, f)));
+    const directory = getTexthookRuntimeDir();
+    const files = loadLocalManifest()?.files.map((entry) => entry.path) ?? SENTINEL_FILES;
+    return files.every((f) => fs.existsSync(path.join(directory, f)));
+}
+
+/** Legacy installs stay usable until the first complete, verified package is activated. */
+export function getTexthookRuntimeDir(): string {
+    const local = loadLocalManifest();
+    return local?.packageDirectory ? path.join(TEXTHOOK_DOWNLOAD_DIR, local.packageDirectory) : TEXTHOOK_DOWNLOAD_DIR;
+}
+
+export function isNewerEngineVersion(remote: string | null, local: string | null): boolean {
+    return !!remote && !!local && !!semver.valid(remote) && !!semver.valid(local) && semver.gt(remote, local);
+}
+
+export function getLocalEngineStatus(): EngineStatus {
+    return { installed: isTexthookInstalled(), version: loadLocalManifest()?.version ?? null, remoteVersion: null, updateAvailable: false };
 }
 
 /**
@@ -252,104 +286,136 @@ async function fileMatchesManifest(destPath: string, expectedSha256: string): Pr
 
 /** Returns install state + whether a remote update is available. */
 export async function getEngineStatus(): Promise<EngineStatus> {
-    const local = loadLocalManifest();
-    const installed = isTexthookInstalled();
+    const local = getLocalEngineStatus();
     const remote = await fetchRemoteManifest().catch(() => null);
     return {
-        installed,
-        version: local?.version ?? null,
+        ...local,
         remoteVersion: remote?.version ?? null,
-        updateAvailable: installed && !!remote && !!local && remote.version !== local.version,
+        updateAvailable: local.installed && isNewerEngineVersion(remote?.version ?? null, local.version),
     };
 }
 
 /**
- * Downloads all texthook engine files listed in the remote manifest.
- * Verifies SHA-256 of each file after download.
+ * Downloads and verifies the ZIP, then verifies each extracted runtime file.
  * Emits `texthook.engineDownloadProgress` events to the renderer as work progresses.
  */
 export async function downloadTexthookEngines(
     onProgress?: (progress: EngineDownloadProgress) => void,
 ): Promise<void> {
-    const local = loadLocalManifest();
-    let remote: TexhookManifest | undefined;
-    let primaryError: unknown;
+    const prepared = await prepareTexthookUpdate(onProgress);
     try {
-        remote = await fetchRemoteManifest();
-        await downloadManifestFiles(remote, FILES_BASE_URL, onProgress);
-        return;
+        await activateTexthookUpdate(prepared);
     } catch (error) {
-        primaryError = error;
-    }
-
-    const fallback = validateManifest(fallbackSnapshot);
-    const targetVersion = remote?.version ?? local?.version;
-    // A bundled snapshot must never silently replace another engine version.
-    if (targetVersion && targetVersion !== fallback.version) {
-        throw new Error(`${describeError(primaryError)}. Bundled fallback v${fallback.version} cannot replace engine version ${targetVersion}.`);
-    }
-    console.warn(`[texthook] R2 download failed; using bundled manifest v${fallback.version} and GitHub: ${describeError(primaryError)}`);
-    try {
-        // Switch the complete manifest: even NOTICE.md has its own verified hash.
-        await downloadManifestFiles(fallback, FALLBACK_BASE_URL, onProgress);
-    } catch (error) {
-        throw new Error(`Could not download texthook engines. R2: ${describeError(primaryError)}. GitHub fallback: ${describeError(error)}`, { cause: error });
+        await discardTexthookUpdate(prepared);
+        throw error;
     }
 }
 
-async function downloadManifestFiles(
-    manifest: TexhookManifest,
-    baseUrl: string,
+/** Download into a private package. Never modify the active engines during preparation. */
+export async function prepareTexthookUpdate(
     onProgress?: (progress: EngineDownloadProgress) => void,
-): Promise<void> {
-    fs.mkdirSync(TEXTHOOK_DOWNLOAD_DIR, { recursive: true });
-
-    const files = manifest.files;
-    console.log(`[texthook] Downloading ${files.length} engine files (v${manifest.version}) to ${TEXTHOOK_DOWNLOAD_DIR}`);
-
-    for (let i = 0; i < files.length; i++) {
-        const entry = files[i];
-        const destPath = path.join(TEXTHOOK_DOWNLOAD_DIR, entry.path);
-        const url = `${baseUrl}/${entry.path}`;
-
-        // Resume partial installs and avoid fetching binaries already verified on disk.
-        if (await fileMatchesManifest(destPath, entry.sha256)) continue;
-
-        console.log(`[texthook] (${i + 1}/${files.length}) ${entry.path}`);
-        await downloadSingleFile(url, destPath, entry.sha256, (bytesDownloaded, bytesTotal) => {
-            onProgress?.({
-                file: path.basename(entry.path),
-                fileIndex: i,
-                totalFiles: files.length,
-                bytesDownloaded,
-                bytesTotal: bytesTotal ?? null,
-            });
-        });
-        console.log(`[texthook] verified ${entry.path}`);
+    onVerifying?: () => void,
+): Promise<PreparedTexthookUpdate> {
+    const local = loadLocalManifest();
+    const manifest = await fetchRemoteManifest();
+    if (isNewerEngineVersion(local?.version ?? null, manifest.version)) {
+        throw new Error(`Refusing to downgrade hook engines from ${local!.version} to ${manifest.version}.`);
     }
-
-    console.log(`[texthook] All engine files downloaded successfully.`);
-    fs.writeFileSync(LOCAL_MANIFEST_PATH, JSON.stringify(manifest, null, 2), 'utf-8');
+    const archive = manifest.archive!;
+    const directory = path.join(PACKAGES_DIR, crypto.randomBytes(16).toString('hex'));
+    await fs.promises.mkdir(directory, { recursive: true });
+    const prepared = { directory, manifest };
+    const zipPath = path.join(directory, archive.path);
+    try {
+        await downloadSingleFile(`${FILES_BASE_URL}/${archive.path}`, zipPath, archive.sha256, (bytesDownloaded, bytesTotal) => {
+            onProgress?.({ file: archive.path, fileIndex: 0, totalFiles: 1, bytesDownloaded, bytesTotal: bytesTotal ?? null });
+        });
+        onVerifying?.();
+        const expectedFiles = new Set(manifest.files.map(entry => entry.path));
+        await extract(zipPath, {
+            dir: directory,
+            onEntry(entry) {
+                const symlink = ((entry.externalFileAttributes >>> 16) & 0o170000) === 0o120000;
+                if (symlink || !expectedFiles.delete(entry.fileName)) {
+                    throw new Error(`Unexpected or duplicate ZIP entry: ${entry.fileName}`);
+                }
+            },
+        });
+        await fs.promises.rm(zipPath);
+        await verifyPreparedPackage(prepared);
+        await fs.promises.writeFile(path.join(directory, 'texthook_manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+        return prepared;
+    } catch (error) {
+        await discardTexthookUpdate(prepared);
+        throw error;
+    }
 }
 
-/**
- * Called once at startup (after the window is ready).
- * Silently checks if a newer manifest version is available and, if so,
- * emits `texthook.engineUpdateAvailable` so the UI can surface a badge.
- */
-export async function checkForTexthookUpdates(): Promise<void> {
-    if (!isTexthookInstalled()) return;
-    const local = loadLocalManifest();
-    if (!local) return;
-    try {
-        const remote = await fetchRemoteManifest();
-        if (remote && remote.version !== local.version) {
-            mainWindow?.webContents.send('texthook.engineUpdateAvailable', {
-                remoteVersion: remote.version,
-                localVersion: local.version,
-            });
+function assertPackageDirectory(directory: string): void {
+    if (path.dirname(path.resolve(directory)) !== path.resolve(PACKAGES_DIR)
+        || !/^[a-f\d]{32}$/.test(path.basename(directory))) {
+        throw new Error('Invalid engine package directory.');
+    }
+}
+
+async function verifyPreparedPackage(prepared: PreparedTexthookUpdate, flush = false): Promise<void> {
+    assertPackageDirectory(prepared.directory);
+    const manifest = validateManifest(prepared.manifest);
+    for (const entry of manifest.files) {
+        if (!await fileMatchesManifest(path.join(prepared.directory, entry.path), entry.sha256)) {
+            throw new Error(`Integrity check failed for ${entry.path} (hash mismatch). Active engines were not changed.`);
         }
-    } catch {
-        // Network error on startup — silently ignore.
+        if (flush) {
+            const file = await fs.promises.open(path.join(prepared.directory, entry.path), 'r+');
+            try { await file.sync(); } finally { await file.close(); }
+        }
+    }
+}
+
+export async function discardTexthookUpdate(prepared: PreparedTexthookUpdate): Promise<void> {
+    assertPackageDirectory(prepared.directory);
+    // Never delete the active generation, even after an error in a caller.
+    if (path.resolve(prepared.directory) === path.resolve(getTexthookRuntimeDir())) return;
+    await fs.promises.rm(prepared.directory, { recursive: true, force: true }).catch((error) => {
+        console.warn('[texthook] Could not remove unused engine package:', describeError(error));
+    });
+}
+
+/** The only commit is an atomic manifest replacement; old binaries are never overwritten. */
+export async function activateTexthookUpdate(prepared: PreparedTexthookUpdate): Promise<void> {
+    // Re-read every staged byte after a possible wait for an active hook to stop.
+    await verifyPreparedPackage(prepared, true);
+    const local = loadLocalManifest();
+    if (isNewerEngineVersion(local?.version ?? null, prepared.manifest.version)) {
+        throw new Error('Refusing to downgrade hook engines during activation.');
+    }
+    const next: LocalManifest = {
+        ...validateManifest(prepared.manifest),
+        packageDirectory: `packages/${path.basename(prepared.directory)}`,
+        ...(local?.packageDirectory ? { previousPackageDirectory: local.packageDirectory } : {}),
+    };
+    if (local) await writeManifestAtomic(path.join(TEXTHOOK_DOWNLOAD_DIR, 'texthook_manifest.previous.json'), local);
+    await writeManifestAtomic(LOCAL_MANIFEST_PATH, next);
+    // Retain the immediately previous package for recovery. Cleanup is best-effort
+    // because a game may still hold a DLL from an older session open on Windows.
+    if (local?.previousPackageDirectory && local.previousPackageDirectory !== next.packageDirectory
+        && local.previousPackageDirectory !== next.previousPackageDirectory) {
+        await discardTexthookUpdate({ directory: path.join(TEXTHOOK_DOWNLOAD_DIR, local.previousPackageDirectory), manifest: next });
+    }
+}
+
+async function writeManifestAtomic(destination: string, manifest: LocalManifest): Promise<void> {
+    const temporaryManifest = path.join(TEXTHOOK_DOWNLOAD_DIR, `.manifest-${crypto.randomBytes(16).toString('hex')}.tmp`);
+    try {
+        const file = await fs.promises.open(temporaryManifest, 'wx');
+        try {
+            await file.writeFile(JSON.stringify(manifest, null, 2), 'utf8');
+            await file.sync();
+        } finally {
+            await file.close();
+        }
+        await fs.promises.rename(temporaryManifest, destination);
+    } finally {
+        await fs.promises.rm(temporaryManifest, { force: true }).catch(() => {});
     }
 }

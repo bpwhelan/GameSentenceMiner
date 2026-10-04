@@ -1038,9 +1038,15 @@
       "luna": "Luna Hook",
       "textractor": "Textractor"
     },
+    "agent": {
+      "search": "스크립트 검색",
+      "browse": "파일 선택…"
+    },
     "profile": {
-      "title": "저장된 프로필",
+      "title": "다음에 사용할 수 있도록 저장",
       "saved": "저장됨",
+      "recommended": "권장",
+      "saveHint": "정상적으로 작동하는 훅을 저장하면 다음에도 사용할 수 있습니다.",
       "autoHook": "다음 시작 시 훅 자동 연결",
       "flushDelay": "텍스트 수정 시간 (ms):",
       "manualHook": "수동 훅 코드 (H/R-code, 선택 사항):",
@@ -1053,11 +1059,26 @@
       "title": "감지된 훅",
       "count": "훅 {count}개",
       "waiting": "훅 대기 중. 게임에서 텍스트를 표시하세요.",
-      "notRunning": "'시작'을 클릭해 엔진을 시작하세요.",
-      "noTextYet": "(아직 텍스트 없음)"
+      "notRunning": "텍스트 캡처를 시작하여 후크를 찾으세요.",
+      "noTextYet": "(아직 텍스트 없음)",
+      "rankingHint": "학습 언어({language})에 맞는 읽을 수 있는 텍스트를 먼저 표시합니다. 언어는 문자 체계를 바탕으로 추정합니다. 선택한 훅은 항상 표시됩니다.",
+      "readabilityHint": "읽을 수 있는 텍스트를 먼저 표시합니다. 선택한 훅은 항상 표시됩니다.",
+      "showNoise": "잡음으로 추정되는 훅 표시 ({count})",
+      "onlyNoise": "현재 잡음으로 추정되는 훅만 있습니다. 잡음을 표시하여 확인하거나 게임의 텍스트를 진행하세요.",
+      "quality": {
+        "targetLanguage": "학습 언어일 가능성이 높음",
+        "possibleLanguage": "학습 언어일 가능성 있음",
+        "readable": "읽을 수 있는 텍스트",
+        "mixed": "텍스트와 잡음이 섞임",
+        "paths": "경로 또는 기술적 텍스트",
+        "garbled": "문자가 깨졌을 가능성",
+        "repetitive": "반복되는 텍스트",
+        "symbols": "주로 숫자 또는 기호"
+      }
     },
     "output": {
       "title": "선택된 훅 출력",
+      "checkHint": "이 텍스트가 게임의 텍스트와 일치하는지 확인하세요.",
       "waiting": "선택된 훅의 텍스트를 기다린니다…",
       "selectHook": "목록에서 훅을 선택해 텍스트를 미리보세요."
     },
@@ -1070,9 +1091,14 @@
       "ready": "준비 완료",
       "noTarget": "대상 없음"
     },
+    "layout": {
+      "captureOptions": "텍스트 캡처 옵션",
+      "troubleshooting": "문제 해결"
+    },
     "actions": {
       "start": "시작",
-      "stop": "중지"
+      "stop": "중지",
+      "preparing": "텍스트 캡처 준비 중…"
     },
     "notices": {
       "started": "{exe} (PID {pid})에 연결되었습니다.",

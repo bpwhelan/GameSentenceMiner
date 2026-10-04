@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { isAnkiAudioOnlyTemplate } from "./anki-templates.js";
+import { ankiTemplateMarkerNames, isAnkiAudioOnlyTemplate } from "./anki-templates.js";
+import { ankiClozeRefusal, explainAnkiConnectError, isAnkiClozeRefusal } from "./anki.js";
 
 // GSM PR #549 hoshidicts_anki.py and hoshidicts_markers.py. These policies
 // receive the gateway's private invoker, never a page-selected API action.
@@ -64,13 +65,15 @@ export function overwriteAnkiFields(incoming, existing, templates, { includeAudi
     .map(([field, template]) => [field, overwriteValue(existing[field] ?? "", incoming[field] ?? "", template.overwriteMode)]));
 }
 
-function checkResult(result, detailed) {
-  if (!Array.isArray(result) || result.length !== 1
-      || (detailed ? typeof result[0]?.canAdd !== "boolean" : typeof result[0] !== "boolean")) {
+function checkResults(result, count, detailed) {
+  if (!Array.isArray(result) || result.length !== count
+      || !result.every(item => detailed ? typeof item?.canAdd === "boolean" : typeof item === "boolean")) {
     throw new Error("AnkiConnect returned invalid duplicate check results.");
   }
-  return result[0];
+  return result;
 }
+
+const checkResult = (result, detailed) => checkResults(result, 1, detailed)[0];
 
 export async function checkAnkiDuplicate(invoke, note, config) {
   // Anki also validates clozes in non-first fields. Keep all rendered fields,
@@ -90,22 +93,117 @@ export async function checkAnkiDuplicate(invoke, note, config) {
   return { duplicate: isAnkiDuplicateError(error), addable: result.canAdd && !error, error };
 }
 
-export async function validateAnkiNote(invoke, note) {
-  const checkNote = {
+// Anki's add check for every note in one request, in order, without its
+// duplicate rule: the word index decides duplicates.
+export async function validateAnkiNotes(invoke, notes) {
+  if (!notes.length) return [];
+  const checkNotes = notes.map(note => ({
     deckName: note.deckName,
     modelName: note.modelName,
     fields: note.fields,
     tags: note.tags,
     options: { ...note.options, allowDuplicate: true },
-  };
+  }));
   try {
-    const result = checkResult(await invoke("canAddNotesWithErrorDetail", { notes: [checkNote] }), true);
-    const error = typeof result.error === "string" && result.error ? result.error : null;
-    return { addable: result.canAdd && error === null, error };
+    return checkResults(await invoke("canAddNotesWithErrorDetail", { notes: checkNotes }), checkNotes.length, true)
+      .map(result => {
+        const error = typeof result.error === "string" && result.error ? result.error : null;
+        return { addable: result.canAdd && error === null, error };
+      });
   } catch (error) {
     if (!/unsupported action/iu.test(error.message)) throw error;
-    const addable = checkResult(await invoke("canAddNotes", { notes: [checkNote] }), false);
-    return { addable, error: addable ? null : "Anki rejected this note." };
+    return checkResults(await invoke("canAddNotes", { notes: checkNotes }), checkNotes.length, false)
+      .map(addable => ({ addable, error: addable ? null : "Anki rejected this note." }));
+  }
+}
+
+export async function validateAnkiNote(invoke, note) {
+  return (await validateAnkiNotes(invoke, [note]))[0];
+}
+
+const MODEL_CLOZE = 1; // pylib/anki/consts.py
+// cloze.rs tokenize: a deletion opens with {{c, its cloze numbers and ::, and
+// closes with }}. Each alternative is linear, so any field text scans quickly.
+const CLOZE_MARKERS = /\{\{c(,*\d[\d,]*)::|\}\}/gu;
+
+// cloze.rs contains_cloze: the first complete top-level deletion with a cloze
+// number other than 0, such as {{c1::猫}}, or null.
+function clozeDeletion(text) {
+  const open = [];
+  for (const marker of text.matchAll(CLOZE_MARKERS)) {
+    if (marker[1] !== undefined) open.push(marker);
+    else if (open.length === 1 && /[1-9]/u.test(open[0][1])) return text.slice(open[0].index, marker.index + 2);
+    else open.pop(); // Closes a nested or number-0 deletion; a stray }} is plain text.
+  }
+  return null;
+}
+
+// notetype/mod.rs cloze_fields: the fields the first card's front renders with
+// the cloze filter, as in {{cloze:Text}} or {{furigana:cloze:Text}}, in the
+// note type's order (template.rs all_referenced_cloze_field_names). Anki finds
+// each referenced field case-insensitively (get_field_ord) and, since 25.02,
+// skips references inside an HTML comment.
+function clozeFields(model) {
+  const referenced = new Set();
+  const template = model.tmpls[0].qfmt.replaceAll(/<!--[\s\S]*?-->/gu, "");
+  for (const [, tag] of template.matchAll(/\{\{([^{}]*)\}\}/gu)) {
+    const [field, ...filters] = tag.trim().split(":").reverse();
+    if (filters.includes("cloze")) referenced.add(field.toLowerCase());
+  }
+  return model.flds.map(field => field.name).filter(name => referenced.has(name.toLowerCase()));
+}
+
+// notes/mod.rs field_cloze_check, in Anki's order: the first deletion in a
+// field that cannot make cloze cards, then a Cloze note type without any.
+// AnkiConnect assigns submitted fields to the note type's case-insensitively.
+function clozeRule(model, note, refused, templates) {
+  const values = new Map(Object.entries(note.fields).map(([name, value]) => [name.toLowerCase(), value]));
+  const deletions = model.flds.map(({ name }) => [name, clozeDeletion(values.get(name.toLowerCase()) ?? "")])
+    .filter(([, deletion]) => deletion !== null);
+  const modelName = `“${note.modelName}”`;
+  if (model.type !== MODEL_CLOZE) {
+    if (!deletions.length) return null;
+    const [[field, deletion]] = deletions;
+    const refusal = `${refused}: field “${field}” contains the cloze deletion “${deletion}”, but ${modelName} is not a Cloze note type.`;
+    // A template without literal deletion text has nothing to remove: the
+    // deletion arrived inside a marker's content, such as a dictionary's.
+    const template = Object.entries(templates).find(([name]) => name.toLowerCase() === field.toLowerCase())?.[1].value;
+    if (template !== undefined && clozeDeletion(template) === null) {
+      const markers = [...new Set(ankiTemplateMarkerNames(template))].map(name => `{${name}}`).join(", ");
+      return `${refusal} The deletion comes from the content of ${markers || "its markers"}, not from the field's template. `
+        + "Map that field to other content in Anki Settings, or choose a Cloze note type.";
+    }
+    return `${refusal} Remove the deletion from that field's template in Anki Settings, or choose a Cloze note type.`;
+  }
+  const clozable = clozeFields(model);
+  if (!clozable.length) return null;
+  const outside = deletions.find(([field]) => !clozable.includes(field));
+  if (outside) {
+    const names = clozable.map(name => `“${name}”`).join(", ");
+    return `${refused}: field “${outside[0]}” contains the cloze deletion “${outside[1]}”, but ${modelName} makes cloze cards `
+      + `only from ${names}. Move the deletion to the template of “${clozable[0]}” in Anki Settings.`;
+  }
+  if (deletions.length) return null;
+  return `${refused}: it is a Cloze note type, but its cloze field “${clozable[0]}” has no cloze deletion such as {{c1::…}}. `
+    + `Map “${clozable[0]}” to a template that makes one, for example {cloze-prefix}{{c1::{cloze-body}}}{cloze-suffix}, `
+    + "or choose a non-Cloze note type in Anki Settings.";
+}
+
+// The reader-facing text of a per-note refusal from the checks above. It is a
+// check result, not a request error, so the gateway has not translated it.
+// AnkiConnect's "unknown reason" is one of Anki's three cloze refusals: one
+// read of the note type names which. Text no translation knows, such as the
+// legacy fallback's own, is kept.
+export async function explainAnkiRefusal(invoke, note, error, templates) {
+  if (!isAnkiClozeRefusal(error)) return explainAnkiConnectError(error) ?? error;
+  const refused = `Anki refused the note for deck “${note.deckName}”, note type “${note.modelName}”`;
+  try {
+    const [model] = await invoke("findModelsByName", { modelNames: [note.modelName] });
+    return clozeRule(model, note, refused, templates) ?? ankiClozeRefusal(refused);
+  } catch {
+    // An AnkiConnect without findModelsByName, or a note type it could not
+    // return, still gets the rules Anki applies.
+    return ankiClozeRefusal(refused);
   }
 }
 
@@ -131,31 +229,16 @@ async function scopedNoteIds(invoke, infos, config) {
   }).map(card => card.note));
 }
 
-export async function findAnkiDuplicateNotes(invoke, note, firstField, config, {
-  allModels = false,
-} = {}) {
+// Anki's exact first-field duplicates of the configured note type inside the
+// configured scope, for a destination the word index cannot key. One `dupe:`
+// search answers it from Anki's checksum index.
+export async function findAnkiDuplicateNotes(invoke, note, firstField, config) {
   const models = await invoke("modelNamesAndIds");
   const modelId = models?.[config.model];
   if (Array.isArray(models) || !positiveId(modelId)) throw new Error("AnkiConnect returned no valid ID for the selected note type.");
-  const modelEntries = [[config.model, modelId]];
-  if (allModels) {
-    for (const [modelName, id] of Object.entries(models)) {
-      if (modelName === config.model) continue;
-      if (!positiveId(id)) throw new Error("AnkiConnect returned invalid note type IDs.");
-      modelEntries.push([modelName, id]);
-    }
-  }
-  const ids = [];
-  const modelByNote = new Map();
-  for (const [modelName, id] of modelEntries) {
-    const found = await invoke("findNotes", { query: duplicateQuery(note, firstField, id) });
-    if (!Array.isArray(found) || !found.every(positiveId)) throw new Error("AnkiConnect returned invalid duplicate note IDs.");
-    for (const noteId of found) {
-      if (modelByNote.has(noteId)) continue;
-      ids.push(noteId);
-      modelByNote.set(noteId, modelName);
-    }
-  }
+  const found = await invoke("findNotes", { query: duplicateQuery(note, firstField, modelId) });
+  if (!Array.isArray(found) || !found.every(positiveId)) throw new Error("AnkiConnect returned invalid duplicate note IDs.");
+  const ids = [...new Set(found)];
   if (!ids.length) return [];
   const infos = await invoke("notesInfo", { notes: ids });
   if (!Array.isArray(infos)) throw new Error("AnkiConnect returned invalid duplicate note details.");
@@ -165,24 +248,14 @@ export async function findAnkiDuplicateNotes(invoke, note, firstField, config, {
   for (const id of ids) {
     if (scoped && !scoped.has(id)) continue;
     const info = byId.get(id);
-    const expectedModel = modelByNote.get(id);
-    if (typeof info?.modelName !== "string" || info.modelName.toLowerCase() !== expectedModel.toLowerCase()) continue;
-    let fields = null;
-    if (info.modelName.toLowerCase() === config.model.toLowerCase()) {
-      if (!info.fields || typeof info.fields !== "object" || Array.isArray(info.fields)) continue;
-      const entries = Object.entries(info.fields).map(([field, value]) =>
-        [field, typeof value === "string" ? value : value?.value]);
-      if (entries.some(([, value]) => typeof value !== "string")) {
-        throw new Error("AnkiConnect returned invalid duplicate note fields.");
-      }
-      fields = Object.fromEntries(entries);
+    if (typeof info?.modelName !== "string" || info.modelName.toLowerCase() !== config.model.toLowerCase()) continue;
+    if (!info.fields || typeof info.fields !== "object" || Array.isArray(info.fields)) continue;
+    const entries = Object.entries(info.fields).map(([field, value]) =>
+      [field, typeof value === "string" ? value : value?.value]);
+    if (entries.some(([, value]) => typeof value !== "string")) {
+      throw new Error("AnkiConnect returned invalid duplicate note fields.");
     }
-    matches.push({ noteId: id, modelName: info.modelName, fields });
+    matches.push({ noteId: id, modelName: info.modelName, fields: Object.fromEntries(entries) });
   }
   return matches;
-}
-
-export async function findAnkiOverwriteTarget(invoke, note, firstField, config) {
-  const [target] = await findAnkiDuplicateNotes(invoke, note, firstField, config, { allModels: false });
-  return target ? { noteId: target.noteId, fields: target.fields } : null;
 }

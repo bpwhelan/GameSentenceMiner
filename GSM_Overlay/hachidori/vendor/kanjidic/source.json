@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/yomidevs/jmdict-yomitan",
+  "url": "https://github.com/yomidevs/jmdict-yomitan/releases/download/2026-10-01/KANJIDIC_english.zip",
+  "sha256": "d4326d315ecbf0da067b33d096796718f9028f2db30eea3a9345a38cc1036c0e",
+  "license": "CC-BY-SA-4.0",
+  "attribution": "This package uses the KANJIDIC2 dictionary file. This file is the property of the Electronic Dictionary Research and Development Group, and is used in conformance with the Group's licence: https://www.edrdg.org/edrdg/licence.html",
+  "title": "KANJIDIC [2026-274]",
+  "revision": "kanjidic2.2026-274",
+  "files": {
+    "kanji-readings.json": {
+      "sha256": "381e51d5ff862d728f706c9dc427a6902da15e9b49b4c4a45e48c74081020729"
+    }
+  }
+}

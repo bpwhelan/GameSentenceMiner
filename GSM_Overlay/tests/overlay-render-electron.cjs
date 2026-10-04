@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { execFileSync } = require('node:child_process');
-const { rendererFixtureSource, renderCases, overlayRoot, readRenderer } = require('./helpers/overlay-render.cjs');
+const { rendererFixtureSource, renderCases, line, overlayRoot, readRenderer } = require('./helpers/overlay-render.cjs');
 
 const reference = execFileSync('git', ['rev-parse', process.argv[2] || 'HEAD'], { cwd: overlayRoot, encoding: 'utf8' }).trim();
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-overlay-render-'));
@@ -24,6 +24,9 @@ app.whenReady().then(async () => {
     window.webContents.on('console-message', event => { if (event.level === 'error') console.error(event.message); });
     await window.loadURL('about:blank');
     await window.webContents.executeJavaScript(rendererFixtureSource(html, windows.length === 0 ? referenceBlocks : blocks));
+    if (windows.length === 1) {
+      await window.webContents.executeJavaScript(fs.readFileSync(path.join(overlayRoot, 'window_occlusion.js'), 'utf8'));
+    }
     window.webContents.debugger.attach('1.3');
     await window.webContents.debugger.sendCommand('Performance.enable');
     windows.push(window);
@@ -83,6 +86,33 @@ app.whenReady().then(async () => {
   const metrics = windows.map((_, side) => ({ milliseconds: median(timings[side]), layoutsPerFrame: median(layoutCounts[side]), roundsMs: timings[side] }));
   console.log(JSON.stringify({ comparisons, reference, benchmarkViewport: [1920, 1080], metrics }, null, 2));
   assert(metrics[1].layoutsPerFrame <= 3, 'Rendering must batch layout reads across the frame');
+  // Exercise real Chromium hit-testing with production-rendered OCR boxes.
+  // Physical desktop pixels include a negative monitor origin and 200% scaling.
+  const coverage = await windows[1].webContents.executeJavaScript(`(() => {
+    resetFixture();
+    GSMWindowOcclusion.setDisplayInfo({ physicalBounds: { x: -3840, y: -200, width: 3840, height: 2160 } });
+    const payload = ${JSON.stringify({ data: [line('猫犬鳥', 0.1, 0.2, 0.3, 0.04, false, true)] })};
+    renderFixture(payload);
+    const boxes = [...document.querySelectorAll('.text-box')].filter(box => box.textContent.trim());
+    const first = boxes[0], last = boxes.at(-1);
+    const rect = first.getBoundingClientRect();
+    const point = box => { const r = box.getBoundingClientRect(); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 }; };
+    const hit = box => { const p = point(box); return document.elementFromPoint(p.x, p.y)?.closest('.text-box') === box; };
+    const cover = { left: (rect.left - 1) * 2 - 3840, top: (rect.top - 1) * 2 - 200,
+      right: rect.right * 2 - 3840, bottom: (rect.bottom + 1) * 2 - 200 };
+    const before = hit(first);
+    window.dispatchEvent(new CustomEvent('gsm-window-state-update', { detail: { data: 'background', occlusion_rects: [cover] } }));
+    const hidden = getComputedStyle(first).visibility === 'hidden';
+    const coveredHit = hit(first), visibleHit = hit(last);
+    // Recalibration/new OCR must reuse the mask before allowing a lookup.
+    renderFixture(payload);
+    const hiddenAfterRender = getComputedStyle(document.querySelector('.text-box')).visibility === 'hidden';
+    window.dispatchEvent(new CustomEvent('gsm-window-state-update', { detail: { data: 'active', occlusion_rects: [] } }));
+    const restoredHit = hit(document.querySelector('.text-box'));
+    return { before, hidden, coveredHit, visibleHit, hiddenAfterRender, restoredHit };
+  })()`);
+  assert.deepEqual(coverage, { before: true, hidden: true, coveredHit: false, visibleHit: true, hiddenAfterRender: true, restoredHit: true });
+  console.log('Partial coverage: covered text rejects pointer hits; visible and restored text remain lookupable.');
   for (const window of windows) window.destroy();
   clearTimeout(timeout);
   app.quit();

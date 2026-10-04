@@ -24,7 +24,15 @@ lines; the repository's root `LICENSE` has the full GNU GPL version 3 text.
   **[Yomichan](https://github.com/FooSoft/yomichan)** — the structured-content
   schema that `appendStructuredValue` renders, the `gloss-*` class names and
   image-container markup it emits, and the allowed-tag, allowed-style, and
-  `data-sc-*` attribute conventions. Both are licensed under GPL-3.0-or-later.
+  `data-sc-*` attribute conventions. Since #364 the glossary markup follows
+  Yomitan's `DisplayGenerator` and `StructuredContentGenerator`, `reader.css`
+  ports the glossary part of `display.css`, `structured-content.css` and
+  `display-pronunciation.css`, and `glossary.js` ports `PronunciationGenerator`
+  and the pitch helpers and `distributeFurigana` of `language/ja/japanese.js`, all at
+  yomidevs/yomitan@67db60d. Outside this directory, `../anki-glossary.js` ports
+  `CssStyleApplier.applyClassStyles` and `../vendor/yomitan/structured-content-style.js`
+  is Yomitan's `structured-content-style.json`, unchanged. Both are licensed
+  under GPL-3.0-or-later.
 
 - **[hoshidicts](https://github.com/Manhhao/hoshidicts)** — the engine whose
   lookup JSON these files render, vendored as the `third_party/hoshidicts`
@@ -43,4 +51,5 @@ lines; the repository's root `LICENSE` has the full GNU GPL version 3 text.
 Dictionary archives are not redistributed. Imported dictionaries keep whatever
 source, license, and attribution metadata their own index carries, and any CSS a
 dictionary ships is applied by `applyDictionaryStyles` scoped to that
-dictionary's own glossary content.
+dictionary's own glossary content: through `@scope` in the popup, and by
+Yomitan's selector prefixing on Anki cards.

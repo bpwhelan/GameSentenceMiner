@@ -6,11 +6,12 @@ const CORE_MARKERS = ["expression", "reading", "furigana", "furigana-plain", "di
   "definition", "glossary", "glossary-brief", "glossary-no-dictionary", "glossary-plain", "glossary-plain-no-dictionary",
   "glossary-first", "glossary-first-brief", "glossary-first-no-dictionary", "main-definition", "jpmn-primary-definition",
   "conjugation", "part-of-speech", "phonetic-transcriptions", "tags", "popup-selection-text", "search-query", "document-title",
+  "url", "url-plain",
   "sentence", "sentence-furigana", "sentence-furigana-plain", "cloze-prefix", "cloze-body", "cloze-suffix",
   "frequency", "frequencies", "frequency-harmonic-rank", "frequency-harmonic-occurrence", "frequency-average-rank",
   "frequency-average-occurrence", "pitch", "pitch-position", "pitch-accent-positions", "pitch-categories",
   "pitch-accent-categories", "pitch-accent-graphs", "pitch-accent-graphs-jj",
-  "audio", "capture-animation", "capture-audio", "screenshot"];
+  "audio", "screenshot"];
 const MARKER_ALIASES = new Map([["pitch-accent", "pitch"], ["pitch-accents", "pitch"]]);
 const MARKER_DESCRIPTIONS = {
   expression: "Dictionary form of the selected term",
@@ -37,6 +38,8 @@ const MARKER_DESCRIPTIONS = {
   "popup-selection-text": "Text selected inside the lookup popup",
   "search-query": "Text used for the lookup",
   "document-title": "Title of the source page",
+  url: "Link to the source page",
+  "url-plain": "Address of the source page as plain text",
   sentence: "Source sentence with the matched text emphasized",
   "sentence-furigana": "Source sentence with furigana when available",
   "sentence-furigana-plain": "Plain-text source sentence with furigana when available",
@@ -57,8 +60,6 @@ const MARKER_DESCRIPTIONS = {
   "pitch-accent-graphs": "Japanese pitch accent SVG graphs",
   "pitch-accent-graphs-jj": "Japanese pitch accent SVG graphs with kana labels (Jidoujisho style)",
   audio: "Selected pronunciation audio",
-  "capture-animation": "Captured animated image",
-  "capture-audio": "Captured sentence audio",
   screenshot: "Screenshot of the source page",
 };
 const DYNAMIC_MARKER_OPTIONS = [
@@ -98,8 +99,6 @@ const genericAliases = {
   definition: ["Definition", "Definitions", "Meaning", "Glossary"], sentence: ["Sentence", "Context", "Example Sentence"],
   frequency: ["Frequency", "Frequencies"], pitch: ["Pitch Accent", "PitchAccent", "Pitch", "Accent"],
   audio: ["WordAudio", "PronunciationAudio", "Pronunciation", "Audio"],
-  captureAnimation: ["Capture Animation", "CaptureAnimation", "Sentence Animation", "SentenceAnimation"],
-  captureAudio: ["Capture Audio", "CaptureAudio", "Sentence Audio", "SentenceAudio"],
 };
 // Reviewed against the complete Kiku 2.1.0, Lapis 1.7.0 and Senren 5.1.0
 // package schemas. Every known unsupported field is explicit so the upstream
@@ -140,8 +139,8 @@ const PRESETS = { kiku: KIKU, lapis: LAPIS, senren: SENREN };
 const fieldKey = value => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 const knownMarker = value => MARKERS.has(value) || DYNAMIC_PREFIXES.some(prefix => value.startsWith(prefix) && value.length > prefix.length);
 const blankTemplate = () => ({ value: "", overwriteMode: "coalesce" });
-const semanticMarker = semantic => ({ captureAnimation: "capture-animation", captureAudio: "capture-audio" })[semantic] ?? semantic;
-const semanticLabel = semantic => ({ captureAnimation: "captured animation", captureAudio: "captured audio" })[semantic] ?? semantic;
+const semanticMarker = semantic => semantic;
+const semanticLabel = semantic => semantic;
 // Names the fields Anki reported, so a stale mapping can be corrected without
 // opening Anki. An empty list means the note type itself is still unknown.
 const availableFields = fields => fields.length === 0 ? ""
@@ -150,8 +149,32 @@ const availableFields = fields => fields.length === 0 ? ""
 export const escapeAnkiHtml = value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;")
   .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#x27;");
 
+// Anki's cloze tokenizer (cloze.rs) reads {{c1::…}} in raw field HTML, so
+// braces a marker value carries, such as a dictionary's own cloze-marked
+// example, would become a real deletion. Encoded braces display unchanged
+// but can never open or close one. <style> text is CSS, where entities are
+// not decoded; it stays literal and cannot form a {{c<n>:: opener anyway.
+const STYLE_ELEMENT = /(<style\b[^>]*>[\s\S]*?<\/style\s*>)/giu;
+export const encodeAnkiClozeBraces = value => String(value).split(STYLE_ELEMENT)
+  .map((part, index) => index % 2 ? part : part.replaceAll("{", "&#123;").replaceAll("}", "&#125;")).join("");
+
 export function ankiFieldNames(fields) {
   return new Map(fields.map(field => [field.toLowerCase(), field]));
+}
+
+// The note fields a Template's legacy mapping names, after the fields Anki
+// reported, compared case-insensitively as Anki compares them.
+export function ankiMappedFieldNames(config, fields = []) {
+  const names = [...fields];
+  const folded = new Set(names.map(field => field.toLowerCase()));
+  for (const semantic of ANKI_FIELDS) {
+    const field = config.fields[semantic];
+    if (field && !folded.has(field.toLowerCase())) {
+      names.push(field);
+      folded.add(field.toLowerCase());
+    }
+  }
+  return names;
 }
 
 export function ankiTemplateMarkerNames(template) {
@@ -164,8 +187,6 @@ export function ankiTemplateMarkerNames(template) {
 export function ankiCaptureRequirements(templates) {
   const markers = new Set(Object.values(templates).flatMap(template => ankiTemplateMarkerNames(template.value)));
   return {
-    includeAnimation: markers.has("capture-animation"),
-    includeAudio: markers.has("capture-audio"),
     includeScreenshot: markers.has("screenshot"),
   };
 }
@@ -192,7 +213,7 @@ export function renderAnkiTemplate(template, values) {
     const markers = [...segment.matchAll(MARKER_PATTERN)];
     const rendered = segment.replace(MARKER_PATTERN, (_, name) => {
       const key = name.toLowerCase();
-      return values[key] ?? values[MARKER_ALIASES.get(key)] ?? "";
+      return encodeAnkiClozeBraces(values[key] ?? values[MARKER_ALIASES.get(key)] ?? "");
     });
     return markers.length && !rendered.trim() ? [] : [rendered];
   }).join("<br>");

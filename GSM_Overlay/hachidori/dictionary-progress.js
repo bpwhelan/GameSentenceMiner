@@ -71,20 +71,37 @@ export function createDictionaryProgressList({
       track.setAttribute("aria-describedby", status.id);
       track.appendChild(document.createElement("div")).className = "track-fill";
 
-      row.append(name, purpose, status, track);
+      // Notes about a finished entry, such as what an MDX import left out.
+      const notes = document.createElement("ul");
+      notes.className = "setup-dictionary-notes";
+      notes.hidden = true;
+
+      row.append(name, purpose, status, track, notes);
       list.appendChild(row);
-      rows.set(key, { row, status, track });
+      rows.set(key, { row, status, track, notes });
     });
     list.hidden = entries.length === 0;
+  }
+
+  function renderNotes(notes, texts) {
+    const current = Array.from(notes.children, (item) => item.textContent);
+    if (current.length === texts.length && current.every((text, index) => text === texts[index])) return;
+    notes.replaceChildren(...texts.map((text) => {
+      const item = document.createElement("li");
+      item.textContent = text;
+      return item;
+    }));
+    notes.hidden = texts.length === 0;
   }
 
   function update(id, state) {
     const current = rows.get(String(id));
     if (!current) return;
-    const { row, status, track } = current;
+    const { row, status, track, notes } = current;
     if (status.textContent !== state.text) status.textContent = state.text;
     status.classList.toggle("is-ok", state.tone === "ok");
     status.classList.toggle("is-error", state.tone === "error");
+    renderNotes(notes, state.notes ?? []);
     row.classList.toggle("is-active", Boolean(state.progress));
     track.hidden = !state.progress;
     if (!state.progress) return;

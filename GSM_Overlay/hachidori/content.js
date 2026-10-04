@@ -23,7 +23,6 @@
   const WORKER_TARGET = "hoshidicts-worker";
   const READER_TARGET = "hachidori-reader";
   const HIGHLIGHT_NAME = "gsm-hoshidicts-match";
-  const READER_STYLESHEET = "render/reader.css";
   const HOST_TAG = "hachidori-host";
   const POPUP_SHOWN_EVENT = "hachidori-popup-shown";
   const POPUP_HIDDEN_EVENT = "hachidori-popup-hidden";
@@ -36,6 +35,7 @@
   })();
 
   const {
+    ACTIVATION_BUTTONS,
     DEFAULT_OPTIONS,
     KEYBIND_MODIFIERS,
     KEYBIND_MODIFIER_CODES,
@@ -55,6 +55,10 @@
     ["Alt", "altKey"],
     ["Meta", "metaKey"],
   ]);
+  // MouseEvent.button values of Back and Forward, which navigate on release.
+  const NAVIGATION_BUTTONS = new Set([3, 4]);
+  // Popup text that looks up child popups.
+  const DEFINITION_TEXT_SELECTOR = ".gsm-hoshidicts-glossary-content, .gsm-hoshidicts-compact-definition-summary";
 
   const POPUP_GAP_PX = 4;
   const POPUP_PADDING_PX = 6;
@@ -146,6 +150,14 @@
   const rootLevel = createLevelState(0);
   const levels = [rootLevel];
   let nextLevelId = 0;
+  const themeHost = window.HDThemeHost.createThemeHost({
+    getOptions: () => options,
+    onReady() {
+      styleGeneration = -1;
+      appearance?.refreshHighlight();
+      if (shadow) ensureDictionaryStyles(currentGeneration);
+    },
+  });
 
   function createLevelState(depth) {
     return {
@@ -154,12 +166,10 @@
       activeTermRender: null, currentViewRequest: null, noteEditing: false,
       pendingCustomAppends: 0, deferredDictionaryInvalidationRevision: -1,
       deferredRefresh: null, lookupToken: 0, pendingHover: null, pendingLink: null,
-      pendingPopupInteraction: null,
       retainedView: false,
       pendingViewReplay: null,
       blurTimer: null,
-      capturePin: null,
-      capturePinPromise: null,
+      placedAnchor: null,
     };
   }
 
@@ -189,17 +199,23 @@
   let hideTimer = null;
   let transferTimer = null;
   let descendantTimer = null;
+  let cursorExitTimer = null;
   let pointerLevel = null;
   let pointerInPopup = false;
   let activationPressed = false;
   let activationCode = null;
+  // A press or a key since the pointer last moved: the reader may be typing in
+  // the field under the pointer rather than pointing at its text.
+  let editedSincePointerMoved = false;
+  // The scan button's last press and the native actions it cancels.
+  let scanPress = null;
   let pendingCandidateLookup = null;
   let selectionDragActive = false;
   let activeSelectionCandidate = null;
   // A drag the reader selects itself, glyph by glyph, in an overlay host.
   let dragSelection = null;
   let overlayMode = false;
-  let hostCapabilities = { linkButtons: true, externalLinkHost: false, mediaCapture: true };
+  let hostCapabilities = { linkButtons: true, externalLinkHost: false };
   let hostAttentionPublished = false;
   let hostAttentionHold = 0;
 
@@ -208,8 +224,8 @@
   let dictionaryStateRevision = -1;
   let lookupStatsDescriptor = { generation: null, revision: -1 };
   const DEFINITION_BLUR_KEYS = [
-    "definitionBlurEnabled", "definitionBlurAnkiMature", "definitionBlurFrequencyEnabled",
-    "definitionBlurFrequencyDictionary", "definitionBlurFrequencyOrder", "definitionBlurFrequencyThreshold",
+    "definitionBlurCountEnabled", "definitionBlurAnkiMature", "definitionBlurFrequencyEnabled",
+    "definitionBlurFrequencyDictionary", "frequencyDictionary", "definitionBlurFrequencyOrder", "definitionBlurFrequencyThreshold",
     "definitionBlurDirection", "definitionBlurThreshold", "definitionBlurReveal", "definitionBlurDelayMs",
   ];
 
@@ -226,11 +242,14 @@
   // is selecting text: the host answers a mousedown by turning click-through on,
   // which would lose the drag before release could look anything up. The claim
   // carries over to the selection's pending lookup, so the host never sees a
-  // gap between the drag and the popup it produces.
+  // gap between the drag and the popup it produces. A held scan button claims
+  // the window the same way, or the host would stop reporting it mid-hold.
+  // Child popups that wait for it are in a popup, which holds the claim already.
   function syncHostAttention() {
     queueMicrotask(() => gsmBridge?.refresh()); // GSM hook
     const wanted = Boolean(rootLevel.popup && !rootLevel.popup.hidden) || selectionDragActive
-      || hostAttentionHold > 0 || pendingCandidateLookup?.candidate?.exactSelection === true;
+      || hostAttentionHold > 0 || pendingCandidateLookup?.candidate?.exactSelection === true
+      || (activationPressed && options.lookupMode !== "hover" && activationButton() !== null);
     if (wanted === hostAttentionPublished) return;
     hostAttentionPublished = wanted;
     window.dispatchEvent(new CustomEvent(wanted ? POPUP_SHOWN_EVENT : POPUP_HIDDEN_EVENT));
@@ -256,8 +275,7 @@
       }
       const next = applyHostCapabilities(options);
       const customButtonsChanged = JSON.stringify(next.customButtons) !== JSON.stringify(options.customButtons);
-      const miningChanged = customButtonsChanged
-        || JSON.stringify(next.mediaCapture) !== JSON.stringify(options.mediaCapture);
+      const miningChanged = customButtonsChanged;
       options = next;
       if (customButtonsChanged) {
         for (const level of levels) level.view?.setCustomButtons(options.customButtons);
@@ -269,9 +287,6 @@
   }
 
   function applyHostCapabilities(projected) {
-    if (!hostCapabilities.mediaCapture) {
-      projected = { ...projected, mediaCapture: { ...projected.mediaCapture, enabled: false } };
-    }
     if (!hostCapabilities.linkButtons) projected = {
       ...projected,
       customLinks: [],
@@ -399,8 +414,7 @@
         continue;
       }
       for (const entry of nativeEntries.filter((candidate) => candidate.dictionary === member.title)) {
-        append({ matched: character, term: { expression: character, reading: "", frequencies: [], pitches: [],
-          glossaries: [{ dictionary: entry.dictionary, glossary: window.HDPopup.kanjiEntryGlossary(entry) }] } });
+        append(window.HDPopup.kanjiEntryResult(character, entry));
       }
     }
     return merged;
@@ -440,6 +454,10 @@
   }
 
   function isOurNode(node) {
+    // The text-field imposter can exist before the popup host does.
+    if (fieldImposter?.container.contains(node)) {
+      return true;
+    }
     if (!host) {
       return false;
     }
@@ -686,20 +704,71 @@
    * start in it; the highlighter and rawMatchedText work there. `sentence` and
    * `matchOffset` are Yomitan's sentence around the match, which Anki notes,
    * the Note form and custom links receive. Until the engine answers, the match
-   * is the hovered glyph; the reply refines it to the matched word.
+   * is the hovered glyph; the reply refines it to the matched word. An exact
+   * selection arrives with its own sentence source (selectionSentence).
    */
   function withSentence(candidate, sourceOffset, matchLength, styleCache) {
     candidate.sourceText = candidate.sourceElements.map((source) => source.textContent || "").join("");
     candidate.sourceOffset = sourceOffset;
-    candidate.sentenceSource = sentenceSource(candidate.sourceElements, styleCache);
+    candidate.sentenceSource ??= sentenceSource(candidate.sourceElements, styleCache);
     return refineSentence(candidate, matchLength);
   }
 
   function refineSentence(candidate, matchLength) {
-    const { sentence, matchOffset } = extractSentence(candidate.sentenceSource, candidate.sourceOffset, matchLength);
+    // An exact selection's match is the selection, where selectionSentence put it.
+    const { sentence, matchOffset } = extractSentence(candidate.sentenceSource,
+      candidate.selectionOffset ?? candidate.sourceOffset, candidate.selectionLength ?? matchLength);
     candidate.sentence = sentence;
     candidate.matchOffset = matchOffset;
     return candidate;
+  }
+
+  /** The selected part of the text node `node`, or null when none of it is selected. */
+  function selectedSpan(range, node) {
+    if (!range.intersectsNode(node)) return null;
+    const start = node === range.startContainer ? range.startOffset : 0;
+    const end = node === range.endContainer ? range.endOffset : node.nodeValue.length;
+    return end > start ? { start, end } : null;
+  }
+
+  /** The first selected character a hover could point at: in text the scan reads, and not whitespace. */
+  function firstSelectedGlyph(range, styleCache) {
+    const walker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_TEXT);
+    let node = range.startContainer;
+    if (node.nodeType === Node.TEXT_NODE) walker.currentNode = node;
+    else node = walker.nextNode();
+    for (; node && range.comparePoint(node, 0) <= 0; node = walker.nextNode()) {
+      const selected = selectedSpan(range, node);
+      if (!selected || !isScannableTextNode(node, styleCache)) continue;
+      const glyph = node.nodeValue.slice(selected.start, selected.end).search(/\S/u);
+      if (glyph >= 0) return { node, offset: selected.start + glyph };
+    }
+    return null;
+  }
+
+  /**
+   * An exact selection's sentence, read as a hover over its first selected
+   * glyph reads one: from the text nodes the scan reads around that glyph, up
+   * to the edge of its block. It never takes in the furigana, scripts or
+   * hidden text of the element that happens to contain the whole selection. A
+   * selection that leaves the block is cut where the block ends.
+   * `selectionOffset` and `selectionLength` place the selection in
+   * `sentenceSource`.
+   */
+  function selectionSentence(range, styleCache) {
+    const first = firstSelectedGlyph(range, styleCache);
+    if (!first) return { sentenceSource: "", selectionOffset: 0, selectionLength: 0 };
+    const sources = collectSentenceSources(first.node, document.body, styleCache);
+    let start = 0;
+    let end = 0;
+    let consumed = 0;
+    for (const source of sources) {
+      if (source === first.node) start = consumed + first.offset;
+      const selected = selectedSpan(range, source);
+      if (selected) end = consumed + selected.end;
+      consumed += source.nodeValue.length;
+    }
+    return { sentenceSource: sentenceSource(sources, styleCache), selectionOffset: start, selectionLength: end - start };
   }
 
   function withinSources(sources, node) {
@@ -851,34 +920,327 @@
     return range.toString().length;
   }
 
+  // Google Docs paints text to <canvas>. While Settings → Advanced →
+  // Experimental features → Google Docs is on, background.js has Docs draw its
+  // SVG annotation layer as well (google-docs-flag.js): one <rect aria-label>
+  // per run of text, with the run's position, transform and font, but still no
+  // text node. The reader lays an invisible SVG <text> imposter over the hovered
+  // rect and scans that, as Yomitan's google-docs-util does.
+  const GOOGLE_DOCS_HOST = location.hostname === "docs.google.com";
+  const DOCS_RECT_SELECTOR = ".kix-canvas-tile-content svg>g>rect";
+  let docsProbeStyle = null;
+  // One imposter per hovered rect: repeated moves over the same run keep
+  // sameAnchorNode() true, so they share the pending lookup and the popup.
+  let docsImposter = null;
+
+  function docsEnabled() {
+    return GOOGLE_DOCS_HOST && options.experimental.googleDocs === true;
+  }
+
+  function releaseDocsImposter() {
+    docsImposter?.text.remove();
+    docsImposter = null;
+  }
+
+  function releaseDocsProbe() {
+    releaseDocsImposter();
+    docsProbeStyle?.remove();
+    docsProbeStyle = null;
+  }
+
+  /** The annotation rect under the pointer, or null. The tiles are only hit-testable while the probe style is on. */
+  function docsRectAt(clientX, clientY) {
+    if (!docsProbeStyle) {
+      docsProbeStyle = document.createElement("style");
+      docsProbeStyle.textContent = ".kix-canvas-tile-content{pointer-events:none!important}"
+        + ".kix-canvas-tile-content svg>g>rect{pointer-events:all!important}";
+      (document.head || document.documentElement).append(docsProbeStyle);
+    }
+    docsProbeStyle.disabled = false;
+    const element = document.elementFromPoint(clientX, clientY);
+    docsProbeStyle.disabled = true;
+    return element?.matches(DOCS_RECT_SELECTOR) && element.getAttribute("aria-label") ? element : null;
+  }
+
+  /** The SVG <text> carrying `rect`'s run at its position, transform and font; invisible and not hit-testable. */
+  function docsImposterFor(rect) {
+    const run = rect.getAttribute("aria-label");
+    if (docsImposter?.rect === rect && docsImposter.text.isConnected && docsImposter.node.nodeValue === run) {
+      return docsImposter;
+    }
+    releaseDocsImposter();
+    const node = document.createTextNode(run);
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    for (const name of ["x", "y"]) {
+      if (rect.hasAttribute(name)) text.setAttribute(name, rect.getAttribute(name));
+    }
+    text.append(node);
+    const transform = rect.getAttribute("transform") || "";
+    const important = (property, value) => text.style.setProperty(property, value, "important");
+    important("all", "initial");
+    important("transform", transform);
+    important("font", rect.getAttribute("data-font-css") || "");
+    important("text-anchor", "start");
+    rect.parentNode.append(text);
+    // Docs positions the rect by its box and the <text> by its baseline.
+    const box = rect.getBoundingClientRect();
+    const drawn = text.getBoundingClientRect();
+    const dy = ((box.top - drawn.top) + (box.bottom - drawn.bottom)) / 2;
+    important("transform", `translate(0px,${dy}px) ${transform}`);
+    important("opacity", "0");
+    important("pointer-events", "none");
+    docsImposter = { rect, text, node };
+    return docsImposter;
+  }
+
+  /** The offset of the glyph under the pointer, found by bisecting an imposter's client rects. */
+  function imposterOffsetAt(node, clientX, clientY) {
+    const range = document.createRange();
+    let start = 0;
+    let end = node.nodeValue.length;
+    while (end - start > 1) {
+      const mid = (start + end) >> 1;
+      range.setStart(node, mid);
+      range.setEnd(node, end);
+      const hit = [...range.getClientRects()].some(rect =>
+        clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom);
+      if (hit) start = mid; else end = mid;
+    }
+    // Bisection can land on the low surrogate of a wide glyph.
+    if (start > 0 && (node.nodeValue.charCodeAt(start) & 0xfc00) === 0xdc00) start -= 1;
+    return start;
+  }
+
+  /**
+   * The candidate at `offset` in an imposter's one text node. The imposter is
+   * the scan root, so the walk ends with that node and never crosses into the
+   * page, and the node is the sole source, so the sentence and the highlight
+   * work in it as they do in a page's text nodes.
+   */
+  function imposterCandidate(anchor, node, offset, vertical) {
+    const styleCache = new Map();
+    const entries = collectScanEntries(node, offset, anchor, scanWindow(), styleCache);
+    if (entries.length === 0) return null;
+    const query = entries.map((entry) => entry.text).join("");
+    if (options.onlyScanJapaneseText && !isJapaneseToken(query)) return null;
+    const first = entries[0];
+    const anchorRange = document.createRange();
+    anchorRange.setStart(node, first.offset);
+    anchorRange.setEnd(node, Math.min(node.nodeValue.length, first.offset + first.sourceLength));
+    return withSentence({
+      anchor,
+      anchorRange,
+      query,
+      scanEntries: entries,
+      sourceDepth: -1,
+      sourceElements: [node],
+      vertical,
+    }, first.offset, first.sourceLength, styleCache);
+  }
+
+  function resolveDocsCandidate(clientX, clientY) {
+    const rect = docsRectAt(clientX, clientY);
+    if (!rect) return null;
+    const { text, node } = docsImposterFor(rect);
+    // The <text> lives inside Docs' <svg>, which the page scan treats as opaque.
+    return imposterCandidate(text, node, imposterOffsetAt(node, clientX, clientY), false);
+  }
+
+  // An <input> or <textarea> keeps its value in user-agent shadow DOM, which
+  // the caret APIs never enter. As Yomitan's TextSourceGenerator does, the
+  // reader lays an invisible copy of the hovered field over it and scans that.
+  // These are Yomitan's input types; a password is never read.
+  const FIELD_INPUT_TYPES = new Set(["text", "search"]);
+  // One imposter at a time. It stays while it anchors the root lookup or its
+  // field is under the pointer, so repeated moves share the pending lookup and
+  // the popup, and it goes once neither holds or the popup closes.
+  let fieldImposter = null;
+
+  /** `element` when it is a visible text field with a value the reader may read, else null. */
+  function scannableField(element) {
+    const tag = element?.localName;
+    if ((tag !== "textarea" && (tag !== "input" || !FIELD_INPUT_TYPES.has(element.type)))
+        || !element.value || element.getRootNode() !== document || !document.body) return null;
+    const styleCache = new Map();
+    // A field styled to mask its text, such as a PIN box, is a password in all but name.
+    const masked = computedStyleFor(element, styleCache).getPropertyValue("-webkit-text-security");
+    if ((masked !== "" && masked !== "none") || isHiddenElement(element, styleCache)) return null;
+    for (let current = element.parentElement; current; current = current.parentElement) {
+      if (OPAQUE_TAGS.has(current.localName) || computedStyleFor(current, styleCache).display === "none") return null;
+    }
+    return element;
+  }
+
+  function releaseFieldImposter() {
+    fieldImposter?.container.remove();
+    fieldImposter = null;
+  }
+
+  function retireFieldImposter() {
+    if (!fieldImposter || lastPointer?.target === fieldImposter.field) return;
+    const { imposter } = fieldImposter;
+    if (pendingCandidateLookup?.candidate.anchor !== imposter && rootLevel.activeCandidate?.anchor !== imposter) {
+      releaseFieldImposter();
+    }
+  }
+
+  /**
+   * Yomitan's _createImposter: the field's value in a <div> that carries every
+   * computed property of the field and lies exactly over it with its scroll
+   * offsets, in a container that is invisible, unselectable and never
+   * hit-tested. `box` is the field's client rect. The imposter is reused while
+   * the field keeps its value, scroll offsets and place in the document.
+   */
+  function fieldImposterFor(field, box) {
+    const page = document.documentElement.getBoundingClientRect();
+    const place = { left: box.left - page.left, top: box.top - page.top, width: box.width, height: box.height };
+    const reused = fieldImposter;
+    if (reused?.field === field && reused.value === field.value && reused.scrollLeft === field.scrollLeft
+        && reused.scrollTop === field.scrollTop && reused.container.isConnected
+        && Object.keys(place).every((key) => reused.place[key] === place[key])) {
+      return reused;
+    }
+    releaseFieldImposter();
+    const style = window.getComputedStyle(field);
+    const container = document.createElement("div");
+    setImportant(container, {
+      all: "initial", position: "absolute", left: "0", top: "0", width: `${page.width}px`, height: `${page.height}px`,
+      overflow: "hidden", opacity: "0", "pointer-events": "none", "user-select": "none",
+    });
+    container.setAttribute("aria-hidden", "true");
+    const imposter = document.createElement("div");
+    for (const property of style) imposter.style.setProperty(property, style.getPropertyValue(property), "important");
+    // Placed and scrolled where the field is at once, not eased there.
+    setImportant(imposter, {
+      position: "absolute", left: `${place.left}px`, top: `${place.top}px`, margin: "0", "pointer-events": "none",
+      "user-select": "none", transition: "none", animation: "none", "scroll-behavior": "auto",
+    });
+    const input = field.localName === "input";
+    let value = field.value;
+    if (input) {
+      // One unwrapped line keeping repeated spaces, as the input lays it out. A
+      // line as tall as the content box centres the glyphs in it, as the input
+      // does whatever its own line height.
+      const frame = style.boxSizing === "border-box"
+        ? ["padding-top", "padding-bottom", "border-top-width", "border-bottom-width"]
+          .reduce((sum, property) => sum + pixels(style, property), 0)
+        : 0;
+      setImportant(imposter, {
+        overflow: "hidden", "white-space": "pre", "line-height": `${pixels(style, "height") - frame}px`,
+      });
+    } else {
+      if (style.overflow === "visible") setImportant(imposter, { overflow: "auto" });
+      // A final line break opens a line in a textarea but not in a <div>.
+      if (value.endsWith("\n")) value += "\n";
+    }
+    const node = document.createTextNode(value);
+    imposter.append(node);
+    container.append(imposter);
+    document.body.append(container);
+    const narrower = fitFieldImposter(field, imposter, style, box, place);
+    // The copy lays out text the field has scrolled out of sight. An input shows
+    // text only in its content box; a textarea scrolls it in its padding box.
+    const inset = input ? [pixels(style, "padding-left"), pixels(style, "padding-right") + narrower] : [0, 0];
+    fieldImposter = {
+      field, container, imposter, node, place, value: field.value, scrollLeft: field.scrollLeft,
+      scrollTop: field.scrollTop, vertical: style.writingMode.startsWith("vertical"),
+      clip: {
+        left: field.clientLeft + inset[0], right: field.clientLeft + field.clientWidth - inset[1],
+        top: field.clientTop, bottom: field.clientTop + field.clientHeight,
+      },
+    };
+    return fieldImposter;
+  }
+
+  /**
+   * Corrects the laid-out copy's size and place against the field, as Yomitan
+   * does, then scrolls it as the field is scrolled. Returns how much narrower
+   * the field's own text box is: a search field's clear button or a datalist's
+   * picker lets an input scroll further than the copy could.
+   */
+  function fitFieldImposter(field, imposter, style, box, place) {
+    const drawn = imposter.getBoundingClientRect();
+    if (drawn.width !== box.width || drawn.height !== box.height) {
+      setImportant(imposter, { width: `${pixels(style, "width") + box.width - drawn.width}px`,
+        height: `${pixels(style, "height") + box.height - drawn.height}px` });
+    }
+    if (drawn.left !== box.left || drawn.top !== box.top) {
+      setImportant(imposter, {
+        left: `${place.left + box.left - drawn.left}px`, top: `${place.top + box.top - drawn.top}px`,
+      });
+    }
+    const narrower = field.localName === "input"
+      ? Math.max(0, field.scrollWidth - field.clientWidth - imposter.scrollWidth + imposter.clientWidth)
+      : 0;
+    if (narrower > 0) {
+      setImportant(imposter, { "padding-right": `${pixels(style, "padding-right") + narrower}px` });
+      if (style.boxSizing !== "border-box") {
+        const width = Number.parseFloat(imposter.style.getPropertyValue("width"));
+        setImportant(imposter, { width: `${width - narrower}px` });
+      }
+    }
+    imposter.scrollLeft = field.scrollLeft;
+    imposter.scrollTop = field.scrollTop;
+    return narrower;
+  }
+
+  function pixels(style, property) {
+    return Number.parseFloat(style.getPropertyValue(property)) || 0;
+  }
+
+  function setImportant(element, declarations) {
+    for (const [property, value] of Object.entries(declarations)) {
+      element.style.setProperty(property, value, "important");
+    }
+  }
+
+  function resolveFieldCandidate(field, clientX, clientY) {
+    const box = field.getBoundingClientRect();
+    const { clip, imposter, node, vertical } = fieldImposterFor(field, box);
+    const x = clientX - box.left;
+    const y = clientY - box.top;
+    if (x < clip.left || x > clip.right || y < clip.top || y > clip.bottom) return null;
+    const offset = imposterOffsetAt(node, clientX, clientY);
+    return glyphContainsPoint(node, offset, clientX, clientY)
+      ? imposterCandidate(imposter, node, offset, vertical)
+      : null;
+  }
+
+  /**
+   * Caret APIs snap to nearby text even in padding, and bisection always finds
+   * some glyph. Admit only the pointed glyph, with two CSS pixels for thin
+   * glyphs and subpixel layout.
+   */
+  function glyphContainsPoint(node, offset, clientX, clientY) {
+    const text = node.nodeValue || "";
+    if (offset >= text.length) return false;
+    const glyph = document.createRange();
+    glyph.setStart(node, offset);
+    glyph.setEnd(node, offset + (text.codePointAt(offset) > 0xffff ? 2 : 1));
+    return [...glyph.getClientRects()].some((rect) => clientX >= rect.left - 2 && clientX <= rect.right + 2
+      && clientY >= rect.top - 2 && clientY <= rect.bottom + 2);
+  }
+
   /**
    * Builds a candidate for the caret at (clientX, clientY), or null when there
    * is nothing Japanese to look up there.
    */
   function resolveCandidate(clientX, clientY) {
+    if (docsEnabled()) {
+      const docs = resolveDocsCandidate(clientX, clientY);
+      if (docs) return docs;
+    }
+    const hit = document.elementFromPoint(clientX, clientY);
+    const field = scannableField(hit);
+    if (field) return resolveFieldCandidate(field, clientX, clientY);
     const caretRange = caretRangeAt(clientX, clientY);
     const node = caretRange?.startContainer;
-    if (node?.nodeType !== Node.TEXT_NODE
-        || !document.elementFromPoint(clientX, clientY)?.contains(node)) {
-      return null;
-    }
+    if (node?.nodeType !== Node.TEXT_NODE || !hit?.contains(node)) return null;
     const text = node.nodeValue || "";
     let offset = caretRange.startOffset;
     // Caret alignment can step back onto the low surrogate of a wide glyph.
     if (offset > 0 && (text.charCodeAt(offset) & 0xfc00) === 0xdc00) offset -= 1;
-    if (offset >= text.length) return null;
-    const glyph = document.createRange();
-    glyph.setStart(node, offset);
-    glyph.setEnd(node, offset + (text.codePointAt(offset) > 0xffff ? 2 : 1));
-    // Caret APIs snap to nearby text even in padding. Admit only the pointed
-    // glyph, with two CSS pixels for thin glyphs and subpixel layout.
-    for (const rect of glyph.getClientRects()) {
-      if (clientX >= rect.left - 2 && clientX <= rect.right + 2
-          && clientY >= rect.top - 2 && clientY <= rect.bottom + 2) {
-        return resolveCandidateAt(node, offset);
-      }
-    }
-    return null;
+    return glyphContainsPoint(node, offset, clientX, clientY) ? resolveCandidateAt(node, offset) : null;
   }
 
   function resolveCandidateAt(startNode, startOffset) {
@@ -951,9 +1313,7 @@
     if (startNode.nodeType !== Node.TEXT_NODE) {
       return null;
     }
-    const lookupText = startNode.parentElement?.closest(
-      ".gsm-hoshidicts-glossary-content, .gsm-hoshidicts-compact-definition-summary"
-    );
+    const lookupText = startNode.parentElement?.closest(DEFINITION_TEXT_SELECTOR);
     if (
       !lookupText ||
       !level.popup.contains(lookupText) ||
@@ -1065,6 +1425,7 @@
           && hasVisibleContent(control, styleCache)) return null;
     }
     const rawSelectionText = range.toString();
+    // The highlight works in the anchor's text; the sentence is read as a hover reads it.
     return withSentence({
       anchor,
       anchorRange: range.cloneRange(),
@@ -1074,6 +1435,7 @@
       sourceDepth: -1,
       sourceElements: [anchor],
       vertical: computedStyleFor(anchor, styleCache).writingMode.startsWith("vertical"),
+      ...selectionSentence(range, styleCache),
     }, rangeOffsetWithin(anchor, range.startContainer, range.startOffset), rawSelectionText.length, styleCache);
   }
 
@@ -1186,25 +1548,14 @@
     return matched;
   }
 
-  function releaseCapture(value) {
-    if (!value) return;
-    void Promise.resolve(value).then(pin => window.HDCapture?.release(pin)).catch(() => {});
-  }
-
-  function releaseProvisionalCapture(value, level) {
-    // Child requests borrow the root pin. A root replay also borrows the pin
-    // already adopted by the visible popup, even if that replay becomes stale.
-    if (level !== rootLevel) return;
-    void Promise.resolve(value).then(pin => {
-      if (pin !== rootLevel.capturePin) releaseCapture(pin);
-    }).catch(() => {});
-  }
-
-  function releaseRootCapture() {
-    const capture = rootLevel.capturePinPromise ?? rootLevel.capturePin;
-    rootLevel.capturePin = null;
-    rootLevel.capturePinPromise = null;
-    releaseCapture(capture);
+  /**
+   * The match as `candidate.sentence` spells it; the Anki sentence and cloze
+   * cut it out by its length. A selection's raw text counts the furigana and
+   * hidden text of its anchor, which its sentence leaves out.
+   */
+  function sentenceMatchedText(candidate, matched) {
+    if (candidate.exactSelection !== true) return rawMatchedText(candidate, matched);
+    return candidate.sentence.slice(candidate.matchOffset, candidate.matchOffset + candidate.selectionLength);
   }
 
   function teardown(reason) {
@@ -1212,24 +1563,27 @@
     if (disposed) {
       return;
     }
-    releaseRootCapture();
     audio?.dispose();
     mining?.retire();
     disposed = true;
     selectionDragActive = false;
     dragSelection = null;
+    activationPressed = false;
     cancelPopupLayout();
     clearDictionaryResources();
     window.clearTimeout(scanTimer);
     window.clearTimeout(hideTimer);
     clearTransferTimer();
     clearDescendantTimer();
+    clearCursorExitTimer();
     scanTimer = null;
     hideTimer = null;
     document.removeEventListener("mousemove", onMouseMove, true);
     document.removeEventListener("mousedown", onMouseDown, true);
     document.removeEventListener("mouseup", onMouseUp, true);
+    document.removeEventListener("auxclick", onAuxClick, true);
     document.removeEventListener("selectionchange", onSelectionChange);
+    document.removeEventListener("fullscreenchange", onFullscreenChange);
     document.removeEventListener("focusin", onPageFocusIn, true);
     document.removeEventListener("keydown", onKeyDown, true);
     document.removeEventListener("keyup", onKeyUp, true);
@@ -1253,6 +1607,8 @@
     }
     appearance?.destroy();
     customStyle?.destroy();
+    releaseDocsProbe();
+    releaseFieldImposter();
     host?.remove();
     host = null;
     shadow = null;
@@ -1270,7 +1626,6 @@
   }
 
   function discardUi() {
-    releaseRootCapture();
     audio?.retire();
     mining?.retire();
     cancelPopupLayout();
@@ -1281,6 +1636,7 @@
     } catch {
       // Best effort: the point is only to leave nothing half-built behind.
     }
+    releaseFieldImposter();
     host?.remove();
     host = null;
     shadow = null;
@@ -1515,14 +1871,14 @@
   }
 
   function ensureDictionaryStyles(generation) {
-    if (!shadow || generation === styleGeneration) {
+    if (!shadow || !themeHost.dictionaryStyles || generation === styleGeneration) {
       return;
     }
     styleGeneration = generation;
     const request = {};
     styleRequest = request;
     sendRequest("hd_styles", {}).then((reply) => {
-      if (disposed || !shadow || styleRequest !== request) {
+      if (disposed || !shadow || !themeHost.dictionaryStyles || styleRequest !== request) {
         return;
       }
       if (reply.generation !== generation) throw new Error("obsolete dictionary styles");
@@ -1615,12 +1971,21 @@
       ));
   }
 
+  // Like Yomitan, a root popup stays where it first opened (#402): later
+  // placements reuse the source rect captured then, and its page source may
+  // scroll away or leave the DOM without closing it. A child keeps following
+  // its link text inside the parent pane.
+  function sourceRetained(candidate, level) {
+    return anchorConnected(candidate)
+      || (level === rootLevel && candidate != null && rootLevel.placedAnchor?.candidate === candidate);
+  }
+
   function requestCanRender(token, candidate, level = rootLevel) {
     if (disposed || level.retired || token !== level.lookupToken || !level.popup) return false;
     if (retireDetachedAncestor(level)) return false;
     // Initial selections still own the live page selection; Note/Back replays
     // intentionally use their stored descriptor even after focus collapses it.
-    if (!anchorConnected(candidate) || (level === rootLevel && pendingCandidateLookup?.token === token
+    if (!sourceRetained(candidate, level) || (level === rootLevel && pendingCandidateLookup?.token === token
         && candidate.exactSelection === true && !selectionIsUnchanged(candidate))) {
       hide(level);
       return false;
@@ -1631,7 +1996,7 @@
   function retireDetachedAncestor(level) {
     for (let depth = 0; depth < level.depth; depth += 1) {
       const ancestor = levels[depth];
-      if (!anchorConnected(ancestor.activeCandidate)) {
+      if (!sourceRetained(ancestor.activeCandidate, ancestor)) {
         hide(ancestor);
         return true;
       }
@@ -1773,15 +2138,21 @@
       return;
     }
     if (retireDetachedAncestor(fromLevel)) return;
-    if (!anchorConnected(rootLevel.activeCandidate)) {
-      hide();
-      return;
+    const placed = rootLevel.placedAnchor;
+    let anchorRect = placed?.candidate === rootLevel.activeCandidate ? placed.rect : null;
+    if (!anchorRect) {
+      if (!anchorConnected(rootLevel.activeCandidate)) {
+        hide();
+        return;
+      }
+      anchorRect = anchorRectFor(rootLevel.activeCandidate);
+      rootLevel.placedAnchor = { candidate: rootLevel.activeCandidate, rect: anchorRect };
     }
     highlighter?.refresh();
     const viewport = popupViewport();
     if (fromLevel === rootLevel) {
       placePopup(rootLevel, popupResize?.level === rootLevel ? popupResizePosition() : calculatePopupPosition(
-        popupRect(anchorRectFor(rootLevel.activeCandidate)),
+        popupRect(anchorRect),
         viewport,
         rootLevel.activeCandidate.vertical
       ), resetToolbar);
@@ -1794,9 +2165,10 @@
       return;
     }
     // Like Yomitan, a child opens beside the text that opened it: below that
-    // word when it fits, otherwise above, aligned with its left edge and
-    // clamped to the viewport. Only each pane's own source is measured, so no
-    // ancestor box is read for any descendant.
+    // word when it fits, otherwise above, aligned with its left edge, and
+    // shortened on the roomier side rather than covering the word when it fits
+    // on neither. Only each pane's own source is measured, so no ancestor box
+    // is read for any descendant.
     for (const level of levels.slice(Math.max(1, fromLevel.depth))) {
       if (level.popup.hidden) break;
       if (!anchorConnected(level.activeCandidate)) {
@@ -1927,26 +2299,26 @@
     }
   }
 
-  async function readerStyleSheet() {
-    const response = await fetch(chrome.runtime.getURL(READER_STYLESHEET));
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const iconResponse = await fetch(chrome.runtime.getURL("icons.css"));
-    if (!iconResponse.ok) throw new Error(`HTTP ${iconResponse.status}`);
-    const text = `${await response.text()}\n${await iconResponse.text()}`;
-    try {
-      const sheet = new CSSStyleSheet();
-      sheet.replaceSync(text);
-      return { sheet, text };
-    } catch {
-      // A constructed sheet is preferred (one parse shared by every frame), but
-      // a plain <style> in the shadow root renders the same rules.
-      return { sheet: null, text };
-    }
+  function hostParent() {
+    const fullscreen = document.fullscreenElement;
+    if (!fullscreen || fullscreen === document.documentElement || fullscreen === document.body
+        || fullscreen.shadowRoot
+        || ["iframe", "frame", "video", "canvas", "img", "object", "embed", "svg"]
+          .includes(fullscreen.localName)) return document.body;
+    return fullscreen;
   }
 
-  function buildUi(styles) {
+  function mountHost() {
+    const parent = hostParent();
+    if (host && parent && host.parentNode !== parent) parent.appendChild(host);
+  }
+
+  function onFullscreenChange() {
+    mountHost();
+    positionPopup();
+  }
+
+  function buildUi() {
     host = document.createElement(HOST_TAG);
     // Inline !important is the only declaration a page cannot override, and the
     // host must stay a zero-sized, non-interactive fixed anchor whatever the
@@ -1964,19 +2336,13 @@
     ].join("; ");
     applyPageZoom();
     shadow = host.attachShadow({ mode: "open" });
-    if (styles.sheet) {
-      shadow.adoptedStyleSheets = [styles.sheet];
-    } else {
-      const fallback = document.createElement("style");
-      fallback.textContent = styles.text;
-      shadow.appendChild(fallback);
-    }
 
-    document.body.appendChild(host);
+    mountHost();
     appearance = window.HDPopup.createPopupAppearance(host);
     appearance.update(options);
     customStyle = window.HDPopup.createCustomPopupStyle(shadow);
     customStyle.update(options.customPopupCss);
+    themeHost.attach(shadow);
 
     highlighter = window.HDPopup.createSourceHighlighter(
       window,
@@ -1990,7 +2356,6 @@
   function buildLevelUi(level) {
     mining ??= window.HDAnki.createAnkiController({
       send: (type, fields) => sendRequest(type, fields, "hachidori-anki"),
-      capture: (type, fields) => sendRequest(type, fields, "hachidori-capture"),
       onChange: owner => positionPopup(owner),
       conceal: concealReader,
     });
@@ -2019,19 +2384,37 @@
     }, { capture: true, passive: true });
     popup.addEventListener("wheel", onPopupWheel, { passive: false });
     popup.addEventListener("mouseenter", () => onPopupEnter(level));
+    popup.addEventListener("mouseleave", (event) => onPopupLeave(event, level));
     // Yomitan dismisses a nested popup when its parent is pressed. A primary
     // press here retires this pane's descendants at once, focused or not, and
     // drops a pending definition scan so an older lookup cannot reopen one.
     // A draft or pending append protects them as on every other hide path. A
     // press on an internal link keeps that link's own child for its click to
     // reuse or replace, retiring only the branch below it.
+    let press = null;
     popup.addEventListener("mousedown", (event) => {
+      press = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
       if (event.button !== 0 || level.retired) return;
       const link = popupLinkAt(event.target, level)?.hasAttribute("data-hoshidicts-query") === true;
       const depth = level.depth + (link ? 2 : 1);
       if (levels.length <= depth || hasProtectedNote(depth)) return;
       clearScanTimer();
       dismissLevels(depth, false);
+    });
+    // Reading → Activation → Child popups → Click: a primary click on a word in
+    // the definitions opens its child once the press above has retired the
+    // previous one. A press that travels or leaves a selection is a copy, and
+    // links, images, buttons and disclosures keep their own click.
+    popup.addEventListener("click", (event) => {
+      const start = press;
+      press = null;
+      if (options.definitionLookupMode !== "click" || !start || event.defaultPrevented || hasProtectedNote()
+          || Math.hypot(event.clientX - start.x, event.clientY - start.y) >= GLYPH_DRAG_START_PX
+          || event.target.closest("a, button, summary")) return;
+      const selection = shadow.getSelection?.() ?? window.getSelection();
+      if (selection && !selection.isCollapsed && popup.contains(selection.anchorNode)) return;
+      const candidate = resolveDefinitionCandidate(event.clientX, event.clientY, level);
+      if (candidate) void openChildLookup(candidate, level, { source: "click" });
     });
     popup.addEventListener(
       "mousemove",
@@ -2048,15 +2431,17 @@
     shadow.appendChild(popup);
     level.popup = popup;
     level.highlighter = highlighter.scope(level);
-    level.view = window.HDPopup.createPopupView({
+    level.view = themeHost.createView({
+      onRendererRetired() { audio.retire(level); mining.retire(level); level.noteEditing = false; },
       appendExpressionRuby: window.HDGlossary.appendExpressionRuby,
-      buildPitchAccentMorae: window.HDGlossary.buildPitchAccentMorae,
+      createPronunciationPitchAccent: window.HDGlossary.createPronunciationPitchAccent,
       appendTextOnlyGlossary: window.HDGlossary.appendTextOnlyGlossary,
       appendStructuredImage: window.HDGlossary.appendStructuredImage,
       document,
       getPageZoom: () => pageZoom,
       getPopupScalePercent: () => options.popupScalePercent,
       getPopupColumns: () => options.popupColumns,
+      getImageHoverPreview: () => options.imageHoverPreview,
       onResizeStart: event => startPopupResize(event, level),
       onResizeMove: movePopupResize,
       onResizeEnd: stopPopupResize,
@@ -2127,11 +2512,12 @@
       const term = { ...result.term, frequencies: result.term.frequencies.map(group =>
         ({ ...group, frequencyMode: frequencyModes.get(group.dictionary) })) };
       return { ...result, term, generation: level.activeTermRender.generation, sentence: candidate.sentence,
-        matchOffset: candidate.matchOffset, matched: rawMatchedText(candidate, result.matched || result.term.expression),
+        matchOffset: candidate.matchOffset, matched: sentenceMatchedText(candidate, result.matched || result.term.expression),
         searchQuery: request?.payload?.text ?? request?.kanjiPayload?.character ?? candidate.query,
         popupSelectionText: selection?.anchorNode && level.popup.contains(selection.anchorNode) ? selection.toString() : "",
         documentTitle: document.title, audioSelection: audio.selectionFor(result) ?? undefined,
-        capturePin: rootLevel.capturePin ?? undefined,
+        // Like Yomitan, a note mined on Hachidori's own page (the setup practice) has no source address.
+        pageUrl: location.protocol === EXTENSION_PROTOCOL ? "" : location.href,
         dictionaryAliases: Object.fromEntries(dictionaries.filter(item => item.displayName).map(item => [item.title, item.displayName])),
         dictionaryIds: Object.fromEntries(dictionaries.map(item => [item.title, item.id])),
         frequencyDictionaries: dictionaries.filter(item => item.enabled && item.frequencyCount > 0).map(item => item.title),
@@ -2252,7 +2638,7 @@
   }
 
   function definitionBlurActive(candidate = options) {
-    return (candidate.definitionBlurEnabled && candidate.showLookupCounts)
+    return (candidate.definitionBlurCountEnabled && candidate.showLookupCounts)
       || candidate.definitionBlurAnkiMature || candidate.definitionBlurFrequencyEnabled;
   }
 
@@ -2365,7 +2751,7 @@
     if (!blur) return;
     if (blur.lookupCount === undefined && lookupCount !== undefined) blur.lookupCount = lookupCount;
     if (blur.awaitingOptions || blur.state === "revealed") return;
-    const countEnabled = options.definitionBlurEnabled && options.showLookupCounts;
+    const countEnabled = options.definitionBlurCountEnabled && options.showLookupCounts;
     const frequency = currentDefinitionBlurFrequency(blur);
     const qualifies = definitionBlurQualifies(options, countEnabled ? blur.lookupCount : null,
       blur.ankiMature, frequency.qualified);
@@ -2394,16 +2780,11 @@
         if (!document.body || !window.HDPopup || !window.HDGlossary) {
           throw new Error("render modules or document body unavailable");
         }
-        let styles;
-        try {
-          styles = await readerStyleSheet();
-        } catch (error) {
-          throw new Error(`could not load ${READER_STYLESHEET}: ${error.message}`);
-        }
+        await themeHost.sync();
         if (disposed) {
           throw new Error("torn down");
         }
-        buildUi(styles);
+        buildUi();
       })().catch((error) => {
         console.warn("hachidori: popup unavailable", error);
         // The next hover retries, so a half-built host must not stay in the page
@@ -2419,14 +2800,13 @@
   function show(candidate, level = rootLevel) {
     level.activeCandidate = candidate;
     level.activeSignature = candidateSignature(candidate);
-    if (!host.isConnected && document.body) {
-      // A single-page app that swapped out document.body took the host with it.
-      document.body.appendChild(host);
-    }
+    // The body may have been replaced, or the player may have entered fullscreen.
+    mountHost();
     level.popup.hidden = false;
     level.popup.inert = false;
     level.view.scrollElement.scrollTop = 0;
     syncHostAttention();
+    if (level === rootLevel) retireFieldImposter();
   }
 
   function pruneLevels(depth, restoreFocus = true) {
@@ -2480,10 +2860,11 @@
     pendingCandidateLookup = null;
     clearHideTimer();
     clearTransferTimer();
+    clearCursorExitTimer();
     pointerLevel = null;
     pruneLevels(1, false);
-    releaseRootCapture();
     rootLevel.activeCandidate = null;
+    rootLevel.placedAnchor = null;
     rootLevel.activeSignature = null;
     rootLevel.activeHighlightText = "";
     rootLevel.activeTermRender = null;
@@ -2493,6 +2874,7 @@
     rootLevel.deferredRefresh = null;
     rootLevel.retainedView = false;
     rootLevel.lookupToken += 1;
+    releaseFieldImposter();
     if (rootLevel.popup) {
       rootLevel.popup.hidden = true;
       rootLevel.popup.inert = false;
@@ -2522,8 +2904,13 @@
           || pointInsidePopup(lastPointer.clientX, lastPointer.clientY))) {
         pointerInPopup = true;
         clearHideTimer();
-      } else if (lastPointer) scanPointer(lastPointer);
-      else scheduleHide();
+        return;
+      }
+      // Leaving the chain from a corridor between panes fires no mouseleave.
+      scheduleCursorExitHide();
+      // No position means the pointer has since left the window or the reader
+      // the tab, and neither dismisses the chain (#432).
+      if (lastPointer) scanPointer(lastPointer);
     }, 80);
   }
 
@@ -2538,13 +2925,62 @@
     pointerInPopup = true;
     clearTransferTimer();
     clearHideTimer();
+    clearCursorExitTimer();
     scheduleDescendantPrune(level);
   }
 
+  function clearCursorExitTimer() {
+    if (cursorExitTimer !== null) window.clearTimeout(cursorExitTimer);
+    cursorExitTimer = null;
+  }
+
+  // Yomitan's frontend.js _onPopupFramePointerOut: with "Hide popup on cursor
+  // exit" on, leaving the chain for the page, an iframe or outside the window
+  // hides it, in every lookup mode. Only the pane the pointer was last seen in
+  // can be left, so a popup it never entered stays. Pane to pane is no exit:
+  // a child overlaps its parent, and onPopupEnter owns that transfer.
+  function onPopupLeave(event, level) {
+    if (!options.hidePopupOnCursorExit || level !== pointerLevel || popupResize) return;
+    const next = event.relatedTarget;
+    if (next && levels.some((other) => other.popup?.contains(next))) return;
+    scheduleCursorExitHide();
+  }
+
+  // Like Yomitan, a running timer is not restarted, and even 0 ms waits for
+  // the mousemove that follows the boundary events. Exact-selection lookups
+  // stay, as retainSelectedLookup() keeps them on every pointer path.
+  function scheduleCursorExitHide() {
+    if (!options.hidePopupOnCursorExit || cursorExitTimer !== null || activeSelectionCandidate
+        || !rootLevel.popup || rootLevel.popup.hidden) return;
+    cursorExitTimer = window.setTimeout(() => {
+      cursorExitTimer = null;
+      // A page move may have stopped in a corridor between panes; leaving it
+      // for the page reaches here again through the transfer check. A last
+      // position seen in a pane means the pointer went on into an iframe.
+      if (levels.length > 1 && lastPointer && !lastPointer.level
+          && pointInsidePopup(lastPointer.clientX, lastPointer.clientY)) {
+        pointerInPopup = true;
+        return;
+      }
+      pointerInPopup = false;
+      pointerLevel = null;
+      if (!hasProtectedNote() && !audio?.hasMenu() && !keyboardFocusInPopup()) hide();
+    }, options.hidePopupOnCursorExitDelayMs);
+  }
+
+  // Every caller is pointer movement in an ancestor. Like the root's
+  // schedulePointerHide(), activationSticky keeps a rendered child through it,
+  // as Yomitan does unless "Hide popup on cursor exit" is on. An ancestor
+  // press, Escape, Close/Back and a replacement still dismiss the child, and
+  // cancelPendingHover() still drops one that has not rendered. With the
+  // option on, every mode prunes after its delay, as Yomitan's popup.js
+  // _onFrameMouseOver does.
   function scheduleDescendantPrune(level) {
     clearDescendantTimer();
     const depth = level.depth + 1;
-    if (depth >= levels.length) return;
+    const cursorExit = options.hidePopupOnCursorExit;
+    if (depth >= levels.length || (!cursorExit && options.lookupMode === "activationSticky")) return;
+    const delay = cursorExit ? options.hidePopupOnCursorExitDelayMs : options.popupHideDelayMs;
     const prune = () => {
       descendantTimer = null;
       if (!hasProtectedNote(depth) && (!pointerLevel || pointerLevel.depth < depth)
@@ -2552,12 +2988,18 @@
         dismissLevels(depth);
       }
     };
-    if (options.popupHideDelayMs === 0) prune();
-    else descendantTimer = window.setTimeout(prune, options.popupHideDelayMs);
+    if (delay === 0) prune();
+    else descendantTimer = window.setTimeout(prune, delay);
   }
 
   function popupHasFocus() {
     return levels.some((level) => level.popup && !level.popup.hidden && level.popup.contains(shadow?.activeElement));
+  }
+
+  // Keyboard focus keeps a popup the pointer left, but not the focus Chrome
+  // leaves on a clicked button: Yomitan hides regardless of focus.
+  function keyboardFocusInPopup() {
+    return popupHasFocus() && shadow.activeElement.matches(":focus-visible");
   }
 
   function hasProtectedNote(fromDepth = 0) {
@@ -2794,7 +3236,8 @@
 
   function handleTermMiss(request, dictionaryCount, token, level, replayOptions) {
     if (retainProtectedReplay(request, token, level, replayOptions)) return false;
-    if (dictionaryCount === 0 || (request.exactSelection && options.showNoResultNotice)) {
+    const pencil = options.personalDictionaryEnabled;
+    if (dictionaryCount === 0 || (request.exactSelection && pencil && options.showNoResultNotice)) {
       show(request.candidate, level);
       level.activeHighlightText = "";
       level.activeTermRender = null;
@@ -2804,7 +3247,8 @@
       level.currentViewRequest = request;
       level.view.renderNotice(
         dictionaryCount === 0
-          ? "No dictionaries loaded. Import a Yomitan .zip in Settings, or add your own definition with the pencil."
+          ? `No dictionaries loaded. Import a Yomitan .zip in Settings${pencil
+            ? ", or add your own definition with the pencil" : ""}.`
           : "No definition found. Add your own with the pencil.",
         request.candidate,
         { isCurrentRequest: () => !disposed && !level.retired && token === level.lookupToken },
@@ -2815,7 +3259,9 @@
     hide(level);
     // A hidden miss keeps the selection like a rendered notice does, so pointer
     // movement cannot repeat its lookup until the selection changes or Escape.
-    if (request.exactSelection) activeSelectionCandidate = request.candidate;
+    // Without the personal dictionary the pointer ignores selections, so a
+    // retained miss would only block hover lookups over the highlighted text.
+    if (request.exactSelection && pencil) activeSelectionCandidate = request.candidate;
     return false;
   }
 
@@ -2835,28 +3281,22 @@
       level.noteEditing = false;
     }
     level.view?.hideImagePreview();
-    let reply, capturePin;
-    const capturePinPromise = request.capturePinPromise ?? Promise.resolve(rootLevel.capturePin);
+    let reply;
     try {
       // The first hover pays for the popup host and the stylesheet fetch; run
       // them alongside the lookup instead of ahead of it.
-      [, reply, capturePin] = await Promise.all([
+      [, reply] = await Promise.all([
         ensureUi(),
         sendRequest("hd_lookup", request.payload),
-        capturePinPromise,
       ]);
     } catch (error) {
-      releaseProvisionalCapture(capturePinPromise, level);
       return handleRequestFailure(request, token, error, level, replayOptions);
     }
-    request.capturePin = capturePin;
     // Hover fires far faster than lookups return; anything but the newest reply
     // would repaint a word the pointer already left.
     if (!requestCanRender(token, request.candidate, level)) {
-      releaseProvisionalCapture(capturePin, level);
       return;
     }
-    if (level === rootLevel) rootLevel.capturePin = capturePin;
     noteGeneration(reply.generation, level);
     const results = (Array.isArray(reply.results) ? reply.results : [])
       .filter((result) => result && result.term
@@ -2897,6 +3337,7 @@
         options: {
           frequencyDictionary: options.frequencyDictionary,
           frequencyOrder: options.frequencyOrder,
+          personalDictionary: options.personalDictionaryEnabled,
           primaryReading: typeof overrides.primaryReading === "string"
             ? overrides.primaryReading
             : "",
@@ -2907,7 +3348,6 @@
       previous: overrides.previous ?? null,
       returnFocus: overrides.returnFocus ?? null,
       selectedDictionaryTab: normalizedDictionaryTab(overrides.selectedDictionaryTab),
-      capturePinPromise: level === rootLevel ? level.capturePinPromise : rootLevel.capturePinPromise,
     }, level);
   }
 
@@ -2938,7 +3378,9 @@
     clearTransferTimer();
     clearDescendantTimer();
     const existing = levels[level.depth + 1];
-    const pendingKey = source === "link" ? "pendingLink" : "pendingHover";
+    // Only a hover child is cancelled when the pointer leaves its word; link
+    // and click children load independently of pointer movement.
+    const pendingKey = source === "hover" ? "pendingHover" : "pendingLink";
     const pending = existing?.[pendingKey];
     if (
       sameChildLookup(existing, candidate, primaryReading) &&
@@ -3009,10 +3451,6 @@
     const { candidate, capability, character } = request;
     const group = capability?.kind === "group";
     const token = (level.lookupToken += 1);
-    level.pendingPopupInteraction = token;
-    const finishInteraction = () => {
-      if (level.pendingPopupInteraction === token) level.pendingPopupInteraction = null;
-    };
     level.retainedView = replayOptions?.preserveViewControls === true;
     level.view?.hideImagePreview();
     // Every selected source is asked at once. A term-only selection defers the
@@ -3025,11 +3463,9 @@
         ...request.termPayloads.map((payload) => sendRequest("hd_lookup_dictionary", payload)),
       ]);
     } catch (error) {
-      finishInteraction();
       return handleLookupFailure(token, error, level, request, true);
     }
     if (!requestCanRender(token, candidate, level) || level.popup.hidden) {
-      finishInteraction();
       return false;
     }
     for (const each of [reply, ...termReplies]) if (each) noteGeneration(each.generation, level);
@@ -3040,7 +3476,6 @@
       results = projectResultsToDictionary(Array.isArray(termReplies[0].results) ? termReplies[0].results : [], capability.title);
     }
     if (results.length > 0) {
-      finishInteraction();
       return renderTerms(
         results,
         candidate,
@@ -3058,11 +3493,9 @@
       try {
         reply = await sendRequest("hd_kanji", request.kanjiPayload);
       } catch (error) {
-        finishInteraction();
         return handleLookupFailure(token, error, level, request, true);
       }
       if (!requestCanRender(token, candidate, level) || level.popup.hidden) {
-        finishInteraction();
         return false;
       }
       noteGeneration(reply.generation, level);
@@ -3070,7 +3503,6 @@
     const kanji = reply.kanji;
     const validEntries = nativeKanjiEntries(reply);
     if (!kanji || validEntries.length === 0) {
-      finishInteraction();
       return handleLookupFailure(token, new Error("kanji lookup returned no usable result"), level, request, true);
     }
     const selectedEntries = capability?.kind === "kanji"
@@ -3098,8 +3530,6 @@
     } catch (error) {
       console.warn("hachidori: could not render kanji", error);
       return handleLookupFailure(token, error, level, request, true);
-    } finally {
-      finishInteraction();
     }
     ensureDictionaryStyles(currentGeneration);
     positionPopup(level);
@@ -3134,6 +3564,7 @@
         options: {
           frequencyDictionary: options.frequencyDictionary,
           frequencyOrder: options.frequencyOrder,
+          personalDictionary: options.personalDictionaryEnabled,
           primaryReading: "",
         },
         scanLength: 1,
@@ -3177,7 +3608,7 @@
         && !level.retired
         && level.currentViewRequest === expectedView
         && level.popup && !level.popup.hidden
-        && anchorConnected(expectedView.candidate)
+        && sourceRetained(expectedView.candidate, level)
       ) {
         level.deferredRefresh = expectedView;
       }
@@ -3194,7 +3625,7 @@
       if (level.pendingCustomAppends > 0 || hasProtectedNote(level.depth + 1)) continue;
       const request = level.deferredRefresh;
       if (request && request === level.currentViewRequest && !level.popup.hidden
-          && anchorConnected(request.candidate)) {
+          && sourceRetained(request.candidate, level)) {
         level.deferredRefresh = null;
         level.deferredDictionaryInvalidationRevision = -1;
         // The append has committed. Replay failures must never invite a second
@@ -3233,6 +3664,7 @@
     // or deferred glossary. Only an unfinished candidate loses ownership.
     if (pendingCandidateLookup?.token === rootLevel.lookupToken) rootLevel.lookupToken += 1;
     discardPendingCandidate();
+    retireFieldImposter();
   }
 
   function cancelPendingHover(level) {
@@ -3248,8 +3680,7 @@
   }
 
   function lookupCandidate(candidate, signature = candidateSignature(candidate)) {
-    rootLevel.capturePin = null;
-    rootLevel.capturePinPromise = Promise.resolve(window.HDCapture?.rootLookup(candidate) ?? null);
+    clearCursorExitTimer();
     const lookup = runLookup(candidate);
     const pending = { token: rootLevel.lookupToken, candidate, signature };
     pendingCandidateLookup = pending;
@@ -3263,6 +3694,25 @@
     return options.lookupMode === "hover" || activationPressed;
   }
 
+  // Words in a popup's definitions follow lookupMode unless Reading →
+  // Activation → Child popups asks for the key or a click instead.
+  function definitionKeyGated() {
+    return options.definitionLookupMode === "activation"
+      || (options.definitionLookupMode === "inherit" && options.lookupMode !== "hover");
+  }
+
+  function definitionHoverAllowed() {
+    return options.definitionLookupMode !== "click" && (!definitionKeyGated() || activationPressed);
+  }
+
+  // The configured activation input when it is a mouse button that something
+  // waits for: page lookups outside Hover mode, or child popups set to hold it.
+  // Otherwise a press keeps its ordinary meaning.
+  function activationButton() {
+    if (options.lookupMode === "hover" && !definitionKeyGated()) return null;
+    return ACTIVATION_BUTTONS.get(options.activationKey) ?? null;
+  }
+
   // Yomitan's default: once shown, the popup outlives the activation key and
   // the pointer's wanderings; only an explicit dismissal or a new lookup ends it.
   function schedulePointerHide() {
@@ -3272,6 +3722,37 @@
   function updateModifierState(event) {
     const property = MODIFIER_PROPERTIES.get(options.activationKey);
     if (property) activationPressed = event[property] === true;
+    // Every mouse event reports the held buttons, so a release the page never
+    // saw ends a button's activation at the next move.
+    const button = ACTIVATION_BUTTONS.get(options.activationKey);
+    if (button && typeof event.buttons === "number") {
+      const held = (event.buttons & button.flag) !== 0;
+      if (held !== activationPressed) {
+        activationPressed = held;
+        syncHostAttention();
+      }
+    }
+  }
+
+  // Pressing the activation input while the pointer is stationary reveals the
+  // word under it without asking the reader to jiggle the mouse.
+  function scanActivatedPointer() {
+    const popupLevel = activePointerLevel(lastPointer);
+    const keyGated = popupLevel ? definitionKeyGated() : options.lookupMode !== "hover";
+    if (keyGated && lastPointer && !hasProtectedNote() && !popupHasFocus()
+        && (!pointerInPopup || popupLevel)
+        && !selectionDragActive
+        && (popupLevel || !retainSelectedLookup())) {
+      scheduleScan();
+    }
+  }
+
+  // Releasing it closes an `activation` popup after the hide delay;
+  // `activationSticky` keeps the popup.
+  function releaseActivation() {
+    if (options.lookupMode !== "activation" || activationPressed || selectionIsUnchanged()) return;
+    cancelCandidateScan();
+    scheduleHide();
   }
 
   function pointInsidePopup(clientX, clientY) {
@@ -3323,7 +3804,7 @@
       else scheduleDescendantPrune(level);
       return;
     }
-    if (!activationAllowed() || level.depth >= options.popupNestingMaxDepth) {
+    if (!definitionHoverAllowed() || level.depth >= options.popupNestingMaxDepth) {
       cancelPendingHover(level);
       scheduleDescendantPrune(level);
       return;
@@ -3347,6 +3828,7 @@
       teardown("context-invalidated");
       return;
     }
+    retireFieldImposter();
     if (!options.hoverEnabled) return;
     if (transferTimer !== null) return;
     const popupLevel = activePointerLevel(pointer);
@@ -3368,7 +3850,9 @@
       clearHideTimer();
       return;
     }
-    const selection = window.getSelection();
+    // A live selection outranks the pointer only while the personal dictionary
+    // owns automatic selection lookups.
+    const selection = options.personalDictionaryEnabled ? window.getSelection() : null;
     if (selection && !selection.isCollapsed) {
       if (!activationAllowed()) {
         cancelCandidateScan();
@@ -3395,10 +3879,13 @@
       return;
     }
     const signature = candidateSignature(candidate);
+    // Scanning the popup's own word again, pending or shown, keeps the popup
+    // and cancels its cursor-exit hide.
     if (pendingCandidateLookup?.token === rootLevel.lookupToken
         && pendingCandidateLookup.signature === signature
         && sameAnchorNode(candidate, pendingCandidateLookup.candidate)) {
       clearHideTimer();
+      clearCursorExitTimer();
       return;
     }
     if (
@@ -3407,6 +3894,7 @@
       sameAnchorNode(candidate, rootLevel.activeCandidate)
     ) {
       clearHideTimer();
+      clearCursorExitTimer();
       return;
     }
     clearHideTimer();
@@ -3443,7 +3931,7 @@
       else scheduleDescendantPrune(level);
       return;
     }
-    if (selectionDragActive || !activationAllowed()) {
+    if (selectionDragActive || !definitionHoverAllowed()) {
       cancelPendingHover(level);
       clearScanTimer();
       return;
@@ -3457,6 +3945,7 @@
     if (disposed || !options.hoverEnabled) {
       return;
     }
+    editedSincePointerMoved = false;
     lastPointer = {
       clientX: event.clientX,
       clientY: event.clientY,
@@ -3470,10 +3959,9 @@
       extendGlyphDrag(event);
       return;
     }
-    // Cancel a pending dismissal here rather than waiting for the throttled
-    // scan, so the popup stays reachable even with hoverDelayMs turned up. The
-    // retargeted event target is enough; the rect test costs a layout and can
-    // wait for the scan.
+    // Cancel a pending dismissal here rather than waiting for the scheduled
+    // scan. The retargeted event target is enough; the rect test costs a
+    // layout and can wait for the scan.
     if (isOurNode(event.target)) {
       pointerInPopup = true;
       clearTransferTimer();
@@ -3507,14 +3995,13 @@
     if (scanTimer !== null) {
       return;
     }
-    // Trailing-edge throttle: at most one scan per hoverDelayMs, always at the
-    // pointer's latest position.
+    // Coalesce the moves of one task into a scan at the pointer's latest position.
     scanTimer = window.setTimeout(() => {
       scanTimer = null;
       if (lastPointer) {
         scanPointer(lastPointer);
       }
-    }, options.hoverDelayMs);
+    }, 0);
   }
 
   const GLYPH_DRAG_START_PX = 3;
@@ -3557,6 +4044,11 @@
     if (disposed) {
       return;
     }
+    editedSincePointerMoved = true;
+    // A press decides afresh what its own release and click may do.
+    if (scanPress?.button === event.button) scanPress = null;
+    const button = activationButton();
+    if (button && options.hoverEnabled && event.button === button.button && startButtonScan(event)) return;
     if (isOurNode(event.target) || pointInsidePopup(event.clientX, event.clientY)) return;
     updateModifierState(event);
     if (event.button === 0 && options.hoverEnabled
@@ -3571,6 +4063,48 @@
       return;
     }
     hide();
+  }
+
+  // The scan button works like the activation key: pressing it looks up the
+  // word under the pointer, and moving while it is held keeps scanning. Its
+  // capture-phase press claims an overlay host's window before the host's own
+  // listener can turn click-through back on. A popup link's press is the
+  // link's, so its middle click keeps opening it.
+  function startButtonScan(event) {
+    const { clientX, clientY } = event;
+    const inPopup = isOurNode(event.target) || pointInsidePopup(clientX, clientY);
+    // Hover mode's page lookups wait for nothing; only child popups can.
+    if (!inPopup && options.lookupMode === "hover") return false;
+    // The popup is a closed shadow root: its own mousemove recorded the real
+    // target and level under the pointer.
+    if (!inPopup) lastPointer = { clientX, clientY, target: event.target };
+    const level = inPopup ? activePointerLevel(lastPointer) : null;
+    // Child popups set to Click wait for no button.
+    if (level && (popupLinkAt(lastPointer.target, level) || !definitionKeyGated())) return false;
+    const { claimed, cancelRelease, candidate } = scanPressClaim(event, inPopup, level);
+    if (claimed) event.preventDefault();
+    scanPress = { button: event.button, cancelRelease, cancelClick: Boolean(candidate) };
+    activationPressed = true;
+    syncHostAttention();
+    scanActivatedPointer();
+    return true;
+  }
+
+  // Over content the reader scans, a scan press starts no autoscroll and Back
+  // or Forward does not navigate; the click opens no new tab only when the
+  // press was on a word the reader looks up. A text field keeps its press, so
+  // it still pastes or navigates, unless the press is on a word in it.
+  function scanPressClaim({ button, clientX, clientY, target }, inPopup, level) {
+    if (scannableField(inPopup ? null : target)) {
+      const candidate = resolveCandidate(clientX, clientY);
+      return { claimed: Boolean(candidate), cancelRelease: Boolean(candidate), candidate };
+    }
+    const claimed = level
+      ? Boolean(selectionBoundaryElement(lastPointer.target)?.closest(DEFINITION_TEXT_SELECTOR))
+      : !inPopup && isScannableElement(selectionBoundaryElement(target), new Map());
+    const candidate = claimed
+      && (level ? resolveDefinitionCandidate(clientX, clientY, level) : resolveCandidate(clientX, clientY));
+    return { claimed, cancelRelease: claimed && NAVIGATION_BUTTONS.has(button), candidate };
   }
 
   // Release decides what the press was: a selection looks up that text, a
@@ -3626,6 +4160,12 @@
     const selection = window.getSelection();
     if ([selection?.anchorNode, selection?.focusNode].some((node) =>
       node && (node === host || node.getRootNode() === shadow))) return;
+    // Automatic selection lookups are the personal dictionary's entry point.
+    // Off, as in Yomitan, a changed selection only releases one a keybind scanned.
+    if (!options.personalDictionaryEnabled) {
+      if (activeSelectionCandidate) hide();
+      return;
+    }
     const candidate = resolveSelectedLookupCandidate(selection);
     if (!candidate && !activeSelectionCandidate) return;
     if (candidate && !activationAllowed()) hide();
@@ -3634,9 +4174,24 @@
   }
 
   function onMouseUp(event) {
-    if (disposed || event.button !== 0 || !selectionDragActive) return;
+    if (disposed) return;
+    const button = activationButton();
+    if (button && event.button === button.button) {
+      if (scanPress?.button === event.button && scanPress.cancelRelease) event.preventDefault();
+      updateModifierState(event);
+      releaseActivation();
+      return;
+    }
+    if (event.button !== 0 || !selectionDragActive) return;
     updateModifierState(event);
     finishSelectionDrag({ dismissClick: true });
+  }
+
+  // A middle click on a word the scan press looked up opens no new tab.
+  function onAuxClick(event) {
+    if (scanPress?.button !== event.button) return;
+    if (scanPress.cancelClick) event.preventDefault();
+    scanPress = null;
   }
 
   function onPageFocusIn() {
@@ -3644,6 +4199,7 @@
       cancelCandidateScan();
       activationPressed = false;
       activationCode = null;
+      syncHostAttention();
     }
   }
 
@@ -3785,22 +4341,21 @@
     // the rest of the page. Modifier activation leaves native typing intact;
     // printable/editor keys stay reserved for the focused field.
     if (pageEditorFocused() && !MODIFIER_PROPERTIES.has(options.activationKey)) return;
-    // Pressing the gate key while the pointer is stationary should reveal the
-    // word under it without asking the reader to jiggle the mouse.
     const wasPressed = activationPressed;
     updateModifierState(event);
     if (normaliseActivationKey(event.key, null) === options.activationKey) {
       activationPressed = true;
       activationCode = event.code;
+    } else {
+      editedSincePointerMoved = true;
     }
-    const popupLevel = activePointerLevel(lastPointer);
-    if (!wasPressed && activationPressed && options.lookupMode !== "hover"
-        && lastPointer && !hasProtectedNote() && !popupHasFocus()
-        && (!pointerInPopup || popupLevel)
-        && !selectionDragActive
-        && (popupLevel || !retainSelectedLookup())) {
-      scheduleScan();
-    }
+    if (!wasPressed && activationPressed && !typingUnderPointer()) scanActivatedPointer();
+  }
+
+  // Shift for a capital letter in the field under a resting pointer must not
+  // cover the field with its own text; moving with the key held still scans.
+  function typingUnderPointer() {
+    return editedSincePointerMoved && scannableField(document.activeElement) === lastPointer?.target;
   }
 
   function onKeyUp(event) {
@@ -3812,11 +4367,7 @@
       activationPressed = false;
     }
     if (!activationPressed) activationCode = null;
-    if (options.lookupMode === "activation" && !activationPressed) {
-      if (selectionIsUnchanged()) return;
-      cancelCandidateScan();
-      scheduleHide();
-    }
+    releaseActivation();
   }
 
   function onMouseOut(event) {
@@ -3827,28 +4378,41 @@
     // bubble, and a capture listener would fire for every element left.
     if (!disposed && event.relatedTarget === null) {
       lastPointer = null;
-      pointerInPopup = false;
       cancelCandidateScan();
-      schedulePointerHide();
+      // As in Yomitan's TextScanner, leaving the window only forgets the
+      // pointer, whether on the way to the tab strip or another window (#432)
+      // or as an overlay host turns click-through on past OCR text (#403). The
+      // popup follows the ordinary hover and cursor-exit rules at the next move.
+      if (!overlayMode) pointerInPopup = false;
     }
   }
 
   function onWindowBlur() {
     if (gsmBridge?.navigationActive) return; // GSM hook
     stopPopupResize();
+    if (!disposed && overlayMode) {
+      // An overlay host moves focus between itself and the game while the
+      // reader stays in the page (#403), so blur dismisses nothing and keeps a
+      // drag or a held scan button. Only a key's release can go missing.
+      if (!ACTIVATION_BUTTONS.has(options.activationKey)) {
+        activationPressed = false;
+        activationCode = null;
+      }
+      return;
+    }
     if (!disposed) {
-      setSelectionDrag(false);
-      lastPointer = null;
+      // Cleared first, so the drag's sync also releases a held scan button's claim.
       activationPressed = false;
       activationCode = null;
+      setSelectionDrag(false);
+      lastPointer = null;
       pointerInPopup = false;
-      const interaction = levels.find((level) => !level.popup?.hidden
-        && level.pendingPopupInteraction === level.lookupToken);
-      if (interaction) {
-        interaction.pendingPopupInteraction = null;
-        return;
-      }
-      hide();
+      // Focus that moved into one of this page's frames is a click outside the
+      // popup. Leaving the tab, the window or the browser is not: Yomitan has
+      // no blur listener, so the popup, its children and a Note draft wait for
+      // the reader's return (#432). Only unfinished pointer work is cancelled.
+      if (document.hasFocus()) hide();
+      else cancelCandidateScan();
     }
   }
 
@@ -3872,25 +4436,10 @@
     }
   }
 
+  // Page and element scrolls leave an open popup where it is (#402).
   function onScroll() {
     cancelCandidateScan();
     rootLevel.view?.hideImagePreview();
-    if (disposed || !rootLevel.popup || rootLevel.popup.hidden || !rootLevel.activeCandidate) {
-      return;
-    }
-    if (!anchorConnected(rootLevel.activeCandidate)) {
-      hide();
-      return;
-    }
-    const rect = anchorRectFor(rootLevel.activeCandidate);
-    if (
-      rect.bottom < 0 || rect.top > window.innerHeight ||
-      rect.right < 0 || rect.left > window.innerWidth
-    ) {
-      hide();
-      return;
-    }
-    positionPopup();
   }
 
   function invalidateStoredState(dictionaryChanged) {
@@ -3994,15 +4543,20 @@
     const revision = Number.isInteger(stored?.revision) && stored.revision >= 0 ? stored.revision : 0;
     if (revision <= optionsStorageRevision) return { lookupChanged: false, presentationChanged: false };
     const next = projectHostOptions(stored);
+    const personalChanged = next.personalDictionaryEnabled !== options.personalDictionaryEnabled;
     const lookupChanged = next.scanLength !== options.scanLength || next.maxResults !== options.maxResults
       || next.frequencyDictionary !== options.frequencyDictionary || next.frequencyOrder !== options.frequencyOrder
+      || personalChanged
       || JSON.stringify(next.kanjiClickDictionary) !== JSON.stringify(options.kanjiClickDictionary);
-    const activationChanged = next.lookupMode !== options.lookupMode || next.activationKey !== options.activationKey;
+    const activationChanged = next.lookupMode !== options.lookupMode || next.activationKey !== options.activationKey
+      || next.definitionLookupMode !== options.definitionLookupMode;
     const interactionChanged = activationChanged || next.hoverEnabled !== options.hoverEnabled
-      || next.onlyScanJapaneseText !== options.onlyScanJapaneseText;
-    const scanDelayChanged = next.hoverDelayMs !== options.hoverDelayMs && scanTimer !== null;
+      || next.onlyScanJapaneseText !== options.onlyScanJapaneseText || personalChanged;
     const hideDelayChanged = next.popupHideDelayMs !== options.popupHideDelayMs && hideTimer !== null;
+    const cursorExitChanged = next.hidePopupOnCursorExit !== options.hidePopupOnCursorExit
+      || next.hidePopupOnCursorExitDelayMs !== options.hidePopupOnCursorExitDelayMs;
     const columnsChanged = next.popupColumns !== options.popupColumns;
+    const layoutChanged = next.glossaryLayoutMode !== options.glossaryLayoutMode;
     const sizeChanged = next.popupWidthPx !== options.popupWidthPx || next.popupHeightPx !== options.popupHeightPx
       || next.popupScalePercent !== options.popupScalePercent;
     const toolbarChanged = next.popupToolbarPosition !== options.popupToolbarPosition;
@@ -4029,6 +4583,8 @@
     }
     optionsStorageRevision = revision;
     options = next;
+    if (activationChanged) syncHostAttention();
+    if (docsProbeStyle && !docsEnabled()) releaseDocsProbe();
     if (customButtonsChanged) {
       for (const level of levels) level.view?.setCustomButtons(options.customButtons);
     }
@@ -4065,6 +4621,7 @@
     audio?.update(options);
     mining?.update(options);
     appearance?.update(options);
+    void themeHost.sync();
     if (sizeChanged) for (const level of levels) level.view?.hideImagePreview();
     const cssChanged = customStyle?.update(options.customPopupCss);
     if (highlightChanged) {
@@ -4076,12 +4633,22 @@
       }
     }
     if (levels.length > options.popupNestingMaxDepth + 1) pruneLevels(options.popupNestingMaxDepth + 1);
+    // Either edit applies at once: a pending exit restarts under the new
+    // setting, and a pending descendant prune waits for the pointer to
+    // schedule the next one.
+    if (cursorExitChanged) {
+      clearDescendantTimer();
+      if (cursorExitTimer !== null) {
+        clearCursorExitTimer();
+        scheduleCursorExitHide();
+      }
+    }
     // Masonry must measure the new inline width, not lay out the old width and
     // wait for ResizeObserver to correct every card in a second frame.
     if ((sizeChanged || toolbarChanged) && options.hoverEnabled && rootLevel.popup && !rootLevel.popup.hidden) {
       positionPopup(rootLevel, toolbarChanged);
     }
-    if ((columnsChanged || sizeChanged || cssChanged) && options.hoverEnabled) {
+    if ((columnsChanged || layoutChanged || sizeChanged || cssChanged) && options.hoverEnabled) {
       for (const level of levels) {
         if (!level.popup?.hidden) level.view?.scheduleMasonry();
       }
@@ -4093,7 +4660,7 @@
       activationCode = null;
       hide();
     }
-    else if (interactionChanged || scanDelayChanged) {
+    else if (interactionChanged) {
       if (selectionIsUnchanged()) {
         clearScanTimer();
         clearHideTimer();
@@ -4103,7 +4670,7 @@
       clearHideTimer();
       const popupLevel = activePointerLevel(lastPointer);
       if (!hasProtectedNote() && !popupHasFocus() && (!pointerInPopup || popupLevel)) {
-        if (!activationAllowed()) {
+        if (!(popupLevel ? definitionHoverAllowed() : activationAllowed())) {
           if (popupLevel) cancelPendingHover(popupLevel);
           else schedulePointerHide();
         }
@@ -4147,13 +4714,16 @@
     }
     // Capture so a page that stops propagation on its own text still gets
     // scanned; passive so the hot pointer and scroll paths can never delay the
-    // page's own scrolling. A press stays cancelable: an overlay drag is the
-    // reader's, not the browser's.
+    // page's own scrolling. A press, its release and its click stay cancelable:
+    // an overlay drag and a scan button's press are the reader's, not the
+    // browser's.
     const observe = { capture: true, passive: true };
     document.addEventListener("mousemove", onMouseMove, observe);
     document.addEventListener("mousedown", onMouseDown, { capture: true });
-    document.addEventListener("mouseup", onMouseUp, observe);
+    document.addEventListener("mouseup", onMouseUp, { capture: true });
+    document.addEventListener("auxclick", onAuxClick, { capture: true });
     document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
     document.addEventListener("focusin", onPageFocusIn, observe);
     document.addEventListener("mouseout", onMouseOut, observe);
     document.addEventListener("keydown", onKeyDown, true);

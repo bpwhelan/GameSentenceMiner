@@ -9,6 +9,7 @@ from flask import current_app, jsonify, request
 
 from GameSentenceMiner.util.config.configuration import get_stats_config, save_stats_config
 from GameSentenceMiner.util.tadoku_sync import (
+    TADOKU_TITLE_SOURCES,
     TadokuClient,
     TadokuSyncError,
     build_tadoku_preview,
@@ -111,8 +112,11 @@ def register_tadoku_api_routes(app):
     @app.route("/api/tadoku/preview", methods=["GET"])
     def api_tadoku_preview():
         deduplicate = request.args.get("deduplicate", "false").lower() in {"1", "true", "yes", "on"}
-        preview = build_tadoku_preview(deduplicate=deduplicate)
         config = get_stats_config()
+        title_source = request.args.get("title_source", getattr(config, "tadoku_title_source", "english"))
+        if title_source not in TADOKU_TITLE_SOURCES:
+            return jsonify({"error": "Tadoku title source must be english, original, or romaji"}), 400
+        preview = build_tadoku_preview(deduplicate=deduplicate, title_source=title_source)
         preview["configured"] = bool(getattr(config, "tadoku_username", "") and getattr(config, "tadoku_password", ""))
         return jsonify(preview), 200
 

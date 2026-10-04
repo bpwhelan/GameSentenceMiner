@@ -3,22 +3,31 @@ import { reorderSettingsRows } from "./settings-dom.js";
 
 // Labels of the Settings controls that own each toggleable option.
 export const KEYBIND_OPTION_LABELS = {
-  hoverEnabled: "Enable hover lookups",
+  hoverEnabled: "Enable lookups",
   onlyScanJapaneseText: "Japanese text only",
+  personalDictionaryEnabled: "Use the personal dictionary",
   showNoResultNotice: "Show a popup when a selection has no definition",
+  hidePopupOnCursorExit: "Hide popup on cursor exit",
   audioAutoplay: "Automatically play the first lookup result",
   sourceHighlightEnabled: "Highlight the word on the page",
   showPopupAudioButton: "Show the audio button",
   showLookupCounts: "Record and show lookup counts",
-  definitionBlurEnabled: "Blur definitions by lookup count",
+  definitionBlurCountEnabled: "Blur definitions by lookup count",
   definitionBlurAnkiMature: "Blur definitions of mature Anki cards",
-  definitionBlurFrequencyEnabled: "Blur definitions by frequency threshold",
+  definitionBlurFrequencyEnabled: "Blur definitions by frequency",
   showCompactDefinitionSummary: "Show brief definitions beside the headword",
   averageFrequency: "Show frequency averages",
   showFrequencyDictionaryNames: "Show frequency dictionary names",
+  compactFrequencyNumbers: "Abbreviate large frequency numbers",
   showPitchAccentFurigana: "Show pitch in furigana",
   showPitchAccentBadge: "Show pitch badges",
-  hidePopupGrammarTags: "Hide grammar tags",
+  showPitchAccentDictionaryNames: "Show pitch dictionary names",
+  showPitchAccentText: "Show pitch accent text",
+  showPitchAccentPosition: "Show pitch accent position",
+  showPitchAccentGraph: "Show pitch accent graph",
+  showPitchAccentColors: "Show pitch accent colours",
+  // Stored inverted; named like the Settings checkbox it flips.
+  hidePopupGrammarTags: "Show grammar tags",
 };
 const MODIFIER_NAMES = { meta: "Meta", ctrl: "Ctrl", alt: "Alt", shift: "Shift" };
 const SCOPE_LABELS = { popup: "While a popup is open", web: "Anywhere on the page" };

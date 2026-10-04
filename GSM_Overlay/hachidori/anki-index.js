@@ -2,7 +2,7 @@
 import { ankiMultiResults } from "./anki.js";
 import { ankiDigest } from "./anki-digest.js";
 import { ankiSetupFamily, ankiSetupTemplates } from "./anki-setup.js";
-import { escapeAnkiHtml, resolveAnkiTemplates } from "./anki-templates.js";
+import { encodeAnkiClozeBraces, escapeAnkiHtml, resolveAnkiTemplates } from "./anki-templates.js";
 import "./reader-options.js";
 
 // Anki parses these field names as operators before considering a field search.
@@ -29,7 +29,7 @@ export function ankiWordKey(expression) {
   if (typeof expression !== "string" || !expression) return null;
   // Ordinary Anki field search escapes the rendered HTML, folds ASCII only,
   // and normalizes query text to NFC. Stored field values remain unnormalized.
-  return foldAscii(escapeAnkiHtml(expression).normalize("NFC"));
+  return foldAscii(encodeAnkiClozeBraces(escapeAnkiHtml(expression)).normalize("NFC"));
 }
 
 function storedWordKey(value) {
@@ -76,17 +76,24 @@ async function recognizedModels(invoke, source) {
   if (positiveId(available[source.model])) {
     models.push({ name: source.model, fields: source.fields });
   }
+  const candidates = Object.entries(available).flatMap(([model, id]) => {
+    const family = model === source.model || !positiveId(id) ? null : ankiSetupFamily(model);
+    return family === null ? [] : [{ model, family }];
+  });
+  if (!candidates.length) return models;
+  // Each AnkiConnect request costs one poll interval, so every recognized note
+  // type's fields arrive in one `multi`. A sub-action error, such as a note
+  // type deleted since `modelNamesAndIds`, rejects as a direct request would.
+  const replies = ankiMultiResults(await invoke("multi", { actions: candidates.map(({ model }) =>
+    ({ action: "modelFieldNames", params: { modelName: model } })) }));
   const base = globalThis.HDReaderOptions.DEFAULT_OPTIONS.anki;
-  for (const [model, id] of Object.entries(available)) {
-    if (model === source.model) continue;
-    const family = ankiSetupFamily(model);
-    if (family === null || !positiveId(id)) continue;
-    const fields = fieldList(await invoke("modelFieldNames", { modelName: model }));
+  candidates.forEach(({ model, family }, index) => {
+    const fields = fieldList(replies[index]);
     const templates = ankiSetupTemplates(family, model, source.deck ?? "Default", fields, base);
-    if (templates === null) continue;
+    if (templates === null) return;
     const expressionFields = directExpressionFields({ ...base, model, fieldTemplates: templates }, fields);
     if (expressionFields.length) models.push({ name: model, fields: expressionFields });
-  }
+  });
   return models;
 }
 
@@ -105,10 +112,16 @@ function completeQuery(source, models) {
   return query === null ? null : scopedQuery(source, query);
 }
 
-function lookupQuery(source, models, expression) {
-  const value = escapeAnkiHtml(expression).normalize("NFC");
-  const clauses = models.flatMap(model => model.fields.map(field =>
-    `(${searchToken("note", model.name)} ${searchToken(field, value)})`));
+// One search for every word. Grouping the words under each note type and
+// direct field keeps the union as shallow as one word's query:
+// ("note:A" ("f:x" or "f:y")) or ("note:B" ("g:x" or "g:y")).
+function lookupQuery(source, models, expressions) {
+  const values = expressions.map(expression => encodeAnkiClozeBraces(escapeAnkiHtml(expression)).normalize("NFC"));
+  const clauses = models.flatMap(model => model.fields.map(field => {
+    const terms = values.map(value => searchToken(field, value));
+    const words = terms.length === 1 ? terms[0] : `(${terms.join(" or ")})`;
+    return `(${searchToken("note", model.name)} ${words})`;
+  }));
   if (clauses.length === 0) return null;
   const query = clauses.length === 1 ? clauses[0] : `(${clauses.join(" or ")})`;
   return scopedQuery(source, query);
@@ -202,33 +215,47 @@ export async function fetchAnkiIndex(invoke, source) {
 
 // A popup cache miss waits on this, and each AnkiConnect request costs one
 // poll interval, so the candidate and maturity searches share one `multi`
-// round trip and `notesInfo` is the only other stage. Maturity is the scoped
-// query's mature subset intersected with the exactly matching notes: Anki
-// searches cards, so in deck scope a note counts as mature only through a
-// mature card inside the configured deck, exactly as the complete index does.
-export async function lookupAnkiIndex(invoke, source, expression) {
-  const wordKey = ankiWordKey(expression);
-  if (wordKey === null) return { wordKey, mature: false, noteIds: [] };
+// round trip and `notesInfo` is the only other stage. A popup's entries share
+// one lookup: the union finds every candidate once, and each word keeps only
+// the notes whose direct field holds exactly its word key. Maturity is the
+// scoped query's mature subset intersected with those notes: Anki searches
+// cards, so in deck scope a note counts as mature only through a mature card
+// inside the configured deck, exactly as the complete index does.
+async function liveMatches(invoke, source, words) {
+  const matches = new Map([...words.keys()].map(wordKey => [wordKey, new Set()]));
+  const none = { matches, mature: new Set() };
+  if (!words.size) return none;
   const models = await recognizedModels(invoke, source);
-  const query = lookupQuery(source, models, expression);
-  if (query === null) return { wordKey, mature: false, noteIds: [] };
+  const query = lookupQuery(source, models, [...words.values()]);
+  if (query === null) return none;
   const [candidateResult, matureResult] = ankiMultiResults(await invoke("multi", { actions: [
     { action: "findNotes", params: { query } },
     { action: "findNotes", params: { query: matureQuery(query) } },
   ] }));
   const candidateIds = returnedNoteIds(candidateResult);
   const mature = matureNoteIds(matureResult, new Set(candidateIds));
-  if (!candidateIds.length) return { wordKey, mature: false, noteIds: [] };
-  const candidates = indexedNotes(await invoke("notesInfo", { notes: candidateIds }), models, candidateIds);
-  const noteIds = [];
-  for (const note of candidates) {
-    if (note.model.fields.some(field => storedWordKey(note.fields[note.names.get(field)]) === wordKey)) {
-      noteIds.push(note.noteId);
-    }
+  if (!candidateIds.length) return none;
+  for (const note of indexedNotes(await invoke("notesInfo", { notes: candidateIds }), models, candidateIds)) {
+    for (const field of note.model.fields) matches.get(storedWordKey(note.fields[note.names.get(field)]))?.add(note.noteId);
   }
-  noteIds.sort((left, right) => left - right);
-  const unique = [...new Set(noteIds)];
-  return { wordKey, mature: unique.some(noteId => mature.has(noteId)), noteIds: unique };
+  return { matches, mature };
+}
+
+export async function lookupAnkiIndexMany(invoke, source, expressions) {
+  const wordKeys = expressions.map(ankiWordKey);
+  const words = new Map();
+  wordKeys.forEach((wordKey, index) => {
+    if (wordKey !== null && !words.has(wordKey)) words.set(wordKey, expressions[index]);
+  });
+  const { matches, mature } = await liveMatches(invoke, source, words);
+  return wordKeys.map(wordKey => {
+    const noteIds = [...(matches.get(wordKey) ?? [])].sort((left, right) => left - right);
+    return { wordKey, mature: noteIds.some(noteId => mature.has(noteId)), noteIds };
+  });
+}
+
+export async function lookupAnkiIndex(invoke, source, expression) {
+  return (await lookupAnkiIndexMany(invoke, source, [expression]))[0];
 }
 
 export async function inspectAnkiNoteIds(invoke, source, expression, noteIds) {
