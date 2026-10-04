@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/yomidevs/yomitan",
+  "revision": "67db60ddc2cbd7b5172d777c117e3201d7ddff0f",
+  "license": "GPL-3.0-or-later",
+  "files": {
+    "structured-content-style.js": {
+      "path": "ext/data/structured-content-style.json",
+      "sha256": "ee1c85aba5916e4b4a5310a6b46bb4d063ceca3fcb08931e440b73419a6bc808"
+    }
+  }
+}

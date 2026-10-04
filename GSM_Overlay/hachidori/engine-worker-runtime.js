@@ -103,6 +103,7 @@ export function startEngineWorker({ createHoshidicts, storageBackend }) {
     storageBackend,
     threaded: true,
     lowRam: lowMemory,
+    pagedDictionaries: lowMemory,
     reportProgress: reportEngineProgress,
     // Two IDBFS instances cannot share one store, so only direct OPFS can
     // import outside the engine.

@@ -1,13 +1,12 @@
-import { extensionApi as chrome, IS_FIREFOX } from "./browser-api.js";
+import { extensionApi as chrome } from "./browser-api.js";
 import { ensureChromeOffscreen } from "./chrome-offscreen.js";
-import { waitForFirefoxOffscreen } from "./firefox-host.js";
 import "./reader-options.js";
 import { createAnkiGateway } from "./anki.js";
 import { detectAnkiSetup, verifyAnkiSetup } from "./anki-setup.js";
 import { createAnkiWorkerService } from "./anki-worker.js";
 import { detectLocalAudioSource } from "./local-audio-setup.js";
 import { createLocalAudioSource, findLocalAudioSource } from "./local-audio-source.js";
-import { lookupAnkiIndex } from "./anki-index.js";
+import { lookupAnkiIndex, lookupAnkiIndexMany } from "./anki-index.js";
 import { ANKI_INDEX_ALARM, ANKI_INDEX_KEY, ankiIndexConfigurationChange, createAnkiDuplicateIndex } from "./anki-index-cache.js";
 import { createBackupDownloads } from "./backup-downloads.js";
 import { assertBackupSnapshot, backupRevisions } from "./backup-state.js";
@@ -66,8 +65,10 @@ import {
   FIRST_INSTALL_OPTIONS, FIRST_INSTALL_SELECTIONS, OVERLAY_MODE_OPTIONS, SETUP_STATE_KEY, STARTUP_PAGE,
   RECOMMENDED_SELECTIONS_KEY, OVERLAY_LOCAL_OPTION_KEYS,
   advanceSetupState, capabilityAnkiOptions, initialSetupState, normaliseSetupState, overlayAnkiOptions, recordSetupAnki, recordSetupDictionaries,
+  withOverlayLookupDefault,
 } from "./setup-state.js";
 import { applyCustomJavaScript } from "./custom-javascript.js";
+import { applyGoogleDocsFlag } from "./google-docs.js";
 
 const {
   ANKI_TEMPLATE_CONFIG_KEYS, DEFAULT_OPTIONS, ankiTemplateConfig, normaliseOptions, projectStoredOptions,
@@ -96,10 +97,6 @@ const OFFSCREEN_DOCUMENT = "offscreen.html";
 const TARGET = "hoshidicts-offscreen";
 const UPDATE_TARGET = "hachidori-updates";
 const AUDIO_TARGET = "hachidori-audio";
-const CAPTURE_TARGET = "hachidori-capture";
-const CAPTURE_PAGE_TARGET = "hachidori-capture-page";
-const CAPTURE_CONTENT_TARGET = "hachidori-capture-content";
-const CAPTURE_DOCUMENT = "capture.html";
 const SETUP_TARGET = "hachidori-setup";
 const PAGE_ZOOM_TARGET = "hachidori-page-zoom";
 const BACKUP_LIFECYCLE_PORT = "hachidori-backup-settings";
@@ -229,6 +226,7 @@ function getApiHost() {
     render: fields => sendAnkiRequest("hachidori-anki-render", fields),
     readDictionaries: async () => (await readDictionaryStorage()).state?.dictionaries ?? [],
     readAudioSources: async () => (await readAnkiOptions()).audioSources.filter(source => source.enabled),
+    readAnkiTemplates: async () => (await readAnkiOptions()).anki.templates,
   });
   return apiHost;
 }
@@ -285,7 +283,7 @@ function stateStore(sender) {
 }
 
 function composeOverlayOptions(shared, local, revision) {
-  const preferences = normaliseOptions(local);
+  const preferences = normaliseOptions(withOverlayLookupDefault(local));
   return { ...projectStoredOptions(shared),
     ...Object.fromEntries(OVERLAY_LOCAL_OPTION_KEYS.map(key => [key, preferences[key]])), revision };
 }
@@ -463,7 +461,6 @@ async function readAnkiOptions() {
   return capabilityAnkiOptions(options, {
     screenshot: MINING_CAPABILITIES.screenshot,
     browserSpeech: MINING_CAPABILITIES.browserSpeech,
-    mediaCapture: HOST_CAPABILITIES.mediaCapture,
   });
 }
 
@@ -489,6 +486,7 @@ function getAnkiDuplicateIndex() {
       return reply.rows;
     },
     lookupLive: (source, expression, invoke) => lookupAnkiIndex(invoke, source, expression),
+    lookupLiveMany: (source, expressions, invoke) => lookupAnkiIndexMany(invoke, source, expressions),
     readOptions: readAnkiOptions,
     readState: async () => (await chrome.storage.local.get(ANKI_INDEX_KEY))[ANKI_INDEX_KEY],
     updateState: update => serialiseStorage(async () => {
@@ -514,11 +512,6 @@ const NOT_LISTENING = /Receiving end does not exist|Could not establish connecti
 // relay gets no reply, so the next attempt verifies the document again.
 let offscreenAnswered = false;
 let latestAudioOperation = null;
-let capturePage = null;
-let captureRecovery = null;
-let captureContentDocument = null;
-let captureLink = null;
-
 function describe(error) {
   if (error instanceof Error) {
     return error.message || String(error);
@@ -532,152 +525,9 @@ function sleep(ms) {
   });
 }
 
-function capturePageSender(sender) {
-  return sender.id === chrome.runtime.id
-    && sender.url === chrome.runtime.getURL(OFFSCREEN_DOCUMENT)
-    && sender.tab === undefined;
-}
-
-function trustedCaptureControl(sender) {
-  if (sender.id !== chrome.runtime.id || typeof sender.url !== "string") return false;
-  try {
-    const url = new URL(sender.url);
-    if (url.search) return false;
-    url.hash = "";
-    return ["settings.html", "toolbar.html", CAPTURE_DOCUMENT]
-      .some(document => url.href === chrome.runtime.getURL(document));
-  } catch {
-    return false;
-  }
-}
-
-async function relayCapture(message, stillCurrent = null) {
-  if (!capturePage || captureRecovery) await recoverCaptureHost();
-  if (stillCurrent && !stillCurrent()) return { ignored: true };
-  return sendCapture(message);
-}
-
-async function sendCapture(message) {
-  if (!capturePage?.documentId) throw new Error("The media capture host is unavailable.");
-  const request = {
-    ...message,
-    target: CAPTURE_PAGE_TARGET,
-    relayed: true,
-    captureDocumentId: capturePage.documentId,
-  };
-  let reply;
-  try {
-    reply = await chrome.runtime.sendMessage(request);
-  } catch (error) {
-    capturePage = null;
-    void unlinkCaptureContent();
-    throw error;
-  }
-  if (!reply) {
-    capturePage = null;
-    void unlinkCaptureContent();
-    throw new Error("The media capture host did not reply.");
-  }
-  if (!responseFits(reply)) throw new Error(responseLimitError(message.type));
-  if (!reply.ok) throw new Error(reply.error || "The capture operation failed.");
-  return reply;
-}
-
-async function recoverCaptureBinding(page) {
-  if (captureContentDocument || captureLink?.captureSessionId || !page) return;
-  assertCaptureTabId(page.tabId);
-  if (!shortCaptureString(page.documentId)) throw new Error("The linked document identity is invalid.");
-  const owner = capturePage;
-  const identity = { tabId: page.tabId, documentId: page.documentId };
-  const reply = await chrome.tabs.sendMessage(page.tabId, {
-    target: CAPTURE_CONTENT_TARGET, type: "hd_capture_recover",
-  }, { documentId: page.documentId }).catch(() => null);
-  if (capturePage !== owner || captureContentDocument || captureLink?.captureSessionId) return;
-  if (reply?.linked === true && reply.documentId === page.documentId) {
-    captureContentDocument = identity;
-  } else {
-    await sendCapture({ type: "hd_capture_unlinked", ...identity,
-      reason: "The reading document is no longer available. Link the page again." });
-  }
-}
-
-async function recoverCaptureHost() {
-  if (captureRecovery) return captureRecovery;
-  if (capturePage) return;
-  captureRecovery = (async () => {
-    await ensureOffscreen();
-    const contexts = await chrome.runtime.getContexts({
-      contextTypes: ["OFFSCREEN_DOCUMENT"], documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT)],
-    });
-    if (capturePage || contexts.length !== 1) return;
-    const context = contexts[0];
-    capturePage = { documentId: context.documentId };
-    const status = await sendCapture({ type: "hd_capture_status" });
-    await recoverCaptureBinding(status.linkedPage);
-  })();
-  try { await captureRecovery; }
-  finally { captureRecovery = null; }
-}
-
-function finiteCaptureTime(value) {
-  return Number.isFinite(value) && Math.abs(value - Date.now()) <= 10 * 60 * 1000;
-}
-
-function shortCaptureString(value, limit = 256) {
-  return typeof value === "string" && value.length > 0 && value.length <= limit;
-}
-
-function assertCaptureTabId(tabId) {
-  if (!Number.isInteger(tabId) || tabId < 0) throw new Error("Choose a valid reading tab.");
-}
-
-async function captureTabs() {
-  const tabs = await chrome.tabs.query({});
-  return tabs.filter(tab => Number.isInteger(tab.id) && typeof tab.url === "string"
-      && /^(https?|file):/u.test(tab.url))
-    .map(tab => ({ id: tab.id, title: String(tab.title || "").slice(0, 200), url: tab.url.slice(0, 2048) }));
-}
-
-async function commandCaptureContent(tabId, type, fields = {}) {
-  assertCaptureTabId(tabId);
-  try {
-    const reply = await chrome.tabs.sendMessage(tabId, {
-      target: CAPTURE_CONTENT_TARGET,
-      type,
-      ...fields,
-    }, { frameId: 0 });
-    if (reply?.error) throw new Error(reply.error);
-    return reply;
-  } catch (error) {
-    throw new Error(`The reading page is unavailable. Reload it and try again. ${describe(error)}`);
-  }
-}
-
-function captureDocumentKey(tabId) {
-  return `tab:${tabId}`;
-}
-
-async function unlinkCaptureContent() {
-  const linked = captureContentDocument;
-  if (!linked) return;
-  try {
-    await commandCaptureContent(linked.tabId, "hd_capture_unlink");
-  } catch {
-    // Navigation and tab closure already destroy the content-script state.
-  }
-  if (captureContentDocument?.tabId === linked.tabId
-      && captureContentDocument.documentId === linked.documentId) {
-    captureContentDocument = null;
-  }
-}
-
 // createDocument() rejects when called while another call is in flight, so every
 // caller waits on the same promise.
 async function ensureOffscreen() {
-  if (IS_FIREFOX) {
-    await waitForFirefoxOffscreen();
-    return;
-  }
   // Some extension hosts keep this page alive themselves instead of exposing
   // Chrome's offscreen-document lifecycle API.
   await ensureChromeOffscreen(OFFSCREEN_DOCUMENT);
@@ -2012,6 +1862,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes[OPTIONS_KEY]) return;
   void reconcileAnkiIndex();
   void applyCustomJavaScript(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).customPopupJavascript);
+  void applyGoogleDocsFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).experimental.googleDocs);
   const lowMemoryMode = normaliseOptions(changes[OPTIONS_KEY].newValue).lowMemoryMode;
   if (lowMemoryMode === normaliseOptions(changes[OPTIONS_KEY].oldValue).lowMemoryMode) return;
   // Sent to the offscreen document only if it exists: a document created later
@@ -2088,7 +1939,8 @@ function failureReply(message, error) {
   });
 }
 
-const ANKI_METHODS = { hd_anki_status: "status", hd_anki_view: "view", hd_anki_preflight: "preflight", hd_anki_submit: "submit",
+const ANKI_METHODS = { hd_anki_status: "status", hd_anki_view: "view", hd_anki_preflight: "preflight",
+  hd_anki_preflight_batch: "preflightMany", hd_anki_submit: "submit",
   hd_anki_browse: "browse", hd_anki_screenshot: "screenshot", hd_anki_screenshot_discard: "discardScreenshot",
   hd_anki_maturity: "maturity" };
 
@@ -2097,8 +1949,7 @@ const ANKI_METHODS = { hd_anki_status: "status", hd_anki_view: "view", hd_anki_p
 const CAPTURE_VISIBLE_RETRY_MS = 600;
 
 // Startup messages can include or omit sender.tab. Chrome's live extension
-// contexts bind either shape to the same document; Firefox supplies the tab on
-// the extension-page sender and has no getContexts equivalent.
+// contexts bind either shape to the same document.
 async function screenshotOwnedTab(sender, startup) {
   let tabId = sender.tab?.id;
   if (startup && typeof chrome.runtime.getContexts === "function") {
@@ -2151,387 +2002,11 @@ async function captureSenderViewport(sender) {
   }
 }
 
-const CAPTURE_CONTROL_TYPES = new Set([
-  "hd_capture_open",
-  "hd_capture_tabs",
-  "hd_capture_link",
-  "hd_capture_unlink",
-  "hd_capture_video_select",
-  "hd_capture_track_area",
-  "hd_capture_clear_area",
-  "hd_capture_status",
-  "hd_capture_start",
-  "hd_capture_stop",
-]);
-const CAPTURE_CONTENT_TYPES = new Set([
-  "hd_capture_content_identify",
-  "hd_capture_text_begin",
-  "hd_capture_text_close",
-  "hd_capture_text_source_close",
-  "hd_capture_page_status",
-  "hd_capture_pin",
-  "hd_capture_release",
-  "hd_capture_export",
-  "hd_capture_job_status",
-  "hd_capture_cancel",
-]);
-
-let captureConfigRevision = 0;
-let captureConfigTail = Promise.resolve();
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (!HOST_CAPABILITIES.mediaCapture || area !== "local" || !changes[OPTIONS_KEY]) return;
-  const previous = globalThis.HDReaderOptions.normaliseOptions(changes[OPTIONS_KEY].oldValue).mediaCapture;
-  const mediaCapture = globalThis.HDReaderOptions.normaliseOptions(changes[OPTIONS_KEY].newValue).mediaCapture;
-  if (sameJsonValue(previous, mediaCapture)) return;
-  const revision = ++captureConfigRevision;
-  const apply = () => relayCapture({ type: "hd_capture_configure", mediaCapture },
-    () => revision === captureConfigRevision);
-  captureConfigTail = captureConfigTail.then(apply, apply).catch(error => {
-    console.error("hachidori: could not update media capture settings:", describe(error));
-  });
-});
-
-function assertCurrentCaptureLink(link, status = null) {
-  if (captureLink !== link || (status && (status.state !== "recording"
-      || status.captureSessionId !== link.captureSessionId))) {
-    throw new Error("The capture session changed before the reading page was linked.");
-  }
-}
-
-async function linkCapturePage(message) {
-  const link = { tabId: message.tabId, captureSessionId: null, document: null };
-  captureLink = link;
-  let captureDocumentId;
-  try {
-    const status = await relayCapture({ type: "hd_capture_status" });
-    assertCurrentCaptureLink(link);
-    if (status.state !== "recording" || !status.captureSessionId) {
-      await unlinkCaptureContent();
-      throw new Error("Start capture before linking a reading page.");
-    }
-    link.captureSessionId = status.captureSessionId;
-    captureDocumentId = capturePage.documentId;
-    if (status.linkedPage) {
-      await relayCapture({ type: "hd_capture_unlinked", ...status.linkedPage,
-        reason: "Linking a reading page." }, () => captureLink === link);
-      assertCurrentCaptureLink(link);
-    }
-    await unlinkCaptureContent();
-    const stored = await chrome.storage.local.get(OPTIONS_KEY);
-    assertCurrentCaptureLink(link);
-    const mediaCapture = globalThis.HDReaderOptions.projectContentOptions(stored[OPTIONS_KEY]).mediaCapture;
-    const details = await commandCaptureContent(message.tabId, "hd_capture_link", {
-      mediaCapture, captureSessionId: link.captureSessionId,
-    });
-    const document = link.document;
-    if (!document?.documentId) {
-      throw new Error("The linked page did not establish a document identity.");
-    }
-    const tab = await chrome.tabs.get(message.tabId);
-    assertCurrentCaptureLink(link);
-    const page = {
-      tabId: message.tabId,
-      documentId: document.documentId,
-      title: String(tab.title || "").slice(0, 200),
-      url: String(tab.url || "").slice(0, 2048),
-      videos: Array.isArray(details?.videos) ? details.videos : [],
-      message: details?.message || "",
-    };
-    await relayCapture({ type: "hd_capture_linked", requestId: message.requestId,
-      captureSessionId: link.captureSessionId, page });
-    return { page };
-  } catch (error) {
-    if (link.document) {
-      await unlinkRetiredCapture({ captureDocumentId, captureSessionId: link.captureSessionId,
-        linkedPage: link.document }, captureDocumentId, link);
-    }
-    throw error;
-  } finally {
-    if (captureLink === link) captureLink = null;
-  }
-}
-
-function sameCapturePage(page, expected) {
-  return page?.tabId === expected.tabId && page.documentId === expected.documentId;
-}
-
-function replacementCaptureLink(link) {
-  if (captureLink && captureLink !== link && captureLink.tabId === link.tabId) return true;
-  return captureContentDocument !== link.document && sameCapturePage(captureContentDocument, link.document);
-}
-
-async function unlinkRetiredCapture(message, documentId, retiringLink = null) {
-  if (message.captureDocumentId !== documentId) return;
-  const page = message.linkedPage;
-  assertCaptureTabId(page?.tabId);
-  if (!shortCaptureString(page.documentId) || !shortCaptureString(message.captureSessionId)) {
-    throw new Error("The retired capture identity is invalid.");
-  }
-  // A source-ended event can wake a fresh worker before routing has recovered.
-  // Check the live host without publishing a partly recovered capturePage.
-  const status = await chrome.runtime.sendMessage({
-    target: CAPTURE_PAGE_TARGET, type: "hd_capture_status", relayed: true, captureDocumentId: documentId,
-  }).catch(() => null);
-  if (retiringLink && replacementCaptureLink(retiringLink)) return;
-  if (status?.captureSessionId && status.captureSessionId !== message.captureSessionId
-      && sameCapturePage(status.linkedPage, page)) return;
-  await chrome.tabs.sendMessage(page.tabId, {
-    target: CAPTURE_CONTENT_TARGET, type: "hd_capture_unlink",
-  }, { documentId: page.documentId }).catch(() => {});
-  if (sameCapturePage(captureContentDocument, page)) captureContentDocument = null;
-}
-
-async function handleCaptureHostMessage(message, sender) {
-  if (!capturePageSender(sender)) throw new Error("Only the offscreen document can register or stop the capture host.");
-  const contexts = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"],
-    documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT)] });
-  const documentId = contexts.length === 1 ? contexts[0].documentId : null;
-  if (!documentId) throw new Error("The capture host document is unavailable.");
-  if (message.type === "hd_capture_host_stopped") {
-    await unlinkRetiredCapture(message, documentId);
-    return { stopped: true };
-  }
-  capturePage = { documentId };
-  await recoverCaptureBinding(message.linkedPage);
-  const stored = await chrome.storage.local.get(OPTIONS_KEY);
-  return { documentId,
-    mediaCapture: globalThis.HDReaderOptions.normaliseOptions(stored[OPTIONS_KEY]).mediaCapture };
-}
-
-// A newly created tab can be reopened before its TAB context is published.
-let captureControlsTabId = null;
-let captureControlsOpening = null;
-
-function openCaptureControls() {
-  captureControlsOpening ??= focusCaptureControls().finally(() => { captureControlsOpening = null; });
-  return captureControlsOpening;
-}
-
-async function focusCaptureControls() {
-  if (captureControlsTabId === null) {
-    const [existing] = await chrome.runtime.getContexts({ contextTypes: ["TAB"],
-      documentUrls: [chrome.runtime.getURL(CAPTURE_DOCUMENT)] });
-    captureControlsTabId = existing?.tabId ?? null;
-  }
-  if (captureControlsTabId !== null) {
-    try {
-      const tab = await chrome.tabs.update(captureControlsTabId, { active: true });
-      if (Number.isInteger(tab.windowId)) await chrome.windows.update(tab.windowId, { focused: true });
-      return { tabId: tab.id };
-    } catch { /* A closed controls tab can be reopened. */ }
-  }
-  const tab = await chrome.tabs.create({ url: chrome.runtime.getURL(CAPTURE_DOCUMENT), active: true });
-  captureControlsTabId = tab.id;
-  return { tabId: tab.id };
-}
-
-async function handleCaptureControl(message, sender) {
-  if (["hd_capture_register", "hd_capture_host_stopped"].includes(message.type)) {
-    return handleCaptureHostMessage(message, sender);
-  }
-  if (!CAPTURE_CONTROL_TYPES.has(message.type) || !trustedCaptureControl(sender)) {
-    throw new Error("Unknown or untrusted capture control request.");
-  }
-  if (message.type === "hd_capture_open") return openCaptureControls();
-  if (message.type === "hd_capture_tabs") return { tabs: await captureTabs() };
-  if (["hd_capture_status", "hd_capture_start", "hd_capture_stop"].includes(message.type)) return relayCapture(message);
-  assertCaptureTabId(message.tabId);
-  if (message.type === "hd_capture_link") {
-    return linkCapturePage(message);
-  }
-  if (message.type === "hd_capture_unlink") {
-    const result = await commandCaptureContent(message.tabId, "hd_capture_unlink", {});
-    if (captureContentDocument?.tabId === message.tabId) captureContentDocument = null;
-    return result;
-  }
-  const command = {
-    hd_capture_video_select: ["hd_capture_video_select", { videoId: message.videoId }],
-    hd_capture_track_area: ["hd_capture_track_area", {}],
-    hd_capture_clear_area: ["hd_capture_clear_area", {}],
-  }[message.type];
-  return commandCaptureContent(message.tabId, command[0], command[1]);
-}
-
-function authoritativeCaptureRecord(message, sender) {
-  const record = message.record;
-  if (!record || !["cue", "dom"].includes(record.sourceKind)
-      || !shortCaptureString(record.sourceEpoch) || !shortCaptureString(record.occurrenceId)
-      || typeof record.text !== "string" || record.text.length === 0 || record.text.length > 4096
-      || !finiteCaptureTime(record.startMs)) throw new Error("The reading page sent an invalid text timing record.");
-  return {
-    sourceKind: record.sourceKind,
-    sourceId: captureDocumentKey(sender.tab.id),
-    sourceEpoch: `${sender.documentId}:${record.sourceEpoch}`,
-    occurrenceId: record.occurrenceId,
-    text: record.text,
-    startMs: record.startMs,
-    onsetKnown: record.onsetKnown !== false,
-  };
-}
-
-function authoritativeCaptureIdentity(message, sender) {
-  const identity = message.identity;
-  if (!identity || !["cue", "dom"].includes(identity.sourceKind)
-      || !shortCaptureString(identity.sourceEpoch) || !shortCaptureString(identity.occurrenceId)
-      || !finiteCaptureTime(message.endMs)) throw new Error("The reading page sent an invalid text close record.");
-  return {
-    sourceKind: identity.sourceKind,
-    sourceId: captureDocumentKey(sender.tab.id),
-    sourceEpoch: `${sender.documentId}:${identity.sourceEpoch}`,
-    occurrenceId: identity.occurrenceId,
-  };
-}
-
-async function handleCaptureContent(message, sender) {
-  if (!CAPTURE_CONTENT_TYPES.has(message.type) || sender.id !== chrome.runtime.id
-      || !Number.isInteger(sender.tab?.id) || sender.frameId !== 0
-      || typeof sender.documentId !== "string" || sender.documentId === "") {
-    throw new Error("Unknown or untrusted reading-page capture request.");
-  }
-  if (message.type === "hd_capture_content_identify") {
-    const link = captureLink;
-    if (link?.tabId !== sender.tab.id || link.captureSessionId !== message.captureSessionId) {
-      throw new Error("This reading page is not being linked to the capture session.");
-    }
-    const status = await relayCapture({ type: "hd_capture_status" });
-    assertCurrentCaptureLink(link, status);
-    link.document = { tabId: sender.tab.id, documentId: sender.documentId };
-    captureContentDocument = link.document;
-    return { documentId: sender.documentId, tabId: sender.tab.id };
-  }
-  if (!capturePage || captureRecovery) await recoverCaptureHost();
-  // Admitted exports outlive reader relinking. The offscreen job retains the
-  // original document and checks these authoritative sender fields itself.
-  if (["hd_capture_job_status", "hd_capture_cancel"].includes(message.type)) {
-    return relayCaptureContent(message, sender);
-  }
-  const document = captureContentDocument;
-  if (document?.tabId !== sender.tab.id || document.documentId !== sender.documentId) {
-    throw new Error("This reading document is not linked to the capture session.");
-  }
-  return relayCaptureContent(message, sender);
-}
-
-function assertCaptureLookup(lookup) {
-  if (!lookup || typeof lookup.lookupText !== "string" || lookup.lookupText.length === 0
-      || lookup.lookupText.length > 4096 || !finiteCaptureTime(lookup.lookupTimeMs)
-      || (lookup.occurrenceId !== "" && !shortCaptureString(lookup.occurrenceId))
-      || !["", "dom", "cue"].includes(lookup.occurrenceSourceKind ?? "")) {
-    throw new Error("The reading page sent an invalid lookup capture request.");
-  }
-}
-
-function assertCaptureExport(message) {
-  if (!shortCaptureString(message.token)
-      || !message.requirements || typeof message.requirements !== "object"
-      || typeof message.requirements.includeAnimation !== "boolean"
-      || typeof message.requirements.includeAudio !== "boolean"
-      || (!message.requirements.includeAnimation && !message.requirements.includeAudio)) {
-    throw new Error("The capture export request is invalid.");
-  }
-}
-
-async function relayCaptureContent(message, sender) {
-  const authority = { tabId: sender.tab.id, documentId: sender.documentId };
-  if (message.type === "hd_capture_text_begin") {
-    return relayCapture({ ...message, ...authority, record: authoritativeCaptureRecord(message, sender) });
-  }
-  if (message.type === "hd_capture_text_close") {
-    return relayCapture({ ...message, ...authority, identity: authoritativeCaptureIdentity(message, sender) });
-  }
-  if (message.type === "hd_capture_text_source_close") {
-    if (!["cue", "dom"].includes(message.sourceKind) || !shortCaptureString(message.sourceEpoch)
-        || !finiteCaptureTime(message.endMs)) throw new Error("The reading page sent an invalid source close.");
-    return relayCapture({
-      ...message,
-      ...authority,
-      sourceId: captureDocumentKey(sender.tab.id),
-      sourceEpoch: `${sender.documentId}:${message.sourceEpoch}`,
-    });
-  }
-  if (message.type === "hd_capture_pin") {
-    const lookup = message.lookup;
-    assertCaptureLookup(lookup);
-    return relayCapture({ ...message, ...authority,
-      lookup: { ...lookup, occurrenceId: lookup.occurrenceId || "",
-        occurrenceSourceKind: lookup.occurrenceSourceKind || "" } });
-  }
-  if (message.type === "hd_capture_release") {
-    if (!shortCaptureString(message.token)) throw new Error("The capture release token is invalid.");
-    return relayCapture({ ...message, ...authority });
-  }
-  if (message.type === "hd_capture_export") {
-    assertCaptureExport(message);
-    return relayCapture({
-      ...message,
-      ...authority,
-      requirements: {
-        includeAnimation: message.requirements.includeAnimation,
-        includeAudio: message.requirements.includeAudio,
-      },
-    });
-  }
-  if (message.type === "hd_capture_job_status" || message.type === "hd_capture_cancel") {
-    if (!shortCaptureString(message.jobId)) throw new Error("The capture export job is invalid.");
-    return relayCapture({ ...message, ...authority });
-  }
-  if (message.type === "hd_capture_page_status") {
-    return relayCapture({ ...message, ...authority });
-  }
-  throw new Error("Unknown reading-page capture request.");
-}
-
-function clearNavigatedCaptureDocument(tabId, reason) {
-  const document = captureContentDocument;
-  if (document?.tabId !== tabId) return;
-  captureContentDocument = null;
-  void relayCapture({
-    type: "hd_capture_unlinked",
-    requestId: `capture-navigation-${crypto.randomUUID()}`,
-    tabId,
-    documentId: document.documentId,
-    reason,
-  }).catch(() => {});
-}
-
-chrome.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === "loading") {
-    if (tabId === captureControlsTabId) captureControlsTabId = null;
-    clearNavigatedCaptureDocument(tabId, "The reading page navigated. Link it again.");
-  }
-});
-chrome.tabs?.onRemoved?.addListener(tabId => {
-  if (tabId === captureControlsTabId) captureControlsTabId = null;
-  clearNavigatedCaptureDocument(tabId, "The linked reading tab was closed.");
-});
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.target !== CAPTURE_TARGET || message.relayed === true) return false;
-  let operation;
-  if (!HOST_CAPABILITIES.mediaCapture) {
-    operation = Promise.reject(new Error(
-      IS_FIREFOX ? "Media capture is unavailable in Firefox."
-        : "Media capture is unavailable in this overlay.",
-    ));
-  } else if (["hd_capture_register", "hd_capture_host_stopped"].includes(message.type)
-      || CAPTURE_CONTROL_TYPES.has(message.type)) {
-    operation = handleCaptureControl(message, sender);
-  } else {
-    operation = handleCaptureContent(message, sender);
-  }
-  Promise.resolve(operation).then(
-    result => sendResponse(workerReply(message, result)),
-    error => sendResponse(failureReply(message, error)),
-  );
-  return true;
-});
-
 // Anki owns its own mutation queue. Discovery, DOM rendering and network I/O
 // must never hold the dictionary storage queue while the engine calls into it.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== "hachidori-anki") return false;
-  handleAnkiRequest(message, sender).then(sendResponse);
+  handleAnkiRequest(message, sender).then(sendResponse, (error) => sendResponse(failureReply(message, error)));
   return true;
 });
 
@@ -2551,25 +2026,50 @@ async function handleAnkiRequest(message, sender) {
       // from before linked mining advertised a capability.
       if (message.type === "hd_anki_maturity") return forwardToHost(message);
       if (message.type === "hd_anki_submit") return submitToLinkedAnki(message);
+      if (message.type === "hd_anki_preflight_batch") return linkedPreflightBatch(message);
       if (["hd_anki_status", "hd_anki_view", "hd_anki_preflight", "hd_anki_browse"].includes(message.type)) {
-        try {
-          const reply = await getSharingClient().forward(message, { capability: LINKED_ANKI_CAPABILITY });
-          if (message.type === "hd_anki_preflight" && reply?.ok !== false && reply?.clientSpeech) {
-            await getAnkiMining().preflightClientSpeech({
-              ...message.request,
-              clientSpeech: reply.clientSpeech,
-            });
-          }
-          return reply;
-        } catch (error) {
-          if (message.type === "hd_anki_status" && describe(error) === LINKED_ANKI_UNSUPPORTED) {
-            return workerReply(message, { available: false, configKey: "", error: LINKED_ANKI_UNSUPPORTED });
-          }
-          return failureReply(message, error);
-        }
+        return forwardLinkedAnki(message);
       }
     }
     return answerAnkiRequest(message, sender);
+  });
+}
+
+async function forwardLinkedAnki(message) {
+  try {
+    const reply = await getSharingClient().forward(message, { capability: LINKED_ANKI_CAPABILITY });
+    if (message.type === "hd_anki_preflight" && reply?.ok !== false && reply?.clientSpeech) {
+      await getAnkiMining().preflightClientSpeech({
+        ...message.request,
+        clientSpeech: reply.clientSpeech,
+      });
+    }
+    return reply;
+  } catch (error) {
+    if (message.type === "hd_anki_status" && describe(error) === LINKED_ANKI_UNSUPPORTED) {
+      return workerReply(message, { available: false, configKey: "", error: LINKED_ANKI_UNSUPPORTED });
+    }
+    return failureReply(message, error);
+  }
+}
+
+// The sharing protocol carries one preflight per request, so a linked browser
+// forwards a popup batch to its host as single preflights, sent together and
+// told apart by their sharing frames, and a host without batches keeps
+// answering. Each entry becomes what the reader made of that single reply.
+async function linkedPreflight(message, request) {
+  const single = { target: message.target, type: "hd_anki_preflight", requestId: message.requestId, request };
+  const reply = await forwardLinkedAnki(single);
+  if (reply?.type !== `${single.type}_result` || reply.requestId !== single.requestId) {
+    return { state: "error", canAdd: false, error: `unexpected reply for ${single.type}` };
+  }
+  if (reply.ok !== true) return { state: "error", canAdd: false, error: reply.error || `${single.type} failed` };
+  return Object.fromEntries(Object.entries(reply).filter(([key]) => !["type", "requestId", "ok"].includes(key)));
+}
+
+async function linkedPreflightBatch(message) {
+  return workerReply(message, {
+    replies: await Promise.all(message.requests.map(request => linkedPreflight(message, request))),
   });
 }
 
@@ -2588,7 +2088,6 @@ function getAnkiMining() {
       duplicateIndex: getAnkiDuplicateIndex(),
       readDictionaries: async () => (await readDictionaryStorage()).state?.dictionaries ?? [],
       engine: fields => send(TARGET, fields), offscreen: fields => send("hachidori-anki-render", fields),
-      capture: fields => relayCapture({ ...fields, requestId: `anki-capture-${crypto.randomUUID()}` }),
     });
   }
   return ankiMining;
@@ -2633,7 +2132,7 @@ async function submitToLinkedAnki(message) {
     } catch (error) {
       if (["added", "updated"].includes(settlement)) {
         reply = { ...reply, warnings: [...(Array.isArray(reply.warnings) ? reply.warnings : []),
-          `Captured media cleanup: ${describe(error)}`] };
+          `Media cleanup: ${describe(error)}`] };
       } else {
         console.warn("hachidori: could not discard rejected linked media:", describe(error));
       }
@@ -2669,6 +2168,7 @@ function answerAnkiRequest(message, sender, linkedClient = false) {
       return service.browse(hostLinkedAnkiRequest(message.request));
     }
     if (message.type === "hd_anki_status") return service.status(message.templateId);
+    if (message.type === "hd_anki_preflight_batch") return { replies: await service.preflightMany(message.requests) };
     return service[ANKI_METHODS[message.type]](message.type === "hd_anki_browse"
       ? message.request ?? message.expression : message.request);
   }).then(result => workerReply(message, result), error => failureReply(message, error));
@@ -2877,7 +2377,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.target !== WORKER_TARGET) {
     return false;
   }
-  handleWorkerRequest(message, sender).then(sendResponse);
+  handleWorkerRequest(message, sender).then(sendResponse, (error) => sendResponse(failureReply(message, error)));
   return true;
 });
 
@@ -2951,7 +2451,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== UPDATE_TARGET) {
     return false;
   }
-  handleUpdatesRequest(message).then(sendResponse);
+  handleUpdatesRequest(message).then(sendResponse, (error) => sendResponse(failureReply(message, error)));
   return true;
 });
 
@@ -3048,6 +2548,13 @@ function serialiseSharingTransition(job) {
   return run;
 }
 
+// Unlink restores each kept local value above the mirror's revision. A linked
+// overlay composed a mode-less local options record on hover; it stays there.
+function unlinkedLocalValue(key, local, mirrored) {
+  const value = OVERLAY_MODE && key === OPTIONS_KEY ? withOverlayLookupDefault(local) : local;
+  return { ...value, revision: Math.max(optionsRevision(local), optionsRevision(mirrored)) + 1 };
+}
+
 const SHARING_HANDLERS = {
   hd_sharing_status() {
     return { sharing: sharingStatus() };
@@ -3129,7 +2636,7 @@ const SHARING_HANDLERS = {
             if (stored[key] !== undefined) removals.push(key);
             continue;
           }
-          values[key] = { ...local, revision: Math.max(optionsRevision(local), optionsRevision(stored[key])) + 1 };
+          values[key] = unlinkedLocalValue(key, local, stored[key]);
         }
         const prefix = lookupStatsPrefix(values[LOOKUP_STATS_KEY] ?? emptyLookupStats());
         removals.push(...Object.keys(stored).filter(key => key.startsWith(LOOKUP_STATS_ROW_PREFIX) && !key.startsWith(prefix)));
@@ -3272,7 +2779,10 @@ async function beginFirstRunSetup() {
 
 // An overlay host has no tab to show setup in, so its first launch only seeds
 // the initial preferences. It runs on worker start because a host may never
-// report onInstalled.
+// report onInstalled. An unlinked profile that never chose a lookup mode, such
+// as one from before overlay mode, then gets the overlay's hover default in an
+// ordinary revisioned write that open Settings pages and readers adopt. A
+// linked overlay composes the same default instead (composeOverlayOptions).
 async function seedOverlayModeOptions() {
   await serialiseStorage(async () => {
     const stored = await chrome.storage.local.get(OPTIONS_KEY);
@@ -3283,6 +2793,13 @@ async function seedOverlayModeOptions() {
       anki: overlayAnkiOptions(DEFAULT_OPTIONS).anki,
     });
     await writeLocalState({ [OPTIONS_KEY]: { ...options, revision: 1 } });
+  });
+  await sharingReady;
+  await serialiseStorage(async () => {
+    const { options } = await readDictionaryStorage();
+    if (sharingLinked || withOverlayLookupDefault(options) === options) return;
+    await WORKER_HANDLERS.hd_options_write({ target: WORKER_TARGET, type: "hd_options_write", requestId: null,
+      baseRevision: optionsRevision(options), options: { lookupMode: OVERLAY_MODE_OPTIONS.lookupMode } });
   });
 }
 
@@ -3371,8 +2888,11 @@ sharingReady = initialiseSharing().catch((error) => {
 });
 void initialiseUpdateAlarm(); // NOSONAR -- top-level await prevents this MV3 worker from activating.
 void initialiseAutomaticBackupAlarm(); // NOSONAR -- top-level await prevents this MV3 worker from activating.
-void chrome.storage.local.get(OPTIONS_KEY).then(stored =>
-  applyCustomJavaScript(chrome, normaliseOptions(stored[OPTIONS_KEY]).customPopupJavascript));
+void chrome.storage.local.get(OPTIONS_KEY).then(stored => {
+  const options = normaliseOptions(stored[OPTIONS_KEY]);
+  void applyCustomJavaScript(chrome, options.customPopupJavascript);
+  void applyGoogleDocsFlag(chrome, options.experimental.googleDocs);
+});
 
 if (OVERLAY_MODE) {
   seedOverlayModeOptions().catch((error) => {

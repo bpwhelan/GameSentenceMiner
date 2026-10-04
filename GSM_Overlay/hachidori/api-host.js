@@ -9,28 +9,30 @@
  */
 
 import "./render/glossary.js";
-import { escapeAnkiHtml } from "./anki-templates.js";
+import { ankiMappedFieldNames, escapeAnkiHtml, resolveAnkiTemplates } from "./anki-templates.js";
 
 export { API_CAPABILITY, API_CLIENT_ORIGIN } from "./sharing-protocol.js";
 
 export const API_REQUESTS = new Set([
-  "hd_api_version", "hd_api_term_entries", "hd_api_kanji_entries", "hd_api_anki_fields", "hd_api_tokenize",
-  "hd_api_dictionaries", "hd_api_dictionary_open", "hd_api_dictionary_read", "hd_api_dictionary_close",
+  "hd_api_version", "hd_api_term_entries", "hd_api_kanji_entries", "hd_api_anki_fields", "hd_api_anki_card_formats",
+  "hd_api_tokenize", "hd_api_dictionaries", "hd_api_dictionary_open", "hd_api_dictionary_read", "hd_api_dictionary_close",
 ]);
 
 const AUDIO_TYPES = { aac: "audio/aac", flac: "audio/flac", m4a: "audio/mp4", mp3: "audio/mpeg", ogg: "audio/ogg",
   wav: "audio/wav", webm: "audio/webm" };
 
 function words(value) {
-  return String(value ?? "").split(/\s+/u).filter(Boolean);
+  return globalThis.HDGlossary.parseTagList(value);
 }
 
 function strings(value) {
   return Array.isArray(value) ? value.filter(item => typeof item === "string") : [];
 }
 
-function tag(name, dictionary) {
-  return { name, category: "", order: 0, score: 0, content: [], dictionaries: [dictionary], redundant: false };
+// Yomitan's Tag, with a tag-bank tag's category, order, score and notes when
+// the engine's reply has one.
+function tag(name, dictionary, { category = "", order = 0, score = 0, notes = "" } = {}) {
+  return { name, category, order, score, content: notes ? [notes] : [], dictionaries: [dictionary], redundant: false };
 }
 
 function parseGlossary(text) {
@@ -82,7 +84,7 @@ function termEntry(result, where) {
       frequencyOrder: 0,
       sequences: [-1],
       isPrimary: true,
-      tags: words(glossary.definitionTags).map(name => tag(name, glossary.dictionary)),
+      tags: globalThis.HDGlossary.definitionTagList(glossary).map(entry => tag(entry.name, glossary.dictionary, entry)),
       entries: parseGlossary(glossary.glossary),
     })),
     pronunciations: term.pitches.map(group => ({
@@ -145,11 +147,29 @@ function kanjiFields(character, entry, markers, where) {
   return Object.fromEntries(markers.map(marker => [marker, Object.hasOwn(table, marker) ? table[marker]() : ""]));
 }
 
+// Yomitan's AnkiCardFormat for one Anki Template. Mining is term-only and a
+// Template has no add-button icon; a legacy mapping answers the rows mining
+// builds from it. Only these keys leave the browser.
+function cardFormat(template) {
+  const fields = template.fieldTemplates
+    ?? resolveAnkiTemplates(template, ankiMappedFieldNames(template)).templates;
+  return {
+    name: template.name,
+    icon: "big-circle",
+    deck: template.deck,
+    model: template.model,
+    fields: Object.fromEntries(Object.entries(fields)
+      .map(([field, { value, overwriteMode }]) => [field, { value, overwriteMode }])),
+    type: "term",
+  };
+}
+
 // Yomitan's distributeFuriganaInflected: the reading covers the stem shared by
 // the dictionary form and the matched text; the inflected ending has none.
-function furiganaSegments(expression, reading, matched) {
-  const { segmentFurigana } = globalThis.HDGlossary;
-  if (matched === expression) return segmentFurigana(expression, reading);
+function furiganaSegments(term, matched) {
+  const { segmentFurigana, termFurigana } = globalThis.HDGlossary;
+  const { expression, reading } = term;
+  if (matched === expression) return termFurigana(term);
   let stem = 0;
   while (stem < expression.length && stem < matched.length && expression[stem] === matched[stem]) stem += 1;
   const ending = expression.slice(stem);
@@ -175,9 +195,10 @@ function requireStrings(value, name) {
 
 // `engine(fields)` answers a "hoshidicts-offscreen" request, `render(fields)`
 // a "hachidori-anki-render" one; both resolve to the reply envelope or throw
-// its error. `readDictionaries()` is the stored dictionary list and
-// `readAudioSources()` the enabled pronunciation sources.
-export function createApiHost({ engine, render, readDictionaries, readAudioSources, version }) {
+// its error. `readDictionaries()` is the stored dictionary list,
+// `readAudioSources()` the enabled pronunciation sources and
+// `readAnkiTemplates()` the Anki Templates in Settings order.
+export function createApiHost({ engine, render, readDictionaries, readAudioSources, readAnkiTemplates, version }) {
   async function whereabouts() {
     const dictionaries = await readDictionaries();
     const titles = dictionaries.map(item => item.title);
@@ -268,7 +289,7 @@ export function createApiHost({ engine, render, readDictionaries, readAudioSourc
           position += step.length;
           continue;
         }
-        for (const segment of furiganaSegments(best.term.expression, best.term.reading, best.matched)) {
+        for (const segment of furiganaSegments(best.term, best.matched)) {
           if (segment.reading === "") plain(segment.text);
           else segments.push({ text: segment.text, reading: segment.reading });
         }
@@ -317,6 +338,14 @@ export function createApiHost({ engine, render, readDictionaries, readAudioSourc
       if (message.entryType === "kanji") return ankiKanjiFields(text, markers, maxEntries);
       if (message.entryType !== "term") throw new Error(`unsupported entry type ${JSON.stringify(message.entryType)}`);
       return ankiTermFields(text, markers, maxEntries, includeMedia);
+    },
+
+    // Hachidori has one set of Templates, Yomitan's profile 0.
+    async hd_api_anki_card_formats(message) {
+      if (message.profileIndex !== undefined && message.profileIndex !== 0) {
+        throw new Error(`Invalid input for ankiCardFormats, expected "profileIndex" to be a valid profile index but got ${message.profileIndex}`);
+      }
+      return { cardFormats: (await readAnkiTemplates()).map(cardFormat) };
     },
 
     async hd_api_tokenize(message) {

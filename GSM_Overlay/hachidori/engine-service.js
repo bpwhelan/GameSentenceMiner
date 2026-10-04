@@ -30,6 +30,10 @@ import {
   dictionaryArchiveIdentity,
   dictionaryImportTarget,
 } from "./dictionary-import.js";
+import { OVERLAY_MODE } from "./overlay-mode.js";
+// HDGlossary.parseTagList: the one U+0020 tag splitter the renderer, Anki and
+// the API host share; and the furigana split that withFurigana completes.
+import "./render/glossary.js";
 
 /*
  * Owns the single hoshidicts engine instance inside a dedicated Web Worker.
@@ -118,6 +122,9 @@ let storageBackend = "memory";
 // pthread runtimes (OPFS or IDBFS) use the bounded worker group, unless the
 // low-memory worker asks for one thread too.
 let lowRam = true;
+// The low-memory worker also keeps only each dictionary's index in the heap
+// and reads its entries from disk as they are looked up (docs/memory.md).
+let pagedDictionaries = false;
 // Whether this is a pthread runtime, as hd_status reports it.
 let threaded = false;
 // Optional sink for import download/installation phases, keyed by request ID.
@@ -139,6 +146,7 @@ export function configureEngineService(request, options = {}) {
   createHoshidicts = options.createHoshidicts;
   storageBackend = options.storageBackend ?? "memory";
   lowRam = options.lowRam !== false;
+  pagedDictionaries = options.pagedDictionaries === true;
   threaded = options.threaded ?? !lowRam;
   reportProgress = typeof options.reportProgress === "function" ? options.reportProgress : null;
   isolatedImport = typeof options.isolatedImport === "function" ? options.isolatedImport : null;
@@ -233,6 +241,104 @@ function termLookupReply(json, source) {
     throw new Error(`${source} returned a malformed lookup response`);
   }
   return { results: parsed.results, dictionaryCount: parsed.dictionaryCount, nativeJsonLength: json.length };
+}
+
+// A reader with the personal dictionary off leaves out its glossaries. The
+// managed package itself stays loaded, enabled and first, so turning the
+// option back on needs no rebuild. Filtering after the engine's maxResults
+// cut means a personal-only term can use up one result slot.
+function withoutPersonalDictionary(reply, message) {
+  if (message.options?.personalDictionary !== false) return reply;
+  const results = [];
+  for (const result of reply.results) {
+    const glossaries = result?.term?.glossaries ?? [];
+    const kept = glossaries.filter((glossary) => glossary?.dictionary !== CUSTOM_DICTIONARY_TITLE);
+    if (kept.length === glossaries.length) results.push(result);
+    else if (kept.length > 0) results.push({ ...result, term: { ...result.term, glossaries: kept } });
+  }
+  return { ...reply, results };
+}
+
+// Each glossary gets `tags`, its definitionTags as Yomitan's Translator expands
+// them from the dictionary's tag bank at 67db60d (_expandTagGroups, _createTag,
+// _mergeSimilarTags, _groupTags): a name is looked up by its part before ":",
+// one the bank lacks is category "default", a repeated name is listed once,
+// and the list is sorted by order, then name. definitionTags is left as the
+// engine wrote it. The banks change only with the loaded set, so they are read
+// once per generation.
+const TAG_NAME_COLLATOR = new Intl.Collator("en-US");
+// A tag's share of the serialized reply beyond its name, category and notes:
+// keys and punctuation (54), a separating comma and two numbers, each at most
+// 25 characters (-0.0000012345678901234567). The reply bound counts it with
+// the native JSON, so an ordinary reply is still not serialized twice.
+const TAG_JSON_OVERHEAD = 54 + 1 + 2 * 25;
+let tagBanks = { generation: -1, banks: new Map() };
+
+function tagBank(dictionary) {
+  if (tagBanks.generation !== generation) {
+    const json = engine.ccall("hdw_tags", "string", [], []);
+    throwIfEngineFailed("hdw_tags");
+    const banks = new Map();
+    for (const { dictionary: title, tags } of parseJson(json, "hdw_tags")) {
+      const bank = new Map();
+      // Yomitan's findTagMetaBulk answers a name with its first row.
+      for (const tag of tags) if (!bank.has(tag.name)) bank.set(tag.name, tag);
+      banks.set(title, bank);
+    }
+    tagBanks = { generation, banks };
+  }
+  return tagBanks.banks.get(dictionary);
+}
+
+// Yomitan's _expandTagGroups and _groupTags for one definitionTags string and
+// its dictionary's tag bank (a Map from name to row; undefined without one).
+export function expandDefinitionTags(definitionTags, bank) {
+  const tags = [];
+  for (const name of new Set(globalThis.HDGlossary.parseTagList(definitionTags))) {
+    const colon = name.indexOf(":");
+    const entry = bank?.get(colon < 0 ? name : name.slice(0, colon));
+    tags.push({ name, category: entry?.category || "default", order: entry?.order ?? 0,
+      score: entry?.score ?? 0, notes: entry?.notes ?? "" });
+  }
+  return tags.sort((left, right) => left.order - right.order || TAG_NAME_COLLATOR.compare(left.name, right.name));
+}
+
+function withDefinitionTags(reply) {
+  let tagJsonLength = 0;
+  for (const result of reply.results) {
+    for (const glossary of result?.term?.glossaries ?? []) {
+      glossary.tags = expandDefinitionTags(glossary.definitionTags, tagBank(glossary.dictionary));
+      tagJsonLength += ',"tags":[]'.length;
+      for (const { name, category, notes } of glossary.tags) {
+        tagJsonLength += TAG_JSON_OVERHEAD + name.length + category.length + notes.length;
+      }
+    }
+  }
+  return { ...reply, nativeJsonLength: reply.nativeJsonLength + tagJsonLength };
+}
+
+// A headword whose furigana split falls back to one ruby over the whole word
+// gets `term.furigana`, the split its kanji's KANJIDIC readings allow, when
+// exactly one does (#459). Every other reply stays as the engine wrote it. The
+// readings table is read on the first such headword and kept for the worker's
+// life; each kanji's readings are derived as it is needed.
+let kanjiReadings = null;
+
+export async function withFurigana(reply) {
+  const { createKanjiReadings, distributeFurigana } = globalThis.HDGlossary;
+  const unsplit = reply.results.filter((result) => result?.term
+    && distributeFurigana(result.term.expression, result.term.reading) === null);
+  if (unsplit.length === 0) return reply;
+  kanjiReadings ??= createKanjiReadings((await import("./vendor/kanjidic/kanji-readings.json",
+    { with: { type: "json" } })).default.readings);
+  let furiganaJsonLength = 0;
+  for (const { term } of unsplit) {
+    const furigana = distributeFurigana(term.expression, term.reading, kanjiReadings);
+    if (furigana === null) continue;
+    term.furigana = furigana;
+    furiganaJsonLength += ',"furigana":'.length + JSON.stringify(furigana).length;
+  }
+  return { ...reply, nativeJsonLength: reply.nativeJsonLength + furiganaJsonLength };
 }
 
 let tail = Promise.resolve();
@@ -1052,6 +1158,30 @@ class DictionaryLoadError extends Error {
   }
 }
 
+// bindings.cpp rejected_dictionary: the heap could not grow to hold the files.
+const OUT_OF_MEMORY = "not enough memory to load ";
+
+// Packages that did not fit in the heap this session. Their paths are
+// generation-scoped and never change, so each loads with its entries read from
+// disk from then on instead of growing the heap towards the same failure.
+const pagedPaths = new Set();
+
+function loadsPaged(path) {
+  return pagedDictionaries || pagedPaths.has(path);
+}
+
+function addDictionaryKind(dictionary, kind) {
+  const add = (paged) => engine.ccall(
+    "hdw_add_dict", "number", ["string", "number", "number"], [dictionary.path, kind, paged ? 1 : 0],
+  ) === 1;
+  const paged = loadsPaged(dictionary.path);
+  if (add(paged)) return true;
+  // Only the index has to fit when the entries are read on demand.
+  if (paged || !lastError().startsWith(OUT_OF_MEMORY) || !add(true)) return false;
+  pagedPaths.add(dictionary.path);
+  return true;
+}
+
 function addDictionaries(dictionaries, includeDisabled) {
   let loadedCount = 0;
   for (const dictionary of dictionaries) {
@@ -1059,8 +1189,7 @@ function addDictionaries(dictionaries, includeDisabled) {
       continue;
     }
     for (const kindName of kindsForPackage(dictionary)) {
-      const kind = KINDS.indexOf(kindName);
-      if (!engine.ccall("hdw_add_dict", "number", ["string", "number"], [dictionary.path, kind])) {
+      if (!addDictionaryKind(dictionary, KINDS.indexOf(kindName))) {
         throw new DictionaryLoadError(dictionary, kindName);
       }
       loadedCount += 1;
@@ -1108,6 +1237,7 @@ function trackLoaded(dictionaries, manifest = dictionaries) {
     title: text(dictionary.title),
     path: dictionary.path,
     kinds: packageKinds(dictionary),
+    paged: loadsPaged(dictionary.path),
   }));
   for (const entry of loadedPackages) verifiedPackages.set(entry.path, entry.kinds);
   loadedManifest = new Map(manifest.map(dictionary => [dictionary.path, {
@@ -1119,6 +1249,10 @@ function retainVerified(dictionaries) {
   const requested = new Set(dictionaries.map((dictionary) => dictionary.path));
   for (const path of [...verifiedPackages.keys()]) {
     if (!requested.has(path)) verifiedPackages.delete(path);
+  }
+  // Deleting the entry being visited is safe while iterating a Set.
+  for (const path of pagedPaths) {
+    if (!requested.has(path)) pagedPaths.delete(path);
   }
 }
 
@@ -1403,25 +1537,34 @@ async function boot() {
   }
 }
 
+// Every count an import report carries. The last four are what a successful
+// MDX import left out; a Yomitan archive reports them as 0. Settings words
+// them (mdxImportNotes); they are not stored with the dictionary.
+const IMPORT_REPORT_COUNTS = Object.freeze([
+  "termCount",
+  "metaCount",
+  "frequencyCount",
+  "pitchCount",
+  "kanjiCount",
+  "mediaCount",
+  "skippedRecordCount",
+  "unresolvedRedirectCount",
+  "missingResourceCount",
+  "unreadableResourceCount",
+]);
+
 function emptyReport(error) {
-  return {
-    success: false,
-    title: "",
-    termCount: 0,
-    metaCount: 0,
-    frequencyCount: 0,
-    pitchCount: 0,
-    kanjiCount: 0,
-    mediaCount: 0,
-    error,
-  };
+  const report = { success: false, title: "" };
+  for (const key of IMPORT_REPORT_COUNTS) report[key] = 0;
+  report.error = error;
+  return report;
 }
 
 function normaliseReport(raw) {
   const report = emptyReport(text(raw?.error));
   report.success = raw?.success === true;
   report.title = text(raw?.title);
-  for (const key of ["termCount", "metaCount", "frequencyCount", "pitchCount", "kanjiCount", "mediaCount"]) {
+  for (const key of IMPORT_REPORT_COUNTS) {
     const count = Number(raw?.[key]);
     report[key] = Number.isFinite(count) ? count : 0;
   }
@@ -2732,7 +2875,7 @@ async function restoreBackup(message) {
       throw new Error("Hachidori changed since this backup was prepared. Prepare it again before restoring.");
     }
     const loadedCount = loadDictionaries(prepared.dictionaries);
-    const snapshot = restoredBackupSnapshot(current, prepared.snapshot, prepared.dictionaries);
+    const snapshot = restoredBackupSnapshot(current, prepared.snapshot, prepared.dictionaries, { overlay: OVERLAY_MODE });
     const reply = await commitBackupSnapshot(current, snapshot, prepared.lookupStatsRows);
     if (!reply.ok) throw new Error(reply.error || "Could not commit the backup restore.");
     publishLoadedDictionaries(loadedCount);
@@ -2959,7 +3102,7 @@ const HANDLERS = {
       lookupArguments(message),
     );
     throwIfEngineFailed("hdw_lookup");
-    return termLookupReply(json, "hdw_lookup");
+    return withFurigana(withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup"), message)));
   },
 
   async hd_lookup_dictionary(message) {
@@ -2982,7 +3125,7 @@ const HANDLERS = {
       [args[0], text(entry.path), ...args.slice(1)],
     );
     throwIfEngineFailed("hdw_lookup_dictionary");
-    return termLookupReply(json, "hdw_lookup_dictionary");
+    return withFurigana(withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup_dictionary"), message)));
   },
 
   async hd_kanji(message) {
@@ -3305,39 +3448,52 @@ const HANDLERS = {
       storageBackend,
       threaded,
       // Which worker is serving: the low-memory one imports single-threaded
-      // inside the small pool (docs/memory.md).
+      // inside the small pool and reads dictionary entries from disk on
+      // demand (docs/memory.md).
       lowMemory: threaded && lowRam,
+      pagedDictionaries,
     };
   },
 
   // Emscripten's mmap copies each mapped file into linear memory, so a loaded
   // package's resident bytes are the sizes of the files hoshidicts maps for
-  // it, once per kind it was added as (query.cpp add_dict_ maps the directory
-  // again for every kind). The heap itself never shrinks, so heapBytes also
-  // keeps whatever an import or rebuild peaked at.
+  // it, once however many kinds it loads as (the kinds share them). Media is
+  // read from disk when shown, and a paged package's entries as they are
+  // looked up, through a page cache of pageCacheBytes. The heap itself never
+  // shrinks, so heapBytes also keeps whatever an import or rebuild peaked at.
   hd_memory() {
     requireEngine();
     const dictionaries = (loadedPackages ?? []).map((entry) => ({
       id: entry.id,
       title: entry.title,
       path: entry.path,
-      bytes: mappedBytes(entry.path) * entry.kinds.split(",").length,
+      bytes: residentBytes(entry),
+      paged: entry.paged,
     }));
     // Growth on an engine pthread reaches this thread's HEAPU8 view only once
     // some glue touches the heap; a stat does (see writeFileBytes).
     exists("/dicts");
-    return { heapBytes: engine.HEAPU8.byteLength, dictionaries };
+    return {
+      heapBytes: engine.HEAPU8.byteLength,
+      pageCacheBytes: engine.ccall("hdw_page_cache_bytes", "number", [], []),
+      dictionaries,
+    };
   },
 };
 
-// The files query.cpp maps when a package loads; dict.zstd is read into a
-// zstd dictionary instead, which holds the same bytes.
-const MAPPED_FILES = ["hash.table", "bloom.filter", "blobs.bin", "media.bin", "media.idx", "scan.idx", "dict.zstd"];
+// The files query.cpp keeps in the heap for a loaded package: its index, which
+// every probe reads, and blobs.bin unless the package is paged. dict.zstd is
+// read into a zstd dictionary, which holds the same bytes, and scan.idx is
+// mapped only for a package loaded as a term dictionary.
+const INDEX_FILES = ["hash.table", "bloom.filter", "media.idx", "dict.zstd"];
 
-function mappedBytes(path) {
+function residentBytes(entry) {
+  const names = [...INDEX_FILES];
+  if (!entry.paged) names.push("blobs.bin");
+  if (entry.kinds.split(",").includes("term")) names.push("scan.idx");
   let bytes = 0;
-  for (const name of MAPPED_FILES) {
-    const file = `${path}/${name}`;
+  for (const name of names) {
+    const file = `${entry.path}/${name}`;
     if (exists(file)) bytes += engine.FS.stat(file).size;
   }
   return bytes;
@@ -3423,5 +3579,7 @@ export function startEngine() {
     throw new Error("the engine service is already started");
   }
   started = true;
-  serialise(boot);
+  // boot() never rejects: a failed start is latched in bootError, which
+  // hd_status and every request needing the engine report.
+  void serialise(boot);
 }

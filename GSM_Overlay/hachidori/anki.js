@@ -21,10 +21,22 @@ const isEnvelope = payload => payload !== null && typeof payload === "object" &&
   && (payload.error === null || typeof payload.error === "string");
 const invalidResponse = () => new Error("AnkiConnect returned an invalid response. Check the add-on and retry.");
 
+// AnkiConnect's createNote names only three states of Anki's note check:
+// normal, empty and duplicate. Anki's three cloze refusals, MISSING_CLOZE,
+// NOTETYPE_NOT_CLOZE and FIELD_NOT_CLOZE, all arrive as this text. The
+// explanation names the rules they share when the broken one is not known.
+const CLOZE_REFUSAL = /^cannot create note for unknown reason$/iu;
+export const isAnkiClozeRefusal = error => CLOZE_REFUSAL.test(error);
+export const ankiClozeRefusal = (refused = "Anki refused the note") => `${refused} because of its cloze deletions ({{c1::…}}): `
+  + "a Cloze note type needs one in its cloze field, and no other field or note type may have one. "
+  + "Check the field mapping in Anki Settings.";
+
 // AnkiConnect's own error strings name the cause but not what to do about it.
-// Each translation keeps the original text so it can still be searched for.
+// Each translation keeps the original text so it can still be searched for,
+// except the API key's, which restates it, and the cloze refusal's, whose raw
+// text names no cause.
 const ANKI_CONNECT_EXPLANATIONS = [
-  [/api key/iu, () => "AnkiConnect requires a valid API key. Enter the key from its add-on configuration."],
+  [/api key/iu, () => "AnkiConnect requires a valid API key. Enter the key from its add-on configuration.", false],
   [/collection is not available/iu,
     () => "Anki has no open collection. Open your profile in Anki, then retry."],
   [/^deck was not found: (.+)$/iu,
@@ -35,21 +47,25 @@ const ANKI_CONNECT_EXPLANATIONS = [
     () => "Anki refused the note because its first field is empty. Map the first field to content this result has."],
   [/^cannot create note because it is a duplicate$/iu,
     () => "Anki refused the note because a note with the same first field already exists."],
+  [CLOZE_REFUSAL, () => ankiClozeRefusal(), false],
   [/^note was not found: (.+)$/iu,
     ([, id]) => `Anki no longer has note ${id}. It was deleted or moved to another collection; refresh and retry.`],
   [/unsupported action|unknown action/iu,
     () => "The installed AnkiConnect add-on is too old for this request. Update AnkiConnect in Anki."],
 ];
 
+// The reader-facing explanation of a known AnkiConnect error string, or null.
+export function explainAnkiConnectError(error) {
+  for (const [pattern, explain, keepRaw = true] of ANKI_CONNECT_EXPLANATIONS) {
+    const match = pattern.exec(error);
+    if (match !== null) return keepRaw ? `${explain(match)} (AnkiConnect: ${error})` : explain(match);
+  }
+  return null;
+}
+
 // Turns a raw AnkiConnect error string into the message shown to the reader.
 export function describeAnkiConnectError(error) {
-  for (const [pattern, explain] of ANKI_CONNECT_EXPLANATIONS) {
-    const match = pattern.exec(error);
-    if (match === null) continue;
-    const explanation = explain(match);
-    return pattern === ANKI_CONNECT_EXPLANATIONS[0][0] ? explanation : `${explanation} (AnkiConnect: ${error})`;
-  }
-  return `AnkiConnect: ${error}`;
+  return explainAnkiConnectError(error) ?? `AnkiConnect: ${error}`;
 }
 
 function unwrap(reply) {
@@ -251,7 +267,7 @@ export function ankiAvailability(config, discovery, resolvedTemplates) {
   }
   if (discovery.fields.length > 0) {
     const markers = ankiTemplateMarkerNames(resolved.templates[discovery.fields[0]].value);
-    if (markers.includes("capture-animation") || markers.includes("capture-audio") || markers.includes("screenshot")) {
+    if (markers.includes("screenshot")) {
       errors.push(`Captured media cannot be mapped to the first field, “${discovery.fields[0]}”.`);
     }
   }

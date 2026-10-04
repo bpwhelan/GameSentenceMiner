@@ -81,15 +81,10 @@ export async function detectLocalAudioSource({ fetch = globalThis.fetch, signal,
   signal?.addEventListener("abort", cancel, { once: true });
   if (signal?.aborted) cancel();
   try {
+    // Send only the Custom JSON term lookup the saved source makes, as Yomitan
+    // does. AnkiWeb's Local Audio Server 1.7.0 raises on a path without a term
+    // (such as /v1/info), and Anki shows that as an add-on error.
     const options = { signal: controller.signal, credentials: "omit", redirect: "error", cache: "no-store" };
-    const response = await fetch("http://127.0.0.1:5050/v1/info", options);
-    if (!response.ok) throw new Error(UNAVAILABLE);
-    const info = await response.json();
-    if (!info || typeof info.lookupMode !== "string" || !Array.isArray(info.sources)
-        || !info.sources.every(source => typeof source === "string")
-        || !(Object.hasOwn(info, "audioPack") || (info.status === "ok" && typeof info.serverVersion === "string"))) {
-      throw new Error(UNAVAILABLE);
-    }
     const sample = await fetch(audioSourceUrl(LOCAL_AUDIO_SOURCE_URL, { expression: "猫", reading: "ねこ" }), options);
     if (!sample.ok) throw new Error(UNAVAILABLE);
     parseAudioSourceList(await sample.json());

@@ -1,0 +1,14 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+:host { color-scheme: light; --hoshidicts-accent: #2455bd; --hoshidicts-text: #111; }
+.gsm-hoshidicts-popup {
+  position: fixed; z-index: 2147483647; pointer-events: auto;
+  box-sizing: border-box; overflow: auto; overscroll-behavior: contain; padding: 8px;
+  background: #fff; color: #111; border: 1px solid #888;
+  font: 14px/1.45 sans-serif; text-align: left;
+  zoom: calc(var(--gsm-hoshidicts-page-zoom, 1) * var(--gsm-hoshidicts-popup-scale, 100%));
+}
+.gsm-hoshidicts-popup[hidden] { display: none !important; }
+.gsm-hoshidicts-definitions { white-space: pre-wrap; overflow-wrap: anywhere; }
+.gsm-hoshidicts-definitions + .gsm-hoshidicts-definitions { margin-top: 8px; }
+.plain-scroll[data-definition-blur="pending"] .gsm-hoshidicts-definitions,
+.plain-scroll[data-definition-blur="blurred"] .gsm-hoshidicts-definitions { filter: blur(5px); }

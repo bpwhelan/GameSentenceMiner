@@ -38,7 +38,6 @@
             <option value="lookup">Reading</option>
             <option value="design">Design</option>
             <option value="audio">Audio</option>
-            <option value="media">Media capture</option>
             <option value="anki">Anki</option>
             <option value="keybinds">Keybinds</option>
             <option value="sharing">Sharing</option>
@@ -63,10 +62,6 @@
           <div class="nav-item">
             <a href="#audio" aria-describedby="nav-status-audio">Audio</a>
             <output class="nav-status" id="nav-status-audio" aria-live="polite"></output>
-          </div>
-          <div class="nav-item">
-            <a href="#media" aria-describedby="nav-status-media">Media capture</a>
-            <output class="nav-status" id="nav-status-media" aria-live="polite"></output>
           </div>
           <div class="nav-item">
             <a href="#anki" aria-describedby="nav-status-anki">Anki</a>
@@ -111,11 +106,11 @@
           <ul id="settings-search-matches"></ul>
         </div>
         <nav class="library-navigation" id="library-navigation" aria-label="Library sections" hidden>
-          <a href="#dictionaries">Dictionaries</a>
-          <a href="#add-dictionaries">Add</a>
-          <a href="#updates">Updates</a>
-          <a href="#dictionary-groups">Groups</a>
-          <a href="#custom-dictionary">Personal dictionary</a>
+          <a href="#dictionaries" data-label="Dictionaries">Dictionaries</a>
+          <a href="#add-dictionaries" data-label="Add">Add</a>
+          <a href="#updates" data-label="Updates">Updates</a>
+          <a href="#dictionary-groups" data-label="Groups">Groups</a>
+          <a href="#custom-dictionary" data-label="Personal dictionary">Personal dictionary</a>
         </nav>
         <section
           class="card library"
@@ -360,7 +355,24 @@
           <div class="card-head">
             <h1 id="custom-dictionary-heading" tabindex="-1">Personal dictionary</h1>
             <p class="hint">Your entries appear first. Save source edits when you are ready.</p>
+            <p class="hint" id="custom-dictionary-off" hidden>The personal dictionary is off, so these entries are left out of lookups.</p>
           </div>
+          <div class="options-feedback-slot"></div>
+          <fieldset class="lookup-group" id="selection-notice-settings">
+            <legend>Lookups</legend>
+            <label class="lookup-enable" data-search-keywords="custom dictionary highlighted selected selection pencil add word">
+              <span>Use the personal dictionary</span>
+              <input id="opt-personal-dictionary" type="checkbox" aria-describedby="personal-dictionary-help" />
+            </label>
+            <p class="field-hint" id="personal-dictionary-help">Highlighting Japanese text looks it up so you can add your own definition with the pencil. Turn this off to stop highlighted text from opening a popup and to hide the pencil; your entries are kept but left out of lookups. To look up a selection on demand, bind Scan selected text in <a href="#keybinds">Keybinds</a>.</p>
+            <div id="selection-notice-controls">
+              <label class="lookup-enable">
+                <span>Show a popup when a selection has no definition</span>
+                <input id="opt-no-result-notice" type="checkbox" aria-describedby="selection-notice-help" />
+              </label>
+              <p class="field-hint" id="selection-notice-help">Use the pencil in the popup to add your own definition. The setup notice still appears when no dictionaries are loaded.</p>
+            </div>
+          </fieldset>
           <form
             class="custom-dictionary-form"
             id="custom-dictionary-form"
@@ -429,25 +441,35 @@
           <fieldset class="lookup-group">
             <legend>Activation</legend>
             <label class="lookup-enable">
-              <span>Enable hover lookups</span>
+              <span>Enable lookups</span>
               <input type="checkbox" id="opt-hover-enabled" />
             </label>
             <div class="fields">
-              <label class="field">
-                <span class="field-label">Lookup mode</span>
-                <select id="opt-lookup-mode">
-                  <option value="activationSticky">Activation key + hover, popup stays open</option>
-                  <option value="activation">Activation key + hover, popup closes on release</option>
-                  <option value="hover">Hover</option>
-                </select>
-                <span class="field-hint">Hold a key to look up a word, or look up automatically on hover.</span>
+              <div class="field">
+                <label class="field-label" for="opt-activation-key"
+                  data-search-keywords="no key hover mouse middle back forward button press to set">Activation key or button</label>
+                <div class="activation-input-controls">
+                  <select id="opt-activation-key" aria-describedby="activation-key-hint"></select>
+                  <button id="opt-activation-record" type="button" class="ghost" aria-pressed="false"
+                    aria-describedby="activation-key-hint">Press to set</button>
+                </div>
+                <span class="field-hint" id="activation-key-hint">Hold this key or button while pointing at a word. No key looks up whenever you hover over Japanese text; child popups set to hold the key use the last key or button chosen. A mouse button used to scan does not also scroll or go back. Some keys are reserved by your browser or operating system.</span>
+              </div>
+              <label class="lookup-enable" id="opt-lookup-sticky-row">
+                <span>Keep the popup open after releasing the key or button</span>
+                <input type="checkbox" id="opt-lookup-sticky" />
               </label>
               <label class="field">
-                <span class="field-label">Activation key</span>
-                <select id="opt-activation-key"></select>
-                <span class="field-hint">Used by the activation key modes. Some keys are reserved by your browser or operating system.</span>
+                <span class="field-label">Child popups</span>
+                <select id="opt-definition-lookup-mode">
+                  <option value="inherit">Same as page lookups</option>
+                  <option value="activation">Hold the activation key</option>
+                  <option value="click">Click a word</option>
+                </select>
+                <span class="field-hint">How words in a popup's definitions open child popups. Dictionary links always open on click.</span>
               </label>
             </div>
+            <p class="field-hint">Highlighting Japanese text also opens a popup while <a href="#custom-dictionary">Library › Personal dictionary</a> is on.</p>
           </fieldset>
           <fieldset class="lookup-group">
             <legend>Scanning</legend>
@@ -456,14 +478,6 @@
               <input type="checkbox" id="opt-japanese-only" />
             </label>
             <div class="fields">
-              <label class="field">
-                <span class="field-label">Hide delay</span>
-                <span class="input-suffix">
-                  <input id="opt-hide-delay" type="number" min="0" max="5000" step="10" />
-                  <span class="suffix">ms</span>
-                </span>
-                <span class="field-hint">Time to move from a word into its popup.</span>
-              </label>
               <label class="field">
                 <span class="field-label">Scan length</span>
                 <input
@@ -476,6 +490,34 @@
                 <span class="field-hint"
                   >Characters read forward from the cursor.</span
                 >
+              </label>
+            </div>
+          </fieldset>
+          <fieldset class="lookup-group" id="cursor-exit-settings">
+            <legend>Popup closing</legend>
+            <div class="fields">
+              <label class="field">
+                <span class="field-label">Grace period to reach the popup</span>
+                <span class="input-suffix">
+                  <input id="opt-hide-delay" type="number" min="0" max="5000" step="10" />
+                  <span class="suffix">ms</span>
+                </span>
+                <span class="field-hint">Time to move from a word into its popup before the popup hides.</span>
+              </label>
+            </div>
+            <label class="lookup-enable">
+              <span>Hide popup on cursor exit</span>
+              <input type="checkbox" id="opt-hide-on-cursor-exit" aria-describedby="cursor-exit-help" />
+            </label>
+            <p class="field-hint" id="cursor-exit-help">When the cursor exits the popup, the popup will be hidden. Child popups close when the cursor returns to their parent.</p>
+            <div class="fields">
+              <label class="field">
+                <span class="field-label">Delay after leaving the popup</span>
+                <span class="input-suffix">
+                  <input id="opt-hide-on-cursor-exit-delay" type="number" min="0" max="5000" step="10" />
+                  <span class="suffix">ms</span>
+                </span>
+                <span class="field-hint">Time outside the popup before it hides.</span>
               </label>
             </div>
           </fieldset>
@@ -504,19 +546,11 @@
 
             </div>
           </fieldset>
-          <fieldset class="lookup-group" id="selection-notice-settings">
-            <legend>Personal dictionary</legend>
-            <label class="lookup-enable">
-              <span>Show a popup when a selection has no definition</span>
-              <input id="opt-no-result-notice" type="checkbox" aria-describedby="selection-notice-help" />
-            </label>
-            <p class="field-hint" id="selection-notice-help">Use the pencil in the popup to add your own definition. The setup notice still appears when no dictionaries are loaded.</p>
-          </fieldset>
           <fieldset class="lookup-group">
-            <legend>Frequency</legend>
+            <legend>Frequency sorting</legend>
             <div class="fields">
               <label class="field">
-                <span class="field-label">Frequency dictionary</span>
+                <span class="field-label">Sort by frequency dictionary</span>
                 <select id="opt-frequency-dictionary"></select>
                 <span class="field-hint">
                   Choosing a dictionary sets its direction from rank or occurrence
@@ -525,7 +559,7 @@
               </label>
 
               <div class="field">
-                <label class="field-label" for="opt-frequency-order">Frequency order</label>
+                <label class="field-label" for="opt-frequency-order">Sort order</label>
                 <div class="frequency-order-controls">
                   <select id="opt-frequency-order" aria-describedby="frequency-order-hint">
                     <option value="auto">Automatic &mdash; all dictionaries</option>
@@ -539,6 +573,7 @@
                 <span class="field-hint" id="frequency-order-hint"></span>
               </div>
             </div>
+            <p class="field-hint">Definition blur can use this dictionary too. How frequencies are shown in the popup is under <a href="#design">Design › Frequency labels</a>.</p>
           </fieldset>
           <fieldset class="lookup-group" id="lookup-history-settings">
             <legend>Lookup history</legend>
@@ -551,15 +586,15 @@
           <fieldset class="lookup-group" id="definition-blur-settings">
             <legend>Definition blur</legend>
             <label class="lookup-enable">
-              <span>Lookup count</span>
+              <span>Blur by lookup count</span>
               <input id="opt-blur-count" type="checkbox" />
             </label>
             <label class="lookup-enable">
-              <span>Mature Anki card</span>
+              <span>Blur mature Anki cards</span>
               <input id="opt-blur-anki" type="checkbox" />
             </label>
             <label class="lookup-enable">
-              <span>Frequency threshold</span>
+              <span>Blur by frequency</span>
               <input id="opt-blur-frequency" type="checkbox" />
             </label>
             <p class="field-hint">Any checked condition can give you a moment to recall a word before showing its meaning.</p>
@@ -583,11 +618,11 @@
               <p class="field-hint" id="definition-blur-anki-help" hidden>Mature means a review card with an interval of at least 21 days. Uses the duplicate scope and dedicated Expression fields selected in <a href="#anki">Anki settings</a>. The shared index refreshes every 30 minutes; its last saved results still work when Anki is closed.</p>
               <div class="fields" id="definition-blur-frequency-controls" hidden>
                 <label class="field">
-                  <span class="field-label">Frequency dictionary</span>
+                  <span class="field-label">Blur threshold dictionary</span>
                   <select id="opt-blur-frequency-dictionary"></select>
                 </label>
                 <label class="field">
-                  <span class="field-label">Frequency order</span>
+                  <span class="field-label">Blur threshold direction</span>
                   <select id="opt-blur-frequency-order">
                     <option value="auto">Automatic from dictionary</option>
                     <option value="ascending">Ascending — lower values qualify</option>
@@ -595,7 +630,7 @@
                   </select>
                 </label>
                 <label class="field">
-                  <span class="field-label">Frequency threshold</span>
+                  <span class="field-label">Threshold (frequency value)</span>
                   <input id="opt-blur-frequency-threshold" type="number" min="1" max="9007199254740991"
                     step="1" inputmode="numeric" />
                 </label>
@@ -628,14 +663,26 @@
           <div class="options-feedback-slot"></div>
           <div class="design-layout">
             <div class="design-controls">
+              <fieldset id="theme-store" class="lookup-group" hidden>
+                <legend>Theme Store</legend>
+                <p class="hint">Choose a bundled popup layout. More themes can ship with future Hachidori releases.</p>
+                <div class="theme-store-carousel">
+                  <button id="theme-store-previous" type="button" class="ghost theme-store-scroll" aria-label="Previous themes" disabled><span class="hd-icon" data-icon="arrow-right" aria-hidden="true"></span></button>
+                  <button id="theme-store-next" type="button" class="ghost theme-store-scroll" aria-label="Next themes" disabled><span class="hd-icon" data-icon="arrow-right" aria-hidden="true"></span></button>
+                  <section class="theme-store-grid" aria-label="Popup themes"></section>
+                </div>
+                <p><a href="https://github.com/bee-san/hachidori-themes" target="_blank" rel="noopener noreferrer">Themes on GitHub</a></p>
+                <output class="theme-store-status" aria-live="polite"></output>
+              </fieldset>
               <fieldset class="lookup-group">
                 <legend>Appearance</legend>
                 <div class="fields">
                   <label class="field">
                     <span class="field-label">Theme</span>
-                    <select id="opt-popup-theme"></select>
+                    <select id="opt-popup-theme" aria-describedby="popup-theme-hint"></select>
+                    <span id="popup-theme-hint" class="field-hint" hidden></span>
                   </label>
-                  <label class="field">
+                  <label class="field" data-design-setting="popupOpacityPercent">
                     <span class="field-label">Background opacity</span>
                     <span class="input-suffix">
                       <input id="opt-popup-opacity" type="number" min="0" max="100" step="1" />
@@ -667,7 +714,7 @@
                   <span class="field-hint">Scale the whole popup, including text and controls. 100% is the default.</span>
                 </label>
                 <p class="field-hint">Popups shrink to fit smaller windows.</p>
-                <label class="field">
+                <label class="field" data-design-setting="popupToolbarPosition">
                   <span class="field-label">Toolbar position</span>
                   <select id="opt-popup-toolbar">
                     <option value="auto">Automatic</option>
@@ -680,16 +727,11 @@
                   <span>Highlight the word on the page</span>
                   <input id="opt-source-highlight" type="checkbox" />
                 </label>
-                <label class="lookup-enable">
-                  <span>Show the audio button</span>
-                  <input id="opt-popup-audio-button" type="checkbox" aria-describedby="popup-audio-button-help" />
-                </label>
-                <p class="field-hint" id="popup-audio-button-help">Autoplay and audio keybinds still work when it's hidden.</p>
               </fieldset>
-              <fieldset class="lookup-group">
+              <fieldset class="lookup-group" data-design-group>
                 <legend>Definitions</legend>
                 <div class="fields">
-                  <label class="field">
+                  <label class="field" data-design-setting="popupColumns">
                     <span class="field-label">Definition columns</span>
                     <select id="opt-popup-columns">
                       <option value="1">1 column</option>
@@ -699,65 +741,116 @@
                     </select>
                     <span class="field-hint">Arrange definition cards side by side.</span>
                   </label>
+                  <label class="field" data-design-setting="glossaryLayoutMode">
+                    <span class="field-label">Compact glossaries</span>
+                    <select id="opt-glossary-layout">
+                      <option value="default">Default</option>
+                      <option value="compact">Compact popup</option>
+                    </select>
+                    <span class="field-hint">Puts the glosses of each sense on one line, separated by |, as in Yomitan. Examples, notes and tables keep their own lines.</span>
+                  </label>
 
-                  <label class="field">
+                  <label class="field" data-design-setting="popupImageSource">
                     <span class="field-label">Image source</span>
                     <select id="opt-image-source"></select>
                     <span class="field-hint">Automatic uses the definition's dictionary. A group tries its enabled dictionaries in order for each image.</span>
                   </label>
-                  <label class="field">
+                  <label class="field" data-design-setting="imageHoverPreview">
+                    <span class="field-label">Image hover preview</span>
+                    <select id="opt-image-hover-preview">
+                      <option value="off">Off</option>
+                      <option value="large">Large images only</option>
+                      <option value="all">All images</option>
+                    </select>
+                    <span class="field-hint">Enlarges a dictionary image on hover or keyboard focus. Large images only skips small inline glyphs such as image brackets and labels.</span>
+                  </label>
+                  <label class="field" data-design-setting="kanjiClickDictionary">
                     <span class="field-label">Clicked-kanji dictionary</span>
                     <select id="opt-kanji-dictionary"></select>
                     <span class="field-hint">Term dictionaries also work when they contain a single-kanji entry. A group shows each of its dictionaries with an entry as its own tab, in group order.</span>
                   </label>
                 </div>
               </fieldset>
-              <fieldset class="lookup-group">
+              <fieldset class="lookup-group" data-design-group>
                 <legend>Frequency labels</legend>
-                <label class="lookup-enable">
-                  <span>Show dictionary names</span>
+                <label class="lookup-enable" data-design-setting="showFrequencyDictionaryNames">
+                  <span>Show frequency dictionary names</span>
                   <input id="opt-frequency-names" type="checkbox" />
                 </label>
-                <label class="lookup-enable">
+                <label class="lookup-enable" data-design-setting="compactFrequencyNumbers">
+                  <span>Abbreviate large numbers (51.5k)</span>
+                  <input id="opt-frequency-compact" type="checkbox" />
+                </label>
+                <label class="lookup-enable" data-design-setting="averageFrequency">
                   <span>Show frequency averages</span>
                   <input id="opt-average-frequency" type="checkbox" />
                 </label>
-                <p class="field-hint">Harmonic mean within each frequency type. Ranks and occurrence counts stay separate.</p>
+                <p class="field-hint" data-design-setting="averageFrequency">Harmonic mean of each dictionary's first value, as in Yomitan. Ranks and occurrence counts stay separate.</p>
+                <p class="field-hint">The sorting and blur dictionaries are under <a href="#lookup">Reading</a>.</p>
               </fieldset>
-              <fieldset class="lookup-group">
+              <fieldset class="lookup-group" data-design-group>
                 <legend>Pitch accent</legend>
-                <label class="lookup-enable">
+                <label class="lookup-enable" data-design-setting="showPitchAccentFurigana">
                   <span>Show pitch in furigana</span>
                   <input id="opt-pitch-furigana" type="checkbox" />
                 </label>
+                <label class="lookup-enable" data-design-setting="showPitchAccentColors">
+                  <span>Show pitch accent colours</span>
+                  <input id="opt-pitch-colors" type="checkbox" />
+                </label>
+                <p class="field-hint" data-design-setting="showPitchAccentColors">Colours the headword and pitch lines by accent group, as jp-mining-note does: <span lang="ja">平板</span> blue, <span lang="ja">頭高</span> red, <span lang="ja">中高</span> orange, <span lang="ja">尾高</span> green, <span lang="ja">起伏</span> purple.</p>
                 <div class="fields">
-                  <label class="field">
-                    <span class="field-label">Preferred dictionary</span>
+                  <label class="field" data-design-setting="pitchAccentFuriganaDictionary">
+                    <span class="field-label">Pitch accent dictionary</span>
                     <select id="opt-pitch-dictionary"></select>
-                    <span class="field-hint">Falls back to the first available pitch pattern.</span>
+                    <span class="field-hint">Used by the furigana and colours. Falls back to the first available pitch pattern.</span>
+                  </label>
+                  <label class="field" data-design-setting="pitchAccentFuriganaStyle">
+                    <span class="field-label">Furigana pitch style</span>
+                    <select id="opt-pitch-furigana-style">
+                      <option value="contour">Contour (over high, under low)</option>
+                      <option value="overline">Overline, like the pitch list (Yomitan)</option>
+                    </select>
+                    <span class="field-hint">Overline draws the headword's pitch as the pitch accents below it do: a line over high morae and a hook where the pitch drops.</span>
                   </label>
                 </div>
-                <label class="lookup-enable">
+                <label class="lookup-enable" data-design-setting="showPitchAccentBadge">
                   <span>Show pitch badges</span>
                   <input id="opt-pitch-badge" type="checkbox" />
                 </label>
+                <label class="lookup-enable" data-design-setting="showPitchAccentDictionaryNames">
+                  <span>Show pitch dictionary names</span>
+                  <input id="opt-pitch-names" type="checkbox" />
+                </label>
+                <label class="lookup-enable" data-design-setting="showPitchAccentText">
+                  <span>Show pitch accent text</span>
+                  <input id="opt-pitch-text" type="checkbox" />
+                </label>
+                <label class="lookup-enable" data-design-setting="showPitchAccentPosition">
+                  <span>Show pitch accent position</span>
+                  <input id="opt-pitch-position" type="checkbox" />
+                </label>
+                <label class="lookup-enable" data-design-setting="showPitchAccentGraph">
+                  <span>Show pitch accent graph</span>
+                  <input id="opt-pitch-graph" type="checkbox" />
+                </label>
               </fieldset>
-              <fieldset class="lookup-group">
+              <fieldset class="lookup-group" data-design-group>
                 <legend>Tags</legend>
-                <label class="lookup-enable">
+                <label class="lookup-enable" data-design-setting="hidePopupGrammarTags">
                   <span>Show grammar tags</span>
                   <input id="opt-grammar-tags" type="checkbox" />
                 </label>
-                <p class="field-hint">Definition tags and phonetic transcriptions remain visible.</p>
+                <p class="field-hint" data-design-setting="hidePopupGrammarTags">Definition tags and phonetic transcriptions remain visible.</p>
               </fieldset>
-              <fieldset class="lookup-group">
+              <fieldset class="lookup-group" data-design-group>
                 <legend>Compact summary</legend>
-                <label class="lookup-enable">
+                <label class="lookup-enable" data-design-setting="showCompactDefinitionSummary">
                   <span>Show brief definitions beside the headword</span>
                   <input id="opt-compact-summary" type="checkbox" />
                 </label>
                 <div class="fields">
-                  <label class="field">
+                  <label class="field" data-design-setting="compactDefinitionSummaryCount">
                     <span class="field-label">Snippets</span>
                     <select id="opt-summary-count">
                       <option value="1">1 snippet</option>
@@ -769,14 +862,14 @@
                     </select>
                     <span class="field-hint">Full definitions stay available below.</span>
                   </label>
-                  <label class="field">
-                    <span class="field-label">Preferred dictionary</span>
+                  <label class="field" data-design-setting="compactDefinitionSummaryDictionary">
+                    <span class="field-label">Summary dictionary</span>
                     <select id="opt-summary-dictionary"></select>
                     <span class="field-hint">Falls back to the first available definition in the current tab.</span>
                   </label>
                 </div>
               </fieldset>
-              <fieldset class="lookup-group" id="custom-buttons-settings">
+              <fieldset class="lookup-group" id="custom-buttons-settings" data-design-setting="customButtons">
                 <legend>Custom buttons</legend>
                 <p id="custom-buttons-overlay-help" class="section-note" hidden>Link buttons open in your system browser from a real lookup popup. The live preview cannot launch links in this overlay.</p>
                 <p class="field-hint">Add link buttons or Anki buttons that use a chosen Template. Buttons appear in this order after the built-in actions.</p>
@@ -840,7 +933,7 @@
                 </div>
               </details>
               <button id="reset-design" type="button" class="ghost">Reset Design to defaults</button>
-              <p class="field-hint">Resets appearance and content controls above. Reading and your library stay unchanged.</p>
+              <p class="field-hint">Resets every Design setting, including ones this theme hides, and switches back to the Default theme. Reading and your library stay unchanged.</p>
             </div>
             <section class="design-sample" aria-labelledby="design-preview-heading">
               <div class="preview-heading">
@@ -866,6 +959,11 @@
           </div>
           <div class="options-feedback-slot"></div>
           <label class="lookup-enable"><span>Automatically play the first lookup result</span><input id="opt-audio-autoplay" type="checkbox"></label>
+          <label class="lookup-enable">
+            <span>Show the audio button</span>
+            <input id="opt-popup-audio-button" type="checkbox" aria-describedby="popup-audio-button-help" />
+          </label>
+          <p class="field-hint" id="popup-audio-button-help">Autoplay and audio keybinds still work when it's hidden.</p>
           <p id="audio-mining-help" class="section-note" hidden>Browser speech can play in this overlay, but cannot be recorded into Anki. Add a downloadable pronunciation source to fill <code>{audio}</code> fields.</p>
           <ol id="audio-source-list" class="audio-source-list"></ol>
           <p id="audio-source-empty" class="hint" hidden>No audio sources. Add one to configure pronunciation.</p>
@@ -874,127 +972,8 @@
             <summary>Help</summary>
             <p class="field-hint">URL templates accept <code>{term}</code>, <code>{expression}</code>, <code>{reading}</code> and <code>{language}</code>, URL-encoded. Yomitan JSON sources return an <code>audioSourceList</code>.</p>
             <p class="field-hint">Shift-click or right-click the popup's audio button to choose a pronunciation.</p>
-            <p id="audio-speech-capture-help" class="field-hint">To add browser speech to Anki, start Media capture with shared audio.</p>
             <p class="field-hint">Sources receive the word and reading. Remote URLs need HTTPS; localhost may use HTTP. Some system voices are online.</p>
           </details>
-        </section>
-        <section class="card" id="media" aria-labelledby="media-heading" hidden>
-          <div class="section-heading">
-            <div class="card-head">
-              <h1 id="media-heading" tabindex="-1">Media capture</h1>
-              <p id="media-heading-help" class="hint">Optional local recording for Anki notes. Changes save automatically.</p>
-            </div>
-            <button id="media-open-capture" type="button" class="primary-button">Open capture controls</button>
-          </div>
-          <div class="options-feedback-slot"></div>
-          <p id="media-overlay-help" class="section-note" hidden>Hachidori recording is unavailable in this embedded overlay. GameSentenceMiner owns game screenshots, recordings and sentence audio; these saved browser settings are left unchanged.</p>
-          <output id="media-runtime-status" class="operational-status" aria-live="polite" aria-atomic="true">
-            Capture is stopped.
-          </output>
-          <p id="media-browser-help" class="section-note">
-            Open the capture controls to choose a tab, window, or entire screen. Capture keeps running when you close
-            the controls. Hachidori never requests microphone access.
-          </p>
-          <fieldset class="lookup-group">
-            <legend>Recording</legend>
-            <label class="lookup-enable">
-              <span>Enable captured media mining</span>
-              <input id="opt-media-enabled" type="checkbox" />
-            </label>
-            <div class="fields">
-              <label class="lookup-enable">
-                <span>Animated AVIF</span>
-                <input id="opt-media-animation" type="checkbox" />
-              </label>
-              <label class="lookup-enable">
-                <span>Captured WAV audio</span>
-                <input id="opt-media-audio" type="checkbox" />
-              </label>
-              <label class="field">
-                <span class="field-label">History</span>
-                <select id="opt-media-history">
-                  <option value="30">30 seconds</option>
-                  <option value="60">60 seconds</option>
-                </select>
-                <span class="field-hint">Recorder history retained only in memory.</span>
-              </label>
-              <label class="field">
-                <span class="field-label">Maximum clip</span>
-                <select id="opt-media-clip">
-                  <option value="5">5 seconds</option>
-                  <option value="10">10 seconds</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="field-label">Video preset</span>
-                <select id="opt-media-preset">
-                  <option value="standard">Standard · 640×360, 8 fps</option>
-                  <option value="compact">Compact · 480×270, 6 fps</option>
-                </select>
-                <span class="field-hint">Never upscales a smaller source.</span>
-              </label>
-            </div>
-          </fieldset>
-          <fieldset class="lookup-group">
-            <legend>Timing</legend>
-            <div class="fields">
-              <label class="field">
-                <span class="field-label">Mode</span>
-                <select id="opt-media-timing">
-                  <option value="auto">Automatic priority</option>
-                  <option value="page">Page cues and watched text</option>
-                  <option value="recent">Preceding recent clip</option>
-                </select>
-                <span class="field-hint">Automatic uses texthooker, native video cues, page text, then recent history.</span>
-              </label>
-              <label class="field">
-                <span class="field-label">Estimated text offset</span>
-                <span class="input-suffix">
-                  <input id="opt-media-offset" type="number" min="-2000" max="2000" step="50" />
-                  <span class="suffix">ms</span>
-                </span>
-                <span class="field-hint">Applied to texthooker and watched page text, not native cues.</span>
-              </label>
-            </div>
-            <label class="lookup-enable">
-              <span>Use accessible native video cues</span>
-              <input id="opt-media-native-cues" type="checkbox" />
-            </label>
-            <label class="lookup-enable">
-              <span>Watch text inside a bounded page area</span>
-              <input id="opt-media-dom-text" type="checkbox" />
-            </label>
-            <label class="lookup-enable">
-              <span>Learn that area from the first root lookup</span>
-              <input id="opt-media-auto-area" type="checkbox" />
-            </label>
-          </fieldset>
-          <fieldset class="lookup-group">
-            <legend>Texthooker</legend>
-            <label class="lookup-enable">
-              <span>Use a loopback WebSocket text feed</span>
-              <input id="opt-media-texthooker" type="checkbox" />
-            </label>
-            <div class="fields">
-              <label class="field">
-                <span class="field-label">WebSocket URL</span>
-                <input id="opt-media-texthooker-url" type="url" spellcheck="false"
-                  placeholder="ws://127.0.0.1:7275/ws/texthooker" />
-                <span class="field-hint">Only localhost, 127.0.0.1 or [::1] ws/wss endpoints are accepted.</span>
-              </label>
-              <label class="field">
-                <span class="field-label">Message format</span>
-                <select id="opt-media-texthooker-format">
-                  <option value="plain">Plain live text</option>
-                  <option value="gsm">JSON · text_received</option>
-                </select>
-              </label>
-            </div>
-          </fieldset>
-          <p id="media-template-help" class="section-note">
-            Anki templates use <code>{capture-animation}</code> and <code>{capture-audio}</code>.
-            Captured media cannot be placed in the first Anki field.
-          </p>
         </section>
         <section class="card" id="anki" aria-labelledby="anki-heading" hidden>
           <div class="section-heading">
@@ -1110,7 +1089,7 @@
             <div class="anki-setting-row">
               <div class="anki-setting-col">
                 <span class="field-label">Local Audio Server Add-on</span>
-                <span class="field-hint">127.0.0.1:5050 · Detected offline pronunciation cache</span>
+                <span class="field-hint">127.0.0.1:5050 · Offline pronunciations from the Local Audio Server for Yomichan Anki add-on</span>
                 <div class="sharing-actions">
                   <button id="anki-audio-check" type="button" class="ghost">Detect local audio</button>
                   <button id="anki-audio-add" type="button" class="ghost" hidden>Add detected audio source</button>
@@ -1256,18 +1235,19 @@
         <section class="card" id="advanced" aria-labelledby="advanced-heading" hidden>
           <div class="card-head">
             <h1 id="advanced-heading" tabindex="-1" data-search-keywords="experimental beta labs flags preview">Advanced</h1>
-            <p class="hint">Features that are still changing. Changes save automatically.</p>
+            <p class="hint">Memory use and features that are still changing. Changes save automatically.</p>
           </div>
           <div class="options-feedback-slot"></div>
           <fieldset class="lookup-group" id="memory-settings">
             <legend data-search-keywords="ram memory heap low memory mode">Memory</legend>
             <p id="memory-total" class="section-note" aria-live="polite">Engine memory: —</p>
-            <p class="hint">Every installed dictionary is held in memory while the engine runs. Each dictionary's share is under its Details in Library. <a href="https://github.com/bee-san/hachidori/blob/main/docs/memory.md" target="_blank" rel="noopener noreferrer">How Hachidori uses memory</a></p>
+            <p id="memory-extension-total" class="section-note" aria-live="polite">Extension total: —</p>
+            <p class="hint">Installed dictionaries are held in memory while the engine runs; their images are read from disk when shown. Each dictionary's share is under its Details in Library. <a href="https://github.com/bee-san/hachidori/blob/main/docs/memory.md" target="_blank" rel="noopener noreferrer">How Hachidori uses memory</a></p>
             <label class="lookup-enable" id="low-memory-mode">
               <span>Low memory mode</span>
               <input type="checkbox" id="opt-low-memory-mode" aria-describedby="opt-low-memory-mode-help" />
             </label>
-            <p class="field-hint" id="opt-low-memory-mode-help">Frees the memory an import or dictionary change leaves behind by restarting the engine once it is idle. Imports run on one thread and are slower, and dictionaries reload briefly after a change.</p>
+            <p class="field-hint" id="opt-low-memory-mode-help">Keeps only each dictionary's index in memory and reads its entries from disk as you look words up. With the recommended dictionaries installed the engine uses about 100 MB instead of 320 MB, and a lookup takes about 0.4 ms longer. Imports run on one thread and are slower, and dictionaries reload briefly after a change.</p>
             <p class="hint" id="low-memory-mode-unavailable" hidden>Low memory mode needs the threaded engine, which this browser does not run.</p>
           </fieldset>
           <fieldset class="lookup-group" id="experimental-settings">

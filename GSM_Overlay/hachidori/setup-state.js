@@ -31,9 +31,22 @@ export const OVERLAY_MODE_OPTIONS = Object.freeze({
   anki: Object.freeze({ captureScreenshot: false }),
 });
 
+// Stored options are sparse, and readers fill a missing mode with the
+// browser's Shift default. An overlay record that never chose a mode, such as
+// a restored browser backup or a profile from before overlay mode, reads on
+// hover instead. A legacy `modifier` is a choice: reader-options.js migrates
+// it. A record that already chose is returned unchanged.
+export function withOverlayLookupDefault(record) {
+  const source = record && typeof record === "object" && !Array.isArray(record) ? record : {};
+  return Object.hasOwn(source, "lookupMode") || Object.hasOwn(source, "modifier")
+    ? source : { ...source, lookupMode: OVERLAY_MODE_OPTIONS.lookupMode };
+}
+
 // These describe the local reading surface, even while its library is shared.
 export const OVERLAY_LOCAL_OPTION_KEYS = Object.freeze([
-  "hoverEnabled", "onlyScanJapaneseText", "showNoResultNotice", "lookupMode", "activationKey", "popupHideDelayMs",
+  "hoverEnabled", "onlyScanJapaneseText", "personalDictionaryEnabled", "showNoResultNotice", "lookupMode", "activationKey",
+  "definitionLookupMode", "popupHideDelayMs",
+  "hidePopupOnCursorExit", "hidePopupOnCursorExitDelayMs",
   "sourceHighlightEnabled", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupColumns", "popupToolbarPosition", "popupNestingMaxDepth",
 ]);
 
@@ -42,7 +55,6 @@ export const OVERLAY_LOCAL_OPTION_KEYS = Object.freeze([
 export function capabilityAnkiOptions(options, {
   screenshot = true,
   browserSpeech = true,
-  mediaCapture = true,
 } = {}) {
   return {
     ...options,
@@ -56,14 +68,13 @@ export function capabilityAnkiOptions(options, {
     audioSources: browserSpeech
       ? options.audioSources
       : options.audioSources.filter(source => !source.type.startsWith("text-to-speech")),
-    mediaCapture: { ...options.mediaCapture, enabled: mediaCapture && options.mediaCapture.enabled },
   };
 }
 
-// Electron has no chrome.tabs.captureVisibleTab, and no capture host can record
-// browser text-to-speech, so only downloadable pronunciations reach Anki.
+// An overlay cannot capture a reading tab. Browser speech remains playback-only,
+// so only downloadable pronunciations reach Anki.
 export function overlayAnkiOptions(options) {
-  return capabilityAnkiOptions(options, { screenshot: false, browserSpeech: false, mediaCapture: false });
+  return capabilityAnkiOptions(options, { screenshot: false, browserSpeech: false });
 }
 
 // How each first-install option's value is built from a committed title.

@@ -9,6 +9,7 @@ import {
 import { assertDictionaryUpdateSchedule, assertRecommendedDictionary, normaliseUpdateSettings, recommendedDictionarySource } from "./managed-dictionary-source.js";
 import { sameJsonValue } from "./json-value.js";
 import { assertLookupStatsDescriptor } from "./lookup-stats.js";
+import { withOverlayLookupDefault } from "./setup-state.js";
 
 export function backupRevisions(snapshot) {
   return Object.fromEntries(["state", "options", "document", "updates", "lookupStats"].map(key => {
@@ -17,11 +18,13 @@ export function backupRevisions(snapshot) {
   }));
 }
 
-export function restoredBackupSnapshot(current, archived, dictionaries) {
+// An overlay restores an archive that never chose a lookup mode on hover. The
+// engine builds the snapshot once, so the storage CAS and its exact readback
+// commit and verify the same values.
+export function restoredBackupSnapshot(current, archived, dictionaries, { overlay = false } = {}) {
+  const options = overlay ? withOverlayLookupDefault(archived.options) : archived.options;
   return Object.fromEntries(Object.entries(backupRevisions(current)).map(([key, revision]) => [key, {
-    ...(key === "options"
-      ? globalThis.HDReaderOptions.projectStoredOptions(archived[key])
-      : archived[key]),
+    ...(key === "options" ? globalThis.HDReaderOptions.projectStoredOptions(options) : archived[key]),
     ...(key === "state" ? { dictionaries } : {}),
     ...(key === "lookupStats" ? { generation: crypto.randomUUID() } : {}),
     revision: revision + 1,
@@ -70,7 +73,8 @@ function assertGroups(groups, dictionaries) {
 
 function validBackupReaderOptions(options) {
   if (!options || typeof options !== "object" || Array.isArray(options)) return false;
-  const allowed = new Set([...Object.keys(globalThis.HDReaderOptions.DEFAULT_OPTIONS), "modifier"]);
+  const { DEFAULT_OPTIONS, RETIRED_OPTION_KEYS } = globalThis.HDReaderOptions;
+  const allowed = new Set([...Object.keys(DEFAULT_OPTIONS), ...RETIRED_OPTION_KEYS]);
   if (Object.keys(options).some(key => !allowed.has(key))) return false;
   let projected;
   try {

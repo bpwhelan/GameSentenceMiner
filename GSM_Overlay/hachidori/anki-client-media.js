@@ -1,28 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import {
-  MAX_ANIMATED_AVIF_BYTES,
-  MAX_WAV_BYTES,
-} from "./media-limits.js";
+import { MAX_WAV_BYTES } from "./media-limits.js";
 
 export const MAX_LINKED_SCREENSHOT_BYTES = 6 * 1024 * 1024;
 export const MAX_LINKED_SPEECH_BYTES = MAX_WAV_BYTES;
-export const CAPTURE_FILENAMES = Object.freeze({
-  animation: /^hachidori-[a-z0-9]+\.avif$/u,
-  audio: /^hachidori-[a-z0-9]+\.wav$/u,
-});
-export const CAPTURE_LIMITS = Object.freeze({
-  animation: MAX_ANIMATED_AVIF_BYTES,
-  audio: MAX_WAV_BYTES,
-});
 const SCREENSHOT_FILENAME = /^hachidori-screenshot-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg$/u;
 const SPEECH_FILENAME = /^hachidori_[0-9a-f]{64}\.wav$/u;
-const CLIENT_MEDIA_FIELDS = new Set(["screenshot", "capture", "speech"]);
+const CLIENT_MEDIA_FIELDS = new Set(["screenshot", "speech"]);
 const SCREENSHOT_FIELDS = new Set(["token", "filename", "data"]);
-const CAPTURE_FIELDS = new Set(["jobId", "warnings", "assets"]);
-const ASSET_FIELDS = new Set(["filename", "byteLength", "data"]);
 const SPEECH_PLAN_FIELDS = new Set(["sourceId", "sourceKey", "expression", "reading"]);
 const SPEECH_FIELDS = new Set([...SPEECH_PLAN_FIELDS, "filename", "byteLength", "data"]);
-const CAPTURE_KINDS = ["animation", "audio"];
 
 function record(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -58,36 +44,6 @@ function validateScreenshot(request, value) {
     throw new Error("The linked screenshot payload is invalid, stale, or exceeds its size limit.");
   }
   return { token: value.token, filename: value.filename, data: value.data };
-}
-
-function validateAsset(request, kind, value) {
-  exactFields(value, ASSET_FIELDS, `captured ${kind}`);
-  const expectedFilename = request?.capturePin?.[kind === "animation" ? "animationFilename" : "audioFilename"];
-  const byteLength = decodedBase64Length(value.data);
-  if (typeof expectedFilename !== "string" || value.filename !== expectedFilename
-      || !CAPTURE_FILENAMES[kind].test(value.filename)
-      || !Number.isSafeInteger(value.byteLength) || value.byteLength < 1
-      || value.byteLength > CAPTURE_LIMITS[kind]
-      || byteLength === null || byteLength !== value.byteLength) {
-    throw new Error(`The linked captured ${kind} payload is invalid, stale, or exceeds its size limit.`);
-  }
-  return { filename: value.filename, byteLength: value.byteLength, data: value.data };
-}
-
-function validateCapture(request, value) {
-  exactFields(value, CAPTURE_FIELDS, "captured-media");
-  if (typeof request?.captureJobId !== "string" || request.captureJobId === ""
-      || request.captureJobId.length > 256 || value.jobId !== request.captureJobId
-      || !Array.isArray(value.warnings) || value.warnings.length > 64
-      || value.warnings.some(warning => typeof warning !== "string" || warning.length > 500)
-      || !record(value.assets) || Object.keys(value.assets).some(kind => !CAPTURE_KINDS.includes(kind))) {
-    throw new Error("The linked captured-media payload is invalid or stale.");
-  }
-  const assets = {};
-  for (const kind of CAPTURE_KINDS) {
-    if (value.assets[kind] !== undefined) assets[kind] = validateAsset(request, kind, value.assets[kind]);
-  }
-  return { jobId: value.jobId, warnings: [...value.warnings], assets };
 }
 
 function validateSpeechPlan(value, label = "browser-speech plan") {
@@ -129,16 +85,13 @@ function validateSpeech(request, value) {
 export function validateLinkedAnkiClientMedia(request, value) {
   exactFields(value, CLIENT_MEDIA_FIELDS, "client-media envelope");
   const expectsScreenshot = record(request?.screenshot) && !unavailable(request, "screenshot");
-  const expectsCapture = typeof request?.captureJobId === "string" && request.captureJobId !== "";
   const expectsSpeech = record(request?.clientSpeech);
   if (expectsScreenshot !== (value.screenshot !== undefined)
-      || expectsCapture !== (value.capture !== undefined)
       || expectsSpeech !== (value.speech !== undefined)) {
     throw new Error("The linked client-media envelope is missing media for this mining request.");
   }
   return {
     ...(value.screenshot === undefined ? {} : { screenshot: validateScreenshot(request, value.screenshot) }),
-    ...(value.capture === undefined ? {} : { capture: validateCapture(request, value.capture) }),
     ...(value.speech === undefined ? {} : { speech: validateSpeech(request, value.speech) }),
   };
 }

@@ -1078,9 +1078,22 @@ html[data-hoshidicts-theme="girlypop"],
   --hoshidicts-frequency: var(--hoshidicts-palette-info);
   --hoshidicts-frequency-text: var(--hoshidicts-palette-info-content);
   --hoshidicts-pitch: var(--hoshidicts-palette-accent);
+  /* Pitch accent groups: jp-mining-note's colours for 平板, 頭高, 中高, 尾高 and
+     起伏. Each is adjusted only as far as 3:1 needs on every palette's cards,
+     header and 85% popup body over a white or a black page: light palettes
+     darken JPMN's day values, dark palettes use its night values with 頭高 and
+     起伏 lightened. The popup's color-scheme picks the pair. Custom CSS can
+     restyle these, for example for colour-vision deficiencies. */
+  --hoshidicts-pitch-heiban: light-dark(#096abd, #59b2ff);
+  --hoshidicts-pitch-atamadaka: light-dark(#bb3a3a, #ff8686);
+  --hoshidicts-pitch-nakadaka: light-dark(#a75113, #ff9b54);
+  --hoshidicts-pitch-odaka: light-dark(#007a16, #67e47d);
+  --hoshidicts-pitch-kifuku: light-dark(#7b51c0, #bc99f6);
   --hoshidicts-tag-text: var(--hoshidicts-palette-neutral-content);
   --hoshidicts-tag-expression-text: var(--hoshidicts-palette-secondary-content);
   --hoshidicts-tag-part-of-speech-text: var(--hoshidicts-palette-accent-content);
+  --hoshidicts-tag-popular-text: var(--hoshidicts-palette-primary-content);
+  --hoshidicts-tag-frequent-text: var(--hoshidicts-palette-info-content);
   --background-color: var(--hoshidicts-popup-background);
   --background-color-light: var(--hoshidicts-card-background);
   --background-color-dark1: var(--hoshidicts-surface-raised);
@@ -1088,9 +1101,42 @@ html[data-hoshidicts-theme="girlypop"],
   --text-color-light1: var(--hoshidicts-text-muted);
   --text-color-light2: var(--hoshidicts-text-faint);
   --accent-color: var(--hoshidicts-accent);
+  /* The rest of the display.css names the glossary rules read, mapped onto the
+     palette (Yomitan's light3/light4 are its faintest text). */
+  --text-color-light3: var(--hoshidicts-text-faint);
+  --text-color-light4: var(--hoshidicts-text-faint);
+  --link-color: var(--hoshidicts-link);
+  --accent-color-dark: var(--hoshidicts-link-hover);
+  --gloss-image-background-color: var(--hoshidicts-surface);
+  --line-height: 1.5;
+  --list-padding1: 1.4em;
+  --list-padding2: var(--list-padding1);
+  --compact-list-separator: " | ";
+  --hd-compact-list-separator-color: var(--text-color-light3);
+  --font-size-no-units: 14;
+  --danger-color: var(--hoshidicts-danger);
+  /* display-pronunciation.css: Yomitan draws pitch in the text colour. */
+  --pronunciation-annotation-color: var(--text-color);
   --tag-default-background-color: var(--hoshidicts-palette-neutral);
   --tag-expression-background-color: var(--hoshidicts-palette-secondary);
   --tag-part-of-speech-background-color: var(--hoshidicts-palette-accent);
+  --tag-popular-background-color: var(--hoshidicts-palette-primary);
+  --tag-frequent-background-color: var(--hoshidicts-palette-info);
+  /* Density tokens. The default is compact; a Comfortable density (or a theme)
+     only needs to override these on the host. */
+  --hd-space-1: 2px;
+  --hd-space-2: 4px;
+  --hd-space-3: 6px;
+  --hd-space-4: 8px;
+  --hd-popup-padding: var(--hd-space-3) var(--hd-space-4) var(--hd-space-4);
+  --hd-header-padding: var(--hd-space-3) var(--hd-space-4);
+  --hd-card-padding: 7px 9px 8px;
+  --hd-control-size: 32px;
+  --hd-font-headword: 28px;
+  --hd-font-reading: 14px;
+  --hd-font-label: 12px;
+  --hd-font-gloss: 16px;
+  --hd-line-gloss: 1.5;
   position: fixed;
   z-index: 2147483646;
   zoom: calc(var(--gsm-hoshidicts-page-zoom, 1) * var(--gsm-hoshidicts-popup-scale, 100%));
@@ -1106,8 +1152,6 @@ html[data-hoshidicts-theme="girlypop"],
   border: 1px solid var(--hoshidicts-border-strong);
   border-radius: 14px;
   background: var(--hoshidicts-popup-background);
-  -webkit-backdrop-filter: blur(16px) saturate(1.08);
-  backdrop-filter: blur(16px) saturate(1.08);
   -webkit-backdrop-filter: var(
     --gsm-hoshidicts-popup-backdrop-filter,
     blur(16px) saturate(1.08)
@@ -1243,7 +1287,7 @@ html[data-hoshidicts-theme="girlypop"],
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 9px 11px 11px;
+  padding: var(--hd-popup-padding);
 }
 
 .gsm-hoshidicts-content-scroll::-webkit-scrollbar,
@@ -1302,8 +1346,8 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 .gsm-hoshidicts-primary-header {
-  min-height: 42px;
-  padding: 11px;
+  min-height: 36px;
+  padding: var(--hd-header-padding);
 }
 
 .gsm-hoshidicts-primary-header > .gsm-hoshidicts-entry-actions:only-child {
@@ -1326,7 +1370,7 @@ html[data-hoshidicts-theme="girlypop"],
   min-width: 0;
   box-sizing: border-box;
   margin: 0;
-  padding: 8px 11px 9px;
+  padding: 5px var(--hd-space-4) 6px;
   border-top: 1px solid var(--hoshidicts-border);
 }
 
@@ -1338,7 +1382,7 @@ html[data-hoshidicts-theme="girlypop"],
   display: flex;
   flex: 1 1 auto;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 5px;
   width: auto;
   min-width: 0;
   box-sizing: border-box;
@@ -1369,10 +1413,10 @@ html[data-hoshidicts-theme="girlypop"],
   flex-wrap: wrap;
   align-items: baseline;
   max-width: max-content;
-  margin: 7px 0 0;
+  margin: var(--hd-space-2) 0 0;
   color: var(--text-color-light1);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--hd-font-label);
+  line-height: 1.3;
   white-space: normal;
 }
 
@@ -1407,6 +1451,18 @@ html[data-hoshidicts-theme="girlypop"],
   content: "•";
 }
 
+/* Averages keep each dictionary's tag in the DOM, hidden, as Yomitan does;
+   custom CSS may reveal them. A hidden group takes no separator. */
+.gsm-hoshidicts-primary-frequencies[hidden] + .gsm-hoshidicts-primary-grammar::before {
+  content: none;
+}
+
+.gsm-hoshidicts-primary-frequencies[hidden],
+.gsm-hoshidicts-tag-frequency[hidden],
+.gsm-hoshidicts-frequency-metadata[hidden] {
+  display: none;
+}
+
 .gsm-hoshidicts-primary-grammar {
   color: var(--text-color-light1);
 }
@@ -1427,15 +1483,15 @@ html[data-hoshidicts-theme="girlypop"],
 .gsm-hoshidicts-tab {
   flex: 0 0 auto;
   max-width: min(150px, 58vw);
-  min-height: 34px;
-  padding: 6px 13px;
+  min-height: 28px;
+  padding: 4px 10px;
   overflow: hidden;
   border: 1px solid var(--hoshidicts-border);
   border-radius: 7px;
   background: var(--hoshidicts-surface);
   color: var(--text-color-light1);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--hd-font-label);
   font-weight: 600;
   line-height: 18px;
   text-overflow: ellipsis;
@@ -1469,7 +1525,7 @@ html[data-hoshidicts-theme="girlypop"],
   overflow-y: auto;
   display: grid;
   gap: 7px;
-  margin: 8px 11px;
+  margin: var(--hd-space-3) var(--hd-space-4);
   padding: 8px;
   border: 1px solid var(--hoshidicts-border-strong);
   border-radius: 8px;
@@ -1479,22 +1535,12 @@ html[data-hoshidicts-theme="girlypop"],
 .gsm-hoshidicts-audio-control { display: flex; align-items: flex-start; justify-content: end; gap: 6px; }
 .gsm-hoshidicts-audio-control[hidden],
 :host([data-hoshidicts-audio-button="hidden"]) .gsm-hoshidicts-audio-control { display: none; }
+:host([data-hoshidicts-note-button="hidden"]) .gsm-hoshidicts-note-button { display: none; }
 .gsm-hoshidicts-audio-control > button { flex-shrink: 0; }
 .gsm-hoshidicts-audio-status { max-width: 160px; padding-top: 4px; color: var(--text-color-light1); font-size: 11px; overflow-wrap: anywhere; }
 .gsm-hoshidicts-audio-status:empty { display: none; }
 .gsm-hoshidicts-anki-control { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; }
 .gsm-hoshidicts-anki-control[hidden] { display: none; }
-.gsm-hoshidicts-capture-badge {
-  max-width: 150px;
-  padding: 2px 6px;
-  border: 1px solid color-mix(in srgb, var(--accent-color) 45%, transparent);
-  border-radius: 999px;
-  color: var(--text-color-light1);
-  font-size: 10px;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-.gsm-hoshidicts-capture-badge[hidden] { display: none; }
 .gsm-hoshidicts-anki-status { min-width: 0; font: inherit; color: inherit; overflow-wrap: anywhere; }
 .gsm-hoshidicts-anki-status:empty { display: none; }
 
@@ -1586,8 +1632,8 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 .gsm-hoshidicts-entry + .gsm-hoshidicts-entry {
-  margin-top: 9px;
-  padding-top: 9px;
+  margin-top: var(--hd-space-3);
+  padding-top: var(--hd-space-3);
   border-top: 1px solid var(--hoshidicts-border);
 }
 
@@ -1596,8 +1642,8 @@ html[data-hoshidicts-theme="girlypop"],
   flex-wrap: wrap-reverse;
   align-items: center;
   justify-content: space-between;
-  min-height: 42px;
-  gap: 10px;
+  min-height: 34px;
+  gap: var(--hd-space-4);
 }
 
 .gsm-hoshidicts-entry-header > .gsm-hoshidicts-headword,
@@ -1612,15 +1658,15 @@ html[data-hoshidicts-theme="girlypop"],
   flex: 1 1 auto;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 4px 12px;
+  gap: var(--hd-space-1) 10px;
 }
 
 .gsm-hoshidicts-expression {
   min-width: 0;
   flex: 0 1 auto;
   overflow-wrap: anywhere;
-  font-size: 32px;
-  line-height: 1.22;
+  font-size: var(--hd-font-headword);
+  line-height: 1.2;
   ruby-align: center;
   ruby-position: over;
 }
@@ -1638,6 +1684,14 @@ html[data-hoshidicts-theme="girlypop"],
 .gsm-hoshidicts-entry-header:has(.gsm-hoshidicts-deinflection),
 .gsm-hoshidicts-kanji-navigation:has(.gsm-hoshidicts-deinflection) {
   align-items: flex-start;
+}
+
+/* An icon-only toolbar now shares the headword's line; keep it beside the
+   word rather than at the foot of an expanded trace, where the result
+   chrome's max-height would scroll it out of reach. */
+.gsm-hoshidicts-entry-header:has(.gsm-hoshidicts-deinflection[open]) > .gsm-hoshidicts-entry-actions {
+  /* start, not flex-start: the row wraps in reverse. */
+  align-self: start;
 }
 
 .gsm-hoshidicts-deinflection > summary {
@@ -1673,7 +1727,7 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-expression rt {
   color: var(--text-color-light1);
-  font-size: 15px;
+  font-size: var(--hd-font-reading);
   font-weight: 400;
   line-height: 1;
   user-select: none;
@@ -1683,7 +1737,10 @@ html[data-hoshidicts-theme="girlypop"],
   display: inline-flex;
   flex-direction: column-reverse;
   align-items: stretch;
-  vertical-align: bottom;
+  /* Every segment's reading row is the same height, but a kanji segment's
+     base is 1px taller (its link's dotted underline). Top alignment keeps the
+     contour and the headword text on one row across segments. */
+  vertical-align: top;
 }
 
 .gsm-hoshidicts-pitch-base {
@@ -1728,8 +1785,32 @@ html[data-hoshidicts-theme="girlypop"],
   top: 0;
   right: -1px;
   bottom: 0;
-  border-right: 2px solid var(--hoshidicts-pitch);
+  /* A rise or drop must also cover the 2px lines it joins, or the corner it
+     turns is notched. Chrome rounds zoomed border widths down to whole
+     device pixels, so a fixed -2px offset overshoots the lines at some
+     display and popup scales. Instead the stroke is a border image extended
+     by its own 2px top and bottom borders, which round like the mora's. It
+     paints currentColor so that forced colours still recolour it. */
+  border: 2px solid transparent;
+  border-left-width: 0;
+  border-image-source: linear-gradient(currentColor 0 0);
+  border-image-slice: 0 fill;
+  border-image-width: 0;
+  border-image-outset: 1 0;
+  color: var(--hoshidicts-pitch);
   content: "";
+}
+
+/* Design → Pitch accent → Furigana pitch style "overline": the pitch list's
+   Yomitan text (.pronunciation-mora and its line, display-pronunciation.css
+   below) in the headword's reading. Each mora fills its share of the segment,
+   as a contour mora does, so the overline runs on unbroken over kanji. The
+   reading's line height is 1, so the padding gives the line the room above the
+   kana that the list's 1.5 line height gives it. */
+.gsm-hoshidicts-pitch-contour[data-pitch-style="overline"] > .pronunciation-mora {
+  flex: 1 1 auto;
+  padding-top: 0.3em;
+  text-align: center;
 }
 
 .gsm-hoshidicts-popup[data-definition-blur-state="pending"] .gsm-hoshidicts-expression rt,
@@ -1738,20 +1819,56 @@ html[data-hoshidicts-theme="girlypop"],
   user-select: none;
 }
 
+.gsm-hoshidicts-popup [data-pitch-category="heiban"] { --hoshidicts-pitch-category: var(--hoshidicts-pitch-heiban); }
+.gsm-hoshidicts-popup [data-pitch-category="atamadaka"] { --hoshidicts-pitch-category: var(--hoshidicts-pitch-atamadaka); }
+.gsm-hoshidicts-popup [data-pitch-category="nakadaka"] { --hoshidicts-pitch-category: var(--hoshidicts-pitch-nakadaka); }
+.gsm-hoshidicts-popup [data-pitch-category="odaka"] { --hoshidicts-pitch-category: var(--hoshidicts-pitch-odaka); }
+.gsm-hoshidicts-popup [data-pitch-category="kifuku"] { --hoshidicts-pitch-category: var(--hoshidicts-pitch-kifuku); }
+
+/* Show pitch accent colours: each badge's overline, downstep hook and graph
+   take its own pitch's group. */
+:host([data-hoshidicts-pitch-colors]) .pronunciation[data-pitch-category] {
+  --pronunciation-annotation-color: var(--hoshidicts-pitch-category);
+}
+
+/* The headword and its furigana lines (the contour, or the Overline style's
+   line and hook) take the group of the pitch the furigana uses. The reading
+   kana keep their muted colour: 14 px text needs 4.5:1. Blur hides that pitch
+   with the reading, so the colour waits too. */
+:host([data-hoshidicts-pitch-colors]) .gsm-hoshidicts-popup:not([data-definition-blur-state]) .gsm-hoshidicts-expression[data-pitch-category] {
+  --hoshidicts-pitch: var(--hoshidicts-pitch-category);
+  --pronunciation-annotation-color: var(--hoshidicts-pitch-category);
+  color: var(--hoshidicts-pitch-category);
+}
+
+/* Focus only recolours a kanji to the accent, which can be close to its group. */
+:host([data-hoshidicts-pitch-colors]) .gsm-hoshidicts-expression[data-pitch-category] .gsm-hoshidicts-kanji-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+/* Forced colours keep today's popup: they replace the headword's colours, but
+   not the SVG paint of a badge's graph, which would keep its group colour. */
+@media (forced-colors: active) {
+  .gsm-hoshidicts-popup [data-pitch-category] {
+    --hoshidicts-pitch-category: var(--text-color);
+  }
+}
+
 .gsm-hoshidicts-compact-definition-summary {
   min-width: min(180px, 100%);
   max-width: 100%;
-  min-height: 36px;
-  margin: 2px 0 0;
+  min-height: 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex: 1 1 180px;
   align-self: center;
   align-items: center;
-  gap: 6px;
+  gap: var(--hd-space-3);
   color: var(--text-color-light1);
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
@@ -1804,7 +1921,9 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-entry-actions {
   display: flex;
-  flex: 1 1 270px;
+  /* Icon-only toolbars take their natural width so the headword keeps the rest
+     of the line and the compact summary sits beside the word. */
+  flex: 0 1 auto;
   flex-wrap: nowrap;
   min-width: 0;
   width: auto;
@@ -1815,7 +1934,7 @@ html[data-hoshidicts-theme="girlypop"],
   align-self: end;
   align-items: center;
   justify-content: safe flex-end;
-  gap: 5px;
+  gap: var(--hd-space-2);
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -1825,11 +1944,19 @@ html[data-hoshidicts-theme="girlypop"],
   touch-action: pan-x pan-y;
 }
 
+/* With labelled custom buttons the toolbar would wrap above the headword at
+   its natural width; keep the shared row by letting it shrink from a fixed
+   basis instead (the labels truncate, see .gsm-hoshidicts-text-action-label). */
+.gsm-hoshidicts-entry-header:has(> .gsm-hoshidicts-entry-actions > .gsm-hoshidicts-text-action-button)
+  > .gsm-hoshidicts-entry-actions {
+  flex: 1 1 270px;
+}
+
 .gsm-hoshidicts-entry-actions > .gsm-hoshidicts-external-link-button,
 .gsm-hoshidicts-entry-actions > .gsm-hoshidicts-custom-anki-button {
   /* Natural width, but still able to shrink so the row never overflows. */
   flex: 0 1 auto;
-  min-width: 36px;
+  min-width: var(--hd-control-size);
 }
 
 .gsm-hoshidicts-entry-actions::-webkit-scrollbar {
@@ -1849,13 +1976,13 @@ html[data-hoshidicts-theme="girlypop"],
 .gsm-hoshidicts-mine-button,
 .gsm-hoshidicts-note-button {
   display: inline-flex;
-  flex: 0 0 36px;
+  flex: 0 0 var(--hd-control-size);
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  min-height: 36px;
+  width: var(--hd-control-size);
+  height: var(--hd-control-size);
+  min-width: var(--hd-control-size);
+  min-height: var(--hd-control-size);
   padding: 0;
   border-radius: 6px;
   background: transparent;
@@ -1943,10 +2070,10 @@ html[data-hoshidicts-theme="girlypop"],
   align-items: center;
   justify-content: center;
   max-width: 160px;
-  min-width: 36px;
-  min-height: 36px;
+  min-width: var(--hd-control-size);
+  min-height: var(--hd-control-size);
   overflow: hidden;
-  padding: 4px 8px;
+  padding: 3px 8px;
   border: 1px solid var(--hoshidicts-border-strong);
   border-radius: 6px;
   background: transparent;
@@ -2138,7 +2265,7 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-mining-feedback {
   flex: 0 0 auto;
-  margin: 8px 11px;
+  margin: var(--hd-space-3) var(--hd-space-4);
 }
 
 .gsm-hoshidicts-lookup-notice {
@@ -2150,7 +2277,7 @@ html[data-hoshidicts-theme="girlypop"],
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 7px 11px;
+  margin: var(--hd-space-3) var(--hd-space-4);
   padding: 7px 8px;
   border: 1px solid var(--hoshidicts-warning);
   border-radius: 7px;
@@ -2216,16 +2343,16 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-lookup-stats {
   display: inline-block;
-  margin: 7px 0 2px;
-  padding: 3px 7px;
+  margin: var(--hd-space-2) 0 0;
+  padding: var(--hd-space-1) var(--hd-space-3);
   border: 1px solid var(--hoshidicts-border);
   border-radius: 999px;
   background: var(--hoshidicts-card-background);
   color: var(--hoshidicts-text);
-  font-size: 13px;
+  font-size: var(--hd-font-label);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 
 .gsm-hoshidicts-lookup-stats[hidden] {
@@ -2237,17 +2364,17 @@ html[data-hoshidicts-theme="girlypop"],
 .gsm-hoshidicts-metadata {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 5px;
+  gap: 3px;
+  margin-top: 3px;
   line-height: 1;
 }
 
 .gsm-hoshidicts-metadata {
-  margin-top: 7px;
+  margin-top: var(--hd-space-2);
 }
 
 .gsm-hoshidicts-tag {
-  padding: 3px 5px;
+  padding: var(--hd-space-1) 5px;
   border-radius: 4px;
   color: var(--text-color);
   font-size: 12px;
@@ -2271,6 +2398,38 @@ html[data-hoshidicts-theme="girlypop"],
   font-size: 11px;
 }
 
+/* Yomitan's .tag[data-category] colours (display.css), on each palette's own
+   colour and content pairs. "default", and a category without a rule here,
+   keep the neutral pill. */
+.gsm-hoshidicts-tag-definition[data-category="expression"] {
+  background: var(--tag-expression-background-color);
+  color: var(--hoshidicts-tag-expression-text);
+}
+
+.gsm-hoshidicts-tag-definition[data-category="partOfSpeech"] {
+  background: var(--tag-part-of-speech-background-color);
+  color: var(--hoshidicts-tag-part-of-speech-text);
+}
+
+.gsm-hoshidicts-tag-definition[data-category="popular"] {
+  background: var(--tag-popular-background-color);
+  color: var(--hoshidicts-tag-popular-text);
+}
+
+.gsm-hoshidicts-tag-definition[data-category="frequent"] {
+  background: var(--tag-frequent-background-color);
+  color: var(--hoshidicts-tag-frequent-text);
+}
+
+/* No palette has an error-content colour, so an archaism is tinted instead of
+   filled. The border takes a pixel of padding so the pill keeps its size. */
+.gsm-hoshidicts-tag-definition[data-category="archaism"] {
+  padding: calc(var(--hd-space-1) - 1px) 4px;
+  border: 1px solid var(--hoshidicts-palette-error);
+  background: color-mix(in srgb, var(--hoshidicts-palette-error) 12%, var(--hoshidicts-palette-base-100));
+  color: var(--text-color);
+}
+
 .gsm-hoshidicts-tag-frequency {
   display: inline-flex;
   max-width: 100%;
@@ -2283,10 +2442,11 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-frequency-source,
 .gsm-hoshidicts-frequency-body {
-  padding: 3px 5px;
+  padding: var(--hd-space-1) 5px;
 }
 
-.gsm-hoshidicts-frequency-source {
+.gsm-hoshidicts-frequency-source,
+.gsm-hoshidicts-pitch-source {
   min-width: 0;
   max-width: min(18ch, 42vw);
   overflow: hidden;
@@ -2301,7 +2461,6 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 .gsm-hoshidicts-frequency-body,
-.gsm-hoshidicts-pitch-body,
 .gsm-hoshidicts-ipa-body {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -2336,32 +2495,207 @@ html[data-hoshidicts-theme="girlypop"],
   cursor: pointer;
 }
 
-.gsm-hoshidicts-tag-pitch {
-  display: inline-flex;
-  max-width: 100%;
-  padding: 0;
-  overflow: hidden;
+/* Pitch accents follow Yomitan (yomidevs/yomitan@67db60d, GPL-3.0-or-later):
+ * the pronunciation layout from ext/css/display.css, then
+ * ext/css/display-pronunciation.css. */
+.pronunciation-group-list {
+  margin: 0;
+  padding: 0 0 0 var(--list-padding1);
+  list-style-type: decimal;
+}
+
+.pronunciation-group-list[data-count="0"],
+.pronunciation-group-list[data-count="1"] {
+  padding-left: 0;
+  list-style-type: none;
+}
+
+.pronunciation-list {
+  margin: 0;
+  padding: 0 0 0 var(--list-padding2);
+  list-style-type: circle;
+  display: block;
+}
+
+.pronunciation-list[data-count="0"],
+.pronunciation-list[data-count="1"] {
+  padding-left: 0;
+  list-style-type: none;
+  display: inline;
+}
+
+.pronunciation-group::marker,
+.pronunciation::marker {
+  color: var(--text-color-light3);
+}
+
+.pronunciation {
+  display: list-item;
+  line-height: 1.5;
+}
+
+.pronunciation-list[data-count="0"] .pronunciation,
+.pronunciation-list[data-count="1"] .pronunciation {
+  display: inline;
+}
+
+.pronunciation-group-tag-list {
+  margin-right: 0.375em;
+}
+
+.pronunciation-disambiguation-list[data-count="0"] {
+  display: none;
+}
+
+.pronunciation-tag-list:not([data-count="0"]) {
+  margin-right: 0.375em;
+}
+
+.pronunciation-downstep-notation-container {
+  margin-left: 0.25em;
+}
+
+.pronunciation-graph-container {
+  margin-left: 0.25em;
+}
+
+/* Hachidori: the pronunciation-dictionary tag keeps the theme foreground on
+   the pitch tint (as the #361 label did), which stays readable in every
+   palette where Yomitan's filled chip would not. */
+.gsm-hoshidicts-pitch-source {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 1px 5px;
   border: 1px solid var(--hoshidicts-pitch);
-  background: transparent;
-  color: var(--text-color);
-}
-
-.gsm-hoshidicts-pitch-body {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 5px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--hoshidicts-pitch) 8%, var(--hoshidicts-palette-base-100));
+  color: var(--text-color);
+  font-size: 12px;
+  line-height: 1.2;
 }
 
-/* A badge draws the same mora contour as the header furigana at tag size. */
-.gsm-hoshidicts-pitch-body > .gsm-hoshidicts-pitch-contour {
-  color: inherit;
+.pronunciation-downstep-notation {
+  display: inline;
 }
 
-.gsm-hoshidicts-pitch-position {
-  color: var(--text-color-light1);
-  font-variant-numeric: tabular-nums;
+.pronunciation-text {
+  display: inline;
+}
+
+.pronunciation-mora {
+  display: inline-block;
+  position: relative;
+}
+
+.pronunciation-mora-line {
+  border-color: var(--pronunciation-annotation-color);
+}
+
+.pronunciation-mora[data-pitch="high"] > .pronunciation-mora-line {
+  display: block;
+  user-select: none;
+  pointer-events: none;
+  position: absolute;
+  top: 0.1em;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top-width: 0.1em;
+  border-top-style: solid;
+}
+
+.pronunciation-mora[data-pitch="high"][data-pitch-next="low"] > .pronunciation-mora-line {
+  right: -0.1em;
+  height: 0.4em;
+  border-right-width: 0.1em;
+  border-right-style: solid;
+}
+
+.pronunciation-mora[data-pitch="high"][data-pitch-next="low"] {
+  padding-right: 0.1em;
+  margin-right: 0.1em;
+}
+
+.pronunciation-devoice-indicator {
+  display: block;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1.125em;
+  height: 1.125em;
+  border: calc(1.5em / var(--font-size-no-units)) dotted var(--danger-color);
+  border-radius: 50%;
+  box-sizing: border-box;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+}
+
+.pronunciation-nasal-indicator {
+  display: block;
+  position: absolute;
+  right: -0.125em;
+  top: 0.125em;
+  width: 0.375em;
+  height: 0.375em;
+  border: calc(1.5em / var(--font-size-no-units)) solid var(--danger-color);
+  border-radius: 50%;
+  box-sizing: border-box;
+  z-index: 1;
+}
+
+.pronunciation-nasal-diacritic {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+.pronunciation-character {
+  display: inline;
+}
+
+.pronunciation-character-group {
+  display: inline-block;
+  position: relative;
+}
+
+.pronunciation-graph {
+  display: inline-block;
+  vertical-align: middle;
+  height: 1.5em;
+}
+
+.pronunciation-graph-line,
+.pronunciation-graph-line-tail {
+  fill: none;
+  stroke: var(--pronunciation-annotation-color);
+  stroke-width: 5;
+}
+
+.pronunciation-graph-line-tail {
+  stroke-dasharray: 5 5;
+}
+
+.pronunciation-graph-dot {
+  fill: var(--pronunciation-annotation-color);
+  stroke: var(--pronunciation-annotation-color);
+  stroke-width: 5;
+}
+
+.pronunciation-graph-dot-downstep1 {
+  fill: none;
+  stroke: var(--pronunciation-annotation-color);
+  stroke-width: 5;
+}
+
+.pronunciation-graph-dot-downstep2 {
+  fill: var(--pronunciation-annotation-color);
+}
+
+.pronunciation-graph-triangle {
+  fill: none;
+  stroke: var(--pronunciation-annotation-color);
+  stroke-width: 5;
 }
 
 .gsm-hoshidicts-glossary-grid {
@@ -2371,8 +2705,8 @@ html[data-hoshidicts-theme="girlypop"],
     minmax(0, 1fr)
   );
   align-items: start;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--hd-space-3);
+  margin-top: 5px;
 }
 
 .gsm-hoshidicts-glossary-grid > :only-child {
@@ -2398,30 +2732,73 @@ html[data-hoshidicts-theme="girlypop"],
   contain: paint;
   --fg: var(--text-color);
   --canvas: var(--background-color);
-  --font-size-no-units: 14;
   min-width: 0;
   margin: 0;
-  padding: 11px 12px;
+  padding: var(--hd-card-padding);
   border: 1px solid var(--hoshidicts-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--hoshidicts-card-background);
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
 }
 
 .gsm-hoshidicts-glossary-card-title {
   color: var(--text-color-light1);
-  font-size: 13px;
+  font-size: var(--hd-font-label);
+  line-height: 1.3;
   user-select: none;
 }
 
-.gsm-hoshidicts-definitions {
-  margin: 5px 0 0;
-  padding-left: 26px;
+/* Inside each card, the definitions follow Yomitan (yomidevs/yomitan@67db60d,
+ * GPL-3.0-or-later): ext/css/display.css for the definition and gloss lists and
+ * links, ext/css/structured-content.css for dictionary markup. Its selectors
+ * keep Yomitan's specificity, so a dictionary's own styles still override
+ * them. Hachidori's own adjustments are marked. */
+.definition-list {
+  margin: 0;
+  padding: 0 0 0 var(--list-padding1);
+  list-style-type: decimal;
 }
 
-.gsm-hoshidicts-definitions-single {
+.definition-list[data-count="0"],
+.definition-list[data-count="1"] {
   padding-left: 0;
-  list-style: none;
+  list-style-type: none;
+}
+
+.gloss-list {
+  margin: 0;
+  padding: 0 0 0 var(--list-padding2);
+  list-style-type: circle;
+}
+
+.gloss-list[data-count="0"],
+.gloss-list[data-count="1"] {
+  padding-left: 0;
+  list-style-type: none;
+}
+
+.definition-item::marker,
+.gloss-item::marker {
+  color: var(--text-color-light3);
+}
+
+.gloss-content {
+  display: block;
+  white-space: pre-line;
+}
+
+.gloss-separator {
+  display: none;
+}
+
+.definition-item {
+  display: list-item;
+  position: relative;
+}
+
+/* Hachidori: the list starts below the card title. */
+.gsm-hoshidicts-definitions {
+  margin-top: 3px;
 }
 
 .gsm-hoshidicts-definitions[data-definition-blur-state="pending"]
@@ -2439,74 +2816,149 @@ html[data-hoshidicts-theme="girlypop"],
   }
 }
 
-.gsm-hoshidicts-definitions > li {
-  margin: 4px 0;
-  padding-left: 2px;
-}
-
 .gsm-hoshidicts-glossary-content {
   overflow-wrap: anywhere;
-  font-size: 16px;
-  line-height: 1.5;
-  white-space: pre-wrap;
+  font-size: var(--hd-font-gloss);
+  line-height: var(--hd-line-gloss);
   transition: filter 120ms ease-out;
 }
 
-.gsm-hoshidicts-glossary-content ul,
-.gsm-hoshidicts-glossary-content ol {
-  margin: 2px 0;
-  padding-left: 20px;
+/* display.css `ol, ul`: its --list-padding is never defined, so both margins are 0. */
+:where(.gsm-hoshidicts-glossary-content) :is(ol, ul) {
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
-/* Dictionary-authored disclosures, styled as Yomitan does: the native marker
- * hangs in the left gutter. A dictionary's own scoped styles still win. */
-.gsm-hoshidicts-glossary-content details {
-  margin: 3px 0;
-  padding-left: 1.4em;
-}
-
-.gsm-hoshidicts-glossary-content summary {
-  cursor: pointer;
-  list-style-position: outside;
-}
-
-.gsm-hoshidicts-structured-link {
-  color: var(--hoshidicts-link);
-  font-weight: 600;
+:where(.gsm-hoshidicts-glossary-content) a {
+  color: var(--link-color);
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--hoshidicts-link) 58%, transparent);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
   cursor: pointer;
+  text-underline-offset: calc(4em / var(--font-size-no-units));
+  text-decoration-thickness: calc(1em / var(--font-size-no-units));
 }
 
-.gsm-hoshidicts-structured-link:hover,
-.gsm-hoshidicts-structured-link:focus-visible {
-  color: var(--hoshidicts-link-hover);
-  text-decoration-color: currentColor;
-  outline: none;
+:where(.gsm-hoshidicts-glossary-content) a:has(rt) {
+  text-decoration: none;
+  border-bottom: solid calc(1em / var(--font-size-no-units)) var(--link-color);
 }
 
-.gloss-link-external-icon {
-  margin-left: 0.2em;
-  font-size: 0.72em;
-  opacity: 0.72;
-  vertical-align: 0.12em;
+.gloss-link-text {
+  vertical-align: baseline;
+}
+
+/* icons.css draws the Fluent glyph (#206) in the link colour; this is
+ * Yomitan's box for it. */
+.gsm-hoshidicts-glossary-content .gloss-link-external-icon {
+  display: inline-block;
+  vertical-align: middle;
+  width: calc(16em / var(--font-size-no-units));
+  height: calc(16em / var(--font-size-no-units));
+  margin-left: 0.25em;
+  position: relative;
 }
 
 .gloss-sc-table-container {
+  display: block;
+  /* Hachidori: a table wider than its card scrolls inside it. */
   max-width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
 }
 
-.gsm-hoshidicts-structured-image {
-  display: block;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  object-fit: contain;
+.gloss-sc-table {
+  table-layout: auto;
+  border-collapse: collapse;
+}
+
+.gloss-sc-thead,
+.gloss-sc-tfoot,
+.gloss-sc-th {
+  font-weight: bold;
+  background-color: var(--background-color-dark1);
+}
+
+.gloss-sc-th,
+.gloss-sc-td {
+  border-width: calc(1em / var(--font-size-no-units));
+  border-style: solid;
+  border-color: var(--text-color-light2);
+  padding: 0.25em;
   vertical-align: top;
+}
+
+.gloss-sc-ol,
+.gloss-sc-ul {
+  padding-left: var(--list-padding2);
+}
+
+.gloss-sc-details {
+  padding-left: var(--list-padding1);
+}
+
+.gloss-sc-summary {
+  list-style-position: outside;
+  /* Hachidori: a disclosure reads as clickable. */
+  cursor: pointer;
+}
+
+/* Design → Definitions → Compact glossaries (`glossaryLayoutMode`) puts a
+ * definition's glosses on one line, separated by a grey bar. These are
+ * Yomitan's :root[data-glossary-layout-mode^=compact] rules
+ * (yomidevs/yomitan@67db60d, GPL-3.0-or-later: ext/css/display.css
+ * L2069-L2092, ext/css/structured-content.css L240-L253) on the popup host.
+ * Hachidori's own adjustments are marked. */
+
+/* Hachidori: the tag row keeps its flex gap and shares a line only with plain
+ * glosses. Before structured content (Jitendex's ★ row) an inline row would
+ * only gain a taller line box. */
+:host([data-hoshidicts-glossary-layout="compact"]) .definition-item:not(:has(.gloss-content.structured-content)) > .definition-tag-list {
+  display: inline-flex;
+  margin: 0 0.25em 0 0;
+}
+
+/* Hachidori: .gsm-hoshidicts-glossary-content is a wrapper Yomitan does not
+ * have, between the tags and the list. */
+:host([data-hoshidicts-glossary-layout="compact"]) .gsm-hoshidicts-glossary-content,
+:host([data-hoshidicts-glossary-layout="compact"]) .gloss-item,
+:host([data-hoshidicts-glossary-layout="compact"]) .gloss-content,
+:host([data-hoshidicts-glossary-layout="compact"]) .gloss-sc-ul[data-sc-content="glossary"] .gloss-sc-li {
+  display: inline;
+}
+
+/* display.css shows the separator as a space at font-size 0, so copied and
+ * scanned glosses stay apart while only the bar is seen. Hachidori: without
+ * its white-space: pre-wrap, whose preserved space would hold an empty line
+ * above structured content. */
+:host([data-hoshidicts-glossary-layout="compact"]) .gloss-separator {
+  display: inline;
+  font-size: 0;
+  opacity: 0;
+}
+
+:host([data-hoshidicts-glossary-layout="compact"]) .gloss-list,
+:host([data-hoshidicts-glossary-layout="compact"]) .gloss-sc-ul[data-sc-content="glossary"] {
+  display: inline;
+  list-style: none;
+  padding-left: 0;
+}
+
+:host([data-hoshidicts-glossary-layout="compact"]) .gloss-item:not(:first-child)::before,
+:host([data-hoshidicts-glossary-layout="compact"]) .gloss-sc-ul[data-sc-content="glossary"] .gloss-sc-li:not(:first-child)::before {
+  white-space: pre-wrap;
+  /* Hachidori: empty alternative text keeps the bar out of the accessibility
+   * tree, so screen readers read only the list items. */
+  content: var(--compact-list-separator) / "";
+  display: inline;
+  color: var(--hd-compact-list-separator-color);
+}
+
+/* Hachidori: the bar is the only boundary between compact glosses. Where the
+ * faint text colour is below 3:1 against the card (WCAG 1.4.11), it is drawn
+ * in the muted one instead. */
+:host(:is([data-hoshidicts-theme="solarized-dark"], [data-hoshidicts-theme="coffee"],
+  [data-hoshidicts-theme="solarized-light"], [data-hoshidicts-theme="emerald"], [data-hoshidicts-theme="retro"],
+  [data-hoshidicts-theme="winter"], [data-hoshidicts-theme="caramellatte"], [data-hoshidicts-theme="silk"])) .gsm-hoshidicts-popup {
+  --hd-compact-list-separator-color: var(--text-color-light1);
 }
 
 .gsm-hoshidicts-structured-image[hidden] {
@@ -2518,17 +2970,8 @@ html[data-hoshidicts-theme="girlypop"],
   z-index: 2147483647;
   zoom: calc(var(--gsm-hoshidicts-page-zoom, 1) * var(--gsm-hoshidicts-popup-scale, 100%));
   display: inline-block;
+  overflow: hidden;
   line-height: 0;
-  pointer-events: none;
-}
-
-.gsm-hoshidicts-image-hover-preview img {
-  display: block;
-  width: min(92vw, calc(var(--gsm-hoshidicts-popup-width, 560px) + 360px));
-  height: min(92vh, calc(var(--gsm-hoshidicts-popup-height, 420px) + 360px));
-  max-width: calc(100vw - 16px);
-  max-height: calc(100vh - 16px);
-  box-sizing: border-box;
   border: 1px solid color-mix(
     in srgb,
     var(--hoshidicts-palette-base-content) 30%,
@@ -2541,17 +2984,46 @@ html[data-hoshidicts-theme="girlypop"],
     transparent
   );
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.72), 0 4px 20px rgba(0, 0, 0, 0.55);
-  object-fit: contain;
+  pointer-events: none;
+}
+
+/* The frame above stays unanimated: positionImagePreview measures the preview
+   box as soon as it is attached, and a scale keyframe on the measured element
+   would place the full-size preview outside the viewport. */
+.gsm-hoshidicts-image-hover-preview img,
+.gsm-hoshidicts-image-hover-preview[data-appearance="monochrome"]::after {
   animation: gsm-hoshidicts-image-emerge 150ms ease-out both;
 }
 
+.gsm-hoshidicts-image-hover-preview img {
+  display: block;
+  width: min(92vw, calc(var(--gsm-hoshidicts-popup-width, 560px) + 360px));
+  height: min(92vh, calc(var(--gsm-hoshidicts-popup-height, 420px) + 360px));
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  object-fit: contain;
+}
+
 .gsm-hoshidicts-image-hover-preview[data-image-rendering="pixelated"] img,
-.gsm-hoshidicts-image-hover-preview[data-image-rendering="crisp-edges"] img {
+.gsm-hoshidicts-image-hover-preview[data-image-rendering="pixelated"]::after,
+.gsm-hoshidicts-image-hover-preview[data-image-rendering="crisp-edges"] img,
+.gsm-hoshidicts-image-hover-preview[data-image-rendering="crisp-edges"]::after {
   image-rendering: pixelated;
 }
 
 .gsm-hoshidicts-image-hover-preview[data-appearance="monochrome"] img {
-  filter: grayscale(1) opacity(0.72) brightness(1.8);
+  visibility: hidden;
+}
+
+.gsm-hoshidicts-image-hover-preview[data-appearance="monochrome"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* The preview is a sibling of .gsm-hoshidicts-popup: it sees the palette on
+     :host but not the popup's --text-color alias. */
+  background: var(--hoshidicts-palette-base-content);
+  mask: var(--image) center / contain no-repeat;
+  forced-color-adjust: none;
 }
 
 @keyframes gsm-hoshidicts-image-emerge {
@@ -2560,20 +3032,44 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gsm-hoshidicts-image-hover-preview img {
+  .gsm-hoshidicts-image-hover-preview img,
+  .gsm-hoshidicts-image-hover-preview[data-appearance="monochrome"]::after {
     animation: none;
   }
 }
 
+.gloss-image-container {
+  display: inline-block;
+  white-space: nowrap;
+  max-width: 100%;
+  max-height: 100vh;
+  position: relative;
+  vertical-align: top;
+  line-height: 0;
+  /* Yomitan: calc(1em / var(--font-size-no-units)), one CSS pixel at its 14px
+     text, and converted dictionaries write their gaiji rules against that
+     (`width: 15em` means 15px). The glossary text here is 16px, so the same
+     unit keeps dictionary CSS at the size its author saw. */
+  font-size: calc(1em / 16);
+  overflow: hidden;
+}
+
+.gloss-image-link[data-background="true"] > .gloss-image-container {
+  background-color: var(--gloss-image-background-color);
+}
+
 .gloss-image-link {
+  cursor: inherit;
+  color: var(--accent-color);
   display: inline-block;
   position: relative;
-  max-width: 100%;
-  margin: 2px 6px 2px 0;
-  color: var(--accent-color);
   line-height: 1;
-  text-decoration: none;
-  vertical-align: top;
+  max-width: 100%;
+}
+
+.gloss-image-link:hover {
+  color: var(--accent-color-dark);
+  cursor: pointer;
 }
 
 .gloss-image-source {
@@ -2584,74 +3080,73 @@ html[data-hoshidicts-theme="girlypop"],
   line-height: 1.4;
 }
 
-.gloss-image-container {
-  display: inline-block;
-  position: relative;
-  max-width: 100%;
-  overflow: hidden;
-  background: transparent;
-  /* Yomitan sizes this box in em with 1em equal to one CSS pixel at its base
-     text size, and converted dictionaries write their gaiji rules against
-     that (`width: 15em` means 15px). The glossary text here is 16px, so the
-     same unit keeps dictionary CSS at the size its author saw. */
-  font-size: calc(1em / 16);
-  line-height: 0;
-  vertical-align: top;
-}
-
-.gloss-image-link[data-size-units="em"] .gloss-image-container {
-  font-size: 1em;
-}
-
-.gloss-image-link[data-background="true"] > .gloss-image-container {
-  background: var(--hoshidicts-surface);
-}
-
-.gloss-image-sizer {
-  display: inline-block;
-  width: 0;
-  vertical-align: top;
-}
-
-.gloss-image,
-.gloss-image-background,
 .gloss-image-container-overlay {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
+  font-size: calc(1em * var(--font-size-no-units));
+  line-height: var(--line-height);
+  display: table;
+  table-layout: fixed;
+  white-space: normal;
+  color: var(--text-color-light3);
 }
 
 .gloss-image-background {
   --image: none;
-  display: none;
-  background: var(--text-color);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--text-color);
   mask: var(--image) center / contain no-repeat;
+  forced-color-adjust: none;
+  display: none;
 }
 
-.gloss-image-container-overlay {
-  display: grid;
-  place-items: center;
-  padding: 4px;
-  color: var(--text-color-light2);
-  font-size: 12px;
-  line-height: 1.25;
-  text-align: center;
-  white-space: normal;
+@media (forced-colors: active) {
+  .gsm-hoshidicts-image-hover-preview[data-appearance="monochrome"]::after,
+  .gloss-image-background {
+    background: CanvasText;
+  }
+}
+
+.gloss-image {
+  display: inline-block;
+  vertical-align: top;
+  object-fit: contain;
+  border: none;
+  outline: none;
+}
+
+.gloss-image-link[data-has-aspect-ratio="true"] .gloss-image {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .gloss-image-link[data-image-rendering="pixelated"] .gloss-image,
-.gloss-image-link[data-image-rendering="crisp-edges"] .gloss-image {
+.gloss-image-link[data-image-rendering="pixelated"] .gloss-image-background,
+.gloss-image-link[data-image-rendering="crisp-edges"] .gloss-image,
+.gloss-image-link[data-image-rendering="crisp-edges"] .gloss-image-background {
   image-rendering: pixelated;
 }
 
-.gloss-image-link[data-appearance="monochrome"] .gloss-image {
-  filter: grayscale(1) opacity(0.72) brightness(1.8);
+.gloss-image-link[data-has-aspect-ratio="true"] .gloss-image-sizer {
+  display: inline-block;
+  width: 0;
+  vertical-align: top;
+  font-size: 0;
 }
 
 .gloss-image-link-text {
   display: none;
-  line-height: 1.5;
+  line-height: var(--line-height);
 }
 
 .gloss-image-link-text::before {
@@ -2662,6 +3157,37 @@ html[data-hoshidicts-theme="girlypop"],
   content: "]";
 }
 
+.gloss-image-description {
+  display: block;
+  white-space: pre-line;
+}
+
+/* Hachidori (#322): a monochrome image is drawn in the text colour. The
+   background layer paints var(--text-color) through the image's alpha once the
+   media reply has set its --image. The <img> stays laid out but unpainted, as
+   it remains the load and error target, the keyboard focus anchor and the
+   preview's source. */
+.gloss-image-link[data-appearance="monochrome"] .gloss-image {
+  visibility: hidden;
+}
+
+.gloss-image-link[data-appearance="monochrome"][data-image-load-state="loaded"] .gloss-image-background {
+  display: block;
+}
+
+.gloss-image-link[data-size-units="em"] .gloss-image-container {
+  font-size: 1em;
+}
+
+.gloss-image-link[data-vertical-align="baseline"] { vertical-align: baseline; }
+.gloss-image-link[data-vertical-align="sub"] { vertical-align: sub; }
+.gloss-image-link[data-vertical-align="super"] { vertical-align: super; }
+.gloss-image-link[data-vertical-align="text-top"] { vertical-align: top; }
+.gloss-image-link[data-vertical-align="text-bottom"] { vertical-align: bottom; }
+.gloss-image-link[data-vertical-align="middle"] { vertical-align: middle; }
+.gloss-image-link[data-vertical-align="top"] { vertical-align: top; }
+.gloss-image-link[data-vertical-align="bottom"] { vertical-align: bottom; }
+
 .gloss-image-link[data-collapsed="true"] {
   vertical-align: baseline;
 }
@@ -2669,14 +3195,14 @@ html[data-hoshidicts-theme="girlypop"],
 .gloss-image-link[data-collapsed="true"] .gloss-image-container {
   display: none;
   position: absolute;
-  top: 100%;
   left: 0;
-  z-index: 2;
+  top: 100%;
+  z-index: 1;
 }
 
 .gloss-image-link[data-collapsed="true"]:hover .gloss-image-container,
 .gloss-image-link[data-collapsed="true"]:focus .gloss-image-container {
-  display: inline-block;
+  display: block;
 }
 
 .gloss-image-link[data-collapsed="true"] .gloss-image-link-text,
@@ -2684,40 +3210,20 @@ html[data-hoshidicts-theme="girlypop"],
   display: inline;
 }
 
+.gloss-image-link[data-collapsed="true"] ~ .gloss-image-description {
+  display: inline;
+}
+
+/* Hachidori: a failed image shows its label, not an empty box. */
 .gloss-image-link[data-image-load-state="load-error"] .gloss-image-container {
   display: none;
-}
-
-.gloss-image-link[data-vertical-align="baseline"] { vertical-align: baseline; }
-.gloss-image-link[data-vertical-align="sub"] { vertical-align: sub; }
-.gloss-image-link[data-vertical-align="super"] { vertical-align: super; }
-.gloss-image-link[data-vertical-align="text-top"] { vertical-align: text-top; }
-.gloss-image-link[data-vertical-align="text-bottom"] { vertical-align: text-bottom; }
-.gloss-image-link[data-vertical-align="middle"] { vertical-align: middle; }
-.gloss-image-link[data-vertical-align="top"] { vertical-align: top; }
-.gloss-image-link[data-vertical-align="bottom"] { vertical-align: bottom; }
-
-.gsm-hoshidicts-glossary-content table {
-  max-width: 100%;
-  border-collapse: collapse;
-}
-
-.gsm-hoshidicts-glossary-content th,
-.gsm-hoshidicts-glossary-content td {
-  padding: 2px 4px;
-  border: 1px solid var(--text-color-light2);
-  vertical-align: top;
-}
-
-.gsm-hoshidicts-glossary-content th {
-  background: transparent;
 }
 
 .gsm-hoshidicts-show-more {
   display: block;
   width: 100%;
-  margin-top: 8px;
-  padding: 6px 8px;
+  margin-top: var(--hd-space-3);
+  padding: var(--hd-space-2) var(--hd-space-4);
   border: 1px solid var(--hoshidicts-border);
   border-radius: 5px;
   background: var(--hoshidicts-card-background);
@@ -2765,9 +3271,9 @@ html[data-hoshidicts-theme="girlypop"],
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  min-width: 36px;
-  min-height: 36px;
-  padding: 4px 8px;
+  min-width: var(--hd-control-size);
+  min-height: var(--hd-control-size);
+  padding: 3px 8px;
   border: 1px solid var(--hoshidicts-border);
   border-radius: 5px;
   background: var(--hoshidicts-surface);
@@ -2777,7 +3283,7 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 .gsm-hoshidicts-popup-close {
-  width: 36px;
+  width: var(--hd-control-size);
   padding: 0;
 }
 
@@ -2788,12 +3294,14 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 .gsm-hoshidicts-kanji-glyph {
-  font-size: 56px;
-  line-height: 1;
+  font-size: 48px;
+  /* CJK glyphs have a content area of about 1.45em; a unit line-height lets
+     it spill past the header padding and the result chrome grows a scrollbar. */
+  line-height: 1.2;
 }
 
 .gsm-hoshidicts-kanji-entry {
-  padding: 8px 0;
+  padding: var(--hd-space-3) 0;
   border-top: 1px solid var(--hoshidicts-border);
 }
 
@@ -2804,8 +3312,8 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-kanji-readings {
   display: grid;
-  gap: 3px;
-  margin: 6px 0;
+  gap: var(--hd-space-1);
+  margin: var(--hd-space-2) 0;
 }
 
 .gsm-hoshidicts-kanji-reading-group {
@@ -2815,7 +3323,7 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 .gsm-hoshidicts-kanji-meanings {
-  margin: 4px 0 8px;
+  margin: var(--hd-space-1) 0 var(--hd-space-3);
   padding-left: 22px;
 }
 
