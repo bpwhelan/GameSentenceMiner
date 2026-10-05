@@ -201,7 +201,7 @@
             <h1 id="import-heading" tabindex="-1">Import dictionaries</h1>
             <p class="hint">Yomitan ZIP files, stored on this device.</p>
           </div>
-          <p class="field-hint sharing-linked-notice" id="sharing-import-notice" hidden>Dictionaries live on the linked Hachidori: import ZIP files there. Recommended dictionaries can still be installed from here, and <a href="#sharing">Sharing</a> lets you unlink to use this browser’s own dictionaries again.</p>
+          <p class="field-hint sharing-linked-notice" id="sharing-import-notice" hidden>Dictionaries live on the linked Hachidori: ZIP files you import here are sent to it and installed there.</p>
           <div
             class="import-drop-zone"
             id="import-drop-zone"
@@ -209,11 +209,11 @@
           >
             <div class="import-row">
               <label class="file-button">
-                <span id="import-file-label">Choose ZIP files</span>
+                <span id="import-file-label">Choose dictionary files</span>
                 <input
                   id="import-file"
                   type="file"
-                  accept=".zip,application/zip"
+                  accept=".zip,application/zip,.mdx,.mdd"
                   multiple
                 />
               </label>
@@ -224,7 +224,7 @@
               ></output>
             </div>
             <p class="import-drop-hint" id="import-drop-hint">
-              Or drag and drop Yomitan ZIP files here.
+              Or drag and drop Yomitan ZIP files, or an MDX dictionary with its MDD files, here.
             </p>
           </div>
           <div id="import-progress"></div>
@@ -714,14 +714,14 @@
                   <span class="field-hint">Scale the whole popup, including text and controls. 100% is the default.</span>
                 </label>
                 <p class="field-hint">Popups shrink to fit smaller windows.</p>
-                <label class="field" data-design-setting="popupToolbarPosition">
-                  <span class="field-label">Toolbar position</span>
+                <label class="field" data-design-setting="popupToolbarPosition" data-search-keywords="header">
+                  <span class="field-label">Headword and toolbar position</span>
                   <select id="opt-popup-toolbar">
                     <option value="auto">Automatic</option>
                     <option value="top">Top</option>
                     <option value="bottom">Bottom</option>
                   </select>
-                  <span class="field-hint">Automatic keeps the toolbar near the word on the page.</span>
+                  <span class="field-hint">Automatic puts the headword and buttons on the edge nearest the word: at the bottom when the popup opens above it. Top keeps them at the top, as in Yomitan.</span>
                 </label>
                 <label class="lookup-enable">
                   <span>Highlight the word on the page</span>
@@ -1102,11 +1102,11 @@
         </section>
         <section class="card" id="keybinds" aria-labelledby="keybinds-heading" hidden>
           <div class="card-head">
-            <h1 id="keybinds-heading" tabindex="-1" data-search-keywords="keyboard shortcuts hotkeys keys Yomitan">Keybinds</h1>
+            <h1 id="keybinds-heading" tabindex="-1" data-search-keywords="keyboard shortcuts hotkeys keys Yomitan mouse wheel scroll">Keybinds</h1>
             <p class="hint">Keyboard shortcuts for the lookup popup and page. Changes save automatically.</p>
           </div>
           <div class="options-feedback-slot"></div>
-          <p class="section-note">Select a Keys field and press the combination to use. Popup keybinds act on the current entry: the first one, or the last one you moved to or clicked.</p>
+          <p class="section-note">Select a Keys field and press the combination to use. To use the mouse wheel, hold a modifier key and scroll over the selected field; wheel keybinds act on the popup under the pointer. Popup keybinds act on the current entry: the first one, or the last one you moved to or clicked.</p>
           <ol id="keybind-list" class="keybind-list"></ol>
           <p id="keybind-empty" class="hint" hidden>No keybinds. Add one or reset to the defaults.</p>
           <div class="keybind-list-actions">
@@ -1242,12 +1242,21 @@
             <legend data-search-keywords="ram memory heap low memory mode">Memory</legend>
             <p id="memory-total" class="section-note" aria-live="polite">Engine memory: —</p>
             <p id="memory-extension-total" class="section-note" aria-live="polite">Extension total: —</p>
-            <p class="hint">Installed dictionaries are held in memory while the engine runs; their images are read from disk when shown. Each dictionary's share is under its Details in Library. <a href="https://github.com/bee-san/hachidori/blob/main/docs/memory.md" target="_blank" rel="noopener noreferrer">How Hachidori uses memory</a></p>
+            <p class="hint">Dictionary indexes stay in memory. On direct OPFS storage, entries and images are read from disk when needed by default. Each dictionary's share is under its Details in Library. <a href="https://github.com/bee-san/hachidori/blob/main/docs/memory.md" target="_blank" rel="noopener noreferrer">How Hachidori uses memory</a></p>
+            <div id="dictionary-entry-storage">
+              <label class="field-label" for="opt-dictionary-entry-storage">Dictionary entries</label>
+              <select id="opt-dictionary-entry-storage" aria-describedby="opt-dictionary-entry-storage-help">
+                <option value="auto">Automatic (read from disk on direct OPFS)</option>
+                <option value="paged">Read from disk</option>
+                <option value="resident">Keep in memory</option>
+              </select>
+              <p class="field-hint" id="opt-dictionary-entry-storage-help">Reading entries from disk uses less engine memory and may make lookups slightly slower. Keeping entries in memory favours lookup speed. Changing this restarts the idle engine; import threading stays the same. Low memory mode always reads entries from disk.</p>
+            </div>
             <label class="lookup-enable" id="low-memory-mode">
               <span>Low memory mode</span>
               <input type="checkbox" id="opt-low-memory-mode" aria-describedby="opt-low-memory-mode-help" />
             </label>
-            <p class="field-hint" id="opt-low-memory-mode-help">Keeps only each dictionary's index in memory and reads its entries from disk as you look words up. With the recommended dictionaries installed the engine uses about 100 MB instead of 320 MB, and a lookup takes about 0.4 ms longer. Imports run on one thread and are slower, and dictionaries reload briefly after a change.</p>
+            <p class="field-hint" id="opt-low-memory-mode-help">Imports on one thread to reduce peak memory and restarts the idle engine after dictionary changes to return unused memory. Imports are slower and dictionaries reload briefly after a change. Entries are always read from disk while this is on.</p>
             <p class="hint" id="low-memory-mode-unavailable" hidden>Low memory mode needs the threaded engine, which this browser does not run.</p>
           </fieldset>
           <fieldset class="lookup-group" id="experimental-settings">

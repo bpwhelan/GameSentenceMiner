@@ -9,7 +9,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { LOW_MEMORY_WORKER_NAME } from "./engine-recycler.js";
+import { engineWorkerConfig } from "./engine-recycler.js";
 import {
   configureEngineService,
   handleEngineMessage,
@@ -71,7 +71,10 @@ function importInIsolatedWorker(request) {
       type: "module",
       name: "hoshidicts-import",
     });
+    let settled = false;
     const settle = (finish) => (value) => {
+      if (settled) return;
+      settled = true;
       worker.terminate();
       finish(value);
     };
@@ -84,26 +87,34 @@ function importInIsolatedWorker(request) {
     worker.addEventListener("message", (event) => {
       if (event.data?.channel !== "import-result") return;
       if (event.data.error === undefined) settle(resolve)(event.data.report);
-      else settle(reject)(new Error(event.data.error));
+      else settle(reject)(Object.assign(new Error(event.data.error), { errorCode: event.data.errorCode }));
     });
-    worker.postMessage({ channel: "import", ...request }, [
-      request.archive.buffer,
-      ...request.resources.map((resource) => resource.bytes.buffer),
-    ]);
+    try {
+      worker.postMessage({ channel: "import", ...request }, [
+        request.archive.buffer,
+        ...request.resources.map((resource) => resource.bytes.buffer),
+      ]);
+    } catch (error) {
+      settle(reject)(error);
+    }
   });
 }
 
-export function startEngineWorker({ createHoshidicts, storageBackend }) {
-  // offscreen.js picks the name; see engine-recycler.js.
-  const lowMemory = globalThis.name === LOW_MEMORY_WORKER_NAME;
+export function startEngineWorker({ createHoshidicts, storageBackend, threaded = true }) {
+  // offscreen.js picks the name; see engine-recycler.js. The single-thread
+  // build has no pool or import threading for Low memory mode to reduce, and
+  // keeps resident entries like the document engine.
+  const config = engineWorkerConfig(globalThis.name, storageBackend);
+  const lowMemory = threaded && config.lowMemory;
   // Read by the -sPTHREAD_POOL_SIZE expression in wasm/CMakeLists.txt.
   if (lowMemory) globalThis.HACHIDORI_PTHREAD_POOL_SIZE = LOW_MEMORY_PTHREAD_POOL_SIZE;
   configureEngineService(requestHost, {
     createHoshidicts,
     storageBackend,
-    threaded: true,
-    lowRam: lowMemory,
-    pagedDictionaries: lowMemory,
+    threaded,
+    lowRam: !threaded || lowMemory,
+    pagedDictionaries: threaded && config.pagedDictionaries,
+    dictionaryEntryStorage: threaded ? config.dictionaryEntryStorage : "auto",
     reportProgress: reportEngineProgress,
     // Two IDBFS instances cannot share one store, so only direct OPFS can
     // import outside the engine.

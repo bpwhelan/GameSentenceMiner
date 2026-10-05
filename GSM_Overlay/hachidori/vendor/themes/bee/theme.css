@@ -21,31 +21,27 @@
 .gsm-hoshidicts-popup :is(button, input, textarea, a, summary):focus-visible { outline: 2px solid #5f3ba4; outline-offset: 2px; }
 .jl-header { flex: none; }
 /* JL's 20 px title row holds the x; the tab row sits 2 px below it. */
-.jl-nav { display: flex; justify-content: flex-end; min-height: 20px; margin-right: 10px; }
+.jl-nav { display: flex; justify-content: flex-end; align-items: center; min-height: 20px; margin: 0; }
 /* The x stays top right; the kanji view's Back sits top left. */
-.jl-nav:has(> .gsm-hoshidicts-kanji-back) { justify-content: flex-start; margin: 0 0 0 10px; }
-.jl-tabs {
-  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
-  margin: 6px 12px 0; border: 1px solid #95618c; border-radius: 6px; background: #fbe9f5;
-}
+.jl-nav:has(> .gsm-hoshidicts-kanji-back) { justify-content: flex-start; }
+.jl-nav > .gsm-hoshidicts-popup-close { margin-left: auto; margin-right: 10px; }
+.jl-tabs { display: flex; flex-wrap: wrap; margin: 2px 2px 0; }
 .jl-nav:empty, .jl-tabs:empty { display: none; }
 .gsm-hoshidicts-popup .gsm-hoshidicts-kanji-back {
-  margin: 0 0 2px 2px; padding: 3px 8px; background: #f2d6ec;
+  margin: 0; padding: 3px 8px; background: #f2d6ec;
   border: 1px solid #95618c; border-radius: 3px; font-size: 12px; line-height: 20px;
 }
-/* Equal-width segments share one frame, including with differently sized labels. */
+.gsm-hoshidicts-popup .gsm-hoshidicts-kanji-back:focus-visible { outline-offset: -2px; }
 .gsm-hoshidicts-popup .jl-tab {
-  min-width: 0; margin: 0; padding: 5px 10px; background: transparent;
-  border: 0; border-inline-start: 1px solid #95618c; border-radius: 0;
+  min-width: 0; max-width: 100%; margin: 0 0 2px 2px; padding: 3px 8px; background: #f2d6ec;
+  border: 1px solid #95618c; border-radius: 3px;
   font-size: 12px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.gsm-hoshidicts-popup .jl-tab:first-child { border-inline-start: 0; border-radius: 5px 0 0 5px; }
-.gsm-hoshidicts-popup .jl-tab:last-child { border-radius: 0 5px 5px 0; }
-.gsm-hoshidicts-popup .jl-tab:only-child { border-radius: 5px; }
-.gsm-hoshidicts-popup .jl-tab:focus-visible { position: relative; z-index: 1; }
+.gsm-hoshidicts-popup .jl-tab:first-child { margin-left: 0; }
+.gsm-hoshidicts-popup .jl-tab:focus-visible { position: relative; z-index: 1; outline-offset: -2px; }
 /* The underline makes the selected group identifiable without colour. */
 .gsm-hoshidicts-popup .jl-tab[aria-pressed="true"] {
-  background: #9a236c; color: #fff7fc;
+  border-color: #9a236c; background: #9a236c; color: #fff7fc;
   text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 2px;
 }
 .gsm-hoshidicts-popup .gsm-hoshidicts-popup-close {
@@ -58,34 +54,45 @@
 /* JL's separator between results, counting only the selected tab's. Its element
  * is 2 px tall, but the WPF Separator template draws a 1 px line. */
 .jl-entry:not([hidden]) ~ .jl-entry:not([hidden]) { border-top: 1px solid #95618c; }
-.jl-top { display: flex; flex-wrap: wrap; align-items: center; }
+.jl-top { display: flex; flex-wrap: wrap; align-items: center; position: relative; }
+/* Word and frequencies wrap independently; the dictionary and controls keep
+ * their own row, with enough space for a short source name to stay legible. */
+.bee-source-actions { display: flex; flex: 1 0 100%; align-items: center; gap: 4px; margin-top: 2px; min-width: 0; }
 .jl-spelling { margin-left: 2px; color: #9a236c; font-size: 21px; }
 .jl-reading { margin-left: 7px; color: #6442aa; font-size: 19px; }
 .jl-deconj { margin-left: 7px; color: #665064; }
-.jl-frequency { margin-left: 7px; color: #754805; }
-.jl-dictionary { margin-left: 7px; color: #6442aa; font-size: 15px; }
+.jl-frequency { display: inline-flex; flex: 1 1 auto; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: calc(100% - 7px); margin-left: 7px; color: #754805; }
+.jl-dictionary {
+  flex: 1 1 auto; min-width: min(12ch, 35%); max-width: 24ch; margin-left: 2px; color: #6442aa; font-size: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.jl-top > :is(.jl-spelling, .jl-reading, .jl-deconj) { flex: 0 0 auto; max-width: 100%; }
+.jl-frequency .gsm-hoshidicts-tag-frequency { max-width: 100%; overflow-wrap: anywhere; padding: 0 4px; border: 1px solid #95618c; border-radius: 3px; font-size: 12px; background: #fbe9f5; }
+.gsm-hoshidicts-frequency-source { margin-right: 4px; color: #6442aa; }
 .jl-mora { border: 0 dotted #6442aa; }
 .jl-mora[data-pitch="high"] { border-top-width: 1.5px; }
 .jl-mora[data-pitch="low"] { border-bottom-width: 1.5px; }
 .jl-mora[data-transition] { margin-right: -1.5px; border-right-width: 1.5px; }
+[data-pitch-style="overline"] .jl-mora { border-style: solid; }
+[data-pitch-style="overline"] .jl-mora[data-pitch="low"] { border-bottom-width: 0; }
 .gsm-hoshidicts-popup .gsm-hoshidicts-kanji-link { padding: 0; background: none; border: 0; cursor: pointer; }
 .gsm-hoshidicts-audio-control { position: relative; display: inline-flex; margin-left: 3px; }
 .gsm-hoshidicts-entry-actions { display: inline-flex; margin-left: 3px; }
 .gsm-hoshidicts-entry-actions:empty { display: none; }
-.gsm-hoshidicts-popup .gsm-hoshidicts-audio-button, .gsm-hoshidicts-popup .gsm-hoshidicts-mine-button {
-  display: inline-flex; align-items: center; justify-content: center; padding: 0; background: transparent; border: 0;
-}
-/* Audio, Anki and pencil sit together in one group as identical 22 px icon
- * buttons, using Hachidori's outline icon set at one size in the text colour. */
+/* Built-in and inline custom actions share 22 px buttons and 16 px icons
+ * from Hachidori's outline set, in the text colour. */
 .gsm-hoshidicts-popup .gsm-hoshidicts-audio-button, .gsm-hoshidicts-popup .gsm-hoshidicts-mine-button,
-.gsm-hoshidicts-popup .gsm-hoshidicts-note-button {
+.gsm-hoshidicts-popup .gsm-hoshidicts-note-button,
+.gsm-hoshidicts-popup .gsm-hoshidicts-entry-actions > .gsm-hoshidicts-text-action-button {
   display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
-  margin: 0; padding: 0; background: transparent; border: 0; border-radius: 4px; color: inherit; cursor: pointer;
+  flex: none; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 4px; color: inherit; cursor: pointer;
 }
 .gsm-hoshidicts-popup .gsm-hoshidicts-audio-button::before,
 .gsm-hoshidicts-popup .gsm-hoshidicts-mine-icon,
-.gsm-hoshidicts-popup .gsm-hoshidicts-note-icon { width: 16px; height: 16px; }
-.gsm-hoshidicts-popup :is(.gsm-hoshidicts-audio-button, .gsm-hoshidicts-mine-button, .gsm-hoshidicts-note-button):is(:hover, [aria-expanded="true"]):not(:disabled) {
+.gsm-hoshidicts-popup .gsm-hoshidicts-note-icon,
+.gsm-hoshidicts-popup .bee-custom-action-icon { width: 16px; height: 16px; }
+.gsm-hoshidicts-popup :is(.gsm-hoshidicts-audio-button, .gsm-hoshidicts-mine-button, .gsm-hoshidicts-note-button,
+  .gsm-hoshidicts-text-action-button):is(:hover, [aria-expanded="true"]):not(:disabled) {
   background: color-mix(in srgb, #9a236c 16%, transparent);
 }
 /* Duplicate warnings stand out; "View existing notes in Anki" is an ordinary
@@ -114,15 +121,22 @@
 }
 :host([data-hoshidicts-note-button="hidden"]) .gsm-hoshidicts-note-button { display: none; }
 :host([data-hoshidicts-audio-button="hidden"]) .gsm-hoshidicts-audio-control { display: none; }
-.gsm-hoshidicts-entry-actions { align-items: center; gap: 4px; flex-wrap: wrap; }
-.gsm-hoshidicts-entry-actions > .gsm-hoshidicts-audio-control { margin-left: 0; }
+.gsm-hoshidicts-entry-actions { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 3px); align-items: center; gap: 4px; }
+.bee-source-actions > .gsm-hoshidicts-entry-actions { margin-left: auto; }
+.gsm-hoshidicts-entry-actions > .gsm-hoshidicts-entry-actions { display: contents; margin: 0; }
+.gsm-hoshidicts-entry-actions > .gsm-hoshidicts-audio-control { flex: none; margin-left: 0; }
 .gsm-hoshidicts-popup .gsm-hoshidicts-text-action-button {
-  padding: 1px 4px; background: #f2d6ec; border: 1px solid #95618c;
-  border-radius: 3px; font-size: 12px;
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
+  box-sizing: border-box; padding: 4px 6px; background: transparent; border: 0;
+  border-radius: 4px; font-size: 12px; text-align: left;
 }
-.bee-more-actions { position: relative; font-size: 15px; }
-.bee-more-actions > summary { cursor: pointer; list-style: none; padding: 0 4px; }
-.bee-action-menu { padding: 4px; background: #fbe9f5; border: 1px solid #95618c; display: flex; flex-wrap: wrap; gap: 4px; }
+.gsm-hoshidicts-text-action-label.bee-custom-action-icon { font-size: 0; }
+.bee-custom-action-icon { order: -1; }
+.bee-action-menu .gsm-hoshidicts-text-action-label { overflow-wrap: anywhere; }
+.bee-more-actions { flex: none; font-size: 15px; }
+.bee-more-actions > summary { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; list-style: none; padding: 0; }
+.jl-nav { position: relative; }
+.bee-action-menu { position: absolute; z-index: 2; top: 100%; right: 0; box-sizing: border-box; width: max-content; max-width: min(280px, 100%); padding: 4px; background: #fbe9f5; border: 1px solid #95618c; display: flex; flex-direction: column; gap: 2px; }
 .gsm-hoshidicts-note-form { display: grid; gap: 7px; margin: 8px 2px; padding: 8px; border: 1px solid #95618c; background: #fbe9f5; }
 .gsm-hoshidicts-note-field { display: grid; gap: 3px; font-size: 12px; color: #6442aa; }
 .gsm-hoshidicts-note-form input, .gsm-hoshidicts-note-form textarea {
@@ -138,6 +152,13 @@
 .bee-rich-content .gloss-list { margin: 0; padding-left: 1.2em; }
 .bee-rich-content .gloss-list[data-count="1"] { padding-left: 0; list-style: none; }
 .bee-rich-content :is(ul, ol) { margin-block: 0; }
+:host([data-hoshidicts-glossary-layout="compact"]) :is(.bee-rich-content, .gloss-item, .gloss-content,
+  .gloss-sc-ul[data-sc-content="glossary"] .gloss-sc-li) { display: inline; }
+:host([data-hoshidicts-glossary-layout="compact"]) .gloss-separator { display: inline; font-size: 0; opacity: 0; }
+:host([data-hoshidicts-glossary-layout="compact"]) :is(.gloss-list, .gloss-sc-ul[data-sc-content="glossary"]) { display: inline; list-style: none; padding-left: 0; }
+:host([data-hoshidicts-glossary-layout="compact"]) :is(.gloss-item, .gloss-sc-ul[data-sc-content="glossary"] .gloss-sc-li):not(:first-child)::before {
+  content: " | " / ""; white-space: pre-wrap; color: #665064;
+}
 .bee-rich-content a { color: #6442aa; cursor: pointer; text-decoration: underline; }
 .bee-rich-content .gloss-sc-table-container { max-width: 100%; overflow-x: auto; }
 .bee-rich-content .gloss-link-external-icon { display: inline-block; width: 14px; height: 14px; margin-left: 4px; vertical-align: middle; }

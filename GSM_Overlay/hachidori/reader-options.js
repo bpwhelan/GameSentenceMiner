@@ -31,10 +31,6 @@
   const EXPERIMENTAL_FEATURES = [
     { id: "themeStore", label: "Theme Store",
       description: "Try Default, Nazeka, Plain and JL popup layouts in Design." },
-    { id: "longKeyScan", label: "Long dictionary entries",
-      description: "Find dictionary entries longer than the scan length. The reader collects more page text only when an installed dictionary lists such entries, and the engine reads further only when the text starts like one of them." },
-    { id: "mdxImport", label: "MDX dictionaries",
-      description: "Import MDict .mdx dictionaries, with their .mdd resource files, from Add dictionaries. Choose the .mdx and its .mdd files together." },
     { id: "googleDocs", label: "Google Docs",
       description: "Look up words in Google Docs. Asks Google Docs to expose its text to Hachidori, which Google may change or remove without notice; the sentence is the hovered run of text." },
     { id: "smallerAnkiCards", label: "Smaller Anki cards",
@@ -72,7 +68,17 @@
   // Pressing only these codes records or matches a keybind with a null key.
   const KEYBIND_MODIFIER_CODES = new Set(["AltLeft", "AltRight", "ControlLeft", "ControlRight",
     "MetaLeft", "MetaRight", "ShiftLeft", "ShiftRight", "OSLeft", "OSRight"]);
-  // Yomitan's default hotkeys without the actions Hachidori has no feature for.
+  // The modifiers a key press or wheel step holds, in stored keybind order.
+  const keybindModifiers = event => KEYBIND_MODIFIERS.filter(modifier => event[`${modifier}Key`] === true);
+  // A vertical wheel step is a keybind key: the reader matches it over a popup
+  // and the Keys field records it.
+  function keybindWheelKey(event) {
+    if (event.deltaY > 0) return "WheelDown";
+    if (event.deltaY < 0) return "WheelUp";
+    return null;
+  }
+  // Yomitan's default hotkeys without the actions Hachidori has no feature for,
+  // then the one-entry moves Yomitan's popup gives Alt+wheel outside its hotkeys.
   const DEFAULT_KEYBINDS = [
     ["close", "", "Escape", []],
     ["previousEntry", "3", "PageUp", ["alt"]],
@@ -85,6 +91,8 @@
     ["addNote", "", "KeyE", ["alt"]],
     ["playAudio", "", "KeyP", ["alt"]],
     ["viewNotes", "", "KeyV", ["alt"]],
+    ["previousEntry", "1", "WheelUp", ["alt"]],
+    ["nextEntry", "1", "WheelDown", ["alt"]],
   ].map(([action, argument, key, modifiers]) => ({ action, argument, key, modifiers, scopes: ["popup"], enabled: true }));
   const DEFAULT_OPTIONS = {
     scanLength: 16,
@@ -168,6 +176,7 @@
     // Recycle the engine worker after dictionary changes and import on one
     // thread; see docs/memory.md. Not a reader behaviour, so no hotkey toggle.
     lowMemoryMode: false,
+    dictionaryEntryStorage: "auto",
     keybinds: DEFAULT_KEYBINDS,
   };
   const KEYBIND_TOGGLE_OPTIONS = Object.keys(DEFAULT_OPTIONS)
@@ -599,6 +608,7 @@
 
   // Enumerated options fall back to their default outside the listed values.
   const ENUMERATED_OPTIONS = {
+    dictionaryEntryStorage: new Set(["auto", "paged", "resident"]),
     lookupMode: new Set(LOOKUP_MODES),
     definitionLookupMode: new Set(DEFINITION_LOOKUP_MODES),
     popupTheme: POPUP_THEME_IDS,
@@ -789,6 +799,7 @@
     DEFAULT_OPTIONS, RETIRED_OPTION_KEYS, NUMBER_RANGES, LOOKUP_MODES, DEFINITION_LOOKUP_MODES, ACTIVATION_BUTTONS, ACTIVATION_KEYS, FREQUENCY_ORDERS,
     POPUP_THEME_GROUPS, POPUP_RENDERER_IDS, popupRenderer, DESIGN_OPTION_KEYS,
     KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_SCOPES, KEYBIND_MODIFIERS, KEYBIND_MODIFIER_CODES, KEYBIND_TOGGLE_OPTIONS,
+    keybindModifiers, keybindWheelKey,
     AUDIO_SOURCE_TYPES, AUDIO_SOURCE_LABELS,
     EXPERIMENTAL_FEATURES,
     activationLabel, clampOption, normaliseActivationKey, normaliseKanjiSelection, normaliseOptions,

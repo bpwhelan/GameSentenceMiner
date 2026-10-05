@@ -61,10 +61,12 @@ function frequencyAggregate(term, mode, harmonic) {
   return String(Math.floor(mean));
 }
 
-function frequencyHtml(term) {
-  return term.frequencies.filter(group => group.frequencies.length).map(group =>
-    `<b>${escape(group.dictionary)}</b>: ${group.frequencies.map(value => escape(value.displayValue ?? value.value)).join(", ")}`
-  ).join("<br>");
+function frequencyHtml(request, groups = request.term.frequencies) {
+  const items = groups.flatMap(group => {
+    const dictionary = escape(alias(request, group.dictionary));
+    return group.frequencies.map(value => `<li>${dictionary}: ${escape(value.displayValue ?? value.value)}</li>`);
+  });
+  return items.length ? `<ul style="text-align: left;">${items.join("")}</ul>` : "";
 }
 
 function singleFrequency(request, dictionary, numeric) {
@@ -73,9 +75,7 @@ function singleFrequency(request, dictionary, numeric) {
     const value = groups.length ? frequencyNumber(groups[0].frequencies[0]) : 0;
     return value > 0 ? String(value) : "";
   }
-  const items = groups.flatMap(group => group.frequencies.map(value =>
-    `<li>${escape(alias(request, dictionary))}: ${escape(value.displayValue ?? value.value)}</li>`));
-  return items.length ? `<ul style="text-align: left;">${items.join("")}</ul>` : "";
+  return frequencyHtml(request, groups);
 }
 
 function pitchHtml(term) {
@@ -228,13 +228,14 @@ export async function buildAnkiFields(request, templates, { definition, audio = 
         `<li class="pronunciation" data-pronunciation-type="phonetic-transcription">${escape(value)}</li>`);
       return items.length ? `<ul>${items.join("")}</ul>` : "";
     },
-    "popup-selection-text": () => escape(request.popupSelectionText), "search-query": () => escape(request.searchQuery),
+    // Yomitan's getMedia keeps a multi-line selection's breaks visible in the HTML field.
+    "popup-selection-text": () => escape(request.popupSelectionText).replaceAll("\n", "<br>\n"), "search-query": () => escape(request.searchQuery),
     "document-title": () => escape(request.documentTitle), url: pageLink, "url-plain": pageUrl, sentence,
     // GSM falls back to highlighted text when its optional native tokenizer is
     // unavailable. There is no MeCab/native-helper dependency in the extension.
     "sentence-furigana": sentence, "sentence-furigana-plain": sentence,
     "cloze-prefix": () => parts()[0], "cloze-body": () => parts()[1], "cloze-suffix": () => parts()[2],
-    frequencies: () => frequencyHtml(term),
+    frequencies: () => frequencyHtml(request),
     "frequency-harmonic-rank": () => frequencyAggregate(term, "rank-based", true),
     "frequency-harmonic-occurrence": () => frequencyAggregate(term, "occurrence-based", true),
     "frequency-average-rank": () => frequencyAggregate(term, "rank-based", false),

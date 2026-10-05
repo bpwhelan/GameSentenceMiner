@@ -59,11 +59,35 @@ export function createView(options, enhanced = false) {
   let tools = [], groupTabs = [], groupContext = null, availableDictionaries = [], revision = 0;
   // Design's pitch switch and dictionary, as the markers were last painted.
   let paintedPitch = "";
-  const pitchOptions = context => JSON.stringify([context.showPitchAccentFurigana !== false, context.pitchAccentFuriganaDictionary ?? ""]);
+  let paintedFrequency = "";
+  const frequencyDictionaries = new Set(), pitchByTerm = new Map();
+  const pitchOptions = context => JSON.stringify([context.showPitchAccentFurigana !== false, context.pitchAccentFuriganaDictionary ?? "",
+    enhanced ? context.pitchAccentFuriganaStyle ?? "contour" : "contour"]);
   let customButtons = options.customButtons || [];
   const images = new Set();
   let pendingPresentation = null;
   const shown = () => entries.filter(entry => !entry.hidden);
+
+  function closeActionMenu(restoreFocus = true) {
+    const open = [...popup.querySelectorAll(".bee-more-actions[open]")];
+    for (const more of open) more.open = false;
+    if (restoreFocus) open.at(-1)?.querySelector("summary").focus({ preventScroll: true });
+    return open.length > 0;
+  }
+  function onMenuPointerDown(event) {
+    const path = event.composedPath();
+    // Document capture cannot see the production host's closed shadow tree.
+    // Its own root handles presses within that host, including sibling panes.
+    if (event.currentTarget === document && path.includes(popup.getRootNode().host)) return;
+    for (const more of popup.querySelectorAll(".bee-more-actions[open]")) {
+      if (!path.includes(more)) more.open = false;
+    }
+  }
+  const menuRoot = popup.getRootNode();
+  if (enhanced) {
+    document.addEventListener("pointerdown", onMenuPointerDown, true);
+    if (menuRoot !== document) menuRoot.addEventListener("pointerdown", onMenuPointerDown, true);
+  }
 
   function clear() {
     revision += 1;
@@ -71,6 +95,7 @@ export function createView(options, enhanced = false) {
     tools = []; images.clear(); groupTabs = []; groupContext = null; availableDictionaries = []; pendingPresentation = null;
     tabs.replaceChildren(); nav.replaceChildren(); scroll.replaceChildren();
     entries = []; bindings = []; labels = []; frequencies = []; markers = []; selected = 0; tab = null; onTabSelected = null; activeSource = null;
+    paintedFrequency = ""; frequencyDictionaries.clear(); pitchByTerm.clear();
     highlighter?.clear();
     preview?.hideImagePreview();
   }
@@ -82,12 +107,13 @@ export function createView(options, enhanced = false) {
     if (context.restoreScrollTop) scroll.scrollTop = context.restoreScrollTop;
   }
   function navigation(context) {
+    if (enhanced && context.onBack) nav.append(button("gsm-hoshidicts-kanji-back", "Back", context.onBack));
     if (context.onClose) {
       const close = button("gsm-hoshidicts-popup-close", "x", context.onClose);
       close.title = "Close";
       close.setAttribute("aria-label", "Close");
       nav.append(close);
-    } else if (context.onBack) nav.append(button("gsm-hoshidicts-kanji-back", "Back", context.onBack));
+    } else if (!enhanced && context.onBack) nav.append(button("gsm-hoshidicts-kanji-back", "Back", context.onBack));
   }
   function setDefinitionBlurState(state) { scroll.dataset.definitionBlur = state; }
   function dictionaryLabel(dictionary) {
@@ -99,10 +125,35 @@ export function createView(options, enhanced = false) {
   function updateDictionaryPresentation(context, notify = true) {
     const names = new Map((context.dictionaryPresentation ?? []).map(item => [item.title, item.displayName || item.title]));
     const name = dictionary => names.get(dictionary) || dictionary;
-    for (const label of labels) label.textContent = name(label.dataset.dictionary);
+    for (const label of labels) {
+      const displayName = name(label.dataset.dictionary);
+      if (!enhanced || label.textContent !== displayName) label.textContent = displayName;
+      if (enhanced && label.title !== displayName) label.title = displayName;
+    }
     // JL: "#rank" with one frequency dictionary, "Name: rank, …" with several.
-    for (const { element, groups } of frequencies) {
-      element.textContent = groups.length === 1 ? `#${frequencyValue(groups[0])}`
+    if (enhanced) {
+      // Lookup data stays fixed for this view. Only these presentation inputs
+      // affect its frequency chips; pitch/group changes leave the DOM intact.
+      const frequency = JSON.stringify([context.averageFrequency === true,
+        context.showFrequencyDictionaryNames === true, context.compactFrequencyNumbers === true,
+        (context.dictionaryPresentation ?? []).filter(item => frequencyDictionaries.has(item.title))
+          .map(({ title, displayName, frequencyMode }) => [title, displayName, frequencyMode])]);
+      if (frequency !== paintedFrequency) {
+        const tagsByResult = new Map();
+        for (const { element, result } of frequencies) {
+          let tags = tagsByResult.get(result);
+          if (tags) tags = tags.map(tag => tag.cloneNode(true));
+          else {
+            tags = components.createFrequencyTags(document, result, context.dictionaryPresentation ?? [], Infinity,
+              context.averageFrequency === true, context.showFrequencyDictionaryNames === true, context.compactFrequencyNumbers === true);
+            tagsByResult.set(result, tags);
+          }
+          element.replaceChildren(...tags);
+        }
+        paintedFrequency = frequency;
+      }
+    } else {
+      for (const { element, groups } of frequencies) element.textContent = groups.length === 1 ? `#${frequencyValue(groups[0])}`
         : groups.map(group => `${name(group.dictionary)}: ${frequencyValue(group)}`).join(", ");
     }
     // Markers hold no controls, so a pitch option change repaints them in place
@@ -110,6 +161,7 @@ export function createView(options, enhanced = false) {
     const pitch = pitchOptions(context);
     if (pitch !== paintedPitch) {
       paintedPitch = pitch;
+      pitchByTerm.clear();
       for (const marker of markers) paintPitch(marker, context);
     }
     if (enhanced) {
@@ -141,12 +193,45 @@ export function createView(options, enhanced = false) {
       onFormCreated(form) { host.insertBefore(form, host.children[1] || null); options.positionPopup(); },
       onClose: flushDictionaryPresentation,
       onButtonsUpdated(actions, buttons) {
+        for (const [index, custom] of buttons.entries()) {
+          // Inline icons reuse the shared label; More keeps its visible label.
+          const label = custom.firstElementChild;
+          let icon = custom.querySelector(".bee-custom-action-icon");
+          if (index < 2) {
+            if (icon && icon !== label) icon.remove();
+            icon = label;
+          } else if (icon === label) {
+            label.classList.remove("bee-custom-action-icon", "hd-icon");
+            label.removeAttribute("aria-hidden");
+            delete label.dataset.icon;
+            icon = null;
+          }
+          if (!icon) {
+            icon = node("span", "bee-custom-action-icon hd-icon");
+            custom.append(icon);
+          }
+          icon.classList.add("bee-custom-action-icon", "hd-icon");
+          icon.setAttribute("aria-hidden", "true");
+          icon.dataset.icon = custom.dataset.customButtonType === "anki" ? "document-add" : "open";
+          if (custom.dataset.customButtonType === "link") {
+            custom.title = `Open ${custom.dataset.customButtonLabel}`;
+            custom.setAttribute("aria-label", custom.title);
+          }
+        }
         actions.querySelector(".bee-more-actions")?.remove();
         if (buttons.length <= 2) return;
         const more = node("details", "bee-more-actions");
         const summary = node("summary", "", "⋯");
         summary.setAttribute("aria-label", "More actions");
         const menu = node("div", "bee-action-menu");
+        // Shared link actions stop bubbling. Capture their activation and
+        // dismiss after the action handler runs, keeping its normal semantics.
+        const dismiss = event => {
+          if (event.button !== (event.type === "auxclick" ? 1 : 0) || !event.target.closest("button")) return;
+          queueMicrotask(() => { if (more.isConnected) { more.open = false; summary.focus({ preventScroll: true }); } });
+        };
+        menu.addEventListener("click", dismiss, true);
+        menu.addEventListener("auxclick", dismiss, true);
         menu.append(...buttons.slice(2)); more.append(summary, menu); actions.append(more);
       },
     });
@@ -211,15 +296,18 @@ export function createView(options, enhanced = false) {
       parent.append(span);
     }
   }
-  function paintPitch({ element, text, pitches }, context) {
-    const morae = context.showPitchAccentFurigana === false ? null
-      : pitchMorae(text, pitches, context.pitchAccentFuriganaDictionary);
+  function paintPitch({ element, text, term }, context) {
+    const morae = enhanced && pitchByTerm.has(term) ? pitchByTerm.get(term)
+      : context.showPitchAccentFurigana === false ? null
+        : pitchMorae(text, term.pitches ?? [], context.pitchAccentFuriganaDictionary);
+    if (enhanced) pitchByTerm.set(term, morae);
     element.textContent = morae ? "" : text;
+    if (enhanced) element.dataset.pitchStyle = context.pitchAccentFuriganaStyle === "overline" ? "overline" : "contour";
     if (morae) appendMorae(element, morae);
   }
   // Painted while its block is still detached; updateDictionaryPresentation repaints it.
   function pitchMarker(element, text, term, context) {
-    const marker = { element, text, pitches: term.pitches ?? [] };
+    const marker = { element, text, term };
     markers.push(marker);
     paintPitch(marker, context);
     return element;
@@ -254,16 +342,20 @@ export function createView(options, enhanced = false) {
       line.append(node("span", "jl-deconj", [matched, process].filter(Boolean).join(" ")));
     }
     const groups = (term.frequencies ?? []).filter(group => group.frequencies.length);
+    if (enhanced) for (const group of groups) frequencyDictionaries.add(group.dictionary);
     if (groups.length) {
       const element = node("span", "jl-frequency");
-      frequencies.push({ element, groups });
+      frequencies.push({ element, groups, result });
       line.append(element);
     }
     const actions = node("div", "gsm-hoshidicts-entry-actions");
     actions.setAttribute("role", "group");
     actions.setAttribute("aria-label", "Entry actions");
     if (enhanced) actions.append(audio.element);
-    line.append(dictionaryLabel(dictionary), actions);
+    if (enhanced) {
+      const sourceActions = node("div", "bee-source-actions");
+      sourceActions.append(dictionaryLabel(dictionary), actions); line.append(sourceActions);
+    } else line.append(dictionaryLabel(dictionary), actions);
     return { line, audio, actions };
   }
   // JL joins one sense's glosses with "; ". Structured rows keep the text layout.
@@ -329,6 +421,7 @@ export function createView(options, enhanced = false) {
   function renderTabs(dictionaries, context) {
     if (enhanced) {
       groupContext = context; availableDictionaries = dictionaries;
+      tab = context.selectedDictionaryTab?.groupId ? { groupId: context.selectedDictionaryTab.groupId } : null;
       renderGroupTabs(dictionaries, context);
       return;
     }
@@ -347,9 +440,13 @@ export function createView(options, enhanced = false) {
   }
 
   function selectGroup(descriptor, notify) {
-    tab = descriptor ? { groupId: descriptor.groupId } : null;
+    const filtered = !!descriptor?.groupId;
+    if (notify || entries.some(entry => entry.hidden !== (filtered && !descriptor.dictionaries.has(entry.dataset.dictionary)))) {
+      closeActionMenu(false);
+    }
+    tab = filtered ? { groupId: descriptor.groupId } : null;
     for (const element of tabs.children) element.setAttribute("aria-pressed", String(element.dataset.groupId === descriptor?.groupId));
-    for (const entry of entries) entry.hidden = !!descriptor && !descriptor.dictionaries.has(entry.dataset.dictionary);
+    for (const entry of entries) entry.hidden = filtered && !descriptor.dictionaries.has(entry.dataset.dictionary);
     selected = Math.max(0, entries.findIndex(entry => !entry.hidden));
     if (notify) {
       scroll.scrollTop = 0;
@@ -358,19 +455,28 @@ export function createView(options, enhanced = false) {
     }
   }
   function renderGroupTabs(dictionaries, context, notify = false) {
-    const descriptors = components.createDictionaryTabs(dictionaries, context).tabs.filter(item => item.groupId);
-    const selectedGroup = (tab || context.selectedDictionaryTab)?.groupId;
+    const allAndGroups = components.createDictionaryTabs(dictionaries, context).tabs.filter(item => item.key === "all" || item.groupId);
+    const descriptors = allAndGroups.length > 1 ? allAndGroups : [];
+    const selectedGroup = tab?.groupId;
     const active = descriptors.find(item => item.groupId === selectedGroup) || descriptors[0];
     const previous = JSON.stringify(groupTabs.map(item => [item.groupId, item.label, [...item.dictionaries]]));
     const next = JSON.stringify(descriptors.map(item => [item.groupId, item.label, [...item.dictionaries]]));
     if (previous !== next) {
+      const focused = popup.getRootNode().activeElement;
+      const focusedTab = focused && tabs.contains(focused);
       tabs.replaceChildren();
       for (const descriptor of descriptors) {
         const element = button("jl-tab", descriptor.label, () => selectGroup(descriptor, true));
-        element.dataset.groupId = descriptor.groupId; element.title = descriptor.title;
+        if (descriptor.groupId) element.dataset.groupId = descriptor.groupId;
+        element.title = descriptor.title;
         tabs.append(element);
       }
       groupTabs = descriptors;
+      if (focusedTab) {
+        const replacement = [...tabs.children].find(element => element.dataset.groupId === focused.dataset.groupId)
+          || tabs.firstElementChild || entries.find(entry => !entry.hidden);
+        replacement?.focus({ preventScroll: true });
+      }
     }
     const changed = tab?.groupId !== active?.groupId;
     selectGroup(active, false);
@@ -411,12 +517,16 @@ export function createView(options, enhanced = false) {
       if (entry.stats?.length) lines.push("Statistics:", ...entry.stats.map(stat => `${stat.name}: ${stat.value}`));
       const block = node("article", "jl-entry jl-kanji");
       const line = node("div", "jl-top");
-      line.append(node("span", "jl-spelling", kanji.character), dictionaryLabel(entry.dictionary));
+      const kanjiWord = node("span", "jl-spelling", kanji.character);
+      const sourceActions = enhanced ? node("div", "bee-source-actions") : line;
+      line.append(kanjiWord);
+      if (enhanced) line.append(sourceActions);
+      sourceActions.append(dictionaryLabel(entry.dictionary));
       block.append(line);
       scroll.append(block);
       if (enhanced) {
         block.dataset.dictionary = entry.dictionary;
-        addTools(line, block, { term: kanji.character, reading: "", definition: "", sentence: candidate?.sentence || "" }, context);
+        addTools(sourceActions, block, { term: kanji.character, reading: "", definition: "", sentence: candidate?.sentence || "" }, context);
         formattedDefinition(block, [{ glossary: JSON.stringify(entry.definitions) }], entry.dictionary, context, block);
         entries.push(block);
       }
@@ -475,6 +585,7 @@ export function createView(options, enhanced = false) {
     setDefinitionBlurState, updateDictionaryPresentation, flushDictionaryPresentation,
     hideImagePreview() { preview?.hideImagePreview(); },
     closeNoteForm() { return tools.some(control => control.close()); },
+    closeActionMenu,
     setCustomButtons(value) {
       customButtons = value || [];
       for (const control of tools) control.setCustomButtons(customButtons);
@@ -485,7 +596,11 @@ export function createView(options, enhanced = false) {
       if (!enabled) highlighter?.clear();
       else if (activeSource) highlighter?.apply(activeSource.candidate, activeSource.matched);
     },
-    destroy() { clear(); preview?.destroy(); popup.replaceChildren(); },
+    destroy() {
+      clear(); document.removeEventListener("pointerdown", onMenuPointerDown, true);
+      menuRoot.removeEventListener("pointerdown", onMenuPointerDown, true);
+      preview?.destroy(); popup.replaceChildren();
+    },
   };
 }
 export default { schema: 2, slug: "jl", contentMode: "text", createView };

@@ -24,9 +24,11 @@ import { API_REQUESTS, createApiHost } from "./api-host.js";
 import { NOT_REACHABLE, SHARING_LOCAL_STATE_KEY, createSharingClient } from "./sharing-client.js";
 import {
   API_CAPABILITY, FORWARDED_REQUESTS, LINKED_ANKI_CAPABILITY, LINKED_ANKI_UNSUPPORTED, SHARING_CAPABILITIES,
-  allowLinkedAnkiDiscoveryRequest, allowLinkedAnkiRequest, allowLinkedAnkiSetupRequest,
+  LINKED_IMPORT_CAPABILITY, LINKED_IMPORT_TARGET, LINKED_IMPORT_UNSUPPORTED,
+  allowLinkedAnkiDiscoveryRequest, allowLinkedAnkiRequest, allowLinkedAnkiSetupRequest, allowLinkedImportRequest,
   browserName, forwardableRequest, mutatingForwardedRequest, parseLinkAddress,
 } from "./sharing-protocol.js";
+import { createUploadHost, uploadImportDecision } from "./linked-import.js";
 import { LOOKUP_STATS_KEY, LOOKUP_STATS_ROW_PREFIX, assertLookupStatsDescriptor, assertLookupStatsRows, emptyLookupStats, incrementLookupStats, lookupStatsKey, lookupStatsPrefix, normaliseLookupTerm } from "./lookup-stats.js";
 import "./external-links.js";
 import "./dictionary-group-state.js";
@@ -211,9 +213,65 @@ function getSharingHost() {
     sharedKey: key => SHARED_STATE_KEYS.includes(key) || key.startsWith(LOOKUP_STATS_ROW_PREFIX),
     version: chrome.runtime.getManifest().version,
     name: SHARING_NAME,
-    capabilities: [...SHARING_CAPABILITIES, API_CAPABILITY],
+    capabilities: [...SHARING_CAPABILITIES, API_CAPABILITY, LINKED_IMPORT_CAPABILITY],
+    clientClosed: clientId => uploadHost?.dropWhere(owner => owner === remoteUploadOwner(clientId)),
   });
   return sharingHost;
+}
+
+// Uploads come from this install's own pages or from a linked browser, and
+// each belongs to the one that began it.
+const UPLOAD_STORE_TARGET = "hachidori-upload-store";
+const LOCAL_UPLOAD_OWNER = "local";
+let uploadHost;
+
+function remoteUploadOwner(clientId) {
+  return `remote:${clientId}`;
+}
+
+async function relayUpload(type, fields) {
+  const reply = await relay({ target: UPLOAD_STORE_TARGET, type, requestId: `upload-${crypto.randomUUID()}`, ...fields });
+  if (!reply?.ok) throw new Error(reply?.error || "The dictionary upload could not be stored.");
+  return reply;
+}
+
+function getUploadHost() {
+  if (uploadHost) return uploadHost;
+  // Bytes left by an earlier worker belong to sessions this one never saw.
+  const reset = relayUpload("hd_upload_reset", {}).catch(() => {});
+  uploadHost = createUploadHost({
+    store: {
+      append: async (token, data, byteLength) => {
+        await reset;
+        return relayUpload("hd_upload_append", { token, data, byteLength });
+      },
+      discard: token => relayUpload("hd_upload_discard", { token }),
+    },
+    // Never hold the storage queue here: the engine commit calls back into it.
+    importUpload: async (token, { fileName, replace }) => {
+      const { identity } = await relayUpload("hd_upload_identity", { token });
+      const dictionaries = (await readDictionaryStorage()).state?.dictionaries ?? [];
+      return relay({
+        target: UPLOAD_STORE_TARGET, type: "hd_upload_import", token, fileName,
+        importDecision: uploadImportDecision(identity, dictionaries, replace),
+        requestId: `uploaded-import-${crypto.randomUUID()}`,
+      });
+    },
+  });
+  return uploadHost;
+}
+
+async function answerUploadRequest(message, owner) {
+  const host = getUploadHost();
+  switch (message.type) {
+    case "hd_import_begin": return workerReply(message, host.begin(message, owner));
+    case "hd_import_chunk": return workerReply(message, await host.chunk(message, owner));
+    case "hd_import_abort": return workerReply(message, host.abort(message, owner));
+    default: {
+      const reply = await host.commit(message, owner);
+      return { ...reply, type: "hd_import_commit_result", requestId: message.requestId };
+    }
+  }
 }
 
 // The relay's API asks like a linked browser; its lookups and renders go
@@ -337,12 +395,14 @@ function getSharingClient() {
 
 function sharingStatus() {
   const client = getSharingClient().status();
-  return { ...getSharingHost().status(), client: { ...client, display: client.address === null ? null : parseLinkAddress(client.address).display } };
+  return { ...getSharingHost().status(),
+    client: { ...client, display: client.address === null ? null : parseLinkAddress(client.address).display } };
 }
 
 function forwardToHost(message, capability = null) {
   return getSharingClient().forward(message, {
     capability,
+    unsupported: capability === LINKED_IMPORT_CAPABILITY ? LINKED_IMPORT_UNSUPPORTED : LINKED_ANKI_UNSUPPORTED,
     mutation: mutatingForwardedRequest(message),
   }).catch(error => failureReply(message, error));
 }
@@ -1302,7 +1362,8 @@ const WORKER_HANDLERS = {
   async hd_engine_config(message, sender) {
     if (!engineSender(sender)) throw new Error("The engine configuration is read only by the dictionary engine host.");
     const stored = await chrome.storage.local.get(OPTIONS_KEY);
-    return { lowMemoryMode: normaliseOptions(stored[OPTIONS_KEY]).lowMemoryMode };
+    const { lowMemoryMode, dictionaryEntryStorage } = normaliseOptions(stored[OPTIONS_KEY]);
+    return { lowMemoryMode, dictionaryEntryStorage };
   },
 
   async hd_setup_record(message, sender) {
@@ -1863,11 +1924,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   void reconcileAnkiIndex();
   void applyCustomJavaScript(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).customPopupJavascript);
   void applyGoogleDocsFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).experimental.googleDocs);
-  const lowMemoryMode = normaliseOptions(changes[OPTIONS_KEY].newValue).lowMemoryMode;
-  if (lowMemoryMode === normaliseOptions(changes[OPTIONS_KEY].oldValue).lowMemoryMode) return;
+  const { lowMemoryMode, dictionaryEntryStorage } = normaliseOptions(changes[OPTIONS_KEY].newValue);
+  const previous = normaliseOptions(changes[OPTIONS_KEY].oldValue);
+  if (lowMemoryMode === previous.lowMemoryMode && dictionaryEntryStorage === previous.dictionaryEntryStorage) return;
   // Sent to the offscreen document only if it exists: a document created later
   // reads the option itself. A busy engine picks the change up when idle.
-  Promise.resolve(chrome.runtime.sendMessage({ target: TARGET, type: "hd_engine_config", relayed: true, lowMemoryMode }))
+  Promise.resolve(chrome.runtime.sendMessage({ target: TARGET, type: "hd_engine_config", relayed: true, lowMemoryMode, dictionaryEntryStorage }))
     .catch(() => {});
 });
 
@@ -2519,6 +2581,8 @@ async function dispatchSharedRequest(message, clientId, capabilities = []) {
       case "hachidori-anki": return await trackAnkiOperation(
         () => answerAnkiRequest(allowLinkedAnkiRequest(message), sender, true),
       );
+      case LINKED_IMPORT_TARGET:
+        return await answerUploadRequest(allowLinkedImportRequest(message), remoteUploadOwner(clientId));
       default: throw new Error(`unsupported shared request target ${JSON.stringify(message.target)}`);
     }
   } catch (error) {
@@ -2670,6 +2734,17 @@ const SHARING_HANDLERS = {
     return { sharing: sharingStatus() };
   },
 };
+
+// Settings, or an app driving this install, uploads a dictionary archive. A
+// linked install sends it to the host; otherwise this one imports it.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target !== LINKED_IMPORT_TARGET) return false;
+  sharingReady.then(() => (sharingLinked
+    ? forwardToHost(allowLinkedImportRequest(message), LINKED_IMPORT_CAPABILITY)
+    : answerUploadRequest(allowLinkedImportRequest(message), LOCAL_UPLOAD_OWNER)))
+    .then(sendResponse, error => sendResponse(failureReply(message, error)));
+  return true;
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== SHARING_TARGET) return false;

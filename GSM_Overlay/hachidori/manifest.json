@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hachidori",
   "short_name": "Hachidori",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Study Japanese vocabulary: look up words on any page and build Anki cards, optionally capturing on-screen context.",
   "minimum_chrome_version": "128",
   "icons": {

@@ -30,9 +30,11 @@ function relayAddresses(entries) {
 // with the same reply object a runtime sender would receive. `readSnapshot()`
 // returns the shared storage keys as stored. `sharedKey(key)` says whether a
 // storage change belongs to the mirror. `name` is what linked browsers call
-// this one.
+// this one. `clientClosed(clientId)` hears every client the relay or this host
+// drops.
 export function createSharingHost({
   WebSocket, alarms, dispatch, readSnapshot, sharedKey, version, name, capabilities = SHARING_CAPABILITIES,
+  clientClosed = () => {},
 }) {
   const clients = new Map();
   let enabled = false;
@@ -137,7 +139,7 @@ export function createSharingHost({
         return;
       }
       case "client-close":
-        clients.delete(message.clientId);
+        if (clients.delete(message.clientId)) clientClosed(message.clientId);
         return;
       case "client-text":
         void handleClientText(target, message.clientId, String(message.text));
@@ -182,9 +184,15 @@ export function createSharingHost({
       socket = null;
       listeningPort = null;
       networkState = { active: false, addresses: [], error: null };
-      clients.clear();
+      clearClients();
       if (enabled) scheduleRetry();
     };
+  }
+
+  function clearClients() {
+    const closed = [...clients.keys()];
+    clients.clear();
+    for (const clientId of closed) clientClosed(clientId);
   }
 
   function dropSocket() {
@@ -192,7 +200,7 @@ export function createSharingHost({
     socket = null;
     listeningPort = null;
     networkState = { active: false, addresses: [], error: null };
-    clients.clear();
+    clearClients();
     previous?.close();
   }
 
