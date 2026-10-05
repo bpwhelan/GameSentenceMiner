@@ -2160,8 +2160,10 @@
     actions.setAttribute("role", "group");
     actions.setAttribute("aria-label", label);
     actions.addEventListener("focusin", event => {
-      const item = [...actions.children].find(child =>
-        child === event.target || child.contains(event.target));
+      // A shown result's own row joins the lookup row without a box of its own.
+      const item = [...actions.children]
+        .flatMap(child => child.matches(".gsm-hoshidicts-entry-actions") ? [...child.children] : [child])
+        .find(child => child === event.target || child.contains(event.target));
       if (!item || actions.scrollWidth <= actions.clientWidth) return;
       const padding = 2;
       const left = item.offsetLeft;
@@ -2605,8 +2607,10 @@
     const { hideImagePreview, refreshImagePreview, requestImagePreview } = imagePreview;
 
     // Keybind navigation after Yomitan's Display: the current entry changes
-    // only when a keybind focuses an entry or the reader clicks one.
+    // when a keybind focuses an entry or the reader clicks one, and when a
+    // scroll puts another entry in the pinned header (renderResultPanel).
     let currentEntry = null;
+    let shownResult = null;
     const entryNodes = () => [...contentScroll.querySelectorAll(
       ":scope > .gsm-hoshidicts-tab-panel > .gsm-hoshidicts-entry, :scope > .gsm-hoshidicts-kanji-entry")];
     contentScroll.addEventListener("click", event => {
@@ -2614,6 +2618,9 @@
         ? event.target.closest(".gsm-hoshidicts-entry, .gsm-hoshidicts-kanji-entry") : null;
       if (entry && entryNodes().includes(entry)) currentEntry = entry;
     });
+    // Scroll events arrive at most once a frame; each reads two header edges.
+    const onContentScroll = () => shownResult?.update();
+    contentScroll.addEventListener("scroll", onContentScroll, { passive: true });
 
     function currentEntryIndex(nodes = entryNodes()) {
       return Math.max(0, nodes.indexOf(currentEntry));
@@ -2621,10 +2628,15 @@
 
     function scrollToEntry(nodes, index, target = nodes[index]) {
       currentEntry = nodes[index];
+      // Yomitan scrolls an entry's header to the top. Here that header slides
+      // under the pinned header, which then shows the entry.
+      const header = target === currentEntry
+        ? target.querySelector(":scope > .gsm-hoshidicts-entry-header") : null;
+      const edge = header ? header.getBoundingClientRect().bottom : target.getBoundingClientRect().top;
       const top = index === 0 && target === currentEntry ? 0
-        : (target.getBoundingClientRect().top - contentScroll.getBoundingClientRect().top) * getCoordinateScale()
-          + contentScroll.scrollTop;
+        : (edge - contentScroll.getBoundingClientRect().top) * getCoordinateScale() + contentScroll.scrollTop;
       contentScroll.scrollTo({ top, behavior: "instant" });
+      shownResult?.update({ navigated: true });
       return true;
     }
 
@@ -2700,6 +2712,8 @@
       const restoreScroll = pendingScrollRestoration;
       pendingScrollRestoration = null;
       restoreScroll?.();
+      // Layout moved the headers, without necessarily scrolling.
+      shownResult?.update();
     }
 
     function scheduleMasonry() {
@@ -2801,6 +2815,9 @@
       captureTermView = null;
       pendingScrollRestoration = null;
       currentEntry = null;
+      // A retained lookup toolbar must not keep another result's actions.
+      shownResult?.release();
+      shownResult = null;
       if (!preserveViewControls) {
         currentNoteControls?.close(false);
         currentNoteControls = null;
@@ -2857,13 +2874,18 @@
     }
 
     function flushDictionaryPresentation() {
-      if (!pendingPresentation || !currentPresentationUpdate) return;
-      const pending = pendingPresentation;
-      if (currentPresentationUpdate(pending) && pendingPresentation === pending) pendingPresentation = null;
+      if (pendingPresentation && currentPresentationUpdate) {
+        const pending = pendingPresentation;
+        if (currentPresentationUpdate(pending) && pendingPresentation === pending) pendingPresentation = null;
+      }
+      // The host calls this when a Note, save or child popup no longer holds
+      // the view, which is also when a held pinned header may catch up.
+      shownResult?.update();
     }
 
     function onPresentationFocusOut() {
-      if (pendingPresentation) windowRef.queueMicrotask(flushDictionaryPresentation);
+      // Also releases a header held by a focused control.
+      windowRef.queueMicrotask(flushDictionaryPresentation);
     }
     popup.addEventListener("focusout", onPresentationFocusOut);
 
@@ -2927,14 +2949,16 @@
       return sourceHighlightEnabled;
     }
 
-    function setLookupStats(element, payload) {
+    // A count on its way (pending) keeps the slot's place, unpainted, so its
+    // arrival moves nothing. With neither a count nor one on its way, it hides.
+    function setLookupStats(element, payload, pending = false) {
       const lookedUp = formatLookupCount(
         "Looked up",
         payload && payload.lookupCount
       );
       element.textContent = lookedUp ?? "";
-      element.hidden = lookedUp === null;
-      if (!element.hidden) {
+      element.hidden = lookedUp === null && !pending;
+      if (lookedUp !== null) {
         positionPopup();
       }
     }
@@ -3359,7 +3383,7 @@
       if (existingMiningAction) actions.prepend(existingMiningAction);
       if (navigationAction) actions.prepend(navigationAction);
       header.append(actions);
-      return { element: header, audio: { button, result }, mining: { actions, feedback, result },
+      return { element: header, headword, audio: { button, result }, mining: { actions, feedback, result },
         updateRuby(context) {
           const enabled = context.showPitchAccentFurigana !== false;
           const dictionary = typeof context.pitchAccentFuriganaDictionary === "string"
@@ -3431,6 +3455,8 @@
         onLayoutChange: positionIfCurrent };
       hideImagePreview();
       renderedImages.clear();
+      // A projection reuses the pinned header and lookup toolbar.
+      shownResult?.release();
       panel.replaceChildren();
       if (feedback) {
         feedback.hidden = true;
@@ -3449,9 +3475,104 @@
       let restoreScrollTop = renderContext.restoreScrollTop;
       let restoreDisclosures = renderContext.restoreDisclosures;
 
+      // The pinned header shows the result being read: the last one whose own
+      // header has scrolled above the definitions. In Yomitan each entry's
+      // header simply scrolls with it. Here the shown result's headword and
+      // actions move into the pinned header, the first result's stay there
+      // hidden, and the emptied header keeps its height so nothing moves.
+      const lookupActions = renderContext.noteControls.actions;
+      let shown = 0;
+      const shownParts = index => index > 0
+        ? [entryMetadata[index].header.headword, entryMetadata[index].header.mining.actions]
+        : [entryMetadata[0].header.headword, ...lookupActions.querySelectorAll(
+          ":scope > .gsm-hoshidicts-mine-button, :scope > .gsm-hoshidicts-audio-control")];
+
+      function showEntry(index, moveFocus = true) {
+        const focused = popup.getRootNode().activeElement;
+        const leaving = shownParts(shown), incoming = shownParts(index);
+        const holds = parts => moveFocus && popup.contains(focused) && parts.some(part => part.contains(focused));
+        // Moving a focused node blurs it, so either hand focus to the incoming
+        // result's Anki or pronunciation button or put it back on the moved node.
+        const focusLeaves = holds(leaving), focusMoves = holds(incoming);
+        const slot = index > 0 ? entryMetadata[index].header.element : null;
+        // Measure before any write. The slot is above the definitions.
+        const height = slot ? slot.getBoundingClientRect().height * getCoordinateScale() : 0;
+        if (shown > 0) {
+          const { element, headword, mining } = entryMetadata[shown].header;
+          element.append(headword, mining.actions);
+          element.style.height = "";
+        }
+        if (slot) {
+          const { headword, mining } = entryMetadata[index].header;
+          slot.style.height = `${height}px`;
+          primaryHeader.insertBefore(headword, lookupActions);
+          const ownAudio = lookupActions.querySelector(":scope > .gsm-hoshidicts-audio-control");
+          if (ownAudio) ownAudio.after(mining.actions);
+          else lookupActions.prepend(mining.actions);
+          primaryHeader.dataset.shownResult = String(index);
+        } else {
+          delete primaryHeader.dataset.shownResult;
+        }
+        entryMetadata[0].header.headword.hidden = index > 0;
+        shown = index;
+        if (focusLeaves) {
+          const kind = focused.matches(".gsm-hoshidicts-mine-button") ? ".gsm-hoshidicts-mine-button" : null;
+          const find = selector => incoming.flatMap(part => [...part.querySelectorAll(selector)])[0]
+            ?? incoming.find(part => part.matches(selector));
+          ((kind && find(kind)) || find(".gsm-hoshidicts-audio-button"))?.focus({ preventScroll: true });
+        } else if (focusMoves) {
+          focused.focus({ preventScroll: true });
+        }
+      }
+
+      function updateShownEntry({ navigated = false } = {}) {
+        // A Note draft, a pending save or a child popup hold the header, and so
+        // does a focused custom Anki button: re-checking it for another result
+        // would disable it and take its focus.
+        const focused = popup.getRootNode().activeElement;
+        if (popup.hidden || !isCurrent() || options.canProjectDictionaryPresentation?.() === false
+            || (lookupActions.contains(focused) && focused.matches(".gsm-hoshidicts-custom-anki-button"))) return;
+        const top = contentScroll.getBoundingClientRect().top + 1;
+        // A header without a box (no layout yet) has not scrolled anywhere.
+        const above = index => {
+          const { height, bottom } = entryMetadata[index].header.element.getBoundingClientRect();
+          return height > 0 && bottom <= top;
+        };
+        let index = shown;
+        while (index + 1 < entryMetadata.length && above(index + 1)) index += 1;
+        while (index > 0 && !above(index)) index -= 1;
+        if (index === shown) return;
+        showEntry(index);
+        // Navigation chose its own current entry, which may be beyond reach.
+        if (!navigated) currentEntry = entryMetadata[index].entry;
+        if (lookupActions.querySelector(":scope > .gsm-hoshidicts-custom-anki-button")) {
+          // Same arrays; the custom Anki buttons now belong to another entry.
+          onResultsExpanded({ audioButtons, miningActions });
+        }
+      }
+      shownResult = {
+        update: updateShownEntry,
+        result: () => results[shown] ?? null,
+        release() { if (shown > 0) showEntry(0, false); },
+      };
+
+      // Disclosures in a fresh render's order: a moved headword's belong to
+      // its own header's slot. Back restores them by position.
+      function disclosureNodes() {
+        const details = [...popup.querySelectorAll("details")];
+        if (shown === 0) return details;
+        const { element, headword } = entryMetadata[shown].header;
+        const slot = node => headword.contains(node) ? element : node;
+        return details.sort((first, second) => {
+          const [a, b] = [slot(first), slot(second)];
+          if (a === b) return 0;
+          return a.compareDocumentPosition(b) & windowRef.Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+        });
+      }
+
       function restoreViewportAfterFill() {
         if (restoreDisclosures) {
-          const details = [...popup.querySelectorAll("details")];
+          const details = disclosureNodes();
           if (details.length === restoreDisclosures.length
               && details.every((node, index) => node.className === restoreDisclosures[index].className)) {
             details.forEach((node, index) => { node.open = restoreDisclosures[index].open; });
@@ -3508,7 +3629,9 @@
           onDeinflectionToggle: positionIfCurrent,
         });
         audioButtons.push(renderedHeader.audio);
-        miningActions.push(renderedHeader.mining);
+        // The lookup's custom Anki buttons mine the shown result.
+        miningActions.push({ ...renderedHeader.mining,
+          get customActions() { return resultIndex === shown ? lookupActions : null; } });
         if (resultIndex !== 0) {
           entry.appendChild(renderedHeader.element);
         }
@@ -3525,6 +3648,9 @@
           lookupStats.className = "gsm-hoshidicts-lookup-stats";
           lookupStats.setAttribute("role", "status");
           lookupStats.setAttribute("aria-live", "polite");
+          // The stylesheet shows the count after the tags, at least this wide:
+          // the place a count up to 99 keeps while it is on its way.
+          lookupStats.dataset.placeholder = formatLookupCount("Looked up", 99);
           lookupStats.hidden = true;
           primaryMetadataRow.appendChild(lookupStats);
         }
@@ -3564,7 +3690,7 @@
           renderGrammarRow(grammarRow, result, renderContext.hidePopupGrammarTags !== false);
           entry.appendChild(grammarRow);
         }
-        entryMetadata.push({ header: renderedHeader, metadata, grammarRow });
+        entryMetadata.push({ header: renderedHeader, metadata, grammarRow, entry });
 
         const groupedGlossaries = new Map();
         for (const glossary of result.term.glossaries) {
@@ -3788,6 +3914,7 @@
 
       return { lookupStats, audioButtons, miningActions,
         isExpanded: () => expanded,
+        disclosureNodes,
         updateMetadata() {
           const nextModes = frequencyModes(imageContext);
           const labelsChanged = JSON.stringify(imageContext.dictionaryPresentation) !== JSON.stringify(appliedDictionaryPresentation);
@@ -3837,15 +3964,13 @@
           if (!labelsChanged && !summaryChanged) return false;
           let changed = false;
           if (summaryChanged) {
-            changed = updateCompactSummary(primaryHeader.querySelector(".gsm-hoshidicts-headword"),
-              results[0], renderContext, summaryMedia) || changed;
+            // A shown result's headword sits in the pinned header.
+            entryMetadata.forEach(({ header }, index) => {
+              changed = updateCompactSummary(header.headword, results[index], renderContext, summaryMedia) || changed;
+            });
           }
           const entries = panel.querySelectorAll(":scope > .gsm-hoshidicts-entry");
-          entries.forEach((entry, index) => {
-            if (index > 0 && summaryChanged) {
-              changed = updateCompactSummary(entry.querySelector(".gsm-hoshidicts-headword"),
-                results[index], renderContext, summaryMedia) || changed;
-            }
+          entries.forEach((entry) => {
             if (labelsChanged) {
               for (const title of entry.querySelectorAll(":scope > .gsm-hoshidicts-glossary-grid > .gsm-hoshidicts-glossary-card > .gsm-hoshidicts-glossary-card-title")) {
                 changed = updateLabel(title, names.get(title.title) || title.title) || changed;
@@ -4067,15 +4192,18 @@
       const primaryHeader = documentRef.createElement("header");
       primaryHeader.className =
         "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
-      let projectedPrimary = null;
-      const noteControls = createNoteControls(() => ({
-        // An exact selection adds what was highlighted, not the headword it matched.
-        term: candidate?.exactSelection === true ? candidate.query : projectedPrimary?.term?.expression || "",
-        reading: candidate?.exactSelection !== true || candidate.query === projectedPrimary?.term?.expression
-          ? projectedPrimary?.term?.reading || "" : "",
-        definition: "",
-        sentence: candidate?.sentence || "",
-      }), renderContext);
+      const noteControls = createNoteControls(() => {
+        // The result the pinned header shows, which scrolling may change.
+        const primary = shownResult?.result() ?? null;
+        return {
+          // An exact selection adds what was highlighted, not the headword it matched.
+          term: candidate?.exactSelection === true ? candidate.query : primary?.term?.expression || "",
+          reading: candidate?.exactSelection !== true || candidate.query === primary?.term?.expression
+            ? primary?.term?.reading || "" : "",
+          definition: "",
+          sentence: candidate?.sentence || "",
+        };
+      }, renderContext);
       currentNoteControls = noteControls;
       const toolbar = createResultChrome(primaryHeader, metadataStrip);
       mountResultChrome(toolbar, panel, feedback);
@@ -4152,7 +4280,6 @@
         const matchingDisclosures = saved && (saved.results === results
           || JSON.stringify(saved.results) === JSON.stringify(results))
           && sameTabMembers(new Set(saved.dictionaries), selectedDictionaries, dictionaries);
-        projectedPrimary = projectedResults[0] || null;
         rendered = renderResultPanel(
           panel,
           projectedResults,
@@ -4334,7 +4461,7 @@
       restoreRetainedFocus(focused);
       captureTermView = () => ({ expandAll: rendered.isExpanded(), restoreScrollTop: contentScroll.scrollTop,
         disclosures: { results, dictionaries: [...tabDescriptors[selectedIndex].dictionaries],
-          states: [...popup.querySelectorAll("details")].map(node => ({ className: node.className, open: node.open })),
+          states: rendered.disclosureNodes().map(node => ({ className: node.className, open: node.open })),
         },
       });
       return rendered;
@@ -4376,6 +4503,7 @@
         renderRevision += 1;
         currentResultPanel = null;
         captureTermView = null;
+        shownResult = null;
         pendingScrollRestoration = null;
         currentLookupFailure = null;
         options.cancelMasonry?.(layoutMasonry);
@@ -4385,6 +4513,7 @@
         }
         masonryObserver?.disconnect();
         windowRef.removeEventListener("resize", onWindowResize);
+        contentScroll.removeEventListener("scroll", onContentScroll);
         imagePreview.destroy();
         popup.removeEventListener("focusout", onPresentationFocusOut);
       },

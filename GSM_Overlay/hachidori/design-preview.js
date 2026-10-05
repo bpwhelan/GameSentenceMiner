@@ -202,14 +202,23 @@
   }
 
   function context() {
+    const dictionaryTabGroups = state.groups.map(group => ({ ...group, dictionaries: group.dictionaryIds
+      .map(id => state.dictionaries.find(entry => entry.id === id && entry.enabled)?.title).filter(Boolean) }));
+    const sampleDictionaries = sample.results[0].term.glossaries.map(row => row.dictionary);
+    if (HDReaderOptions.popupRenderer(options.popupTheme) === "bee"
+        && !dictionaryTabGroups.some(group => group.dictionaries.some(title => sampleDictionaries.includes(title)))) {
+      dictionaryTabGroups.push(
+        { id: "sample-definitions", name: "Sample definitions", dictionaries: [sampleDictionaries[0], "Sample collocations"] },
+        { id: "sample-examples", name: "Sample examples", dictionaries: [sampleDictionaries[1], "Sample expressions"] },
+      );
+    }
     return { ...HDPopup.metadataOptions(options),
       definitionBlurState: sampleBlurState(),
       showCompactDefinitionSummary: options.showCompactDefinitionSummary,
       compactDefinitionSummaryCount: options.compactDefinitionSummaryCount,
       compactDefinitionSummaryDictionary: options.compactDefinitionSummaryDictionary,
       dictionaryPresentation: sample.dictionaryPresentation,
-      dictionaryTabGroups: state.groups.map(group => ({ ...group, dictionaries: group.dictionaryIds
-        .map(id => state.dictionaries.find(entry => entry.id === id && entry.enabled)?.title).filter(Boolean) })),
+      dictionaryTabGroups,
       popupImageSources: imageSources,
       async resolveMedia(request) {
         const dictionary = imageSources === null ? request.dictionary : imageSources[0];

@@ -6,7 +6,7 @@
   const RENDER_METHODS = new Set(["renderResults", "renderKanji", "renderNotice", "renderLookupFailure"]);
   const METHODS = [...RENDER_METHODS, "captureTermView", "currentEntryIndex", "focusEntry", "hideImagePreview",
     "scheduleMasonry", "setDefinitionBlurState", "setLookupStats", "setToolbarPosition", "setCustomButtons",
-    "setSourceHighlightEnabled", "updateDictionaryPresentation", "flushDictionaryPresentation", "closeNoteForm"];
+    "setSourceHighlightEnabled", "updateDictionaryPresentation", "flushDictionaryPresentation", "closeNoteForm", "closeActionMenu"];
 
   function createThemeHost({ getOptions, onReady = () => {}, assetUrl = path => chrome.runtime.getURL(path) }) {
     const cache = new Map();
@@ -89,6 +89,7 @@
       const settings = new Map();
       const components = { createLookupActions: window.HDPopup.createLookupActions,
         createDictionaryTabs: window.HDPopup.createDictionaryTabs,
+        createFrequencyTags: window.HDPopup.createFrequencyTags,
         glossaryToPlainText: window.HDGlossary.glossaryToPlainText,
         buildPitchAccentMorae: window.HDGlossary.buildPitchAccentMorae, pitchAccentPositions: window.HDGlossary.pitchAccentPositions,
         createAudioControl: window.HDPopup.createAudioControl, deinflectionSteps: window.HDPopup.deinflectionSteps,

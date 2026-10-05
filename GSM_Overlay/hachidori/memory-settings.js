@@ -33,7 +33,7 @@ export function createMemorySettings({ document, readMemory, readExtensionTotal,
     if (!target) return;
     const entry = latest?.dictionaries.find((item) => item.id === row.dataset.dictionaryId);
     const share = typeof entry?.bytes === "number" ? `\u2248 ${formatBytes(entry.bytes)}` : UNAVAILABLE;
-    // A paged package keeps only its index in memory: every package in Low
+    // A paged package keeps only its index in memory: the default on OPFS or Low
     // memory mode, and one that did not fit otherwise.
     target.textContent = `In memory: ${share}${entry?.paged === true ? " (entries read from disk)" : ""}`;
   }

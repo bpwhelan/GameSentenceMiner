@@ -37,11 +37,12 @@
   const {
     ACTIVATION_BUTTONS,
     DEFAULT_OPTIONS,
-    KEYBIND_MODIFIERS,
     KEYBIND_MODIFIER_CODES,
     clampOption,
     definitionBlurFrequencyEvidence,
     definitionBlurQualifies,
+    keybindModifiers,
+    keybindWheelKey,
     normaliseActivationKey,
     projectContentOptions,
   } = globalThis.HDReaderOptions;
@@ -869,14 +870,11 @@
   // text begins like a dictionary key longer than that (hoshidicts long-key
   // index; each package row carries the longest such key it lists). Eight more
   // leaves room for an inflected ending, matching the engine. Dictionaries
-  // imported before the index existed report 0 and cost nothing extra. Off by
-  // default: Settings → Advanced → Experimental features → Long dictionary
-  // entries switches it on.
+  // imported before the index existed report 0 and cost nothing extra.
   const LONG_KEY_INFLECTION_SLACK = 8;
   const MAX_SCAN_WINDOW = 256;
 
   function scanWindow() {
-    if (options.experimental.longKeyScan !== true) return options.scanLength;
     let longest = 0;
     for (const entry of dictionaries) {
       if (entry.enabled !== false && entry.termCount > 0 && entry.longKeyLength > longest) {
@@ -2382,6 +2380,7 @@
       const child = levels[level.depth + 1];
       if (child) positionPopup(child);
     }, { capture: true, passive: true });
+    popup.addEventListener("wheel", (event) => onPopupWheelKeybind(event, level), { capture: true, passive: false });
     popup.addEventListener("wheel", onPopupWheel, { passive: false });
     popup.addEventListener("mouseenter", () => onPopupEnter(level));
     popup.addEventListener("mouseleave", (event) => onPopupLeave(event, level));
@@ -2525,7 +2524,9 @@
     } });
   }
 
-  function paintLookupStatistics(request, level) {
+  // A count on its way keeps its slot's place, so its arrival moves nothing.
+  // Once its request settles without one, the slot hides.
+  function paintLookupStatistics(request, level, settled = false) {
     if (!options.showLookupCounts) {
       if (level.lookupStatsElement) level.lookupStatsElement.hidden = true;
       return;
@@ -2535,7 +2536,8 @@
     const entry = request?.lookupStats;
     const statistics = entry?.payload?.descriptor.generation === lookupStatsDescriptor.generation
       ? entry.payload.statistics : null;
-    level.view.setLookupStats(level.lookupStatsElement, statistics);
+    const onItsWay = Boolean(entry) && (entry.needsRefresh || (entry.pending && !settled));
+    level.view.setLookupStats(level.lookupStatsElement, statistics, onItsWay);
   }
 
   function adoptLookupStatsDescriptor(descriptor, changes = {}) {
@@ -2592,13 +2594,16 @@
           && payload.statistics === null && requestedOptionsRevision !== optionsStorageRevision;
       }
       if (request.lookupStats === entry) {
-        paintLookupStatistics(request, level);
+        paintLookupStatistics(request, level, true);
         settleDefinitionBlur(request, level, currentLookupCount(entry));
       }
     }).catch(error => {
       // A lost reply may follow a committed increment. Never retry the write.
       console.debug("hachidori: lookup statistics unavailable", error);
-      if (request.lookupStats === entry) settleDefinitionBlur(request, level, null);
+      if (request.lookupStats === entry) {
+        paintLookupStatistics(request, level, true);
+        settleDefinitionBlur(request, level, null);
+      }
     }).finally(() => {
       entry.pending = false;
       if (request.lookupStats === entry && entry.needsRefresh) refreshLookupStatistics(request, level);
@@ -3002,11 +3007,46 @@
     return popupHasFocus() && shadow.activeElement.matches(":focus-visible");
   }
 
+  function focusBlocksScan(level) {
+    return popupHasFocus() && (!level
+      || (isEditingElement(shadow.activeElement) && shadow.activeElement.localName !== "button"));
+  }
+
   function hasProtectedNote(fromDepth = 0) {
     for (let index = fromDepth; index < levels.length; index += 1) {
       if (levels[index].noteEditing || levels[index].pendingCustomAppends > 0) return true;
     }
     return false;
+  }
+
+  // Wheel keybinds, after Yomitan's Alt+wheel entry moves: a wheel step's
+  // direction is its key, matched like a key press and acted on by the popup
+  // under the pointer. One notch presses the binding once. A touchpad's stream
+  // of small steps in one direction presses it when the stream starts and again
+  // for each further notch's worth of travel, rather than once per event. A
+  // handled step goes no further, so neither the pane nor the page scrolls; an
+  // unhandled one reaches the popup's wheel isolation below.
+  const WHEEL_NOTCH_PX = 100;
+  const WHEEL_GESTURE_GAP_MS = 100;
+  let wheelGesture = null;
+
+  function onPopupWheelKeybind(event, level) {
+    const key = keybindWheelKey(event);
+    if (disposed || key === null) return;
+    const signature = [key, ...keybindModifiers(event)].join();
+    const continuing = wheelGesture?.level === level && wheelGesture.signature === signature
+      && event.timeStamp - wheelGesture.timeStamp < WHEEL_GESTURE_GAP_MS;
+    const travel = continuing ? wheelGesture.travel + Math.abs(event.deltaY) : WHEEL_NOTCH_PX;
+    const presses = Math.floor(travel / WHEEL_NOTCH_PX);
+    let handled = continuing;
+    for (let press = 0; press < presses; press += 1) handled = runKeybinds(event, level, key) || handled;
+    if (!handled) {
+      wheelGesture = null;
+      return;
+    }
+    wheelGesture = { level, signature, timeStamp: event.timeStamp, travel: travel % WHEEL_NOTCH_PX };
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   // The popup's wheel belongs to the popup. Readers such as ttu turn pages from
@@ -3300,7 +3340,8 @@
     noteGeneration(reply.generation, level);
     const results = (Array.isArray(reply.results) ? reply.results : [])
       .filter((result) => result && result.term
-        && (!request.exactSelection || result.matched === request.payload.text));
+        && (!(request.exactSelection || request.candidate.linkAnchor)
+          || result.matched === request.payload.text));
     if (results.length === 0) {
       return handleTermMiss(request, reply.dictionaryCount, token, level, replayOptions);
     }
@@ -3327,6 +3368,7 @@
   function runLookup(candidate, overrides = {}, level = rootLevel) {
     const text = typeof overrides.text === "string" ? overrides.text : candidate.query;
     const exactSelection = candidate.exactSelection === true && overrides.text === undefined;
+    const exactMatch = exactSelection || candidate.linkAnchor === true;
     return executeTermRequest({
       candidate,
       exactSelection,
@@ -3342,7 +3384,7 @@
             ? overrides.primaryReading
             : "",
         },
-        scanLength: exactSelection ? clampOption("scanLength", Array.from(text).length) : options.scanLength,
+        scanLength: exactMatch ? clampOption("scanLength", Array.from(text).length) : options.scanLength,
         text,
       },
       previous: overrides.previous ?? null,
@@ -3417,7 +3459,7 @@
     child.activeSignature = candidateSignature(candidate);
     const promise = runLookup(candidate, {
       primaryReading,
-      selectedDictionaryTab: level.currentViewRequest?.selectedDictionaryTab,
+      selectedDictionaryTab: source === "link" ? null : level.currentViewRequest?.selectedDictionaryTab,
     }, child);
     const record = { promise, token: child.lookupToken };
     child[pendingKey] = record;
@@ -3739,7 +3781,7 @@
   function scanActivatedPointer() {
     const popupLevel = activePointerLevel(lastPointer);
     const keyGated = popupLevel ? definitionKeyGated() : options.lookupMode !== "hover";
-    if (keyGated && lastPointer && !hasProtectedNote() && !popupHasFocus()
+    if (keyGated && lastPointer && !hasProtectedNote() && !focusBlocksScan(popupLevel)
         && (!pointerInPopup || popupLevel)
         && !selectionDragActive
         && (popupLevel || !retainSelectedLookup())) {
@@ -3832,7 +3874,7 @@
     if (!options.hoverEnabled) return;
     if (transferTimer !== null) return;
     const popupLevel = activePointerLevel(pointer);
-    if (hasProtectedNote() || popupHasFocus()) {
+    if (hasProtectedNote() || focusBlocksScan(popupLevel)) {
       cancelCandidateScan();
       if (popupLevel) cancelPendingHover(popupLevel);
       clearHideTimer();
@@ -3918,7 +3960,7 @@
     pointerLevel = level;
     clearTransferTimer();
     clearHideTimer();
-    if (hasProtectedNote() || popupHasFocus()) {
+    if (hasProtectedNote() || focusBlocksScan(level)) {
       cancelPendingHover(level);
       clearScanTimer();
       return;
@@ -4203,7 +4245,7 @@
     }
   }
 
-  // Close keeps the reader's Escape order: an audio menu, then a Note form,
+  // Close keeps the reader's Escape order: an audio menu, then theme actions, then a Note form,
   // then the focused or deepest popup, then a pending lookup. Nothing closed
   // leaves the key to activation.
   function closeFromKeybind(event) {
@@ -4214,6 +4256,12 @@
     }
     if (rootLevel.popup && !rootLevel.popup.hidden) {
       const focused = levels.find((level) => level.popup.contains(shadow.activeElement));
+      const menuOwner = focused || levels.at(-1);
+      if (!menuOwner.popup.inert && menuOwner.view?.closeActionMenu?.() === true) {
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      }
       const editing = focused?.noteEditing ? focused : levels.findLast((level) => level.noteEditing);
       const noteOwner = editing || focused || levels.at(-1);
       if (!noteOwner.popup.inert && noteOwner.view?.closeNoteForm?.() === true) {
@@ -4254,7 +4302,8 @@
     return true;
   }
 
-  function runKeybindAction({ action, argument }, event) {
+  function runKeybindAction({ action, argument }, event,
+    level = levels.findLast((item) => item.popup && !item.popup.hidden)) {
     if (action === "close") return closeFromKeybind(event);
     if (action === "scanSelectedText" || action === "scanTextAtSelection") {
       if (!options.hoverEnabled) return false;
@@ -4271,7 +4320,6 @@
         options: { [argument]: !options[argument] } }, WORKER_TARGET).catch(() => {});
       return true;
     }
-    const level = levels.findLast((item) => item.popup && !item.popup.hidden);
     if (!level?.view || level.popup.inert) return false;
     const entry = level.view.currentEntryIndex();
     switch (action) {
@@ -4287,9 +4335,12 @@
       case "historyBackward":
         return clickKeybindControl(level.popup.querySelector(".gsm-hoshidicts-kanji-back"));
       case "addNote":
-      case "viewNotes":
-        return clickKeybindControl(level.entryMining?.[entry]?.actions.querySelector(
-          `.gsm-hoshidicts-mine-button[data-action="${action === "addNote" ? "add" : "view"}"]`));
+      case "viewNotes": {
+        // The entry's own button: the lookup row may also hold a shown result's row.
+        const state = action === "addNote" ? "add" : "view";
+        return clickKeybindControl([...(level.entryMining?.[entry]?.actions.children ?? [])]
+          .find(child => child.matches(`.gsm-hoshidicts-mine-button[data-action="${state}"]`)));
+      }
       case "playAudio":
       case "playAudioFromSource": {
         const button = level.entryAudio?.[entry]?.button;
@@ -4311,9 +4362,9 @@
 
   // After Yomitan's HotkeyHandler: the physical key and the exact modifier set
   // select enabled keybinds whose scope applies; the first handled one wins.
-  function runKeybinds(event) {
-    const key = KEYBIND_MODIFIER_CODES.has(event.code) ? null : event.code;
-    const modifiers = KEYBIND_MODIFIERS.filter(modifier => event[`${modifier}Key`] === true);
+  // A wheel step passes its own key and the popup it is over.
+  function runKeybinds(event, level, key = KEYBIND_MODIFIER_CODES.has(event.code) ? null : event.code) {
+    const modifiers = keybindModifiers(event);
     // A pending lookup counts as its popup: Escape has always cancelled one.
     const popupScope = Boolean(rootLevel.popup && !rootLevel.popup.hidden)
       || pendingCandidateLookup !== null || activeSelectionCandidate !== null;
@@ -4324,7 +4375,7 @@
           || bind.key !== key || bind.modifiers.join() !== modifiers.join()
           || !(bind.scopes.includes("web") || (popupScope && bind.scopes.includes("popup")))
           || (characterInput && textFieldFocused())) continue;
-      if (runKeybindAction(bind, event) === false) continue;
+      if (runKeybindAction(bind, event, level) === false) continue;
       if (bind.action !== "close") event.preventDefault();
       return true;
     }

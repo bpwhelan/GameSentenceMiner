@@ -58,8 +58,8 @@ function renderScopes(row, action, bind) {
 export function createKeybindSettingsController({ document, readKeybinds, editKeybinds, readAudioSources,
   getBrowserCommands, openBrowserShortcuts, browserShortcutsAvailable = true }) {
   const window = document.defaultView;
-  const { KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_MODIFIERS, KEYBIND_MODIFIER_CODES, KEYBIND_SCOPES,
-    KEYBIND_TOGGLE_OPTIONS, AUDIO_SOURCE_LABELS, DEFAULT_OPTIONS } = window.HDReaderOptions;
+  const { KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_MODIFIER_CODES, KEYBIND_SCOPES, KEYBIND_TOGGLE_OPTIONS,
+    AUDIO_SOURCE_LABELS, DEFAULT_OPTIONS, keybindModifiers, keybindWheelKey } = window.HDReaderOptions;
   const actions = new Map(KEYBIND_ACTIONS.map(action => [action.id, action]));
   const list = document.getElementById("keybind-list");
   const rows = [];
@@ -72,16 +72,29 @@ export function createKeybindSettingsController({ document, readKeybinds, editKe
     render();
   }
 
+  function assign(row, key, modifiers) {
+    const bind = readKeybinds()[row.index];
+    if (key !== bind.key || modifiers.join() !== bind.modifiers.join()) change(row, { key, modifiers });
+  }
+
   // Yomitan's key field: every key press replaces the modifiers, and a
   // non-modifier key replaces the key. Plain Tab still moves focus.
   function capture(row, event) {
     if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
-    const bind = readKeybinds()[row.index];
-    const modifiers = KEYBIND_MODIFIERS.filter(modifier => event[`${modifier}Key`] === true);
-    const code = event.code && event.code !== "Unidentified" && !KEYBIND_MODIFIER_CODES.has(event.code) ? event.code : bind.key;
-    if (code === bind.key && modifiers.join() === bind.modifiers.join()) return;
-    change(row, { key: code, modifiers });
+    const code = event.code && event.code !== "Unidentified" && !KEYBIND_MODIFIER_CODES.has(event.code)
+      ? event.code : readKeybinds()[row.index].key;
+    assign(row, code, keybindModifiers(event));
+  }
+
+  // A wheel step with a modifier held over the field being set is a key; a
+  // plain wheel still scrolls Settings.
+  function captureWheel(row, event) {
+    const key = keybindWheelKey(event);
+    const modifiers = keybindModifiers(event);
+    if (key === null || modifiers.length === 0 || document.activeElement !== row.input) return;
+    event.preventDefault();
+    assign(row, key, modifiers);
   }
 
   function createRow() {
@@ -124,6 +137,7 @@ export function createKeybindSettingsController({ document, readKeybinds, editKe
     }));
     row.enabled.addEventListener("change", () => change(row, { enabled: row.enabled.checked }));
     row.input.addEventListener("keydown", event => capture(row, event));
+    row.input.addEventListener("wheel", event => captureWheel(row, event), { passive: false });
     row.clear.addEventListener("click", () => change(row, { key: null, modifiers: [] }));
     row.reset.addEventListener("click", () => {
       const fallback = defaultFor(readKeybinds()[row.index].action);

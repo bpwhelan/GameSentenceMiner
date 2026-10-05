@@ -521,7 +521,10 @@
           templateId: primaryTemplateId,
           label: "Anki",
         });
-        for (const add of item.actions.querySelectorAll(".gsm-hoshidicts-custom-anki-button")) {
+        // A renderer that shows one entry's actions in a shared toolbar names
+        // the entry its custom buttons mine; otherwise they are in its row.
+        const customActions = "customActions" in item ? item.customActions : item.actions;
+        for (const add of customActions?.querySelectorAll(".gsm-hoshidicts-custom-anki-button") ?? []) {
           const descriptor = customButtonTemplates.get(add.dataset.customButtonId);
           if (!descriptor) continue;
           specs.push({
