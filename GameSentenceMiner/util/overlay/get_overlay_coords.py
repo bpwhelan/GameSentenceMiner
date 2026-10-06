@@ -47,7 +47,6 @@ from GameSentenceMiner.util.config.configuration import (
     is_beangate,
     logger,
 )
-from GameSentenceMiner.util.config.electron_config import get_ocr_language
 from GameSentenceMiner.util.platform.monitor_selection import resolve_monitor_descriptor
 from GameSentenceMiner.util.overlay.adaptive_crop import AdaptiveOverlayCrop, shift_ocr_boxes
 from GameSentenceMiner.util.overlay.capture_state import get_overlay_capture_state, publish_overlay_capture_state
@@ -463,13 +462,19 @@ class OverlayProcessor:
 
         return None
 
+    def _refresh_language(self):
+        """Keep overlay scans and text handling on GSM's target language."""
+        language = get_config().general.target_language
+        if getattr(self, "ocr_language", None) != language:
+            self.ocr_language = language
+            self.regex = get_regex(language) if get_regex else None
+
     def init(self):
         """Initializes the OCR engines and configuration."""
         try:
             if all([GoogleLens, get_regex]):
                 logger.debug("Initializing OCR engines...")
-                self.ocr_language = get_ocr_language()
-                self.regex = get_regex(self.ocr_language)
+                self._refresh_language()
                 self.ready = True
             else:
                 logger.warning("OCR dependencies not found. OCR functionality will be disabled.")
@@ -807,6 +812,7 @@ class OverlayProcessor:
                 multiple_crop_coords=True,
                 return_one_box=False,
                 furigana_filter_sensitivity=minimum_character_size,
+                language=self.ocr_language,
             )
             success, _, lines, _, _, response_dict = (list(result) + [None] * 6)[:6]
             if not success or not lines:
@@ -1110,6 +1116,7 @@ class OverlayProcessor:
 
     def _ensure_correct_engine_loaded(self):
         """Ensures the correct OCR engine is loaded based on current configuration."""
+        self._refresh_language()
         effective_engine = self._get_effective_engine()
 
         if self.current_engine_config == effective_engine:
@@ -1132,11 +1139,11 @@ class OverlayProcessor:
             and OneOCR
             and not self.oneocr
         ):
-            self.oneocr = OneOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+            self.oneocr = OneOCR(lang=get_config().general.target_language, get_furigana_sens_from_file=False)
         elif effective_engine == OverlayEngine.MEIKIOCR.value and MeikiOCR and not self.meikiocr:
-            self.meikiocr = MeikiOCR(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+            self.meikiocr = MeikiOCR(lang=get_config().general.target_language, get_furigana_sens_from_file=False)
         elif effective_engine == OverlayEngine.SCREENAI.value and ScreenAIOCR and not self.screenai:
-            self.screenai = ScreenAIOCR(lang=get_ocr_language())
+            self.screenai = ScreenAIOCR(lang=get_config().general.target_language)
         return self.oneocr or self.meikiocr or self.screenai
 
     @staticmethod
@@ -1504,6 +1511,8 @@ class OverlayProcessor:
             except asyncio.CancelledError:  # NOSONAR(S7497) we cancelled it on purpose; swallow is intended
                 logger.debug("Previous OCR task was cancelled")
 
+        self._refresh_language()
+
         # Clear stale overlay boxes immediately so there's no window where old
         # word boxes are visible while OCR for the new line is in-flight.
         if line is not None:
@@ -1528,7 +1537,7 @@ class OverlayProcessor:
 
             if effective_engine == OverlayEngine.LENS.value:
                 if GoogleLens and not self.lens:
-                    self.lens = GoogleLens(lang=get_ocr_language(), get_furigana_sens_from_file=False)
+                    self.lens = GoogleLens(lang=get_config().general.target_language, get_furigana_sens_from_file=False)
             self._load_local_ocr_engine()
 
         self.current_task = self.processing_loop.create_task(
@@ -1627,7 +1636,7 @@ class OverlayProcessor:
         return python_result
 
     def _native_overlay_filter_language(self, regex_obj) -> Optional[str]:
-        language = str(getattr(self, "ocr_language", "") or get_ocr_language() or "")
+        language = str(getattr(self, "ocr_language", "") or get_config().general.target_language or "")
         if not language or get_regex is None:
             return None
         try:
@@ -3062,6 +3071,7 @@ class OverlayProcessor:
                     "multiple_crop_coords": True,
                     "return_one_box": False,
                     "furigana_filter_sensitivity": minimum_character_size,
+                    "language": self.ocr_language,
                 }
                 ocr_start = time.time()
                 scan_image = full_screenshot.crop(scan_box) if scan_box else full_screenshot
@@ -3406,6 +3416,7 @@ class OverlayProcessor:
             composite_image,
             return_coords=True,
             furigana_filter_sensitivity=minimum_character_size,
+            language=self.ocr_language,
         )
         lens_ocr_time = time.time() - lens_start
         self._log_timing(lens_start, "Google Lens OCR execution")
@@ -4005,13 +4016,15 @@ class OverlayProcessor:
             )
 
             # Apply TextFiltering
-            text_filter = TextFiltering(get_ocr_language())
-            filtered_result = text_filter.order_paragraphs_and_lines(ocr_result)
+            language = get_config().general.target_language
+            text_filter = TextFiltering(language)
+            filtered_result = text_filter.order_paragraphs_and_lines(ocr_result, language=language)
 
             # Re-flatten to oneocr tuple format
             _, _, filtered_lines, _, _, _ = ocr_result_to_oneocr_tuple(
                 (True, filtered_result),
                 furigana_filter_sensitivity=furigana_filter_sensitivity,
+                language=language,
             )
 
             return filtered_lines

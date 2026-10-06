@@ -1080,7 +1080,10 @@ def _bounding_box_to_quad(bbox, img_width, img_height):
     }
 
 
-def ocr_result_to_oneocr_tuple(result_tuple, furigana_filter_sensitivity=0, prefer_axis_spacing=False):
+def ocr_result_to_oneocr_tuple(
+    result_tuple, furigana_filter_sensitivity=0, prefer_axis_spacing=False, *, language=None
+):
+    """Convert results using an explicit language or the regular OCR setting."""
     success, ocr_result = result_tuple
     if not success:
         return result_tuple
@@ -1110,7 +1113,7 @@ def ocr_result_to_oneocr_tuple(result_tuple, furigana_filter_sensitivity=0, pref
     filtered_lines = []
     crop_coords_list = []
 
-    regex_obj = get_regex(get_ocr_language())
+    regex_obj = get_regex(language if language is not None else get_ocr_language())
 
     for paragraph in ocr_result.paragraphs:
         paragraph_is_vertical = bool(paragraph.writing_direction == "TOP_TO_BOTTOM")
@@ -1768,12 +1771,12 @@ class GoogleLens:
                 candidates.append(conn_cls)
         return any(isinstance(exc, c) for c in candidates)
 
-    def __call__(self, img, furigana_filter_sensitivity=0, return_coords=False):
+    def __call__(self, img, furigana_filter_sensitivity=0, return_coords=False, *, language=None):
         if self.get_furigana_sens_from_file:
             furigana_filter_sensitivity = get_furigana_filter_sensitivity()
         else:
             furigana_filter_sensitivity = furigana_filter_sensitivity
-        lang = get_ocr_language()
+        lang = language if language is not None else get_ocr_language()
         if lang != self.initial_lang:
             self.initial_lang = lang
             self.regex = get_regex(lang)
@@ -3544,7 +3547,7 @@ class ScreenAIOCR:
         finally:
             self.model.FreeLibraryAllocatedCharArray(result_ptr)
 
-    def _to_oneocr_tuple_lens_like_furigana_filter(self, ocr_result, furigana_filter_sensitivity=0):
+    def _to_oneocr_tuple_lens_like_furigana_filter(self, ocr_result, furigana_filter_sensitivity=0, *, language=None):
         try:
             furigana_filter_sensitivity = int(furigana_filter_sensitivity or 0)
         except (TypeError, ValueError):
@@ -3552,7 +3555,7 @@ class ScreenAIOCR:
 
         img_width = ocr_result.image_properties.width
         img_height = ocr_result.image_properties.height
-        regex_obj = get_regex(get_ocr_language())
+        regex_obj = get_regex(language if language is not None else get_ocr_language())
 
         line_entries = []
         filtered_lines = []
@@ -3747,6 +3750,8 @@ class ScreenAIOCR:
         multiple_crop_coords=False,
         return_one_box=True,
         return_dict=False,
+        *,
+        language=None,
     ):
         try:
             furigana_filter_sensitivity = int(furigana_filter_sensitivity or 0)
@@ -3770,7 +3775,7 @@ class ScreenAIOCR:
             return (True, "", [], [], None, None)
 
         ocr_result = self._to_generic_result(raw_proto, processed.width, processed.height)
-        x = self._to_oneocr_tuple_lens_like_furigana_filter(ocr_result, furigana_filter_sensitivity)
+        x = self._to_oneocr_tuple_lens_like_furigana_filter(ocr_result, furigana_filter_sensitivity, language=language)
 
         if is_path:
             img.close()
@@ -3901,8 +3906,10 @@ class OneOCR:
         multiple_crop_coords=False,
         return_one_box=True,
         return_dict=False,
+        *,
+        language=None,
     ):
-        lang = get_ocr_language()
+        lang = language if language is not None else get_ocr_language()
         if self.get_furigana_sens_from_file:
             furigana_filter_sensitivity = get_furigana_filter_sensitivity()
 
@@ -3942,7 +3949,9 @@ class OneOCR:
         ocr_result = self._to_generic_result(raw_res, img_width, img_height, img.width, img.height)
 
         # Use common converter which handles filtering
-        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity, prefer_axis_spacing=True)
+        x = ocr_result_to_oneocr_tuple(
+            (True, ocr_result), furigana_filter_sensitivity, prefer_axis_spacing=True, language=lang
+        )
 
         if is_path:
             img.close()
@@ -4309,8 +4318,10 @@ class MeikiOCR:
         multiple_crop_coords=False,
         return_one_box=True,
         return_dict=False,
+        *,
+        language=None,
     ):
-        lang = get_ocr_language()
+        lang = language if language is not None else get_ocr_language()
         if self.get_furigana_sens_from_file:
             furigana_filter_sensitivity = get_furigana_filter_sensitivity()
         else:

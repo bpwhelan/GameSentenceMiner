@@ -25,6 +25,7 @@ def _frame(*, left=None, seed=0):
 
 
 def _processor(monkeypatch, engine):
+    monkeypatch.setattr(get_overlay_coords.get_config().general, "target_language", "en")
     processor = get_overlay_coords.OverlayProcessor()
     processor.ocr_language = "en"
     processor.oneocr = engine
@@ -128,6 +129,7 @@ def test_moved_text_is_rescanned_once_repositioned_and_monitored_at_its_new_loca
 
     assert [image for image, _ in scans] == [frames[3], frames[7]]
     assert all(kwargs["return_coords"] for _, kwargs in scans)
+    assert all(kwargs["language"] == "en" for _, kwargs in scans)
     assert len(coordinate_sends) == 1
     replacement = coordinate_sends[0]
     assert {key: value for key, value in replacement.items() if key != "data"} == {

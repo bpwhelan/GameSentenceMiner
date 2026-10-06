@@ -74,6 +74,19 @@ def test_lens_language_tracks_ocr_setting_independently_of_region(lens, fake_ses
     assert (locale.language, locale.region, locale.time_zone) == ("ko", "DE", "Europe/Berlin")
 
 
+def test_lens_scan_can_use_overlay_language_without_changing_ocr_setting(lens, fake_sessions):
+    assert lens(Image.new("RGB", (10, 10)), language="ko")[0] is True
+    assert lens(Image.new("RGB", (10, 10)))[0] is True
+
+    languages = []
+    for _, kwargs in fake_sessions[0].requests:
+        request = lens._lens_proto_deps["LensOverlayServerRequestPb2"]()
+        request.ParseFromString(kwargs["data"])
+        languages.append(request.objects_request.request_context.client_context.locale_context.language)
+
+    assert languages == ["ko", "ja"]
+
+
 def test_concurrent_requests_use_separate_sessions_and_close_safely(lens, fake_sessions):
     ready = threading.Barrier(3)
     release = threading.Event()
