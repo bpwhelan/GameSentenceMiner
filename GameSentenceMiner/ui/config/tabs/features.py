@@ -32,6 +32,10 @@ def build_features_tab(window: ConfigWindow, binder: BindingManager, i18n: dict)
             window._create_labeled_widget(tabs_i18n, "advanced", "mute_game_on_minimize"),
             window.mute_game_on_minimize_check,
         )
+        convenience_layout.addRow(
+            window._create_labeled_widget(tabs_i18n, "advanced", "mute_game_on_background"),
+            window.mute_game_on_background_check,
+        )
     layout.addRow(convenience_group)
 
     longplay_group = window._create_group_box("Longplay Recording")

@@ -118,6 +118,61 @@ def test_coverage_updates_publish_without_rescanning_unchanged_desktop(desktop, 
     assert sent[-1]["occlusion_rects"] == []
 
 
+def test_audio_mutes_on_overlay_coverage_and_waits_for_focus(desktop, monkeypatch):
+    monitor, api, rects = desktop
+    now = time.time()
+    monitor.last_obs_check_time = monitor.last_hwnd_refresh_time = monitor.last_monitor_validation_time = now
+    monitor.last_window_rect = rects[10]
+    monitor.last_state = "active"
+    monitor.last_target_info = {"title": "Game"}
+    monitor.last_target_scene_name = "Game"
+    audio_calls = []
+
+    def set_mute(pid, muted, session_instance_ids=None):
+        audio_calls.append((pid, muted, session_instance_ids))
+        return [SimpleNamespace(changed=True, session_instance_id="game-audio")]
+
+    monkeypatch.setattr(wwm.websocket_manager, "has_clients", lambda _: False)
+    monkeypatch.setattr(
+        wwm,
+        "get_config",
+        lambda: SimpleNamespace(
+            advanced=SimpleNamespace(mute_game_on_minimize=False, mute_game_on_background=True),
+            hotkeys=SimpleNamespace(unmute_target_window_on_focus=False),
+        ),
+    )
+    monkeypatch.setattr(wwm, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 10 else 0)
+    monkeypatch.setattr(wwm, "set_process_mute", set_mute)
+    for method in ("_sync_capture_monitor_to_window", "update_magpie_info", "_spawn_reprocess_last_results"):
+        monkeypatch.setattr(monitor, method, lambda *args: None)
+    for method in ("_is_fullscreen_window", "_is_exclusive_fullscreen", "_is_cursor_hidden"):
+        monkeypatch.setattr(monitor, method, lambda *args, **kwargs: False)
+    monkeypatch.setattr(monitor, "_build_client_rect_payload", lambda: None)
+
+    # Partial coverage leaves the game and overlay visible despite lost focus.
+    asyncio.run(monitor.check_and_send())
+    assert monitor.last_state == "background"
+    assert audio_calls == []
+
+    rects[20] = (0, 0, 1000, 800)
+    monitor._zorder_dirty = True
+    asyncio.run(monitor.check_and_send())
+    assert monitor.last_state == "obscured"
+    assert audio_calls == [(222, True, None)]
+
+    rects[20] = (100, 100, 400, 400)
+    monitor._zorder_dirty = True
+    asyncio.run(monitor.check_and_send())
+    assert monitor.last_state == "background"
+    assert audio_calls == [(222, True, None)]
+
+    api.GetForegroundWindow = lambda: 10
+    monitor._zorder_dirty = True
+    asyncio.run(monitor.check_and_send())
+    assert monitor.last_state == "active"
+    assert audio_calls == [(222, True, None), (222, False, None)]
+
+
 def test_window_events_only_invalidate_top_level_geometry(desktop):
     monitor, _, _ = desktop
     for event in (

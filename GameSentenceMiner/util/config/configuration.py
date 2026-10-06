@@ -1315,6 +1315,7 @@ class Advanced:
     screenshot_capture_backend_v2: str = SCREENSHOT_CAPTURE_BACKEND_AUTO
     wgc_capture_fps: int = DEFAULT_MAIN_WGC_CAPTURE_FPS
     mute_game_on_minimize: bool = False
+    mute_game_on_background: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
     cloud_sync_protocol: str = "relay-v2"

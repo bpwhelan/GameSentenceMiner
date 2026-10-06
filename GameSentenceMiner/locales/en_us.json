@@ -766,7 +766,11 @@
           },
           "mute_game_on_minimize": {
             "label": "Mute Game When Minimized:",
-            "tooltip": "On Windows, mute the captured game while its window is minimized. Background or unfocused windows are not muted."
+            "tooltip": "On Windows, mute the captured game while its window is minimized. Muting when the game is covered is controlled by the setting below."
+          },
+          "mute_game_on_background": {
+            "label": "Mute Game When Covered:",
+            "tooltip": "On Windows, mute the captured game when its window is completely covered by other windows. Keep it muted until you focus the game again, even after uncovering it. Minimized-window muting is controlled separately."
           }
         },
         "ai": {

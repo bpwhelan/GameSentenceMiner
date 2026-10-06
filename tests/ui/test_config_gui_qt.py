@@ -632,7 +632,11 @@ def test_features_tab_collects_optional_feature_controls(monkeypatch) -> None:
             ),
         }
         if sys.platform == "win32":
-            promoted_controls["general"] += (window.mute_game_on_minimize_check,)
+            promoted_controls["general"] += (window.mute_game_on_minimize_check, window.mute_game_on_background_check)
+            convenience_layout = window.mute_game_on_minimize_check.parentWidget().layout()
+            minimize_row, _ = convenience_layout.getWidgetPosition(window.mute_game_on_minimize_check)
+            background_row, _ = convenience_layout.getWidgetPosition(window.mute_game_on_background_check)
+            assert background_row == minimize_row + 1
         for subtab_key, controls in promoted_controls.items():
             pane = feature_tabs.widget(window._settings_subtab_indices["features"][subtab_key])
             assert all(pane.isAncestorOf(control) for control in controls)
@@ -640,6 +644,41 @@ def test_features_tab_collects_optional_feature_controls(monkeypatch) -> None:
         assert "advanced" not in window._settings_subtab_widgets
         assert "discord" in window._settings_subtab_indices["general"]
     finally:
+        window.close()
+        app.processEvents()
+
+
+def test_window_audio_settings_can_be_saved_and_reloaded_independently(monkeypatch) -> None:
+    from GameSentenceMiner.util.config import configuration
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", lambda: "test-version")
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_schedule_runtime_reload", lambda self: None)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
+
+    window = ConfigWindow()
+    try:
+        for mute_minimized, mute_background in ((False, True), (True, False), (True, True), (False, False)):
+            window.mute_game_on_minimize_check.setChecked(mute_minimized)
+            window.mute_game_on_background_check.setChecked(mute_background)
+            assert window.save_settings(show_indicator=False)
+            saved = configuration.Config.load().get_config().advanced
+            assert saved.mute_game_on_minimize is mute_minimized
+            assert saved.mute_game_on_background is mute_background
+            window._auto_save_timer.stop()
+
+            for checkbox in (window.mute_game_on_minimize_check, window.mute_game_on_background_check):
+                with QSignalBlocker(checkbox):
+                    checkbox.setChecked(not checkbox.isChecked())
+            window.reload_settings(force_refresh=True)
+            assert window.mute_game_on_minimize_check.isChecked() is mute_minimized
+            assert window.mute_game_on_background_check.isChecked() is mute_background
+    finally:
+        window._auto_save_timer.stop()
         window.close()
         app.processEvents()
 

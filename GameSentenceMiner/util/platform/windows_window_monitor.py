@@ -208,7 +208,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_hwnd_refresh_time = 0
         self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
         self.last_monitor_validation_time = 0.0
+        # Shared ownership for automatic minimize/background muting, so transitions
+        # between those states never briefly unmute the game.
         self.minimized_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
+        self._covered_audio_mute_pids: set[int] = set()
         self.hotkey_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
         self._audio_mute_lock = threading.RLock()
         self._reprocess_tasks: set = set()  # strong refs so fire-and-forget reprocess tasks aren't GC'd
@@ -372,10 +375,12 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
     ) -> bool:
         with self._audio_mute_lock:
             if pid is not None:
+                self._covered_audio_mute_pids.discard(pid)
                 if pid not in self.minimized_audio_mutes:
                     return False
                 mutes_to_restore = [(pid, self.minimized_audio_mutes.pop(pid))]
             else:
+                self._covered_audio_mute_pids.clear()
                 if not self.minimized_audio_mutes:
                     return False
                 mutes_to_restore = list(self.minimized_audio_mutes.items())
@@ -404,7 +409,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 else:
                     results = set_process_mute(muted_pid, False, session_instance_ids=session_ids)
 
-                    # Some games replace their audio session while minimized; fall back
+                    # Some games replace their audio session while muted; fall back
                     # to the whole process so the restored window doesn't stay silent.
                     if session_ids and not results:
                         results = set_process_mute(muted_pid, False)
@@ -412,11 +417,11 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 changed_count = sum(1 for result in results if result.changed)
                 if changed_count:
                     logger.debug(
-                        f"Restored audio for minimized target PID {muted_pid} ({reason or 'window restored'})."
+                        f"Restored audio for automatically muted target PID {muted_pid} ({reason or 'window restored'})."
                     )
                 restored_any = restored_any or bool(results)
             except Exception as e:
-                logger.debug(f"Failed to restore audio for minimized target PID {muted_pid}: {e}")
+                logger.debug(f"Failed to restore audio for automatically muted target PID {muted_pid}: {e}")
 
         return restored_any
 
@@ -495,6 +500,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         restore_all_sessions = any(not result.session_instance_id for result in changed_results)
         with self._audio_mute_lock:
             minimized_mute = self.minimized_audio_mutes.pop(pid, None)
+            self._covered_audio_mute_pids.discard(pid)
             if minimized_mute is not None:
                 minimized_session_ids, minimized_restore_all = minimized_mute
                 session_ids.update(minimized_session_ids)
@@ -530,23 +536,36 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         if not is_windows():
             return
 
+        mute_states = set()
         try:
             advanced_cfg = get_config().advanced
-            enabled = bool(getattr(advanced_cfg, "mute_game_on_minimize", False))
+            if getattr(advanced_cfg, "mute_game_on_minimize", False):
+                mute_states.add("minimized")
+            if getattr(advanced_cfg, "mute_game_on_background", False):
+                mute_states.add("obscured")
         except Exception:
-            enabled = False
+            mute_states.clear()
 
-        if not enabled:
+        if not mute_states:
             self._restore_minimized_audio_mute_internal("disabled", force_all_sessions=True)
             return
 
-        if current_state != "minimized":
-            should_force_restore = self.last_state == "minimized" and current_state in {
+        pid = _get_pid_for_hwnd(self.target_hwnd) if self.target_hwnd else 0
+        with self._audio_mute_lock:
+            if "obscured" not in mute_states:
+                self._covered_audio_mute_pids.clear()
+            covered_mute_latched = pid in self._covered_audio_mute_pids
+
+        # Coverage triggers the mute; uncovering an unfocused game only reveals
+        # the overlay. Its audio stays muted until the game regains focus.
+        keep_muted_until_focus = covered_mute_latched and current_state != "active"
+        if current_state not in mute_states and not keep_muted_until_focus:
+            should_force_restore = (self.last_state in mute_states or covered_mute_latched) and current_state in {
                 "active",
                 "background",
                 "obscured",
+                "minimized",
             }
-            pid = _get_pid_for_hwnd(self.target_hwnd) if self.target_hwnd else 0
             restored = False
             if pid > 0:
                 restored = self._restore_minimized_audio_mute_internal(
@@ -558,21 +577,21 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 self._force_unmute_current_target_audio(current_state)
             return
 
-        if not self.target_hwnd:
-            return
-
-        pid = _get_pid_for_hwnd(self.target_hwnd)
         if pid <= 0:
             return
 
         with self._audio_mute_lock:
-            if pid in self.minimized_audio_mutes or pid in self.hotkey_audio_mutes:
+            if pid in self.minimized_audio_mutes:
+                if current_state == "obscured":
+                    self._covered_audio_mute_pids.add(pid)
+                return
+            if pid in self.hotkey_audio_mutes:
                 return
 
         try:
             results = set_process_mute(pid, True)
         except Exception as e:
-            logger.debug(f"Failed to mute minimized target PID {pid}: {e}")
+            logger.debug(f"Failed to mute target PID {pid} ({current_state}): {e}")
             return
 
         changed_results = [result for result in results if result.changed]
@@ -583,7 +602,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         restore_all_sessions = any(not result.session_instance_id for result in changed_results)
         with self._audio_mute_lock:
             self.minimized_audio_mutes[pid] = (session_ids, restore_all_sessions)
-        logger.debug(f"Muted audio for minimized target PID {pid}.")
+            if current_state == "obscured":
+                self._covered_audio_mute_pids.add(pid)
+        logger.debug(f"Muted audio for target PID {pid} ({current_state}).")
 
     # --- Window info helpers ---
 

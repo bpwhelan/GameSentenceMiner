@@ -1056,6 +1056,7 @@ class ConfigWindow(QWidget):
                     wgc_capture_fps=self.wgc_capture_fps_spin.value(),
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
                     mute_game_on_minimize=self.mute_game_on_minimize_check.isChecked(),
+                    mute_game_on_background=self.mute_game_on_background_check.isChecked(),
                 ),
                 ai=Ai(
                     add_to_anki=self.ai_enabled_check.isChecked(),
@@ -1827,6 +1828,7 @@ class ConfigWindow(QWidget):
         self.dont_collect_stats_check = QCheckBox()
         self.dont_collect_stats_check.clicked.connect(self._on_dont_collect_stats_clicked)
         self.mute_game_on_minimize_check = QCheckBox()
+        self.mute_game_on_background_check = QCheckBox()
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()
 
@@ -3629,6 +3631,7 @@ class ConfigWindow(QWidget):
         self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))
         self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
         self.mute_game_on_minimize_check.setChecked(bool(getattr(s.advanced, "mute_game_on_minimize", False)))
+        self.mute_game_on_background_check.setChecked(bool(getattr(s.advanced, "mute_game_on_background", False)))
         self.current_version_label.setText(get_current_version())
         self.latest_version_label.setText(get_latest_version())
 
