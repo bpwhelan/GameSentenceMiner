@@ -15,6 +15,8 @@
     "build:windows-audio": "node scripts/build-windows-audio-helper.mjs",
     "build:windows-speech": "node scripts/build-windows-speech-helper.mjs",
     "build:windows-helpers": "node scripts/build-windows-helpers.mjs",
+    "build:game-background": "node scripts/build-game-background-hooks.mjs",
+    "test:game-background": "node scripts/test-game-background-hooks.mjs",
     "dev": "npm run sync:legacy && concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
     "dev:chaos-update": "npm run build:main && node scripts/run-update-chaos.cjs",
     "dev:main": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
@@ -86,14 +88,21 @@
         "from": "native",
         "to": "resources/native",
         "filter": [
-          "**/bin/x64/*.exe"
+          "**/bin/x64/*.exe",
+          "!game-background-hooks/**"
         ]
       }
     ],
     "win": {
       "target": "nsis",
       "icon": "assets/gsm.ico",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "extraFiles": [
+        {
+          "from": "build/game-background-hooks",
+          "to": "resources/native/game-background-hooks"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

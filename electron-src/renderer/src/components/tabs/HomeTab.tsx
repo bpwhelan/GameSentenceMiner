@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invokeIpc } from "../../lib/ipc";
 import { useTranslation } from "../../i18n";
 import { TextCaptureWizard } from "../TextCaptureWizard";
+import { GameBackgroundSettings } from "../GameBackgroundSettings";
 import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types/models";
 
 /* ------------------------------------------------------------------ */
@@ -1071,6 +1072,10 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                    */}
                 </div>
               </div>
+
+              {isWindows && selectedScene && !isHelperScene && (
+                <GameBackgroundSettings sceneId={selectedScene.id} active={active} />
+              )}
 
               {/* Game executable — Linux Wine/Proton hook target (read-only on Windows) */}
               {selectedScene && !isHelperScene && (

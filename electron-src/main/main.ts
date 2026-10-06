@@ -1,4 +1,5 @@
 import { activeGame } from './active_game.js';
+import { startGameBackgroundHooks, stopGameBackgroundHooks } from './services/game_background_runtime.js';
 import {
     app,
     BrowserWindow,
@@ -2782,6 +2783,7 @@ if (!app.requestSingleInstanceLock()) {
             createWindow().then(async () => {
                 createTray();
                 autoLauncher.startPolling();
+                if (!isQuitting) startGameBackgroundHooks();
                 // setTimeout(async () => {
                 //     await checkAndRunWizard(true);
                 // }, 1000);
@@ -3133,6 +3135,7 @@ async function runQuit(relaunchArgs?: string[]): Promise<void> {
 
     try {
         const results = await Promise.allSettled([
+            stopGameBackgroundHooks(),
             closeAllPythonProcesses(),
             stopInputServer(),
             closeOBSFromElectron({ reason: 'app quit' }),
@@ -3175,6 +3178,7 @@ export async function quit(relaunchArgs?: string[]): Promise<void> {
 // Stop everything that holds handles in the data dir, without quitting the app (used before a
 // data-folder relocation). Mirrors quit() minus app.quit().
 async function stopAllChildrenForRelocation(): Promise<void> {
+    await stopGameBackgroundHooks();
     autoLauncher.stopPolling();
     shutdownWindowSceneSwitcher();
     stopOverlay();

@@ -2708,6 +2708,17 @@ button:disabled {
   margin-top: 3px;
 }
 
+.game-background-settings {
+  border: 1px solid var(--gsm-border-default);
+  border-radius: 8px;
+  margin: 12px 0;
+  padding: 12px 16px;
+}
+
+.game-background-settings legend { padding: 0 6px; font-weight: 600; }
+.game-background-option { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.game-background-help { color: var(--gsm-text-secondary); font-size: 0.82rem; line-height: 1.5; margin: 6px 0; }
+
 .ocr-online-scans small {
   display: block;
   color: var(--gsm-text-secondary);

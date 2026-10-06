@@ -1,4 +1,5 @@
 import Store from "electron-store";
+import type { GameBackgroundOptions } from '../shared/game_background.js';
 import { SteamGame } from "./ui/steam.js";
 import {ObsScene} from "./ui/obs.js";
 import { BrowserWindow } from "electron";
@@ -164,6 +165,7 @@ interface FrontPageState {
 }
 
 interface StoreConfig {
+    gameBackgroundProfiles: Record<string, GameBackgroundOptions>;
     frontPageState: FrontPageState;
     yuzu: YuzuConfig;
     agentScriptsPath: string;
@@ -220,6 +222,7 @@ interface StoreConfig {
 
 export const store = new Store<StoreConfig>({
     defaults: {
+        gameBackgroundProfiles: {},
         frontPageState: {
             agentEnabled: false,
             ocrEnabled: false,

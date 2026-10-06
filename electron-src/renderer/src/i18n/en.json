@@ -1,4 +1,34 @@
 {
+  "gameBackground": {
+    "title": "Game background behavior (experimental)",
+    "help": "A small Windows hook for the game captured by this scene. Settings are remembered for this executable.",
+    "enabled": "Automatically apply to this game",
+    "keepRendering": "Keep rendering when unfocused",
+    "blockGamepad": "Block gamepad input when unfocused",
+    "target": "{name} (PID {pid})",
+    "blockedReads": "Controller reads blocked: {count}.",
+    "noInput": "No XInput API detected yet. Other controller APIs are not supported.",
+    "partial": "Some hooks could not be installed; support is partial.",
+    "error": "Hook error: {error}",
+    "retry": "Retry",
+    "limitations": "For offline games without anti-cheat. Close Special K before trying. Some engines may still pause; restart the game to fully remove the hook.",
+    "status": {
+      "disabled": "Off for this game.",
+      "waiting": "Waiting for the captured game.",
+      "blocked": "Another injector is active.",
+      "attaching": "Applying game behavior…",
+      "active": "Hooks active.",
+      "error": "The hook could not be applied."
+    },
+    "reason": {
+      "unsupported": "Available on Windows only.",
+      "missingBuild": "The game background helper has not been built or installed.",
+      "noCapture": "Select a game window capture in OBS.",
+      "notRunning": "The captured game is not running.",
+      "ambiguous": "Several game windows match this capture. Select a more specific capture.",
+      "specialK": "Special K is loaded. Restart the game without it before trying GSM's hooks."
+    }
+  },
   "home": {
     "status": {
       "title": "Status",

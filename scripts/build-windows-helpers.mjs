@@ -6,7 +6,7 @@ if (process.platform !== 'win32') {
   process.exit(0);
 }
 
-for (const script of ['build-windows-audio-helper.mjs', 'build-windows-speech-helper.mjs']) {
+for (const script of ['build-windows-audio-helper.mjs', 'build-windows-speech-helper.mjs', 'build-game-background-hooks.mjs']) {
   execFileSync(process.execPath, [`scripts/${script}`], {
     stdio: 'inherit',
     windowsHide: true,
