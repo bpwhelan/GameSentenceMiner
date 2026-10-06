@@ -41,7 +41,7 @@ jobs:
               run: |
                   release_json="$RUNNER_TEMP/hachidori-release.json"
                   gh api repos/bee-san/hachidori/releases/latest > "$release_json"
-                  if [[ "$(jq -r '.draft')" != "false" || "$(jq -r '.prerelease')" != "false" ]]; then
+                  if [[ "$(jq -r '.draft' "$release_json")" != "false" || "$(jq -r '.prerelease' "$release_json")" != "false" ]]; then
                     echo "GitHub's latest-release endpoint returned a draft or prerelease." >&2
                     exit 1
                   fi
@@ -134,6 +134,15 @@ jobs:
                     electron-src/main/electron_build_contract.test.ts
                   npm --prefix GSM_Overlay test
 
+            - name: Run Hachidori Electron smoke test
+              if: steps.sync.outputs.changed == 'true'
+              run: |
+                  node GSM_Overlay/node_modules/electron/install.js
+                  electron_sandbox="$(node -p 'require("node:path").join(require("node:path").dirname(require("./GSM_Overlay/node_modules/electron")), "chrome-sandbox")')"
+                  sudo chown root:root "$electron_sandbox"
+                  sudo chmod 4755 "$electron_sandbox"
+                  xvfb-run --auto-servernum node GSM_Overlay/tests/run-hachidori-electron-smoke.cjs
+
             - name: Create or update Hachidori release PR
               if: steps.sync.outputs.changed == 'true'
               uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -159,6 +168,7 @@ jobs:
                       - Deterministic repeat sync
                       - Focused GameSentenceMiner TypeScript tests
                       - GameSentenceMiner overlay tests
+                      - Hachidori Electron smoke test
 
                       This PR is intentionally left for human review and will not auto-merge.
                   labels: dependencies

@@ -36,6 +36,85 @@ def test_resolve_output_size_ignores_non_positive_dimensions():
     assert _resolve_output_size(3840, 2160, height=1) == (1, 1)
 
 
+@pytest.fixture
+def monitored_capture(monkeypatch):
+    from GameSentenceMiner.obs import actions, active_game
+    from GameSentenceMiner.util.platform import window_state_monitor
+
+    monitor = SimpleNamespace(
+        target_hwnd=101,
+        last_target_scene_name="Browser game",
+        last_target_info={"source_name": "Browser capture", "exe": "chrome.exe"},
+    )
+    state = SimpleNamespace(current_scene="Browser game")
+    monkeypatch.setattr(window_state_monitor, "get_window_state_monitor", lambda: monitor)
+    monkeypatch.setattr(active_game, "get_obs_state", lambda: state)
+    monkeypatch.setattr(actions, "get_current_scene", lambda **kwargs: state.current_scene)
+    monkeypatch.setattr(
+        actions,
+        "get_window_info_from_source",
+        lambda **kwargs: {"title": "Browser game", "window_class": "Chrome_WidgetWin_1", "exe": "chrome.exe"},
+    )
+    capture = ScreenshotCapture()
+    monkeypatch.setattr(capture, "_is_hwnd_valid", lambda hwnd: True)
+    return capture, monitor, state
+
+
+@pytest.mark.parametrize("source", ["Browser game", "Browser capture"])
+def test_wgc_uses_the_shared_browser_target(monitored_capture, source):
+    capture, _, _ = monitored_capture
+    assert capture._get_hwnd(source) == 101
+
+
+@pytest.mark.parametrize("change", ["lost", "source", "scene", "desktop", "replaced"])
+def test_wgc_does_not_reuse_a_cached_or_independently_guessed_target(monitored_capture, monkeypatch, change):
+    capture, monitor, state = monitored_capture
+    stopped = []
+    monkeypatch.setattr(screenshot_capture_module, "stop_wgc_session", stopped.append)
+    assert capture._get_hwnd("Browser capture") == 101
+    if change == "lost":
+        monitor.target_hwnd = None
+    elif change == "source":
+        monitor.last_target_info["source_name"] = "Different capture"
+    elif change == "scene":
+        state.current_scene = "Different scene"
+    elif change == "desktop":
+        monitor.last_target_info = {}
+    else:
+        monitor.target_hwnd = 202
+    assert capture._get_hwnd("Browser capture") == (202 if change == "replaced" else None)
+    assert stopped == [101]
+
+
+def test_wgc_does_not_capture_the_browser_for_an_unrelated_obs_source(monitored_capture):
+    capture, _, _ = monitored_capture
+    assert capture._get_hwnd("Desktop capture") is None
+
+
+def test_unresolved_browser_capture_uses_obs_instead_of_another_window(monitored_capture, monkeypatch):
+    capture, monitor, _ = monitored_capture
+    monitor.target_hwnd = None
+    obs_image = Image.new("RGB", (4, 3))
+    monkeypatch.setattr(capture, "_get_configured_capture_backend", lambda: SCREENSHOT_CAPTURE_BACKEND_WGC)
+    monkeypatch.setattr(screenshot_capture_module, "is_windows", lambda: True)
+    monkeypatch.setattr(capture, "_find_hwnd", lambda *args: pytest.fail("Must not guess another browser HWND"))
+    monkeypatch.setattr(capture, "_capture_obs", lambda *args: obs_image)
+    assert capture.capture("Browser capture") is obs_image
+
+
+def test_shared_target_retries_wgc_after_failure_backoff(monitored_capture, monkeypatch):
+    capture, _, _ = monitored_capture
+    monkeypatch.setattr(screenshot_capture_module, "is_windows", lambda: True)
+    monkeypatch.setattr(screenshot_capture_module.time, "monotonic", lambda: 100.0)
+    assert capture._should_use_wgc("Browser capture") is True
+    capture._wgc_failed_count = capture._wgc_max_consecutive_failures
+    assert capture._should_use_wgc("Browser capture") is False
+    monkeypatch.setattr(
+        screenshot_capture_module.time, "monotonic", lambda: 100.0 + screenshot_capture_module._HWND_CACHE_TTL
+    )
+    assert capture._should_use_wgc("Browser capture") is True
+
+
 def test_wgc_callback_pacer_compensates_for_native_delivery_lag(monkeypatch):
     clock = iter([10.005, 10.050, 10.068, 10.083])
     monkeypatch.setattr(screenshot_capture_module.time, "perf_counter", lambda: next(clock))

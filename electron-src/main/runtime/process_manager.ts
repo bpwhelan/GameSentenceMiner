@@ -20,6 +20,7 @@ import { promisify } from 'node:util';
 
 import type { BrokerStartInfo } from './message_bus.js';
 import { hasProcessExited, terminateProcessTree, waitForProcessExit } from './process_tree.js';
+import { getWindowsSystemExecutable } from './windows_tools.js';
 
 // Kept dependency-free on purpose: util.ts statically imports main.ts, so pulling
 // it in here would drag the whole app graph (and its circular init) into anything
@@ -227,7 +228,7 @@ export class ProcessManager extends EventEmitter {
                 const commandLine = await getProcessCommandLine(item.pid);
                 if (commandLine && looksLikeManagedCommand(commandLine, item)) {
                     if (IS_WINDOWS) {
-                        await execFileAsync('taskkill', ['/PID', String(item.pid), '/T', '/F']);
+                        await execFileAsync(getWindowsSystemExecutable('taskkill.exe'), ['/PID', String(item.pid), '/T', '/F']);
                     } else {
                         await execFileAsync('kill', ['-9', String(item.pid)]);
                     }
@@ -263,11 +264,15 @@ export class ProcessManager extends EventEmitter {
         this.applyPriority(entry, proc);
         this.recordPid(entry, executable, args, proc.pid);
 
-        proc.stdout?.on('data', (data: Buffer) => {
-            this.emit('log', entry.spec.id, { stream: 'stdout', message: data.toString() });
+        // A multibyte OCR character can straddle pipe chunks. Let Node retain
+        // incomplete UTF-8 sequences instead of decoding each Buffer alone.
+        proc.stdout?.setEncoding('utf8');
+        proc.stderr?.setEncoding('utf8');
+        proc.stdout?.on('data', (data: string) => {
+            this.emit('log', entry.spec.id, { stream: 'stdout', message: data });
         });
-        proc.stderr?.on('data', (data: Buffer) => {
-            this.emit('log', entry.spec.id, { stream: 'stderr', message: data.toString() });
+        proc.stderr?.on('data', (data: string) => {
+            this.emit('log', entry.spec.id, { stream: 'stderr', message: data });
         });
 
         proc.on('exit', (code, signal) => {

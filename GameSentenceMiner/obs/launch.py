@@ -6,7 +6,6 @@ import os
 import psutil
 import queue
 import re
-import shlex
 import shutil
 import socket
 import subprocess
@@ -15,6 +14,7 @@ from typing import Dict, List, Optional
 
 from GameSentenceMiner.obs.screenshot_capture import is_image_empty  # noqa: F401 — re-exported
 from GameSentenceMiner.util.config import configuration
+from GameSentenceMiner.util.command_line import split_command_line
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
     get_config,
@@ -134,17 +134,19 @@ def _should_skip_image_validation(source_name: Optional[str] = None, scene_name:
 def parse_obs_window_target(window_string: str) -> Optional[dict]:
     """Parse an OBS window target string ``"Title:Class:exe"`` into its parts.
 
-    The title itself may contain colons, so we split from the right.
+    OBS escapes colons and hashes; also accept older unescaped titles by
+    splitting from the right before decoding each field.
     """
     if not window_string:
         return None
     parts = window_string.rsplit(":", 2)
     if len(parts) < 3:
         return None
+    parts = [part.replace("#3A", ":").replace("#22", "#").strip() for part in parts]
     return {
-        "title": parts[0].strip(),
-        "window_class": parts[1].strip(),
-        "exe": parts[2].strip(),
+        "title": parts[0],
+        "window_class": parts[1],
+        "exe": parts[2],
     }
 
 
@@ -166,9 +168,9 @@ def _resolve_obs_launch_command(obs_path: str):
     if os.path.exists(obs_path):
         return [obs_path], os.path.dirname(obs_path)
     try:
-        cmd = shlex.split(obs_path)
+        cmd = split_command_line(obs_path)
     except ValueError:
-        cmd = obs_path.split()
+        return None, None
     if not cmd:
         return None, None
     exe = cmd[0]

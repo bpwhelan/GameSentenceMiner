@@ -60,7 +60,8 @@ export function createSettingsSearch({ document, navigate }) {
     // Read mounted labels on demand, including lazy controls once populated.
     const candidates = section.querySelectorAll("h1, h2, h3, legend, summary, label, button[id]");
     for (const target of candidates) {
-      if (target.closest("template, [role=status], output")) continue;
+      // A control the selected theme hides is not offered: it is not there to reach.
+      if (target.closest("template, [role=status], output, [data-design-setting][hidden], [data-design-group][hidden]")) continue;
       const label = text(target.querySelector(".field-label"))
         || text(target.querySelector("span")) || text(target);
       if (!label) continue;

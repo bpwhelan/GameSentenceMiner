@@ -1036,9 +1036,15 @@
       "luna": "Luna Hook",
       "textractor": "Textractor"
     },
+    "agent": {
+      "search": "Buscar scripts",
+      "browse": "Elegir archivo…"
+    },
     "profile": {
-      "title": "Perfil guardado",
+      "title": "Guardar para la próxima vez",
       "saved": "Guardado",
+      "recommended": "Recomendado",
+      "saveHint": "Guarda un hook que funcione para reutilizarlo la próxima vez.",
       "autoHook": "Adjuntar hook automáticamente al próximo inicio",
       "flushDelay": "Ventana de revisión de texto (ms):",
       "manualHook": "Código de hook manual (H/R-code, opcional):",
@@ -1051,11 +1057,26 @@
       "title": "Hooks detectados",
       "count": "{count} hooks",
       "waiting": "Esperando hooks. Genera texto en el juego.",
-      "notRunning": "Pulsa 'Iniciar' para iniciar el motor.",
-      "noTextYet": "(sin texto aún)"
+      "notRunning": "Inicia la captura de texto para encontrar hooks.",
+      "noTextYet": "(sin texto aún)",
+      "rankingHint": "El texto legible que coincide con tu idioma de aprendizaje ({language}) aparece primero. Las pistas de idioma se basan en el sistema de escritura y son aproximadas. El hook seleccionado siempre permanece visible.",
+      "readabilityHint": "El texto legible aparece primero. El hook seleccionado siempre permanece visible.",
+      "showNoise": "Mostrar posible ruido ({count})",
+      "onlyNoise": "Por ahora solo hay posible ruido. Muéstralo para revisarlo o avanza el texto en el juego.",
+      "quality": {
+        "targetLanguage": "Coincidencia probable de idioma",
+        "possibleLanguage": "Posible coincidencia de idioma",
+        "readable": "Texto legible",
+        "mixed": "Texto mezclado con ruido",
+        "paths": "Rutas o texto técnico",
+        "garbled": "Posiblemente corrupto",
+        "repetitive": "Texto repetitivo",
+        "symbols": "Principalmente números o símbolos"
+      }
     },
     "output": {
       "title": "Salida del hook seleccionado",
+      "checkHint": "Comprueba que coincida con el texto del juego.",
       "waiting": "Esperando texto del hook seleccionado…",
       "selectHook": "Selecciona un hook de la lista para ver su texto."
     },
@@ -1068,9 +1089,14 @@
       "ready": "Listo",
       "noTarget": "Sin objetivo"
     },
+    "layout": {
+      "captureOptions": "Opciones de captura",
+      "troubleshooting": "Solución de problemas"
+    },
     "actions": {
       "start": "Iniciar",
-      "stop": "Detener"
+      "stop": "Detener",
+      "preparing": "Preparando la captura de texto…"
     },
     "notices": {
       "started": "Adjuntado a {exe} (PID {pid}).",

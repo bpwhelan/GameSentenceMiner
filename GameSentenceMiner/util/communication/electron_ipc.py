@@ -78,6 +78,7 @@ class FunctionName(Enum):
     WINDOWS_SPEECH_STATUS = "windows_speech_status"
     WINDOWS_SPEECH_LOG = "windows_speech_log"
     FOREGROUND_WINDOW_CHANGED = "foreground_window_changed"
+    EMULATOR_WINDOW_CHANGED = "emulator_window_changed"
     FOREGROUND_WINDOW_HOOK_STATUS = "foreground_window_hook_status"
     REFRESH_FOREGROUND_WINDOW = "refresh_foreground_window"
     RESTORE_FOREGROUND_WINDOW = "restore_foreground_window"

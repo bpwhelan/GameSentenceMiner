@@ -29,6 +29,7 @@ import { getOBSConnection, getOBSScenes } from './obs.js';
 import { getSceneOCRConfig } from './ocr.js';
 import { sendOpenTexthooker, sendStopOverlay } from '../main.js';
 import { USE_IN_PROCESS_OVERLAY } from '../overlay_runtime_config.js';
+import { getWindowsSystemExecutable } from '../runtime/windows_tools.js';
 import {
     isInProcessOverlayRunning,
     startInProcessOverlay,
@@ -241,7 +242,7 @@ export async function waitForOverlayShutdown(): Promise<void> {
 function terminateOverlayProcess(processHandle: ChildProcess): void {
     if (process.platform === 'win32' && processHandle.pid) {
         execFile(
-            'taskkill',
+            getWindowsSystemExecutable('taskkill.exe'),
             ['/PID', String(processHandle.pid), '/T', '/F'],
             { windowsHide: true },
             (error) => {

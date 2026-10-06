@@ -10,30 +10,17 @@
  */
 
 import { extensionApi as chrome, expectedBackgroundUrl } from "./browser-api.js";
-import { ENGINE_WORKER_NAME, LOW_MEMORY_WORKER_NAME, createEngineRecycler } from "./engine-recycler.js";
-import { announceFirefoxOffscreen } from "./firefox-host.js";
+import { engineWorkerName, createEngineRecycler } from "./engine-recycler.js";
 import { boundResponseFailure } from "./response-limits.js";
+import { decodeBase64 } from "./base64.js";
 
 const TARGET = "hoshidicts-offscreen";
 const WORKER_TARGET = "hoshidicts-worker";
 const AUDIO_TARGET = "hachidori-audio";
 const ANKI_TARGET = "hachidori-anki-render";
 const SETUP_TARGET = "hachidori-setup";
+const UPLOAD_STORE_TARGET = "hachidori-upload-store";
 let audioService, ankiService, audioRepository, setupInstaller;
-let captureService;
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.target !== "hachidori-capture-page" || message.relayed !== true
-      || sender.id !== chrome.runtime.id || sender.url !== expectedBackgroundUrl(chrome)
-      || sender.tab !== undefined) return false;
-  captureService ??= import("./capture-host.js");
-  captureService.then(module => module.handleCaptureMessage(message)).then(
-    result => sendResponse({ type: `${message.type}_result`, requestId: message.requestId, ok: true, ...result }),
-    error => sendResponse(failedResponse(message, describe(error))),
-  );
-  return true;
-});
-
 function getAudioRepository() {
   audioRepository ??= import("./audio-repository.js").then(module => module.createAudioRepository({
     window: globalThis, fetch: globalThis.fetch.bind(globalThis), now: () => performance.now(),
@@ -124,9 +111,9 @@ const held = new Set();
 // dictionary change, or when the stored option no longer matches the worker.
 const recycler = createEngineRecycler({
   isIdle: () => pending.size === 0 && held.size === 0,
-  restart: (lowMemory) => {
+  restart: (lowMemory, dictionaryEntryStorage) => {
     worker.terminate();
-    startWorkerEngine(workerScript, lowMemory);
+    startWorkerEngine(workerScript, lowMemory, dictionaryEntryStorage);
   },
 });
 
@@ -279,10 +266,14 @@ function probeDirectOpfs() {
 }
 
 // "opfs": pthread worker on direct OPFS; "threaded-idbfs": pthread worker on
-// IDBFS; "local": single-thread IDBFS runtime on this document.
+// IDBFS; "worker-local": single-thread IDBFS runtime in a dedicated worker;
+// "local": the same runtime on this document, for hosts without Worker.
 async function selectEngine() {
-  if (!CAN_THREAD || typeof globalThis.Worker !== "function") {
+  if (typeof globalThis.Worker !== "function") {
     return "local";
+  }
+  if (!CAN_THREAD) {
+    return "worker-local";
   }
   if (typeof navigator.storage?.getDirectory !== "function") {
     console.warn("hoshidicts: the origin private file system is unavailable, using threaded IDBFS");
@@ -298,13 +289,13 @@ async function selectEngine() {
 
 // The name tells engine-worker-runtime.js which pthread pool and import
 // threading to start with; see docs/memory.md.
-function startWorkerEngine(script, lowMemory) {
+function startWorkerEngine(script, lowMemory, dictionaryEntryStorage) {
   workerScript = script;
   worker = new Worker(new URL(script, import.meta.url), {
     type: "module",
-    name: lowMemory ? LOW_MEMORY_WORKER_NAME : ENGINE_WORKER_NAME,
+    name: engineWorkerName(lowMemory, dictionaryEntryStorage),
   });
-  recycler.setRunning(lowMemory);
+  recycler.setRunning(lowMemory, dictionaryEntryStorage);
   worker.addEventListener("error", (event) => failEngine(event.error || event.message));
   worker.addEventListener("messageerror", () => failEngine("the engine worker sent an unreadable message"));
   worker.onmessage = (event) => {
@@ -364,32 +355,40 @@ function startLocalEngine() {
 async function readEngineConfig() {
   try {
     const reply = await chrome.runtime.sendMessage({ target: WORKER_TARGET, type: "hd_engine_config" });
-    return reply?.ok === true && reply.lowMemoryMode === true;
+    return { lowMemoryMode: reply?.ok === true && reply.lowMemoryMode === true,
+      dictionaryEntryStorage: reply?.dictionaryEntryStorage ?? "auto" };
   } catch (error) {
     console.warn(`hoshidicts: could not read the engine configuration: ${describe(error)}`);
-    return false;
+    return { lowMemoryMode: false, dictionaryEntryStorage: "auto" };
   }
 }
 
 // A pushed change can arrive while either startup read is still pending.
-let pushedLowMemoryMode = null;
-const engineSelection = Promise.all([selectEngine(), readEngineConfig()]).then(([mode, storedLowMemory]) => {
-  const lowMemory = pushedLowMemoryMode ?? storedLowMemory;
+let pushedEngineConfig = null;
+// Only the pthread workers have a Low memory mode or entry policy to switch to.
+let recyclable = false;
+const engineSelection = Promise.all([selectEngine(), readEngineConfig()]).then(([mode, storedConfig]) => {
+  const { lowMemoryMode: lowMemory, dictionaryEntryStorage } = pushedEngineConfig ?? storedConfig;
   lastEngineStatus.storageBackend = mode === "opfs" ? "opfs" : "idbfs";
-  lastEngineStatus.threaded = mode !== "local";
+  lastEngineStatus.threaded = mode !== "local" && mode !== "worker-local";
   if (mode === "local") return startLocalEngine();
-  recycler.setDesired(lowMemory);
-  return startWorkerEngine(mode === "opfs" ? "./engine-worker.js" : "./engine-worker-idbfs.js", lowMemory);
+  if (mode === "worker-local") return startWorkerEngine("./engine-worker-local.js", false);
+  recyclable = true;
+  recycler.setDesired(lowMemory, dictionaryEntryStorage);
+  return startWorkerEngine(mode === "opfs" ? "./engine-worker.js" : "./engine-worker-idbfs.js", lowMemory, dictionaryEntryStorage);
 }).catch(failEngine);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== TARGET || message.type !== "hd_engine_config" || message.relayed !== true
       || sender.id !== chrome.runtime.id || sender.url !== expectedBackgroundUrl(chrome)
       || sender.tab !== undefined) return false;
-  // With the local engine there is no worker to replace, and the recycler never
-  // learns of a running one; Settings hides the switch when threaded is false.
-  pushedLowMemoryMode = message.lowMemoryMode === true;
-  recycler.setDesired(pushedLowMemoryMode);
+  // The single-thread engines have no Low memory mode or entry policy to
+  // switch to: in the document the recycler never learns of a running worker,
+  // and the single-thread worker is never desired in another mode. Settings
+  // hides the Low memory switch when threaded is false.
+  pushedEngineConfig = { lowMemoryMode: message.lowMemoryMode === true,
+    dictionaryEntryStorage: message.dictionaryEntryStorage ?? "auto" };
+  if (recyclable) recycler.setDesired(pushedEngineConfig.lowMemoryMode, pushedEngineConfig.dictionaryEntryStorage);
   sendResponse({ type: "hd_engine_config_result", requestId: message.requestId ?? null, ok: true });
   return true;
 });
@@ -481,9 +480,43 @@ function dispatchEngine(message, sendResponse) {
   }).catch((error) => finishRequest(id, failedResponse(message, describe(error), "engine-start-failed")));
 }
 
+// The engine worker and its pthreads: the isolates that share the engine heap.
+const ENGINE_SCRIPT = /\/(?:engine-worker[^/]*\.js|vendor\/hoshidicts[^/]*\.mjs)$/u;
+const engineThread = (entry) => entry.attribution.length > 0
+  && entry.attribution.every((item) => ENGINE_SCRIPT.test(URL.parse(item.url)?.pathname ?? ""));
+
+// Settings → Advanced → Memory's extension total (docs/memory.md): this
+// document and every worker it started, as the browser measures them.
+// Answered here rather than inside the engine because the measurement waits
+// for the browser (seconds, at worst) and must not hold the engine queue.
+// Chrome counts a SharedArrayBuffer in every isolate that holds a view of it,
+// so the engine heap arrives once per engine thread; it is counted once here.
+// Only a cross-origin isolated document has the API; elsewhere bytes is null.
+async function measureExtensionMemory(message) {
+  const reply = (bytes, heapBytes = null) => ({
+    type: "hd_memory_total_result", requestId: message.requestId ?? null, ok: true, bytes, heapBytes,
+  });
+  if (typeof performance.measureUserAgentSpecificMemory !== "function") return reply(null);
+  // hd_memory first: it also brings the engine worker's view up to the grown heap.
+  const memory = await new Promise((resolve) => dispatchEngine({ type: "hd_memory", requestId: null }, resolve));
+  if (memory?.ok !== true || !Number.isFinite(memory.heapBytes)) return reply(null);
+  const heap = memory.heapBytes;
+  const { breakdown } = await performance.measureUserAgentSpecificMemory();
+  // The local engine's heap is an ordinary buffer of this document, measured once.
+  let bytes = worker === null ? 0 : heap;
+  for (const entry of breakdown) {
+    bytes += worker !== null && engineThread(entry) ? Math.max(0, entry.bytes - heap) : entry.bytes;
+  }
+  return reply(bytes, heap);
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== TARGET || message.relayed !== true || message.type === "hd_engine_config") {
     return false;
+  }
+  if (message.type === "hd_memory_total") {
+    measureExtensionMemory(message).then(sendResponse, (error) => sendResponse(failedResponse(message, describe(error))));
+    return true;
   }
   dispatchEngine(message, sendResponse);
   return true;
@@ -509,8 +542,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-try {
-  await announceFirefoxOffscreen();
-} catch (error) {
-  failEngine(error);
+// Dictionary uploads from another Hachidori (linked-import.js): the service
+// worker validates each chunk and its owner; this document holds the bytes
+// until commit hands them to the engine as an ordinary local import.
+const uploads = new Map();
+let uploadIdentity = null;
+
+function uploadedArchive(token) {
+  const parts = uploads.get(token);
+  if (parts === undefined) throw new Error("The dictionary upload is no longer held on the host. Import it again.");
+  return new Blob(parts);
 }
+
+async function answerUpload(message) {
+  switch (message.type) {
+    case "hd_upload_append": {
+      const bytes = decodeBase64(message.data);
+      if (bytes.byteLength !== message.byteLength) throw new Error("the dictionary upload chunk did not decode to its length");
+      if (!uploads.has(message.token)) uploads.set(message.token, []);
+      uploads.get(message.token).push(new Blob([bytes]));
+      return {};
+    }
+    case "hd_upload_discard":
+      uploads.delete(message.token);
+      return {};
+    // A restarted service worker no longer knows the uploads held here.
+    case "hd_upload_reset":
+      uploads.clear();
+      return {};
+    case "hd_upload_identity":
+      uploadIdentity ??= import("./dictionary-import-archive.js");
+      return { identity: await (await uploadIdentity).readDictionaryArchiveIdentity(uploadedArchive(message.token)) };
+    case "hd_upload_import": {
+      const blobUrl = URL.createObjectURL(uploadedArchive(message.token));
+      try {
+        return await new Promise((resolve) => dispatchEngine({
+          target: TARGET, type: "hd_import", requestId: message.requestId ?? null,
+          blobUrl, fileName: message.fileName, importDecision: message.importDecision,
+        }, resolve));
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
+    }
+    default:
+      throw new Error(`unknown upload request type ${JSON.stringify(message.type)}`);
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target !== UPLOAD_STORE_TARGET || message.relayed !== true) return false;
+  answerUpload(message).then(
+    (result) => sendResponse(message.type === "hd_upload_import" ? result
+      : { type: `${message.type}_result`, requestId: message.requestId ?? null, ok: true, error: null, ...result }),
+    (error) => sendResponse(failedResponse(message, describe(error))),
+  );
+  return true;
+});

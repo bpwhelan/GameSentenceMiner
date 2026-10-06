@@ -53,6 +53,8 @@ def test_run_qt_event_loop_for_ocr_uses_qt_app_exec(monkeypatch, provide_qt_main
     fake_app = _FakeApp(result=123)
     fake_qt_main = _make_fake_qt_main_module(fake_app)
     monkeypatch.setattr(gsm_ocr, "_get_qt_main_module", lambda: fake_qt_main)
+    cleanup_calls = []
+    monkeypatch.setattr(gsm_ocr, "cleanup_ocr_runtime", lambda: cleanup_calls.append(True))
 
     result = gsm_ocr.run_qt_event_loop_for_ocr(qt_main_module=fake_qt_main if provide_qt_main else None)
 
@@ -60,6 +62,7 @@ def test_run_qt_event_loop_for_ocr_uses_qt_app_exec(monkeypatch, provide_qt_main
     assert fake_qt_main.get_qt_app_calls == 1
     assert fake_qt_main.get_config_window_calls == 0
     assert fake_app.exec_calls == 1
+    assert cleanup_calls == [True]
 
 
 def test_request_clean_shutdown_quits_qt_app_without_config_window(monkeypatch):
@@ -103,12 +106,15 @@ def test_request_clean_shutdown_quits_qt_app_without_config_window(monkeypatch):
 
     monkeypatch.setattr(gsm_ocr, "shutdown_requested", False)
     monkeypatch.setattr(gsm_ocr, "done", False)
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "terminated", False, raising=False)
+    monkeypatch.setattr(gsm_ocr, "_queue_qt_quit_for_ocr", _FakeQApplication._instance.quit)
 
     gsm_ocr.request_clean_shutdown("test")
 
     assert gsm_ocr.shutdown_requested is True
     assert gsm_ocr.done is True
-    assert fake_hotkeys.clear_calls == 1
+    assert gsm_ocr.ocr_runtime.terminated is True
+    assert fake_hotkeys.clear_calls == 0  # Blocking joins belong to main-thread cleanup.
     assert fake_qt_main.shutdown_calls == 1
     assert _FakeQApplication._instance.quit_calls == 1
 
@@ -128,6 +134,49 @@ def test_stop_command_relays_initiating_reason_to_clean_shutdown(monkeypatch):
 
     assert response["success"] is True
     assert shutdown_reasons == ["ipc-stop-command: auto-launcher-scene-inactive"]
+
+
+def test_qt_loop_error_still_cleans_up_runtime(monkeypatch):
+    cleanup_calls = []
+
+    def fail():
+        raise RuntimeError("Qt loop failed")
+
+    fake_app = types.SimpleNamespace(exec=fail)
+    fake_qt_main = _make_fake_qt_main_module(fake_app)
+    monkeypatch.setattr(gsm_ocr, "cleanup_ocr_runtime", lambda: cleanup_calls.append(True))
+
+    with pytest.raises(RuntimeError, match="Qt loop failed"):
+        gsm_ocr.run_qt_event_loop_for_ocr(fake_qt_main)
+    assert cleanup_calls == [True]
+
+
+def test_cleanup_continues_after_hotkey_failure_and_runs_once(monkeypatch):
+    calls = []
+
+    def fail_hotkeys():
+        calls.append("hotkeys")
+        raise RuntimeError("hotkeys failed")
+
+    scheduler = object()
+    monkeypatch.setattr(gsm_ocr, "_ocr_cleanup_complete", False)
+    monkeypatch.setattr(gsm_ocr, "_ocr_deadline_scheduler", scheduler)
+    monkeypatch.setattr(gsm_ocr, "request_clean_shutdown", lambda _reason: calls.append("stop"))
+    monkeypatch.setattr(gsm_ocr, "_get_hotkey_manager", lambda: types.SimpleNamespace(clear=fail_hotkeys))
+    monkeypatch.setattr(gsm_ocr.ocr_ipc, "stop_ipc_listener", lambda: calls.append("ipc"))
+    monkeypatch.setattr(gsm_ocr.obs, "disconnect_from_obs", lambda: calls.append("obs"))
+    monkeypatch.setattr(gsm_ocr, "release_runtime_scheduler", lambda target: calls.append(target))
+    monkeypatch.setitem(
+        sys.modules,
+        "GameSentenceMiner.util.database.db",
+        types.SimpleNamespace(gsm_db=types.SimpleNamespace(close=lambda: calls.append("db"))),
+    )
+
+    gsm_ocr.cleanup_ocr_runtime()
+    gsm_ocr.cleanup_ocr_runtime()
+
+    assert calls == ["stop", "hotkeys", "ipc", "obs", scheduler, "db"]
+    assert gsm_ocr._ocr_deadline_scheduler is None
 
 
 def test_second_ocr_queue_keeps_latest_task_without_precrop(monkeypatch):

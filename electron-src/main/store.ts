@@ -176,6 +176,7 @@ interface StoreConfig {
     startConsoleMinimized: boolean;
     autoUpdateElectron: boolean;
     autoUpdateGSMApp: boolean;
+    autoUpdateTexthook: boolean;
     customPythonPackage: string;
     pythonExtras: string[];
     windowTransparencyToolHotkey: string;
@@ -240,6 +241,7 @@ export const store = new Store<StoreConfig>({
         startConsoleMinimized: false,
         autoUpdateElectron: false,
         autoUpdateGSMApp: false,
+        autoUpdateTexthook: true,
         VN: {
             vns: [],
             textractorPath: "",
@@ -707,6 +709,14 @@ export function setFrontPageState(state: FrontPageState): void {
 
 export function getAutoUpdateGSMApp(): boolean {
     return store.get("autoUpdateGSMApp");
+}
+
+export function getAutoUpdateTexthook(): boolean {
+    return store.get("autoUpdateTexthook", true);
+}
+
+export function setAutoUpdateTexthook(enabled: boolean): void {
+    store.set("autoUpdateTexthook", enabled);
 }
 
 export function setAutoUpdateGSMApp(autoUpdate: boolean): void {

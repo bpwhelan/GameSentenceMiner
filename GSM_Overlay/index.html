@@ -1605,6 +1605,7 @@ background: rgba(202, 12, 12, 0.692);
 <script src="block_detection.js"></script>
 <script src="block_translation.js"></script>
 <script src="live_stats_widget.js"></script>
+<script src="window_occlusion.js"></script>
 <script>
   const { ipcRenderer } = require("electron");
   // Try to load OverlayUtils if available (since this is an Electron renderer process)
@@ -2681,7 +2682,9 @@ background: rgba(202, 12, 12, 0.692);
     if (!furiganaLayer) {
       return;
     }
-    furiganaLayer.style.display = shouldShowFuriganaLayer() ? 'block' : 'none';
+    const visible = shouldShowFuriganaLayer();
+    furiganaLayer.style.display = visible ? 'block' : 'none';
+    if (visible) window.GSMWindowOcclusion?.refresh(furiganaLayer);
   }
 
   function clearFuriganaAutoHideTimer() {
@@ -3095,6 +3098,7 @@ background: rgba(202, 12, 12, 0.692);
     updateGamepadStatusIndicator();
   }
 
+  let lastOverlayWindowStateSignature = null;
   async function handleOverlayWebSocketData(rawData) {
         let data = rawData;
         try {
@@ -3136,6 +3140,13 @@ background: rgba(202, 12, 12, 0.692);
 
         // Handle window state events
         if (data.type === "window_state") {
+          const stateSignature = JSON.stringify({ ...data, occlusion_rects: undefined });
+          if (stateSignature === lastOverlayWindowStateSignature) {
+            // Coverage alone must not repeat show/focus work in the main process.
+            window.GSMWindowOcclusion?.update(data);
+            return;
+          }
+          lastOverlayWindowStateSignature = stateSignature;
           console.log("Window state event received:", data.data, "for game:", data.game);
           dispatchOverlayPayloadEvent("gsm-window-state-update", data);
           
@@ -3577,6 +3588,8 @@ background: rgba(202, 12, 12, 0.692);
             }
           }
           
+          window.GSMWindowOcclusion?.refresh();
+
           // Skip furigana rendering for supplemental results (background text).
           //
           // The .text-box spans created above already carry the lookupable text
@@ -4498,6 +4511,10 @@ background: rgba(202, 12, 12, 0.692);
     });
   }
 
+  window.addEventListener('gsm-occluded-hover', () => {
+    if (!yomitanShowing) restoreOverlayPassThrough('window-occlusion');
+  });
+
   // Function to clear all existing text boxes
   function clearTextBoxes(options = {}) {
     const preserveFurigana = options.preserveFurigana === true;
@@ -4677,6 +4694,7 @@ background: rgba(202, 12, 12, 0.692);
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.style.display = 'block';
+    window.GSMWindowOcclusion?.refresh();
 
     // Reveal can arrive after navigation activation, or after a frozen frame.
     if (gamepadHandler?.pendingNavigationActivation) {
@@ -5008,6 +5026,7 @@ background: rgba(202, 12, 12, 0.692);
 
   ipcRenderer.on('display-info', (event, newDisplay) => {
     display = newDisplay;
+    window.GSMWindowOcclusion?.setDisplayInfo(newDisplay);
     width = display.size.width;
     height = display.size.height;
     workArea = display.workArea;
@@ -5623,6 +5642,7 @@ background: rgba(202, 12, 12, 0.692);
     translationDiv.style.transition = 'opacity 0.3s ease';
 
     document.body.appendChild(translationDiv);
+    window.GSMWindowOcclusion?.refresh();
 
     // Hide on hover to see text underneath
     const hideOnHover = () => {

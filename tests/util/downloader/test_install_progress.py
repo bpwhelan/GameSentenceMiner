@@ -86,11 +86,12 @@ def test_download_obs_if_needed_returns_skipped_for_existing_install(monkeypatch
     assert download_tools.download_obs_if_needed(stage_id="obs") == "skipped"
 
 
-def test_write_replay_buffer_configs_avoids_obs_ini_escape_sequences(monkeypatch, tmp_path):
+@pytest.mark.parametrize("name", ["Sam", "Naicha", "nyanspruk", "rory", "tom", "fran", "O'Brien %TEMP% & $1 [日本語]"])
+def test_write_replay_buffer_configs_avoids_obs_ini_escape_sequences(monkeypatch, tmp_path, name):
     monkeypatch.setattr(
         download_tools.os.path,
         "expanduser",
-        lambda _path: r"C:\Users\nyanspruk",
+        lambda _path: "C:\\Users\\" + name,
     )
 
     download_tools.write_replay_buffer_configs(str(tmp_path))
@@ -99,8 +100,51 @@ def test_write_replay_buffer_configs_avoids_obs_ini_escape_sequences(monkeypatch
         profile_ini = (
             tmp_path / "config" / "obs-studio" / "basic" / "profiles" / profile_name / "basic.ini"
         ).read_text(encoding="utf-8")
-        assert "FilePath=C:/Users/nyanspruk/Videos/GSM\n" in profile_ini
-        assert r"\n" not in profile_ini
+        assert f"FilePath=C:/Users/{name}/Videos/GSM\n" in profile_ini
+        assert "\\" not in profile_ini
+
+
+def test_write_replay_buffer_configs_repairs_old_seed_and_preserves_custom_path(monkeypatch, tmp_path):
+    monkeypatch.setattr(download_tools.os.path, "expanduser", lambda _path: r"C:\Users\nora $1 [GSM]")
+    profiles = tmp_path / "config" / "obs-studio" / "basic" / "profiles"
+    for name, recording_path in [
+        ("GSM", r"C:\\Users\nora $1 [GSM]/Videos/GSM"),
+        ("Untitled", r"D:\\Sam's custom recordings"),
+    ]:
+        folder = profiles / name
+        folder.mkdir(parents=True)
+        (folder / "basic.ini").write_text(
+            f"[SimpleOutput]\nFilePath={recording_path}\nRecRBTime=600\n", encoding="utf-8"
+        )
+
+    download_tools.write_replay_buffer_configs(str(tmp_path))
+
+    assert (profiles / "GSM" / "basic.ini").read_text(encoding="utf-8") == (
+        "[SimpleOutput]\nFilePath=C:/Users/nora $1 [GSM]/Videos/GSM\nRecRBTime=600\n"
+    )
+    assert (profiles / "Untitled" / "basic.ini").read_text(encoding="utf-8") == (
+        "[SimpleOutput]\nFilePath=D:\\\\Sam's custom recordings\nRecRBTime=600\n"
+    )
+
+
+@pytest.mark.parametrize("name", ["José", "日本語"])
+def test_write_replay_buffer_configs_upgrades_legacy_encoding_and_seeds_missing_profile(monkeypatch, tmp_path, name):
+    home = "C:\\Users\\" + name
+    monkeypatch.setattr(download_tools.os.path, "expanduser", lambda _path: home)
+    profiles = tmp_path / "config" / "obs-studio" / "basic" / "profiles"
+    profile = profiles / "GSM" / "basic.ini"
+    profile.parent.mkdir(parents=True)
+    try:
+        profile.write_text(f"[SimpleOutput]\nFilePath={home}/Videos/GSM\nRecRBTime=600\n", encoding="locale")
+    except UnicodeEncodeError:
+        pytest.skip("This name cannot be represented in the system's legacy encoding")
+
+    download_tools.write_replay_buffer_configs(str(tmp_path))
+
+    assert profile.read_text(encoding="utf-8") == (
+        f"[SimpleOutput]\nFilePath=C:/Users/{name}/Videos/GSM\nRecRBTime=600\n"
+    )
+    assert f"FilePath=C:/Users/{name}/Videos/GSM\n" in (profiles / "Untitled" / "basic.ini").read_text(encoding="utf-8")
 
 
 def test_install_scene_switcher_remaps_release_layout_to_obs_portable(tmp_path):

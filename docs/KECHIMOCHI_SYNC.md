@@ -43,7 +43,10 @@ sync are saved in the GSM database and remain available after restarting.
 
 Language follows GSM's configured target language, as in the CSV exporter.
 Kechimochi accepts whole minutes, so each activity's duration is rounded to the
-nearest minute. GSM keeps its original precision.
+nearest minute. GSM keeps its original precision. Activities with zero cleaned
+characters and zero rounded minutes are omitted because Kechimochi rejects empty
+logs. Their media stays in the library, and character-only or time-only activity
+still syncs.
 
 This is one-way sync: GSM controls its synced activity. Editing,
 moving, or deleting activity in GSM is reflected in Kechimochi. Disabling external

@@ -106,6 +106,14 @@ node scripts/sync-hachidori.mjs C:\path\to\hachidori
 
 The script validates every expected upstream hook before replacing the vendor copy, inserts small lifecycle hooks, registers the GSM scripts before `content.js`, and copies the source modules into `hachidori/gsm/`. Regeneration is idempotent. `SOURCE.json` records both the upstream commit and an integration SHA-256 fingerprint; Electron includes both in its extension cache identity. Upstream hook drift produces an actionable failure in the release-update workflow.
 
+### Automatic release updates
+
+`.github/workflows/update-hachidori.yml` checks the latest stable `bee-san/hachidori` release daily at 06:17 UTC and can also be run manually from GitHub Actions. It checks out the exact release tag, syncs the extension, and runs provenance, repeat-sync, TypeScript, overlay, and Electron smoke checks before opening or updating the `automation/hachidori-release` PR. Updates are left for human review.
+
+The repository must enable **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**. The workflow already requests `contents: write` and `pull-requests: write`; the repository's default workflow permissions can stay read-only. No additional secret is needed.
+
+An older release is skipped if the vendored commit is newer. Diverged history or changed integration hooks fail the workflow before the existing vendor copy is replaced; inspect the failed run and update the integration source or hook anchors before retrying.
+
 From the GSM repository root:
 
 ```powershell

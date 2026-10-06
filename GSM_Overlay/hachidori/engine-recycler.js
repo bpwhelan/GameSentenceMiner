@@ -20,16 +20,34 @@ export const RECYCLE_IDLE_MS = 2000;
 export const ENGINE_WORKER_NAME = "hoshidicts-engine";
 export const LOW_MEMORY_WORKER_NAME = "hoshidicts-engine:low-memory";
 
+export function engineWorkerName(lowMemory, dictionaryEntryStorage = "auto") {
+  const name = lowMemory ? LOW_MEMORY_WORKER_NAME : ENGINE_WORKER_NAME;
+  return dictionaryEntryStorage === "auto" ? name : `${name}:${dictionaryEntryStorage}`;
+}
+
+export function engineWorkerConfig(name, storageBackend) {
+  const lowMemory = name === LOW_MEMORY_WORKER_NAME || name.startsWith(`${LOW_MEMORY_WORKER_NAME}:`);
+  const dictionaryEntryStorage = ["paged", "resident"].find((storage) => name.endsWith(`:${storage}`)) ?? "auto";
+  return {
+    lowMemory,
+    dictionaryEntryStorage,
+    pagedDictionaries: lowMemory || dictionaryEntryStorage === "paged"
+      || (dictionaryEntryStorage === "auto" && storageBackend === "opfs"),
+  };
+}
+
 export function createEngineRecycler({ isIdle, restart, setTimer = setTimeout, clearTimer = clearTimeout,
   idleMs = RECYCLE_IDLE_MS }) {
   let desired = false;
+  let desiredStorage = "auto";
   // null until the owner reports which worker is running.
   let running = null;
+  let runningStorage = "auto";
   let settledSinceStart = false;
   let timer = null;
 
   function wanted() {
-    return running !== null && (desired !== running || (desired && settledSinceStart));
+    return running !== null && (desired !== running || desiredStorage !== runningStorage || (desired && settledSinceStart));
   }
 
   function fire() {
@@ -41,7 +59,7 @@ export function createEngineRecycler({ isIdle, restart, setTimer = setTimeout, c
     }
     settledSinceStart = false;
     running = null;
-    restart(desired);
+    restart(desired, desiredStorage);
   }
 
   function schedule() {
@@ -59,13 +77,15 @@ export function createEngineRecycler({ isIdle, restart, setTimer = setTimeout, c
 
   return {
     // The option as stored.
-    setDesired(lowMemory) {
+    setDesired(lowMemory, dictionaryEntryStorage = "auto") {
       desired = lowMemory === true;
+      desiredStorage = dictionaryEntryStorage;
       reconsider();
     },
     // The mode the worker that is now serving requests was created with.
-    setRunning(lowMemory) {
+    setRunning(lowMemory, dictionaryEntryStorage = "auto") {
       running = lowMemory === true;
+      runningStorage = dictionaryEntryStorage;
       settledSinceStart = false;
       reconsider();
     },

@@ -204,6 +204,28 @@ describe("window scene switcher startup synchronization", () => {
     vi.useRealTimers();
   });
 
+  it("notifies launch automation immediately even while scene switching is inactive", async () => {
+    const service = await loadService();
+    const onSceneChanged = vi.fn();
+    service.configureWindowSceneSwitcherRuntime({
+      isOBSConnected: () => false,
+      getCurrentCollectionName: async () => "Games",
+      getScenes: async () => [],
+      getCurrentScene: async () => ({ id: "scene-game", name: "Steins;Gate" }),
+      switchScene: async () => {},
+      suggestRule: async () => null,
+      requestForegroundSnapshot: () => {},
+      restoreForegroundWindow: () => {},
+      onSceneChanged,
+    });
+    try {
+      service.handleOBSSceneChanged({ id: "scene-game", name: "Steins;Gate" });
+      expect(onSceneChanged).toHaveBeenCalledOnce();
+    } finally {
+      service.shutdownWindowSceneSwitcher();
+    }
+  });
+
   it("requests the already-focused window and corrects the scene after OBS connects", async () => {
     const service = await loadService();
     const switchScene = vi.fn(async () => {});

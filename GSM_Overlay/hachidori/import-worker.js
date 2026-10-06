@@ -15,6 +15,7 @@
 import createHoshidicts from "./vendor/hoshidicts-threaded.mjs";
 import { importDictionaryArchive } from "./engine-service.js";
 import { LOW_MEMORY_PTHREAD_POOL_SIZE } from "./engine-worker-runtime.js";
+import { dictionaryImportError, nativeImportCall } from "./dictionary-import-errors.js";
 
 globalThis.onmessage = async (event) => { // NOSONAR: only the engine worker holds this worker's port
   const request = event.data;
@@ -24,7 +25,7 @@ globalThis.onmessage = async (event) => { // NOSONAR: only the engine worker hol
     // the module starts: Low memory mode imports on one thread here too.
     if (request.lowRam) globalThis.HACHIDORI_PTHREAD_POOL_SIZE = LOW_MEMORY_PTHREAD_POOL_SIZE;
     const module = await createHoshidicts();
-    if (module.ccall("hdw_init_storage", "number", ["number"], [1]) !== 1) {
+    if (nativeImportCall(module, () => module.ccall("hdw_init_storage", "number", ["number"], [1])) !== 1) {
       throw new Error(module.ccall("hdw_last_error", "string", [], []) || "hdw_init_storage failed");
     }
     const report = await importDictionaryArchive(
@@ -34,13 +35,15 @@ globalThis.onmessage = async (event) => { // NOSONAR: only the engine worker hol
       request.lowRam,
       request.fileName,
       request.expectedArchiveBytes,
-      request.resources,
+      { resources: request.resources, backend: "opfs" },
     );
     globalThis.postMessage({ channel: "import-result", report });
   } catch (error) {
+    const failure = dictionaryImportError(error, request.fileName, "starting the import worker");
     globalThis.postMessage({
       channel: "import-result",
-      error: (error instanceof Error ? error.message : String(error)) || "the import worker failed",
+      error: failure.message,
+      errorCode: failure.errorCode,
     });
   }
 };

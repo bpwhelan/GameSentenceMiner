@@ -1324,6 +1324,38 @@
     }
   },
   "texthook": {
+    "updates": {
+      "title": "LunaHook & Textractor",
+      "description": "New builds download in the background and are applied when no text hook is running. Both engines are updated together.",
+      "settings": "Engine settings",
+      "automatic": "Update automatically",
+      "automaticOn": "Automatic updates on",
+      "automaticOff": "Automatic updates off",
+      "verificationHint": "Every file is verified before GSM switches packages. The previous package is kept.",
+      "repair": "Repair / reinstall",
+      "updateNow": "Update now",
+      "install": "Install engines",
+      "verifying": "Verifying downloaded files…",
+      "installing": "Installing verified update…",
+      "waiting": "Update verified — installs when the active hook stops.",
+      "failed": "Engine update failed. Check again or reinstall to retry.",
+      "preferenceFailed": "Could not save the automatic update setting.",
+      "installed": "Installed package: {version}",
+      "available": "Available package: {version}",
+      "unknownVersion": "unknown version",
+      "notInstalled": "Engines are not installed or need repair.",
+      "check": "Check now",
+      "checking": "Checking for engine updates…",
+      "checkFailed": "Could not check for engine updates. Try again.",
+      "updateAvailable": "Engine update available.",
+      "upToDate": "Up to date",
+      "download": "Download/update engines",
+      "downloading": "Downloading engines…",
+      "downloadFailed": "Could not download hook engines. Try again.",
+      "ready": "Hook engines are ready.",
+      "stopFirst": "Stop the active text hook before downloading engines.",
+      "progress": "Downloading hook engines ({current}/{total}): {file}"
+    },
     "notice": {
       "title": "About text hooking",
       "description": "Text hooking captures text directly from a running game, which can provide cleaner and more accurate text than OCR when the game is compatible.",
@@ -1377,8 +1409,8 @@
       "title": "Agent Script",
       "scriptPath": "Script path:",
       "scriptPlaceholder": "Select a .js Agent script",
-      "search": "Search",
-      "browse": "Browse",
+      "search": "Search scripts",
+      "browse": "Choose file…",
       "save": "Save",
       "noScripts": "No Agent scripts were found.",
       "pickerTitle": "Select Agent Script",
@@ -1391,8 +1423,10 @@
       "runDetachedHint": "GSM reconnects to the running Agent session the next time it opens."
     },
     "profile": {
-      "title": "Saved Profile",
+      "title": "Save for next time",
       "saved": "Saved",
+      "recommended": "Recommended",
+      "saveHint": "Save a working hook to reuse it next time.",
       "autoHook": "Auto-attach saved hook on next start",
       "copyToClipboard": "Copy processed text to clipboard",
       "flushDelay": "Text revision window (ms):",
@@ -1414,11 +1448,26 @@
       "rowLabel": "Select hook #{id}: {name}",
       "searchTitle": "Hook Search",
       "waiting": "Waiting for hooks. Trigger some text in the game.",
-      "notRunning": "Click 'Start' to start the hook engine.",
-      "noTextYet": "(no text yet)"
+      "notRunning": "Start text capture to find hooks.",
+      "noTextYet": "(no text yet)",
+      "rankingHint": "Readable text matching your target language ({language}) appears first. Language hints use writing systems and are approximate. Your selected hook stays visible.",
+      "readabilityHint": "Readable text appears first. Your selected hook stays visible.",
+      "showNoise": "Show likely noise ({count})",
+      "onlyNoise": "Only likely noise so far. Show likely noise to inspect it, or advance the text in the game.",
+      "quality": {
+        "targetLanguage": "Likely language match",
+        "possibleLanguage": "Possible language match",
+        "readable": "Readable text",
+        "mixed": "Text mixed with noise",
+        "paths": "Paths or technical text",
+        "garbled": "Possibly garbled",
+        "repetitive": "Repetitive text",
+        "symbols": "Mostly numbers or symbols"
+      }
     },
     "output": {
       "title": "Selected Hook Output",
+      "checkHint": "Check that this matches the text in your game.",
       "waiting": "Waiting for text from the selected hook…",
       "selectHook": "Select a hook from the list to preview its text."
     },
@@ -1431,10 +1480,15 @@
       "ready": "Ready",
       "noTarget": "No Target"
     },
+    "layout": {
+      "captureOptions": "Capture options",
+      "troubleshooting": "Troubleshooting"
+    },
     "actions": {
       "start": "Start",
       "searchHooks": "Search for hooks",
-      "stop": "Stop"
+      "stop": "Stop",
+      "preparing": "Preparing text capture…"
     },
     "dev": {
       "sendLargePayload": "Send random Japanese payload ({size} characters)",

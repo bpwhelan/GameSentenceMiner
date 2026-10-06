@@ -66,6 +66,7 @@ describe("TextHookTab", () => {
         };
       }
       if (channel === "texthook.getProfile") return null;
+      if (channel === "texthook.getSettings") return { maxBufferSize: 3000, targetLanguage: "ja" };
       return null;
     });
 
@@ -116,7 +117,133 @@ describe("TextHookTab", () => {
     expect(container.textContent).not.toContain("(no text yet)");
   });
 
-  it("explains which hook engine to use and links to Text Processing", async () => {
+  it.each(["luna", "textractor"])("ranks %s hooks and lets users reveal and select likely noise", async (engine) => {
+    const original = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus") return { ...(await original(channel)), engine };
+      if (channel === "texthook.selectHook") return { success: true };
+      return original(channel, ...args);
+    });
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      ipcListeners.get("texthook.hooks")?.({}, {
+        selectedHookId: null,
+        hooks: [
+          { id: "path", function: "Files", preview: "C:\\Game\\data.bin", samples: [] },
+          { id: "english", function: "Menu", preview: "Welcome to the village.", samples: [] },
+          { id: "jp", function: "Dialogue", preview: "今日は一緒に帰ろう。", samples: [] },
+        ],
+      });
+    });
+    const rowIds = () => Array.from(container.querySelectorAll(".texthook-hook-id"), (el) => el.textContent);
+    expect(rowIds()).toEqual(["#jp", "#english"]);
+    expect(container.textContent).toContain("Show likely noise (1)");
+    expect(invokeMock).not.toHaveBeenCalledWith("texthook.selectHook", expect.anything());
+    const toggle = container.querySelector("#texthook-show-noise") as HTMLInputElement;
+    await act(async () => { toggle.click(); });
+    expect(rowIds()).toEqual(["#jp", "#english", "#path"]);
+    await act(async () => {
+      (container.querySelector('[aria-label="Select hook #path: Files"]') as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+    expect(invokeMock).toHaveBeenCalledWith("texthook.selectHook", "path");
+    await act(async () => { toggle.click(); });
+    expect(rowIds()).toEqual(["#path", "#jp", "#english"]);
+    expect(container.querySelector('[aria-label="Select hook #path: Files"]')?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("explains when all hooks are hidden and recovers as dialogue arrives", async () => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      ipcListeners.get("texthook.hooks")?.({}, {
+        selectedHookId: null,
+        hooks: [{ id: "1", function: "Game", preview: "C:\\Game\\data.bin", samples: [] }],
+      });
+    });
+    expect(container.querySelectorAll(".texthook-hook-row")).toHaveLength(0);
+    expect(container.textContent).toContain("Only likely noise so far");
+    await act(async () => {
+      ipcListeners.get("texthook.hooks")?.({}, {
+        selectedHookId: null,
+        hooks: [{ id: "1", function: "Game", preview: "こんにちは。", samples: ["C:\\Game\\data.bin", "こんにちは。"] }],
+      });
+    });
+    expect(container.querySelectorAll(".texthook-hook-row")).toHaveLength(1);
+    expect(container.textContent).toContain("こんにちは。");
+  });
+
+  it("re-ranks when the configured target language changes", async () => {
+    let language = "ja";
+    const original = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getSettings") return { maxBufferSize: 3000, targetLanguage: language };
+      return original(channel, ...args);
+    });
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      ipcListeners.get("texthook.hooks")?.({}, {
+        selectedHookId: null,
+        hooks: [
+          { id: "en", function: "English", preview: "Welcome home.", samples: [] },
+          { id: "ja", function: "Japanese", preview: "おかえりなさい。", samples: [] },
+        ],
+      });
+    });
+    expect(container.querySelector(".texthook-hook-id")?.textContent).toBe("#ja");
+    language = "en";
+    await act(async () => {
+      vi.advanceTimersByTime(4000);
+      await flushAsyncWork();
+    });
+    expect(container.querySelector(".texthook-hook-id")?.textContent).toBe("#en");
+  });
+
+  it.each(["agent", "mages"])("keeps %s hook listings unfiltered", async (engine) => {
+    const original = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus") return { ...(await original(channel)), engine };
+      return original(channel, ...args);
+    });
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    expect(container.querySelectorAll(".texthook-hook-row")).toHaveLength(2);
+    expect(container.querySelector("#texthook-show-noise")).toBeNull();
+  });
+
+  it("gives capture and live text their own space with advanced sections collapsed", async () => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+
+    const session = container.querySelector(".texthook-session-card")!;
+    expect(session.querySelector("#texthook-engine-select")).toBeTruthy();
+    expect(session.textContent).toContain("game.exe");
+    expect(session.textContent).toContain("Stop");
+    const liveGrid = container.querySelector(".texthook-live-grid")!;
+    expect(liveGrid.children).toHaveLength(2);
+    expect(liveGrid.querySelector(".texthook-hooks")).toBeTruthy();
+    expect(liveGrid.querySelector(".texthook-output")).toBeTruthy();
+    expect(container.querySelector(".texthook-stepper")).toBeNull();
+    for (const selector of [".texthook-capture-options", ".texthook-help", ".texthook-log-details", ".texthook-engine-maintenance"]) {
+      expect(container.querySelector<HTMLDetailsElement>(selector)?.open).toBe(false);
+    }
+    expect(container.querySelector("#texthook-manual-input")?.closest("details")?.classList.contains("texthook-capture-options")).toBe(true);
+    expect(container.querySelector("#texthook-flush-delay-input")?.closest("details")?.classList.contains("texthook-capture-options")).toBe(true);
+  });
+
+  it("explains which hook engine to use and links to Text Processing when help is expanded", async () => {
     const onNavigateTab = vi.fn();
 
     await act(async () => {
@@ -125,6 +252,7 @@ describe("TextHookTab", () => {
     });
 
     const notice = container.querySelector('[aria-labelledby="texthook-notice-title"]');
+    (notice as HTMLDetailsElement).open = true;
     expect(notice?.textContent).toContain("Luna Hook or Textractor");
     expect(notice?.textContent).toContain("visual novels");
     expect(notice?.textContent).toContain("Agent");
@@ -332,7 +460,7 @@ describe("TextHookTab", () => {
     });
 
     const searchButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Search"
+      (button) => button.textContent?.trim() === "Search scripts"
     );
     await act(async () => {
       searchButton?.click();

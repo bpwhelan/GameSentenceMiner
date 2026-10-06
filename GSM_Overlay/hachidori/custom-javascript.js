@@ -3,9 +3,8 @@
 const SCRIPT_ID = "hachidori-custom-javascript";
 let application = Promise.resolve();
 
-// Chrome MV3 `userScripts` registration. Firefox MV2 has no `userScripts`
-// with a USER_SCRIPT world, so the saved code stays inert there and Settings
-// hides the editor through HOST_CAPABILITIES.customJavaScript.
+// Chrome MV3 `userScripts` registration. Hosts without a USER_SCRIPT world
+// leave saved code inert and hide the editor through host capabilities.
 async function apply(browser, code) {
   let scripts;
   try {

@@ -219,6 +219,43 @@ def test_preview_prefers_english_game_title_when_available():
     ]
 
 
+@pytest.mark.parametrize(
+    ("title_source", "expected_title"),
+    [("english", "English Title"), ("original", "原題"), ("romaji", "Gendai")],
+)
+def test_preview_uses_selected_game_title(title_source, expected_title):
+    GamesTable(id="game-titles", title_original=" 原題 ", title_english="English Title", title_romaji="Gendai").save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("title-line", "game-titles", "Scene A", "abc", 110.0)
+
+    preview = build_tadoku_preview(title_source=title_source, upper_bound=150.0)
+
+    assert preview["entries"][0]["game_name"] == expected_title
+    assert preview["total_characters"] == 3
+
+
+@pytest.mark.parametrize(
+    ("title_source", "titles", "expected_title"),
+    [
+        ("english", {"title_original": "原題"}, "原題"),
+        ("original", {"title_original": " ", "title_english": "English Title"}, "English Title"),
+        ("romaji", {"title_original": "原題"}, "原題"),
+        ("english", {"title_romaji": "Gendai"}, "Gendai"),
+        ("original", {"title_original": " ", "title_english": " "}, "Scene A"),
+    ],
+)
+def test_preview_title_source_falls_back_when_title_is_missing(title_source, titles, expected_title):
+    GamesTable(id="game-titles", **titles).save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("title-line", "game-titles", "Scene A", "abc", 110.0)
+    _line("scene-line", "missing-game", "Scene B", "def", 120.0)
+
+    preview = build_tadoku_preview(title_source=title_source, upper_bound=150.0)
+
+    assert [entry["game_name"] for entry in preview["entries"]] == [expected_title, "Scene B"]
+    assert preview["total_characters"] == 6
+
+
 class _FakeClient:
     def __init__(self, fail_on_post=0):
         self.fail_on_post = fail_on_post
@@ -242,6 +279,33 @@ class _FakeClient:
 
     def delete_log(self, log_id):
         self.deleted.append(log_id)
+
+
+@pytest.mark.parametrize("scheduled", [False, True])
+@pytest.mark.parametrize(
+    ("title_source", "expected_title"),
+    [("english", "English Title"), ("original", "原" * 255), ("romaji", "Gendai")],
+)
+def test_sync_uses_saved_title_source(monkeypatch, scheduled, title_source, expected_title):
+    from GameSentenceMiner.util.cron.tadoku_sync import run_scheduled_tadoku_sync
+
+    GamesTable(id="game-titles", title_original="原" * 300, title_english="English Title", title_romaji="Gendai").save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("title-line", "game-titles", "Scene A", "あ" * TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS, 110.0)
+    config = _config(tadoku_title_source=title_source)
+    client = _FakeClient()
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+    monkeypatch.setattr("GameSentenceMiner.util.cron.tadoku_sync.get_stats_config", lambda: config)
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tadoku_sync.run_tadoku_sync",
+        lambda **kwargs: run_tadoku_sync(client=client, **kwargs),
+    )
+
+    result = run_scheduled_tadoku_sync() if scheduled else run_tadoku_sync(config=config, client=client)
+
+    assert result["success"] is True
+    assert client.payloads[0]["description"] == expected_title
+    assert client.payloads[0]["amount"] == TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS
 
 
 def test_sync_posts_one_character_log_per_game_and_advances_frozen_cursor(monkeypatch):
@@ -786,6 +850,37 @@ def test_tadoku_api_previews_and_queues_inline_sync(monkeypatch):
     job = queued.get_json()
     assert job["status"] == "completed"
     assert job["result"]["characters_sent"] == 3
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_title"),
+    [("", "原題"), ("?title_source=romaji", "Gendai"), ("?title_source=english", "English Title")],
+)
+def test_tadoku_preview_api_uses_saved_or_requested_title_source(monkeypatch, query, expected_title):
+    app = flask.Flask(__name__)
+    register_tadoku_api_routes(app)
+    GamesTable(id="game-titles", title_original="原題", title_english="English Title", title_romaji="Gendai").save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("title-line", "game-titles", "Scene A", "abc", 110.0)
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.tadoku_api.get_stats_config", lambda: _config(tadoku_title_source="original")
+    )
+
+    response = app.test_client().get(f"/api/tadoku/preview{query}")
+
+    assert response.status_code == 200
+    assert response.get_json()["entries"][0]["game_name"] == expected_title
+
+
+def test_tadoku_preview_api_rejects_invalid_title_source(monkeypatch):
+    app = flask.Flask(__name__)
+    register_tadoku_api_routes(app)
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.get_stats_config", lambda: _config())
+
+    response = app.test_client().get("/api/tadoku/preview?title_source=invalid")
+
+    assert response.status_code == 400
 
 
 @pytest.mark.parametrize("run_inline", [True, False])

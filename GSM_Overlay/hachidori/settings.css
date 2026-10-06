@@ -18,6 +18,61 @@
   --favorite: #966815;
 }
 
+.theme-store-grid {
+  min-width: 0;
+  max-width: 100%;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(240px, 80%);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 10px;
+  gap: 12px;
+}
+
+.theme-store-card {
+  min-width: 0;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+#theme-store { min-width: 0; }
+.theme-store-carousel {
+  --theme-store-preview-height: 130px;
+  position: relative;
+}
+/* Previous and Next themes straddle the row's edges, centred on the previews
+   (13px is the card's border and padding above its preview). Sitting 12px
+   outside keeps them within the narrowest (16px) page gutter. */
+.theme-store-carousel .theme-store-scroll {
+  position: absolute;
+  top: calc(13px + (var(--theme-store-preview-height) - var(--control-height)) / 2);
+  width: var(--control-height);
+  padding: 0;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-overlay);
+}
+#theme-store-previous { left: -12px; }
+#theme-store-previous .hd-icon { transform: scaleX(-1); }
+#theme-store-next { right: -12px; }
+/* The page focus ring is drawn for page surfaces; a surface halo keeps it
+   visible over the dark previews, where light palettes' accent is too dim. */
+.theme-store-carousel .theme-store-scroll:focus-visible { box-shadow: 0 0 0 7px var(--surface), var(--shadow-overlay); }
+.theme-store-scroll:disabled { visibility: hidden; }
+@media (prefers-reduced-motion: no-preference) {
+  .theme-store-grid { scroll-behavior: smooth; }
+}
+.theme-store-card h3, .theme-store-card p { margin: 0; }
+.theme-store-card button { margin-top: auto; }
+.theme-store-card button[aria-pressed="true"] { outline: 2px solid var(--accent); }
+.theme-store-preview { width: 100%; height: var(--theme-store-preview-height); object-fit: contain; background: #111; border-radius: 4px; }
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-hoshidicts-theme]) {
     --bg: #15171b;
@@ -369,12 +424,27 @@ button,
   white-space: nowrap;
 }
 .library-navigation a {
+  /* The label and its hidden semibold copy share one column. */
+  display: grid;
+  justify-items: center;
   flex: 0 0 auto;
   padding: 7px 10px;
   border-radius: var(--radius-control);
   color: var(--text-dim);
   font-size: var(--font-small);
   text-decoration: none;
+}
+/*
+ * data-label repeats each tab's text. This hidden semibold copy makes every
+ * tab as wide as it is when current, so moving aria-current restyles one tab
+ * without moving the others. It is clipped so it adds no scrollable overflow.
+ */
+.library-navigation a::after {
+  content: attr(data-label);
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: var(--weight-medium);
 }
 .library-navigation a:hover {
   background: var(--surface-sunken);
@@ -1999,7 +2069,6 @@ textarea {
   width: 8ch;
 }
 #opt-blur-frequency-threshold { width: 12ch; }
-#opt-media-offset { width: 10ch; }
 #opt-automatic-backup-days { width: 8ch; }
 .automatic-backups .backup-action > .field { flex: 0 1 auto; }
 #sharing-host-port { width: 12ch; }
@@ -2020,17 +2089,20 @@ textarea {
 .input-suffix input {
   flex: 0 0 auto;
 }
-.frequency-order-controls {
+.frequency-order-controls,
+.activation-input-controls {
   display: flex;
   gap: 8px;
   width: 100%;
   flex-wrap: wrap;
 }
-.frequency-order-controls select {
+.frequency-order-controls select,
+.activation-input-controls select {
   min-width: 0;
   flex: 1 1 180px;
 }
-.frequency-order-controls button {
+.frequency-order-controls button,
+.activation-input-controls button {
   white-space: nowrap;
 }
 [hidden] {

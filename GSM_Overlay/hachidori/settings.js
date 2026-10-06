@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { extensionApi as chrome, IS_FIREFOX } from "./browser-api.js";
+import { extensionApi as chrome } from "./browser-api.js";
 import "./reader-options.js";
 import { createAudioSettingsController } from "./audio-settings.js";
 import { createKeybindSettingsController } from "./keybind-settings.js";
@@ -12,14 +12,18 @@ import { createAnkiTemplateSettingsController } from "./anki-settings.js";
 import { createLocalAudioSetup } from "./local-audio-setup.js";
 import { createBackupSettingsController } from "./backup-settings.js";
 import { createExperimentalSettings } from "./experimental-settings.js";
+import { createThemeStore } from "./theme-store.js";
+import { createActivationSettings } from "./activation-settings.js";
 import { createMemorySettings } from "./memory-settings.js";
 import { downloadBlob } from "./blob-download.js";
 import { createSharingSettingsController } from "./sharing-settings.js";
+import { LINKED_IMPORT_TARGET } from "./sharing-protocol.js";
+import { uploadDictionary } from "./linked-import.js";
 import { ANKI_ADDON_FILE_NAME, fetchAnkiAddon } from "./anki-addon.js";
 import { createLocalFileAccessController } from "./local-file-access.js";
 import { createSettingsSearch } from "./settings-search.js";
 import { applyPageTheme, setStatusOutput } from "./settings-dom.js";
-import { HOST_BROWSER, HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
+import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import { createRecommendedInstallClient } from "./recommended-install-client.js";
 import { createCustomButtonSettings } from "./custom-button-settings.js";
 import { createDictionaryNameDrafts, renameWithBaseline } from "./dictionary-name-drafts.js";
@@ -48,34 +52,36 @@ import {
 } from "./custom-dictionary.js";
 import { SETUP_STATE_KEY, normaliseSetupState, setupIncomplete } from "./setup-state.js";
 import { readDictionaryArchiveIdentity } from "./dictionary-import-archive.js";
+import { dictionaryImportError } from "./dictionary-import-errors.js";
 import {
   describeRevisionComparison,
   dictionaryImportMatches,
   dictionaryImportTarget,
+  mdxImportNotes,
 } from "./dictionary-import.js";
 
 const TARGET = "hoshidicts-offscreen";
 const WORKER_TARGET = "hoshidicts-worker";
 const UPDATE_TARGET = "hachidori-updates";
 const AUDIO_TARGET = "hachidori-audio";
-const CAPTURE_TARGET = "hachidori-capture";
 const SHARING_TARGET = "hachidori-sharing";
 const BACKUP_LIFECYCLE_PORT = "hachidori-backup-settings";
 const OPTION_SECTIONS = {
   lookup: "Reading",
   design: "Design",
   audio: "Audio",
-  ...(!IS_FIREFOX ? { media: "Media capture" } : {}),
   anki: "Anki",
   keybinds: "Keybinds",
   advanced: "Advanced",
+  // Library → Personal dictionary owns its lookup switches.
+  "custom-dictionary": "Personal dictionary",
 };
 const LIBRARY_SECTIONS = new Set(["dictionaries", "add-dictionaries", "updates", "dictionary-groups", "custom-dictionary"]);
 const {
-  DEFAULT_OPTIONS, LOOKUP_MODES, ACTIVATION_KEYS, FREQUENCY_ORDERS,
-  POPUP_THEME_GROUPS, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS,
-  DEFINITION_BLUR_FREQUENCY_ORDERS, EXPERIMENTAL_FEATURES,
-  clampOption, normaliseCustomButtons, normaliseKanjiSelection, normaliseOptions, normaliseTexthookerUrl,
+  DEFAULT_OPTIONS, DEFINITION_LOOKUP_MODES, FREQUENCY_ORDERS,
+  POPUP_THEME_GROUPS, POPUP_RENDERER_IDS, popupRenderer, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS,
+  DEFINITION_BLUR_FREQUENCY_ORDERS, EXPERIMENTAL_FEATURES, definitionBlurFrequencyDictionary,
+  activationLabel, clampOption, normaliseCustomButtons, normaliseKanjiSelection, normaliseOptions,
 } = globalThis.HDReaderOptions;
 const STATUS_POLL_MS = 1000;
 // Slower than the boot poll: a failing poll may be failing for a while, and the
@@ -86,6 +92,7 @@ const NUMBER_FIELDS = [
   { key: "scanLength", id: "opt-scan-length" },
   { key: "maxResults", id: "opt-max-results" },
   { key: "popupHideDelayMs", id: "opt-hide-delay" },
+  { key: "hidePopupOnCursorExitDelayMs", id: "opt-hide-on-cursor-exit-delay" },
   { key: "popupNestingMaxDepth", id: "opt-popup-nesting-depth" },
   { key: "popupColumns", id: "opt-popup-columns" },
   { key: "compactDefinitionSummaryCount", id: "opt-summary-count" },
@@ -100,14 +107,23 @@ const NUMBER_FIELDS = [
 const METADATA_FIELDS = [
   { key: "showLookupCounts", id: "opt-lookup-counts" },
   { key: "showFrequencyDictionaryNames", id: "opt-frequency-names" },
+  { key: "compactFrequencyNumbers", id: "opt-frequency-compact" },
   { key: "averageFrequency", id: "opt-average-frequency" },
   { key: "showPitchAccentFurigana", id: "opt-pitch-furigana" },
+  { key: "showPitchAccentColors", id: "opt-pitch-colors" },
   { key: "showPitchAccentBadge", id: "opt-pitch-badge" },
+  { key: "showPitchAccentDictionaryNames", id: "opt-pitch-names" },
+  { key: "showPitchAccentText", id: "opt-pitch-text" },
+  { key: "showPitchAccentPosition", id: "opt-pitch-position" },
+  { key: "showPitchAccentGraph", id: "opt-pitch-graph" },
   { key: "hidePopupGrammarTags", id: "opt-grammar-tags", inverted: true },
 ];
 const APPEARANCE_CHOICES = [
   { key: "popupTheme", id: "opt-popup-theme" },
   { key: "popupToolbarPosition", id: "opt-popup-toolbar" },
+  { key: "imageHoverPreview", id: "opt-image-hover-preview" },
+  { key: "glossaryLayoutMode", id: "opt-glossary-layout" },
+  { key: "pitchAccentFuriganaStyle", id: "opt-pitch-furigana-style" },
   { key: "definitionBlurDirection", id: "opt-blur-direction", values: DEFINITION_BLUR_DIRECTIONS },
   { key: "definitionBlurFrequencyOrder", id: "opt-blur-frequency-order", values: DEFINITION_BLUR_FREQUENCY_ORDERS },
   { key: "definitionBlurReveal", id: "opt-blur-reveal", values: DEFINITION_BLUR_REVEALS },
@@ -118,6 +134,11 @@ const numberFormat = new Intl.NumberFormat();
 let dictionaryState = { schemaVersion: 1, revision: -1, dictionaries: [], groups: [] };
 let dictionaries = dictionaryState.dictionaries;
 let options = normaliseOptions({});
+const themeStore = createThemeStore({ root: document.getElementById("theme-store"), design: document.getElementById("design"), onSelect(slug) {
+  options.popupTheme = slug;
+  renderThemeChoices();
+  writeOptions();
+} });
 let savedOptions = normaliseOptions({});
 let optionsRevision = -1;
 let pendingOptions = {};
@@ -188,10 +209,9 @@ let backupLifecycleReconnectTimer = null;
 const backupLifecycleTokens = new Set();
 let customButtonController;
 let experimentalController;
+let activationController;
 let memoryController;
 let backingUp = false;
-let mediaStatusEpoch = 0;
-let mediaRuntimeState = "unavailable";
 let settingsSearch;
 let importProgress;
 let importDragDepth = 0;
@@ -218,21 +238,6 @@ function configureBrowserUi() {
     customJavascript.dataset.settingsUnavailable = "true";
     customJavascript.hidden = true;
   }
-  if (!IS_FIREFOX) return;
-  const media = element("media");
-  media.dataset.settingsUnavailable = "true";
-  media.hidden = true;
-  const mediaOption = element("settings-section").querySelector('option[value="media"]');
-  mediaOption.hidden = true;
-  mediaOption.disabled = true;
-  document.querySelector('.settings-nav a[href="#media"]').closest(".nav-item").hidden = true;
-
-  element("audio-mining-help").textContent =
-    "Firefox can play browser speech, but Hachidori does not record it into Anki. Add a downloadable pronunciation source to fill {audio} fields.";
-  const shortcutHelp = element("browser-shortcuts").querySelector(".field-hint");
-  shortcutHelp.textContent =
-    "Firefox runs these on any page. Popup actions need an open popup. Change them in Firefox’s Manage Extension Shortcuts page.";
-  element("browser-shortcuts-open").textContent = "Change in Firefox";
 }
 
 function sectionHasPendingWork(id) {
@@ -343,12 +348,11 @@ function showSettingsSection(focus = false) {
   renderThemeChoices();
   updateDesignPreview();
   updateAudioSettings();
-  updateMediaSettings();
   updateAnkiSettings();
   updateKeybindSettings();
   updateBackupSettings();
   updateSharingSettings();
-  if (activeSection === "advanced") refreshMemorySettings();
+  if (activeSection === "advanced") refreshAdvancedMemory();
   if (activeSection === "design") {
     customButtonController ??= createCustomButtonSettings({ document,
       readButtons: () => options.customButtons,
@@ -388,11 +392,7 @@ function updateKeybindSettings() {
     editKeybinds: keybinds => { options.keybinds = keybinds; writeOptions(); },
     readAudioSources: () => options.audioSources,
     getBrowserCommands: () => chrome.commands.getAll(),
-    // Firefox refuses tabs.create for privileged about: URLs, so it exposes
-    // the Manage Extension Shortcuts view through commands instead.
-    openBrowserShortcuts: () => (IS_FIREFOX
-      ? chrome.commands.openShortcutSettings()
-      : chrome.tabs.create({ url: "chrome://extensions/shortcuts" })),
+    openBrowserShortcuts: () => chrome.tabs.create({ url: "chrome://extensions/shortcuts" }),
     browserShortcutsAvailable: HOST_CAPABILITIES.browserShortcuts,
   });
   keybindController.render();
@@ -425,7 +425,7 @@ function updateAnkiSettings() {
   localAudioSetup.render();
 }
 
-// While linked, archives and backups belong to the host; the notices say so.
+// While linked, imported archives go to the host and backups belong to it; the notices say so.
 function renderSharingLink(value) {
   const wasLinked = sharingLinkedAddress !== null;
   sharingLinkedAddress = typeof value?.client?.address === "string" ? value.client.address : null;
@@ -434,7 +434,6 @@ function renderSharingLink(value) {
   element("sharing-overlay-preferences").hidden = !linked || !OVERLAY_MODE;
   element("sharing-import-notice").hidden = !linked;
   element("sharing-backup-notice").hidden = !linked;
-  element("import-drop-zone").hidden = linked;
   for (const node of document.querySelectorAll("#backup > .backup-action, #backup > .section-note")) node.hidden = linked;
   element("automatic-backups").hidden = linked;
   if (wasLinked && !linked) {
@@ -458,124 +457,13 @@ function updateSharingSettings() {
   sharingController.start();
 }
 
-function renderMediaSettings() {
-  const capture = options.mediaCapture;
-  element("media-overlay-help").hidden = HOST_CAPABILITIES.mediaCapture;
-  element("media-heading-help").textContent = HOST_CAPABILITIES.mediaCapture
-    ? "Optional local recording for Anki notes. Changes save automatically."
-    : "Saved Chrome recorder settings, inactive in this overlay.";
-  element("media-browser-help").hidden = !HOST_CAPABILITIES.mediaCapture;
-  element("media-template-help").hidden = !HOST_CAPABILITIES.mediaCapture;
-  const values = {
-    "opt-media-enabled": HOST_CAPABILITIES.mediaCapture && capture.enabled,
-    "opt-media-animation": capture.includeAnimation,
-    "opt-media-audio": capture.includeCapturedAudio,
-    "opt-media-native-cues": capture.page.nativeCues,
-    "opt-media-dom-text": capture.page.domText,
-    "opt-media-auto-area": capture.page.autoLearnArea,
-    "opt-media-texthooker": capture.texthooker.enabled,
-  };
-  for (const [id, checked] of Object.entries(values)) element(id).checked = checked;
-  const choices = {
-    "opt-media-history": capture.historySeconds,
-    "opt-media-clip": capture.clipSeconds,
-    "opt-media-preset": capture.videoPreset,
-    "opt-media-timing": capture.timingMode,
-    "opt-media-offset": capture.estimatedOffsetMs,
-    "opt-media-texthooker-url": capture.texthooker.url,
-    "opt-media-texthooker-format": capture.texthooker.format,
-  };
-  for (const [id, value] of Object.entries(choices)) {
-    const input = element(id);
-    if (input !== document.activeElement) input.value = String(value);
-  }
-  if (!HOST_CAPABILITIES.mediaCapture) {
-    for (const control of document.querySelectorAll("#media button, #media input, #media select")) {
-      control.disabled = true;
-    }
-  } else {
-    element("opt-media-auto-area").disabled = !capture.page.domText;
-    element("opt-media-texthooker-format").disabled = !capture.texthooker.enabled;
-  }
-}
-
-async function updateMediaSettings() {
-  if (activeSection !== "media") return;
-  renderMediaSettings();
-  const epoch = ++mediaStatusEpoch;
-  if (!HOST_CAPABILITIES.mediaCapture) {
-    mediaRuntimeState = "unavailable";
-    setStatusOutput(element("media-runtime-status"), "Media capture is unavailable in this overlay.");
-    return;
-  }
-  try {
-    const reply = await send("hd_capture_status", {}, CAPTURE_TARGET);
-    if (epoch !== mediaStatusEpoch) return;
-    if (!reply.ok) throw new Error(reply.error || "Capture page unavailable.");
-    const state = { recording: "Recording", disabled: "Disabled" }[reply.state] ?? "Stopped";
-    mediaRuntimeState = reply.state;
-    const source = reply.mediaSource?.name ? ` · ${reply.mediaSource.name}` : "";
-    const linked = reply.linkedPage?.title ? ` · linked to ${reply.linkedPage.title}` : "";
-    setStatusOutput(element("media-runtime-status"), `${state}${source}${linked}`,
-      reply.state === "recording" ? "ready" : undefined);
-  } catch {
-    if (epoch === mediaStatusEpoch) {
-      mediaRuntimeState = "unavailable";
-      setStatusOutput(element("media-runtime-status"),
-        "Capture page closed. Open it before starting a reading session.");
-    }
-  }
-}
-
-async function editMediaCapture(mutator, { immediate = false } = {}) {
-  if (!HOST_CAPABILITIES.mediaCapture) {
-    renderMediaSettings();
-    return false;
-  }
-  let recording = mediaRuntimeState === "recording";
-  if (!immediate) {
-    try {
-      const status = await send("hd_capture_status", {}, CAPTURE_TARGET);
-      recording = status.ok && status.state === "recording";
-      mediaRuntimeState = status.ok ? status.state : "unavailable";
-    } catch {
-      recording = false;
-      mediaRuntimeState = "unavailable";
-    }
-  }
-  const next = {
-    ...options.mediaCapture,
-    texthooker: { ...options.mediaCapture.texthooker },
-    page: { ...options.mediaCapture.page },
-  };
-  mutator(next);
-  if (!immediate && recording
-      && !window.confirm("Changing media capture settings stops the current capture and clears unsubmitted clips. Apply this change?")) {
-    renderMediaSettings();
-    return false;
-  }
-  options.mediaCapture = next;
-  renderMediaSettings();
-  writeOptions();
-  return true;
-}
-
 async function toggleExperimental(id, enabled) {
-  // Media capture keeps its own switch and settings; only the recorder itself
-  // must not stay active behind a hidden section.
-  if (id === "mediaMining" && !enabled && HOST_CAPABILITIES.mediaCapture && options.mediaCapture.enabled
-      && !await editMediaCapture(capture => { capture.enabled = false; })) {
-    renderExperimentalSettings();
-    return;
-  }
   options.experimental = { ...options.experimental, [id]: enabled };
   renderExperimentalSettings();
   writeOptions();
 }
 
 function renderExperimentalSettings() {
-  // A flag whose section this browser cannot offer (Firefox has no media
-  // capture) is not listed, and a stored value cannot reveal that section.
   const features = EXPERIMENTAL_FEATURES.filter(feature => !feature.section || sectionAvailable(feature.section));
   experimentalController ??= createExperimentalSettings({
     document, features, onToggle: (id, enabled) => { void toggleExperimental(id, enabled); },
@@ -587,25 +475,28 @@ function renderExperimentalSettings() {
     document.querySelector(`.settings-nav a[href="#${feature.section}"]`).parentElement.hidden = hidden;
     element("settings-section").querySelector(`option[value="${feature.section}"]`).hidden = hidden;
   }
-  renderImportPicker();
   // A flag that changed elsewhere can hide the visible section, or reveal the
   // one this page was opened on before the stored options arrived.
   if (resolveSection(requestedSection()) !== activeSection) showSettingsSection();
 }
 
 // Low memory mode recycles the engine worker, so it needs the threaded engine:
-// not Firefox, and not a browser where the offscreen document runs the local
-// engine (hd_status.threaded false). The memory readout stays either way.
+// not when the offscreen document runs the local engine
+// (hd_status.threaded false). The memory readout stays either way.
 function renderLowMemoryMode() {
   const available = HOST_CAPABILITIES.lowMemoryMode && lastEngineStatus?.threaded !== false;
   element("low-memory-mode").hidden = !available;
   element("opt-low-memory-mode-help").hidden = !available;
   element("low-memory-mode-unavailable").hidden = available;
   element("opt-low-memory-mode").checked = options.lowMemoryMode;
+  element("dictionary-entry-storage").hidden = !available;
+  element("opt-dictionary-entry-storage").value = options.dictionaryEntryStorage;
+  element("opt-dictionary-entry-storage").disabled = options.lowMemoryMode;
 }
 
 function memorySettings() {
-  memoryController ??= createMemorySettings({ document, numberFormat, readMemory: () => send("hd_memory") });
+  memoryController ??= createMemorySettings({ document, numberFormat, readMemory: () => send("hd_memory"),
+    readExtensionTotal: () => send("hd_memory_total") });
   return memoryController;
 }
 
@@ -617,15 +508,10 @@ function refreshMemorySettings() {
   void memorySettings().refresh();
 }
 
-// With the MDX dictionaries flag on, the picker and drop zone also take .mdx
-// and .mdd files; off, they take Yomitan ZIP files as before.
-function renderImportPicker() {
-  const mdx = options.experimental.mdxImport === true;
-  element("import-file").accept = mdx ? ".zip,application/zip,.mdx,.mdd" : ".zip,application/zip";
-  element("import-file-label").textContent = mdx ? "Choose dictionary files" : "Choose ZIP files";
-  element("import-drop-hint").textContent = mdx
-    ? "Or drag and drop Yomitan ZIP files, or an MDX dictionary with its MDD files, here."
-    : "Or drag and drop Yomitan ZIP files here.";
+// Advanced also measures the whole extension; a row's Details does not.
+function refreshAdvancedMemory() {
+  refreshMemorySettings();
+  void memorySettings().refreshExtensionTotal();
 }
 
 function updateBackupSettings() {
@@ -634,7 +520,7 @@ function updateBackupSettings() {
     document, send,
     download: typeof chrome.downloads?.download === "function"
       ? () => send("hd_backup_download", {}, WORKER_TARGET) : null,
-    browserName: HOST_BROWSER === "firefox" ? "Firefox" : "Chrome",
+    browserName: "Chrome",
     listAutomatic: () => send("hd_backup_auto_list", {}, WORKER_TARGET),
     trackPreparation: trackBackupPreparation,
     cancelPreparation(token) {
@@ -989,7 +875,8 @@ function selectedFrequencyDictionary(title = options.frequencyDictionary) {
     && isAvailableFrequencyDictionary(dictionary));
 }
 
-function selectedDefinitionBlurFrequencyDictionary(title = options.definitionBlurFrequencyDictionary) {
+// The dictionary the blur threshold reads: its own choice, or "Same as sorting".
+function selectedDefinitionBlurFrequencyDictionary(title = definitionBlurFrequencyDictionary(options)) {
   return dictionaries.find((dictionary) => dictionary.title === title
     && isAvailableFrequencyDictionary(dictionary));
 }
@@ -1422,7 +1309,7 @@ function scheduleStatusPoll(delay = STATUS_POLL_MS) {
   }
   statusTimer = setTimeout(() => {
     statusTimer = null;
-    refreshStatus();
+    void refreshStatus();
   }, delay);
 }
 
@@ -1456,7 +1343,7 @@ async function refreshStatus() {
   renderUpdatingRows(previousUpdating, reply.updating?.id ?? null);
   renderLowMemoryMode();
   if (activeSection === "advanced" && reply.ready && !reply.loading && reply.generation !== previousGeneration) {
-    refreshMemorySettings();
+    refreshAdvancedMemory();
   }
   if (!reply.ready || reply.loading || updating) {
     scheduleStatusPoll();
@@ -1535,7 +1422,8 @@ function renderDefinitionBlurFrequencyChoices() {
   if (select === document.activeElement) return;
   const previous = options.definitionBlurFrequencyDictionary;
   select.disabled = !options.definitionBlurFrequencyEnabled;
-  select.replaceChildren(new Option("Choose an enabled frequency dictionary", ""));
+  const sorting = selectedFrequencyDictionary();
+  select.replaceChildren(new Option(sorting ? `Same as sorting (${dictionaryLabel(sorting)})` : "Same as sorting", ""));
   const available = dictionaries.filter(isAvailableFrequencyDictionary);
   for (const dictionary of available) select.add(new Option(dictionaryLabel(dictionary), dictionary.title));
   if (previous !== "" && !available.some(dictionary => dictionary.title === previous)) {
@@ -1546,6 +1434,22 @@ function renderDefinitionBlurFrequencyChoices() {
     select.add(stale);
   }
   select.value = previous;
+}
+
+function renderCursorExitControls() {
+  element("opt-hide-on-cursor-exit").checked = options.hidePopupOnCursorExit;
+  const delay = element("opt-hide-on-cursor-exit-delay");
+  // Like the compact summary count: a focused draft keeps its field enabled.
+  if (delay !== document.activeElement) delay.disabled = !options.hidePopupOnCursorExit;
+}
+
+// The notice belongs to the personal dictionary, and the Library card says why
+// its entries are missing from lookups while it is off.
+function renderPersonalDictionaryControls() {
+  const enabled = options.personalDictionaryEnabled;
+  element("opt-personal-dictionary").checked = enabled;
+  element("selection-notice-controls").hidden = !enabled;
+  element("custom-dictionary-off").hidden = enabled;
 }
 
 function renderCompactSummaryControls() {
@@ -1562,7 +1466,7 @@ function renderCompactSummaryControls() {
 // All blur rules use the shared reveal controls. The delay field shows
 // seconds, fractions allowed, for the stored milliseconds.
 function renderDefinitionBlurControls() {
-  const countEnabled = options.definitionBlurEnabled;
+  const countEnabled = options.definitionBlurCountEnabled;
   const ankiEnabled = options.definitionBlurAnkiMature;
   const frequencyEnabled = options.definitionBlurFrequencyEnabled;
   const enabled = countEnabled || ankiEnabled || frequencyEnabled;
@@ -1599,8 +1503,8 @@ function renderDefinitionBlurControls() {
   frequencyHelp.hidden = !frequencyEnabled;
   if (frequencyEnabled) {
     const selected = selectedDefinitionBlurFrequencyDictionary();
-    if (!options.definitionBlurFrequencyDictionary) {
-      frequencyHelp.textContent = "Choose one enabled frequency dictionary. Missing frequency data leaves this condition unqualified.";
+    if (!definitionBlurFrequencyDictionary(options)) {
+      frequencyHelp.textContent = "Sorting compares every frequency dictionary, so choose one here. Missing frequency data leaves this condition unqualified.";
     } else if (!selected) {
       frequencyHelp.textContent = "The saved frequency dictionary is unavailable. This condition fails open until it is enabled or reinstalled.";
     } else {
@@ -1640,8 +1544,15 @@ function renderMetadataControls() {
     element(field.id).checked = field.inverted ? !options[field.key] : options[field.key];
   }
   renderDefinitionBlurControls();
+  // The dictionary picks the furigana's pitch, which also gives the headword's colour.
   renderPreferredDictionary("opt-pitch-dictionary", options.pitchAccentFuriganaDictionary,
-    "pitch", "Automatic — first available pitch", options.showPitchAccentFurigana);
+    "pitch", "Automatic — first available pitch", options.showPitchAccentFurigana || options.showPitchAccentColors);
+  // Like the dictionary picker, a focused style keeps its draft until blur.
+  const furiganaStyle = element("opt-pitch-furigana-style");
+  if (furiganaStyle !== document.activeElement) {
+    furiganaStyle.disabled = !options.showPitchAccentFurigana;
+    furiganaStyle.value = options.pitchAccentFuriganaStyle;
+  }
 }
 
 function renderPopupImageSources() {
@@ -1785,7 +1696,11 @@ function renderKanjiChoices() {
   select.value = selectedValue;
 }
 
+// Theme Store renderer names for the Theme select, matching the Store cards.
+const rendererLabel = slug => slug === "jl" ? "JL" : slug[0].toUpperCase() + slug.slice(1);
+
 function renderThemeChoices() {
+  themeStore.render(options);
   if (activeSection !== "design") return;
   const theme = element("opt-popup-theme");
   if (theme.options.length === 0) {
@@ -1796,6 +1711,14 @@ function renderThemeChoices() {
       theme.append(optgroup);
     }
   }
+  let storeGroup = [...theme.children].find(group => group.label === "Theme Store");
+  if (!storeGroup && (options.experimental.themeStore || popupRenderer(options.popupTheme) !== "default")) {
+    storeGroup = document.createElement("optgroup");
+    storeGroup.label = "Theme Store";
+    for (const slug of POPUP_RENDERER_IDS) storeGroup.append(new Option(rendererLabel(slug), slug));
+    theme.append(storeGroup);
+  }
+  if (storeGroup) storeGroup.hidden = !options.experimental.themeStore && popupRenderer(options.popupTheme) === "default";
   if (theme !== document.activeElement) theme.value = options.popupTheme;
 }
 
@@ -1815,6 +1738,20 @@ function renderCustomJavascript(force = false) {
   element("custom-javascript-count").textContent = `${numberFormat.format(editor.value.length)} characters`;
 }
 
+// Yomitan's "Scan modifier key" lists No key first. Its empty value is never
+// stored: it means lookupMode "hover" and keeps the remembered activationKey.
+// No key leaves the keep-open switch on for the next key, as a re-render would.
+function renderActivationControls() {
+  activationController ??= createActivationSettings({ document, report: message => setOptionsStatus(message) });
+  activationController.render(options.lookupMode === "hover" ? "" : options.activationKey);
+  element("opt-lookup-sticky").checked = options.lookupMode !== "activation";
+  element("opt-lookup-sticky-row").hidden = options.lookupMode === "hover";
+  // Child popups name the remembered key, which No key keeps.
+  const childPopups = element("opt-definition-lookup-mode");
+  childPopups.querySelector('option[value="activation"]').textContent = `Hold ${activationLabel(options.activationKey)}`;
+  if (childPopups !== document.activeElement) childPopups.value = options.definitionLookupMode;
+}
+
 function renderOptions() {
   applyPageTheme(document, options);
   for (const field of NUMBER_FIELDS) {
@@ -1825,7 +1762,9 @@ function renderOptions() {
   }
   element("opt-hover-enabled").checked = options.hoverEnabled;
   element("opt-japanese-only").checked = options.onlyScanJapaneseText;
+  renderPersonalDictionaryControls();
   element("opt-no-result-notice").checked = options.showNoResultNotice;
+  renderCursorExitControls();
   element("opt-source-highlight").checked = options.sourceHighlightEnabled;
   element("opt-popup-audio-button").checked = options.showPopupAudioButton;
   element("opt-audio-autoplay").checked = options.audioAutoplay;
@@ -1835,13 +1774,11 @@ function renderOptions() {
   customButtonController?.render();
   const toolbar = element("opt-popup-toolbar");
   if (toolbar !== document.activeElement) toolbar.value = options.popupToolbarPosition;
-  const mode = element("opt-lookup-mode");
-  if (mode !== document.activeElement) mode.value = options.lookupMode;
-  const activation = element("opt-activation-key");
-  if (activation.options.length === 0) {
-    for (const key of ACTIVATION_KEYS) activation.add(new Option(key, key));
-  }
-  if (activation !== document.activeElement) activation.value = options.activationKey;
+  const imageHoverPreview = element("opt-image-hover-preview");
+  if (imageHoverPreview !== document.activeElement) imageHoverPreview.value = options.imageHoverPreview;
+  const glossaryLayout = element("opt-glossary-layout");
+  if (glossaryLayout !== document.activeElement) glossaryLayout.value = options.glossaryLayoutMode;
+  renderActivationControls();
   renderFrequencyOrder();
   renderKanjiChoices();
   renderFrequencyChoices();
@@ -1852,7 +1789,6 @@ function renderOptions() {
   renderLowMemoryMode();
   updateDesignPreview();
   updateAudioSettings();
-  updateMediaSettings();
   updateAnkiSettings();
   updateKeybindSettings();
 }
@@ -2324,7 +2260,7 @@ function renderDictionaryRow(template, entry, index) {
     remove.hidden = true;
   } else {
     remove.addEventListener("click", () => {
-      removeDictionary(entry.id, entry.title);
+      void removeDictionary(entry.id, entry.title);
     });
   }
   return row;
@@ -2830,7 +2766,7 @@ async function importFile(file, index, total, request = {}, label = file.name) {
     identity = await readDictionaryArchiveIdentity(file);
   } catch (error) {
     updateImportResult(index, {
-      text: `Failed before import: ${describe(error)}`,
+      text: `Failed before import: ${dictionaryImportError(error, file.name, "reading dictionary metadata").message}`,
       tone: "error",
     });
     return "failed";
@@ -2856,14 +2792,22 @@ async function importFile(file, index, total, request = {}, label = file.name) {
   // The decision happens before this URL exists, so Cancel cannot start a
   // native import, create a generation, or mutate persistent storage.
   const started = Date.now();
+  // A linked browser sends the archive to the host, which applies the same
+  // choice against its own library (the one mirrored here).
+  if (sharingLinkedAddress !== null) {
+    return importArchive(() => uploadDictionary({
+      blob: file, fileName: file.name, replace: importDecision.action === "replace",
+      send: (type, fields) => send(type, fields, LINKED_IMPORT_TARGET),
+    }), index, total, label, started);
+  }
   const blobUrl = URL.createObjectURL(file);
   try {
-    return await importArchive({
+    return await importArchive(() => send("hd_import", {
       blobUrl,
       fileName: file.name,
       ...request,
       importDecision,
-    }, index, total, label, started);
+    }), index, total, label, started);
   } finally {
     // The offscreen document has read the bytes by now; holding the URL any
     // longer just pins the file.
@@ -2871,7 +2815,7 @@ async function importFile(file, index, total, request = {}, label = file.name) {
   }
 }
 
-async function importArchive(request, index, total, label, started) {
+async function importArchive(runImport, index, total, label, started) {
   const tick = () => {
     const elapsed = elapsedSince(started);
     setImportState(
@@ -2884,23 +2828,27 @@ async function importArchive(request, index, total, label, started) {
   const ticker = setInterval(tick, 1000);
 
   try {
-    const reply = await send("hd_import", request);
+    const reply = await runImport();
     const report = reply.report ?? {};
     if (reply.ok && report.success) {
+      // What an MDX import left out. Notes never turn a success into a
+      // failure: the dictionary is installed and counts as imported.
+      const notes = mdxImportNotes(report, numberFormat);
       updateImportResult(index, {
         text: `Imported ${report.title} in ${importDuration(started)}: ${summariseReport(report)}.`,
         tone: "ok",
+        notes,
       });
-      return "imported";
+      return notes.length > 0 ? "imported-with-notes" : "imported";
     }
-    const reason = reply.error ?? report.error ?? "The engine gave no reason.";
+    const reason = dictionaryImportError(reply.error || report.error || "The engine gave no reason.", label, "importing the dictionary").message;
     updateImportResult(index, {
       text: `Failed after ${importDuration(started)}: ${reason}`,
       tone: "error",
     });
   } catch (error) {
     updateImportResult(index, {
-      text: `Failed after ${importDuration(started)}: ${describe(error)}`,
+      text: `Failed after ${importDuration(started)}: ${dictionaryImportError(error, label, "requesting the import").message}`,
       tone: "error",
     });
   } finally {
@@ -2955,12 +2903,23 @@ async function runImportBatch(items, importOne, singular, plural, describeItem) 
   })));
 
   let imported = 0;
+  let withNotes = 0;
   let cancelled = 0;
   try {
     for (const [index, item] of items.entries()) {
-      const outcome = await importOne(item, index, items.length);
-      if (outcome === "imported") {
+      let outcome;
+      try {
+        outcome = await importOne(item, index, items.length); // NOSONAR: each import reviews and commits the state left by the previous item
+      } catch (error) {
+        updateImportResult(index, {
+          text: dictionaryImportError(error, describeItem(item).name, "preparing the import").message,
+          tone: "error",
+        });
+        continue;
+      }
+      if (outcome === "imported" || outcome === "imported-with-notes") {
         imported += 1;
+        if (outcome === "imported-with-notes") withNotes += 1;
         // A later archive in the same batch must decide against the state the
         // previous archive actually committed, not a delayed storage event.
         await reloadDictionaries();
@@ -2968,8 +2927,12 @@ async function runImportBatch(items, importOne, singular, plural, describeItem) 
     }
     const failed = items.length - imported - cancelled;
     const itemLabel = items.length === 1 ? singular : plural;
+    // #import-state is the polite live region, so it announces the notes.
+    const importedLabel = withNotes === 0
+      ? `${imported} imported`
+      : `${imported} imported (${withNotes} with notes)`;
     const outcomes = [
-      `${imported} imported`,
+      importedLabel,
       ...(cancelled === 0 ? [] : [`${cancelled} cancelled`]),
       `${failed} failed`,
     ].join(", ");
@@ -2997,9 +2960,9 @@ function isMddResourceOf(mdxName, name) {
 }
 
 function groupImportFiles(files) {
-  if (options.experimental.mdxImport !== true) {
-    return files.map((file) => ({ kind: "zip", file }));
-  }
+  // An upload carries one archive, so a linked browser sends every file as a
+  // ZIP and the host explains why it refuses an .mdx or .mdd.
+  if (sharingLinkedAddress !== null) return files.map((file) => ({ kind: "zip", file }));
   const items = [];
   const resourceFiles = files.filter((file) => /\.mdd$/iu.test(file.name));
   const claimed = new Set();
@@ -3024,11 +2987,11 @@ async function importMdx(item, index, total) {
   const started = Date.now();
   const urls = [file, ...resources].map((entry) => URL.createObjectURL(entry));
   try {
-    return await importArchive({
+    return await importArchive(() => send("hd_import", {
       blobUrl: urls[0],
       fileName: file.name,
       resources: resources.map((resource, position) => ({ fileName: resource.name, blobUrl: urls[position + 1] })),
-    }, index, total, file.name, started);
+    }), index, total, file.name, started);
   } finally {
     for (const url of urls) URL.revokeObjectURL(url);
   }
@@ -3359,7 +3322,7 @@ function attachHandlers() {
       writeOptions();
     });
   }
-  for (const [id, key] of [["opt-blur-count", "definitionBlurEnabled"],
+  for (const [id, key] of [["opt-blur-count", "definitionBlurCountEnabled"],
     ["opt-blur-anki", "definitionBlurAnkiMature"],
     ["opt-blur-frequency", "definitionBlurFrequencyEnabled"]]) {
     element(id).addEventListener("change", (event) => {
@@ -3437,12 +3400,27 @@ function attachHandlers() {
     options.onlyScanJapaneseText = event.target.checked;
     writeOptions();
   });
+  element("opt-personal-dictionary").addEventListener("change", (event) => {
+    options.personalDictionaryEnabled = event.target.checked;
+    renderPersonalDictionaryControls();
+    writeOptions();
+  });
   element("opt-no-result-notice").addEventListener("change", (event) => {
     options.showNoResultNotice = event.target.checked;
     writeOptions();
   });
+  element("opt-hide-on-cursor-exit").addEventListener("change", (event) => {
+    options.hidePopupOnCursorExit = event.target.checked;
+    renderCursorExitControls();
+    writeOptions();
+  });
   element("opt-low-memory-mode").addEventListener("change", (event) => {
     options.lowMemoryMode = event.target.checked;
+    renderLowMemoryMode();
+    writeOptions();
+  });
+  element("opt-dictionary-entry-storage").addEventListener("change", (event) => {
+    options.dictionaryEntryStorage = event.target.value;
     writeOptions();
   });
   element("opt-audio-autoplay").addEventListener("change", (event) => {
@@ -3463,12 +3441,23 @@ function attachHandlers() {
     options.popupImageSource = event.target.value ? JSON.parse(event.target.value) : null;
     writeOptions();
   });
-  element("opt-lookup-mode").addEventListener("change", (event) => {
-    options.lookupMode = LOOKUP_MODES.includes(event.target.value) ? event.target.value : "hover";
+  // The picker and the keep-open switch together choose one lookup mode, so
+  // either control's change reads both.
+  const writeActivation = () => {
+    const key = element("opt-activation-key").value;
+    if (key === "") {
+      options.lookupMode = "hover";
+    } else {
+      options.activationKey = key;
+      options.lookupMode = element("opt-lookup-sticky").checked ? "activationSticky" : "activation";
+    }
+    renderActivationControls();
     writeOptions();
-  });
-  element("opt-activation-key").addEventListener("change", (event) => {
-    options.activationKey = event.target.value;
+  };
+  element("opt-activation-key").addEventListener("change", writeActivation);
+  element("opt-lookup-sticky").addEventListener("change", writeActivation);
+  element("opt-definition-lookup-mode").addEventListener("change", (event) => {
+    options.definitionLookupMode = DEFINITION_LOOKUP_MODES.includes(event.target.value) ? event.target.value : "inherit";
     writeOptions();
   });
 
@@ -3486,6 +3475,8 @@ function attachHandlers() {
       return;
     }
     options.frequencyDictionary = event.target.value;
+    // Blur set to "Same as sorting" follows this choice.
+    renderDefinitionBlurControls();
     applyFrequencyDirection();
   });
   element("opt-frequency-auto").addEventListener("click", applyFrequencyDirection);
@@ -3493,73 +3484,6 @@ function attachHandlers() {
   element("opt-kanji-dictionary").addEventListener("change", (event) => {
     options.kanjiClickDictionary = selectionFromValue(event.target.value);
     writeOptions();
-  });
-  element("media-open-capture").addEventListener("click", async () => {
-    if (!HOST_CAPABILITIES.mediaCapture) return;
-    try {
-      const reply = await send("hd_capture_open", {}, CAPTURE_TARGET);
-      if (!reply.ok) throw new Error(reply.error || "The capture page could not be opened.");
-      setStatusOutput(element("media-runtime-status"), "Capture controls opened in a separate tab.");
-    } catch (error) {
-      setStatusOutput(element("media-runtime-status"),
-        `Could not open capture controls: ${describe(error)}`, "error");
-    }
-  });
-  element("opt-media-enabled").addEventListener("change", event => {
-    void editMediaCapture(capture => { capture.enabled = event.target.checked; }, {
-      immediate: !event.target.checked,
-    });
-  });
-  for (const [id, key] of [["opt-media-animation", "includeAnimation"], ["opt-media-audio", "includeCapturedAudio"]]) {
-    element(id).addEventListener("change", event => {
-      const other = key === "includeAnimation" ? options.mediaCapture.includeCapturedAudio : options.mediaCapture.includeAnimation;
-      if (!event.target.checked && !other) {
-        event.target.checked = true;
-        setOptionsStatus("Keep at least one captured-media output enabled.");
-        return;
-      }
-      void editMediaCapture(capture => { capture[key] = event.target.checked; });
-    });
-  }
-  for (const [id, key] of [["opt-media-history", "historySeconds"], ["opt-media-clip", "clipSeconds"]]) {
-    element(id).addEventListener("change", event => {
-      void editMediaCapture(capture => { capture[key] = Number(event.target.value); });
-    });
-  }
-  for (const [id, key] of [["opt-media-preset", "videoPreset"], ["opt-media-timing", "timingMode"]]) {
-    element(id).addEventListener("change", event => {
-      void editMediaCapture(capture => { capture[key] = event.target.value; });
-    });
-  }
-  element("opt-media-offset").addEventListener("change", event => {
-    const value = Math.max(-2000, Math.min(2000, Math.trunc(Number(event.target.value))));
-    void editMediaCapture(capture => { capture.estimatedOffsetMs = Number.isFinite(value) ? value : -500; });
-  });
-  for (const [id, key] of [["opt-media-native-cues", "nativeCues"], ["opt-media-dom-text", "domText"],
-    ["opt-media-auto-area", "autoLearnArea"]]) {
-    element(id).addEventListener("change", event => {
-      void editMediaCapture(capture => { capture.page[key] = event.target.checked; });
-    });
-  }
-  element("opt-media-texthooker").addEventListener("change", event => {
-    if (event.target.checked && !options.mediaCapture.texthooker.url) {
-      event.target.checked = false;
-      setOptionsStatus("Enter a loopback WebSocket URL before enabling texthooker timing.");
-      return;
-    }
-    void editMediaCapture(capture => { capture.texthooker.enabled = event.target.checked; });
-  });
-  element("opt-media-texthooker-url").addEventListener("change", event => {
-    const value = normaliseTexthookerUrl(event.target.value);
-    if (value === null || (options.mediaCapture.texthooker.enabled && value === "")) {
-      event.target.value = options.mediaCapture.texthooker.url;
-      setOptionsStatus("Texthooker must use a loopback ws or wss URL without credentials or fragments.");
-      return;
-    }
-    void editMediaCapture(capture => { capture.texthooker.url = value; });
-  });
-  element("opt-media-texthooker-format").addEventListener("change", event => {
-    void editMediaCapture(capture => { capture.texthooker.format = event.target.value; });
   });
   const optionSections = Object.keys(OPTION_SECTIONS).map(element);
   for (const section of optionSections) {
@@ -3583,11 +3507,12 @@ function attachHandlers() {
       if (event.target.id === "opt-blur-frequency-dictionary") renderDefinitionBlurFrequencyChoices();
       if (event.target.id === "opt-image-source") renderPopupImageSources();
       if (event.target.id === "opt-kanji-dictionary") renderKanjiChoices();
-      if (event.target.id === "opt-pitch-dictionary") renderMetadataControls();
+      if (event.target.id === "opt-pitch-dictionary" || event.target.id === "opt-pitch-furigana-style") renderMetadataControls();
       if (event.target.closest("#definition-blur-settings")) {
         renderDefinitionBlurControls();
       }
       if (event.target.id === "opt-summary-dictionary" || event.target.id === "opt-summary-count") renderCompactSummaryControls();
+      if (event.target.id === "opt-hide-on-cursor-exit-delay") renderCursorExitControls();
       const choice = APPEARANCE_CHOICES.find(({ id }) => id === event.target.id);
       if (choice) event.target.value = options[choice.key];
       const field = NUMBER_FIELDS.find(({ id }) => id === event.target.id);
@@ -3743,6 +3668,7 @@ function setOptionsStatus(message, completed = false) {
 // but cannot replace a local draft or authorize a stale draft's write.
 function writeOptions() {
   applyPageTheme(document, options);
+  themeStore.render(options);
   updateDesignPreview();
   const previous = { ...savedOptions, ...savingOptions?.patch };
   const changes = Object.fromEntries(Object.entries(options).filter(([key, value]) =>
@@ -3824,8 +3750,6 @@ async function flushOptionsUntilIdle() {
 
 function renderMiningCapabilityHelp() {
   element("audio-mining-help").hidden = MINING_CAPABILITIES.browserSpeech;
-  element("audio-speech-capture-help").hidden = !MINING_CAPABILITIES.browserSpeech;
-  element("media-overlay-help").hidden = HOST_CAPABILITIES.mediaCapture;
 }
 
 async function start() {
@@ -3854,4 +3778,4 @@ async function start() {
   void recommendedInstallation.request();
 }
 
-start();
+await start();

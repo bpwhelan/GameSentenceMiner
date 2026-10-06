@@ -11,13 +11,14 @@
   const root = document.documentElement;
   // settings.css hides the interface and its themed background while this is set.
   root.dataset.hoshidictsThemePending = "";
-  const api = globalThis.browser ?? globalThis.chrome;
+  const api = globalThis.chrome;
   // A failed read releases the page to the browser preference, as before; the
   // settings.js read reports the failure.
   const release = () => { delete root.dataset.hoshidictsThemePending; };
   api.storage.local.get("options").then(({ options }) => {
     let theme = globalThis.HDReaderOptions.normaliseOptions(options).popupTheme;
     if (theme === "auto") theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    if (globalThis.HDReaderOptions.popupRenderer(theme) !== "default") theme = "default";
     root.dataset.hoshidictsTheme = theme;
   }).then(release, release);
 }());

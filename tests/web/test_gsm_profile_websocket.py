@@ -20,6 +20,30 @@ def _line(line_id: str, text: str):
     return SimpleNamespace(id=line_id, text=text, time=datetime(2026, 7, 25, 12, 0, 0))
 
 
+def test_new_overlay_clients_receive_cached_window_coverage(monkeypatch):
+    from GameSentenceMiner.util.platform import window_state_monitor
+
+    payload = {
+        "type": "window_state",
+        "data": "background",
+        "occlusion_rects": [{"left": 20, "top": 30, "right": 200, "bottom": 300}],
+    }
+    monkeypatch.setattr(
+        window_state_monitor, "get_window_state_monitor", lambda: SimpleNamespace(last_window_state_payload=payload)
+    )
+    server = MultiplexWebsocketServerThread(
+        name="test", get_port_func=lambda: 0, msg_queue=queue.Queue(), is_paused_func=lambda: False, endpoint_specs={}
+    )
+    sent = []
+
+    async def send(_websocket, message):
+        sent.append(json.loads(message))
+
+    monkeypatch.setattr(server, "_send_client_direct", send)
+    asyncio.run(server._send_initial_overlay_state(object()))
+    assert sent[0] == payload
+
+
 def test_build_gsm_profile_state_payload_serializes_current_profile_and_scenes():
     master_config = SimpleNamespace(
         current_profile="Visual Novel",

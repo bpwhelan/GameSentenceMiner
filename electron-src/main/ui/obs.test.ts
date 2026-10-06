@@ -226,6 +226,19 @@ describe('launchOBSFromElectron', () => {
         spawnMock.mockReturnValue({ pid: 4242, once: vi.fn(), unref: vi.fn() });
     });
 
+    it('preserves Windows paths and quoted option values when resolving a launch command', async () => {
+        const executable = String.raw`C:\Users\Sam %TEMP% & 日本語\obs64.exe`;
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === executable);
+        const { resolveElectronOBSLaunchCommand } = await loadObsModule();
+
+        const result = resolveElectronOBSLaunchCommand(
+            `"${executable}" --profile="Sam's $1 [GSM]" --collection="日本語 game"`,
+        );
+
+        expect(result?.command).toBe(executable);
+        expect(result?.args).toEqual(["--profile=Sam's $1 [GSM]", '--collection=日本語 game']);
+    });
+
     it('skips startup launch when the active Python profile disables open_obs', async () => {
         existsSyncMock.mockImplementation((targetPath: string) => targetPath === CONFIG_PATH);
         readFileSyncMock.mockReturnValue(

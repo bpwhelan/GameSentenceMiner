@@ -24,8 +24,30 @@
 
   const DEFAULT_INITIAL_RESULT_COUNT = 1;
   const DEFAULT_MAX_METADATA_TAGS = 12;
-  const METADATA_OPTION_KEYS = ["averageFrequency", "showFrequencyDictionaryNames", "showPitchAccentFurigana",
-    "pitchAccentFuriganaDictionary", "showPitchAccentBadge", "hidePopupGrammarTags"];
+  const METADATA_OPTION_KEYS = ["averageFrequency", "showFrequencyDictionaryNames", "compactFrequencyNumbers",
+    "showPitchAccentFurigana", "pitchAccentFuriganaDictionary", "pitchAccentFuriganaStyle", "showPitchAccentBadge",
+    "showPitchAccentDictionaryNames", "showPitchAccentText", "showPitchAccentPosition", "showPitchAccentGraph", "hidePopupGrammarTags"];
+
+  // Shared keyboard semantics for rich cards and direct text definitions.
+  function findDifferentDictionary(entries, index, sign, scroll, cardsOf, dictionaryOf) {
+    const cards = cardsOf(entries[index]);
+    const view = scroll.getBoundingClientRect();
+    let visible = null, coverage = 0;
+    for (const card of sign > 0 ? cards : [...cards].reverse()) {
+      const { top, bottom } = card.getBoundingClientRect();
+      const shown = Math.min(bottom, view.bottom) - Math.max(top, view.top);
+      if (shown > coverage) { visible = card; coverage = shown; }
+    }
+    if (!visible) return null;
+    const dictionary = dictionaryOf(visible);
+    for (let i = index; i >= 0 && i < entries.length; i += sign) {
+      const ordered = sign > 0 ? cardsOf(entries[i]) : cardsOf(entries[i]).reverse();
+      const start = i === index ? ordered.indexOf(visible) + 1 : 0;
+      const target = ordered.slice(start).find(card => dictionaryOf(card) !== dictionary);
+      if (target) return { index: i, target };
+    }
+    return null;
+  }
 
   function metadataOptions(context) {
     return Object.fromEntries(METADATA_OPTION_KEYS.map(key => [key, context[key]]));
@@ -98,6 +120,17 @@
         // Only CSS hides the button: it stays bound, so autoplay and keybinds still play.
         if (options.showPopupAudioButton === false) host.dataset.hoshidictsAudioButton = "hidden";
         else delete host.dataset.hoshidictsAudioButton;
+        // Hiding the pencil the same way keeps an open Note draft through a toggle.
+        if (options.personalDictionaryEnabled === false) host.dataset.hoshidictsNoteButton = "hidden";
+        else delete host.dataset.hoshidictsNoteButton;
+        // Yomitan's glossaryLayoutMode is CSS over unchanged markup, so a
+        // switch keeps open views, Note drafts and listeners.
+        if (options.glossaryLayoutMode === "compact") host.dataset.hoshidictsGlossaryLayout = "compact";
+        else delete host.dataset.hoshidictsGlossaryLayout;
+        // Colouring is CSS over the group each headword and badge carries, so a
+        // switch keeps open views, Note drafts and focus.
+        if (options.showPitchAccentColors === true) host.dataset.hoshidictsPitchColors = "on";
+        else delete host.dataset.hoshidictsPitchColors;
         for (const [key, variable, unit] of [
           ["popupOpacityPercent", "opacity", "%"], ["popupWidthPx", "width", "px"], ["popupHeightPx", "height", "px"],
           ["popupScalePercent", "scale", "%"],
@@ -116,7 +149,6 @@
       },
     };
   }
-  const MASONRY_GAP_PX = 8;
   const DEFINITION_BLUR_STATES = new Set(["pending", "blurred"]);
   const DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT = 3;
   const MIN_COMPACT_DEFINITION_SUMMARY_COUNT = 1;
@@ -400,12 +432,16 @@
     return displayNames;
   }
 
-  function createTag(documentRef, text, description, kind) {
+  function createTag(documentRef, text, description, kind, category) {
     const tag = documentRef.createElement("span");
     tag.className = `gsm-hoshidicts-tag gsm-hoshidicts-tag-${kind}`;
     tag.textContent = text;
     if (description) {
       tag.title = description;
+    }
+    // Yomitan's _createTag: a definition tag's tag-bank category picks its colour.
+    if (category) {
+      tag.dataset.category = category;
     }
     return tag;
   }
@@ -417,7 +453,10 @@
       { minimum: 1_000_000, suffix: "m" },
       { minimum: 1_000, suffix: "k" },
     ];
-    const unit = units.find(({ minimum }) => absoluteValue >= minimum);
+    // Pick the unit after rounding, as Intl's compact notation does: a value
+    // that rounds to 1000.0 of the smaller unit moves up, so 999,949 is 999.9k
+    // but 999,950 is 1m, not 1000k.
+    const unit = units.find(({ minimum }) => Math.round((absoluteValue / minimum) * 10_000) >= 10_000);
     if (!unit) {
       return String(value);
     }
@@ -438,11 +477,17 @@
     }`;
   }
 
-  function formatFrequencyValue(frequency) {
+  // Like Yomitan's _populateFrequencyValueList: the dictionary's display value,
+  // else the number. Compact numbers abbreviate a display value that only
+  // restates the number, keeping any text of its own.
+  function formatFrequencyValue(frequency, compactFrequencyNumbers = false) {
     if (typeof frequency.displayValue === "string") {
       const displayValue = frequency.displayValue.trim();
       if (!displayValue) {
         return null;
+      }
+      if (!compactFrequencyNumbers) {
+        return displayValue;
       }
       const numericText = isKanaFrequency(frequency)
         ? displayValue.slice(0, -JITEN_KANA_FREQUENCY_MARKER.length)
@@ -455,7 +500,7 @@
         return formatCompactFrequencyValue(frequency);
       }
     }
-    return formatCompactFrequencyNumber(frequency.value);
+    return compactFrequencyNumbers ? formatCompactFrequencyNumber(frequency.value) : String(frequency.value);
   }
 
   function frequencyNumberForAverage(frequency) {
@@ -521,8 +566,10 @@
     dictionaryPresentation,
     maximumTags,
     averageFrequency = false,
-    showFrequencyDictionaryNames = false
+    showFrequencyDictionaryNames = false,
+    compactFrequencyNumbers = false
   ) {
+    const averageTags = [];
     if (averageFrequency) {
       const modes = new Map(dictionaryPresentation.map(({ title, frequencyMode }) => [title, frequencyMode]));
       const aggregates = new Map();
@@ -534,12 +581,12 @@
           if (value !== null) {
             const mode = modes.get(group.dictionary);
             const label = mode === "rank-based"
-              ? { accessible: "Rank average", display: "Avg rank" }
+              ? { accessible: "Rank average", display: "Avg rank", kind: mode }
               : mode === "occurrence-based"
-                ? { accessible: "Occurrence average", display: "Avg count" }
-                : { accessible: "Frequency average (unspecified)", display: "Avg frequency" };
+                ? { accessible: "Occurrence average", display: "Avg count", kind: mode }
+                : { accessible: "Frequency average (unspecified)", display: "Avg frequency", kind: "unspecified" };
             const aggregate = aggregates.get(label.accessible)
-              || { count: 0, reciprocalSum: 0, display: label.display };
+              || { count: 0, reciprocalSum: 0, display: label.display, kind: label.kind };
             aggregate.count += 1;
             aggregate.reciprocalSum += 1 / value;
             aggregates.set(label.accessible, aggregate);
@@ -548,17 +595,19 @@
           }
         }
       }
-      return Array.from(aggregates, ([label, { count, reciprocalSum, display }]) => {
-        const value = Math.floor(count / reciprocalSum);
-        return createFrequencyTag(
+      for (const [label, { count, reciprocalSum, display, kind }] of aggregates) {
+        const frequency = { value: Math.floor(count / reciprocalSum), displayValue: null };
+        const tag = createFrequencyTag(
           documentRef,
           { dictionary: label },
           display,
-          [{ display: formatCompactFrequencyNumber(value), frequency: { value, displayValue: null } }],
+          [{ display: formatFrequencyValue(frequency, compactFrequencyNumbers), frequency }],
           // These labels identify units, not a source dictionary.
           true
         );
-      });
+        tag.dataset.frequencyAverage = kind;
+        averageTags.push(tag);
+      }
     }
     const tags = [];
     const seen = new Set();
@@ -570,21 +619,21 @@
       const frequencies = [];
       const seenFrequencies = new Set();
       for (const frequency of group.frequencies) {
-        const originalDisplay = formatFrequencyValue(frequency);
+        const originalDisplay = formatFrequencyValue(frequency, compactFrequencyNumbers);
         if (originalDisplay === null) {
           continue;
         }
-        const display = showFrequencyDictionaryNames ? originalDisplay : formatCompactFrequencyValue(frequency);
+        // Only abbreviated numbers without names drop a dictionary's own text.
+        const display = compactFrequencyNumbers && !showFrequencyDictionaryNames
+          ? formatCompactFrequencyValue(frequency) : originalDisplay;
         const key = JSON.stringify([frequency.value, originalDisplay]);
         if (!seenFrequencies.has(key)) {
           seenFrequencies.add(key);
           frequencies.push({ display, frequency });
         }
       }
-      frequencies.sort((left, right) =>
-        Number(isKanaFrequency(right.frequency))
-        - Number(isKanaFrequency(left.frequency))
-      );
+      // No reordering: Yomitan lists values in dictionary order, and the
+      // average takes each dictionary's first usable value.
       const key = JSON.stringify([
         group.dictionary,
         frequencies.map(({ display, frequency }) => [frequency.value, display]),
@@ -604,39 +653,49 @@
         ));
       }
     }
-    return tags;
+    if (!averageFrequency) return tags;
+    // Like Yomitan, averaging only hides the per-dictionary tags: they stay in
+    // the DOM, unchanged, for custom CSS and themes.
+    for (const tag of tags) tag.hidden = true;
+    return [...averageTags, ...tags];
   }
 
-  function createPitchTag(
-    documentRef,
-    group,
-    dictionaryDisplayName,
-    pitch,
-    reading,
-    buildPitchAccentMorae
-  ) {
-    const positionText = [`[${pitch.position}]`, pitch.pattern].filter(Boolean).join(" ");
-    const bodyText = reading ? `${reading} ${positionText}` : positionText;
-    const tag = createPronunciationTag(documentRef, group, dictionaryDisplayName, bodyText, "pitch");
-    const morae = buildPitchAccentMorae(reading, pitch.position);
-    if (morae === null) return tag;
-    // The same contour the header furigana draws, so every dictionary's
-    // accent reads as a graph; the text stays in the title and aria-label.
-    const contour = documentRef.createElement("span");
-    contour.className = "gsm-hoshidicts-pitch-contour";
-    for (const mora of morae) {
-      const span = documentRef.createElement("span");
-      span.className = "gsm-hoshidicts-pitch-mora";
-      span.dataset.pitchLevel = mora.level;
-      if (mora.transition) span.dataset.pitchTransition = mora.transition;
-      span.textContent = mora.text;
-      contour.appendChild(span);
+  // Yomitan's pronunciation-group (templates-display.html and display-generator.js
+  // _createGroupedPronunciation at 67db60d): the dictionary's
+  // pronunciation-dictionary tag, then its pitch accents. Each keeps the
+  // `reading [n]` label pitch badges had.
+  function createPronunciationGroup(documentRef, group, dictionaryDisplayName, pitches, reading, display,
+    createPronunciationPitchAccent) {
+    const node = documentRef.createElement("li");
+    node.className = "pronunciation-group";
+    node.dataset.dictionary = group.dictionary;
+    node.dataset.pronunciationsMulti = "true";
+    node.dataset.pronunciationsCount = String(pitches.length);
+    const element = (className, parent, tag = "span") => {
+      const child = documentRef.createElement(tag);
+      child.className = className;
+      parent.appendChild(child);
+      return child;
+    };
+    if (display.showPitchAccentDictionaryNames) {
+      const tag = element("tag gsm-hoshidicts-pitch-source", element("pronunciation-group-tag-list tag-list", node));
+      tag.dataset.category = "pronunciation-dictionary";
+      tag.dataset.details = group.dictionary;
+      element("tag-label-content", element("tag-label", tag)).textContent = dictionaryDisplayName;
     }
-    const position = documentRef.createElement("span");
-    position.className = "gsm-hoshidicts-pitch-position";
-    position.textContent = positionText;
-    tag.firstChild.replaceChildren(contour, position);
-    return tag;
+    const list = element("pronunciation-list", node, "ul");
+    list.dataset.hasTags = "false";
+    list.dataset.count = String(pitches.length);
+    pitches.forEach((pitch, index) => {
+      const item = createPronunciationPitchAccent(documentRef, reading, pitch, { text: display.showPitchAccentText,
+        position: display.showPitchAccentPosition, graph: display.showPitchAccentGraph, wordClasses: display.wordClasses });
+      item.classList.add("gsm-hoshidicts-tag-pitch");
+      item.dataset.index = String(index);
+      item.dataset.dictionary = group.dictionary;
+      list.appendChild(item);
+      updatePronunciationLabel(item, dictionaryDisplayName);
+    });
+    return node;
   }
 
   function updatePronunciationLabel(tag, dictionaryDisplayName) {
@@ -1543,7 +1602,7 @@
   // A native kanji entry as one structured-content glossary, so a clicked-kanji
   // group can lay it out beside its term dictionaries' cards.
   function kanjiEntryGlossary(entry) {
-    const tokens = (value) => Array.isArray(value) ? value : String(value || "").split(/\s+/u).filter(Boolean);
+    const tokens = (value) => Array.isArray(value) ? value : window.HDGlossary.parseTagList(value);
     const tags = tokens(entry.tags);
     const readings = [["On", tokens(entry.onyomi)], ["Kun", tokens(entry.kunyomi)]]
       .filter(([, values]) => values.length > 0)
@@ -1559,6 +1618,17 @@
         { tag: "table", content: stats.map((stat) => ({ tag: "tr", content: [
           { tag: "th", content: String(stat.name) }, { tag: "td", content: String(stat.value) }] })) }] }] : []),
     ] }]);
+  }
+
+  // A native kanji entry as one complete term result. The term view's
+  // consumers (Anki mining, lookup statistics, audio, Note) read the engine's
+  // LookupResult contract; a kanji card has no reading, rules, tags, trace or score.
+  function kanjiEntryResult(character, entry) {
+    return {
+      matched: character, deinflected: character, trace: [], preprocessorSteps: 0,
+      term: { expression: character, reading: "", rules: "", score: 0, frequencies: [], pitches: [],
+        glossaries: [{ dictionary: entry.dictionary, glossary: kanjiEntryGlossary(entry), definitionTags: "", termTags: "" }] },
+    };
   }
 
   function isRecord(value) {
@@ -2034,10 +2104,12 @@
 
   // Roots prefer the space above the word; nested panes prefer below it, as
   // Yomitan places a child. Either falls back to the side that fits, then to
-  // the roomier side.
+  // the roomier side. Like Yomitan's _getConstrainedPositionBinary, a pane
+  // that fits on neither side is shortened to that side's room instead of
+  // covering the word, so the requested height is a maximum.
   function calculatePopupPosition(anchorRect, popupSize, viewport, { gap = 4, padding = 6, vertical = false, preferBelow = false } = {}) {
     const width = Math.min(popupSize.width, Math.max(1, viewport.width - padding * 2));
-    const height = Math.min(popupSize.height, Math.max(1, viewport.height - padding * 2));
+    let height = Math.min(popupSize.height, Math.max(1, viewport.height - padding * 2));
     const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(value, maximum));
     let left;
     let top;
@@ -2055,6 +2127,7 @@
       const spaceAbove = Math.max(0, anchorRect.top - gap - padding);
       const preferred = (space, other) => space >= height || (other < height && space >= other);
       const placeAbove = preferBelow ? !preferred(spaceBelow, spaceAbove) : preferred(spaceAbove, spaceBelow);
+      height = Math.max(1, Math.min(height, placeAbove ? spaceAbove : spaceBelow));
       top = placeAbove ? anchorRect.top - gap - height : anchorRect.bottom + gap;
       left = anchorRect.left;
       placement = placeAbove ? "above" : "below";
@@ -2065,6 +2138,369 @@
       placement,
       top: clamp(Math.round(top), padding, viewport.height - height - padding),
       width,
+    };
+  }
+
+  function createAudioControl(documentRef, expressionText) {
+    const audio = documentRef.createElement("div");
+    audio.className = "gsm-hoshidicts-audio-control";
+    const button = documentRef.createElement("button");
+    button.type = "button";
+    button.className = "gsm-hoshidicts-audio-button";
+    button.title = "Play pronunciation; Shift-click, right-click or press Down for choices";
+    button.setAttribute("aria-label", `Play pronunciation for ${expressionText}`);
+    button.setAttribute("aria-haspopup", "dialog");
+    button.setAttribute("aria-expanded", "false");
+    audio.append(button);
+    return { element: audio, button };
+  }
+
+  function configureEntryActions(actions, label) {
+    actions.className = "gsm-hoshidicts-entry-actions";
+    actions.setAttribute("role", "group");
+    actions.setAttribute("aria-label", label);
+    actions.addEventListener("focusin", event => {
+      // A shown result's own row joins the lookup row without a box of its own.
+      const item = [...actions.children]
+        .flatMap(child => child.matches(".gsm-hoshidicts-entry-actions") ? [...child.children] : [child])
+        .find(child => child === event.target || child.contains(event.target));
+      if (!item || actions.scrollWidth <= actions.clientWidth) return;
+      const padding = 2;
+      const left = item.offsetLeft;
+      const right = left + item.offsetWidth;
+      if (left < actions.scrollLeft + padding) {
+        actions.scrollLeft = Math.max(0, left - padding);
+      } else if (right > actions.scrollLeft + actions.clientWidth - padding) {
+        actions.scrollLeft = right - actions.clientWidth + padding;
+      }
+    });
+    return actions;
+  }
+
+  // Shared personal dictionary editor and custom actions. Renderers own placement.
+  // One enlarged copy of a hovered or focused glossary image, placed beside
+  // the popup in the same shadow root. Shared by Default and Bee's Theme.
+  function createImagePreview({ document: documentRef, window: windowRef, popup, getCoordinateScale,
+    getImageHoverPreview = () => "all", scrollBounds = () => popup }) {
+    let imagePreview = null;
+    function hideImagePreview(owner = null) {
+      if (!imagePreview || (owner && imagePreview.owner !== owner)) return;
+      imagePreview.element?.remove();
+      imagePreview = null;
+    }
+    function positionImagePreview(anchorRect = imagePreview.image.getBoundingClientRect()) {
+      const preview = imagePreview.element;
+      const zoom = getCoordinateScale();
+      preview.firstElementChild.style.maxWidth = `${Math.max(1, windowRef.innerWidth * zoom - 16)}px`;
+      preview.firstElementChild.style.maxHeight = `${Math.max(1, windowRef.innerHeight * zoom - 16)}px`;
+      const position = calculatePopupPosition(scaleRect(anchorRect, zoom), scaleRect(preview.getBoundingClientRect(), zoom), {
+        width: windowRef.innerWidth * zoom, height: windowRef.innerHeight * zoom,
+      }, { gap: 8, padding: 8, vertical: true });
+      preview.style.left = `${position.left}px`;
+      preview.style.top = `${position.top}px`;
+    }
+    function refreshImagePreview(link, image) {
+      // Image completion resumes only the most recent interaction. It must
+      // not steal another image's focus or revive a dismissed pending preview.
+      if (imagePreview?.owner !== link) return;
+      const source = image.currentSrc || image.src;
+      if (image.hidden || !source) {
+        imagePreview.element?.remove();
+        imagePreview.element = null;
+        imagePreview.source = null;
+        return;
+      }
+      if (imagePreview.source === source) return;
+      imagePreview.element?.remove();
+      const preview = documentRef.createElement("div");
+      preview.className = "gsm-hoshidicts-image-hover-preview";
+      preview.setAttribute("aria-hidden", "true");
+      preview.dataset.appearance = link.dataset.appearance;
+      preview.dataset.imageRendering = link.dataset.imageRendering;
+      // The monochrome mask layer paints this same validated source.
+      preview.style.setProperty("--image", `url("${source}")`);
+      const expanded = documentRef.createElement("img");
+      expanded.src = source;
+      expanded.alt = image.alt;
+      expanded.decoding = "async";
+      expanded.draggable = false;
+      preview.appendChild(expanded);
+      // A sibling in the same shadow root retains the palette while escaping
+      // the glossary card's paint containment and the popup's scroll clipping.
+      popup.parentNode.appendChild(preview);
+      imagePreview.source = source;
+      imagePreview.element = preview;
+      positionImagePreview();
+    }
+    function requestImagePreview(link, image, inlineGlyph = false) {
+      const mode = getImageHoverPreview();
+      if (mode === "off" || (mode !== "all" && inlineGlyph)) return;
+      if (imagePreview?.owner !== link) {
+        hideImagePreview();
+        imagePreview = { owner: link, image, source: null, element: null };
+      }
+      refreshImagePreview(link, image);
+    }
+    const onPopupScroll = () => {
+      if (!imagePreview) return;
+      const { owner, image, element } = imagePreview;
+      if (owner.getRootNode().activeElement !== owner || !element) {
+        hideImagePreview();
+        return;
+      }
+      const anchorRect = image.getBoundingClientRect();
+      const bounds = scrollBounds(image).getBoundingClientRect();
+      if (anchorRect.bottom <= bounds.top || anchorRect.top >= bounds.bottom
+          || anchorRect.right <= bounds.left || anchorRect.left >= bounds.right) {
+        hideImagePreview();
+        return;
+      }
+      // Native keyboard focus may scroll its image into view after focus.
+      // Retain that focused preview while closing ordinary hover previews.
+      positionImagePreview(anchorRect);
+    };
+    popup.addEventListener("scroll", onPopupScroll, true);
+    return { hideImagePreview, refreshImagePreview, requestImagePreview,
+      destroy() { hideImagePreview(); popup.removeEventListener("scroll", onPopupScroll, true); } };
+  }
+
+  function createLookupActions(options) {
+    const documentRef = options.document, windowRef = options.window, popup = options.popup;
+    const positionPopup = options.positionPopup;
+    const onAddCustomEntry = options.onAddCustomEntry ?? (() => {});
+    const onNoteEditingChange = options.onNoteEditingChange ?? (() => {});
+    const idPrefix = options.idPrefix || "gsm-hoshidicts";
+    let { readPrefill, renderContext = {}, customButtons = [] } = options;
+    function createNoteForm(button, readPrefill) {
+      const form = documentRef.createElement("form");
+      form.className = "gsm-hoshidicts-note-form";
+      form.id = `${idPrefix}-note-form`;
+      form.hidden = true;
+      button.setAttribute("aria-controls", form.id);
+
+      function createField(labelText, name, multiline = false) {
+        const label = documentRef.createElement("label");
+        label.className = "gsm-hoshidicts-note-field";
+        const labelValue = documentRef.createElement("span");
+        labelValue.textContent = labelText;
+        const control = multiline
+          ? documentRef.createElement("textarea")
+          : documentRef.createElement("input");
+        control.id = `${idPrefix}-note-${name}`;
+        control.name = name;
+        control.className = `gsm-hoshidicts-note-${name}`;
+        control.required = true;
+        if (!multiline) control.autocomplete = "off";
+        label.htmlFor = control.id;
+        label.append(labelValue, control);
+        form.appendChild(label);
+        return control;
+      }
+
+      const term = createField("Term", "term");
+      const reading = createField("Reading", "reading");
+      const definition = createField("Definition", "definition", true);
+      const error = documentRef.createElement("div");
+      error.className = "gsm-hoshidicts-note-error";
+      error.setAttribute("role", "alert");
+      error.hidden = true;
+      form.appendChild(error);
+
+      const formActions = documentRef.createElement("div");
+      formActions.className = "gsm-hoshidicts-note-actions";
+      const cancel = documentRef.createElement("button");
+      cancel.type = "button";
+      cancel.className = "gsm-hoshidicts-note-cancel";
+      cancel.textContent = "Cancel";
+      const save = documentRef.createElement("button");
+      save.type = "submit";
+      save.className = "gsm-hoshidicts-note-save";
+      save.textContent = "Save";
+      formActions.append(cancel, save);
+      form.appendChild(formActions);
+
+      let editing = false;
+      let accepted = false;
+
+      function close(restoreFocus = true) {
+        if (form.hidden) return false;
+        form.hidden = true;
+        button.setAttribute("aria-expanded", "false");
+        error.hidden = true;
+        error.textContent = "";
+        if (editing) {
+          editing = false;
+          onNoteEditingChange(false);
+        }
+        if (restoreFocus && button.isConnected) button.focus();
+        positionPopup();
+        options.onClose?.();
+        return true;
+      }
+
+      function open() {
+        accepted = false;
+        const prefill = readPrefill() || {};
+        term.value = String(prefill.term || "");
+        reading.value = String(prefill.reading || "");
+        definition.value = String(prefill.definition || "");
+        error.hidden = true;
+        error.textContent = "";
+        form.hidden = false;
+        button.setAttribute("aria-expanded", "true");
+        if (!editing) {
+          editing = true;
+          onNoteEditingChange(true);
+        }
+        positionPopup();
+        form.scrollTop = 0;
+        term.focus();
+        term.select();
+      }
+
+      cancel.addEventListener("click", () => close());
+      form.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && close()) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      });
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (accepted) return;
+        const entry = {
+          term: term.value,
+          reading: reading.value,
+          definition: definition.value,
+        };
+        if (Object.values(entry).some((value) => value.trim() === "")) {
+          error.textContent = "Complete the term, reading, and definition.";
+          error.hidden = false;
+          positionPopup();
+          return;
+        }
+        error.hidden = true;
+        error.textContent = "";
+        try {
+          onAddCustomEntry(entry);
+          accepted = true;
+          close();
+        } catch (appendError) {
+          error.textContent = typeof appendError?.message === "string"
+            ? appendError.message
+            : String(appendError);
+          error.hidden = false;
+          positionPopup();
+        }
+      });
+
+      return { close, open, form };
+    }
+
+    const button = documentRef.createElement("button");
+    button.type = "button";
+    button.className = "gsm-hoshidicts-note-button";
+    button.title = "Edit personal dictionary";
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-expanded", "false");
+
+    const icon = documentRef.createElement("span");
+    icon.className = "gsm-hoshidicts-note-icon hd-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.dataset.icon = "edit";
+    button.appendChild(icon);
+
+    const actions = documentRef.createElement("div");
+    configureEntryActions(actions, "Lookup actions");
+    actions.appendChild(button);
+    const buttonNodes = new Map();
+
+    function createCustomButton(value) {
+      const custom = documentRef.createElement("button");
+      custom.type = "button";
+      custom.dataset.customButtonId = value.id;
+      const label = documentRef.createElement("span");
+      label.className = "gsm-hoshidicts-text-action-label";
+      custom.appendChild(label);
+      if (value.type === "link") {
+        custom.className = "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button";
+        const activate = event => {
+          if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const link = customButtons.find(candidate =>
+            candidate.id === custom.dataset.customButtonId && candidate.type === "link");
+          if (!link || !custom.isConnected || popup.hidden || !popup.contains(actions)
+              || renderContext.isCurrentRequest?.() === false) return;
+          const prefill = readPrefill() || {};
+          const url = windowRef.HDExternalLinks.expandCustomLinkUrl(link.url, {
+            word: prefill.term, reading: prefill.reading, sentence: prefill.sentence,
+          });
+          if (url) options.onCustomLinkClick?.({ url,
+            active: event.shiftKey || !(event.button === 1 || event.ctrlKey || event.metaKey) });
+        };
+        custom.addEventListener("click", activate);
+        custom.addEventListener("auxclick", activate);
+      } else {
+        custom.className = "gsm-hoshidicts-custom-anki-button gsm-hoshidicts-text-action-button";
+        custom.disabled = true;
+      }
+      return custom;
+    }
+
+    function updateButtons() {
+      const retained = new Set();
+      const ordered = [];
+      for (const value of customButtons) {
+        let custom = buttonNodes.get(value.id);
+        const expectedType = value.type === "anki" ? "anki" : "link";
+        if (custom && custom.dataset.customButtonType !== expectedType) {
+          custom.remove();
+          buttonNodes.delete(value.id);
+          custom = null;
+        }
+        if (!custom) {
+          custom = createCustomButton(value);
+          custom.dataset.customButtonType = expectedType;
+          buttonNodes.set(value.id, custom);
+        }
+        custom.firstElementChild.textContent = value.label;
+        custom.dataset.customButtonLabel = value.label;
+        custom.title = value.type === "anki" ? `Send to Anki with ${value.label}` : value.label;
+        custom.setAttribute("aria-label", custom.title);
+        if (value.type === "anki") custom.dataset.ankiTemplateId = value.templateId;
+        else delete custom.dataset.ankiTemplateId;
+        retained.add(value.id);
+        ordered.push(custom);
+      }
+      for (const [id, removed] of buttonNodes) {
+        if (retained.has(id)) continue;
+        const focused = popup.getRootNode().activeElement === removed;
+        removed.remove();
+        buttonNodes.delete(id);
+        if (focused) button.focus();
+      }
+      actions.append(...ordered);
+      options.onButtonsUpdated?.(actions, ordered);
+    }
+    updateButtons();
+
+    let editor = null;
+    button.addEventListener("click", () => {
+      if (!editor) {
+        editor = createNoteForm(button, () => readPrefill());
+        options.onFormCreated?.(editor.form);
+      }
+      if (editor.form.hidden) editor.open();
+      else editor.close();
+    });
+    return {
+      actions,
+      button,
+      close: (restoreFocus) => editor?.close(restoreFocus) ?? false,
+      setCustomButtons(value) { customButtons = value || []; updateButtons(); },
+      setPrefillReader(value, context) { readPrefill = value; renderContext = context; },
+      get form() { return editor?.form ?? null; },
     };
   }
 
@@ -2088,7 +2524,7 @@
       popup.appendChild(resizeHandle);
     }
     const appendExpressionRuby = options.appendExpressionRuby;
-    const buildPitchAccentMorae = options.buildPitchAccentMorae;
+    const createPronunciationPitchAccent = options.createPronunciationPitchAccent;
     const appendTextOnlyGlossary = options.appendTextOnlyGlossary;
     const appendStructuredImage = options.appendStructuredImage;
     const parseTagList = options.parseTagList;
@@ -2103,14 +2539,12 @@
     const getPopupColumns = typeof options.getPopupColumns === "function"
       ? options.getPopupColumns
       : () => 1;
+    // Read at each request so a Settings change applies to the next hover.
+    const getImageHoverPreview = typeof options.getImageHoverPreview === "function"
+      ? options.getImageHoverPreview
+      : () => "all";
     const onKanjiClick = typeof options.onKanjiClick === "function"
       ? options.onKanjiClick
-      : () => {};
-    const onAddCustomEntry = typeof options.onAddCustomEntry === "function"
-      ? options.onAddCustomEntry
-      : async () => {};
-    const onNoteEditingChange = typeof options.onNoteEditingChange === "function"
-      ? options.onNoteEditingChange
       : () => {};
     const onBeforeResultsRendered =
       typeof options.onBeforeResultsRendered === "function"
@@ -2159,7 +2593,6 @@
     let pendingScrollRestoration = null;
     let currentPresentationUpdate = null;
     let pendingPresentation = null;
-    let imagePreview = null;
     const renderedImages = new Set();
     let masonryFrame = null;
     const masonryObserver = typeof windowRef.ResizeObserver === "function"
@@ -2167,87 +2600,17 @@
       : null;
     popup.dataset.toolbarPosition = toolbarPosition;
 
-    function hideImagePreview(owner = null) {
-      if (!imagePreview || (owner && imagePreview.owner !== owner)) return;
-      imagePreview.element?.remove();
-      imagePreview = null;
-    }
-
-    function positionImagePreview(anchorRect = imagePreview.image.getBoundingClientRect()) {
-      const preview = imagePreview.element;
-      const zoom = getCoordinateScale();
-      preview.firstElementChild.style.maxWidth = `${Math.max(1, windowRef.innerWidth * zoom - 16)}px`;
-      preview.firstElementChild.style.maxHeight = `${Math.max(1, windowRef.innerHeight * zoom - 16)}px`;
-      const position = calculatePopupPosition(scaleRect(anchorRect, zoom), scaleRect(preview.getBoundingClientRect(), zoom), {
-        width: windowRef.innerWidth * zoom, height: windowRef.innerHeight * zoom,
-      }, { gap: 8, padding: 8, vertical: true });
-      preview.style.left = `${position.left}px`;
-      preview.style.top = `${position.top}px`;
-    }
-
-    function refreshImagePreview(link, image) {
-      // Image completion resumes only the most recent interaction. It must
-      // not steal another image's focus or revive a dismissed pending preview.
-      if (imagePreview?.owner !== link) return;
-      const source = image.currentSrc || image.src;
-      if (image.hidden || !source) {
-        imagePreview.element?.remove();
-        imagePreview.element = null;
-        imagePreview.source = null;
-        return;
-      }
-      if (imagePreview.source === source) return;
-      imagePreview.element?.remove();
-      const preview = documentRef.createElement("div");
-      preview.className = "gsm-hoshidicts-image-hover-preview";
-      preview.setAttribute("aria-hidden", "true");
-      preview.dataset.appearance = link.dataset.appearance;
-      preview.dataset.imageRendering = link.dataset.imageRendering;
-      const expanded = documentRef.createElement("img");
-      expanded.src = source;
-      expanded.alt = image.alt;
-      expanded.decoding = "async";
-      expanded.draggable = false;
-      preview.appendChild(expanded);
-      // A sibling in the same shadow root retains the palette while escaping
-      // the glossary card's paint containment and the popup's scroll clipping.
-      popup.parentNode.appendChild(preview);
-      imagePreview.source = source;
-      imagePreview.element = preview;
-      positionImagePreview();
-    }
-
-    function requestImagePreview(link, image) {
-      if (imagePreview?.owner !== link) {
-        hideImagePreview();
-        imagePreview = { owner: link, image, source: null, element: null };
-      }
-      refreshImagePreview(link, image);
-    }
-
-    const onPopupScroll = () => {
-      if (!imagePreview) return;
-      const { owner, image, element } = imagePreview;
-      if (owner.getRootNode().activeElement !== owner || !element) {
-        hideImagePreview();
-        return;
-      }
-      const anchorRect = image.getBoundingClientRect();
-      const bounds = (contentScroll.contains(image) ? contentScroll : currentToolbar || popup).getBoundingClientRect();
-      if (anchorRect.bottom <= bounds.top || anchorRect.top >= bounds.bottom
-          || anchorRect.right <= bounds.left || anchorRect.left >= bounds.right) {
-        hideImagePreview();
-        return;
-      }
-      // Native keyboard focus may scroll its image into view after focus.
-      // Retain that focused preview while closing ordinary hover previews.
-      positionImagePreview(anchorRect);
-    };
-    popup.addEventListener("scroll", onPopupScroll, true);
+    const imagePreview = createImagePreview({
+      document: documentRef, window: windowRef, popup, getCoordinateScale, getImageHoverPreview,
+      scrollBounds: image => contentScroll.contains(image) ? contentScroll : currentToolbar || popup,
+    });
+    const { hideImagePreview, refreshImagePreview, requestImagePreview } = imagePreview;
 
     // Keybind navigation after Yomitan's Display: the current entry changes
-    // only when a keybind focuses an entry or the reader clicks one.
+    // when a keybind focuses an entry or the reader clicks one, and when a
+    // scroll puts another entry in the pinned header (renderResultPanel).
     let currentEntry = null;
+    let shownResult = null;
     const entryNodes = () => [...contentScroll.querySelectorAll(
       ":scope > .gsm-hoshidicts-tab-panel > .gsm-hoshidicts-entry, :scope > .gsm-hoshidicts-kanji-entry")];
     contentScroll.addEventListener("click", event => {
@@ -2255,6 +2618,9 @@
         ? event.target.closest(".gsm-hoshidicts-entry, .gsm-hoshidicts-kanji-entry") : null;
       if (entry && entryNodes().includes(entry)) currentEntry = entry;
     });
+    // Scroll events arrive at most once a frame; each reads two header edges.
+    const onContentScroll = () => shownResult?.update();
+    contentScroll.addEventListener("scroll", onContentScroll, { passive: true });
 
     function currentEntryIndex(nodes = entryNodes()) {
       return Math.max(0, nodes.indexOf(currentEntry));
@@ -2262,10 +2628,15 @@
 
     function scrollToEntry(nodes, index, target = nodes[index]) {
       currentEntry = nodes[index];
+      // Yomitan scrolls an entry's header to the top. Here that header slides
+      // under the pinned header, which then shows the entry.
+      const header = target === currentEntry
+        ? target.querySelector(":scope > .gsm-hoshidicts-entry-header") : null;
+      const edge = header ? header.getBoundingClientRect().bottom : target.getBoundingClientRect().top;
       const top = index === 0 && target === currentEntry ? 0
-        : (target.getBoundingClientRect().top - contentScroll.getBoundingClientRect().top) * getCoordinateScale()
-          + contentScroll.scrollTop;
+        : (edge - contentScroll.getBoundingClientRect().top) * getCoordinateScale() + contentScroll.scrollTop;
       contentScroll.scrollTo({ top, behavior: "instant" });
+      shownResult?.update({ navigated: true });
       return true;
     }
 
@@ -2283,24 +2654,9 @@
       const cardsOf = node => node.classList.contains("gsm-hoshidicts-entry")
         ? [...node.querySelectorAll(".gsm-hoshidicts-glossary-grid > .gsm-hoshidicts-glossary-card")] : [];
       const dictionaryOf = card => card.querySelector(":scope > .gsm-hoshidicts-glossary-card-title")?.title ?? "";
-      const cards = cardsOf(nodes[index]);
-      const view = contentScroll.getBoundingClientRect();
-      let visible = null, coverage = 0;
-      for (const card of sign > 0 ? cards : [...cards].reverse()) {
-        const { top, bottom } = card.getBoundingClientRect();
-        const shown = Math.min(bottom, view.bottom) - Math.max(top, view.top);
-        if (shown > coverage) { visible = card; coverage = shown; }
-      }
-      if (!visible) return false;
-      const dictionary = dictionaryOf(visible);
       const search = entries => {
-        for (let i = index; i >= 0 && i < entries.length; i += sign) {
-          const ordered = sign > 0 ? cardsOf(entries[i]) : cardsOf(entries[i]).reverse();
-          const start = i === index ? ordered.indexOf(visible) + 1 : 0;
-          const target = ordered.slice(start).find(card => dictionaryOf(card) !== dictionary);
-          if (target) return scrollToEntry(entries, i, target);
-        }
-        return false;
+        const found = findDifferentDictionary(entries, index, sign, contentScroll, cardsOf, dictionaryOf);
+        return found ? scrollToEntry(entries, found.index, found.target) : false;
       };
       return search(nodes) || (sign > 0 && expandEntries() && search(entryNodes()));
     }
@@ -2335,25 +2691,29 @@
           continue;
         }
         grid.classList.add("gsm-hoshidicts-glossary-grid-masonry");
+        // The stylesheet's grid gap, so masonry keeps the single-column spacing.
+        const gap = parseFloat(windowRef.getComputedStyle(grid).columnGap) || 0;
         const columnWidth =
-          (grid.clientWidth - MASONRY_GAP_PX * (columns - 1)) / columns;
+          (grid.clientWidth - gap * (columns - 1)) / columns;
         for (const card of cards) card.style.width = `${columnWidth}px`;
         // Measure after every width is set, before placement writes begin.
         const cardHeights = cards.map(card => card.offsetHeight);
         const columnHeights = Array.from({ length: columns }, () => 0);
         cards.forEach((card, index) => {
           const column = columnHeights.indexOf(Math.min(...columnHeights));
-          const x = column * (columnWidth + MASONRY_GAP_PX);
+          const x = column * (columnWidth + gap);
           const y = columnHeights[column];
           card.style.transform = `translate(${x}px, ${y}px)`;
           card.style.visibility = "visible";
-          columnHeights[column] += cardHeights[index] + MASONRY_GAP_PX;
+          columnHeights[column] += cardHeights[index] + gap;
         });
-        grid.style.height = `${Math.max(...columnHeights) - MASONRY_GAP_PX}px`;
+        grid.style.height = `${Math.max(...columnHeights) - gap}px`;
       }
       const restoreScroll = pendingScrollRestoration;
       pendingScrollRestoration = null;
       restoreScroll?.();
+      // Layout moved the headers, without necessarily scrolling.
+      shownResult?.update();
     }
 
     function scheduleMasonry() {
@@ -2455,6 +2815,9 @@
       captureTermView = null;
       pendingScrollRestoration = null;
       currentEntry = null;
+      // A retained lookup toolbar must not keep another result's actions.
+      shownResult?.release();
+      shownResult = null;
       if (!preserveViewControls) {
         currentNoteControls?.close(false);
         currentNoteControls = null;
@@ -2511,35 +2874,20 @@
     }
 
     function flushDictionaryPresentation() {
-      if (!pendingPresentation || !currentPresentationUpdate) return;
-      const pending = pendingPresentation;
-      if (currentPresentationUpdate(pending) && pendingPresentation === pending) pendingPresentation = null;
+      if (pendingPresentation && currentPresentationUpdate) {
+        const pending = pendingPresentation;
+        if (currentPresentationUpdate(pending) && pendingPresentation === pending) pendingPresentation = null;
+      }
+      // The host calls this when a Note, save or child popup no longer holds
+      // the view, which is also when a held pinned header may catch up.
+      shownResult?.update();
     }
 
     function onPresentationFocusOut() {
-      if (pendingPresentation) windowRef.queueMicrotask(flushDictionaryPresentation);
+      // Also releases a header held by a focused control.
+      windowRef.queueMicrotask(flushDictionaryPresentation);
     }
     popup.addEventListener("focusout", onPresentationFocusOut);
-
-    function configureEntryActions(actions, label) {
-      actions.className = "gsm-hoshidicts-entry-actions";
-      actions.setAttribute("role", "group");
-      actions.setAttribute("aria-label", label);
-      actions.addEventListener("focusin", event => {
-        const item = [...actions.children].find(child =>
-          child === event.target || child.contains(event.target));
-        if (!item || actions.scrollWidth <= actions.clientWidth) return;
-        const padding = 2;
-        const left = item.offsetLeft;
-        const right = left + item.offsetWidth;
-        if (left < actions.scrollLeft + padding) {
-          actions.scrollLeft = Math.max(0, left - padding);
-        } else if (right > actions.scrollLeft + actions.clientWidth - padding) {
-          actions.scrollLeft = right - actions.clientWidth + padding;
-        }
-      });
-      return actions;
-    }
 
     function runRenderAction(isCurrent, renderContext, action) {
       if (!isCurrent()) return;
@@ -2566,117 +2914,17 @@
         currentNoteControls.setPrefillReader(readPrefill, renderContext);
         return currentNoteControls;
       }
-      const button = documentRef.createElement("button");
-      button.type = "button";
-      button.className = "gsm-hoshidicts-note-button";
-      button.title = "Edit personal dictionary";
-      button.setAttribute("aria-label", button.title);
-      button.setAttribute("aria-expanded", "false");
-
-      const icon = documentRef.createElement("span");
-      icon.className = "gsm-hoshidicts-note-icon hd-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.dataset.icon = "edit";
-      button.appendChild(icon);
-
-      const actions = documentRef.createElement("div");
-      configureEntryActions(actions, "Lookup actions");
-      actions.appendChild(button);
-      const buttonNodes = new Map();
-
-      function createCustomButton(value) {
-        const custom = documentRef.createElement("button");
-        custom.type = "button";
-        custom.dataset.customButtonId = value.id;
-        const label = documentRef.createElement("span");
-        label.className = "gsm-hoshidicts-text-action-label";
-        custom.appendChild(label);
-        if (value.type === "link") {
-          custom.className = "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button";
-          const activate = event => {
-            if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
-            event.preventDefault();
-            event.stopPropagation();
-            const link = customButtons.find(candidate =>
-              candidate.id === custom.dataset.customButtonId && candidate.type === "link");
-            if (!link || !custom.isConnected || popup.hidden || currentNoteControls?.actions !== actions
-                || renderContext.isCurrentRequest?.() === false) return;
-            const prefill = readPrefill() || {};
-            const url = windowRef.HDExternalLinks.expandCustomLinkUrl(link.url, {
-              word: prefill.term, reading: prefill.reading, sentence: prefill.sentence,
-            });
-            if (url) options.onCustomLinkClick?.({ url,
-              active: event.shiftKey || !(event.button === 1 || event.ctrlKey || event.metaKey) });
-          };
-          custom.addEventListener("click", activate);
-          custom.addEventListener("auxclick", activate);
-        } else {
-          custom.className = "gsm-hoshidicts-custom-anki-button gsm-hoshidicts-text-action-button";
-          custom.disabled = true;
-        }
-        return custom;
-      }
-
-      function updateButtons() {
-        const retained = new Set();
-        const ordered = [];
-        for (const value of customButtons) {
-          let custom = buttonNodes.get(value.id);
-          const expectedType = value.type === "anki" ? "anki" : "link";
-          if (custom && custom.dataset.customButtonType !== expectedType) {
-            custom.remove();
-            buttonNodes.delete(value.id);
-            custom = null;
-          }
-          if (!custom) {
-            custom = createCustomButton(value);
-            custom.dataset.customButtonType = expectedType;
-            buttonNodes.set(value.id, custom);
-          }
-          custom.firstElementChild.textContent = value.label;
-          custom.dataset.customButtonLabel = value.label;
-          custom.title = value.type === "anki" ? `Send to Anki with ${value.label}` : value.label;
-          custom.setAttribute("aria-label", custom.title);
-          if (value.type === "anki") custom.dataset.ankiTemplateId = value.templateId;
-          else delete custom.dataset.ankiTemplateId;
-          retained.add(value.id);
-          ordered.push(custom);
-        }
-        for (const [id, removed] of buttonNodes) {
-          if (retained.has(id)) continue;
-          const focused = popup.getRootNode().activeElement === removed;
-          removed.remove();
-          buttonNodes.delete(id);
-          if (focused) button.focus();
-        }
-        actions.append(...ordered);
-      }
-      updateButtons();
-
-      let editor = null;
-      button.addEventListener("click", () => {
-        if (!editor) {
-          editor = createNoteForm(button, () => readPrefill());
-          applyToolbarLayout();
-        }
-        if (editor.form.hidden) editor.open();
-        else editor.close();
+      return createLookupActions({ ...options, readPrefill, renderContext, customButtons,
+        positionPopup, onClose: flushDictionaryPresentation,
+        onFormCreated(form) { popup.append(form); applyToolbarLayout(); },
       });
-      return {
-        actions,
-        button,
-        close: (restoreFocus) => editor?.close(restoreFocus) ?? false,
-        updateButtons,
-        setPrefillReader(value, context) { readPrefill = value; renderContext = context; },
-        get form() { return editor?.form ?? null; },
-      };
     }
 
     function setCustomButtons(value) {
       const next = value || [];
       if (JSON.stringify(customButtons) === JSON.stringify(next)) return;
       customButtons = next;
-      currentNoteControls?.updateButtons();
+      currentNoteControls?.setCustomButtons(customButtons);
       positionPopup();
     }
 
@@ -2686,132 +2934,6 @@
         type: "link",
         ...link,
       })));
-    }
-
-    function createNoteForm(button, readPrefill) {
-      const form = documentRef.createElement("form");
-      form.className = "gsm-hoshidicts-note-form";
-      form.id = `${idPrefix}-note-form`;
-      form.hidden = true;
-      button.setAttribute("aria-controls", form.id);
-
-      function createField(labelText, name, multiline = false) {
-        const label = documentRef.createElement("label");
-        label.className = "gsm-hoshidicts-note-field";
-        const labelValue = documentRef.createElement("span");
-        labelValue.textContent = labelText;
-        const control = multiline
-          ? documentRef.createElement("textarea")
-          : documentRef.createElement("input");
-        control.id = `${idPrefix}-note-${name}`;
-        control.name = name;
-        control.className = `gsm-hoshidicts-note-${name}`;
-        control.required = true;
-        if (!multiline) control.autocomplete = "off";
-        label.htmlFor = control.id;
-        label.append(labelValue, control);
-        form.appendChild(label);
-        return control;
-      }
-
-      const term = createField("Term", "term");
-      const reading = createField("Reading", "reading");
-      const definition = createField("Definition", "definition", true);
-      const error = documentRef.createElement("div");
-      error.className = "gsm-hoshidicts-note-error";
-      error.setAttribute("role", "alert");
-      error.hidden = true;
-      form.appendChild(error);
-
-      const formActions = documentRef.createElement("div");
-      formActions.className = "gsm-hoshidicts-note-actions";
-      const cancel = documentRef.createElement("button");
-      cancel.type = "button";
-      cancel.className = "gsm-hoshidicts-note-cancel";
-      cancel.textContent = "Cancel";
-      const save = documentRef.createElement("button");
-      save.type = "submit";
-      save.className = "gsm-hoshidicts-note-save";
-      save.textContent = "Save";
-      formActions.append(cancel, save);
-      form.appendChild(formActions);
-
-      let editing = false;
-      let accepted = false;
-
-      function close(restoreFocus = true) {
-        if (form.hidden) return false;
-        form.hidden = true;
-        button.setAttribute("aria-expanded", "false");
-        error.hidden = true;
-        error.textContent = "";
-        if (editing) {
-          editing = false;
-          onNoteEditingChange(false);
-        }
-        if (restoreFocus && button.isConnected) button.focus();
-        positionPopup();
-        flushDictionaryPresentation();
-        return true;
-      }
-
-      function open() {
-        accepted = false;
-        const prefill = readPrefill() || {};
-        term.value = String(prefill.term || "");
-        reading.value = String(prefill.reading || "");
-        definition.value = String(prefill.definition || "");
-        error.hidden = true;
-        error.textContent = "";
-        form.hidden = false;
-        button.setAttribute("aria-expanded", "true");
-        if (!editing) {
-          editing = true;
-          onNoteEditingChange(true);
-        }
-        positionPopup();
-        form.scrollTop = 0;
-        term.focus();
-        term.select();
-      }
-
-      cancel.addEventListener("click", () => close());
-      form.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && close()) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
-      });
-      form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        if (accepted) return;
-        const entry = {
-          term: term.value,
-          reading: reading.value,
-          definition: definition.value,
-        };
-        if (Object.values(entry).some((value) => value.trim() === "")) {
-          error.textContent = "Complete the term, reading, and definition.";
-          error.hidden = false;
-          positionPopup();
-          return;
-        }
-        error.hidden = true;
-        error.textContent = "";
-        try {
-          onAddCustomEntry(entry);
-          accepted = true;
-          close();
-        } catch (appendError) {
-          error.textContent = typeof appendError?.message === "string"
-            ? appendError.message
-            : String(appendError);
-          error.hidden = false;
-          positionPopup();
-        }
-      });
-
-      return { close, open, form };
     }
 
     function setSourceHighlightEnabled(enabled) {
@@ -2827,14 +2949,16 @@
       return sourceHighlightEnabled;
     }
 
-    function setLookupStats(element, payload) {
+    // A count on its way (pending) keeps the slot's place, unpainted, so its
+    // arrival moves nothing. With neither a count nor one on its way, it hides.
+    function setLookupStats(element, payload, pending = false) {
       const lookedUp = formatLookupCount(
         "Looked up",
         payload && payload.lookupCount
       );
       element.textContent = lookedUp ?? "";
-      element.hidden = lookedUp === null;
-      if (!element.hidden) {
+      element.hidden = lookedUp === null && !pending;
+      if (lookedUp !== null) {
         positionPopup();
       }
     }
@@ -2912,6 +3036,11 @@
         includePitch = true,
         averageFrequency = false,
         showFrequencyDictionaryNames = false,
+        compactFrequencyNumbers = false,
+        showPitchAccentDictionaryNames = true,
+        showPitchAccentText = true,
+        showPitchAccentPosition = true,
+        showPitchAccentGraph = false,
         imageContext,
         isCurrent,
         onLayoutChange,
@@ -2933,11 +3062,15 @@
           context.dictionaryPresentation || [],
           maxMetadataTags,
           context.averageFrequency === true,
-          context.showFrequencyDictionaryNames === true
+          context.showFrequencyDictionaryNames === true,
+          context.compactFrequencyNumbers === true
         ) : [];
-        const countChanged = frequencyCount !== frequencyTags.length;
-        frequencyCount = frequencyTags.length;
+        // Hidden per-dictionary tags take no display budget from pitch badges.
+        const visibleCount = frequencyTags.filter(tag => !tag.hidden).length;
+        const countChanged = frequencyCount !== visibleCount;
+        frequencyCount = visibleCount;
         frequencyRow.replaceChildren(...frequencyTags);
+        frequencyRow.hidden = visibleCount === 0 && frequencyTags.length > 0;
         return countChanged;
       }
       function updatePitch(context) {
@@ -2945,33 +3078,35 @@
         if (context.showPitchAccentBadge !== true) return;
         const names = createDictionaryDisplayNames(result.term.pitches.map(({ dictionary }) => dictionary),
           context.dictionaryPresentation);
+        const display = {
+          showPitchAccentDictionaryNames: context.showPitchAccentDictionaryNames !== false,
+          showPitchAccentText: context.showPitchAccentText !== false,
+          showPitchAccentPosition: context.showPitchAccentPosition !== false,
+          showPitchAccentGraph: context.showPitchAccentGraph === true,
+          // Kifuku needs the term's word classes; no option changes a group.
+          wordClasses: parseTagList(result.term.rules),
+        };
+        const reading = String(result.term.reading || result.term.expression || "").trim();
+        const groups = documentRef.createElement("ol");
+        groups.className = "pronunciation-group-list";
         const seen = new Set();
         let count = frequencyCount;
         for (const group of result.term.pitches) {
-          for (const pitch of group.pitches) {
-            const reading = String(
-              result.term.reading || result.term.expression || ""
-            ).trim();
-            const key = JSON.stringify([
-              group.dictionary,
-              reading,
-              pitch.position,
-              pitch.pattern,
-            ]);
-            if (!seen.has(key) && count < maxMetadataTags) {
-              seen.add(key);
-              pitchRow.appendChild(createPitchTag(
-                documentRef,
-                group,
-                names.get(group.dictionary) || group.dictionary,
-                pitch,
-                reading,
-                buildPitchAccentMorae
-              ));
-              count += 1;
-            }
+          const pitches = group.pitches.filter((pitch) => {
+            const key = JSON.stringify([group.dictionary, pitch.position, pitch.pattern]);
+            if (seen.has(key) || count >= maxMetadataTags) return false;
+            seen.add(key);
+            count += 1;
+            return true;
+          });
+          if (pitches.length > 0) {
+            groups.appendChild(createPronunciationGroup(documentRef, group,
+              names.get(group.dictionary) || group.dictionary, pitches, reading, display,
+              createPronunciationPitchAccent));
           }
         }
+        groups.dataset.count = String(groups.children.length);
+        if (groups.children.length > 0) pitchRow.appendChild(groups);
       }
       const ipaGroups = result.term.pitches.filter(group => group.transcriptions.length > 0);
       let fillOpenIpa = () => {};
@@ -3004,7 +3139,8 @@
         ipaRow.appendChild(overflow);
       } else appendTranscriptions(ipaRow);
       const context = { dictionaryPresentation, averageFrequency, showFrequencyDictionaryNames,
-        showPitchAccentBadge: includePitch };
+        compactFrequencyNumbers, showPitchAccentBadge: includePitch, showPitchAccentDictionaryNames,
+        showPitchAccentText, showPitchAccentPosition, showPitchAccentGraph };
       updateFrequency(context);
       updatePitch(context);
       entry.append(frequencyRow, pitchRow, ipaRow);
@@ -3047,10 +3183,7 @@
     function renderPrimaryMetadataCapsule(
       capsule,
       result,
-      dictionaryPresentation,
-      hideGrammarTags,
-      averageFrequency,
-      showFrequencyDictionaryNames,
+      context,
       { frequencyChanged = true, grammarChanged = true } = {}
     ) {
       if (frequencyChanged) {
@@ -3058,21 +3191,23 @@
         const frequencyTags = createFrequencyTags(
           documentRef,
           result,
-          dictionaryPresentation,
+          Array.isArray(context.dictionaryPresentation) ? context.dictionaryPresentation : [],
           maxMetadataTags,
-          averageFrequency,
-          showFrequencyDictionaryNames
+          context.averageFrequency === true,
+          context.showFrequencyDictionaryNames === true,
+          context.compactFrequencyNumbers === true
         );
         if (frequencyTags.length > 0) {
           const frequencies = documentRef.createElement("span");
           frequencies.className = "gsm-hoshidicts-primary-frequencies";
           frequencies.append(...frequencyTags);
+          frequencies.hidden = frequencyTags.every(tag => tag.hidden);
           capsule.prepend(frequencies);
         }
       }
       if (grammarChanged) {
         capsule.querySelector(".gsm-hoshidicts-primary-grammar")?.remove();
-        if (!hideGrammarTags) {
+        if (context.hidePopupGrammarTags === false) {
           const grammarMetadata = collectGrammarMetadata(result);
           if (grammarMetadata.length > 0) {
             const grammar = documentRef.createElement("span");
@@ -3092,7 +3227,7 @@
           }
         }
       }
-      capsule.hidden = capsule.childNodes.length === 0;
+      capsule.hidden = Array.from(capsule.children).every(child => child.hidden);
     }
 
     function updateCompactSummary(headword, result, context, media) {
@@ -3158,6 +3293,7 @@
         summaryMedia = null,
         showPitchAccentFurigana = true,
         pitchAccentFuriganaDictionary = null,
+        pitchAccentFuriganaStyle = "contour",
         onBack = null,
         onClose = null,
         noteControls = null,
@@ -3175,11 +3311,14 @@
       headword.className = "gsm-hoshidicts-headword";
       const expression = documentRef.createElement("span");
       expression.className = "gsm-hoshidicts-expression";
+      // As Yomitan's _appendFurigana: the headword is Japanese whatever the page's lang.
+      expression.lang = "ja";
       const expressionText = String(result.term.expression || "").trim();
       const readingText = String(result.term.reading || "").trim();
+      const wordClasses = parseTagList(result.term.rules);
       function populateRuby() {
         expression.replaceChildren();
-        appendExpressionRuby(
+        const category = appendExpressionRuby(
           documentRef,
           expression,
           expressionText,
@@ -3189,8 +3328,15 @@
             enabled: showPitchAccentFurigana,
             groups: result.term.pitches,
             dictionary: pitchAccentFuriganaDictionary,
-          }
+            style: pitchAccentFuriganaStyle,
+            wordClasses,
+          },
+          result.term.furigana
         );
+        // The group of the furigana's pitch: CSS colours it only while the
+        // Show pitch accent colours host attribute is set.
+        if (category) expression.dataset.pitchCategory = category;
+        else delete expression.dataset.pitchCategory;
       }
       populateRuby();
       expression.setAttribute(
@@ -3231,33 +3377,30 @@
       for (const previous of actions.querySelectorAll(
         ":scope > .gsm-hoshidicts-popup-close, :scope > .gsm-hoshidicts-kanji-back"
       )) previous.remove();
-      const audio = documentRef.createElement("div");
-      audio.className = "gsm-hoshidicts-audio-control";
-      const button = documentRef.createElement("button");
-      button.type = "button";
-      button.className = "gsm-hoshidicts-audio-button";
-      button.title = "Play pronunciation; Shift-click, right-click or press Down for choices";
-      button.setAttribute("aria-label", `Play pronunciation for ${expressionText}`);
-      button.setAttribute("aria-haspopup", "dialog");
-      button.setAttribute("aria-expanded", "false");
-      audio.append(button);
+      const { element: audio, button } = createAudioControl(documentRef, expressionText);
       actions.prepend(audio);
       const existingMiningAction = actions.querySelector(":scope > .gsm-hoshidicts-mine-button");
       if (existingMiningAction) actions.prepend(existingMiningAction);
       if (navigationAction) actions.prepend(navigationAction);
       header.append(actions);
-      return { element: header, audio: { button, result }, mining: { actions, feedback, result },
+      return { element: header, headword, audio: { button, result }, mining: { actions, feedback, result },
         updateRuby(context) {
           const enabled = context.showPitchAccentFurigana !== false;
           const dictionary = typeof context.pitchAccentFuriganaDictionary === "string"
             ? context.pitchAccentFuriganaDictionary : null;
-          if (enabled === showPitchAccentFurigana && dictionary === pitchAccentFuriganaDictionary) return false;
-          const appearanceChanged = enabled !== showPitchAccentFurigana || enabled;
+          const style = context.pitchAccentFuriganaStyle === "overline" ? "overline" : "contour";
+          if (enabled === showPitchAccentFurigana && dictionary === pitchAccentFuriganaDictionary
+            && style === pitchAccentFuriganaStyle) return false;
+          // The style shows only on a drawn contour, but the dictionary also
+          // picks the headword's pitch group, so it rebuilds with the contour off.
+          const appearanceChanged = enabled !== showPitchAccentFurigana || enabled
+            || dictionary !== pitchAccentFuriganaDictionary;
           // A kanji button is part of this ruby. Keep its identity until blur;
           // Note, disclosure and glossary focus need no such deferral.
           if (appearanceChanged && expression.contains(popup.getRootNode().activeElement)) return null;
           showPitchAccentFurigana = enabled;
           pitchAccentFuriganaDictionary = dictionary;
+          pitchAccentFuriganaStyle = style;
           if (appearanceChanged) populateRuby();
           return appearanceChanged;
         },
@@ -3312,6 +3455,8 @@
         onLayoutChange: positionIfCurrent };
       hideImagePreview();
       renderedImages.clear();
+      // A projection reuses the pinned header and lookup toolbar.
+      shownResult?.release();
       panel.replaceChildren();
       if (feedback) {
         feedback.hidden = true;
@@ -3330,9 +3475,104 @@
       let restoreScrollTop = renderContext.restoreScrollTop;
       let restoreDisclosures = renderContext.restoreDisclosures;
 
+      // The pinned header shows the result being read: the last one whose own
+      // header has scrolled above the definitions. In Yomitan each entry's
+      // header simply scrolls with it. Here the shown result's headword and
+      // actions move into the pinned header, the first result's stay there
+      // hidden, and the emptied header keeps its height so nothing moves.
+      const lookupActions = renderContext.noteControls.actions;
+      let shown = 0;
+      const shownParts = index => index > 0
+        ? [entryMetadata[index].header.headword, entryMetadata[index].header.mining.actions]
+        : [entryMetadata[0].header.headword, ...lookupActions.querySelectorAll(
+          ":scope > .gsm-hoshidicts-mine-button, :scope > .gsm-hoshidicts-audio-control")];
+
+      function showEntry(index, moveFocus = true) {
+        const focused = popup.getRootNode().activeElement;
+        const leaving = shownParts(shown), incoming = shownParts(index);
+        const holds = parts => moveFocus && popup.contains(focused) && parts.some(part => part.contains(focused));
+        // Moving a focused node blurs it, so either hand focus to the incoming
+        // result's Anki or pronunciation button or put it back on the moved node.
+        const focusLeaves = holds(leaving), focusMoves = holds(incoming);
+        const slot = index > 0 ? entryMetadata[index].header.element : null;
+        // Measure before any write. The slot is above the definitions.
+        const height = slot ? slot.getBoundingClientRect().height * getCoordinateScale() : 0;
+        if (shown > 0) {
+          const { element, headword, mining } = entryMetadata[shown].header;
+          element.append(headword, mining.actions);
+          element.style.height = "";
+        }
+        if (slot) {
+          const { headword, mining } = entryMetadata[index].header;
+          slot.style.height = `${height}px`;
+          primaryHeader.insertBefore(headword, lookupActions);
+          const ownAudio = lookupActions.querySelector(":scope > .gsm-hoshidicts-audio-control");
+          if (ownAudio) ownAudio.after(mining.actions);
+          else lookupActions.prepend(mining.actions);
+          primaryHeader.dataset.shownResult = String(index);
+        } else {
+          delete primaryHeader.dataset.shownResult;
+        }
+        entryMetadata[0].header.headword.hidden = index > 0;
+        shown = index;
+        if (focusLeaves) {
+          const kind = focused.matches(".gsm-hoshidicts-mine-button") ? ".gsm-hoshidicts-mine-button" : null;
+          const find = selector => incoming.flatMap(part => [...part.querySelectorAll(selector)])[0]
+            ?? incoming.find(part => part.matches(selector));
+          ((kind && find(kind)) || find(".gsm-hoshidicts-audio-button"))?.focus({ preventScroll: true });
+        } else if (focusMoves) {
+          focused.focus({ preventScroll: true });
+        }
+      }
+
+      function updateShownEntry({ navigated = false } = {}) {
+        // A Note draft, a pending save or a child popup hold the header, and so
+        // does a focused custom Anki button: re-checking it for another result
+        // would disable it and take its focus.
+        const focused = popup.getRootNode().activeElement;
+        if (popup.hidden || !isCurrent() || options.canProjectDictionaryPresentation?.() === false
+            || (lookupActions.contains(focused) && focused.matches(".gsm-hoshidicts-custom-anki-button"))) return;
+        const top = contentScroll.getBoundingClientRect().top + 1;
+        // A header without a box (no layout yet) has not scrolled anywhere.
+        const above = index => {
+          const { height, bottom } = entryMetadata[index].header.element.getBoundingClientRect();
+          return height > 0 && bottom <= top;
+        };
+        let index = shown;
+        while (index + 1 < entryMetadata.length && above(index + 1)) index += 1;
+        while (index > 0 && !above(index)) index -= 1;
+        if (index === shown) return;
+        showEntry(index);
+        // Navigation chose its own current entry, which may be beyond reach.
+        if (!navigated) currentEntry = entryMetadata[index].entry;
+        if (lookupActions.querySelector(":scope > .gsm-hoshidicts-custom-anki-button")) {
+          // Same arrays; the custom Anki buttons now belong to another entry.
+          onResultsExpanded({ audioButtons, miningActions });
+        }
+      }
+      shownResult = {
+        update: updateShownEntry,
+        result: () => results[shown] ?? null,
+        release() { if (shown > 0) showEntry(0, false); },
+      };
+
+      // Disclosures in a fresh render's order: a moved headword's belong to
+      // its own header's slot. Back restores them by position.
+      function disclosureNodes() {
+        const details = [...popup.querySelectorAll("details")];
+        if (shown === 0) return details;
+        const { element, headword } = entryMetadata[shown].header;
+        const slot = node => headword.contains(node) ? element : node;
+        return details.sort((first, second) => {
+          const [a, b] = [slot(first), slot(second)];
+          if (a === b) return 0;
+          return a.compareDocumentPosition(b) & windowRef.Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+        });
+      }
+
       function restoreViewportAfterFill() {
         if (restoreDisclosures) {
-          const details = [...popup.querySelectorAll("details")];
+          const details = disclosureNodes();
           if (details.length === restoreDisclosures.length
               && details.every((node, index) => node.className === restoreDisclosures[index].className)) {
             details.forEach((node, index) => { node.open = restoreDisclosures[index].open; });
@@ -3380,6 +3620,8 @@
             typeof renderContext.pitchAccentFuriganaDictionary === "string"
               ? renderContext.pitchAccentFuriganaDictionary
               : null,
+          pitchAccentFuriganaStyle:
+            renderContext.pitchAccentFuriganaStyle === "overline" ? "overline" : "contour",
           onBack: resultIndex === 0 ? renderContext.onBack : null,
           onClose: resultIndex === 0 ? renderContext.onClose : null,
           noteControls: resultIndex === 0 ? renderContext.noteControls : null,
@@ -3387,7 +3629,9 @@
           onDeinflectionToggle: positionIfCurrent,
         });
         audioButtons.push(renderedHeader.audio);
-        miningActions.push(renderedHeader.mining);
+        // The lookup's custom Anki buttons mine the shown result.
+        miningActions.push({ ...renderedHeader.mining,
+          get customActions() { return resultIndex === shown ? lookupActions : null; } });
         if (resultIndex !== 0) {
           entry.appendChild(renderedHeader.element);
         }
@@ -3404,21 +3648,15 @@
           lookupStats.className = "gsm-hoshidicts-lookup-stats";
           lookupStats.setAttribute("role", "status");
           lookupStats.setAttribute("aria-live", "polite");
+          // The stylesheet shows the count after the tags, at least this wide:
+          // the place a count up to 99 keeps while it is on its way.
+          lookupStats.dataset.placeholder = formatLookupCount("Looked up", 99);
           lookupStats.hidden = true;
           primaryMetadataRow.appendChild(lookupStats);
         }
 
         if (resultIndex === 0 && primaryMetadataCapsule) {
-          renderPrimaryMetadataCapsule(
-            primaryMetadataCapsule,
-            result,
-            Array.isArray(renderContext.dictionaryPresentation)
-              ? renderContext.dictionaryPresentation
-              : [],
-            renderContext.hidePopupGrammarTags !== false,
-            renderContext.averageFrequency === true,
-            renderContext.showFrequencyDictionaryNames === true
-          );
+          renderPrimaryMetadataCapsule(primaryMetadataCapsule, result, renderContext);
           primaryMetadataRow.appendChild(primaryMetadataCapsule);
         }
 
@@ -3437,6 +3675,12 @@
             averageFrequency: renderContext.averageFrequency === true,
             showFrequencyDictionaryNames:
               renderContext.showFrequencyDictionaryNames === true,
+            compactFrequencyNumbers: renderContext.compactFrequencyNumbers === true,
+            showPitchAccentDictionaryNames:
+              renderContext.showPitchAccentDictionaryNames !== false,
+            showPitchAccentText: renderContext.showPitchAccentText !== false,
+            showPitchAccentPosition: renderContext.showPitchAccentPosition !== false,
+            showPitchAccentGraph: renderContext.showPitchAccentGraph === true,
           }
         );
 
@@ -3446,7 +3690,7 @@
           renderGrammarRow(grammarRow, result, renderContext.hidePopupGrammarTags !== false);
           entry.appendChild(grammarRow);
         }
-        entryMetadata.push({ header: renderedHeader, metadata, grammarRow });
+        entryMetadata.push({ header: renderedHeader, metadata, grammarRow, entry });
 
         const groupedGlossaries = new Map();
         for (const glossary of result.term.glossaries) {
@@ -3468,20 +3712,30 @@
           title.title = dictionary;
           card.appendChild(title);
           const definitions = documentRef.createElement("ol");
-          definitions.className = "gsm-hoshidicts-definitions";
+          definitions.className = "gsm-hoshidicts-definitions definition-list";
+          definitions.dataset.count = String(glossaries.length);
           if (glossaries.length === 1) {
             definitions.classList.add("gsm-hoshidicts-definitions-single");
           }
           applyDefinitionBlurState(definitions);
           for (const [definitionIndex, glossary] of glossaries.entries()) {
+            // Yomitan's definition-item: one per term-bank row.
             const definition = documentRef.createElement("li");
-            const definitionTags = parseTagList(glossary.definitionTags);
+            definition.className = "definition-item";
+            definition.dataset.dictionary = dictionary;
+            definition.dataset.index = String(definitionIndex);
+            // The engine's tag-bank tags, in Yomitan's order with their
+            // category and notes. A reply from an older sharing host has only
+            // definitionTags, whose tags look like category "default".
+            const definitionTags = Array.isArray(glossary.tags)
+              ? glossary.tags
+              : parseTagList(glossary.definitionTags).map((name) => ({ name }));
             if (definitionTags.length > 0) {
               const definitionTagRow = documentRef.createElement("div");
-              definitionTagRow.className = "gsm-hoshidicts-definition-tags";
+              definitionTagRow.className = "gsm-hoshidicts-definition-tags definition-tag-list";
               for (const tag of definitionTags) {
                 definitionTagRow.appendChild(
-                  createTag(documentRef, tag, "", "definition")
+                  createTag(documentRef, tag.name, tag.notes, "definition", tag.category)
                 );
               }
               definition.appendChild(definitionTagRow);
@@ -3640,17 +3894,19 @@
       function updateMetadataLabels(container, result) {
         let changed = false;
         for (const [kind, groups] of [["frequency", result.term.frequencies], ["pitch", result.term.pitches], ["ipa", result.term.pitches]]) {
-          if (kind === "frequency" && imageContext.averageFrequency === true) continue;
           const names = createDictionaryDisplayNames(groups.map(({ dictionary }) => dictionary), imageContext.dictionaryPresentation);
           if (kind !== "frequency") {
             for (const tag of container.querySelectorAll(`.gsm-hoshidicts-tag-${kind}`)) {
               changed = updatePronunciationLabel(tag, names.get(tag.dataset.dictionary) || tag.dataset.dictionary) || changed;
             }
-            continue;
           }
           for (const source of container.querySelectorAll(`.gsm-hoshidicts-${kind}-source`)) {
-            const dictionary = source.parentNode.dataset.dictionary;
-            changed = updateLabel(source, names.get(dictionary) || dictionary) || changed;
+            // An average's label names a unit, not a dictionary.
+            if (source.parentNode.dataset.frequencyAverage) continue;
+            const dictionary = source.closest("[data-dictionary]").dataset.dictionary;
+            // A pronunciation-dictionary tag keeps its name in Yomitan's label span.
+            changed = updateLabel(source.querySelector(".tag-label-content") ?? source,
+              names.get(dictionary) || dictionary) || changed;
           }
         }
         return changed;
@@ -3658,20 +3914,21 @@
 
       return { lookupStats, audioButtons, miningActions,
         isExpanded: () => expanded,
+        disclosureNodes,
         updateMetadata() {
           const nextModes = frequencyModes(imageContext);
           const labelsChanged = JSON.stringify(imageContext.dictionaryPresentation) !== JSON.stringify(appliedDictionaryPresentation);
-          const frequencyChanged = ["averageFrequency", "showFrequencyDictionaryNames"]
+          const frequencyChanged = ["averageFrequency", "showFrequencyDictionaryNames", "compactFrequencyNumbers"]
             .some(key => imageContext[key] !== appliedMetadata[key]) || nextModes !== appliedFrequencyModes;
           const grammarChanged = imageContext.hidePopupGrammarTags !== appliedMetadata.hidePopupGrammarTags;
-          const pitchChanged = imageContext.showPitchAccentBadge !== appliedMetadata.showPitchAccentBadge;
+          const pitchChanged = ["showPitchAccentBadge", "showPitchAccentDictionaryNames", "showPitchAccentText",
+            "showPitchAccentPosition", "showPitchAccentGraph"].some(key => imageContext[key] !== appliedMetadata[key]);
           let changed = false;
           let deferred = false;
           if (labelsChanged) changed = updateMetadataLabels(primaryMetadataCapsule, results[0]);
           if (frequencyChanged || grammarChanged) {
-            renderPrimaryMetadataCapsule(primaryMetadataCapsule, results[0], imageContext.dictionaryPresentation || [],
-              imageContext.hidePopupGrammarTags !== false, imageContext.averageFrequency === true,
-              imageContext.showFrequencyDictionaryNames === true, { frequencyChanged, grammarChanged });
+            renderPrimaryMetadataCapsule(primaryMetadataCapsule, results[0], imageContext,
+              { frequencyChanged, grammarChanged });
             changed = true;
           }
           entryMetadata.forEach(({ header, metadata, grammarRow }, index) => {
@@ -3707,15 +3964,13 @@
           if (!labelsChanged && !summaryChanged) return false;
           let changed = false;
           if (summaryChanged) {
-            changed = updateCompactSummary(primaryHeader.querySelector(".gsm-hoshidicts-headword"),
-              results[0], renderContext, summaryMedia) || changed;
+            // A shown result's headword sits in the pinned header.
+            entryMetadata.forEach(({ header }, index) => {
+              changed = updateCompactSummary(header.headword, results[index], renderContext, summaryMedia) || changed;
+            });
           }
           const entries = panel.querySelectorAll(":scope > .gsm-hoshidicts-entry");
-          entries.forEach((entry, index) => {
-            if (index > 0 && summaryChanged) {
-              changed = updateCompactSummary(entry.querySelector(".gsm-hoshidicts-headword"),
-                results[index], renderContext, summaryMedia) || changed;
-            }
+          entries.forEach((entry) => {
             if (labelsChanged) {
               for (const title of entry.querySelectorAll(":scope > .gsm-hoshidicts-glossary-grid > .gsm-hoshidicts-glossary-card > .gsm-hoshidicts-glossary-card-title")) {
                 changed = updateLabel(title, names.get(title.title) || title.title) || changed;
@@ -3759,6 +4014,7 @@
       }
       const glyph = documentRef.createElement("div");
       glyph.className = "gsm-hoshidicts-kanji-glyph";
+      glyph.lang = "ja";
       glyph.textContent = kanji.character;
       navigation.appendChild(glyph);
       for (const previous of noteControls.actions.querySelectorAll(
@@ -3936,15 +4192,18 @@
       const primaryHeader = documentRef.createElement("header");
       primaryHeader.className =
         "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
-      let projectedPrimary = null;
-      const noteControls = createNoteControls(() => ({
-        // An exact selection adds what was highlighted, not the headword it matched.
-        term: candidate?.exactSelection === true ? candidate.query : projectedPrimary?.term?.expression || "",
-        reading: candidate?.exactSelection !== true || candidate.query === projectedPrimary?.term?.expression
-          ? projectedPrimary?.term?.reading || "" : "",
-        definition: "",
-        sentence: candidate?.sentence || "",
-      }), renderContext);
+      const noteControls = createNoteControls(() => {
+        // The result the pinned header shows, which scrolling may change.
+        const primary = shownResult?.result() ?? null;
+        return {
+          // An exact selection adds what was highlighted, not the headword it matched.
+          term: candidate?.exactSelection === true ? candidate.query : primary?.term?.expression || "",
+          reading: candidate?.exactSelection !== true || candidate.query === primary?.term?.expression
+            ? primary?.term?.reading || "" : "",
+          definition: "",
+          sentence: candidate?.sentence || "",
+        };
+      }, renderContext);
       currentNoteControls = noteControls;
       const toolbar = createResultChrome(primaryHeader, metadataStrip);
       mountResultChrome(toolbar, panel, feedback);
@@ -4021,7 +4280,6 @@
         const matchingDisclosures = saved && (saved.results === results
           || JSON.stringify(saved.results) === JSON.stringify(results))
           && sameTabMembers(new Set(saved.dictionaries), selectedDictionaries, dictionaries);
-        projectedPrimary = projectedResults[0] || null;
         rendered = renderResultPanel(
           panel,
           projectedResults,
@@ -4203,7 +4461,7 @@
       restoreRetainedFocus(focused);
       captureTermView = () => ({ expandAll: rendered.isExpanded(), restoreScrollTop: contentScroll.scrollTop,
         disclosures: { results, dictionaries: [...tabDescriptors[selectedIndex].dictionaries],
-          states: [...popup.querySelectorAll("details")].map(node => ({ className: node.className, open: node.open })),
+          states: rendered.disclosureNodes().map(node => ({ className: node.className, open: node.open })),
         },
       });
       return rendered;
@@ -4245,6 +4503,7 @@
         renderRevision += 1;
         currentResultPanel = null;
         captureTermView = null;
+        shownResult = null;
         pendingScrollRestoration = null;
         currentLookupFailure = null;
         options.cancelMasonry?.(layoutMasonry);
@@ -4254,7 +4513,8 @@
         }
         masonryObserver?.disconnect();
         windowRef.removeEventListener("resize", onWindowResize);
-        popup.removeEventListener("scroll", onPopupScroll, true);
+        contentScroll.removeEventListener("scroll", onContentScroll);
+        imagePreview.destroy();
         popup.removeEventListener("focusout", onPresentationFocusOut);
       },
     };
@@ -4269,6 +4529,7 @@
   }
 
   return {
+    findDifferentDictionary,
     createPopupAppearance,
     createCustomPopupStyle,
     resolveToolbarPosition,
@@ -4277,8 +4538,12 @@
     popupCoordinateScale,
     createDictionaryDisplayNames,
     createFrequencyTags,
-    createPitchTag,
     createPopupView,
+    createLookupActions,
+    createImagePreview,
+    createDictionaryTabs,
+    createAudioControl,
+    deinflectionSteps,
     createSourceHighlighter,
     createTag,
     normaliseDictionaryTab,
@@ -4286,6 +4551,7 @@
     formatCompactFrequencyNumber,
     formatFrequencyValue,
     kanjiEntryGlossary,
+    kanjiEntryResult,
     metadataOptions,
   };
 }));

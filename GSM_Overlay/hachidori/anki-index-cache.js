@@ -90,6 +90,7 @@ function ownsAttempt(current, source, token) {
 export function createAnkiDuplicateIndex({
   fetchRows,
   lookupLive,
+  lookupLiveMany,
   readOptions,
   readState,
   updateState,
@@ -313,6 +314,33 @@ export function createAnkiDuplicateIndex({
     return { ...await operation, cached: false };
   }
 
+  // A popup's entries for one Template: snapshot hits answer locally, and the
+  // misses share one live lookup, one per word key. Found rows are recorded as
+  // `find` records them; a true miss still leaves no negative row.
+  async function findMany(config, expressions, invoke) {
+    const found = await Promise.all(expressions.map(expression => local(config, expression)));
+    const misses = new Map();
+    found.forEach(({ source, wordKey, cached }, index) => {
+      if (source !== null && wordKey !== null && !cached && !misses.has(wordKey)) misses.set(wordKey, expressions[index]);
+    });
+    const live = new Map();
+    if (misses.size) {
+      const [{ source }] = found;
+      const values = await lookupLiveMany(source, [...misses.values()], invoke);
+      if (!Array.isArray(values) || values.length !== misses.size) {
+        throw new Error("Anki returned an invalid duplicate lookup result.");
+      }
+      [...misses.keys()].forEach((wordKey, position) => live.set(wordKey, normalizedLookup(values[position], wordKey)));
+      // The control queue still writes the rows one at a time, in this order.
+      await Promise.all([...live].filter(([, value]) => value.noteIds.length).map(([wordKey, value]) =>
+        updateRow(source, wordKey, () => ({ mature: value.mature, noteIds: value.noteIds }))));
+    }
+    return found.map(({ wordKey, mature, noteIds, cached }) => {
+      const value = live.get(wordKey);
+      return value ? { ...value, noteIds: [...value.noteIds], cached: false } : { wordKey, mature, noteIds, cached };
+    });
+  }
+
   return {
     reconcile,
     suspend,
@@ -323,6 +351,7 @@ export function createAnkiDuplicateIndex({
       return { wordKey: result.wordKey, mature: result.mature, noteIds: result.noteIds, cached: result.cached };
     },
     lookup: (config, expression, invoke) => find(config, expression, invoke, false),
+    lookupMany: findMany,
     repair: (config, expression, invoke) => find(config, expression, invoke, true),
     async recordWrite(config, expression, noteId, { mature = false } = {}) {
       if (!positiveId(noteId)) throw new Error("Anki returned an invalid written note ID.");

@@ -3,7 +3,6 @@ import { extensionApi } from "./browser-api.js";
 import { decodeBase64 } from "./base64.js";
 import { buildAnkiResourceFields } from "./anki-resources.js";
 import { exportAnkiAudio } from "./anki-audio.js";
-import { MINING_CAPABILITIES } from "./overlay-mode.js";
 
 // Resolve and parse the complete scoped note set away from the background and
 // engine request threads; only compact index rows cross back to the commit.
@@ -18,14 +17,6 @@ async function refreshAnkiIndex(window, source) {
   } finally {
     worker.terminate();
   }
-}
-
-async function recordSpeechAudio(...args) {
-  if (!MINING_CAPABILITIES.browserSpeech) {
-    throw new Error("Browser text-to-speech recording is unavailable in Firefox.");
-  }
-  const capture = await import("./capture-host.js");
-  return capture.recordSpeechAudio(...args);
 }
 
 function clientSpeechPlan(source, term) {
@@ -47,7 +38,7 @@ function decodeClientSpeech(window, data) {
 }
 
 function linkedSpeechRecorder(window, message) {
-  if (message.clientSpeechProbe !== true && !message.clientSpeech) return recordSpeechAudio;
+  if (message.clientSpeechProbe !== true && !message.clientSpeech) return null;
   return async (source, term, signal, { record = true } = {}) => {
     signal.throwIfAborted();
     const plan = clientSpeechPlan(source, term);
@@ -66,19 +57,20 @@ function linkedSpeechRecorder(window, message) {
   };
 }
 
-export function createAnkiOffscreenService(window, getAudioRepository, captureSpeech = recordSpeechAudio) {
+export function createAnkiOffscreenService(window, getAudioRepository) {
   return async message => {
     if (message.type === "hd_anki_index_refresh") return refreshAnkiIndex(window, message.source);
     if (message.type === "hd_anki_audio") {
       return exportAnkiAudio(window, await getAudioRepository(), message, window.AbortSignal.timeout(30_000), {
         recordSpeechAudio: message.clientSpeechProbe === true || message.clientSpeech
           ? linkedSpeechRecorder(window, message)
-          : captureSpeech,
+          : null,
       });
     }
     if (message.type !== "hd_anki_fields") throw new Error("Unknown Anki rendering request.");
     return buildAnkiResourceFields(message.request, message.templates, {
       document: window.document, dictionaryPaths: message.dictionaryPaths, audio: message.audio,
+      compactGlossary: message.compactGlossary === true,
       styles: async () => {
         const reply = await extensionApi.runtime.sendMessage({ target: "hoshidicts-offscreen", type: "hd_styles", requestId: message.requestId });
         if (!reply.ok || reply.generation !== message.request.generation) throw new Error(reply.error || "Dictionary styles changed during Anki preparation.");

@@ -24,6 +24,7 @@ TADOKU_GSM_TAG = "gsm"
 TADOKU_REQUEST_TIMEOUT_SECONDS = 20
 TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS = 5_000
 TADOKU_LOG_DESCRIPTION_MAX_LENGTH = 255
+TADOKU_TITLE_SOURCES = ("english", "original", "romaji")
 
 _sync_lock = threading.Lock()
 
@@ -86,19 +87,18 @@ def _tadoku_media_tag(media_type: str | None) -> str:
     return aliases.get(normalized, normalized or TADOKU_GAME_TAG)
 
 
-def _game_metadata(lines: list) -> tuple[dict[str, str], dict[str, str]]:
+def _game_metadata(lines: list, *, title_source: str = "english") -> tuple[dict[str, str], dict[str, str]]:
     names: dict[str, str] = {}
     media_tags: dict[str, str] = {}
     game_ids = {_game_key(line) for line in lines if not _game_key(line).startswith("scene:")}
     for game_id in game_ids:
         game = GamesTable.get(game_id)
         if game is not None:
-            english_title = str(getattr(game, "title_english", "") or "").strip()
-            original_title = str(getattr(game, "title_original", "") or "").strip()
-            if english_title:
-                names[game_id] = english_title
-            elif original_title:
-                names[game_id] = original_title
+            for source in dict.fromkeys((title_source, *TADOKU_TITLE_SOURCES)):
+                title = str(getattr(game, f"title_{source}", "") or "").strip()
+                if title:
+                    names[game_id] = title
+                    break
             media_tags[game_id] = _tadoku_media_tag(game.type)
 
     for line in lines:
@@ -147,12 +147,13 @@ def build_tadoku_preview(
     *,
     deduplicate: bool = False,
     upper_bound: float | None = None,
+    title_source: str = "english",
 ) -> dict[str, Any]:
     """Describe the exact per-game logs currently eligible for the next sync."""
     cursor = initialize_tadoku_cursor()
     cutoff = float(upper_bound if upper_bound is not None else time.time())
     lines = _load_lines(cutoff)
-    names, media_tags = _game_metadata(lines)
+    names, media_tags = _game_metadata(lines, title_source=title_source)
     lines = [
         line for line in lines if str(names.get(_game_key(line), "")).strip().casefold() not in {"", "unknown game"}
     ]
@@ -423,7 +424,11 @@ def run_tadoku_sync(
         upper_bound = time.time()
         # Deduplication is export-only. Local gamelines are immutable from Tadoku's
         # perspective; duplicates are omitted from the outgoing aggregate and kept.
-        preview = build_tadoku_preview(deduplicate=deduplicate, upper_bound=upper_bound)
+        preview = build_tadoku_preview(
+            deduplicate=deduplicate,
+            upper_bound=upper_bound,
+            title_source=getattr(stats_config, "tadoku_title_source", "english"),
+        )
         pending_entries = preview["entries"]
         duplicates_excluded = int(preview["duplicates_excluded"])
         required_characters = max(0, int(minimum_characters_per_game))

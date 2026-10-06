@@ -959,16 +959,6 @@ export default function App() {
     }
   }, [desktopChangelog, desktopChangelogMode]);
 
-  useEffect(() => {
-    if (
-      desktopChangelog &&
-      desktopChangelogMode === "update" &&
-      installSession?.origin === "backend_update"
-    ) {
-      setDesktopUpdateBackendStatus(installSession.status);
-    }
-  }, [desktopChangelog, desktopChangelogMode, installSession]);
-
   const selectTab = useCallback(
     (tab: TabId) => {
       if (!isTabVisible(tab)) {
@@ -1091,56 +1081,37 @@ export default function App() {
 
   useEffect(() => {
     let disposed = false;
+    let receivedLiveSnapshot = false;
+
+    const applySnapshot = (snapshot: InstallSessionSnapshot | null) => {
+      if (snapshot?.origin === "backend_update") {
+        // Remember terminal results even if the changelog has not loaded yet.
+        lastBackendUpdateStatusRef.current = snapshot.status;
+        if (desktopChangelogRef.current && desktopChangelogModeRef.current === "update") {
+          setDesktopUpdateBackendStatus(snapshot.status);
+        }
+      }
+      setInstallSession(snapshot?.status === "completed" ? null : snapshot);
+    };
+    const onSnapshot = (_event: unknown, payload: unknown) => {
+      receivedLiveSnapshot = true;
+      applySnapshot(payload as InstallSessionSnapshot);
+    };
+    const offSnapshot = window.ipcRenderer.on(
+      "install-session.snapshot",
+      onSnapshot
+    );
+    const offFinished = window.ipcRenderer.on(
+      "install-session.finished",
+      onSnapshot
+    );
 
     void window.ipcRenderer
       .invoke<InstallSessionSnapshot | null>("install-session.getActive")
       .then((snapshot) => {
-        if (!disposed) {
-          setInstallSession(snapshot);
-        }
+        // A response captured before a finish/retry must not overwrite that event.
+        if (!disposed && !receivedLiveSnapshot) applySnapshot(snapshot);
       });
-
-    const offSnapshot = window.ipcRenderer.on(
-      "install-session.snapshot",
-      (_event, payload) => {
-        const snapshot = payload as InstallSessionSnapshot;
-        setInstallSession(snapshot);
-        if (snapshot.origin === "backend_update") {
-          lastBackendUpdateStatusRef.current = "running";
-        }
-        if (
-          snapshot.origin === "backend_update" &&
-          desktopChangelogRef.current &&
-          desktopChangelogModeRef.current === "update"
-        ) {
-          setDesktopUpdateBackendStatus("running");
-        }
-      }
-    );
-
-    const offFinished = window.ipcRenderer.on(
-      "install-session.finished",
-      (_event, payload) => {
-        const snapshot = payload as InstallSessionSnapshot;
-        if (snapshot.origin === "backend_update") {
-          lastBackendUpdateStatusRef.current = snapshot.status;
-        }
-        if (
-          snapshot.origin === "backend_update" &&
-          desktopChangelogRef.current &&
-          desktopChangelogModeRef.current === "update"
-        ) {
-          setDesktopUpdateBackendStatus(snapshot.status);
-          setInstallSession(snapshot.status === "failed" ? snapshot : null);
-          return;
-        }
-        if (snapshot?.status === "failed") {
-          setInstallSession(snapshot);
-          return;
-        }
-        setInstallSession(null);
-      }
-    );
 
     return () => {
       disposed = true;

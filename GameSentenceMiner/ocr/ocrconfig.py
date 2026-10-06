@@ -7,7 +7,7 @@ DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/owocr_config_gsm.ini")
 class OCRConfig:
     def __init__(self, config_file=DEFAULT_CONFIG_PATH):
         self.config_file = config_file
-        self.config = configparser.ConfigParser(allow_no_value=True)
+        self.config = configparser.ConfigParser(allow_no_value=True, interpolation=None)
         self.raw_config = {}  # Store the raw lines of the config file
         self.load_config()
 
@@ -81,8 +81,13 @@ class OCRConfig:
             self.save_config()
 
     def _read_config_with_comments(self):
-        with open(self.config_file, "r") as f:
-            lines = f.readlines()
+        try:
+            with open(self.config_file, encoding="utf-8-sig") as f:
+                lines = f.readlines()
+        except UnicodeDecodeError:
+            # Older GSM editors saved using Windows's local ANSI code page.
+            with open(self.config_file, encoding="locale") as f:
+                lines = f.readlines()
         config_data = {}
         current_section = None
         for line in lines:
@@ -105,7 +110,7 @@ class OCRConfig:
         return parsed_config
 
     def save_config(self):
-        with open(self.config_file, "w") as f:
+        with open(self.config_file, "w", encoding="utf-8") as f:
             for section, lines in self.raw_config.items():
                 f.write(f"[{section}]\n")
                 f.writelines(f"{line}\n" for line in lines)

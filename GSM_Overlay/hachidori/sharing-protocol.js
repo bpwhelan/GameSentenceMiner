@@ -26,6 +26,13 @@ export const API_CAPABILITY = "hoshidicts-api-v1";
 export const API_CLIENT_ORIGIN = "relay://yomitan-api";
 export const LINKED_ANKI_UNSUPPORTED = "The linked Hachidori does not support host-owned Anki mining. Update it and try again.";
 export const MAX_LINKED_ANKI_FRAME_BYTES = 16 * 1024 * 1024;
+// A host that accepts dictionary archives from linked browsers as a chunked upload.
+export const LINKED_IMPORT_CAPABILITY = "linked-import-v1";
+export const LINKED_IMPORT_TARGET = "hachidori-linked-import";
+export const LINKED_IMPORT_UNSUPPORTED = "The linked Hachidori does not accept dictionary imports. Update it and try again.";
+export const LINKED_IMPORT_REQUESTS = new Set([
+  "hd_import_begin", "hd_import_chunk", "hd_import_commit", "hd_import_abort",
+]);
 const HOST_PATH = "/host";
 const LINK_PATH = "/link";
 
@@ -37,11 +44,11 @@ export const LINKED_ANKI_REQUESTS = new Set([
 ]);
 
 // Which runtime messages a linked client sends to the host instead of its own
-// engine or worker. Screenshot capture/discard and captured-media sessions stay
+// engine or worker. Screenshot capture/discard stays
 // in the reading browser; the host owns every Anki and generation decision.
 export const FORWARDED_REQUESTS = {
   "hoshidicts-offscreen": new Set([
-    "hd_lookup", "hd_lookup_dictionary", "hd_kanji", "hd_styles", "hd_media", "hd_status", "hd_memory",
+    "hd_lookup", "hd_lookup_dictionary", "hd_kanji", "hd_styles", "hd_media", "hd_status", "hd_memory", "hd_memory_total",
     "hd_custom_append", "hd_custom_save", "hd_apply_state", "hd_reload", "hd_remove", "hd_import",
   ]),
   "hoshidicts-worker": new Set([
@@ -51,6 +58,7 @@ export const FORWARDED_REQUESTS = {
   "hachidori-updates": new Set(["hd_updates_schedule", "hd_updates_check", "hd_updates_install"]),
   "hachidori-setup": new Set(["hd_setup_install"]),
   "hachidori-anki": LINKED_ANKI_REQUESTS,
+  [LINKED_IMPORT_TARGET]: LINKED_IMPORT_REQUESTS,
 };
 
 const MUTATING_FORWARDED_REQUESTS = {
@@ -63,6 +71,7 @@ const MUTATING_FORWARDED_REQUESTS = {
   "hachidori-updates": new Set(["hd_updates_schedule", "hd_updates_check", "hd_updates_install"]),
   "hachidori-setup": new Set(["hd_setup_install"]),
   "hachidori-anki": new Set(["hd_anki_submit"]),
+  [LINKED_IMPORT_TARGET]: new Set(["hd_import_commit"]),
 };
 
 export function forwardableRequest(message) {
@@ -117,7 +126,6 @@ export function browserName(navigator) {
   const brands = (navigator?.userAgentData?.brands ?? []).map(entry => String(entry?.brand ?? "")).filter(brand => brand !== "" && !/not.?a.?brand/iu.test(brand));
   const brand = brands.find(name => name !== "Chromium") ?? brands[0];
   if (brand) return brand;
-  if (/\bFirefox\//u.test(String(navigator?.userAgent ?? ""))) return "Firefox";
   return "another browser";
 }
 
@@ -153,8 +161,8 @@ export function assertLinkedAnkiFrame(text) {
 
 const MINING_REQUEST_FIELDS = [
   "term", "trace", "generation", "sentence", "matchOffset", "matched", "popupSelectionText",
-  "searchQuery", "documentTitle", "audioSelection", "capturePin", "dictionaryAliases", "dictionaryIds",
-  "frequencyDictionaries", "configKey", "screenshot", "captureJobId", "captureUnavailable",
+  "searchQuery", "documentTitle", "pageUrl", "audioSelection", "dictionaryAliases", "dictionaryIds",
+  "frequencyDictionaries", "configKey", "screenshot", "captureUnavailable",
   "clientSpeech", "templateId",
 ];
 
@@ -242,6 +250,40 @@ export function allowLinkedAnkiSetupRequest(message) {
     requestId,
     ...selectedTemplateId(message),
   };
+}
+
+function requestIdOf(message) {
+  return typeof message.requestId === "string" || Number.isFinite(message.requestId) ? message.requestId : null;
+}
+
+function uploadToken(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9-]{1,64}$/u.test(value)) throw new Error("malformed dictionary upload token");
+  return value;
+}
+
+// A linked browser is untrusted at the host boundary: rebuild each upload
+// request from the fields it needs. Sizes and offsets are byte counts.
+export function allowLinkedImportRequest(message) {
+  if (!message || typeof message !== "object" || message.target !== LINKED_IMPORT_TARGET
+      || !LINKED_IMPORT_REQUESTS.has(message.type)) {
+    throw new Error("unsupported dictionary upload request");
+  }
+  const base = { target: LINKED_IMPORT_TARGET, type: message.type, requestId: requestIdOf(message) };
+  switch (message.type) {
+    case "hd_import_begin":
+      if (typeof message.fileName !== "string" || message.fileName.length > 255
+          || !Number.isSafeInteger(message.size) || typeof message.replace !== "boolean") {
+        throw new TypeError("malformed dictionary upload request");
+      }
+      return { ...base, fileName: message.fileName, size: message.size, replace: message.replace };
+    case "hd_import_chunk":
+      if (!Number.isSafeInteger(message.offset) || typeof message.data !== "string") {
+        throw new TypeError("malformed dictionary upload chunk");
+      }
+      return { ...base, token: uploadToken(message.token), offset: message.offset, data: message.data };
+    default:
+      return { ...base, token: uploadToken(message.token) };
+  }
 }
 
 // A frame a client sends to the host.

@@ -81,6 +81,7 @@ import { bus, getBroker, getBusConnectInfo, startBus, stopBus } from './runtime/
 import { AGENT_RESTART_ARG, agentRelaunchArgs, startAgentControl } from './services/agent_control.js';
 import { stopManagedProcesses } from './runtime/process_supervisor.js';
 import { terminateProcessTree, waitForProcessExit } from './runtime/process_tree.js';
+import { getWindowsSystemExecutable } from './runtime/windows_tools.js';
 import { submitTextObservation } from './runtime/text_ingress.js';
 import {
     textGeometryToOverlayPayload,
@@ -129,6 +130,7 @@ import { registerMainIPC } from './services/main_ipc.js';
 import { installSessionManager } from './services/install_session_state.js';
 import { recordLatestTextProcessingInput } from './services/latest_text.js';
 import { UpdateManager } from './services/update_manager.js';
+import { syncStartupBackend } from './services/startup_backend_update.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { APP_UPDATE_STATUS_CHANNEL } from '../shared/app_update.js';
 import { DevUpdatePreview } from './services/dev_update_preview.js';
@@ -1308,7 +1310,7 @@ async function cleanupStaleManagedGSMProcess(): Promise<void> {
         }
 
         if (isWindows()) {
-            await execFileAsync('taskkill', ['/PID', String(state.pid), '/T', '/F']);
+            await execFileAsync(getWindowsSystemExecutable('taskkill.exe'), ['/PID', String(state.pid), '/T', '/F']);
         } else {
             await execFileAsync('kill', ['-9', String(state.pid)]);
         }
@@ -1391,7 +1393,7 @@ function handleBackendMessage(msg: BackendMessage): void {
     if (msg.function === 'windows_speech_log') {
         safeSendToMainWindow('speech-recognition.log', msg.data ?? {});
     }
-    if (msg.function === 'foreground_window_changed' && msg.data) {
+    if ((msg.function === 'foreground_window_changed' || msg.function === 'emulator_window_changed') && msg.data) {
         const snapshot = msg.data as Partial<ForegroundWindowSnapshot>;
         if (
             typeof snapshot.hwnd === 'string' &&
@@ -1400,7 +1402,12 @@ function handleBackendMessage(msg: BackendMessage): void {
             typeof snapshot.capturedAt === 'number' &&
             typeof snapshot.sequence === 'number'
         ) {
-            handleForegroundWindowSnapshot(snapshot as ForegroundWindowSnapshot);
+            if (msg.function === 'emulator_window_changed') {
+                autoLauncher.handleEmulatorWindowChanged(snapshot as ForegroundWindowSnapshot);
+            } else {
+                handleForegroundWindowSnapshot(snapshot as ForegroundWindowSnapshot);
+                autoLauncher.handleForegroundWindowChanged(snapshot as ForegroundWindowSnapshot);
+            }
         }
     }
     if (msg.function === 'foreground_window_hook_status') {
@@ -1717,6 +1724,7 @@ async function createWindow() {
         restoreForegroundWindow: (hwnd) => {
             sendBackendCommand('restore_foreground_window', { hwnd });
         },
+        onSceneChanged: () => autoLauncher.handleOBSSceneChanged(),
     });
 
     registerMainIPC({
@@ -1745,7 +1753,7 @@ async function createWindow() {
             return updateManager.installAppUpdate(version);
         },
         showUpdateChangelogPreview,
-        getActiveInstallSession: () => installSessionManager.getActiveSnapshot(),
+        getActiveInstallSession: () => installSessionManager.getRendererSnapshot(),
         retryInstallSession: async () => await installSessionManager.retryLastFailedSession(),
         getPendingDesktopUpdateChangelog: () => desktopChangelogManager.getPendingSnapshot(),
         markDesktopUpdateChangelogSeen: async (toVersion?: string) =>
@@ -2859,35 +2867,14 @@ if (!app.requestSingleInstanceLock()) {
                 desktopChangelogManager.startDesktopUpdate(changelogTarget);
             }
 
-            if (updateFlagExists) {
-                await updateGSM(false, true);
-                if (updateManager.lastBackendUpdateWasSuccessful) {
-                    try {
-                        if (fs.existsSync(updateFlagPath)) {
-                            fs.unlinkSync(updateFlagPath);
-                            log.info(`Cleared backend update marker: ${updateFlagPath}`);
-                        }
-                    } catch (unlinkErr) {
-                        log.warn(
-                            `Failed to clear backend update marker (${updateFlagPath}):`,
-                            unlinkErr
-                        );
-                    }
-                } else {
-                    log.warn(
-                        `Backend update reported failure. Keeping ${updateFlagPath} for retry. Reason: ${updateManager.lastBackendUpdateFailureReason ?? 'unknown'
-                        }`
-                    );
-                }
-            } else if (appVersionChanged) {
-                await updateGSM(false, true);
-            } else if (getAutoUpdateGSMApp()) {
-                await updateGSM(false, false);
-            }
-            if (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV) {
-                await updateGSM(false, true);
-            }
-            if (storedVersion !== currentVersion) {
+            const backendSyncSucceeded = await syncStartupBackend({
+                appVersionChanged,
+                updateFlagPath,
+                autoUpdateEnabled: getAutoUpdateGSMApp(),
+                hasPendingDesktopUpdate: changelogTarget !== null,
+                forceUpdate: isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV,
+            }, updateManager);
+            if (backendSyncSucceeded && storedVersion !== currentVersion) {
                 setElectronAppVersion(currentVersion);
             }
 

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { extensionApi as chrome } from "./browser-api.js";
 import "./reader-options.js";
-import { HOST_BROWSER, HOST_CAPABILITIES } from "./overlay-mode.js";
 
-const { normaliseOptions } = globalThis.HDReaderOptions;
+const { activationLabel, normaliseOptions } = globalThis.HDReaderOptions;
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map(node => [node.id, node]));
 let options = null;
 let linkedAddress = null;
@@ -21,13 +20,11 @@ function adoptOptions(stored) {
 
 function render() {
   elements["lookup-toggle"].disabled = pending || !options;
-  elements["record-screen"].hidden = HOST_BROWSER === "firefox";
-  elements["record-screen"].disabled = pending || !options || !HOST_CAPABILITIES.mediaCapture;
   if (!options) return;
   elements["lookup-toggle"].setAttribute("aria-checked", String(options.hoverEnabled));
   elements["lookup-state"].textContent = options.hoverEnabled ? "On" : "Off";
   const activeHint = options.lookupMode !== "hover"
-    ? `Hold ${options.activationKey} to scan` : "Hover over Japanese text to scan";
+    ? `Hold ${activationLabel(options.activationKey)} to scan` : "Hover over Japanese text to scan";
   elements["activation-hint"].textContent = options.hoverEnabled ? activeHint : "Lookups paused";
 }
 
@@ -36,7 +33,7 @@ function showError(error) {
   elements["toolbar-error"].hidden = false;
 }
 
-async function send(type, fields = {}, target = "hachidori-capture") {
+async function send(type, fields = {}, target = "hoshidicts-worker") {
   const reply = await chrome.runtime.sendMessage({ target, type, requestId: `toolbar-${++requestCounter}`, ...fields });
   if (reply?.options) adoptOptions(reply.options);
   if (!reply?.ok) throw new Error(reply?.error || "Hachidori did not reply. Please try again.");
@@ -57,21 +54,6 @@ async function run(action) {
   finally { pending = false; render(); }
 }
 
-function renderCapture(recording) {
-  if (!HOST_CAPABILITIES.mediaCapture) {
-    elements["record-screen"].classList.toggle("is-recording", false);
-    elements["record-screen"].title = HOST_BROWSER === "firefox"
-      ? "Context capture is unavailable in Firefox"
-      : "Context capture is unavailable in this overlay";
-    elements["record-label"].textContent = "Context capture unavailable";
-    return;
-  }
-  elements["record-screen"].classList.toggle("is-recording", recording);
-  elements["record-screen"].title = recording ? "Open capture controls"
-    : "Capture a screen, window, or tab as context for your Japanese cards";
-  elements["record-label"].textContent = recording ? "Recording context" : "Record context for Anki";
-}
-
 // A linked install shows where its lookups go and whether that host answers.
 function adoptSharing(stored) {
   linkedAddress = typeof stored?.client?.address === "string" ? stored.client.address : null;
@@ -88,35 +70,8 @@ async function refreshSharing() {
   } catch (error) { showError(error); }
 }
 
-async function refreshCapture() {
-  if (!HOST_CAPABILITIES.mediaCapture) {
-    renderCapture(false);
-    return;
-  }
-  if (!options?.mediaCapture.enabled) {
-    renderCapture(false);
-    return;
-  }
-  try {
-    const status = await send("hd_capture_status");
-    renderCapture(status.state === "recording");
-  } catch (error) { showError(error); }
-}
-
 elements["lookup-toggle"].addEventListener("click", () => {
   void run(() => writeOptions({ hoverEnabled: !options.hoverEnabled }));
-});
-elements["record-screen"].addEventListener("click", () => {
-  if (!HOST_CAPABILITIES.mediaCapture) return;
-  void run(async () => {
-    // The shortcut enables the existing capture controls. The recorder still
-    // requires Start capture and an explicit source choice in Chrome's picker.
-    if (!options.mediaCapture.enabled) {
-      await writeOptions({ mediaCapture: { ...options.mediaCapture, enabled: true } });
-    }
-    await send("hd_capture_open");
-    window.close();
-  });
 });
 elements["open-settings"].addEventListener("click", () => {
   void run(async () => { await chrome.runtime.openOptionsPage(); window.close(); });
@@ -125,7 +80,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.options) {
     adoptOptions(changes.options.newValue);
-    void refreshCapture();
   }
   if (changes.sharing) {
     adoptSharing(changes.sharing.newValue);
@@ -137,7 +91,7 @@ try {
   const stored = await chrome.storage.local.get(["options", "sharing"]);
   adoptOptions(stored.options);
   adoptSharing(stored.sharing);
-  await Promise.all([refreshCapture(), refreshSharing()]);
+  await refreshSharing();
 } catch (error) { showError(error); }
-const capturePoll = setInterval(() => { void refreshCapture(); void refreshSharing(); }, 1000);
-window.addEventListener("pagehide", () => clearInterval(capturePoll), { once: true });
+const sharingPoll = setInterval(() => { void refreshSharing(); }, 1000);
+window.addEventListener("pagehide", () => clearInterval(sharingPoll), { once: true });

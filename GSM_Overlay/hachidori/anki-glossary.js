@@ -1,6 +1,50 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import "./external-links.js";
 import "./render/glossary.js";
+import { compactAnkiGlossary } from "./anki-compact.js";
+import { STRUCTURED_CONTENT_STYLE } from "./vendor/yomitan/structured-content-style.js";
+
+// Yomitan's CssStyleApplier.applyClassStyles (dom/css-style-applier.js at
+// 67db60d) with structured-content-style.json, as its
+// AnkiTemplateRenderer._normalizeHtml applies them to exported structured
+// content: a note field has none of the popup's stylesheet, so each element's
+// matching class rules become its inline style, ahead of any style it already
+// has. Unlike Yomitan, the classes stay, so dictionary styles written against
+// them keep applying on the card.
+const STYLE_RULES = STRUCTURED_CONTENT_STYLE.map(({ selectors, styles }) => ({
+  selectors: selectors.join(","),
+  cssText: styles.map(([property, value]) => `${property}:${value};`).join(""),
+}));
+const candidateRules = new Map();
+function rulesForClass(className) {
+  let rules = candidateRules.get(className);
+  if (rules) return rules;
+  // _selectorMightMatch: a rule can only match if it names one of the classes.
+  const tokens = className.split(/[\t\n\f\r ]+/u).filter(Boolean);
+  rules = STYLE_RULES.filter(({ selectors }) => tokens.some(token => {
+    for (let start = selectors.indexOf(`.${token}`); start >= 0; start = selectors.indexOf(`.${token}`, start + 1)) {
+      if (!/[0-9a-zA-Z_-]/u.test(selectors[start + token.length + 1] ?? "")) return true;
+    }
+    return false;
+  }));
+  candidateRules.set(className, rules);
+  return rules;
+}
+function applyClassStyles(root) {
+  const styled = [];
+  for (const element of root.querySelectorAll("[class]")) {
+    let cssText = "";
+    for (const { selectors, cssText: rule } of rulesForClass(element.getAttribute("class"))) {
+      try {
+        if (element.matches(selectors)) cssText += rule;
+      } catch {
+        // As in Yomitan, a selector the engine cannot match (a pseudo-element) is skipped.
+      }
+    }
+    if (cssText) styled.push([element, cssText + element.style.cssText]);
+  }
+  for (const [element, cssText] of styled) element.setAttribute("style", cssText);
+}
 
 const BLOCKS = new Set(["BR", "DIV", "LI", "OL", "P", "TABLE", "TBODY", "TD", "TFOOT", "TH", "THEAD", "TR", "UL"]);
 function plainText(node) {
@@ -11,16 +55,21 @@ function plainText(node) {
 
 function imageSize(image, value) {
   const units = value.sizeUnits === "em" ? "em" : "px";
+  const positive = size => Number.isFinite(size) && size > 0;
+  const preferred = { width: value.preferredWidth, height: value.preferredHeight };
+  // HTML width/height attributes are CSS pixels, so only a pixel-sized image can
+  // use them. An em-sized image (sankoku8's 0.5em × 1em pitch-accent mark, #325)
+  // carries its declared size as CSS instead of becoming a 0.5px × 1px image.
+  const styled = positive(preferred.width) || positive(preferred.height) ? preferred : units === "em" ? value : {};
   for (const dimension of ["width", "height"]) {
-    if (Number.isFinite(value[dimension]) && value[dimension] > 0) image.setAttribute(dimension, String(value[dimension]));
-    const preferred = value[dimension === "width" ? "preferredWidth" : "preferredHeight"];
-    if (Number.isFinite(preferred) && preferred > 0) image.style[dimension] = `${preferred}${units}`;
+    if (units === "px" && positive(value[dimension])) image.setAttribute(dimension, String(value[dimension]));
+    if (positive(styled[dimension])) image.style[dimension] = `${styled[dimension]}${units}`;
   }
   if (image.style.width && !image.style.height) image.style.height = "auto";
   else if (image.style.height && !image.style.width) image.style.width = "auto";
 }
 
-export function createAnkiDefinitionRenderer(document, request, filenameFor) {
+export function createAnkiDefinitionRenderer(document, request, filenameFor, { compact = false } = {}) {
   const inert = document.implementation.createHTMLDocument("");
   const groups = new Map();
   for (const glossary of request.term.glossaries) {
@@ -49,9 +98,24 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor) {
     body.className = "gsm-hoshidicts-glossary-content";
     body.dataset.hoshidictsDictionary = glossary.dictionary;
     globalThis.HDGlossary.appendTextOnlyGlossary(inert, body, glossary.glossary, {
-      dictionary: glossary.dictionary, appendImage: pending ? (...args) => appendImage(...args, pending) : () => {},
+      dictionary: glossary.dictionary, layout: "anki",
+      appendImage: pending ? (...args) => appendImage(...args, pending) : () => {},
     });
     return body;
+  }
+
+  // A note field has none of the popup's `white-space: pre-line`, so each line
+  // break in rich dictionary text becomes a <br>, as in Yomitan's
+  // AnkiTemplateRenderer._replaceNewlines (#359). Plain markers split lines themselves.
+  function replaceNewlines(root) {
+    const walker = inert.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+    const texts = [];
+    while (walker.nextNode()) texts.push(walker.currentNode);
+    for (const text of texts) {
+      const lines = text.nodeValue.split(/\r?\n|\r/u);
+      if (lines.length > 1) text.replaceWith(...lines.flatMap((line, index) => index ? [inert.createElement("br"), line] : line));
+    }
+    return root;
   }
 
   function plainDefinition(selected, noDictionary) {
@@ -67,7 +131,10 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor) {
 
   function entry(glossary, brief, noDictionary, pending) {
     const wrapper = inert.createElement("div");
-    const labels = brief ? [] : [glossary.definitionTags, glossary.termTags,
+    // Yomitan's glossary-single: one comma-separated label per tag, the
+    // definition tags in their tag-bank order.
+    const { definitionTagList, parseTagList } = globalThis.HDGlossary;
+    const labels = brief ? [] : [...definitionTagList(glossary).map(tag => tag.name), ...parseTagList(glossary.termTags),
       noDictionary ? "" : dictionaryAlias(glossary.dictionary)].filter(Boolean);
     if (labels.length) {
       const meta = inert.createElement("i");
@@ -75,7 +142,7 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor) {
       meta.textContent = `(${labels.join(", ")})`;
       wrapper.append(meta, " ");
     }
-    wrapper.append(content(glossary, pending));
+    wrapper.append(replaceNewlines(content(glossary, pending)));
     return wrapper;
   }
 
@@ -83,7 +150,11 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor) {
     const names = new Set(selected.map(([name]) => name));
     const styles = request.dictionaryStyles.filter(style => names.has(style.dictionary));
     if (!styles.length) return;
-    const applied = globalThis.HDGlossary.applyDictionaryStyles(document, root, request.generation, styles);
+    // Yomitan's dictScopedStyles: each dictionary's rules under its own
+    // li[data-dictionary] of this glossary, by selector prefix, because Anki
+    // still ships Chromium builds without @scope.
+    const applied = globalThis.HDGlossary.applyDictionaryStyles(document, root, request.generation, styles,
+      { scope: title => `.yomitan-glossary [data-dictionary=${document.defaultView.CSS.escape(title)}]` });
     // Escape a serialized closing style tag's slash without corrupting CSS
     // strings or pre-existing selector escapes.
     for (const style of applied) style.textContent = style.textContent.replace(/<\/style/giu, value => String.raw`<\/${value.slice(2)}`);
@@ -110,21 +181,24 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor) {
     root.className = "yomitan-glossary";
     root.style.cssText = "text-align: left; contain: layout paint style; isolation: isolate;";
     const list = inert.createElement("ol");
+    // One item per term-bank row, as Yomitan's {glossary} template emits: note
+    // types page by li[data-dictionary] and pad any nested list (#359).
     for (const [name, glossaries] of selected) {
-      const page = inert.createElement("li");
-      page.dataset.dictionary = name;
-      if (glossaries.length === 1) page.append(entry(glossaries[0], brief, noDictionary, pending));
-      else {
-        const senses = inert.createElement("ul");
-        for (const glossary of glossaries) { const sense = inert.createElement("li"); sense.append(entry(glossary, brief, noDictionary, pending)); senses.append(sense); }
-        page.append(senses);
+      for (const glossary of glossaries) {
+        const page = inert.createElement("li");
+        page.dataset.dictionary = name;
+        page.append(entry(glossary, brief, noDictionary, pending));
+        list.append(page);
       }
-      list.append(page);
     }
     root.append(list);
     appendStyles(root, selected);
-    if (!brief) appendDetails(root);
+    // Yomitan's {glossary} has no footer; {part-of-speech} and {conjugation}
+    // carry this information, so compact fields leave it out (#399).
+    if (!brief && !compact) appendDetails(root);
     await Promise.all(pending);
+    if (compact) return compactAnkiGlossary(document, root);
+    applyClassStyles(list);
     return root.outerHTML;
   };
 }

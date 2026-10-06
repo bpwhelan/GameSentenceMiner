@@ -387,7 +387,9 @@ export async function startDetachedAgentHookSession(
                 if (metadata) state = await connectWithMetadata(metadata);
             }
             if (state?.startResult && !state.startResult.success) return state.startResult;
-            if (cachedStatus?.running) {
+            // A Frida session exists before script.load() finishes. Only the
+            // completed start result proves that the game hooks are installed.
+            if (state?.startResult?.success && cachedStatus?.running) {
                 return {
                     success: true,
                     pid: cachedStatus.pid,

@@ -671,6 +671,7 @@
     for (; i < overlaySegments.length; i++) {
       overlaySegments[i].style.display = 'none';
     }
+    window.GSMWindowOcclusion?.refresh(overlayLayer);
   }
 
   function hideAllSegments() {

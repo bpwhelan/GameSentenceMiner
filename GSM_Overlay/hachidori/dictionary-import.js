@@ -99,3 +99,44 @@ export function describeRevisionComparison(imported, installed) {
       return "Hachidori cannot compare these revision values. Choose how to import the archive.";
   }
 }
+
+// What a successful MDX import left out, from the engine's counts, adapted from
+// manabitan's MDict conversion notes (mdict-import-feedback.js). They are notes,
+// not errors: the dictionary is installed. A Yomitan ZIP reports zeros.
+const MDX_IMPORT_NOTES = Object.freeze([
+  {
+    key: "skippedRecordCount",
+    singular: "definition record could not be read and was skipped.",
+    plural: "definition records could not be read and were skipped.",
+    advice: "The imported dictionary is incomplete; try another copy of the .mdx file.",
+  },
+  {
+    key: "unresolvedRedirectCount",
+    singular: "redirect alias could not be resolved.",
+    plural: "redirect aliases could not be resolved.",
+    advice: "These aliases may not appear in search results; their target definitions may still be available.",
+  },
+  {
+    key: "missingResourceCount",
+    singular: "referenced resource was not included.",
+    plural: "referenced resources were not included.",
+    advice: "Choose the .mdx together with all of its .mdd files to include available images and styles. "
+      + "This does not count missing definitions.",
+  },
+  {
+    key: "unreadableResourceCount",
+    singular: "resource in the .mdd files could not be read.",
+    plural: "resources in the .mdd files could not be read.",
+    advice: "Some images or styles are missing. Check that every .mdd belongs to this dictionary and is complete.",
+  },
+]);
+
+export function mdxImportNotes(report, numberFormat = new Intl.NumberFormat()) {
+  const notes = [];
+  for (const { key, singular, plural, advice } of MDX_IMPORT_NOTES) {
+    const count = report?.[key];
+    if (!Number.isSafeInteger(count) || count <= 0) continue;
+    notes.push(`${numberFormat.format(count)} ${count === 1 ? singular : plural} ${advice}`);
+  }
+  return notes;
+}

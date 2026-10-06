@@ -48,3 +48,14 @@ def test_load_config_strips_legacy_ocr_websocket_port(tmp_path, monkeypatch):
     loaded = configuration.load_config()
 
     assert not hasattr(loaded.configs["Default"].advanced, "ocr_websocket_port")
+
+
+def test_stats_config_defaults_to_english_tadoku_titles_for_existing_configs():
+    assert configuration.StatsConfig.from_dict({}).tadoku_title_source == "english"
+
+
+@pytest.mark.parametrize("title_source", ["english", "original", "romaji"])
+def test_stats_config_preserves_tadoku_title_source(title_source):
+    config = configuration.StatsConfig(tadoku_title_source=title_source)
+
+    assert configuration.StatsConfig.from_dict(config.to_dict()).tadoku_title_source == title_source

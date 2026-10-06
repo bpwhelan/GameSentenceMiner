@@ -1,8 +1,51 @@
 import io
 import json
 import threading
+from types import SimpleNamespace
+
+import pytest
 
 from GameSentenceMiner.util.communication import ocr_ipc
+
+
+def test_announce_stopped_does_not_join_outbox_on_bus_callback_thread(monkeypatch):
+    events = []
+    monkeypatch.setattr(ocr_ipc, "send_event", lambda event: events.append(event))
+
+    def unexpected_join():
+        pytest.fail("The bus callback must remain free to process delivery acknowledgements")
+
+    monkeypatch.setattr(ocr_ipc, "stop_text_ingress_outbox", unexpected_join)
+    ocr_ipc.announce_stopped()
+    assert events == ["stopped"]
+
+
+@pytest.mark.parametrize("outbox_fails", [False, True])
+def test_stop_listener_drains_outbox_before_bus_and_prevents_late_results(monkeypatch, outbox_fails):
+    calls = []
+    monkeypatch.setattr(ocr_ipc, "_stopping", False)
+    monkeypatch.setattr(ocr_ipc, "_command_handler", lambda _cmd: None)
+    monkeypatch.setattr(ocr_ipc, "_use_bus", lambda: True)
+    monkeypatch.setattr(ocr_ipc.bus_client, "get_bus", lambda: SimpleNamespace(stop=lambda: calls.append("bus")))
+
+    def drain():
+        calls.append("outbox")
+        if outbox_fails:
+            raise RuntimeError("outbox failed")
+        return True
+
+    monkeypatch.setattr(ocr_ipc, "stop_text_ingress_outbox", drain)
+    if outbox_fails:
+        with pytest.raises(RuntimeError, match="outbox failed"):
+            ocr_ipc.stop_ipc_listener()
+    else:
+        ocr_ipc.stop_ipc_listener()
+
+    assert calls == ["outbox", "bus"]
+    assert ocr_ipc._command_handler is None
+    ocr_ipc.announce_ocr_result("late result")
+    assert ocr_ipc.get_text_ingress_outbox() is None
+    assert calls == ["outbox", "bus"]
 
 
 def test_send_event_prints_structured_payload(monkeypatch):

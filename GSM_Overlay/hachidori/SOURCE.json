@@ -1,12 +1,16 @@
 {
   "name": "Hachidori",
   "repository": "https://github.com/bee-san/hachidori",
-  "commit": "23710ccd0dfaaea5ceb97dabe3a50aede1822c42",
+  "commit": "991c48cd4c7ed65b946a4b42e7a5d7e5a770ddd1",
+  "gsmIntegration": {
+    "version": 1,
+    "sha256": "a3cd7aaf54ed96d31991ac10d48f950224fb13f75b503f1882544d289b7a293f"
+  },
   "release": {
-    "tag": "0.1.6",
-    "id": 394352215,
-    "publishedAt": "2026-09-23T06:34:02Z",
-    "url": "https://github.com/bee-san/hachidori/releases/tag/0.1.6"
+    "tag": "0.2.3",
+    "id": 403841208,
+    "publishedAt": "2026-10-05T15:00:42Z",
+    "url": "https://github.com/bee-san/hachidori/releases/tag/0.2.3"
   },
   "sourceDirectory": "extension",
   "license": "GPL-3.0-or-later",
@@ -15,9 +19,5 @@
     "overlay-mode.js enables overlay mode: hover lookups, no word highlight, and no first-run setup page.",
     "README.md is left out.",
     "gsm/ contains GSM-owned bridge and navigation modules; content.js has generated integration hooks."
-  ],
-  "gsmIntegration": {
-    "version": 1,
-    "sha256": "3ef75792698bdf5677b7af31cef11048f60958407fc153534499d2d9b0ef9934"
-  }
+  ]
 }

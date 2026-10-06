@@ -32,6 +32,20 @@
         </small>
     </div>
 
+    <div class="form-group" style="margin: 15px 0;">
+        <label class="form-label" for="tadoku_title_source">Title to send to Tadoku</label>
+        <select id="tadoku_title_source" name="tadoku_title_source" class="form-input"
+            aria-describedby="tadokuTitleSourceHelp">
+            <option value="english">English title</option>
+            <option value="original">Original title</option>
+            <option value="romaji">Romaji title</option>
+        </select>
+        <small id="tadokuTitleSourceHelp" style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+            Choose the default title for manual and daily sync. Save this preference for daily sync.
+            If that title is missing, GSM uses another saved title or the game/scene name.
+        </small>
+    </div>
+
     <label style="display: flex; align-items: center; gap: 8px; margin-top: 16px; color: var(--text-primary); font-weight: 600;">
         <input type="checkbox" id="tadoku_daily_sync_enabled">
         Sync to Tadoku once per day

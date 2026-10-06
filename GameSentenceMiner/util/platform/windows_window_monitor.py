@@ -30,7 +30,10 @@ EVENT_SYSTEM_MOVESIZEEND = 0x000B
 EVENT_SYSTEM_MINIMIZESTART = 0x0016
 EVENT_SYSTEM_MINIMIZEEND = 0x0017
 EVENT_OBJECT_DESTROY = 0x8001
+EVENT_OBJECT_SHOW = 0x8002
+EVENT_OBJECT_HIDE = 0x8003
 EVENT_OBJECT_REORDER = 0x8004
+EVENT_OBJECT_LOCATIONCHANGE = 0x800B
 WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
 WM_QUIT = 0x0012
@@ -193,6 +196,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # cleared (e.g. an exclusive-fullscreen game going non-visible while minimized) so
         # focus restore can still re-activate it. See activate_target_window.
         self.last_known_target_hwnd: Optional[int] = None
+        # Browser titles follow the active tab. Remember a positively matched
+        # foreground window for this source instead of reselecting by process.
+        self._browser_target_hwnd: int | None = None
+        self._browser_target_pid: int = 0
         self.hidden_due_to_no_output: bool = False
         self.state_before_no_output_hide: Optional[str] = None
         self.is_fullscreen_before_no_output_hide: bool = False
@@ -242,6 +249,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # Win32 event hook state
         # True whenever the desktop Z-order may have changed; gates _is_window_obscured.
         self._zorder_dirty: bool = True
+        self.occlusion_rects: List[Tuple[int, int, int, int]] = []
+        self.last_window_state_payload: Optional[dict] = None
         self._target_destroyed: bool = False
         self._event_hook_proc: Optional[WinEventProcType] = None
         self._event_hook_handles: List[int] = []
@@ -252,6 +261,22 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self._start_event_hooks()
 
     # --- Win32 event hooks ---
+
+    def _on_window_event(self, event, hwnd, id_object, id_child) -> None:
+        if event in (
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_MINIMIZESTART,
+            EVENT_SYSTEM_MINIMIZEEND,
+            EVENT_SYSTEM_MOVESIZEEND,
+        ):
+            self._zorder_dirty = True
+        elif id_object == 0 and id_child == 0:
+            # Ignore caret/control movement. Top-level changes share the existing
+            # dirty flag and are coalesced by the window monitor's normal poll.
+            if event == EVENT_OBJECT_REORDER or hwnd:
+                self._zorder_dirty = True
+            if event == EVENT_OBJECT_DESTROY and hwnd and hwnd == self.target_hwnd:
+                self._target_destroyed = True
 
     def _start_event_hooks(self) -> None:
         """Start the dedicated thread that owns the Win32 event hook message pump."""
@@ -286,18 +311,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         def _on_event(hook, event, hwnd, id_object, id_child, id_event_thread, dwms_event_time):
             try:
-                target = self.target_hwnd
-                if event == EVENT_OBJECT_REORDER:
-                    self._zorder_dirty = True
-                elif event in (EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND):
-                    self._zorder_dirty = True
-                elif event == EVENT_OBJECT_DESTROY:
-                    if target and hwnd and int(hwnd) == int(target):
-                        self._target_destroyed = True
-                        self._zorder_dirty = True
-                elif event == EVENT_SYSTEM_MOVESIZEEND:
-                    # Window finished moving/resizing; let next poll pick up new rect.
-                    self._zorder_dirty = True
+                self._on_window_event(event, hwnd, id_object, id_child)
             except Exception:
                 pass
 
@@ -309,8 +323,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             user32.SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None, proc, 0, 0, flags),
             user32.SetWinEventHook(EVENT_SYSTEM_MOVESIZEEND, EVENT_SYSTEM_MOVESIZEEND, None, proc, 0, 0, flags),
             user32.SetWinEventHook(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, None, proc, 0, 0, flags),
-            user32.SetWinEventHook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_DESTROY, None, proc, 0, 0, flags),
+            user32.SetWinEventHook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE, None, proc, 0, 0, flags),
             user32.SetWinEventHook(EVENT_OBJECT_REORDER, EVENT_OBJECT_REORDER, None, proc, 0, 0, flags),
+            user32.SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, None, proc, 0, 0, flags),
         ]
         self._event_hook_handles = [h for h in hooks if h]
         self._event_hook_thread_id = kernel32.GetCurrentThreadId()
@@ -735,12 +750,71 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         except Exception:
             return False
 
+    def _reset_capture_target(self) -> None:
+        self.target_hwnd = None
+        self.last_known_target_hwnd = None
+        self._browser_target_hwnd = None
+        self._browser_target_pid = 0
+        self.retry_find_count = 0
+        self.ever_had_target_hwnd = False
+        self._capture_target_changed_at = time.time()
+        self.last_state = "unknown"
+        self.last_window_rect = None
+        self.occlusion_rects = []
+        self.last_window_state_payload = None
+        self._zorder_dirty = True
+        self.hidden_due_to_no_output = False
+        if self.overlay_processor:
+            self.overlay_processor.obs_width = None
+            self.overlay_processor.obs_height = None
+
+    def _browser_window_matches_source(self, hwnd: int) -> bool:
+        return bool(
+            hwnd
+            and user32.IsWindow(hwnd)
+            and self._is_browser_window(hwnd)
+            and _exe_names_match(self._get_window_exe_name(hwnd), self.last_target_info.get("exe", ""))
+            and self._get_window_class(hwnd) == self.last_target_info.get("window_class")
+        )
+
+    def _find_browser_target_hwnd(self) -> int | None:
+        hwnd = self._browser_target_hwnd
+        if hwnd:
+            if _get_pid_for_hwnd(hwnd) == self._browser_target_pid and self._browser_window_matches_source(hwnd):
+                return hwnd
+            self._browser_target_hwnd = None
+            self._browser_target_pid = 0
+            self.target_hwnd = None
+            self.last_known_target_hwnd = None
+
+        # Sharing an executable/class is insufficient: every browser window,
+        # popup and profile may share them. Only learn a focused title match.
+        hwnd = user32.GetForegroundWindow()
+        title = self.last_target_info.get("title", "")
+        if (
+            not title
+            or not self._browser_window_matches_source(hwnd)
+            or not user32.IsWindowVisible(hwnd)
+            or user32.IsIconic(hwnd)
+            or self._get_window_title(hwnd).strip().casefold() != title.strip().casefold()
+        ):
+            return None
+        pid = _get_pid_for_hwnd(hwnd)
+        if not pid:
+            return None
+        self._browser_target_hwnd = hwnd
+        self._browser_target_pid = pid
+        return hwnd
+
     def _is_window_obscured(self, hwnd) -> bool:
         """Check if the window is mostly obscured by other windows.
 
         Uses padding to account for taskbar and other UI elements that might
         prevent a window from being 100% covered but still effectively obscure the game.
         """
+        # Retain rectangles already fetched by this walk for partial coverage.
+        # Keep full desktop coordinates (also valid for Magpie-rendered text).
+        self.occlusion_rects = []
         try:
             target_rect = get_window_rect_physical(hwnd)
             if not target_rect:
@@ -770,10 +844,12 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                     current_hwnd = user32.GetWindow(current_hwnd, GW_HWNDPREV)
                     continue
 
-                if user32.IsWindowVisible(current_hwnd):
+                if user32.IsWindowVisible(current_hwnd) and not user32.IsIconic(current_hwnd):
                     overlapping_rect = get_window_rect_physical(current_hwnd)
                     if overlapping_rect:
                         overlap_left, overlap_top, overlap_right, overlap_bottom = overlapping_rect
+                        if overlap_right > overlap_left and overlap_bottom > overlap_top:
+                            self.occlusion_rects.append(overlapping_rect)
                         if (
                             overlap_left <= padded_target_left
                             and overlap_top <= padded_target_top
@@ -786,6 +862,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
             return False
         except Exception as e:
+            self.occlusion_rects = []
             logger.debug(f"Error checking window occlusion: {e}")
             return False
 
@@ -1017,21 +1094,29 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         }
 
     def find_target_hwnd(self) -> Optional[int]:
+        current_scene = get_current_scene()
         try:
-            window_info = get_window_info_from_source(scene_name=get_current_scene())
+            window_info = get_window_info_from_source(scene_name=current_scene) or {}
         except Exception as e:
             logger.exception(f"Error getting window info from source: {e}")
-            window_info = None
+            window_info = {}
 
         current_game = get_current_game()
 
-        if not window_info and not current_game:
-            return None
+        if current_scene != self.last_target_scene_name or window_info != self.last_target_info:
+            self._reset_capture_target()
 
-        self.last_target_info = window_info if window_info else {}
-        self.last_target_scene_name = get_current_scene()
+        self.last_target_info = window_info
+        self.last_target_scene_name = current_scene
         self.last_game_name = current_game if current_game else ""
         self.found_hwnds = []
+
+        # Display/capture-card sources have no window identity. A scene-name
+        # title match must not enable window positioning or input forwarding.
+        if not window_info:
+            return None
+        if _exe_name_matches_set(window_info.get("exe", ""), self.BROWSER_EXES):
+            return self._find_browser_target_hwnd()
 
         # UWP/Store titles host their window in an ApplicationFrameWindow that EnumWindows does
         # not return; resolve it via the desktop child list before the normal enumeration.
@@ -1294,6 +1379,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 "target_client_rect": None,
             }
 
+            self.last_window_state_payload = payload
             if websocket_manager.has_clients(ID_OVERLAY):
                 await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
             return
@@ -1327,6 +1413,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "obs_output_active": True,
         }
 
+        self.last_window_state_payload = payload
         if websocket_manager.has_clients(ID_OVERLAY):
             await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
 
@@ -1357,6 +1444,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "target_client_rect": None,
         }
 
+        self.last_window_state_payload = payload
         if websocket_manager.has_clients(ID_OVERLAY):
             await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
 
@@ -1393,6 +1481,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "obs_output_active": self._obs_reports_output(),
         }
 
+        self.last_window_state_payload = payload
         if websocket_manager.has_clients(ID_OVERLAY):
             await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
 
@@ -1435,6 +1524,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         if self._target_destroyed:
             self._target_destroyed = False
             self.target_hwnd = None
+            self.last_known_target_hwnd = None
+            self._browser_target_hwnd = None
+            self._browser_target_pid = 0
 
         now = time.time()
         monitor_topology_changed = False
@@ -1452,32 +1544,22 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                         logger.info(
                             f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions."
                         )
-                    self.overlay_processor.obs_width = None
-                    self.overlay_processor.obs_height = None
-                    self.target_hwnd = None
-                    self.retry_find_count = 0
+                    self._reset_capture_target()
                     self.last_target_info = {}
                     self.last_target_scene_name = None
-                    self.ever_had_target_hwnd = False
-                    self._capture_target_changed_at = now
                     scene_changed = True
                     self.last_scene_name = current_scene
 
                 lookup_scene = current_scene or self.last_scene_name
                 new_info = (get_window_info_from_source(scene_name=lookup_scene) if lookup_scene else None) or {}
 
-                if any(new_info.get(key) != self.last_target_info.get(key) for key in ("title", "window_class", "exe")):
+                if new_info != self.last_target_info:
                     logger.info(
                         f"OBS Source changed from '{self.last_target_info.get('title')}' to '{new_info.get('title')}' - Resetting target."
                     )
-                    self.target_hwnd = None
-                    self.retry_find_count = 0
-                    self.last_target_info = {}
-                    self.last_target_scene_name = None
-                    self.ever_had_target_hwnd = False
-                    self._capture_target_changed_at = now
-                    self.overlay_processor.obs_width = None
-                    self.overlay_processor.obs_height = None
+                    self._reset_capture_target()
+                    self.last_target_info = new_info
+                    self.last_target_scene_name = lookup_scene
             except Exception:
                 pass
 
@@ -1500,6 +1582,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             self._zorder_dirty = True
 
         if not self.target_hwnd:
+            self.occlusion_rects = []
             self.retry_find_count += 1
             if self.ever_had_target_hwnd:
                 # We had the window and lost it — the game is gone, hide now.
@@ -1516,30 +1599,31 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         current_state = "unknown"
         current_rect = None
         is_fullscreen = False
+        previous_occlusion_rects = self.occlusion_rects
 
         if user32.IsIconic(self.target_hwnd):
             current_state = "minimized"
+            self.occlusion_rects = []
             self._zorder_dirty = False  # no point checking Z-order while minimized
         elif not user32.IsWindowVisible(self.target_hwnd):
             self.target_hwnd = None
             current_state = "closed"
+            self.occlusion_rects = []
         else:
             foreground_hwnd = user32.GetForegroundWindow()
+            current_rect = get_window_rect_physical(self.target_hwnd)
+            if self._zorder_dirty or current_rect != self.last_window_rect:
+                # Consume before walking so a concurrent WinEvent isn't lost.
+                self._zorder_dirty = False
+                is_obscured = self._is_window_obscured(self.target_hwnd)
+            else:
+                is_obscured = self.last_state == "obscured"
             if foreground_hwnd == self.target_hwnd:
                 current_state = "active"
-                self._zorder_dirty = False  # game is foreground; can't be obscured
             else:
-                # Only walk the Z-order when something actually changed it.
-                if self._zorder_dirty:
-                    is_obscured = self._is_window_obscured(self.target_hwnd)
-                    self._zorder_dirty = False
-                else:
-                    is_obscured = self.last_state == "obscured"
-
                 current_state = "obscured" if is_obscured else "background"
 
             is_fullscreen = self._is_fullscreen_window(self.target_hwnd)
-            current_rect = get_window_rect_physical(self.target_hwnd)
 
         self._sync_minimized_audio_mute(current_state)
         if current_state == "active" and self.last_state != "active":
@@ -1591,6 +1675,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             or exclusive_fullscreen_changed
             or window_moved_or_resized
             or cursor_hidden_changed
+            or self.occlusion_rects != previous_occlusion_rects
         ):
             logger.debug(
                 f"Window state changed: {self.last_state} -> {current_state} "
@@ -1615,8 +1700,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 "recommend_manual_mode": recommend_manual,
                 "target_window_rect": self._build_window_rect_payload(current_rect),
                 "target_client_rect": self._build_client_rect_payload(),
+                "occlusion_rects": [self._build_window_rect_payload(rect) for rect in self.occlusion_rects],
             }
 
+            self.last_window_state_payload = payload
             if websocket_manager.has_clients(ID_OVERLAY):
                 await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
 

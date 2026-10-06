@@ -1,0 +1,39 @@
+/* Independent Nazeka layout; Default reader.css is never loaded beneath it.
+ * Adapted from wareya/nazeka get_style(), copyright 2017 wareya, Apache-2.0.
+ * SPDX-License-Identifier: GPL-3.0-or-later */
+:host { color-scheme: dark; --hoshidicts-accent: #aaf; --hoshidicts-text: #ddd; }
+.gsm-hoshidicts-popup {
+  position: fixed; z-index: 2147483647; pointer-events: auto;
+  box-sizing: border-box; overflow: hidden; padding: 5px;
+  color: #ccc; background: #111; border: 1px solid #ccc; border-radius: 3px;
+  font: 13px/1.45 "Noto Sans CJK JP", "Noto Sans JP", Meiryo, sans-serif; text-align: left; white-space: normal;
+  zoom: calc(var(--gsm-hoshidicts-page-zoom, 1) * var(--gsm-hoshidicts-popup-scale, 100%));
+}
+.gsm-hoshidicts-popup [hidden], .gsm-hoshidicts-popup[hidden] { display: none !important; }
+.nazeka-scroll { height: 100%; overflow: auto; overscroll-behavior: contain; }
+.nazeka-original { float: right; margin-right: 2px; margin-left: 4px; max-width: 70%; opacity: .7; font-size: 12px; }
+.nazeka-lookup { color: #99ddff; font-weight: 400; }
+.nazeka-main-keb { white-space: nowrap; }
+.gsm-hoshidicts-entry { padding: 3px 0 7px; }
+.nazeka-word { color: #99ddff; font-size: 18px; }
+.nazeka-reading { color: #99ff99; font-size: 15px; white-space: nowrap; }
+.nazeka-deconj, .nazeka-frequency { color: #ccc; font-size: 12px; }
+.nazeka-dictionary { color: #aaa; font-size: 11px; }
+.nazeka-sense { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gsm-hoshidicts-entry-actions { display: inline-flex; margin-left: 3px; vertical-align: text-bottom; }
+.gsm-hoshidicts-entry-actions:empty { display: none; }
+.gsm-hoshidicts-audio-control { display: inline-flex; position: relative; margin-left: 3px; vertical-align: text-bottom; }
+.gsm-hoshidicts-popup button { color: inherit; background: #252525; border: 1px solid #777; border-radius: 3px; cursor: pointer; font: inherit; }
+.gsm-hoshidicts-popup .gsm-hoshidicts-kanji-link { padding: 0; background: none; border: 0; color: inherit; }
+.gsm-hoshidicts-popup button:focus-visible, .gsm-hoshidicts-entry:focus-visible { outline: 2px solid #aaf; outline-offset: 2px; }
+.gsm-hoshidicts-popup .gsm-hoshidicts-audio-button, .gsm-hoshidicts-popup .gsm-hoshidicts-mine-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; background: transparent; color: #ccc;
+}
+.gsm-hoshidicts-popup .gsm-hoshidicts-audio-button:hover, .gsm-hoshidicts-popup .gsm-hoshidicts-mine-button:hover { color: #99ddff; }
+.gsm-hoshidicts-audio-menu { position: absolute; right: 8px; top: 32px; z-index: 2; min-width: 180px; max-height: calc(100% - 48px); overflow: auto; background: #222; border: 1px solid #aaa; padding: 6px; }
+.gsm-hoshidicts-audio-menu button { display: block; width: 100%; }
+.gsm-hoshidicts-anki-feedback { color: #99ff99; font-size: 12px; }
+.nazeka-scroll[data-definition-blur="pending"] .gsm-hoshidicts-definitions,
+.nazeka-scroll[data-definition-blur="blurred"] .gsm-hoshidicts-definitions { filter: blur(5px); }
+.gsm-hoshidicts-resize-handle { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; }

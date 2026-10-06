@@ -446,7 +446,7 @@ def test_preserve_html_tags_mismatch_warns(stub_config):
     assert result == "completely unrelated"
 
 
-def test_open_audio_in_external_with_shell(monkeypatch, stub_config):
+def test_open_audio_in_external_preserves_paths_with_legacy_shell_flag(monkeypatch, stub_config):
     calls = []
 
     def fake_popen(cmd, shell=False):
@@ -454,8 +454,9 @@ def test_open_audio_in_external_with_shell(monkeypatch, stub_config):
         return None
 
     monkeypatch.setattr(gsm_utils.subprocess, "Popen", fake_popen)
-    gsm_utils.open_audio_in_external("c:/audio.mp3", shell=True)
-    assert calls[0][1] is True
+    audio_path = "c:/Audio files/%USERPROFILE% & clip.mp3"
+    gsm_utils.open_audio_in_external(audio_path, shell=True)
+    assert calls == [(["tool.exe", audio_path], False)]
 
 
 def test_wait_for_stable_file_becomes_stable(tmp_path):

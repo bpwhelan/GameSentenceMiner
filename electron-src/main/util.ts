@@ -7,6 +7,7 @@ import {execFile, spawn, execSync} from "child_process";
 import { app, type WebPreferences } from "electron";
 import {__dirname} from "./main.js";
 import { getBaseDir } from "./data_dir.js";
+import { buildWindowsElevationCommand } from './windows_command_line.js';
 
 export type SupportedPlatform = 'linux' | 'darwin' | 'win32';
 export const isMac = process.platform === 'darwin';
@@ -265,16 +266,17 @@ export function getSanitizedPythonEnv(): NodeJS.ProcessEnv {
     return env;
 }
 
-import {exec} from "child_process";
-
 export async function getPidByProcessName(processName: string): Promise<number> {
     return new Promise((resolve, reject) => {
         let command: string;
+        let args: string[];
 
         if (process.platform === "win32") {
-            command = `tasklist /FI "IMAGENAME eq ${processName}" /FO CSV /NH`;
+            command = 'tasklist';
+            args = ['/FI', `IMAGENAME eq ${processName}`, '/FO', 'CSV', '/NH'];
         } else {
-            command = `pgrep ${processName}`;
+            command = 'pgrep';
+            args = [`^${processName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`];
         }
 
         const startTime = Date.now();
@@ -282,7 +284,7 @@ export async function getPidByProcessName(processName: string): Promise<number> 
         const timeout = 5000; // Timeout after 5 seconds (Reduced from 30s for quick check)
 
         const tryGetPid = () => {
-            exec(command, (error, stdout) => {
+            execFile(command, args, (error, stdout) => {
                 if (error) {
                     if (Date.now() - startTime >= timeout) {
                         return resolve(-1);
@@ -386,11 +388,7 @@ export function restartAsAdmin(): void {
 
     if (isWindows()) {
         // Use PowerShell Start-Process with -Verb RunAs to trigger UAC.
-        const escapedPath = appPath.replace(/'/g, "''");
-        const argList = args.length > 0
-            ? `-ArgumentList '${args.map(a => a.replace(/'/g, "''")).join("','")}'`
-            : '';
-        const psCommand = `Start-Process -FilePath '${escapedPath}' ${argList} -Verb RunAs`;
+        const psCommand = buildWindowsElevationCommand(appPath, args);
 
         execFile(
             'powershell.exe',

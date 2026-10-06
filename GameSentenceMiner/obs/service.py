@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import os
 import socket
 import threading
 import time
@@ -13,12 +14,15 @@ from obsws_python.util import to_snake_case
 
 from GameSentenceMiner.util.config.configuration import (
     get_config,
-    get_master_config,
     gsm_state,
     gsm_status,
     is_windows,
     logger,
-    save_full_config,
+)
+from GameSentenceMiner.util.media_paths import (
+    get_writable_media_directory,
+    same_directory,
+    set_gsm_recording_directory,
 )
 from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
 from GameSentenceMiner.util.concurrency.scheduler import (
@@ -313,6 +317,7 @@ class OBSService:
         self._event_callbacks: Dict[str, Callable] = {}
         self._handler_accepts_event_name: Dict[Callable, bool] = {}
         self._scene_observed_handlers: List[Callable[[str], None]] = []
+        self._recording_directory_handlers: list[Callable[[str], None]] = []
 
         # Replay buffer management
         self._replay_buffer_action_pending: Optional[bool] = None
@@ -479,12 +484,26 @@ class OBSService:
             except Exception as e:
                 logger.debug(f"Scene observed handler failed for '{scene_name}': {e}")
 
+    def on_recording_directory_changed(self, handler: Callable[[str], None]):
+        if handler not in self._recording_directory_handlers:
+            self._recording_directory_handlers.append(handler)
+
+    def _notify_recording_directory_changed(self, directory: str):
+        for handler in list(self._recording_directory_handlers):
+            try:
+                handler(directory)
+            except Exception:
+                logger.exception(f"Could not update GSM's recording file watcher to {directory!r}")
+
     # -- state init ----------------------------------------------------------
 
     def _initialize_state(self):
         try:
 
             def _init(client):
+                if self.check_output:
+                    _sync_obs_recording_directory(client, service=self)
+
                 response = client.get_current_program_scene()
                 scene_name = response.scene_name if response else ""
                 with self._state_lock:
@@ -972,8 +991,19 @@ class OBSService:
                     self._source_no_output_timestamp = None
             return
 
-        # A focus change wakes the OBS manager between its usual screenshot probes.
-        # For ordinary auto-starts, confirm OBS has output before starting the buffer.
+        # Use the same game detection as overlay/hook automation. A captured live
+        # window is enough to start buffering, including during a black loading
+        # screen or between the periodic OBS output probes.
+        if source_active is not True:
+            from GameSentenceMiner.obs.active_game import get_active_game_snapshot
+            from GameSentenceMiner.util.platform.window_state_monitor import get_window_state_monitor
+
+            snapshot = get_active_game_snapshot(get_window_state_monitor())
+            if snapshot["sceneName"] == current_scene and snapshot["active"] is True:
+                source_active = True
+
+        # If game detection is still inconclusive, a focus change can confirm OBS
+        # output without waiting for the next scheduled screenshot probe.
         if window_activity == "active" and previous_window_activity != "active" and source_active is None:
             try:
                 source_active = self._is_output_active_from_screenshot()
@@ -1285,7 +1315,7 @@ class OBSConnectionManager(threading.Thread):
         self.last_tick_time = 0
 
     def request_tick(self) -> None:
-        """Wake the OBS loop after a tracked game-window state change."""
+        """Wake the OBS loop after game detection or a tracked window-state change."""
         self._wake_event.set()
 
     def _recover_obs_connection(self) -> bool:
@@ -1356,7 +1386,7 @@ class OBSConnectionManager(threading.Thread):
         import GameSentenceMiner.obs as _obs_pkg
 
         disconnect_sleep_manager = SleepManager(initial_delay=2.0, name="OBS_Disconnect")
-        if self._stop_event.wait(5):
+        if self._stop_event.is_set():
             return
 
         # Initial periodic work
@@ -1447,10 +1477,6 @@ async def connect_to_obs(
                 gsm_status.obs_connected = True
                 logger.success("Connected to OBS WebSocket.")
 
-                if start_manager and not _obs_pkg.obs_connection_manager:
-                    _obs_pkg.obs_connection_manager = OBSConnectionManager(check_output=check_output)
-                    _obs_pkg.obs_connection_manager.start()
-
                 try:
                     from GameSentenceMiner.obs.actions import update_current_game
 
@@ -1464,6 +1490,11 @@ async def connect_to_obs(
                     apply_obs_performance_settings()
                 except Exception:
                     pass
+
+                # Configure outputs before the manager's immediate replay check.
+                if start_manager and not _obs_pkg.obs_connection_manager:
+                    _obs_pkg.obs_connection_manager = OBSConnectionManager(check_output=check_output)
+                    _obs_pkg.obs_connection_manager.start()
 
                 if get_config().features.generate_longplay and check_output and not _is_obs_recording_disabled():
                     try:
@@ -1519,10 +1550,6 @@ def connect_to_obs_sync(
                 gsm_status.obs_connected = True
                 logger.success("Connected to OBS WebSocket.")
 
-                if start_manager and not _obs_pkg.obs_connection_manager:
-                    _obs_pkg.obs_connection_manager = OBSConnectionManager(check_output=check_output)
-                    _obs_pkg.obs_connection_manager.start()
-
                 try:
                     from GameSentenceMiner.obs.actions import update_current_game
 
@@ -1536,6 +1563,11 @@ def connect_to_obs_sync(
                     apply_obs_performance_settings()
                 except Exception:
                     pass
+
+                # Configure outputs before the manager's immediate replay check.
+                if start_manager and not _obs_pkg.obs_connection_manager:
+                    _obs_pkg.obs_connection_manager = OBSConnectionManager(check_output=check_output)
+                    _obs_pkg.obs_connection_manager.start()
 
                 if get_config().features.generate_longplay and check_output and not _is_obs_recording_disabled():
                     try:
@@ -1589,24 +1621,75 @@ async def wait_for_obs_connected():
     return False
 
 
-async def check_obs_folder_is_correct():
-    if await wait_for_obs_connected():
+def _restart_replay_buffer_for_directory(client, service):
+    try:
+        replay_active = bool(client.get_replay_buffer_status().output_active)
+    except obs.error.OBSSDKRequestError as error:
+        if error.code == 500:  # OutputDisabled: no replay buffer needs restarting.
+            return
+        raise
+    if not replay_active:
+        return
+
+    # OBS stores the new path in its profile, but a running replay output keeps
+    # the old directory until restarted. Do not stop an active recording.
+    if service:
+        service.mark_replay_buffer_action(False)
+    client.stop_replay_buffer()
+    deadline = time.monotonic() + 3.0
+    while client.get_replay_buffer_status().output_active:
+        if time.monotonic() >= deadline:
+            raise RuntimeError("Replay buffer did not stop; restart OBS to use the backup folder")
+        time.sleep(0.05)
+    if service:
+        service.mark_replay_buffer_action(True)
+    client.start_replay_buffer()
+    if service:
+        with service._state_lock:
+            service.state.replay_buffer_active = True
+        service._auto_start_paused_by_external_replay_stop = False
+    gsm_state.replay_buffer_stopped_timestamp = None
+
+
+def _sync_obs_recording_directory(client, service=None):
+    response = client.get_record_directory()
+    if response is None:
+        raise RuntimeError("OBS did not return its recording folder")
+    obs_directory = response.record_directory
+    directory = get_writable_media_directory(obs_directory, "recordings")
+    using_fallback = not same_directory(obs_directory, directory)
+    if using_fallback:
+        # OBS's API saves both Simple and Advanced recording paths. Forward
+        # slashes also keep Windows usernames safe from INI escape decoding.
+        obs_safe_directory = directory.replace("\\", "/") if os.name == "nt" else directory
         try:
-            from GameSentenceMiner.obs.actions import get_record_directory
+            client.set_record_directory(obs_safe_directory)
+            response = client.get_record_directory()
+            if response is None or not same_directory(response.record_directory, directory):
+                raise RuntimeError("OBS did not accept the backup recording folder")
+        except Exception as error:
+            raise RuntimeError(
+                f"Could not switch OBS from {obs_directory!r} to {directory!r}: {error}. "
+                "Stop recording and select the backup folder in OBS Settings > Output."
+            ) from error
+    previous_directory = get_config().paths.folder_to_watch
+    set_gsm_recording_directory(directory)
+    if service and not same_directory(previous_directory, directory):
+        service._notify_recording_directory_changed(directory)
+    if using_fallback:
+        _restart_replay_buffer_for_directory(client, service)
+        logger.warning(f"OBS recording folder was unavailable; switched OBS and GSM to {directory!r}")
 
-            obs_record_directory = get_record_directory()
-            if obs_record_directory and os.path.normpath(obs_record_directory) != os.path.normpath(
-                get_config().paths.folder_to_watch
-            ):
-                logger.info("OBS Path wrong, Setting OBS Recording folder in GSM Config...")
-                get_config().paths.folder_to_watch = os.path.normpath(obs_record_directory)
-                get_master_config().sync_shared_fields()
-                save_full_config(get_master_config())
-            else:
-                logger.debug("OBS Recording path looks correct")
-        except Exception as e:
-            logger.error(f"Error checking OBS folder: {e}")
+    return True
 
 
-# Needed by check_obs_folder_is_correct
-import os  # noqa: E402
+async def check_obs_folder_is_correct():
+    import GameSentenceMiner.obs as _obs_pkg
+
+    if await wait_for_obs_connected():
+        return _call_with_obs_client(
+            lambda client: _sync_obs_recording_directory(client, service=_obs_pkg.obs_service),
+            default=False,
+            error_msg="Error checking OBS recording folder",
+        )
+    return False

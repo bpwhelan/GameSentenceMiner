@@ -3,22 +3,31 @@ import { reorderSettingsRows } from "./settings-dom.js";
 
 // Labels of the Settings controls that own each toggleable option.
 export const KEYBIND_OPTION_LABELS = {
-  hoverEnabled: "Enable hover lookups",
+  hoverEnabled: "Enable lookups",
   onlyScanJapaneseText: "Japanese text only",
+  personalDictionaryEnabled: "Use the personal dictionary",
   showNoResultNotice: "Show a popup when a selection has no definition",
+  hidePopupOnCursorExit: "Hide popup on cursor exit",
   audioAutoplay: "Automatically play the first lookup result",
   sourceHighlightEnabled: "Highlight the word on the page",
   showPopupAudioButton: "Show the audio button",
   showLookupCounts: "Record and show lookup counts",
-  definitionBlurEnabled: "Blur definitions by lookup count",
+  definitionBlurCountEnabled: "Blur definitions by lookup count",
   definitionBlurAnkiMature: "Blur definitions of mature Anki cards",
-  definitionBlurFrequencyEnabled: "Blur definitions by frequency threshold",
+  definitionBlurFrequencyEnabled: "Blur definitions by frequency",
   showCompactDefinitionSummary: "Show brief definitions beside the headword",
   averageFrequency: "Show frequency averages",
   showFrequencyDictionaryNames: "Show frequency dictionary names",
+  compactFrequencyNumbers: "Abbreviate large frequency numbers",
   showPitchAccentFurigana: "Show pitch in furigana",
   showPitchAccentBadge: "Show pitch badges",
-  hidePopupGrammarTags: "Hide grammar tags",
+  showPitchAccentDictionaryNames: "Show pitch dictionary names",
+  showPitchAccentText: "Show pitch accent text",
+  showPitchAccentPosition: "Show pitch accent position",
+  showPitchAccentGraph: "Show pitch accent graph",
+  showPitchAccentColors: "Show pitch accent colours",
+  // Stored inverted; named like the Settings checkbox it flips.
+  hidePopupGrammarTags: "Show grammar tags",
 };
 const MODIFIER_NAMES = { meta: "Meta", ctrl: "Ctrl", alt: "Alt", shift: "Shift" };
 const SCOPE_LABELS = { popup: "While a popup is open", web: "Anywhere on the page" };
@@ -49,8 +58,8 @@ function renderScopes(row, action, bind) {
 export function createKeybindSettingsController({ document, readKeybinds, editKeybinds, readAudioSources,
   getBrowserCommands, openBrowserShortcuts, browserShortcutsAvailable = true }) {
   const window = document.defaultView;
-  const { KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_MODIFIERS, KEYBIND_MODIFIER_CODES, KEYBIND_SCOPES,
-    KEYBIND_TOGGLE_OPTIONS, AUDIO_SOURCE_LABELS, DEFAULT_OPTIONS } = window.HDReaderOptions;
+  const { KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_MODIFIER_CODES, KEYBIND_SCOPES, KEYBIND_TOGGLE_OPTIONS,
+    AUDIO_SOURCE_LABELS, DEFAULT_OPTIONS, keybindModifiers, keybindWheelKey } = window.HDReaderOptions;
   const actions = new Map(KEYBIND_ACTIONS.map(action => [action.id, action]));
   const list = document.getElementById("keybind-list");
   const rows = [];
@@ -63,16 +72,29 @@ export function createKeybindSettingsController({ document, readKeybinds, editKe
     render();
   }
 
+  function assign(row, key, modifiers) {
+    const bind = readKeybinds()[row.index];
+    if (key !== bind.key || modifiers.join() !== bind.modifiers.join()) change(row, { key, modifiers });
+  }
+
   // Yomitan's key field: every key press replaces the modifiers, and a
   // non-modifier key replaces the key. Plain Tab still moves focus.
   function capture(row, event) {
     if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
-    const bind = readKeybinds()[row.index];
-    const modifiers = KEYBIND_MODIFIERS.filter(modifier => event[`${modifier}Key`] === true);
-    const code = event.code && event.code !== "Unidentified" && !KEYBIND_MODIFIER_CODES.has(event.code) ? event.code : bind.key;
-    if (code === bind.key && modifiers.join() === bind.modifiers.join()) return;
-    change(row, { key: code, modifiers });
+    const code = event.code && event.code !== "Unidentified" && !KEYBIND_MODIFIER_CODES.has(event.code)
+      ? event.code : readKeybinds()[row.index].key;
+    assign(row, code, keybindModifiers(event));
+  }
+
+  // A wheel step with a modifier held over the field being set is a key; a
+  // plain wheel still scrolls Settings.
+  function captureWheel(row, event) {
+    const key = keybindWheelKey(event);
+    const modifiers = keybindModifiers(event);
+    if (key === null || modifiers.length === 0 || document.activeElement !== row.input) return;
+    event.preventDefault();
+    assign(row, key, modifiers);
   }
 
   function createRow() {
@@ -115,6 +137,7 @@ export function createKeybindSettingsController({ document, readKeybinds, editKe
     }));
     row.enabled.addEventListener("change", () => change(row, { enabled: row.enabled.checked }));
     row.input.addEventListener("keydown", event => capture(row, event));
+    row.input.addEventListener("wheel", event => captureWheel(row, event), { passive: false });
     row.clear.addEventListener("click", () => change(row, { key: null, modifiers: [] }));
     row.reset.addEventListener("click", () => {
       const fallback = defaultFor(readKeybinds()[row.index].action);

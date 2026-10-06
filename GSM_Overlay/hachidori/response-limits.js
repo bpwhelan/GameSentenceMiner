@@ -10,7 +10,6 @@ const BOUNDED_REQUESTS = new Set([
   "hd_lookup_dictionary",
   "hd_kanji",
   "hd_media",
-  "hd_capture_asset",
   "hd_options_write",
 ]);
 const responseFrameEncoder = new TextEncoder();
@@ -23,7 +22,7 @@ export function responseLimitError(type) {
   if (type === "hd_options_write" || type === "hd_options_write_result") {
     return "reader options message exceeds the 1 MiB serialized limit";
   }
-  return ["hd_media", "hd_media_result", "hd_capture_asset", "hd_capture_asset_result"].includes(type)
+  return ["hd_media", "hd_media_result"].includes(type)
     ? "media response exceeds the 6 MiB serialized limit"
     : "lookup response exceeds the 32 MiB serialized limit";
 }
@@ -40,10 +39,10 @@ export function responseFits(reply, nativeJsonLength = 0) {
     return json.length * 3 <= MAX_OPTIONS_FRAME_BYTES
       || responseFrameEncoder.encode(json).byteLength <= MAX_OPTIONS_FRAME_BYTES;
   }
-  if (reply.type === "hd_media_result" || reply.type === "hd_capture_asset_result") {
+  if (reply.type === "hd_media_result") {
     // The producer constructs dataUrl only from fixed ASCII MIME strings and
     // base64. Count that payload exactly without serializing/copying it again.
-    const field = reply.type === "hd_media_result" ? "dataUrl" : "data";
+    const field = "dataUrl";
     const dataLength = typeof reply[field] === "string" ? reply[field].length : 0;
     const frame = JSON.stringify(dataLength ? { ...reply, [field]: "" } : reply);
     return frame.length * 3 + dataLength <= MAX_MEDIA_RESPONSE_BYTES

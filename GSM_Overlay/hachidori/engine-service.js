@@ -30,6 +30,11 @@ import {
   dictionaryArchiveIdentity,
   dictionaryImportTarget,
 } from "./dictionary-import.js";
+import { OVERLAY_MODE } from "./overlay-mode.js";
+import { dictionaryImportError, isImportMemoryError, nativeImportCall } from "./dictionary-import-errors.js";
+// HDGlossary.parseTagList: the one U+0020 tag splitter the renderer, Anki and
+// the API host share; and the furigana split that withFurigana completes.
+import "./render/glossary.js";
 
 /*
  * Owns the single hoshidicts engine instance inside a dedicated Web Worker.
@@ -118,6 +123,10 @@ let storageBackend = "memory";
 // pthread runtimes (OPFS or IDBFS) use the bounded worker group, unless the
 // low-memory worker asks for one thread too.
 let lowRam = true;
+// Direct OPFS workers keep entries on disk by default, independently of the
+// import threading and recycler (docs/memory.md).
+let pagedDictionaries = false;
+let dictionaryEntryStorage = "auto";
 // Whether this is a pthread runtime, as hd_status reports it.
 let threaded = false;
 // Optional sink for import download/installation phases, keyed by request ID.
@@ -139,6 +148,8 @@ export function configureEngineService(request, options = {}) {
   createHoshidicts = options.createHoshidicts;
   storageBackend = options.storageBackend ?? "memory";
   lowRam = options.lowRam !== false;
+  pagedDictionaries = options.pagedDictionaries === true;
+  dictionaryEntryStorage = options.dictionaryEntryStorage ?? "auto";
   threaded = options.threaded ?? !lowRam;
   reportProgress = typeof options.reportProgress === "function" ? options.reportProgress : null;
   isolatedImport = typeof options.isolatedImport === "function" ? options.isolatedImport : null;
@@ -235,6 +246,104 @@ function termLookupReply(json, source) {
   return { results: parsed.results, dictionaryCount: parsed.dictionaryCount, nativeJsonLength: json.length };
 }
 
+// A reader with the personal dictionary off leaves out its glossaries. The
+// managed package itself stays loaded, enabled and first, so turning the
+// option back on needs no rebuild. Filtering after the engine's maxResults
+// cut means a personal-only term can use up one result slot.
+function withoutPersonalDictionary(reply, message) {
+  if (message.options?.personalDictionary !== false) return reply;
+  const results = [];
+  for (const result of reply.results) {
+    const glossaries = result?.term?.glossaries ?? [];
+    const kept = glossaries.filter((glossary) => glossary?.dictionary !== CUSTOM_DICTIONARY_TITLE);
+    if (kept.length === glossaries.length) results.push(result);
+    else if (kept.length > 0) results.push({ ...result, term: { ...result.term, glossaries: kept } });
+  }
+  return { ...reply, results };
+}
+
+// Each glossary gets `tags`, its definitionTags as Yomitan's Translator expands
+// them from the dictionary's tag bank at 67db60d (_expandTagGroups, _createTag,
+// _mergeSimilarTags, _groupTags): a name is looked up by its part before ":",
+// one the bank lacks is category "default", a repeated name is listed once,
+// and the list is sorted by order, then name. definitionTags is left as the
+// engine wrote it. The banks change only with the loaded set, so they are read
+// once per generation.
+const TAG_NAME_COLLATOR = new Intl.Collator("en-US");
+// A tag's share of the serialized reply beyond its name, category and notes:
+// keys and punctuation (54), a separating comma and two numbers, each at most
+// 25 characters (-0.0000012345678901234567). The reply bound counts it with
+// the native JSON, so an ordinary reply is still not serialized twice.
+const TAG_JSON_OVERHEAD = 54 + 1 + 2 * 25;
+let tagBanks = { generation: -1, banks: new Map() };
+
+function tagBank(dictionary) {
+  if (tagBanks.generation !== generation) {
+    const json = engine.ccall("hdw_tags", "string", [], []);
+    throwIfEngineFailed("hdw_tags");
+    const banks = new Map();
+    for (const { dictionary: title, tags } of parseJson(json, "hdw_tags")) {
+      const bank = new Map();
+      // Yomitan's findTagMetaBulk answers a name with its first row.
+      for (const tag of tags) if (!bank.has(tag.name)) bank.set(tag.name, tag);
+      banks.set(title, bank);
+    }
+    tagBanks = { generation, banks };
+  }
+  return tagBanks.banks.get(dictionary);
+}
+
+// Yomitan's _expandTagGroups and _groupTags for one definitionTags string and
+// its dictionary's tag bank (a Map from name to row; undefined without one).
+export function expandDefinitionTags(definitionTags, bank) {
+  const tags = [];
+  for (const name of new Set(globalThis.HDGlossary.parseTagList(definitionTags))) {
+    const colon = name.indexOf(":");
+    const entry = bank?.get(colon < 0 ? name : name.slice(0, colon));
+    tags.push({ name, category: entry?.category || "default", order: entry?.order ?? 0,
+      score: entry?.score ?? 0, notes: entry?.notes ?? "" });
+  }
+  return tags.sort((left, right) => left.order - right.order || TAG_NAME_COLLATOR.compare(left.name, right.name));
+}
+
+function withDefinitionTags(reply) {
+  let tagJsonLength = 0;
+  for (const result of reply.results) {
+    for (const glossary of result?.term?.glossaries ?? []) {
+      glossary.tags = expandDefinitionTags(glossary.definitionTags, tagBank(glossary.dictionary));
+      tagJsonLength += ',"tags":[]'.length;
+      for (const { name, category, notes } of glossary.tags) {
+        tagJsonLength += TAG_JSON_OVERHEAD + name.length + category.length + notes.length;
+      }
+    }
+  }
+  return { ...reply, nativeJsonLength: reply.nativeJsonLength + tagJsonLength };
+}
+
+// A headword whose furigana split falls back to one ruby over the whole word
+// gets `term.furigana`, the split its kanji's KANJIDIC readings allow, when
+// exactly one does (#459). Every other reply stays as the engine wrote it. The
+// readings table is read on the first such headword and kept for the worker's
+// life; each kanji's readings are derived as it is needed.
+let kanjiReadings = null;
+
+export async function withFurigana(reply) {
+  const { createKanjiReadings, distributeFurigana } = globalThis.HDGlossary;
+  const unsplit = reply.results.filter((result) => result?.term
+    && distributeFurigana(result.term.expression, result.term.reading) === null);
+  if (unsplit.length === 0) return reply;
+  kanjiReadings ??= createKanjiReadings((await import("./vendor/kanjidic/kanji-readings.json",
+    { with: { type: "json" } })).default.readings);
+  let furiganaJsonLength = 0;
+  for (const { term } of unsplit) {
+    const furigana = distributeFurigana(term.expression, term.reading, kanjiReadings);
+    if (furigana === null) continue;
+    term.furigana = furigana;
+    furiganaJsonLength += ',"furigana":'.length + JSON.stringify(furigana).length;
+  }
+  return { ...reply, nativeJsonLength: reply.nativeJsonLength + furiganaJsonLength };
+}
+
 let tail = Promise.resolve();
 
 function serialise(job) {
@@ -295,7 +404,14 @@ async function persistFilesystem() {
     // Trim first: IDBFS stores each file as a view of its array, and a
     // structured clone of a view carries the whole backing buffer.
     trimMemfsFiles(DICT_ROOT);
-    await syncfs(false);
+    const stored = new Map();
+    pendingBlobPaths = stored;
+    try {
+      await syncfs(false);
+    } finally {
+      pendingBlobPaths = null;
+    }
+    await adoptPersistedBlobs(stored);
   }
 }
 
@@ -324,37 +440,194 @@ function speedUpMemfsGrowth() {
 // Uint8Array. Chromium serialises such a value through the renderer on every
 // put and deserialises it on every get, and the cost grew with the size of the
 // database (Electron: 400, 630 and 880 ms for three imports of 70–100 MB).
-// A Blob value is handed to the browser's blob storage once and read back with
-// one copy; the same three imports persist in 230, 280 and 340 ms, and restart
-// to ready loses about 300 ms. Files under 1 MiB stay arrays. Records of either
-// shape load; Blobs are only written where FileReaderSync can read them back.
+// A Blob value is handed to the browser's blob storage once; the same three
+// imports persist in 230, 280 and 340 ms. Files under 1 MiB stay arrays.
+//
+// A file whose record is a Blob is also not copied back into JavaScript: its
+// MEMFS node keeps the Blob (`node.blob`, contents null) and reads, `mmap` and
+// the IDBFS mirror read only the ranges they need with FileReaderSync. `mmap`
+// still copies the mapped bytes into the heap, as for any MEMFS file. A write
+// or a truncation reads the file into an ordinary array first. A freshly
+// imported file is swapped for its stored Blob only once the persistence that
+// wrote it has completed, so a failed sync still has the bytes to retry or
+// roll back. Records written as arrays by earlier versions still load as
+// arrays. FileReaderSync exists only in workers, so the single-thread engine
+// in the offscreen document keeps whole-file arrays.
 const IDBFS_BLOB_THRESHOLD = 1024 * 1024;
+// Bytes per FileReaderSync read: transfer-sized, not a limit on files.
+const BLOB_READ_CHUNK = 8 * 1024 * 1024;
+// Paths of files persisted as Blobs by the sync in flight, with the timestamp
+// they were stored at; adoptPersistedBlobs() swaps them in after it completes.
+let pendingBlobPaths = null;
+
+function blobBackedIdbfs() {
+  const FS = engine.FS;
+  const memfs = FS?.filesystems?.MEMFS;
+  const idbfs = FS?.filesystems?.IDBFS;
+  return FS && memfs?.ops_table?.file && idbfs && typeof FileReaderSync === "function" && typeof Blob === "function"
+    ? { FS, memfs, idbfs } : null;
+}
+
+// MEMFS stream operations return synchronously to the native caller, so the
+// asynchronous Blob#arrayBuffer() cannot be used here.
+function readBlobRange(blob, start, end, target, targetOffset) {
+  const reader = new FileReaderSync();
+  for (let offset = start; offset < end; offset += BLOB_READ_CHUNK) {
+    const chunk = blob.slice(offset, Math.min(end, offset + BLOB_READ_CHUNK));
+    const bytes = new Uint8Array(reader.readAsArrayBuffer(chunk)); // NOSONAR: must be synchronous, see above
+    target.set(bytes, targetOffset + offset - start);
+  }
+}
+
+function backWithBlob(node, blob) {
+  node.blob = blob;
+  node.contents = null;
+  node.usedBytes = blob.size;
+}
+
+// Before a node's bytes change: give it an ordinary array of its contents.
+function materializeBlob(node) {
+  const blob = node.blob;
+  if (blob === undefined) return;
+  delete node.blob;
+  const contents = new Uint8Array(blob.size);
+  readBlobRange(blob, 0, blob.size, contents, 0);
+  node.contents = blob.size > 0 ? contents : null;
+  node.usedBytes = blob.size;
+}
 
 function storeLargeIdbfsFilesAsBlobs() {
-  const idbfs = engine.FS?.filesystems?.IDBFS;
-  if (typeof idbfs?.storeRemoteEntry !== "function" || typeof idbfs.loadRemoteEntry !== "function"
-      || typeof FileReaderSync !== "function" || typeof Blob !== "function") {
-    return;
-  }
-  const storeRemoteEntry = idbfs.storeRemoteEntry;
-  const loadRemoteEntry = idbfs.loadRemoteEntry;
+  const fs = blobBackedIdbfs();
+  if (fs === null) return;
+  const { FS, memfs, idbfs } = fs;
+  // Every MEMFS file shares these op tables, and an open stream keeps the
+  // table it was opened with, so the Blob paths are added to them rather than
+  // to individual nodes: a file opened as an array keeps working once it is
+  // backed by its Blob.
+  const stream = memfs.ops_table.file.stream;
+  const node = memfs.ops_table.file.node;
+  const { read, write, mmap, msync } = stream;
+  const setattr = node.setattr;
+  stream.read = (handle, buffer, offset, length, position) => {
+    const file = handle.node;
+    if (file.blob === undefined) return read(handle, buffer, offset, length, position);
+    if (position >= file.usedBytes) return 0;
+    const size = Math.min(file.usedBytes - position, length);
+    readBlobRange(file.blob, position, position + size,
+      new Uint8Array(buffer.buffer, buffer.byteOffset + offset, size), 0);
+    return size;
+  };
+  stream.write = (handle, ...rest) => {
+    materializeBlob(handle.node);
+    return write(handle, ...rest);
+  };
+  stream.mmap = (handle, length, position, prot, flags) => {
+    const file = handle.node;
+    if (file.blob === undefined) return mmap(handle, length, position, prot, flags);
+    // MEMFS allocates the mapping and copies a one-byte stand-in, which also
+    // refreshes the module's heap view after any growth; the range follows.
+    const mapped = mmap({ node: { mode: file.mode, contents: new Uint8Array(1) } }, length, 0, prot, flags);
+    const end = Math.min(file.usedBytes, position + length);
+    if (end > position) readBlobRange(file.blob, position, end, engine.HEAPU8, mapped.ptr);
+    return mapped;
+  };
+  // hoshidicts' unmap calls msync on every mapping. A mapping through a
+  // read-only descriptor cannot have changed, so nothing is written back:
+  // MEMFS would otherwise rewrite the identical bytes, touching the file's
+  // mtime (and so its next IDBFS sync), and a Blob-backed file would be read
+  // into an array first.
+  stream.msync = (handle, ...rest) => {
+    if ((handle.flags & 3) === 0) return 0;
+    materializeBlob(handle.node);
+    return msync(handle, ...rest);
+  };
+  node.setattr = (file, attr) => {
+    if (attr.size !== undefined && file.blob !== undefined) {
+      if (attr.size === 0) {
+        delete file.blob;
+        file.contents = null;
+        file.usedBytes = 0;
+      } else {
+        materializeBlob(file);
+      }
+    }
+    return setattr(file, attr);
+  };
+
+  const { storeRemoteEntry, storeLocalEntry, loadLocalEntry } = idbfs;
   idbfs.storeRemoteEntry = (store, path, entry, callback) => {
     if (entry?.contents instanceof Uint8Array && entry.contents.byteLength >= IDBFS_BLOB_THRESHOLD) {
       entry = { ...entry, contents: new Blob([entry.contents]) };
+      pendingBlobPaths?.set(path, entry.timestamp.getTime());
     }
     return storeRemoteEntry(store, path, entry, callback);
   };
-  idbfs.loadRemoteEntry = (store, path, callback) => loadRemoteEntry(store, path, (error, entry) => {
-    if (!error && entry?.contents instanceof Blob) {
-      try {
-        entry.contents = new Uint8Array(new FileReaderSync().readAsArrayBuffer(entry.contents));
-      } catch (readError) {
-        callback(readError);
-        return;
-      }
+  // Restoring a Blob record creates the file empty and backs it with the Blob.
+  idbfs.storeLocalEntry = (path, entry, callback) => {
+    if (!(entry?.contents instanceof Blob) || !FS.isFile(entry.mode)) {
+      return storeLocalEntry(path, entry, callback);
     }
-    callback(error, entry);
+    try {
+      FS.writeFile(path, new Uint8Array(0));
+      backWithBlob(FS.lookupPath(path).node, entry.contents);
+      FS.chmod(path, entry.mode);
+      FS.utime(path, entry.timestamp, entry.timestamp);
+    } catch (error) {
+      return callback(error);
+    }
+    return callback(null);
+  };
+  // A renamed Blob-backed file is stored again under its new path as the Blob.
+  idbfs.loadLocalEntry = (path, callback) => {
+    let file;
+    try {
+      file = FS.lookupPath(path).node;
+    } catch (error) {
+      return callback(error);
+    }
+    if (file.blob === undefined) return loadLocalEntry(path, callback);
+    return callback(null, { timestamp: new Date(file.mtime), mode: file.mode, contents: file.blob });
+  };
+}
+
+// After a successful sync, back each file it stored as a Blob with the record
+// read back from IndexedDB, unless the file changed since. Best effort: a file
+// left as an array is correct, only larger.
+async function adoptPersistedBlobs(paths) {
+  const fs = blobBackedIdbfs();
+  const db = fs?.idbfs.dbs?.[DICT_ROOT];
+  if (fs === null || db === undefined || paths.size === 0) return;
+  const records = await new Promise((resolve) => {
+    const found = new Map();
+    try {
+      const transaction = db.transaction([fs.idbfs.DB_STORE_NAME], "readonly");
+      const store = transaction.objectStore(fs.idbfs.DB_STORE_NAME);
+      for (const path of paths.keys()) {
+        const request = store.get(path);
+        request.onsuccess = () => found.set(path, request.result);
+      }
+      transaction.oncomplete = () => resolve(found);
+      transaction.onerror = transaction.onabort = (event) => {
+        event?.preventDefault?.();
+        resolve(new Map());
+      };
+    } catch {
+      resolve(new Map());
+    }
   });
+  for (const [path, timestamp] of paths) {
+    const blob = records.get(path)?.contents;
+    let file;
+    try {
+      file = fs.FS.lookupPath(path).node;
+    } catch {
+      continue;
+    }
+    if (blob instanceof Blob && fs.FS.isFile(file.mode) && file.blob === undefined
+        && file.mtime === timestamp && file.usedBytes === blob.size) {
+      backWithBlob(file, blob);
+    }
+  }
 }
 
 // Reallocate over-allocated classic-FS files under `root` to their exact size.
@@ -1052,15 +1325,42 @@ class DictionaryLoadError extends Error {
   }
 }
 
-function addDictionaries(dictionaries, includeDisabled) {
+// bindings.cpp rejected_dictionary: the heap could not grow to hold the files.
+const OUT_OF_MEMORY = "not enough memory to load ";
+
+// Packages that did not fit in the heap this session. Their paths are
+// generation-scoped and never change, so each loads with its entries read from
+// disk from then on instead of growing the heap towards the same failure.
+const pagedPaths = new Set();
+
+function loadsPaged(path) {
+  return pagedDictionaries || pagedPaths.has(path);
+}
+
+// `validation` adds a disabled package only to prove the engine opens it, then
+// drops it: its entries are read on demand rather than copied into the heap,
+// which would only raise the worker's high-water mark (docs/memory.md). Its
+// index is still loaded and checked exactly as for lookup.
+function addDictionaryKind(dictionary, kind, { validation = false } = {}) {
+  const add = (paged) => engine.ccall(
+    "hdw_add_dict", "number", ["string", "number", "number"], [dictionary.path, kind, paged ? 1 : 0],
+  ) === 1;
+  const paged = validation || loadsPaged(dictionary.path);
+  if (add(paged)) return true;
+  // Only the index has to fit when the entries are read on demand.
+  if (paged || !lastError().startsWith(OUT_OF_MEMORY) || !add(true)) return false;
+  pagedPaths.add(dictionary.path);
+  return true;
+}
+
+function addDictionaries(dictionaries, includeDisabled, options) {
   let loadedCount = 0;
   for (const dictionary of dictionaries) {
     if (!includeDisabled && dictionary.enabled === false) {
       continue;
     }
     for (const kindName of kindsForPackage(dictionary)) {
-      const kind = KINDS.indexOf(kindName);
-      if (!engine.ccall("hdw_add_dict", "number", ["string", "number"], [dictionary.path, kind])) {
+      if (!addDictionaryKind(dictionary, KINDS.indexOf(kindName), options)) {
         throw new DictionaryLoadError(dictionary, kindName);
       }
       loadedCount += 1;
@@ -1108,6 +1408,7 @@ function trackLoaded(dictionaries, manifest = dictionaries) {
     title: text(dictionary.title),
     path: dictionary.path,
     kinds: packageKinds(dictionary),
+    paged: loadsPaged(dictionary.path),
   }));
   for (const entry of loadedPackages) verifiedPackages.set(entry.path, entry.kinds);
   loadedManifest = new Map(manifest.map(dictionary => [dictionary.path, {
@@ -1119,6 +1420,10 @@ function retainVerified(dictionaries) {
   const requested = new Set(dictionaries.map((dictionary) => dictionary.path));
   for (const path of [...verifiedPackages.keys()]) {
     if (!requested.has(path)) verifiedPackages.delete(path);
+  }
+  // Deleting the entry being visited is safe while iterating a Set.
+  for (const path of pagedPaths) {
+    if (!requested.has(path)) pagedPaths.delete(path);
   }
 }
 
@@ -1155,7 +1460,7 @@ function reorderLoadedDictionaries(dictionaries) {
 function verifyDisabledPackagesInPlace(dictionaries) {
   for (const dictionary of dictionaries) {
     if (dictionary.enabled !== false || isVerified(dictionary)) continue;
-    addDictionaries([dictionary], true);
+    addDictionaries([dictionary], true, { validation: true });
     if (!engine.ccall("hdw_remove_dict", "number", ["string"], [dictionary.path])) return false;
     verifiedPackages.set(dictionary.path, packageKinds(dictionary));
   }
@@ -1234,7 +1539,7 @@ function loadDictionaries(dictionaries, { committed = [] } = {}) {
     }
     resetEngine();
     try {
-      addDictionaries([dictionary], true);
+      addDictionaries([dictionary], true, { validation: true });
       verifiedPackages.set(dictionary.path, packageKinds(dictionary));
     } catch (error) {
       recordFailure(error);
@@ -1403,25 +1708,34 @@ async function boot() {
   }
 }
 
+// Every count an import report carries. The last four are what a successful
+// MDX import left out; a Yomitan archive reports them as 0. Settings words
+// them (mdxImportNotes); they are not stored with the dictionary.
+const IMPORT_REPORT_COUNTS = Object.freeze([
+  "termCount",
+  "metaCount",
+  "frequencyCount",
+  "pitchCount",
+  "kanjiCount",
+  "mediaCount",
+  "skippedRecordCount",
+  "unresolvedRedirectCount",
+  "missingResourceCount",
+  "unreadableResourceCount",
+]);
+
 function emptyReport(error) {
-  return {
-    success: false,
-    title: "",
-    termCount: 0,
-    metaCount: 0,
-    frequencyCount: 0,
-    pitchCount: 0,
-    kanjiCount: 0,
-    mediaCount: 0,
-    error,
-  };
+  const report = { success: false, title: "" };
+  for (const key of IMPORT_REPORT_COUNTS) report[key] = 0;
+  report.error = error;
+  return report;
 }
 
 function normaliseReport(raw) {
   const report = emptyReport(text(raw?.error));
   report.success = raw?.success === true;
   report.title = text(raw?.title);
-  for (const key of ["termCount", "metaCount", "frequencyCount", "pitchCount", "kanjiCount", "mediaCount"]) {
+  for (const key of IMPORT_REPORT_COUNTS) {
     const count = Number(raw?.[key]);
     report[key] = Number.isFinite(count) ? count : 0;
   }
@@ -1829,6 +2143,48 @@ async function consumeResponse(response, consume, onProgress = null) {
 const PROT_READ_WRITE = 0x1 | 0x2;
 const MAP_SHARED = 0x01;
 
+function stagingMemoryError(bytes) {
+  return Object.assign(new Error(`Could not allocate ${bytes} bytes to stage the archive.`), { errorCode: "import-memory" });
+}
+
+function mappedFileHeap(module, path, mapping, bytes) {
+  // WasmFS can return an unsigned -ENOMEM pointer. It must never reach a
+  // typed-array copy or munmap. Glue refreshes views after memory growth.
+  if (!Number.isSafeInteger(mapping?.ptr) || mapping.ptr <= 0 || mapping.ptr + bytes > 0x100000000) {
+    throw stagingMemoryError(bytes);
+  }
+  let heap = module.HEAPU8;
+  if (heap.byteLength < mapping.ptr + bytes) {
+    nativeImportCall(module, () => module.FS.stat(path));
+    heap = module.HEAPU8;
+  }
+  if (mapping.ptr + bytes > heap.byteLength) throw stagingMemoryError(bytes);
+  return heap;
+}
+
+function finishFileWrite(operation, failure) {
+  try { operation(); }
+  catch (error) { if (failure === null) throw error; }
+}
+
+function writeMappedFile(module, stream, path, data) {
+  const { FS } = module;
+  const call = (operation) => nativeImportCall(module, operation);
+  call(() => FS.ftruncate(stream.fd, data.byteLength));
+  const mapping = call(() => FS.mmap(stream, data.byteLength, 0, PROT_READ_WRITE, MAP_SHARED));
+  const heap = mappedFileHeap(module, path, mapping, data.byteLength);
+  let failure = null;
+  try {
+    heap.set(data, mapping.ptr);
+    call(() => FS.msync(stream, mapping.ptr, 0, data.byteLength, MAP_SHARED));
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    finishFileWrite(() => call(() => FS.munmap(mapping.ptr, data.byteLength)), failure);
+  }
+}
+
 // Writes one buffer as the whole file of `module`'s filesystem. WasmFS's
 // FS.write copies from JavaScript
 // one byte at a time (about 25 ns per byte: a full second for the 39 MiB
@@ -1839,11 +2195,13 @@ const MAP_SHARED = 0x01;
 // its FS.write is already a typed-array copy, so it takes the direct path.
 function writeFileBytes(module, path, data) {
   const { FS } = module;
-  const stream = FS.open(path, "w+");
+  const call = (operation) => nativeImportCall(module, operation);
+  const stream = call(() => FS.open(path, "w+"));
+  let failure = null;
   try {
     if (data.byteLength === 0 || typeof FS.mmap !== "function" || typeof FS.munmap !== "function") {
       for (let offset = 0; offset < data.byteLength;) {
-        const written = FS.write(stream, data, offset, data.byteLength - offset);
+        const written = call(() => FS.write(stream, data, offset, data.byteLength - offset));
         if (!(written > 0)) {
           throw new Error(`could not write ${path}`);
         }
@@ -1851,24 +2209,12 @@ function writeFileBytes(module, path, data) {
       }
       return;
     }
-    FS.ftruncate(stream.fd, data.byteLength);
-    const mapping = FS.mmap(stream, data.byteLength, 0, PROT_READ_WRITE, MAP_SHARED);
-    try {
-      // Module.HEAPU8 is swapped out after memory growth only once some glue
-      // touches the heap; FS.stat does, so a view too short for the mapping is
-      // refreshed before the copy.
-      let heap = module.HEAPU8;
-      if (heap.byteLength < mapping.ptr + data.byteLength) {
-        FS.stat(path);
-        heap = module.HEAPU8;
-      }
-      heap.set(data, mapping.ptr);
-      FS.msync(stream, mapping.ptr, 0, data.byteLength, MAP_SHARED);
-    } finally {
-      FS.munmap(mapping.ptr, data.byteLength);
-    }
+    writeMappedFile(module, stream, path, data);
+  } catch (error) {
+    failure = error;
+    throw error;
   } finally {
-    FS.close(stream);
+    finishFileWrite(() => call(() => FS.close(stream)), failure);
   }
 }
 
@@ -1923,9 +2269,9 @@ export async function stageImportArchive(response, onProgress = null) {
   return collectResponse(response, onProgress);
 }
 
-function removeStagedFile(FS, path) {
+function removeStagedFile(module, path) {
   try {
-    FS.unlink(path);
+    nativeImportCall(module, () => module.FS.unlink(path));
   } catch (error) {
     // Never written, or already gone.
   }
@@ -1933,14 +2279,15 @@ function removeStagedFile(FS, path) {
 
 // Where the archive is staged. A Yomitan ZIP has a fixed scratch name; an MDX
 // keeps its own name inside IMPORT_MDX_DIR with its MDD files beside it.
-function importStagingPaths(fileName, resources) {
+function importStagingPaths(fileName, resources, diskRoot = null) {
   if (resources.length === 0 && !isMdxFileName(fileName)) {
-    return { directory: null, archivePath: IMPORT_ZIP, resourcePaths: [] };
+    return { directory: diskRoot, archivePath: diskRoot === null ? IMPORT_ZIP : `${diskRoot}/.hdw-archive.zip`, resourcePaths: [] };
   }
+  const directory = diskRoot === null ? IMPORT_MDX_DIR : `${diskRoot}/.hdw-mdx`;
   return {
-    directory: IMPORT_MDX_DIR,
-    archivePath: `${IMPORT_MDX_DIR}/${fileName}`,
-    resourcePaths: resources.map((resource) => `${IMPORT_MDX_DIR}/${resource.fileName}`),
+    directory,
+    archivePath: `${directory}/${fileName}`,
+    resourcePaths: resources.map((resource) => `${directory}/${resource.fileName}`),
   };
 }
 
@@ -1954,17 +2301,15 @@ export async function importDictionaryArchive(
   importLowRam,
   fileName,
   expectedArchiveBytes = null,
-  resources = [],
+  { resources = [], backend = "memory" } = {},
 ) {
   const { FS } = module;
-  const { directory, archivePath, resourcePaths } = importStagingPaths(fileName, resources);
+  const diskRoot = importLowRam && backend === "opfs" ? generationRoot : null;
+  const { directory, archivePath, resourcePaths } = importStagingPaths(fileName, resources, diskRoot);
+  let phase = "staging the archive";
   try {
     if (directory !== null) {
-      try {
-        FS.mkdir(directory);
-      } catch (error) {
-        // Left by an interrupted import; its files are overwritten below.
-      }
+      nativeImportCall(module, () => FS.mkdirTree(directory));
     }
     const archiveBytes = await streamResponseToFile(module, archiveSource, archivePath);
     if (archiveBytes === 0) {
@@ -1974,16 +2319,18 @@ export async function importDictionaryArchive(
       throw new Error(`${fileName} changed while it was staged`);
     }
     resources.forEach((resource, index) => {
+      phase = `staging ${resource.fileName}`;
       writeFileBytes(module, resourcePaths[index], resource.bytes);
     });
+    phase = "compiling dictionary banks";
     const report = normaliseReport(
       parseJson(
-        module.ccall(
+        nativeImportCall(module, () => module.ccall(
           "hdw_import",
           "string",
           ["string", "string", "number"],
           [archivePath, generationRoot, importLowRam ? 1 : 0],
-        ),
+        )),
         "hdw_import",
       ),
     );
@@ -1994,13 +2341,18 @@ export async function importDictionaryArchive(
       report.success = false;
       report.error = `${fileName} declares no dictionary title`;
     }
+    if (!report.success) {
+      report.error = dictionaryImportError(report.error || "The engine returned no import error.", fileName, phase).message;
+    }
     return report;
+  } catch (error) {
+    throw dictionaryImportError(error, fileName, phase);
   } finally {
-    removeStagedFile(FS, archivePath);
-    for (const path of resourcePaths) removeStagedFile(FS, path);
+    removeStagedFile(module, archivePath);
+    for (const path of resourcePaths) removeStagedFile(module, path);
     if (directory !== null) {
       try {
-        FS.rmdir(directory);
+        nativeImportCall(module, () => FS.rmdir(directory));
       } catch (error) {
         // Never created, or already gone.
       }
@@ -2314,7 +2666,7 @@ async function runImportTransaction(
       importLowRam,
       fileName,
       expectedArchiveBytes,
-      resources,
+      { resources, backend: storageBackend },
     );
   } catch (error) {
     await rollbackImportedGeneration(generationRoot, error);
@@ -2355,6 +2707,9 @@ async function runIsolatedImportTransaction(
       expectedArchiveBytes,
       resources,
     });
+    if (!report || typeof report.success !== "boolean") {
+      throw new Error("The import worker returned no valid import report.");
+    }
   } catch (error) {
     await serialise(() => discardImportingRoot(generationRoot));
     throw error;
@@ -2379,6 +2734,69 @@ async function discardImportingRoot(generationRoot) {
   } catch (error) {
     console.warn(`hoshidicts: could not discard the failed dictionary generation: ${describe(error)}`);
   }
+}
+
+async function importAttempt({ request, staged, resources, installing, reducedMemory, revalidate, commit }) {
+  if (isolatedImport !== null) {
+    await reportProgress?.(installing);
+    return runIsolatedImportTransaction(
+      staged.bytes, request.fileName, reducedMemory,
+      async (root, report) => commit(await revalidate())(root, report),
+      staged.byteLength, resources,
+    );
+  }
+  return serialise(async () => {
+    requireEngine();
+    const checked = await revalidate();
+    // Acknowledge the read lock before resetting the live engine.
+    await reportProgress?.({ ...installing, fallback: "memory" });
+    return runImportTransaction(staged.bytes, request.fileName, reducedMemory, commit(checked), staged.byteLength, resources);
+  });
+}
+
+function canRetryImport(failure, reducedMemory) {
+  return !reducedMemory && isImportMemoryError(failure)
+    && !(failure instanceof UnknownDictionaryStateCommitError) && reloadError === null;
+}
+
+async function importAttemptOutcome(options) {
+  try {
+    const report = await importAttempt(options);
+    return { report, failure: report.success ? null : report };
+  } catch (error_) {
+    return { failure: error_ };
+  }
+}
+
+function finishImportOutcome({ report, failure }, fileName, retried) {
+  if (failure === null) return report;
+  const phase = retried ? "retrying with reduced memory" : "importing the dictionary";
+  const error = dictionaryImportError(failure, fileName, phase);
+  if (retried) error.message += " The reduced-memory retry also failed.";
+  if (report === undefined) throw error;
+  report.error = error.message;
+  report.errorCode = error.errorCode;
+  return report;
+}
+
+async function importWithRecovery(options) {
+  const { request, staged, onDownload } = options;
+  const reducedMemory = request.importLowRam;
+  const first = await importAttemptOutcome({ ...options, reducedMemory });
+  if (!canRetryImport(first.failure, reducedMemory)) {
+    return finishImportOutcome(first, request.fileName, false);
+  }
+  // The failed transaction has rolled back. OPFS retries once in a fresh
+  // worker with one importer thread and disk-backed input staging.
+  if (staged.bytes.byteLength === 0) {
+    staged.bytes = (await stageImportArchive(await fetchImportArchive(request), onDownload)).bytes;
+    if (staged.bytes.byteLength !== staged.byteLength) throw new Error(`${request.fileName} changed before the import retry`);
+  }
+  const resources = options.resources.some(resource => resource.bytes.byteLength === 0)
+    ? await stageImportResources(request) : options.resources;
+  const retry = await importAttemptOutcome({ ...options, resources,
+    installing: { ...options.installing, retry: true }, reducedMemory: true });
+  return finishImportOutcome(retry, request.fileName, true);
 }
 
 class CustomCommitRejectedError extends Error {
@@ -2601,6 +3019,12 @@ async function readBackupStorage(raw = false) {
 
 function backupFileBlob(path, size) {
   const FS = engine.FS;
+  // A Blob-backed IDBFS file is already the Blob the archive needs. Only the
+  // classic FS has the node to ask; WasmFS has no lookupPath.
+  if (storageBackend === "idbfs") {
+    const { blob } = FS.lookupPath(path).node;
+    if (blob instanceof Blob && blob.size === size) return blob;
+  }
   const input = FS.open(path, "r");
   const parts = [];
   try {
@@ -2732,7 +3156,7 @@ async function restoreBackup(message) {
       throw new Error("Hachidori changed since this backup was prepared. Prepare it again before restoring.");
     }
     const loadedCount = loadDictionaries(prepared.dictionaries);
-    const snapshot = restoredBackupSnapshot(current, prepared.snapshot, prepared.dictionaries);
+    const snapshot = restoredBackupSnapshot(current, prepared.snapshot, prepared.dictionaries, { overlay: OVERLAY_MODE });
     const reply = await commitBackupSnapshot(current, snapshot, prepared.lookupStatsRows);
     if (!reply.ok) throw new Error(reply.error || "Could not commit the backup restore.");
     publishLoadedDictionaries(loadedCount);
@@ -2959,7 +3383,7 @@ const HANDLERS = {
       lookupArguments(message),
     );
     throwIfEngineFailed("hdw_lookup");
-    return termLookupReply(json, "hdw_lookup");
+    return withFurigana(withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup"), message)));
   },
 
   async hd_lookup_dictionary(message) {
@@ -2982,7 +3406,7 @@ const HANDLERS = {
       [args[0], text(entry.path), ...args.slice(1)],
     );
     throwIfEngineFailed("hdw_lookup_dictionary");
-    return termLookupReply(json, "hdw_lookup_dictionary");
+    return withFurigana(withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup_dictionary"), message)));
   },
 
   async hd_kanji(message) {
@@ -3072,8 +3496,12 @@ const HANDLERS = {
     }
     stagingImports += 1;
     const requestId = message.requestId ?? null;
+    let phase = "checking the import request";
+    let name = text(message.fileName) || "The dictionary archive";
     try {
       const stagedRequest = await prepareImportRequest(message);
+      name = stagedRequest.fileName;
+      phase = "reading the archive";
       const response = await fetchImportArchive(stagedRequest);
       const onDownload = reportProgress === null ? null : (event) => {
         try {
@@ -3089,7 +3517,7 @@ const HANDLERS = {
         throw new Error(`${stagedRequest.fileName} is empty`);
       }
       const stagedResources = await stageImportResources(stagedRequest);
-      const { fileName, importLowRam } = stagedRequest;
+      const { fileName } = stagedRequest;
       const installing = {
         requestId,
         phase: "installing",
@@ -3116,37 +3544,14 @@ const HANDLERS = {
         );
       const replyFor = (report) => (report.success
         ? { report }
-        : { ok: false, error: report.error || `${fileName} could not be imported`, report });
+        : { ok: false, error: report.error || `${fileName} could not be imported`, report,
+          errorCode: report.errorCode || (isImportMemoryError(report) ? "import-memory" : "import-failed") });
 
-      if (isolatedImport !== null) {
-        await reportProgress?.(installing);
-        return replyFor(await runIsolatedImportTransaction(
-          staged.bytes,
-          fileName,
-          importLowRam,
-          async (generationRoot, importedReport) => commit(await revalidate())(generationRoot, importedReport),
-          staged.byteLength,
-          stagedResources,
-        ));
-      }
-
-      return await serialise(async () => {
-        requireEngine();
-        const request = await revalidate();
-        // The native importer has no progress callback, and this runtime has
-        // no isolated importer, so the archive is imported inside the live
-        // engine's memory. Awaiting this transition lets the offscreen bridge
-        // reject new reads before hdw_reset unloads the committed dictionaries.
-        await reportProgress?.({ ...installing, fallback: "memory" });
-        return replyFor(await runImportTransaction(
-          staged.bytes,
-          fileName,
-          importLowRam,
-          commit(request),
-          staged.byteLength,
-          stagedResources,
-        ));
-      });
+      phase = "importing the dictionary";
+      return replyFor(await importWithRecovery({ request: stagedRequest, staged, resources: stagedResources,
+        installing, revalidate, commit, onDownload }));
+    } catch (error) {
+      throw dictionaryImportError(error, name, phase);
     } finally {
       stagingImports -= 1;
     }
@@ -3305,39 +3710,53 @@ const HANDLERS = {
       storageBackend,
       threaded,
       // Which worker is serving: the low-memory one imports single-threaded
-      // inside the small pool (docs/memory.md).
+      // inside the small pool and reads dictionary entries from disk on
+      // demand (docs/memory.md).
       lowMemory: threaded && lowRam,
+      pagedDictionaries,
+      dictionaryEntryStorage,
     };
   },
 
   // Emscripten's mmap copies each mapped file into linear memory, so a loaded
   // package's resident bytes are the sizes of the files hoshidicts maps for
-  // it, once per kind it was added as (query.cpp add_dict_ maps the directory
-  // again for every kind). The heap itself never shrinks, so heapBytes also
-  // keeps whatever an import or rebuild peaked at.
+  // it, once however many kinds it loads as (the kinds share them). Media is
+  // read from disk when shown, and a paged package's entries as they are
+  // looked up, through a page cache of pageCacheBytes. The heap itself never
+  // shrinks, so heapBytes also keeps whatever an import or rebuild peaked at.
   hd_memory() {
     requireEngine();
     const dictionaries = (loadedPackages ?? []).map((entry) => ({
       id: entry.id,
       title: entry.title,
       path: entry.path,
-      bytes: mappedBytes(entry.path) * entry.kinds.split(",").length,
+      bytes: residentBytes(entry),
+      paged: entry.paged,
     }));
     // Growth on an engine pthread reaches this thread's HEAPU8 view only once
     // some glue touches the heap; a stat does (see writeFileBytes).
     exists("/dicts");
-    return { heapBytes: engine.HEAPU8.byteLength, dictionaries };
+    return {
+      heapBytes: engine.HEAPU8.byteLength,
+      pageCacheBytes: engine.ccall("hdw_page_cache_bytes", "number", [], []),
+      dictionaries,
+    };
   },
 };
 
-// The files query.cpp maps when a package loads; dict.zstd is read into a
-// zstd dictionary instead, which holds the same bytes.
-const MAPPED_FILES = ["hash.table", "bloom.filter", "blobs.bin", "media.bin", "media.idx", "scan.idx", "dict.zstd"];
+// The files query.cpp keeps in the heap for a loaded package: its index, which
+// every probe reads, and blobs.bin unless the package is paged. dict.zstd is
+// read into a zstd dictionary, which holds the same bytes, and scan.idx is
+// mapped only for a package loaded as a term dictionary.
+const INDEX_FILES = ["hash.table", "bloom.filter", "media.idx", "dict.zstd"];
 
-function mappedBytes(path) {
+function residentBytes(entry) {
+  const names = [...INDEX_FILES];
+  if (!entry.paged) names.push("blobs.bin");
+  if (entry.kinds.split(",").includes("term")) names.push("scan.idx");
   let bytes = 0;
-  for (const name of MAPPED_FILES) {
-    const file = `${path}/${name}`;
+  for (const name of names) {
+    const file = `${entry.path}/${name}`;
     if (exists(file)) bytes += engine.FS.stat(file).size;
   }
   return bytes;
@@ -3367,7 +3786,7 @@ function failurePayload(type) {
 
 function engineFailureReply(type, requestId, error) {
   const description = describe(error);
-  let errorCode = error === bootError ? "engine-start-failed" : null;
+  let errorCode = error === bootError ? "engine-start-failed" : error?.errorCode ?? null;
   if (errorCode === null && description === "the dictionary engine is still starting") {
     errorCode = "engine-starting";
   }
@@ -3375,6 +3794,7 @@ function engineFailureReply(type, requestId, error) {
     type: `${type}_result`, requestId, ok: false, error: description,
     ...(errorCode === null ? {} : { errorCode }),
     generation, ...failurePayload(type),
+    ...(type === "hd_import" ? { report: emptyReport(description) } : {}),
   });
 }
 
@@ -3423,5 +3843,7 @@ export function startEngine() {
     throw new Error("the engine service is already started");
   }
   started = true;
-  serialise(boot);
+  // boot() never rejects: a failed start is latched in bootError, which
+  // hd_status and every request needing the engine report.
+  void serialise(boot);
 }

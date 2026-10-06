@@ -6,31 +6,34 @@ making them fast and reliable to run.
 """
 
 import datetime
+import math
 from types import SimpleNamespace
 
 import pytest
 
+from GameSentenceMiner.util.stats.stats_util import (
+    ABSOLUTE_CEILING as _ABSOLUTE_CEILING,
+)
+from GameSentenceMiner.util.stats.stats_util import (
+    ADAPTIVE_FLOOR_SECONDS,
+    adaptive_cap_seconds,
+    session_median_cps,
+)
+from GameSentenceMiner.util.stats.stats_util import (
+    MAX_SEC_PER_CHAR as _MAX_SEC_PER_CHAR,
+)
 from GameSentenceMiner.web.stats import (
-    is_kanji,
-    get_gradient_color,
-    interpolate_color,
-    calculate_kanji_frequency,
     calculate_actual_reading_time,
     calculate_heatmap_data,
+    calculate_kanji_frequency,
     calculate_mining_heatmap_data,
     format_large_number,
     format_time_human_readable,
     generate_game_colors,
+    get_gradient_color,
+    interpolate_color,
+    is_kanji,
 )
-from GameSentenceMiner.util.stats.stats_util import (
-    MAX_SEC_PER_CHAR as _MAX_SEC_PER_CHAR,
-    ABSOLUTE_CEILING as _ABSOLUTE_CEILING,
-    ADAPTIVE_FLOOR_SECONDS,
-    ADAPTIVE_MEDIAN_CPS_SCALE,
-    adaptive_cap_seconds,
-    session_median_cps,
-)
-
 
 # ---------------------------------------------------------------------------
 # is_kanji
@@ -235,17 +238,17 @@ class TestCalculateActualReadingTime:
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         assert result == _ABSOLUTE_CEILING
 
-    def test_adaptive_empty_line_uses_floor(self):
+    def test_adaptive_empty_line_adds_no_reading_time(self):
         timestamps = [100.0, 200.0]
         line_texts = ["", "next"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == ADAPTIVE_FLOOR_SECONDS
+        assert result == 0.0
 
     def test_adaptive_none_line_text_treated_as_empty(self):
         timestamps = [100.0, 200.0]
         line_texts = [None, "next"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == ADAPTIVE_FLOOR_SECONDS
+        assert result == 0.0
 
     def test_adaptive_normal_reading_session(self):
         timestamps = [0.0, 30.0, 60.0, 90.0]
@@ -257,9 +260,9 @@ class TestCalculateActualReadingTime:
         timestamps = [0.0, 30.0, 630.0]
         line_texts = ["あ" * 30, "い" * 10, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        # Median pace is (1 + 1/60) / 2 cps. The slow line is capped at
-        # 10 / (median * 0.5) * 2.5 = 6000/61 seconds.
-        assert result == pytest.approx(30.0 + 6000.0 / 61.0)
+        # The 600-second gap cannot teach a slower pace. At 1 cps, the
+        # 10-character line gets at most 25 seconds.
+        assert result == 55.0
 
     def test_adaptive_sorts_by_timestamp(self):
         timestamps = [200.0, 100.0]
@@ -301,15 +304,15 @@ class TestAdaptiveSessionPace:
 
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
 
-        # Median is 2 cps, so each slow line is capped at 50 seconds.
-        assert result == 10 * 10.0 + 2 * 50.0
+        # Median is 2 cps, so each slow line is capped at 25 seconds.
+        assert result == 10 * 10.0 + 2 * 25.0
 
     def test_few_samples_allow_slower_reading(self):
         timestamps = [0.0, 10.0, 65.0]
         line_texts = ["あ" * 20, "あ" * 20, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        # Both gaps remain below the cap at this slower median pace.
-        assert result == 10.0 + 55.0
+        # The true median is (2 + 20/55) / 2 cps, with a 2.5x time allowance.
+        assert result == pytest.approx(10.0 + 550.0 / 13.0)
 
     def test_uniform_speeds_are_preserved(self):
         timestamps = list(range(0, 121, 10))  # 0, 10, 20, ..., 120
@@ -339,11 +342,11 @@ class TestAdaptiveCapHelpers:
         assert session_median_cps([(0.0, 20)]) == 0.0
 
     def test_adaptive_cap_scales_with_median_speed(self):
-        # 20 chars at 2 cps, discounted by the adaptive scale, then × 2.5 tolerance.
-        assert adaptive_cap_seconds(20, 2.0) == 20 / (2.0 * ADAPTIVE_MEDIAN_CPS_SCALE) * 2.5
+        # 20 chars at the actual 2 cps median, with a 2.5x time allowance.
+        assert adaptive_cap_seconds(20, 2.0) == 25.0
 
     def test_adaptive_cap_floor_for_short_line(self):
-        # 1 char at 4 cps, discounted by the adaptive scale, remains below the floor.
+        # 1 char at 4 cps remains below the floor after the 2.5x allowance.
         assert adaptive_cap_seconds(1, 4.0) == ADAPTIVE_FLOOR_SECONDS
 
     def test_adaptive_cap_absolute_ceiling(self):
@@ -364,16 +367,15 @@ class TestCalculateActualReadingTimeAtSessionPace:
         monkeypatch.setattr(
             stats_mod,
             "get_stats_config",
-            lambda: SimpleNamespace(**request.param),
+            lambda: SimpleNamespace(session_gap_seconds=1800, **request.param),
         )
 
     def test_afk_line_trimmed_to_session_pace(self):
-        # 2 cps median; the 600s AFK gap (20-char line) is capped to the
-        # scaled session pace, not v1's 60s and not the full AFK gap.
+        # At the actual 2 cps median, the 600s AFK gap gets a 25s cap.
         timestamps = [0.0, 10.0, 20.0, 30.0, 630.0]
         line_texts = ["あ" * 20, "あ" * 20, "あ" * 20, "あ" * 20, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == 10.0 + 10.0 + 10.0 + (20 / (2.0 * ADAPTIVE_MEDIAN_CPS_SCALE) * 2.5)
+        assert result == 55.0
 
     def test_short_line_costs_floor_without_median(self):
         # Single short gap → no median established → fallback fixed cap.
@@ -381,6 +383,48 @@ class TestCalculateActualReadingTimeAtSessionPace:
         line_texts = ["ab", "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         assert result == max(ADAPTIVE_FLOOR_SECONDS, 2 * _MAX_SEC_PER_CHAR)
+
+
+class TestReadingTimeSessionBoundaries:
+    @pytest.fixture(autouse=True)
+    def _stats_config(self, monkeypatch):
+        monkeypatch.setattr(
+            "GameSentenceMiner.web.stats.get_stats_config",
+            lambda: SimpleNamespace(session_gap_seconds=1800),
+        )
+
+    def test_separate_sessions_keep_their_own_paces_and_do_not_credit_the_break(self):
+        fast_timestamps = [float(i * 10) for i in range(11)]
+        slow_timestamps = [4000.0 + i * 60 for i in range(6)]
+        texts = ["あ" * 20] * (len(fast_timestamps) + len(slow_timestamps))
+
+        combined = calculate_actual_reading_time(fast_timestamps + slow_timestamps, texts)
+        separate = calculate_actual_reading_time(fast_timestamps, texts[:11]) + calculate_actual_reading_time(
+            slow_timestamps, texts[11:]
+        )
+
+        assert combined == separate == 400.0
+
+    def test_only_lines_separated_by_session_breaks_have_no_measured_reading_time(self):
+        assert calculate_actual_reading_time([0.0, 4000.0, 8000.0], ["あ" * 20] * 3) == 0.0
+
+    def test_configured_session_gap_is_respected(self, monkeypatch):
+        monkeypatch.setattr(
+            "GameSentenceMiner.web.stats.get_stats_config",
+            lambda: SimpleNamespace(session_gap_seconds=60),
+        )
+        assert calculate_actual_reading_time([0.0, 60.0, 121.0, 181.0], ["あ" * 20] * 4) == 120.0
+
+    def test_a_first_long_pause_cannot_justify_its_own_reading_time(self):
+        assert calculate_actual_reading_time([0.0, 600.0], ["あ" * 20, "end"]) == 60.0
+
+    def test_burst_heavy_session_preserves_real_reading_gaps(self):
+        timestamps = [0.0, 10.0, 20.0] + [20.0 + i * 0.01 for i in range(1, 21)] + [30.2]
+        assert calculate_actual_reading_time(timestamps, ["あ" * 20] * len(timestamps)) == pytest.approx(30.2)
+
+    @pytest.mark.parametrize("invalid_timestamp", [math.nan, math.inf, -math.inf])
+    def test_invalid_timestamps_do_not_poison_reading_time(self, invalid_timestamp):
+        assert calculate_actual_reading_time([0.0, invalid_timestamp, 10.0], ["あ" * 20] * 3) == 10.0
 
 
 # ---------------------------------------------------------------------------

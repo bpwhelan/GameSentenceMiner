@@ -1,4 +1,4 @@
-import { exec, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import { dialog, ipcMain, BrowserWindow, screen, IpcMainEvent, clipboard, shell } from 'electron';
 import {
     getAutoUpdateElectron,
@@ -693,6 +693,10 @@ export function stopOCR(options: OCRStopOptions): boolean {
         ocrStopRequested = true;
         void getProcessManager().stop(OCR_CLIENT_ID, {
             gracefulStopData: buildOcrStopCommand(options.reason),
+        }).catch((error) => {
+            console.error('[OCR] Failed to stop process:', error);
+            const message = error instanceof Error ? error.message : String(error);
+            sendToMainWindowFrames('ocr-ipc-error', `Failed to stop OCR: ${message}`);
         });
         return true;
     }
@@ -907,7 +911,8 @@ export function registerOCRUtilsIPC() {
     ipcMain.handle('ocr.open-config-json', async () => {
         try {
             const ocrConfigPath = await getActiveOCRConfigPath();
-            exec(`start "" "${ocrConfigPath}"`); // Opens the file with the default editor
+            const error = await shell.openPath(ocrConfigPath);
+            if (error) throw new Error(error);
             return true;
         } catch (error: any) {
             console.error('Error opening config file:', error.message);
@@ -917,7 +922,8 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.open-config-folder', async () => {
         try {
-            exec(`start "" "${path.join(BASE_DIR, 'ocr_config')}"`); // Opens the folder in Explorer
+            const error = await shell.openPath(path.join(BASE_DIR, 'ocr_config'));
+            if (error) throw new Error(error);
             return true;
         } catch (error: any) {
             console.error('Error opening config folder:', error.message);

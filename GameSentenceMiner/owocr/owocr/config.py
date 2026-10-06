@@ -186,8 +186,13 @@ class Config:
             self.__provided_cli_args = vars(args)
         else:
             self.__provided_cli_args = {}
-        config = configparser.ConfigParser()
-        res = config.read(self.config_path, encoding="utf-8")
+        config = configparser.ConfigParser(interpolation=None)
+        try:
+            res = config.read(self.config_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            # Accept files written by the older GSM editor before its UTF-8 fix.
+            config = configparser.ConfigParser(interpolation=None)
+            res = config.read(self.config_path, encoding="locale")
 
         if len(res) == 0:
             # The GSM-specific OWOCR config is a legacy compatibility file. It

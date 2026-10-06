@@ -19,7 +19,7 @@
   }
   function syncFeedback(record) {
     if (!record.control) return;
-    record.control.hidden = record.hidden || (record.badge.hidden && record.output.textContent === "");
+    record.control.hidden = record.hidden || record.output.textContent === "";
     syncFeedbackSurface(record.feedback);
   }
   function setStatus(record, value, kind = "info") {
@@ -136,7 +136,6 @@
       decision: null,
       viewChecked: false,
       needsCheck: true,
-      captureJobId: null,
     };
   }
   function updateRecord(record, spec) {
@@ -148,19 +147,6 @@
     });
     if (spec.custom) setMiningButtonState(record, record.add.dataset.state || "checking");
   }
-  function captureBadge(record, state = "") {
-    if (!record.badge) return;
-    const capture = record.decision?.capture;
-    record.badge.hidden = !capture;
-    if (!capture) {
-      text(record.badge, "");
-      syncFeedback(record);
-      return;
-    }
-    const labels = [capture.sourceLabel, capture.partial ? "Partial" : "", state].filter(Boolean);
-    text(record.badge, labels.join(" · "));
-    syncFeedback(record);
-  }
   function decision(record, value) {
     record.decision = value;
     if (!record.terminal && !record.busy) {
@@ -168,30 +154,12 @@
       setMiningButtonState(record, state, state === "view-existing" ? "" : value.error || "");
       setStatus(record, value.error || "", value.error ? "error" : "info");
     }
-    captureBadge(record);
     disabled(record);
   }
   function uncertain(record, error) {
     record.terminal = true;
     setMiningButtonState(record, "error", "Check Anki before trying again");
     setStatus(record, error, "error");
-  }
-  function readyCaptureRequest(record, request, requirements, assets) {
-    captureBadge(record);
-    const unavailable = [...(request.captureUnavailable ?? [])];
-    if (requirements.includeAnimation && !assets?.animation) unavailable.push("animation");
-    if (requirements.includeAudio && !assets?.audio) unavailable.push("audio");
-    return { ...request, captureJobId: record.captureJobId, captureUnavailable: unavailable };
-  }
-  function captureProgress(record, status) {
-    if (status.state === "finishing") {
-      captureBadge(record, "Finishing clip");
-      setStatus(record, "Finishing clip…");
-    } else {
-      captureBadge(record);
-      const progress = status.total > 0 ? ` ${status.progress}/${status.total}` : "";
-      setStatus(record, `Encoding captured media${progress}…`);
-    }
   }
   function restartChecks(records) {
     for (const record of records) {
@@ -222,12 +190,10 @@
   }
   function createAnkiController({
     send,
-    capture = send,
     onChange,
     // The page's own overlays are hidden for a viewport screenshot and restored
     // afterwards; without a host to hide, the screenshot is just taken.
     conceal = during => during(),
-    wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
   }) {
     const owners = new Map(), bound = new WeakMap();
     let enabled = false, settingsKey = "", checks = Promise.resolve();
@@ -288,18 +254,22 @@
       }
       return { configKeys, changed: [] };
     }
+    // One request for every record of this Template that still needs its
+    // readiness, so the worker shares one duplicate lookup and one Anki add
+    // check between them. A reply applies only to a record still bound here.
     async function checkRecords(records, owns) {
-      for (const record of records) {
-        if (!owns()) return;
-        if (!needsCheck(record)) continue;
-        record.needsCheck = false;
-        try {
-          const result = await send("hd_anki_preflight", { request: payload(record) });
-          if (owns() && boundHere(record)) decision(record, result);
-        } catch (error) {
-          if (owns() && boundHere(record)) decision(record, { state: "error", canAdd: false, error: error.message });
-        }
+      const pending = records.filter(needsCheck);
+      if (!owns() || !pending.length) return;
+      for (const record of pending) record.needsCheck = false;
+      let replies;
+      try {
+        ({ replies } = await send("hd_anki_preflight_batch", { requests: pending.map(payload) }));
+      } catch (error) {
+        replies = pending.map(() => ({ state: "error", canAdd: false, error: error.message }));
       }
+      pending.forEach((record, index) => {
+        if (owns() && boundHere(record)) decision(record, replies[index]);
+      });
     }
     function recordsByTemplate(records) {
       const byTemplate = new Map();
@@ -385,11 +355,6 @@
       record.screenshot = null;
       try { await send("hd_anki_screenshot_discard", { request: { token } }); } catch { /* A restarted worker holds nothing. */ }
     }
-    async function cancelCapture(record) {
-      if (!record.captureJobId) return;
-      try { await capture("hd_capture_cancel", { jobId: record.captureJobId }); } catch { /* Stop/expiry already cleaned it up. */ }
-      record.captureJobId = null;
-    }
     async function handleSubmissionFailure(record, error, writeSent, owns) {
       if (!writeSent) {
         // Nothing was sent, so the picture this submission took is nobody's.
@@ -400,7 +365,6 @@
       } else {
         // A worker reply confirms that no Anki mutation was sent. Release the
         // request-owned export even after its popup owner has retired.
-        await cancelCapture(record);
         await discardScreenshot(record);
       }
       if (!owns()) return;
@@ -440,31 +404,6 @@
       refreshAll(); // Best-effort checks cannot turn a confirmed write into a retry.
       return true;
     }
-    async function prepareCapture(record, request, owns) {
-      const selected = record.decision?.capture;
-      if (!selected) return request;
-      if (!request.capturePin?.token) throw new Error("The capture pin expired. Look up the text again.");
-      if (!record.captureJobId) {
-        const started = await capture("hd_capture_export", {
-          token: request.capturePin.token,
-          requirements: selected.requirements,
-        });
-        record.captureJobId = started.jobId;
-      }
-      for (;;) {
-        const status = await capture("hd_capture_job_status", { jobId: record.captureJobId });
-        if (status.state === "ready") {
-          return readyCaptureRequest(record, request, selected.requirements, status.assets);
-        }
-        if (status.state === "error") {
-          const message = status.error || "Captured media could not be encoded.";
-          await cancelCapture(record);
-          throw new Error(message);
-        }
-        if (owns()) captureProgress(record, status);
-        await wait(100);
-      }
-    }
     async function submit(record, fromPointer) {
       if (!current(record) || record.add.disabled || record.busy || record.terminal) return;
       const group = record.group, epoch = group.epoch;
@@ -480,7 +419,7 @@
       setStatus(record, "Saving to Anki…");
       let writeSent = false;
       try {
-        const prepared = await prepareCapture(record, await prepareScreenshot(record, request, owns), owns);
+        const prepared = await prepareScreenshot(record, request, owns);
         if (owns()) setStatus(record, "Saving to Anki…");
         writeSent = true;
         const result = await send("hd_anki_submit", { request: prepared });
@@ -545,13 +484,10 @@
         add.type = "button";
         add.className = "gsm-hoshidicts-mine-button";
       }
-      const badge = document.createElement("span");
-      badge.className = "gsm-hoshidicts-capture-badge";
-      badge.hidden = true;
       const output = document.createElement("output");
       output.className = "gsm-hoshidicts-anki-status";
       output.setAttribute("aria-live", "polite");
-      control.append(badge, output);
+      control.append(output);
       control.hidden = true;
       feedback.append(control);
       if (!record.custom) {
@@ -562,7 +498,7 @@
           record.actions.prepend(add);
         }
       }
-      Object.assign(record, { feedback, control, add, badge, output, hidden: false });
+      Object.assign(record, { feedback, control, add, output, hidden: false });
       setMiningButtonState(record, "checking");
       record.onMouseDown = event => {
         if (event.button === 0 && current(record) && !views(record)) record.pointerRequest = payload(record);
@@ -585,7 +521,10 @@
           templateId: primaryTemplateId,
           label: "Anki",
         });
-        for (const add of item.actions.querySelectorAll(".gsm-hoshidicts-custom-anki-button")) {
+        // A renderer that shows one entry's actions in a shared toolbar names
+        // the entry its custom buttons mine; otherwise they are in its row.
+        const customActions = "customActions" in item ? item.customActions : item.actions;
+        for (const add of customActions?.querySelectorAll(".gsm-hoshidicts-custom-anki-button") ?? []) {
           const descriptor = customButtonTemplates.get(add.dataset.customButtonId);
           if (!descriptor) continue;
           specs.push({
@@ -650,7 +589,7 @@
       update(options, ready = true) {
         const anki = globalThis.HDReaderOptions.normaliseAnki(options.anki);
         const customButtons = globalThis.HDReaderOptions.normaliseCustomButtons(options.customButtons);
-        const key = JSON.stringify([ready, anki, customButtons, options.audioSources, options.mediaCapture]);
+        const key = JSON.stringify([ready, anki, customButtons, options.audioSources]);
         if (key === settingsKey) return;
         settingsKey = key;
         primaryTemplateId = anki.templates[0].id;
@@ -669,7 +608,6 @@
     };
   }
   // Mining screenshots address this exact document before and after capture.
-  // This script is present in every browser; the capture content script is not.
   globalThis.chrome?.runtime?.onMessage?.addListener((message, sender, sendResponse) => {
     if (message?.target === "hachidori-anki-content" && message.type === "hd_anki_document") sendResponse({ present: true });
   });

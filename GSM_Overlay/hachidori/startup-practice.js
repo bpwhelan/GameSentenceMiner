@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 import { createLocalFileAccessController } from "./local-file-access.js";
+import "./reader-options.js";
+
+const { activationLabel } = globalThis.HDReaderOptions;
 
 // One readiness decision supplies the page heading, probe precondition and
 // practice recovery. A library with disabled terms needs enabling, not a reimport.
@@ -37,13 +40,13 @@ function practiceInstruction(options, enabled, probing, unavailable, shortcut) {
   if (enabled) {
     const ending = shortcut ? ", or use the lookup button." : ".";
     return options.lookupMode !== "hover"
-      ? `Try looking up a word below. Hold ${options.activationKey} and hover over a word${ending}`
+      ? `Try looking up a word below. Hold ${activationLabel(options.activationKey)} and hover over a word${ending}`
       : `Try looking up a word below. Hover over Japanese text${ending}`;
   }
   if (probing) return "Checking what the installed dictionaries can answer…";
   if (unavailable) {
     return options.lookupMode !== "hover"
-      ? `Hold ${options.activationKey} and hover over Japanese text on any webpage to look it up.`
+      ? `Hold ${activationLabel(options.activationKey)} and hover over Japanese text on any webpage to look it up.`
       : "Hover over Japanese text on any webpage to look it up.";
   }
   return "You can finish setup now and try a lookup later.";

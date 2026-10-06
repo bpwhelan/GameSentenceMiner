@@ -51,7 +51,25 @@ def test_lost_game_hwnd_cannot_use_obs_output(capture):
     monitor, _, _ = capture
     monitor.target_hwnd = None
     assert capture_state.get_overlay_capture_state(monitor)["available"] is False
+
+
+@pytest.mark.parametrize(
+    "target_info",
+    [{}, {"exe": "chrome.exe", "title": "Browser game"}, {"exe": "game.exe"}],
+    ids=["desktop", "browser", "unresolved-window"],
+)
+def test_untracked_obs_capture_remains_available_with_window_metadata(capture, target_info):
+    monitor, state, _ = capture
+    monitor.target_hwnd = None
     monitor.ever_had_target_hwnd = False
+    monitor.last_target_info = target_info
+    monitor.last_state = "unknown"
+    assert capture_state.get_overlay_capture_state(monitor) == {
+        "type": "capture_status",
+        "available": True,
+        "window_state": "background",
+    }
+    state.source_output_active = False
     assert capture_state.get_overlay_capture_state(monitor)["available"] is False
 
 

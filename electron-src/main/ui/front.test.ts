@@ -108,6 +108,7 @@ async function loadFrontModule() {
 
 describe('runOverlayWithSource', () => {
     beforeEach(() => {
+        vi.stubEnv('SystemRoot', 'C:\\Windows');
         isDevValue = false;
         useInProcessOverlayValue = false;
         existsSyncMock.mockReset();
@@ -124,7 +125,10 @@ describe('runOverlayWithSource', () => {
         });
     });
 
-    afterEach(() => vi.useRealTimers());
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllEnvs();
+    });
 
     it('runs npm start in GSM_Overlay when launched from source', async () => {
         isDevValue = true;
@@ -206,7 +210,7 @@ describe('runOverlayWithSource', () => {
 
         expect(stopOverlay()).toBe(true);
         expect(execFileMock).toHaveBeenCalledWith(
-            'taskkill',
+            'C:\\Windows\\System32\\taskkill.exe',
             ['/PID', '1234', '/T', '/F'],
             { windowsHide: true },
             expect.any(Function)
@@ -308,7 +312,7 @@ describe('runOverlayWithSource', () => {
         expect(execFileMock).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(5000);
         expect(execFileMock).toHaveBeenCalledWith(
-            'taskkill', ['/PID', '1234', '/T', '/F'], { windowsHide: true }, expect.any(Function)
+            'C:\\Windows\\System32\\taskkill.exe', ['/PID', '1234', '/T', '/F'], { windowsHide: true }, expect.any(Function)
         );
         processHandle.emit('exit', 1);
         await waitForOverlayShutdown();

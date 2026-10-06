@@ -1401,6 +1401,38 @@
     "previewFailed": "プレビューを生成できませんでした"
   },
   "texthook": {
+    "updates": {
+      "title": "LunaHook と Textractor",
+      "description": "新しいビルドをバックグラウンドでダウンロードし、テキストフックの停止中に適用します。両方のエンジンをまとめて更新します。",
+      "settings": "エンジン設定",
+      "automatic": "自動更新する",
+      "automaticOn": "自動更新オン",
+      "automaticOff": "自動更新オフ",
+      "verificationHint": "すべてのファイルを検証してからパッケージを切り替えます。以前のパッケージは保持されます。",
+      "repair": "修復／再インストール",
+      "updateNow": "今すぐ更新",
+      "install": "エンジンをインストール",
+      "verifying": "ダウンロードしたファイルを検証中…",
+      "installing": "検証済みの更新をインストール中…",
+      "waiting": "更新を検証済みです。実行中のフックが停止したら適用します。",
+      "failed": "エンジンの更新に失敗しました。再確認または再インストールで再試行してください。",
+      "preferenceFailed": "自動更新の設定を保存できませんでした。",
+      "installed": "インストール済みパッケージ: {version}",
+      "available": "配布中のパッケージ: {version}",
+      "unknownVersion": "バージョン不明",
+      "notInstalled": "エンジンがインストールされていないか、修復が必要です。",
+      "check": "今すぐ確認",
+      "checking": "エンジンの更新を確認中…",
+      "checkFailed": "エンジンの更新を確認できませんでした。もう一度お試しください。",
+      "updateAvailable": "エンジンの更新があります。",
+      "upToDate": "エンジンパッケージは最新です。",
+      "download": "エンジンをダウンロード／更新",
+      "downloading": "エンジンをダウンロード中…",
+      "downloadFailed": "フックエンジンをダウンロードできませんでした。もう一度お試しください。",
+      "ready": "フックエンジンの準備ができました。",
+      "stopFirst": "エンジンをダウンロードする前に、実行中のテキストフックを停止してください。",
+      "progress": "フックエンジンをダウンロード中 ({current}/{total}): {file}"
+    },
     "notice": {
       "title": "テキストフックについて",
       "description": "テキストフックは実行中のゲームからテキストを直接取得します。対応しているゲームでは、OCR よりもクリーンで正確なテキストを取得できます。",
@@ -1454,8 +1486,8 @@
       "title": "Agentスクリプト",
       "scriptPath": "スクリプトパス:",
       "scriptPlaceholder": ".js Agentスクリプトを選択",
-      "search": "検索",
-      "browse": "参照",
+      "search": "スクリプトを検索",
+      "browse": "ファイルを選択…",
       "save": "保存",
       "noScripts": "Agentスクリプトが見つかりません。",
       "pickerTitle": "Agentスクリプトを選択",
@@ -1468,8 +1500,10 @@
       "runDetachedHint": "次回GSMを開いたとき、実行中のAgentセッションに再接続します。"
     },
     "profile": {
-      "title": "保存済みプロファイル",
+      "title": "次回のために保存",
       "saved": "保存済み",
+      "recommended": "おすすめ",
+      "saveHint": "動作するフックを保存すると、次回も使えます。",
       "autoHook": "次回起動時にフックを自動アタッチ",
       "copyToClipboard": "処理済みテキストをクリップボードにコピー",
       "flushDelay": "テキスト更新ウィンドウ (ms):",
@@ -1491,11 +1525,26 @@
       "rowLabel": "フック #{id} を選択: {name}",
       "searchTitle": "フック検索",
       "waiting": "フック待機中。ゲームでテキストを表示してください。",
-      "notRunning": "「開始」を押してエンジンを開始してください。",
-      "noTextYet": "(まだテキストなし)"
+      "notRunning": "テキスト取得を開始してフックを探してください。",
+      "noTextYet": "(まだテキストなし)",
+      "rankingHint": "学習言語（{language}）に合う読みやすいテキストを優先して表示します。言語の判定は文字種による目安です。選択中のフックは常に表示されます。",
+      "readabilityHint": "読みやすいテキストを優先して表示します。選択中のフックは常に表示されます。",
+      "showNoise": "ノイズ候補を表示（{count} 件）",
+      "onlyNoise": "現在はノイズ候補のみです。ノイズ候補を表示して確認するか、ゲームのテキストを進めてください。",
+      "quality": {
+        "targetLanguage": "学習言語に近い文字種",
+        "possibleLanguage": "学習言語の可能性あり",
+        "readable": "読みやすいテキスト",
+        "mixed": "テキストとノイズが混在",
+        "paths": "パスや技術的な文字列",
+        "garbled": "文字化けの可能性",
+        "repetitive": "繰り返しが多いテキスト",
+        "symbols": "主に数字や記号"
+      }
     },
     "output": {
       "title": "選択中フックの出力",
+      "checkHint": "ゲーム内のテキストと一致しているか確認してください。",
       "waiting": "選択中フックからのテキストを待機中…",
       "selectHook": "プレビューするフックを一覧から選択してください。"
     },
@@ -1508,10 +1557,15 @@
       "ready": "準備完了",
       "noTarget": "対象なし"
     },
+    "layout": {
+      "captureOptions": "テキスト取得の詳細設定",
+      "troubleshooting": "トラブルシューティング"
+    },
     "actions": {
       "start": "開始",
       "searchHooks": "フックを検索",
-      "stop": "停止"
+      "stop": "停止",
+      "preparing": "テキスト取得を準備しています…"
     },
     "dev": {
       "sendLargePayload": "ランダムな日本語ペイロードを送信 ({size} 文字)",

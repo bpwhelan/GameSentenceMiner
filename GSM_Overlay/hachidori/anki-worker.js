@@ -4,23 +4,9 @@ import { enrichAnkiNote } from "./anki-enrichment.js";
 import { createAnkiMediaStore } from "./anki-media.js";
 import { ankiTemplateMarkerNames } from "./anki-templates.js";
 import {
-  CAPTURE_FILENAMES, CAPTURE_LIMITS, MAX_LINKED_SCREENSHOT_BYTES, decodedBase64Length,
+  MAX_LINKED_SCREENSHOT_BYTES, decodedBase64Length,
   validateLinkedAnkiClientMedia,
 } from "./anki-client-media.js";
-
-function assertCapturePin(pin) {
-  if (!pin || typeof pin !== "object"
-      || typeof pin.token !== "string" || !pin.token || pin.token.length > 256
-      || typeof pin.captureSessionId !== "string" || !pin.captureSessionId || pin.captureSessionId.length > 256
-      || !["texthooker", "cue", "dom", "recent"].includes(pin.sourceKind)
-      || typeof pin.sourceLabel !== "string" || !pin.sourceLabel || pin.sourceLabel.length > 100
-      || typeof pin.partial !== "boolean"
-      || !Number.isFinite(pin.readyAtMs)
-      || !CAPTURE_FILENAMES.animation.test(pin.animationFilename)
-      || !CAPTURE_FILENAMES.audio.test(pin.audioFilename)) {
-    throw new Error("The captured-media pin is invalid or expired. Look up the text again.");
-  }
-}
 
 // A note that was definitively not written leaves no picture of its own behind.
 async function releaseScreenshot({ writeResources, invoke }) {
@@ -29,28 +15,14 @@ async function releaseScreenshot({ writeResources, invoke }) {
   await invoke("deleteMediaFile", { filename }, 10_000);
 }
 
-function validateCapture({ request, prepared, capture: selected }) {
-  const media = prepared.config.mediaCapture;
-  if (!media?.enabled) throw new Error("Enable media capture in Settings before using captured-media markers.");
-  if (selected.requirements.includeAnimation && !media.includeAnimation) {
-    throw new Error("This note maps captured animation, but animation capture is disabled.");
-  }
-  if (selected.requirements.includeAudio && !media.includeCapturedAudio) {
-    throw new Error("This note maps captured audio, but captured-audio output is disabled.");
-  }
-  assertCapturePin(request.capturePin);
-}
-
 export function createAnkiWorkerService({
   gateway,
   readOptions,
   readDictionaries,
   engine,
   offscreen,
-  capture = null,
   duplicateIndex,
 }) {
-  const confirmedCaptureUploads = new Map();
   const linkedClientMedia = new WeakMap();
   const linkedClientPreflights = new WeakSet();
   const ankiMediaStore = createAnkiMediaStore();
@@ -87,43 +59,7 @@ export function createAnkiWorkerService({
     });
   };
   const render = (request, templates, audio, resources) => offscreen({ type: "hd_anki_fields", request, templates, audio,
-    dictionaryPaths: resources.dictionaryPaths });
-
-  async function captureRequest(type, fields) {
-    if (typeof capture !== "function") throw new Error("The captured-media host is unavailable.");
-    const reply = await capture({ type, ...fields });
-    if (!reply || reply.ok === false) throw new Error(reply?.error || "The captured-media host did not reply.");
-    return reply;
-  }
-
-  async function uploadCaptureAsset(kind, expectedFilename, metadata, { request, invoke, configKey }) {
-    if (!metadata || metadata.filename !== expectedFilename
-        || !Number.isSafeInteger(metadata.byteLength) || metadata.byteLength < 1
-        || metadata.byteLength > CAPTURE_LIMITS[kind]) {
-      throw new Error(`The encoded captured ${kind} is invalid or exceeds its size limit.`);
-    }
-    // An upload confirmed by one Anki endpoint says nothing about another.
-    const uploadKey = `${request.captureJobId}:${configKey}:${kind}`;
-    if (confirmedCaptureUploads.get(uploadKey) === expectedFilename) return;
-    const asset = isLinkedSubmission(request)
-      ? metadata
-      : await captureRequest("hd_capture_asset", { jobId: request.captureJobId, kind });
-    const byteLength = decodedBase64Length(asset.data);
-    if (asset.filename !== expectedFilename || byteLength !== metadata.byteLength
-        || byteLength > CAPTURE_LIMITS[kind]) {
-      throw new Error(`The captured ${kind} payload changed during preparation.`);
-    }
-    await currentGeneration(request);
-    const stored = await invoke("storeMediaFile", {
-      filename: expectedFilename,
-      data: asset.data,
-      deleteExisting: false,
-    }, 30_000);
-    if (stored !== expectedFilename) {
-      throw new Error(`Anki stored the captured ${kind} under a different filename.`);
-    }
-    confirmedCaptureUploads.set(uploadKey, expectedFilename);
-  }
+    dictionaryPaths: resources.dictionaryPaths, compactGlossary: resources.compactGlossary === true });
 
   // One pending viewport picture at a time: a later capture supersedes an
   // earlier one, and a note that is written consumes it. Nothing is uploaded
@@ -174,25 +110,8 @@ export function createAnkiWorkerService({
     return { warnings: [], screenshotFilename: filename };
   }
 
-  async function prepareCapture(context) {
-    const screenshot = await storePendingScreenshot(context);
-    let clip;
-    try {
-      clip = await prepareClipCapture(context);
-    } catch (error) {
-      // No note will be written, and this rejection never reaches the caller's
-      // own cleanup, so the picture is taken back out here.
-      await releaseScreenshot({ writeResources: screenshot, invoke: context.invoke }).catch(() => undefined);
-      throw error;
-    }
-    if (clip === null) {
-      return screenshot.warnings.length === 0 && screenshot.screenshotFilename === undefined ? null : screenshot;
-    }
-    return { ...clip, ...screenshot, warnings: [...clip.warnings, ...screenshot.warnings] };
-  }
-
   async function prepareWrite(context) {
-    const captureResources = await prepareCapture(context);
+    const screenshot = await storePendingScreenshot(context);
     try {
       await ankiMediaStore.prepare({
         ...context,
@@ -200,61 +119,10 @@ export function createAnkiWorkerService({
         validate: () => currentGeneration(context.request),
       });
     } catch (error) {
-      await releaseScreenshot({ writeResources: captureResources, invoke: context.invoke }).catch(() => undefined);
+      await releaseScreenshot({ writeResources: screenshot, invoke: context.invoke }).catch(() => undefined);
       throw error;
     }
-    return captureResources;
-  }
-
-  async function prepareClipCapture(context) {
-    const { appliedFields, capture: selected, request } = context;
-    await currentGeneration(request);
-    if (!selected) return null;
-    assertCapturePin(request.capturePin);
-    if (typeof request.captureJobId !== "string" || !request.captureJobId || request.captureJobId.length > 256) {
-      throw new Error("Encode the pinned clip before submitting this note.");
-    }
-    const supplied = linkedClientMedia.get(request)?.capture;
-    const status = isLinkedSubmission(request)
-      ? { state: "ready", warnings: supplied?.warnings, assets: supplied?.assets }
-      : await captureRequest("hd_capture_job_status", { jobId: request.captureJobId });
-    if (status.state === "finishing") throw new Error("The selected clip is still finishing.");
-    if (status.state === "encoding") throw new Error("The selected clip is still encoding.");
-    if (status.state !== "ready") throw new Error(status.error || "The selected clip could not be encoded.");
-
-    const kinds = [
-      ["animation", "includeAnimation", request.capturePin.animationFilename],
-      ["audio", "includeAudio", request.capturePin.audioFilename],
-    ];
-    for (const [kind, requirement, expectedFilename] of kinds) {
-      if (!selected.requirements[requirement]) continue;
-      if (!Object.values(appliedFields).some(value => value.includes(expectedFilename))) {
-        throw new Error(`The applied note fields do not reference the captured ${kind}.`);
-      }
-      await uploadCaptureAsset(kind, expectedFilename, status.assets?.[kind], context);
-    }
-    return {
-      captureJobId: request.captureJobId,
-      linkedClient: isLinkedSubmission(request),
-      warnings: Array.isArray(status.warnings)
-        ? status.warnings.filter(value => typeof value === "string").map(value => value.slice(0, 500)) : [],
-    };
-  }
-
-  async function completeCapture({ writeResources }) {
-    const jobId = writeResources?.captureJobId;
-    if (!jobId) return;
-    if (!writeResources.linkedClient) await captureRequest("hd_capture_complete", { jobId });
-    for (const key of confirmedCaptureUploads.keys()) {
-      if (key.startsWith(`${jobId}:`)) confirmedCaptureUploads.delete(key);
-    }
-  }
-
-  async function beforeMutation({ request, writeResources }) {
-    await currentGeneration(request);
-    if (!writeResources?.captureJobId || writeResources.linkedClient) return;
-    const status = await captureRequest("hd_capture_job_status", { jobId: writeResources.captureJobId });
-    if (status.state !== "ready") throw new Error(status.error || "The captured-media export was cancelled or expired.");
+    return screenshot;
   }
 
   const mining = createAnkiMiningService({ gateway,
@@ -265,7 +133,9 @@ export function createAnkiWorkerService({
       return {
         ...template,
         audioSources: options.audioSources.filter(source => source.enabled),
-        mediaCapture: options.mediaCapture,
+        // Part of the checked configuration, so toggling Smaller Anki cards
+        // between a preflight and Add refuses the stale Add.
+        compactGlossary: options.experimental.smallerAnkiCards === true,
       };
     },
     buildFields: async (request, current, { preflight = false } = {}) => {
@@ -275,7 +145,8 @@ export function createAnkiWorkerService({
       await currentGeneration(request);
       const dictionaries = await readDictionaries();
       const resources = { dictionaryPaths: Object.fromEntries(dictionaries.filter(item => item.enabled !== false)
-        .map(item => [item.title, item.path])), audioPrepared: false, audio: null, deferDuplicateCheck: false };
+        .map(item => [item.title, item.path])), compactGlossary: current.config.compactGlossary === true,
+        audioPrepared: false, audio: null, deferDuplicateCheck: false };
       const first = current.resolved.templates[current.discovery.fields[0]];
       if (ankiTemplateMarkerNames(first.value).includes("audio") && current.config.audioSources.length) {
         // Audio in the first field is part of Anki's duplicate identity. A
@@ -299,9 +170,8 @@ export function createAnkiWorkerService({
       const built = await render(request, current.resolved.templates, pronunciation, resources);
       return { ...resources, ...built };
     },
-    validateCapture,
     beforeWrite: prepareWrite,
-    beforeMutation,
+    beforeMutation: ({ request }) => currentGeneration(request),
     preflightExtra: async ({ request, prepared, applied }) => {
       if (!linkedClientPreflights.has(request)) return {};
       if (prepared.resources.clientSpeech) return { clientSpeech: prepared.resources.clientSpeech };
@@ -320,7 +190,6 @@ export function createAnkiWorkerService({
         return {};
       }
     },
-    afterConfirmed: completeCapture,
     afterRejected: releaseScreenshot,
     duplicateIndex,
     enrich: context => enrichAnkiNote(context, {
@@ -463,41 +332,12 @@ export function createAnkiWorkerService({
       }
       value.screenshot = { token: screenshot.token, filename: screenshot.filename, data: screenshot.data };
     }
-    if (typeof request?.captureJobId === "string" && request.captureJobId !== "") {
-      assertCapturePin(request.capturePin);
-      const status = await captureRequest("hd_capture_job_status", { jobId: request.captureJobId });
-      if (status.state === "finishing") throw new Error("The selected clip is still finishing.");
-      if (status.state === "encoding") throw new Error("The selected clip is still encoding.");
-      if (status.state !== "ready") throw new Error(status.error || "The selected clip could not be encoded.");
-      const assets = {};
-      for (const kind of ["animation", "audio"]) {
-        const metadata = status.assets?.[kind];
-        if (!metadata) continue;
-        const asset = await captureRequest("hd_capture_asset", { jobId: request.captureJobId, kind });
-        assets[kind] = { filename: asset.filename, byteLength: metadata.byteLength, data: asset.data };
-      }
-      value.capture = {
-        jobId: request.captureJobId,
-        warnings: Array.isArray(status.warnings)
-          ? status.warnings.filter(warning => typeof warning === "string")
-            .map(warning => warning.slice(0, 500)).slice(0, 64)
-          : [],
-        assets,
-      };
-    }
     if (request?.clientSpeech) value.speech = await clientSpeech(request);
     return validateLinkedAnkiClientMedia(request, value);
   }
 
   async function settleClientMedia(request, state) {
     discardScreenshot(request?.screenshot);
-    const jobId = request?.captureJobId;
-    if (typeof jobId !== "string" || jobId === "") return { settled: true };
-    if (["added", "updated"].includes(state)) {
-      await captureRequest("hd_capture_complete", { jobId });
-    } else if (["duplicate", "invalid"].includes(state)) {
-      await captureRequest("hd_capture_cancel", { jobId });
-    }
     return { settled: true };
   }
 

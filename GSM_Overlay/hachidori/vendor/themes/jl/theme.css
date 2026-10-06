@@ -1,0 +1,81 @@
+/* Independent JL layout; Default reader.css is never loaded beneath it.
+ * Colours, sizes and spacing follow JL's defaults in rampaa/JL (Apache-2.0,
+ * see ATTRIBUTION.md): ConfigManager.cs, PopupContentGenerator.cs, PopupWindow.
+ * SPDX-License-Identifier: GPL-3.0-or-later */
+:host { color-scheme: dark; --hoshidicts-accent: #1e90ff; --hoshidicts-text: #fff; }
+.gsm-hoshidicts-popup {
+  position: fixed; z-index: 2147483647; pointer-events: auto;
+  box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;
+  color: #fff; background: color-mix(in srgb, #000 var(--gsm-hoshidicts-popup-opacity, 80%), transparent);
+  /* Meiryo's Latin letters are Verdana's, so Verdana keeps JL's look without Meiryo. */
+  font: 17px/1.5 Meiryo, Verdana, "Noto Sans CJK JP", "Noto Sans JP", sans-serif; text-align: left; white-space: normal;
+  /* WPF keeps adjacent full-width punctuation full width; Chrome's default halves it. */
+  text-spacing-trim: space-all;
+  zoom: calc(var(--gsm-hoshidicts-page-zoom, 1) * var(--gsm-hoshidicts-popup-scale, 100%));
+}
+.gsm-hoshidicts-popup [hidden], .gsm-hoshidicts-popup[hidden] { display: none !important; }
+.gsm-hoshidicts-popup button { color: inherit; font: inherit; cursor: default; }
+.gsm-hoshidicts-popup button:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.jl-header { flex: none; }
+/* JL's 20 px title row holds the x; the tab row sits 2 px below it. */
+.jl-nav { display: flex; justify-content: flex-end; min-height: 20px; margin-right: 10px; }
+.jl-tabs { display: flex; flex-wrap: wrap; margin: 2px 2px 0; }
+.jl-nav:empty, .jl-tabs:empty { display: none; }
+.gsm-hoshidicts-popup .jl-tab, .gsm-hoshidicts-popup .gsm-hoshidicts-kanji-back {
+  margin: 0 0 2px 2px; padding: 3px 8px; background: #2a2b2d;
+  border: 1px solid #37393b; border-radius: 3px; font-size: 12px; line-height: 20px;
+}
+.gsm-hoshidicts-popup .jl-tab:first-child { margin-left: 0; }
+/* JL's selected tab is DodgerBlue to its edges, with no grey border. */
+.gsm-hoshidicts-popup .jl-tab[aria-pressed="true"] { border-color: #1e90ff; background: #1e90ff; }
+.gsm-hoshidicts-popup .gsm-hoshidicts-popup-close {
+  padding: 0; background: none; border: 0; font: 16px/20px "Meiryo UI", Meiryo, Verdana, sans-serif;
+}
+.gsm-hoshidicts-popup .gsm-hoshidicts-popup-close::before { display: none; }
+.jl-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+/* JL's list item padding and 2 px item margin put results about 13 px in. */
+.jl-entry { margin: 0 6px 0 13px; padding-top: 9px; }
+/* JL's separator between results, counting only the selected tab's. Its element
+ * is 2 px tall, but the WPF Separator template draws a 1 px line. */
+.jl-entry:not([hidden]) ~ .jl-entry:not([hidden]) { border-top: 1px solid #fff; }
+.jl-top { display: flex; flex-wrap: wrap; align-items: center; }
+.jl-spelling { margin-left: 2px; color: #d2691e; font-size: 21px; }
+.jl-reading { margin-left: 7px; color: #daa520; font-size: 19px; }
+.jl-deconj { margin-left: 7px; color: #b0c4de; }
+.jl-frequency { margin-left: 7px; color: #ff0; }
+.jl-dictionary { margin-left: 7px; color: #add8e6; font-size: 15px; }
+.jl-mora { border: 0 dotted #00bfff; }
+.jl-mora[data-pitch="high"] { border-top-width: 1.5px; }
+.jl-mora[data-pitch="low"] { border-bottom-width: 1.5px; }
+.jl-mora[data-transition] { margin-right: -1.5px; border-right-width: 1.5px; }
+.gsm-hoshidicts-popup .gsm-hoshidicts-kanji-link { padding: 0; background: none; border: 0; cursor: pointer; }
+.gsm-hoshidicts-audio-control { position: relative; display: inline-flex; margin-left: 3px; }
+.gsm-hoshidicts-entry-actions { display: inline-flex; margin-left: 3px; }
+.gsm-hoshidicts-entry-actions:empty { display: none; }
+.gsm-hoshidicts-popup .gsm-hoshidicts-audio-button, .gsm-hoshidicts-popup .gsm-hoshidicts-mine-button {
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; background: transparent; border: 0;
+}
+/* JL's flat 🔊 and ➕ glyphs, in place of the outline icons. */
+.gsm-hoshidicts-popup .gsm-hoshidicts-audio-button::before {
+  width: 16px; height: 16px;
+  --hd-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M1 7h3.5L10 2.5v15L4.5 13H1z'/%3E%3Cpath d='M12.5 7.5a3.5 3.5 0 0 1 0 5M14.5 5a7 7 0 0 1 0 10M16.5 2.5a10.5 10.5 0 0 1 0 15' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+.gsm-hoshidicts-popup .gsm-hoshidicts-mine-icon { width: 12px; height: 12px; }
+.gsm-hoshidicts-popup .hd-icon[data-icon="add"] {
+  --hd-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M8 1h4v7h7v4h-7v7H8v-7H1V8h7z'/%3E%3C/svg%3E");
+}
+/* JL turns the mine button OrangeRed when the note already exists. */
+.gsm-hoshidicts-popup .gsm-hoshidicts-mine-button:is([data-state="duplicate"], [data-state="add-duplicate"],
+  [data-state="view-existing"], [data-state="overwrite"]) { color: #ff4500; }
+.gsm-hoshidicts-definitions, .jl-kanji-text { margin: 6px 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jl-scroll[data-definition-blur="pending"] .gsm-hoshidicts-definitions,
+.jl-scroll[data-definition-blur="blurred"] .gsm-hoshidicts-definitions { filter: blur(5px); }
+.gsm-hoshidicts-anki-feedback { margin: 0 2px; font-size: 12px; }
+.gsm-hoshidicts-lookup-notice, .gsm-hoshidicts-lookup-failure { margin: 4px; }
+.gsm-hoshidicts-lookup-failure button { margin-left: 6px; padding: 1px 6px; background: #2a2b2d; border: 1px solid #37393b; border-radius: 3px; }
+.gsm-hoshidicts-audio-menu {
+  position: absolute; right: 8px; top: 32px; z-index: 2; min-width: 180px; max-height: calc(100% - 48px);
+  overflow: auto; padding: 6px; background: #1b1b1b; border: 1px solid #fff; font-size: 12px;
+}
+.gsm-hoshidicts-audio-menu button { display: block; width: 100%; padding: 2px 4px; text-align: left; background: #2a2b2d; border: 1px solid #37393b; }
+.gsm-hoshidicts-resize-handle { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; }

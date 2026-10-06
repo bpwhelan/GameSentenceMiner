@@ -1869,9 +1869,11 @@ function isTrackedGameWindowVisibleForManualHotkey() {
 function hasValidOverlayCapture() {
   if (!overlayCaptureAvailable) return false;
   if (["active", "background"].includes(trackedGameWindowState)) return true;
-  // Preserve an already-open lookup through the existing Magpie focus handoff.
+  // TextFeed can cover the game itself; keep its existing visibility exception
+  // consistent with window-state-changed while the backend still confirms capture.
+  // Also preserve an already-open lookup through the Magpie focus handoff.
   return trackedGameWindowState === "obscured" &&
-    (yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
+    (isTexthookerMode || yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
 }
 
 function canUseOverlayCapture() {
@@ -4217,8 +4219,12 @@ function showInactiveAndRestoreFocus(options = {}) {
   }
 }
 
+let overlayFocusRequestVersion = 0;
+
 function releaseOverlayFocusAfterTopmostRecovery(delayMs = 120) {
+  const version = overlayFocusRequestVersion;
   setTimeout(() => {
+    if (version !== overlayFocusRequestVersion) return;
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (!mainWindow.isFocused()) return;
     blurAndRestoreFocus();
@@ -4409,6 +4415,7 @@ let gamepadKeyboardToggleSuppressedUntil = 0;
 function aggressivelyFocusOverlayForGamepadNavigation() {
   if (!canUseOverlayCapture()) return;
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  overlayFocusRequestVersion += 1;
 
   const lastFocusDelay = GAMEPAD_FOCUS_RETRY_DELAYS_MS[GAMEPAD_FOCUS_RETRY_DELAYS_MS.length - 1] || 0;
   gamepadKeyboardToggleSuppressedUntil = Math.max(
@@ -4501,6 +4508,9 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
   }
   const nextActive = !!active;
   const wasActive = !!gamepadNavigationActive;
+  // Exit arrives through both release-focus and navigation-state. Only the
+  // active -> inactive transition may tear down a manual session.
+  if (!nextActive && !wasActive) return;
   const shouldFocusOverlay = options && options.focusOverlay === true;
   const keepGamepadActivationFocusNeutral =
     nextActive && isManualMode() && shouldKeepOverlayVisibleWhenManualInactive();
@@ -4528,12 +4538,8 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
   // Leaving navigation always clears any on-demand pause toggled while navigating.
   clearGamepadManualPause("gamepad-navigation-deactivate");
 
-  const manualActivationStillActive = !!(manualHotkeyPressed || manualModeToggleState);
-  if (manualActivationStillActive) {
-    requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
-    console.log(`[Gamepad] Deactivated from ${triggerSource}; keeping overlay visible due manual activation`);
-    return;
-  }
+  clearManualActivationState(`gamepad-exit:${triggerSource}`, { preserveVisibility: true });
+  requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
 
   if (isManualMode()) {
     hideOverlayUsingManualFlow(`Gamepad ${triggerSource} Deactivate`, OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
@@ -5395,6 +5401,8 @@ function requestManualModeBackground(source = "overlay") {
 function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY) {
   if (!canUseOverlayCapture()) return false;
   if (!mainWindow || mainWindow.isDestroyed()) return false;
+  // Invalidate a previous exit's delayed focus release before accepting entry.
+  overlayFocusRequestVersion += 1;
 
   console.log(`[OverlayActivation] Attempting SHOW (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
 
@@ -5411,10 +5419,19 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   requestOverlayPauseForSource(pauseSource);
 
   if (isOverlayVisible) {
-    // Controller entry sends navigation-state followed by a focus request. The
-    // second show must preserve the focus deliberately acquired by the first.
-    if (keepManualActivationFocusNeutral && !userSettings.manualModeDisableInteractionFocusOverlay) {
-      showOverlayWithoutFocusForManualVisibleMode(`manual-show-already-visible:${triggerSource}`);
+    // A visible manual session can lose focus through Alt-Tab. Reacquire it on
+    // explicit activation, without restarting the reveal or clearing the latch
+    // from potentially delayed game-window state reports. Controller entry's
+    // second message leaves the focus acquired by the first alone.
+    if (keepManualActivationFocusNeutral) {
+      if (userSettings.manualModeDisableInteractionFocusOverlay) {
+        if (!mainWindow.isFocused()) {
+          aggressivelyShowOverlayAndReturnFocus();
+          try { mainWindow.webContents.focus(); } catch (e) {}
+        }
+      } else {
+        showOverlayWithoutFocusForManualVisibleMode(`manual-show-already-visible:${triggerSource}`);
+      }
     }
     console.log("[OverlayActivation] Blocked: Overlay is already visible.");
     return false;
@@ -5694,11 +5711,13 @@ const TEXTHOOKER_CONNECTIVITY_INTERVAL_MS = 5000;
 let texthookerLoadInterval = null;
 let texthookerLoadInFlight = false;
 
-function clearManualActivationState(reason = "manual-reset") {
+function clearManualActivationState(reason = "manual-reset", options = {}) {
+  cancelManualBackgroundShowWait();
   manualHotkeyController.reset(reason);
   manualHotkeyPressed = false;
   manualModeToggleState = false;
-  isOverlayVisible = false;
+  // Gamepad exit still needs the visible state to finish the normal hide flow.
+  if (!options.preserveVisibility) isOverlayVisible = false;
 }
 
 function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-hidden") {
@@ -5923,7 +5942,7 @@ function createTexthookerWindow() {
     show: false,
     alwaysOnTop: true,
     resizable: false,
-    title: "GSM Texthooker",
+    title: "GSM Overlay - TextFeed",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -5931,15 +5950,19 @@ function createTexthookerWindow() {
     },
   });
 
+  // The window monitor recognizes this title marker in both the standalone and
+  // shared Electron runtime. Page titles (including custom titles) must retain it.
+  texthookerWindow.on('page-title-updated', (event, title) => {
+    event.preventDefault();
+    texthookerWindow.setTitle(`GSM Overlay - ${title || "TextFeed"}`);
+  });
+
   waitForTexthookerUrl(texthookerWindow, userSettings.texthookerUrl || DEFAULT_TEXTHOOKER_URL);
   texthookerWindow.setOpacity(0.95);
 
   texthookerWindow.on('closed', () => {
     texthookerLoadToken += 1;
-    if (isTexthookerMode) {
-      isTexthookerMode = false;
-      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
-    }
+    deactivateTexthookerMode("texthooker-window-closed");
     texthookerWindow = null;
   });
 
@@ -6005,6 +6028,28 @@ function waitForTexthookerUrl(win, targetUrl) {
   attempt();
 }
 
+function deactivateTexthookerMode(reason = "texthooker-hide") {
+  if (!isTexthookerMode) return;
+  isTexthookerMode = false;
+  clearManualActivationState(reason);
+  requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+  requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
+  if (texthookerWindow && !texthookerWindow.isDestroyed()) texthookerWindow.hide();
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('show-overlay-hotkey', false);
+    if (!isLinux()) mainWindow.setIgnoreMouseEvents(true, { forward: true });
+    if (canUseOverlayCapture() && (!isManualMode() || shouldKeepOverlayVisibleWhenManualInactive())) {
+      ensureMainWindowIsOnConnectedDisplay(reason);
+      mainWindow.showInactive();
+    } else {
+      mainWindow.hide();
+    }
+  }
+  publishOverlayCaptureAvailability();
+  requestBackendFocusRestore(reason, { force: true });
+}
+
 function registerTexthookerHotkey(oldHotkey) {
   const conflictResolved = ensureManualAndTexthookerHotkeysDistinct("registerTexthookerHotkey");
   const texthookerHotkey = String(userSettings.texthookerHotkey || DEFAULT_TEXTHOOKER_HOTKEY).trim() || DEFAULT_TEXTHOOKER_HOTKEY;
@@ -6020,7 +6065,11 @@ function registerTexthookerHotkey(oldHotkey) {
   }
 
   const registered = setAppHotkey("texthooker", texthookerHotkey, () => {
-    if (!isTexthookerMode && !hasValidOverlayCapture()) return;
+    if (isTexthookerMode) {
+      deactivateTexthookerMode("texthooker-hotkey-hide");
+      return;
+    }
+    if (!hasValidOverlayCapture()) return;
     if (!texthookerWindow || texthookerWindow.isDestroyed()) {
       createTexthookerWindow();
     }
@@ -6028,77 +6077,32 @@ function registerTexthookerHotkey(oldHotkey) {
     // Safety check for mainWindow
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
-    isTexthookerMode = !isTexthookerMode;
+    isTexthookerMode = true;
     publishOverlayCaptureAvailability();
 
-    if (isTexthookerMode) {
-      console.log("[TexthookerMode] Showing...");
-      requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
+    console.log("[TexthookerMode] Showing...");
+    requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
 
-      // Sync bounds before showing
-      const display = getCurrentOverlayMonitor({ logFallback: true });
-      const overlayBounds = getOverlayBoundsForDisplay(display);
-      texthookerWindow.setBounds(overlayBounds);
+    // Sync bounds before showing
+    const display = getCurrentOverlayMonitor({ logFallback: true });
+    const overlayBounds = getOverlayBoundsForDisplay(display);
+    texthookerWindow.setBounds(overlayBounds);
 
-      if (!isLinux()) {
-        console.log("[TexthookerMode] ACTION: setIgnoreMouseEvents(false)");
-        texthookerWindow.setIgnoreMouseEvents(false, { forward: true });
-      }
-
-      texthookerWindow.show();
-      texthookerWindow.setAlwaysOnTop(true, "screen-saver");
-      texthookerWindow.focus();
-
-      console.log("[TexthookerMode] ACTION: Forcing Focus");
-      texthookerWindow.show(); // Call show again to force focus like manual mode
-      forceForegroundWindow(texthookerWindow);
-
-      // Hide main window to avoid interference
-      mainWindow.hide();
-
-    } else {
-      console.log("[TexthookerMode] Hiding...");
-      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
-      texthookerWindow.hide();
-      requestBackendFocusRestore("texthooker-hotkey-hide", { force: true });
-
-      if (!canUseOverlayCapture()) return;
-
-      // Go back to whatever mode it was in before
-      if (isManualMode()) {
-        if (isOverlayVisible) {
-          if (shouldKeepOverlayVisibleWhenManualInactive()) {
-            showOverlayWithoutFocusForManualVisibleMode("texthooker-manual-active-visible");
-          } else {
-            mainWindow.show();
-          }
-          if (!isLinux()) {
-            mainWindow.setIgnoreMouseEvents(false, { forward: true });
-          }
-        } else {
-          // Mirror manual mode release flow
-          if (!yomitanShown && !resizeMode) {
-            if (!isLinux()) {
-              mainWindow.setIgnoreMouseEvents(true, { forward: true });
-            }
-            if (shouldKeepOverlayVisibleWhenManualInactive()) {
-              console.log("[TexthookerMode] ACTION: keeping manual overlay visible but non-interactive");
-              showOverlayWithoutFocusForManualVisibleMode("texthooker-manual-inactive-visible");
-            } else {
-              console.log("[TexthookerMode] ACTION: calling hideAndRestoreFocus()");
-              hideAndRestoreFocus();
-            }
-          }
-        }
-      } else {
-        // Automatic mode
-        mainWindow.show();
-        if (!isLinux()) {
-          mainWindow.setIgnoreMouseEvents(true, { forward: true });
-        }
-        blurAndRestoreFocus();
-      }
+    if (!isLinux()) {
+      console.log("[TexthookerMode] ACTION: setIgnoreMouseEvents(false)");
+      texthookerWindow.setIgnoreMouseEvents(false, { forward: true });
     }
+
+    texthookerWindow.show();
+    texthookerWindow.setAlwaysOnTop(true, "screen-saver");
+    texthookerWindow.focus();
+
+    console.log("[TexthookerMode] ACTION: Forcing Focus");
+    texthookerWindow.show(); // Call show again to force focus like manual mode
+    forceForegroundWindow(texthookerWindow);
+
+    // Hide main window to avoid interference
+    mainWindow.hide();
   }, { settingKey: "texthookerHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
 
   if (!registered) {

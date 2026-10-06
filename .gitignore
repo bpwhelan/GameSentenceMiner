@@ -140,6 +140,7 @@ electron-src/assets/prerelease.json
 /.sugoi_hook
 /.LunaTranslator
 /.agent_scripts
+/texthook.zip
 /.history
 /.owocr
 /native/windows-audio-capture/target
@@ -152,3 +153,5 @@ electron-src/assets/prerelease.json
 /GameSentenceMiner/_native*.pyd~
 /GameSentenceMiner/_native*.so
 /.tmp_capstone
+/native/gsm-ocr/target
+/native/gsm-ocr/bin

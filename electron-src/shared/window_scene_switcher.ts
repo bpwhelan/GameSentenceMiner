@@ -36,6 +36,7 @@ export interface ForegroundWindowSnapshot {
     title: string;
     executablePath?: string;
     executableName?: string;
+    processArchitecture?: 'x86' | 'x64';
     capturedAt: number;
     sequence: number;
 }

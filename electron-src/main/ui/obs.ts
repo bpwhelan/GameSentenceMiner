@@ -11,6 +11,7 @@ import {
     isWindows10OrHigher,
 } from '../util.js';
 import { isQuitting } from '../main.js';
+import { splitWindowsCommandLine } from '../windows_command_line.js';
 import { spawn, type ChildProcess } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
 import Store from 'electron-store';
@@ -23,6 +24,7 @@ import axios from 'axios';
 import extract from 'extract-zip';
 import { installSessionManager } from '../services/install_session_state.js';
 import { syncProcessPausingTargetForScene } from '../services/process_pausing_target.js';
+import { getWindowsSystemExecutable } from '../runtime/windows_tools.js';
 import type {
     InstallProgressKind,
     InstallStageStatus,
@@ -826,6 +828,7 @@ export function getElectronOBSStartupConfig(): ElectronOBSStartupConfig {
 }
 
 function splitCommandLine(value: string): string[] {
+    if (isWindows()) return splitWindowsCommandLine(value);
     const matches = value.match(/"([^"]*)"|'([^']*)'|[^\s]+/g) ?? [];
     return matches.map((part) => {
         if (
@@ -1688,7 +1691,7 @@ export async function closeOBSFromElectron(
 
     try {
         if (isWindows()) {
-            await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F']);
+            await execFileAsync(getWindowsSystemExecutable('taskkill.exe'), ['/PID', String(pid), '/T', '/F']);
         } else if (ownedProcess?.pid === pid) {
             ownedProcess.kill('SIGTERM');
         } else {

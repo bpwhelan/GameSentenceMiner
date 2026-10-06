@@ -333,3 +333,163 @@ def test_removing_capture_source_discards_previous_hwnd(monkeypatch):
     monkeypatch.setattr(monitor, "_obs_reports_no_output", lambda: False)
     asyncio.run(monitor.check_and_send())
     assert monitor.target_hwnd is None
+
+
+@pytest.fixture
+def browser_target(monkeypatch):
+    if _wwm is None:
+        pytest.skip("Windows-only window monitor")
+    desktop = _FakeUser32ForFind()
+    desktop.classes = {101: "Chrome_WidgetWin_1", 202: "Chrome_WidgetWin_1"}
+    desktop.titles = {101: "Browser game - Google Chrome", 202: "Unrelated tab - Google Chrome"}
+    desktop.foreground_hwnd = 101
+    desktop.IsWindow = lambda hwnd: hwnd in desktop.windows
+    desktop.IsIconic = lambda hwnd: False
+    pids = {101: 1001, 202: 2002}
+    exes = {101: "chrome.exe", 202: "chrome.exe"}
+    source = {
+        "title": desktop.titles[101],
+        "window_class": "Chrome_WidgetWin_1",
+        "exe": "chrome.exe",
+        "source_name": "Browser capture",
+    }
+    scene = {"name": "Browser game"}
+    monkeypatch.setattr(_wwm, "user32", desktop)
+    monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: pids.get(hwnd, 0))
+    monkeypatch.setattr(_wwm.WindowsWindowStateMonitor, "_start_event_hooks", lambda self: None)
+    monkeypatch.setattr(_wwm.ctypes, "WINFUNCTYPE", lambda *_args: lambda fn: fn, raising=False)
+    monkeypatch.setattr(_wwm, "get_current_scene", lambda: scene["name"])
+    monkeypatch.setattr(_wwm, "get_current_game", lambda: "Browser game")
+    monkeypatch.setattr(_wwm, "get_window_info_from_source", lambda **kwargs: dict(source))
+    monitor = _wwm.WindowsWindowStateMonitor(SimpleNamespace(obs_width=None, obs_height=None))
+    monkeypatch.setattr(monitor, "_get_window_exe_name", lambda hwnd: exes.get(hwnd, ""))
+    return monitor, desktop, source, scene, pids, exes
+
+
+def test_browser_target_is_remembered_after_focus_and_title_changes(browser_target):
+    monitor, desktop, _, _, _, _ = browser_target
+    assert monitor.find_target_hwnd() == 101
+    desktop.foreground_hwnd = 202
+    desktop.titles[101] = "A different tab - Google Chrome"
+    desktop.titles[202] = "Browser game - Google Chrome"
+    assert monitor.find_target_hwnd() == 101
+
+
+@pytest.mark.parametrize("mismatch", ["title", "exe", "class", "hidden", "minimized", "pid"])
+def test_browser_target_needs_a_matching_focused_window(browser_target, mismatch):
+    monitor, desktop, _, _, pids, exes = browser_target
+    if mismatch == "title":
+        desktop.foreground_hwnd = 202
+    elif mismatch == "exe":
+        exes[101] = "electron.exe"
+    elif mismatch == "class":
+        desktop.classes[101] = "OtherClass"
+    elif mismatch == "hidden":
+        desktop.IsWindowVisible = lambda hwnd: False
+    elif mismatch == "minimized":
+        desktop.IsIconic = lambda hwnd: True
+    else:
+        pids[101] = 0
+    assert monitor.find_target_hwnd() is None
+
+
+@pytest.mark.parametrize("change", ["closed", "reused-handle", "scene", "source", "removed-source"])
+def test_browser_target_is_invalidated_without_adopting_another_browser(browser_target, change):
+    monitor, desktop, source, scene, pids, _ = browser_target
+    monitor.target_hwnd = monitor.find_target_hwnd()
+    assert monitor.target_hwnd == 101
+    monitor.last_known_target_hwnd = 101
+    desktop.foreground_hwnd = 202
+    if change == "closed":
+        desktop.windows.remove(101)
+    elif change == "reused-handle":
+        pids[101] = 9999
+    elif change == "scene":
+        scene["name"] = "Another scene"
+    elif change == "source":
+        source["source_name"] = "Another browser capture"
+    else:
+        source.clear()
+    assert monitor.find_target_hwnd() is None
+    assert monitor.last_known_target_hwnd is None
+
+
+def test_desktop_capture_does_not_guess_a_target_from_scene_title(browser_target):
+    monitor, desktop, source, _, _, exes = browser_target
+    source.clear()
+    desktop.classes[101] = "GameWindow"
+    exes[101] = "game.exe"
+    assert monitor.find_target_hwnd() is None
+    assert monitor.last_target_scene_name == "Browser game"
+
+
+def test_browser_focus_tracking_and_switch_to_desktop_share_capture_state(browser_target, monkeypatch):
+    from GameSentenceMiner.util.overlay import capture_state
+
+    monitor, desktop, source, scene, _, _ = browser_target
+    clock = {"now": 100.0}
+    output = SimpleNamespace(
+        current_scene=scene["name"],
+        source_output_scene=scene["name"],
+        source_output_active=True,
+        source_output_checked_at=100.0,
+    )
+    sent = []
+
+    async def send(_client, payload):
+        sent.append(json.loads(payload))
+
+    monkeypatch.setattr(_wwm.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(_wwm.websocket_manager, "has_clients", lambda client: True)
+    monkeypatch.setattr(_wwm.websocket_manager, "send", send)
+    monkeypatch.setattr(
+        _wwm, "get_config", lambda: SimpleNamespace(hotkeys=SimpleNamespace(unmute_target_window_on_focus=False))
+    )
+    monkeypatch.setattr(_wwm, "get_window_rect_physical", lambda hwnd: (50, 60, 450, 360))
+    monkeypatch.setattr(monitor, "_check_monitor_topology_changes", lambda: False)
+    monkeypatch.setattr(monitor, "_obs_reports_no_output", lambda: False)
+    monkeypatch.setattr(monitor, "_obs_reports_output", lambda: True)
+    monkeypatch.setattr(monitor, "_sync_minimized_audio_mute", lambda state: None)
+    monkeypatch.setattr(monitor, "_is_window_obscured", lambda hwnd: False)
+    monkeypatch.setattr(monitor, "_is_fullscreen_window", lambda hwnd: False)
+    monkeypatch.setattr(monitor, "_is_exclusive_fullscreen", lambda *args, **kwargs: False)
+    monkeypatch.setattr(monitor, "_is_cursor_hidden", lambda: False)
+    monkeypatch.setattr(monitor, "update_magpie_info", lambda: None)
+    monkeypatch.setattr(monitor, "_spawn_reprocess_last_results", lambda: None)
+    monkeypatch.setattr(
+        monitor, "_build_client_rect_payload", lambda: {"left": 50, "top": 60, "width": 400, "height": 300}
+    )
+    monkeypatch.setattr(capture_state, "user32", desktop)
+    monkeypatch.setattr(capture_state, "is_windows", lambda: True)
+    monkeypatch.setattr(capture_state, "get_obs_state", lambda: output)
+
+    desktop.foreground_hwnd = 202
+    asyncio.run(monitor.check_and_send())
+    assert monitor.target_hwnd is None
+    assert capture_state.get_overlay_capture_state(monitor)["available"] is True
+    assert sent[-1]["target_client_rect"] is None
+
+    desktop.foreground_hwnd = 101
+    clock["now"] = 101.0
+    asyncio.run(monitor.check_and_send())
+    assert monitor.target_hwnd == monitor.last_known_target_hwnd == 101
+    assert monitor.last_state == "active"
+    assert capture_state.get_overlay_capture_state(monitor)["available"] is True
+
+    # A full periodic revalidation must retain the same browser after tab/focus changes.
+    desktop.foreground_hwnd = 202
+    desktop.titles[101] = "Another tab"
+    clock["now"] = 135.0
+    asyncio.run(monitor.check_and_send())
+    assert monitor.target_hwnd == 101
+    assert monitor.last_state == "background"
+
+    source.clear()
+    clock["now"] = output.source_output_checked_at = 138.0
+    asyncio.run(monitor.check_and_send())
+    assert monitor.target_hwnd is None
+    assert monitor.last_known_target_hwnd is None
+    assert monitor.ever_had_target_hwnd is False
+    assert sent[-1]["target_window_rect"] is None
+    assert sent[-1]["target_client_rect"] is None
+    assert capture_state.get_overlay_capture_state(monitor)["available"] is True

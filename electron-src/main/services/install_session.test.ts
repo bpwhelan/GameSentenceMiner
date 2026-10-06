@@ -6,6 +6,23 @@ vi.mock('electron-log/main.js', () => ({ default: { info: vi.fn(), error: vi.fn(
 import { InstallSessionManager } from './install_session.js';
 
 describe('InstallSessionManager', () => {
+    it.each(['completed', 'failed'] as const)('restores a %s result to a renderer that missed the finish event', (status) => {
+        const manager = new InstallSessionManager();
+        expect(manager.getRendererSnapshot()).toBeNull();
+        const original = manager.startSession('backend_update');
+        manager.finishActive(status);
+
+        expect(manager.getActiveSnapshot()).toBeNull();
+        expect(manager.getRendererSnapshot()).toMatchObject({ id: original.id, origin: 'backend_update', status });
+        const snapshot = manager.getRendererSnapshot()!;
+        snapshot.currentMessage = 'Renderer mutation';
+        expect(manager.getRendererSnapshot()?.currentMessage).not.toBe('Renderer mutation');
+
+        const next = manager.startSession('repair');
+        expect(manager.getRendererSnapshot()).toMatchObject({ id: next.id, origin: 'repair', status: 'running' });
+        manager.finishActive('completed');
+    });
+
     it('persists stages, failures, retries, and completion without a renderer listener', () => {
         const manager = new InstallSessionManager();
         const session = manager.startSession('backend_update');

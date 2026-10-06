@@ -12,7 +12,9 @@ export async function ankiMediaFilename(bytes, extension) {
 // Planning reads no dictionary bytes and uploads nothing. Stable generation
 // paths, unlike an engine's restart counter, keep first-field image identities
 // identical between preflight and the authoritative write.
-export async function buildAnkiResourceFields(request, templates, { document, dictionaryPaths, styles, audio = "" }) {
+export async function buildAnkiResourceFields(request, templates, {
+  document, dictionaryPaths, styles, audio = "", compactGlossary = false,
+}) {
   const media = new Map();
   const source = { ...request, dictionaryMedia: [], dictionaryStyles: [] };
   let plainRenderer, richRenderer;
@@ -34,7 +36,7 @@ export async function buildAnkiResourceFields(request, templates, { document, di
       return plainRenderer(options);
     }
     richRenderer ??= Promise.resolve(styles()).then(dictionaryStyles =>
-      createAnkiDefinitionRenderer(document, { ...source, dictionaryStyles }, filenameFor));
+      createAnkiDefinitionRenderer(document, { ...source, dictionaryStyles }, filenameFor, { compact: compactGlossary }));
     return (await richRenderer)(options);
   } });
   return { fields, media: await Promise.all(media.values()) };
