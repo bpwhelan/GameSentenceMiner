@@ -37,6 +37,8 @@ EVENT_OBJECT_LOCATIONCHANGE = 0x800B
 WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
 WM_QUIT = 0x0012
+WS_EX_LAYERED = 0x00080000
+WS_EX_TRANSPARENT = 0x00000020
 
 # UWP / Microsoft Store (Game Pass) titles render into an ApplicationFrameWindow owned by
 # ApplicationFrameHost.exe; the game's own Windows.UI.Core.CoreWindow is a child owned by the
@@ -653,11 +655,19 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         """Check if a window is a transparent overlay (GSM, Magpie, OBS preview, etc).
 
         Returns TRUE only for windows that should be ignored in obscured checks.
-        Regular apps (Discord, VS Code, etc.) should return FALSE even if Electron-based.
+        Regular interactive apps (Discord, VS Code, etc.) should return FALSE even if Electron-based.
 
         Optimized to check cheap properties (class, title) before expensive exe lookup.
         """
         try:
+            # Game overlays such as Discord use a layered, click-through window
+            # spanning the game. Its bounding rectangle does not represent opaque
+            # coverage, even though it shares the regular app's class and executable.
+            extended_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            click_through_style = WS_EX_LAYERED | WS_EX_TRANSPARENT
+            if extended_style & click_through_style == click_through_style:
+                return True
+
             window_class = self._get_window_class(hwnd)
 
             if "Magpie" in window_class:
