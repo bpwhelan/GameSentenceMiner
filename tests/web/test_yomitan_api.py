@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import flask
-import pytest
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import flask
+import pytest
 
 from GameSentenceMiner.util.database.db import GameLinesTable, SQLiteDB
 from GameSentenceMiner.util.database.games_table import GamesTable
@@ -95,6 +96,15 @@ def test_yomitan_index_revision_changes_when_character_data_changes():
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.get_json()["revision"] != second.get_json()["revision"]
+
+
+def test_yomitan_revision_changes_when_image_export_version_changes(monkeypatch):
+    from GameSentenceMiner.web import yomitan_api
+
+    games = [_make_game(game_id="1", title="Game", character_data='{"characters":{"main":[]}}')]
+    current = yomitan_api.compute_yomitan_dictionary_revision(games, 3, 0)
+    monkeypatch.setattr(yomitan_api, "YOMITAN_CHARACTER_DICTIONARY_REVISION_VERSION", 1)
+    assert current != yomitan_api.compute_yomitan_dictionary_revision(games, 3, 0)
 
 
 def test_notify_yomitan_character_dictionary_changed_sends_overlay_event(monkeypatch):

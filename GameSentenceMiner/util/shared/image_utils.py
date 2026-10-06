@@ -7,9 +7,10 @@ including fetching, resizing, format conversion, and base64 encoding.
 
 import base64
 import io
+from typing import Optional, Tuple
+
 import requests
 from PIL import Image
-from typing import Optional, Tuple
 
 from GameSentenceMiner.util.config.configuration import logger
 
@@ -182,6 +183,42 @@ def fetch_image_as_base64(
         return None
     except Exception as e:
         logger.debug(f"Unexpected error converting image to base64: {e}")
+        return None
+
+
+def fetch_original_image_as_base64(image_url: str, timeout: int = 10) -> str | None:
+    """Download a portrait without resizing or recompressing supported formats."""
+    if not image_url:
+        return None
+
+    try:
+        response = requests.get(image_url, timeout=timeout)
+        if response.status_code != 200:
+            logger.debug(f"Failed to fetch original image from {image_url}: status {response.status_code}")
+            return None
+
+        image_bytes = response.content
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            mime_type = {
+                "JPEG": "image/jpeg",
+                "PNG": "image/png",
+                "GIF": "image/gif",
+                "WEBP": "image/webp",
+            }.get(image.format)
+            if mime_type:
+                image.verify()
+            else:
+                # Other Pillow formats need a browser-compatible, lossless copy.
+                buffer = io.BytesIO()
+                image = image.convert("RGBA")
+                image.save(buffer, format="PNG")
+                image_bytes = buffer.getvalue()
+                mime_type = "image/png"
+
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"
+    except (requests.RequestException, OSError, ValueError, Image.DecompressionBombError) as error:
+        logger.debug(f"Failed to download original image from {image_url}: {error}")
         return None
 
 

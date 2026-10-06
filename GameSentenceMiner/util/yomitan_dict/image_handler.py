@@ -1,7 +1,17 @@
 """Image handling for Yomitan dictionary creation."""
 
 import base64
+import hashlib
+import io
+import uuid
+from pathlib import Path
 from typing import Tuple
+
+from PIL import Image
+
+from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.data_directory import get_app_directory
+from GameSentenceMiner.util.shared.image_utils import THUMBNAIL_SIZE, fetch_original_image_as_base64
 
 
 class ImageHandler:
@@ -12,7 +22,59 @@ class ImageHandler:
     - Decoding base64-encoded images
     - Determining image format from data URI
     - Creating image filenames for ZIP storage
+    - Recovering original portraits for previously stored thumbnails
     """
+
+    def get_character_image(self, char: dict) -> tuple[str, bytes] | None:
+        """Use saved originals, recovering legacy thumbnails from their source URL."""
+        saved_image = None
+        if char.get("image_base64"):
+            saved_image = self.decode_image(char["image_base64"], char["id"])
+
+        image_url = char.get("image_url")
+        if not image_url:
+            return saved_image
+
+        if saved_image:
+            try:
+                with Image.open(io.BytesIO(saved_image[1])) as image:
+                    if image.width > THUMBNAIL_SIZE[0] or image.height > THUMBNAIL_SIZE[1]:
+                        return saved_image
+            except OSError:
+                pass
+
+        original = self._fetch_cached_original(image_url)
+        return self.decode_image(original, char["id"]) if original else saved_image
+
+    def _fetch_cached_original(self, image_url: str) -> str | None:
+        """Cache recovered portraits across dictionary downloads and app restarts."""
+        cache_path = None
+        try:
+            cache_key = hashlib.sha256(image_url.encode("utf-8")).hexdigest()
+            cache_path = Path(get_app_directory()) / "cache" / "character_images" / f"{cache_key}.data-uri"
+            cached = cache_path.read_text(encoding="ascii")
+            _, image_bytes = self.decode_image(cached, "cache")
+            with Image.open(io.BytesIO(image_bytes)) as image:
+                image.verify()
+            return cached
+        except (OSError, ValueError):
+            pass
+
+        original = fetch_original_image_as_base64(image_url)
+        if original and cache_path:
+            temporary = cache_path.with_suffix(f".{uuid.uuid4().hex}.tmp")
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                temporary.write_text(original, encoding="ascii")
+                temporary.replace(cache_path)
+            except OSError as error:
+                logger.debug(f"Failed to cache character image: {error}")
+            finally:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError as error:
+                    logger.debug(f"Failed to clean up temporary character image: {error}")
+        return original
 
     def decode_image(self, base64_data: str, char_id: str) -> Tuple[str, bytes]:
         """

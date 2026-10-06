@@ -6,14 +6,20 @@ Mirrors the vndb_api_client.py pattern for consistency.
 """
 
 import re
+from typing import Dict, List, Optional
+
 import requests
-from typing import Optional, Dict, List
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.shared.base_api_client import BaseApiClient
 from GameSentenceMiner.util.shared.image_utils import (
     download_cover_image as _download_cover_image,
+)
+from GameSentenceMiner.util.shared.image_utils import (
     fetch_image_as_base64 as _fetch_image_as_base64,
+)
+from GameSentenceMiner.util.shared.image_utils import (
+    fetch_original_image_as_base64 as _fetch_original_image_as_base64,
 )
 from GameSentenceMiner.util.shared.spoiler_utils import (
     has_anilist_spoiler_tags,
@@ -565,19 +571,19 @@ class AniListApiClient(BaseApiClient):
     @classmethod
     def fetch_image_as_base64(cls, image_url: str, thumbnail_size: tuple = None) -> Optional[str]:
         """
-        Download an image from URL, resize to thumbnail, and convert to base64 string.
+        Download an original image, or an explicitly requested thumbnail, as base64.
 
         Uses shared image utilities for consistent image processing.
 
         Args:
             image_url: URL of the image to download
-            thumbnail_size: Tuple of (width, height) for thumbnail. Defaults to (80, 100)
+            thumbnail_size: Optional maximum (width, height). None preserves the original.
 
         Returns:
-            Base64-encoded JPEG image string with data URI prefix, or None on failure
+            Base64-encoded image with data URI prefix, or None on failure
         """
         if thumbnail_size is None:
-            thumbnail_size = cls.THUMBNAIL_SIZE
+            return _fetch_original_image_as_base64(image_url=image_url, timeout=cls.TIMEOUT)
 
         return _fetch_image_as_base64(
             image_url=image_url,
@@ -687,14 +693,12 @@ class AniListApiClient(BaseApiClient):
         if age:
             result["age"] = str(age)
 
-        # Add image as base64 thumbnail
+        # Preserve the largest source portrait for full-size dictionary previews.
         image_info = char.get("image", {})
         if image_info:
-            # Prefer medium size for thumbnails, fallback to large
-            image_url = image_info.get("medium") or image_info.get("large")
+            image_url = image_info.get("large") or image_info.get("medium")
             if image_url:
                 result["image_url"] = image_url
-                # Fetch, resize to thumbnail, and convert to base64
                 image_base64 = cls.fetch_image_as_base64(image_url)
                 if image_base64:
                     result["image_base64"] = image_base64
@@ -714,7 +718,7 @@ class AniListApiClient(BaseApiClient):
         Fetch and process all characters for an Anime/Manga.
 
         This is the main entry point for fetching character data.
-        Character images are automatically fetched and stored as 80x100 thumbnails.
+        Character images are fetched and stored at their original resolution.
 
         Args:
             media_id: AniList media ID
