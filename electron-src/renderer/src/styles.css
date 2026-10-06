@@ -2708,6 +2708,13 @@ button:disabled {
   margin-top: 3px;
 }
 
+.ocr-online-scans small {
+  display: block;
+  color: var(--gsm-text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .ocr-instant-copy {
   display: flex;
   min-width: 0;

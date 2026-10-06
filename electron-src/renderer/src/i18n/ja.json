@@ -1017,6 +1017,8 @@
       "advanced": "詳細",
       "scanRate": "スキャンレート（秒）:",
       "scanSpeed": "スキャン速度:",
+      "onlineScans": "オンラインスキャンで認識精度を高める",
+      "onlineScansHelp": "オフ：ScreenAIでローカルに文字を認識します。オン：キャプチャした文字領域をGoogle Lensに送信し、認識精度の向上を図ります。インターネット接続が必要です。VPN、地域、接続状況によってはスキャンが遅くなる場合があります。",
       "language": "言語:",
       "scanImageQuality": "スキャン画像品質",
       "furiganaFilter": "ふりがなフィルター",

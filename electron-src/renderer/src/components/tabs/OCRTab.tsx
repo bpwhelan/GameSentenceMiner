@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { DOCS_URLS } from "../../../../shared/docs";
-import { getDefaultStabilityOcr, type OcrPlatform } from "../../../../shared/ocr_defaults";
+import { getBasicMainOcr, getDefaultStabilityOcr, type OcrPlatform } from "../../../../shared/ocr_defaults";
 import { invokeIpc, onIpc, platformFromEnv, sendIpc } from "../../lib/ipc";
 import type { ObsScene, SceneLaunchProfile, SceneOcrMode } from "../../types/models";
 import { useTranslation } from "../../i18n";
@@ -36,6 +36,7 @@ type ComparisonFieldKey =
   | "subset_longest_block_divisor";
 
 interface OcrStoredConfig {
+  useOnlineOcr?: boolean;
   ocr1?: string;
   ocr2?: string;
   ocr1_advanced?: string;
@@ -86,6 +87,7 @@ interface OcrStoredConfig {
 }
 
 interface OcrUiConfig {
+  useOnlineOcr: boolean;
   advancedMode: boolean;
   basicScanRate: number;
   advancedScanRate: number;
@@ -715,6 +717,7 @@ function normalizeOcrConfig(
 
   return {
     advancedMode: Boolean(value?.advancedMode),
+    useOnlineOcr: value?.useOnlineOcr === true,
     basicScanRate: numericValue(value?.scanRate_basic, scanRate),
     advancedScanRate: numericValue(value?.scanRate_advanced, scanRate),
     mainOcr:
@@ -722,7 +725,7 @@ function normalizeOcrConfig(
         ? value.ocr2_advanced
         : typeof value?.ocr2 === "string"
           ? value.ocr2
-          : "glens",
+          : getBasicMainOcr(),
     stabilityOcr:
       typeof value?.ocr1_advanced === "string"
         ? value.ocr1_advanced
@@ -829,6 +832,7 @@ function buildPersistedConfig(
   const defaultStability = getDefaultStabilityOcr(platform);
   const next: OcrStoredConfig = {
     ...baseConfig,
+    useOnlineOcr: config.useOnlineOcr,
     twoPassOCR: config.twoPassOCR,
     optimize_second_scan: config.optimizeSecondScan,
     text_appears_instantly: config.textAppearsInstantly,
@@ -887,7 +891,7 @@ function buildPersistedConfig(
     next.ocr2 = config.mainOcr;
   } else {
     next.ocr1 = defaultStability;
-    next.ocr2 = "glens";
+    next.ocr2 = getBasicMainOcr(config.useOnlineOcr);
   }
 
   for (const field of COMPARISON_FIELDS) {
@@ -1174,12 +1178,12 @@ export function OCRTab({ active }: OcrTabProps) {
   const effectiveScanRate = config.advancedMode
     ? config.advancedScanRate
     : config.basicScanRate;
-  const effectiveMainEngine = config.advancedMode ? config.mainOcr : "glens";
+  const effectiveMainEngine = config.advancedMode ? config.mainOcr : getBasicMainOcr(config.useOnlineOcr);
   const effectiveStabilityEngine = config.advancedMode
     ? config.stabilityOcr
     : getDefaultStabilityOcr(platform);
   const engineFlowLabel =
-    config.advancedMode && !config.twoPassOCR
+    (config.advancedMode && !config.twoPassOCR) || effectiveMainEngine === effectiveStabilityEngine
       ? getEngineLabel(effectiveMainEngine)
       : `${getEngineLabel(effectiveStabilityEngine)} -> ${getEngineLabel(
           effectiveMainEngine
@@ -2247,6 +2251,27 @@ export function OCRTab({ active }: OcrTabProps) {
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+
+                {!config.advancedMode && (
+                  <div className="ocr-linebreak-row ocr-online-scans">
+                    <label htmlFor="ocr-online-scans" className="ocr-instant-toggle">
+                      <input
+                        id="ocr-online-scans"
+                        type="checkbox"
+                        checked={config.useOnlineOcr}
+                        aria-describedby="ocr-online-scans-help"
+                        onChange={(event) => setConfig((current) => ({
+                          ...current,
+                          useOnlineOcr: event.target.checked
+                        }))}
+                      />
+                      <span className="ocr-linebreak-label">{t("ocr.settings.onlineScans")}</span>
+                    </label>
+                    <small id="ocr-online-scans-help">
+                      {t("ocr.settings.onlineScansHelp")}
+                    </small>
                   </div>
                 )}
 

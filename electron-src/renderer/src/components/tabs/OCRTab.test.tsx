@@ -530,6 +530,43 @@ describe("OCRTab", () => {
     expect(saveCall?.[1]).not.toHaveProperty("wgcCaptureFps");
   });
 
+  it("opts into online scans in basic mode and preserves advanced choices", async () => {
+    invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
+      advancedMode: false, ocr1: "meiki_text_detector", ocr2: "glens",
+      ocr1_advanced: "oneocr", ocr2_advanced: "bing"
+    } : null);
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    const toggle = container.querySelector<HTMLInputElement>("#ocr-online-scans");
+    expect(toggle).toBeInstanceOf(HTMLInputElement);
+    expect(toggle!.checked).toBe(false);
+    expect(container.textContent).toContain("ScreenAI reads text locally");
+    for (const enabled of [true, false]) {
+      await act(async () => {
+        toggle!.click();
+        await flushAsyncWork();
+        vi.advanceTimersByTime(200);
+        await flushAsyncWork();
+      });
+      expect(sendMock).toHaveBeenLastCalledWith("ocr.save-ocr-config", expect.objectContaining({
+        useOnlineOcr: enabled, ocr1: "screenai", ocr2: enabled ? "glens" : "screenai",
+        ocr1_advanced: "oneocr", ocr2_advanced: "bing",
+      }));
+    }
+    await act(async () => {
+      container.querySelector<HTMLInputElement>("#ocr-advanced-toggle")!.click();
+      await flushAsyncWork();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+    expect(container.querySelector("#ocr-online-scans")).toBeNull();
+    expect(sendMock).toHaveBeenLastCalledWith("ocr.save-ocr-config", expect.objectContaining({
+      advancedMode: true, ocr1: "oneocr", ocr2: "bing", useOnlineOcr: false,
+    }));
+  });
+
   it("loads and persists advanced OCR debug logging", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "ocr.get-ocr-config") {

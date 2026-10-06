@@ -1039,6 +1039,8 @@
       "advanced": "Advanced",
       "scanRate": "Scan Rate (s):",
       "scanSpeed": "Scan Speed:",
+      "onlineScans": "Use online scans for better accuracy",
+      "onlineScansHelp": "Off: ScreenAI reads text locally. On: send captured text areas to Google Lens for potentially better accuracy. Internet access is required; VPNs, location, or connection issues can slow scans down.",
       "language": "Language:",
       "scanImageQuality": "Scan Image Quality",
       "furiganaFilter": "Furigana Filter",

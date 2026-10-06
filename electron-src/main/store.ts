@@ -58,6 +58,7 @@ interface OCRConfig {
     optimize_second_scan: boolean;
     text_appears_instantly?: boolean;
     advanced_debug_logging?: boolean;
+    useOnlineOcr?: boolean;
     ocr1: string;
     ocr2: string;
     scanRate: number;
@@ -267,8 +268,9 @@ export const store = new Store<StoreConfig>({
             optimize_second_scan: true,
             text_appears_instantly: false,
             advanced_debug_logging: false,
+            useOnlineOcr: false,
             ocr1: DEFAULT_STABILITY_OCR,
-            ocr2: "glens",
+            ocr2: DEFAULT_STABILITY_OCR,
             language: "ja",
             ocr_screenshots: false,
             furigana_filter_sensitivity: 0,
