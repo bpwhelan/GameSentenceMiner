@@ -64,6 +64,55 @@ def test_full_coverage_preserves_the_existing_padded_test(desktop):
     assert monitor.occlusion_rects == [(10, 15, 990, 720)]
 
 
+@pytest.fixture
+def styled_desktop(desktop, monkeypatch):
+    monitor, api, rects = desktop
+    monkeypatch.delattr(monitor, "_is_overlay_window")
+    styles = {20: 0x2800A8, 30: 0, 40: 0}
+    titles = {20: "Discord Overlay", 30: "Other app", 40: "GSM Overlay"}
+    api.GetWindowLongW = Mock(side_effect=lambda hwnd, _: styles.get(hwnd, 0))
+    monkeypatch.setattr(monitor, "_get_window_class", lambda _: "Chrome_WidgetWin_1")
+    monkeypatch.setattr(monitor, "_get_window_title", lambda hwnd: titles.get(hwnd, ""))
+    monkeypatch.setattr(monitor, "_get_window_exe_name", lambda _: "Discord.exe")
+    return monitor, api, rects, styles, titles
+
+
+def test_discord_click_through_overlay_does_not_cover_the_game(styled_desktop):
+    monitor, _, rects, _, _ = styled_desktop
+    # Discord's transparent game overlay spans Nekopara's whole client area.
+    rects[20] = (0, 0, 1000, 800)
+    assert not monitor._is_window_obscured(10)
+    assert monitor.occlusion_rects == [(300, 200, 600, 500)]
+
+
+@pytest.mark.parametrize("style", [0, 0x80000, 0x20])
+def test_regular_discord_windows_still_cover_the_game(styled_desktop, style):
+    monitor, _, rects, styles, titles = styled_desktop
+    rects[20] = (0, 0, 1000, 800)
+    styles[20] = style
+    titles[20] = "Discord"
+    assert monitor._is_window_obscured(10)
+    assert monitor.occlusion_rects == [(0, 0, 1000, 800)]
+
+
+def test_click_through_overlay_detection_does_not_require_a_known_app(styled_desktop, monkeypatch):
+    monitor, _, _, styles, _ = styled_desktop
+    styles[20] = 0x80020
+    monkeypatch.setattr(monitor, "_get_window_class", lambda _: "UnfamiliarOverlayWindow")
+    monkeypatch.setattr(monitor, "_get_window_title", lambda _: "")
+    monkeypatch.setattr(monitor, "_get_window_exe_name", lambda _: "unknown.exe")
+    assert monitor._is_overlay_window(20)
+
+
+def test_discord_overlay_becomes_covering_when_it_accepts_input(styled_desktop):
+    monitor, _, rects, styles, _ = styled_desktop
+    rects[20] = (0, 0, 1000, 800)
+    assert not monitor._is_window_obscured(10)
+    styles[20] &= ~0x20
+    assert monitor._is_window_obscured(10)
+    assert monitor.occlusion_rects == [(0, 0, 1000, 800)]
+
+
 @pytest.mark.parametrize("focused", [False, True])
 def test_coverage_updates_publish_without_rescanning_unchanged_desktop(desktop, monkeypatch, focused):
     monitor, api, rects = desktop
