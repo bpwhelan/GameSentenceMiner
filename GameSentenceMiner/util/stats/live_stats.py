@@ -67,6 +67,7 @@ def build_live_stats_payload(
         "type": LIVE_STATS_UPDATE_TYPE,
         "reason": reason,
         "updated_at": updated_at,
+        "game_name": tracker.game_name,
         "session_active": tracker.last_line_time is not None,
         "session_start_time": tracker.session_start_time,
         "last_line_time": tracker.last_line_time,
@@ -86,17 +87,20 @@ def build_today_live_stats_payload(
     *,
     reason: str = "refresh",
     now: float | None = None,
+    game_name: str | None = None,
 ) -> dict:
-    """Restore the current stats day from saved history, including live revisions.
+    """Restore one game's current stats day, including live revisions.
 
     This queries the database and must run outside the live text/websocket loop.
     Daily raw time adds session spans, so time between sessions is not counted.
     """
     from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+    from GameSentenceMiner.util.database.games_table import GamesTable
     from GameSentenceMiner.web.stats import calculate_actual_reading_time
     from GameSentenceMiner.web.stats_repository import StatsLineRecord, query_stats_lines
 
     updated_at = time.time() if now is None else float(now)
+    game_name = tracker.game_name if game_name is None else str(game_name).strip()
     config = get_stats_config()
     rollover_hour = max(0, min(23, int(getattr(config, "day_rollover_hour", 4))))
     local_now = datetime.fromtimestamp(updated_at, timezone.utc).astimezone()
@@ -107,18 +111,37 @@ def build_today_live_stats_payload(
     period_start = datetime.combine(stats_date, datetime_time(rollover_hour)).timestamp()
     period_end = datetime.combine(stats_date + timedelta(days=1), datetime_time(rollover_hour)).timestamp()
 
-    lines = query_stats_lines(
-        where_clause="timestamp >= ? AND timestamp < ? AND timestamp <= ?",
-        params=(period_start, period_end, updated_at),
+    # Retain the day's timeline so visits to other games break reading spans.
+    # Filtering first would count an A -> B -> A visit as time spent reading A.
+    lines = []
+    if game_name:
+        lines = query_stats_lines(
+            where_clause="timestamp >= ? AND timestamp < ? AND timestamp <= ?",
+            params=(period_start, period_end, updated_at),
+        )
+        lines.extend(archived_stats_lines(period_start, min(period_end, updated_at)))
+    game = (GamesTable.get_by_obs_scene_name(game_name) or GamesTable.get_by_title(game_name)) if game_name else None
+    game_id = (
+        game.id if game else next((line.game_id for line in lines if line.game_name == game_name and line.game_id), "")
     )
-    lines.extend(archived_stats_lines(period_start, min(period_end, updated_at)))
+    game_names = {game_name} if game_name else set()
+    if game:
+        game_names.update(name for name in (game.obs_scene_name, game.title_original) if name)
+
+    def matches_game(line) -> bool:
+        if not game_name:
+            return False
+        if game_id and line.game_id:
+            return line.game_id == game_id
+        return line.game_name in game_names
+
     by_id = {line.id: line for line in lines if period_start <= line.timestamp < period_end}
-    for line_id, text, timestamp in tracker.get_live_lines():
+    for line_id, text, timestamp, line_game_name in tracker.get_live_lines():
         if not period_start <= timestamp < period_end or timestamp > updated_at:
             continue
         line = by_id.get(line_id)
         if line is None:
-            line = StatsLineRecord(line_id, "", "", timestamp=timestamp)
+            line = StatsLineRecord(line_id, line_game_name, "", timestamp=timestamp)
             by_id[line_id] = line
         # Keep the saved mining information when replacing provisional text.
         line.line_text = clean_text_for_stats(
@@ -127,17 +150,30 @@ def build_today_live_stats_payload(
             extra_punctuation_regex=getattr(config, "extra_punctuation_regex", ""),
         )
 
-    sorted_lines = sorted(by_id.values(), key=lambda line: line.timestamp)
-    timestamps = [line.timestamp for line in sorted_lines]
-    texts = [line.line_text or "" for line in sorted_lines]
-    total_characters = sum(len(text) for text in texts)
-    active_seconds = calculate_actual_reading_time(timestamps, texts)
+    sorted_lines = []
+    reading_runs = []
+    current_run = []
+    for line in sorted(by_id.values(), key=lambda line: line.timestamp):
+        if matches_game(line):
+            sorted_lines.append(line)
+            current_run.append(line)
+        elif current_run:
+            reading_runs.append(current_run)
+            current_run = []
+    if current_run:
+        reading_runs.append(current_run)
+    total_characters = sum(len(line.line_text or "") for line in sorted_lines)
+    active_seconds = sum(
+        calculate_actual_reading_time([line.timestamp for line in run], [line.line_text or "" for line in run])
+        for run in reading_runs
+    )
     raw_seconds = sum(
         gap
-        for previous, current in pairwise(timestamps)
-        if 0 <= (gap := current - previous) <= config.session_gap_seconds
+        for run in reading_runs
+        for previous, current in pairwise(run)
+        if 0 <= (gap := current.timestamp - previous.timestamp) <= config.session_gap_seconds
     )
-    last_line_time = tracker.last_line_time
+    last_line_time = tracker.last_line_time if tracker.game_name in game_names else None
     session_active = (
         last_line_time is not None
         and period_start <= last_line_time <= updated_at
@@ -149,12 +185,14 @@ def build_today_live_stats_payload(
     return {
         "type": LIVE_STATS_UPDATE_TYPE,
         "scope": "today",
+        "game_name": game_name,
+        "game_id": game_id,
         "reason": reason,
         "updated_at": updated_at,
         "period_start": period_start,
         "period_end": period_end,
         "session_active": session_active,
-        "session_start_time": tracker.session_start_time,
+        "session_start_time": tracker.session_start_time if tracker.game_name in game_names else None,
         "last_line_time": last_line_time,
         "session_expires_at": last_line_time + config.session_gap_seconds if session_active else None,
         "fields": get_live_stats_field_options(),
@@ -198,7 +236,8 @@ class LiveSessionTracker:
     to calculate characters per hour.
     """
 
-    def __init__(self):
+    def __init__(self, game_name: str = ""):
+        self.game_name = str(game_name or "").strip()
         self.reset()
 
     def reset(self):
@@ -216,6 +255,17 @@ class LiveSessionTracker:
         self._line_ledger: dict[str, dict[str, object]] = {}
         # Per-line raw reading speeds (chars/sec) for the adaptive cap.
         self._speed_samples: list[float] = []
+
+    def set_game(self, game_name: str | None, *, publish: bool = True) -> bool:
+        """Start a fresh session when the active game changes, including while idle."""
+        game_name = str(game_name or "").strip()
+        if game_name == self.game_name:
+            return False
+        self.reset()
+        self.game_name = game_name
+        if publish:
+            publish_live_stats_update(self, reason="game_changed")
+        return True
 
     def reset_if_inactive(self, *, now: float | None = None) -> bool:
         """Expire an idle session without waiting for another line to arrive."""
@@ -245,6 +295,7 @@ class LiveSessionTracker:
         *,
         line_id: str | None = None,
         revision: int = 1,
+        game_name: str | None = None,
     ):
         """
         Adds a new line to the tracker, updating character counts and
@@ -259,6 +310,8 @@ class LiveSessionTracker:
         """
         if not isfinite(timestamp):
             return
+        if game_name is not None:
+            self.set_game(game_name, publish=False)
         stats_config = get_stats_config()
         cleaned = clean_text_for_stats(
             line_text,
@@ -316,6 +369,7 @@ class LiveSessionTracker:
                 "chars": char_count,
                 "text": line_text,
                 "timestamp": timestamp,
+                "game_name": self.game_name,
                 "credited": False,
             }
 
@@ -328,10 +382,11 @@ class LiveSessionTracker:
         except Exception:
             pass
 
-    def get_live_lines(self) -> list[tuple[str, str, float]]:
+    def get_live_lines(self) -> list[tuple[str, str, float, str]]:
         """Copy live text for daily snapshots without exposing the revision ledger."""
         return [
-            (line_id, str(line["text"]), float(line["timestamp"])) for line_id, line in self._line_ledger.copy().items()
+            (line_id, str(line["text"]), float(line["timestamp"]), str(line["game_name"]))
+            for line_id, line in self._line_ledger.copy().items()
         ]
 
     def get_chars_per_hour(self) -> int:
@@ -371,9 +426,11 @@ class LiveSessionTracker:
             return 0.0
         return max(0.0, self.last_line_time - self.session_start_time)
 
-    def add_mined_line(self):
+    def add_mined_line(self, *, game_name: str | None = None):
         """Increments the count of lines mined in this session."""
-        self.times_mined += 1
+        # Media/card work may complete after the user has switched games.
+        if game_name is None or str(game_name).strip() == self.game_name:
+            self.times_mined += 1
         publish_live_stats_update(self, reason="mined")
         try:
             from GameSentenceMiner.web.live_goals import publish_live_goals_update

@@ -559,14 +559,21 @@ class OverlayRequestHandler:
         if self._today_stats_lock.locked():
             return
         async with self._today_stats_lock:
-            future = submit_background_work(
-                build_today_live_stats_payload,
-                live_stats_tracker,
-                reason=str(message.get("reason") or "refresh"),
-                timeout=0,
-            )
-            payload = await asyncio.wrap_future(future)
-            await websocket_manager.send(ID_OVERLAY, payload)
+            # A scene can change while history is loading. Rebuild once for the
+            # new game instead of broadcasting the previous game's snapshot.
+            for _attempt in range(2):
+                game_name = get_current_game(update=False) or ""
+                future = submit_background_work(
+                    build_today_live_stats_payload,
+                    live_stats_tracker,
+                    reason=str(message.get("reason") or "refresh"),
+                    game_name=game_name,
+                    timeout=0,
+                )
+                payload = await asyncio.wrap_future(future)
+                if game_name == (get_current_game(update=False) or ""):
+                    await websocket_manager.send(ID_OVERLAY, payload)
+                    return
 
     def handle_select_ocr_area_request(self, message: dict):
         """Launch the OCR/overlay area selector from the overlay settings UI."""

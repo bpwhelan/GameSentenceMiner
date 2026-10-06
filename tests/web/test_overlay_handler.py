@@ -16,16 +16,18 @@ def test_today_stats_request_runs_off_websocket_loop_and_broadcasts_daily_payloa
     sent = []
     payload = {"type": "live_stats_update", "scope": "today", "values": {"total_characters": 123}}
 
-    def build(tracker, *, reason):
+    def build(tracker, *, reason, game_name):
         worker_threads.append(threading.get_ident())
         assert tracker is live_stats.live_stats_tracker
         assert reason == "refresh"
+        assert game_name == "Selected Game"
         return payload
 
     async def send(server_id, message):
         sent.append((server_id, message))
 
     monkeypatch.setattr(live_stats, "build_today_live_stats_payload", build, raising=False)
+    monkeypatch.setattr(overlay_handler_module, "get_current_game", lambda **kwargs: "Selected Game")
     monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
     handler = overlay_handler_module.OverlayRequestHandler()
     asyncio.run(handler.handle_message(json.dumps({"type": "get-live-stats-today", "reason": "refresh"})))
@@ -67,6 +69,32 @@ def test_today_stats_coalesces_requests_while_history_is_loading(monkeypatch):
         assert sent == [payload]
 
     asyncio.run(scenario())
+
+
+def test_today_stats_rebuilds_if_active_game_changes_while_loading(monkeypatch):
+    from GameSentenceMiner.util.stats import live_stats
+
+    current_game = ["First Game"]
+    built = []
+    sent = []
+
+    def build(tracker, *, reason, game_name):
+        built.append(game_name)
+        if game_name == "First Game":
+            current_game[0] = "Second Game"
+        return {"type": "live_stats_update", "scope": "today", "game_name": game_name}
+
+    async def send(server_id, payload):
+        sent.append(payload)
+
+    monkeypatch.setattr(overlay_handler_module, "get_current_game", lambda **kwargs: current_game[0])
+    monkeypatch.setattr(live_stats, "build_today_live_stats_payload", build)
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    asyncio.run(handler.handle_message(json.dumps({"type": "get-live-stats-today"})))
+
+    assert built == ["First Game", "Second Game"]
+    assert [payload["game_name"] for payload in sent] == ["Second Game"]
 
 
 def _setup_block_translation(monkeypatch, translate):

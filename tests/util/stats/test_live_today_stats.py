@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from GameSentenceMiner.util.database.db import GameLinesTable, SQLiteDB
+from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.stats import live_stats
 from GameSentenceMiner.web import stats, stats_repository
 
@@ -11,8 +12,10 @@ from GameSentenceMiner.web import stats, stats_repository
 @pytest.fixture(autouse=True)
 def daily_stats_database(monkeypatch):
     original_db = GameLinesTable._db
+    original_games_db = GamesTable._db
     db = SQLiteDB(":memory:")
     GameLinesTable.set_db(db)
+    GamesTable.set_db(db)
     config = SimpleNamespace(
         session_gap_seconds=1800,
         day_rollover_hour=4,
@@ -26,10 +29,12 @@ def daily_stats_database(monkeypatch):
     yield config
     db.close()
     GameLinesTable._db = original_db
+    GamesTable._db = original_games_db
+    GamesTable.clear_name_id_cache()
 
 
-def save_line(line_id, text, timestamp, **kwargs):
-    GameLinesTable(id=line_id, game_name="Game", line_text=text, timestamp=timestamp, **kwargs).add()
+def save_line(line_id, text, timestamp, *, game_name="Game", **kwargs):
+    GameLinesTable(id=line_id, game_name=game_name, line_text=text, timestamp=timestamp, **kwargs).add()
 
 
 def local_time(hour):
@@ -49,7 +54,7 @@ def test_today_restores_persisted_totals_across_sessions_and_backend_restarts():
             )
     now = start + 7200
     # A new tracker represents a backend restart: the session starts empty.
-    tracker = live_stats.LiveSessionTracker()
+    tracker = live_stats.LiveSessionTracker("Game")
     payload = live_stats.build_today_live_stats_payload(tracker, now=now)
 
     assert payload["type"] == "live_stats_update"
@@ -78,7 +83,7 @@ def test_today_uses_configured_local_cutover(daily_stats_database, rollover_hour
     save_line("future", "excluded", tomorrow.timestamp())
     now = cutover.timestamp() + offset_seconds
 
-    payload = live_stats.build_today_live_stats_payload(live_stats.LiveSessionTracker(), now=now)
+    payload = live_stats.build_today_live_stats_payload(live_stats.LiveSessionTracker("Game"), now=now)
 
     assert payload["values"]["total_characters"] == (10 if offset_seconds < 0 else 20)
     assert payload["period_start"] == (yesterday if offset_seconds < 0 else cutover).timestamp()
@@ -88,7 +93,7 @@ def test_today_uses_configured_local_cutover(daily_stats_database, rollover_hour
 def test_today_combines_saved_history_with_live_revisions_without_duplicates():
     start = local_time(9).timestamp()
     save_line("one", "old", start, note_ids=["card"])
-    tracker = live_stats.LiveSessionTracker()
+    tracker = live_stats.LiveSessionTracker("Game")
     tracker.add_line("old", start, line_id="one")
     tracker.add_line("pending", start + 10, line_id="two")
     tracker.add_line("revised!!!", start, line_id="one", revision=2)
@@ -105,7 +110,7 @@ def test_today_combines_saved_history_with_live_revisions_without_duplicates():
 
 def test_today_retains_totals_after_idle_reset_and_excludes_breaks():
     start = local_time(9).timestamp()
-    tracker = live_stats.LiveSessionTracker()
+    tracker = live_stats.LiveSessionTracker("Game")
     for index in range(5):
         timestamp = start + index * 10
         text = "あ" * 20
@@ -123,7 +128,7 @@ def test_today_retains_totals_after_idle_reset_and_excludes_breaks():
 
 def test_today_resets_at_cutover_during_an_active_session():
     cutover = local_time(4).timestamp()
-    tracker = live_stats.LiveSessionTracker()
+    tracker = live_stats.LiveSessionTracker("Game")
     tracker.add_line("old day", cutover - 20, line_id="one")
     tracker.add_line("still old", cutover - 10, line_id="two")
 
@@ -141,9 +146,74 @@ def test_today_resets_at_cutover_during_an_active_session():
 def test_today_reloads_mined_cards_from_database():
     start = local_time(9).timestamp()
     save_line("one", "reading", start)
-    tracker = live_stats.LiveSessionTracker()
+    tracker = live_stats.LiveSessionTracker("Game")
     assert live_stats.build_today_live_stats_payload(tracker, now=start + 60)["values"]["cards_mined"] == 0
 
     GameLinesTable.update(line_id="one", note_id="card")
 
     assert live_stats.build_today_live_stats_payload(tracker, now=start + 60)["values"]["cards_mined"] == 1
+
+
+def test_today_tracks_each_game_and_restores_totals_when_returning():
+    start = local_time(9).timestamp()
+    for visit, name in enumerate(("First Game", "Second Game", "First Game")):
+        for index in range(5):
+            save_line(
+                f"{visit}-{index}",
+                "あ" * 20,
+                start + visit * 600 + index * 10,
+                game_name=name,
+                note_ids=[f"card-{visit}"] if index == 0 else [],
+            )
+    tracker = live_stats.LiveSessionTracker()
+    now = start + 1500
+    first = live_stats.build_today_live_stats_payload(tracker, game_name="First Game", now=now)
+    second = live_stats.build_today_live_stats_payload(tracker, game_name="Second Game", now=now)
+    returned = live_stats.build_today_live_stats_payload(tracker, game_name="First Game", now=now)
+
+    assert first["game_name"] == "First Game"
+    assert first["values"]["total_characters"] == 200
+    assert first["values"]["active_reading_time"] == 80.0
+    assert first["values"]["raw_reading_time"] == 80.0
+    assert first["values"]["cards_mined"] == 2
+    assert second["values"]["total_characters"] == 100
+    assert second["values"]["active_reading_time"] == 40.0
+    assert second["values"]["raw_reading_time"] == 40.0
+    assert second["values"]["cards_mined"] == 1
+    assert returned == first
+
+
+def test_today_matches_saved_game_ids_and_legacy_names():
+    start = local_time(9).timestamp()
+    GamesTable(id="game-a", title_original="Displayed Title", obs_scene_name="Current Scene").save()
+    save_line("renamed", "あ" * 20, start, game_name="Old Scene", game_id="game-a", note_ids=["card"])
+    save_line("legacy", "あ" * 10, start + 10, game_name="Displayed Title")
+    save_line("other-game", "あ" * 500, start + 20, game_name="Current Scene", game_id="game-b")
+
+    payload = live_stats.build_today_live_stats_payload(
+        live_stats.LiveSessionTracker(), game_name="Current Scene", now=start + 60
+    )
+
+    assert payload["game_id"] == "game-a"
+    assert payload["values"]["total_characters"] == 30
+    assert payload["values"]["cards_mined"] == 1
+
+
+def test_today_does_not_show_every_game_when_no_game_is_selected():
+    start = local_time(9).timestamp()
+    save_line("one", "reading", start, note_ids=["card"])
+    payload = live_stats.build_today_live_stats_payload(live_stats.LiveSessionTracker(), game_name="", now=start + 60)
+    assert all(value == 0 for value in payload["values"].values())
+
+
+def test_today_excludes_other_games_live_text_and_running_timer():
+    start = local_time(9).timestamp()
+    save_line("one", "reading", start, game_name="First Game")
+    tracker = live_stats.LiveSessionTracker()
+    tracker.add_line("other game pending", start + 10, line_id="two", game_name="Second Game")
+
+    payload = live_stats.build_today_live_stats_payload(tracker, game_name="First Game", now=start + 15)
+
+    assert payload["values"]["total_characters"] == len("reading")
+    assert payload["values"]["raw_reading_time"] == 0.0
+    assert payload["session_active"] is False

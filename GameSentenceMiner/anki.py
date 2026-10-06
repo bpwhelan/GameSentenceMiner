@@ -1953,7 +1953,7 @@ def update_anki_card(
         )
 
         with time_anki_card_block(timing_context, "anki.background.update_local_stats_and_db"):
-            live_stats_tracker.add_mined_line()
+            live_stats_tracker.add_mined_line(game_name=game_line.scene)
             GameLinesTable.update(
                 line_id=game_line.id,
                 screenshot_path=assets.final_screenshot_path,

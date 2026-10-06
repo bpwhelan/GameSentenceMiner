@@ -1,0 +1,4 @@
+LIBRARY xinput1_3
+EXPORTS
+    XInputGetState
+    XInputGetKeystroke
