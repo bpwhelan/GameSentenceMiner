@@ -265,6 +265,7 @@ const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-b
 const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
 const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
 const VALID_TRACKED_GAME_WINDOW_STATES = new Set(["active", "background", "obscured", "minimized", "closed", "unknown"]);
+const VALID_LIVE_STATS_SCOPES = new Set(["session", "today"]);
 const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
 const VALID_LIVE_STATS_LAYOUTS = new Set(["stacked", "one-line"]);
 const VALID_LIVE_STATS_POSITION_MODES = new Set(["active-window", "overlay"]);
@@ -1075,6 +1076,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "hideCompletedGoals": true,
   "hideLiveStatsOnTextOverlap": true,
   "liveStatsToggleHotkey": "Alt+Shift+L",
+  "liveStatsScope": "session",
   // Per-goal overlay selection chosen in the settings window:
   //   { [goalId]: { enabled: boolean, view: "today" | "overall" } }
   "overlayGoals": {},
@@ -1589,6 +1591,11 @@ function normalizeTrackedGameWindowState(value) {
   return VALID_TRACKED_GAME_WINDOW_STATES.has(normalized) ? normalized : "unknown";
 }
 
+function normalizeLiveStatsScope(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VALID_LIVE_STATS_SCOPES.has(normalized) ? normalized : "session";
+}
+
 function normalizeLiveStatsDisplayMode(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return VALID_LIVE_STATS_DISPLAY_MODES.has(normalized) ? normalized : "always";
@@ -1779,6 +1786,12 @@ function normalizeLiveStatsSettings(settings) {
   const normalizedHideOnTextOverlap = settings.hideLiveStatsOnTextOverlap !== false;
   if (settings.hideLiveStatsOnTextOverlap !== normalizedHideOnTextOverlap) {
     settings.hideLiveStatsOnTextOverlap = normalizedHideOnTextOverlap;
+    changed = true;
+  }
+
+  const normalizedScope = normalizeLiveStatsScope(settings.liveStatsScope);
+  if (settings.liveStatsScope !== normalizedScope) {
+    settings.liveStatsScope = normalizedScope;
     changed = true;
   }
 
@@ -2577,7 +2590,7 @@ function handleOverlayWebSocketControlMessage(type, data) {
   }
 
   if (message.type === "live_stats_update") {
-    maybePomodoroAutoStart(message.session_active);
+    if (message.scope !== "today") maybePomodoroAutoStart(message.session_active);
     return false; // still forward to renderer
   }
 
@@ -7932,6 +7945,12 @@ async function startOverlayAppImpl() {
     }
   });
 
+  ipcMain.on("request-live-stats-today", (event, { reason = "refresh" } = {}) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
+    if (userSettings.liveStatsScope !== "today" || userSettings.showLiveStats === false) return;
+    if (backend?.connected) backend.send({ type: "get-live-stats-today", reason });
+  });
+
   ipcMain.on("translate-blocks", (event, payload) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
     if (backend && backend.connected) {
@@ -8277,6 +8296,8 @@ async function startOverlayAppImpl() {
       value = normalizeManualModeType(value);
     } else if (key === "manualModeInactiveBehavior") {
       value = normalizeManualModeInactiveBehavior(value);
+    } else if (key === "liveStatsScope") {
+      value = normalizeLiveStatsScope(value);
     } else if (key === "liveStatsDisplayModeV2") {
       value = normalizeLiveStatsDisplayMode(value);
     } else if (key === "liveStatsLayoutV2") {

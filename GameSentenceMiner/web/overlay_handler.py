@@ -46,6 +46,7 @@ class OverlayRequestHandler:
         self.processing = False
         self._block_translation_lock = asyncio.Lock()
         self._latest_block_request = None
+        self._today_stats_lock = asyncio.Lock()
 
     async def handle_message(self, message_str: str):
         """
@@ -84,6 +85,8 @@ class OverlayRequestHandler:
                 await self.broadcast_gsm_owned_overlay_config()
             elif message_type == "get-gsm-profile-state":
                 await self.broadcast_gsm_profile_state()
+            elif message_type == "get-live-stats-today":
+                await self.broadcast_today_live_stats(message)
             elif message_type == "select-ocr-area":
                 self.handle_select_ocr_area_request(message)
             elif message_type == "open-gsm-settings":
@@ -547,6 +550,23 @@ class OverlayRequestHandler:
     async def broadcast_gsm_profile_state(self) -> None:
         """Answer overlay reconciliation requests without exposing config.json paths."""
         await websocket_manager.send(ID_OVERLAY, build_gsm_profile_state_payload())
+
+    async def broadcast_today_live_stats(self, message: dict) -> None:
+        """Calculate daily history off the websocket loop; coalesce overlapping polls."""
+        from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
+        from GameSentenceMiner.util.stats.live_stats import build_today_live_stats_payload, live_stats_tracker
+
+        if self._today_stats_lock.locked():
+            return
+        async with self._today_stats_lock:
+            future = submit_background_work(
+                build_today_live_stats_payload,
+                live_stats_tracker,
+                reason=str(message.get("reason") or "refresh"),
+                timeout=0,
+            )
+            payload = await asyncio.wrap_future(future)
+            await websocket_manager.send(ID_OVERLAY, payload)
 
     def handle_select_ocr_area_request(self, message: dict):
         """Launch the OCR/overlay area selector from the overlay settings UI."""

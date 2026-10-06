@@ -6,6 +6,69 @@ from GameSentenceMiner.util.config.configuration import Overlay
 from GameSentenceMiner.web import overlay_handler as overlay_handler_module
 
 
+def test_today_stats_request_runs_off_websocket_loop_and_broadcasts_daily_payload(monkeypatch):
+    import threading
+
+    from GameSentenceMiner.util.stats import live_stats
+
+    loop_thread = threading.get_ident()
+    worker_threads = []
+    sent = []
+    payload = {"type": "live_stats_update", "scope": "today", "values": {"total_characters": 123}}
+
+    def build(tracker, *, reason):
+        worker_threads.append(threading.get_ident())
+        assert tracker is live_stats.live_stats_tracker
+        assert reason == "refresh"
+        return payload
+
+    async def send(server_id, message):
+        sent.append((server_id, message))
+
+    monkeypatch.setattr(live_stats, "build_today_live_stats_payload", build, raising=False)
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    asyncio.run(handler.handle_message(json.dumps({"type": "get-live-stats-today", "reason": "refresh"})))
+
+    assert worker_threads and all(thread != loop_thread for thread in worker_threads)
+    assert sent == [(overlay_handler_module.ID_OVERLAY, payload)]
+
+
+def test_today_stats_coalesces_requests_while_history_is_loading(monkeypatch):
+    from concurrent.futures import Future
+
+    from GameSentenceMiner.util.concurrency import work_pool
+
+    future = Future()
+    calls = []
+    sent = []
+    payload = {"type": "live_stats_update", "scope": "today"}
+
+    def submit(*args, **kwargs):
+        calls.append((args, kwargs))
+        return future
+
+    async def send(server_id, message):
+        sent.append(message)
+
+    monkeypatch.setattr(work_pool, "submit_background_work", submit)
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+
+    async def scenario():
+        handler = overlay_handler_module.OverlayRequestHandler()
+        message = json.dumps({"type": "get-live-stats-today"})
+        first = asyncio.create_task(handler.handle_message(message))
+        await asyncio.sleep(0)
+        await handler.handle_message(message)
+        assert len(calls) == 1
+        assert not sent
+        future.set_result(payload)
+        await first
+        assert sent == [payload]
+
+    asyncio.run(scenario())
+
+
 def _setup_block_translation(monkeypatch, translate):
     sent = []
 

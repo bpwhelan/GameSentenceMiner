@@ -117,12 +117,19 @@ MAX_JAPANESE_QUOTE_PAIRS = 10
 # ---------------------------------------------------------------------------
 
 
+def _expire_live_stats_session() -> None:
+    # Reuse the projection worker's idle poll so expiry and incoming lines
+    # update the tracker on the same thread, without a separate timer.
+    live_stats_tracker.reset_if_inactive()
+
+
 def get_authoritative_text_runtime() -> AuthoritativeTextRuntime:
     global _text_runtime
     with _text_runtime_lock:
         if _text_runtime is None:
             _text_runtime = AuthoritativeTextRuntime(
                 _project_text_domain_event,
+                projection_idle_callback=_expire_live_stats_session,
                 retention_provider=lambda: timedelta(
                     seconds=max(0, float(getattr(gsm_state, "replay_buffer_length", 0) or 0)) + 5
                 ),

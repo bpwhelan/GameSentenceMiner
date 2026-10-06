@@ -1506,9 +1506,19 @@
       <label>
         <span class="label-text">
           Enable Live Stats
-          <div class="hotkey-info">Shows the current live reading session stats in the overlay.</div>
+          <div class="hotkey-info">Shows live reading stats for the selected period in the overlay.</div>
         </span>
         <input type="checkbox" id="showLiveStats" />
+      </label>
+      <label>
+        <span class="label-text">
+          Stats Period
+          <div class="hotkey-info">Session resets after a session break. Today keeps daily totals across sessions and restarts, using the Stats day rollover setting (4am by default).</div>
+        </span>
+        <select id="liveStatsScope">
+          <option value="session">Session</option>
+          <option value="today">Today</option>
+        </select>
       </label>
       <label>
         <span class="label-text">
@@ -3252,6 +3262,7 @@
     const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
     const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
     const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
+    const VALID_LIVE_STATS_SCOPES = new Set(["session", "today"]);
     const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
     const VALID_LIVE_STATS_LAYOUTS = new Set(["stacked", "one-line"]);
     const VALID_LIVE_STATS_POSITION_MODES = new Set(["active-window", "overlay"]);
@@ -3337,6 +3348,11 @@
     function normalizeGamepadActivationModeValue(value) {
       const normalized = String(value || "").trim();
       return VALID_GAMEPAD_ACTIVATION_MODES.has(normalized) ? normalized : "modifier";
+    }
+
+    function normalizeLiveStatsScopeValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_LIVE_STATS_SCOPES.has(normalized) ? normalized : "session";
     }
 
     function normalizeLiveStatsDisplayModeValue(value) {
@@ -3979,6 +3995,9 @@
       createCheckboxBinding("hideCompletedGoals", "#hideCompletedGoals"),
       createCheckboxBinding("hideLiveStatsOnTextOverlap", "#hideLiveStatsOnTextOverlap"),
       createHotkeyBinding("liveStatsToggleHotkey", "#liveStatsToggleHotkey"),
+      createSelectBinding("liveStatsScope", "#liveStatsScope", {
+        normalize: normalizeLiveStatsScopeValue,
+      }),
       createSelectBinding("liveStatsDisplayModeV2", "#liveStatsDisplayModeV2", {
         normalize: normalizeLiveStatsDisplayModeValue,
       }),
@@ -5085,6 +5104,7 @@
         showLiveGoals: userSettings.showLiveGoals !== false,
         hideCompletedGoals: userSettings.hideCompletedGoals !== false,
         hideLiveStatsOnTextOverlap: userSettings.hideLiveStatsOnTextOverlap !== false,
+        liveStatsScope: normalizeLiveStatsScopeValue(userSettings.liveStatsScope),
         liveStatsDisplayModeV2: normalizeLiveStatsDisplayModeValue(userSettings.liveStatsDisplayModeV2),
         liveStatsLayoutV2: normalizeLiveStatsLayoutValue(userSettings.liveStatsLayoutV2),
         liveStatsAutoHideSeconds: clampNumericValue(userSettings.liveStatsAutoHideSeconds, 5, 0, 60, true),

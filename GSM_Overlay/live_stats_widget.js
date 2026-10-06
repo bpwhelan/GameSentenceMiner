@@ -13,6 +13,7 @@
     hideCompletedGoals: true,
     hideLiveStatsOnTextOverlap: true,
     liveStatsVisibilityMode: "all",
+    liveStatsScope: "session",
     liveStatsDisplayModeV2: "always",
     liveStatsLayoutV2: "one-line",
     liveStatsAutoHideSeconds: 5,
@@ -30,6 +31,7 @@
   });
 
   const VALID_DISPLAY_MODES = new Set(["always", "new-line"]);
+  const VALID_SCOPES = new Set(["session", "today"]);
   const VALID_LAYOUTS = new Set(["stacked", "one-line"]);
   const VALID_POSITION_MODES = new Set(["active-window", "overlay"]);
   const VALID_VISIBILITY_MODES = new Set(["all", "stats", "goals", "hidden"]);
@@ -49,6 +51,8 @@
     settings: { ...DEFAULT_SETTINGS, liveStatsFields: { ...DEFAULT_SETTINGS.liveStatsFields } },
     fieldDefinitions: DEFAULT_FIELD_DEFINITIONS.map((field) => ({ ...field })),
     payload: null,
+    todayPayload: null,
+    lastTodayStatsRequest: null,
     pomodoro: null,
     pomodoroEl: null,
     goals: [],
@@ -82,6 +86,11 @@
   function normalizeDisplayMode(value) {
     const normalized = String(value || "").trim().toLowerCase();
     return VALID_DISPLAY_MODES.has(normalized) ? normalized : DEFAULT_SETTINGS.liveStatsDisplayModeV2;
+  }
+
+  function normalizeScope(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return VALID_SCOPES.has(normalized) ? normalized : DEFAULT_SETTINGS.liveStatsScope;
   }
 
   function normalizePositionMode(value) {
@@ -134,6 +143,7 @@
         true
       ),
       liveStatsVisibilityMode: normalizeVisibilityMode(settings.liveStatsVisibilityMode ?? state.settings.liveStatsVisibilityMode),
+      liveStatsScope: normalizeScope(settings.liveStatsScope ?? state.settings.liveStatsScope),
       overlayGoals: normalizeOverlayGoals(settings.overlayGoals ?? state.settings.overlayGoals),
       liveStatsDisplayModeV2: normalizeDisplayMode(settings.liveStatsDisplayModeV2 ?? state.settings.liveStatsDisplayModeV2),
       liveStatsLayoutV2: normalizeLayout(settings.liveStatsLayoutV2 ?? state.settings.liveStatsLayoutV2),
@@ -283,12 +293,46 @@
     return formatInteger(value);
   }
 
-  // Raw time is wall-clock elapsed since the session's first line. The payload
-  // only refreshes on new lines, so extrapolate it forward from session_start_time
-  // while a session is active; everything else uses the payload value verbatim.
+  function selectedStatsPayload() {
+    return state.settings.liveStatsScope === "today" ? state.todayPayload : state.payload;
+  }
+
+  function requestTodayStats(reason = "refresh", force = false) {
+    if (state.settings.liveStatsScope !== "today" || !state.settings.showLiveStats || !ipcRenderer) {
+      return;
+    }
+    const now = Date.now();
+    if (!force && state.lastTodayStatsRequest !== null && now - state.lastTodayStatsRequest < 1000) {
+      return;
+    }
+    state.lastTodayStatsRequest = now;
+    ipcRenderer.send("request-live-stats-today", { reason });
+  }
+
+  function expireTodayPayload() {
+    const payload = state.todayPayload;
+    if (!payload || payload.expired || !Number.isFinite(Number(payload.period_end)) || Date.now() / 1000 < Number(payload.period_end)) {
+      return false;
+    }
+    state.todayPayload = {
+      ...payload,
+      expired: true,
+      session_active: false,
+      values: Object.fromEntries(FIELD_KEYS.map((key) => [key, 0])),
+    };
+    return true;
+  }
+
+  // Daily raw time starts with accumulated session spans and advances only
+  // during the current session. Session mode keeps its existing wall clock.
   function liveFieldValue(key, payloadValue) {
     if (key === "raw_reading_time") {
-      const payload = state.payload;
+      const payload = selectedStatsPayload();
+      if (payload?.scope === "today" && payload.session_active && Number.isFinite(Number(payload.updated_at))) {
+        const expiresAt = Number(payload.session_expires_at);
+        const end = Math.min(Date.now() / 1000, Number(payload.period_end), Number.isFinite(expiresAt) ? expiresAt : Infinity);
+        return Number(payloadValue || 0) + Math.max(0, end - Number(payload.updated_at));
+      }
       if (payload?.session_active && Number.isFinite(Number(payload.session_start_time))) {
         return Math.max(0, Date.now() / 1000 - Number(payload.session_start_time));
       }
@@ -299,8 +343,16 @@
   // Re-render only the value cells that advance on their own (raw time), plus
   // the Pomodoro countdown.
   function updateLiveTimes() {
-    if (state.grid && state.payload?.session_active) {
-      const values = state.payload.values || {};
+    if (expireTodayPayload() && state.settings.liveStatsScope === "today") {
+      render();
+      requestTodayStats("refresh", true);
+    }
+    if (state.settings.liveStatsScope === "today" && (state.lastTodayStatsRequest === null || Date.now() - state.lastTodayStatsRequest >= 5000)) {
+      requestTodayStats();
+    }
+    const payload = selectedStatsPayload();
+    if (state.grid && payload?.session_active) {
+      const values = payload.values || {};
       state.grid.querySelectorAll('[data-field-key="raw_reading_time"]').forEach((cell) => {
         setText(cell, formatValue(liveFieldValue("raw_reading_time", values.raw_reading_time), cell.dataset.fieldFormat));
       });
@@ -544,7 +596,7 @@
     state.root.classList.toggle("gsm-live-stats-one-line", state.settings.liveStatsLayoutV2 === "one-line");
     const statsVisible = isStatsModeVisible();
     state.root.classList.toggle("gsm-live-stats-stats-hidden", !statsVisible);
-    const payload = state.payload;
+    const payload = selectedStatsPayload();
     state.status.classList.toggle("active", !!payload?.session_active);
     state.grid.replaceChildren();
 
@@ -564,6 +616,7 @@
     }
 
     const values = payload.values || {};
+    state.fieldDefinitions = normalizeFieldDefinitions(payload.fields);
     const visibleFields = state.fieldDefinitions.filter((field) => state.settings.liveStatsFields[field.key] !== false);
     if (visibleFields.length === 0) {
       const empty = document.createElement("div");
@@ -696,7 +749,7 @@
 
   function updateVisibility() {
     const statsVisible = isStatsModeVisible();
-    const statsActive = statsVisible && state.payload !== null;
+    const statsActive = statsVisible && selectedStatsPayload() !== null;
     const pomodoroActive = statsVisible && !!(state.pomodoro && state.pomodoro.enabled);
     const goalsActive = getVisibleGoals().length > 0;
     const enabled = statsActive || pomodoroActive || goalsActive;
@@ -780,10 +833,26 @@
       return;
     }
 
-    state.payload = normalizedPayload;
-    state.fieldDefinitions = normalizeFieldDefinitions(normalizedPayload.fields);
+    const scope = normalizedPayload.scope === "today" ? "today" : "session";
+    const hadPayload = selectedStatsPayload() !== null;
+    if (scope === "today") {
+      if (state.todayPayload && Number(normalizedPayload.updated_at) < Number(state.todayPayload.updated_at)) {
+        return;
+      }
+      state.todayPayload = normalizedPayload;
+      expireTodayPayload();
+    } else {
+      state.payload = normalizedPayload;
+    }
+    if (scope !== state.settings.liveStatsScope) {
+      if (state.settings.liveStatsScope === "today") requestTodayStats(normalizedPayload.reason || "update");
+      return;
+    }
     render();
-    revealForUpdate();
+    // Refreshing saved totals must not keep brief display mode visible forever.
+    if (scope === "session" || !hadPayload || normalizedPayload.reason !== "refresh") {
+      revealForUpdate();
+    }
   }
 
   function handleWindowState(payload) {
@@ -797,7 +866,12 @@
   }
 
   function applySettings(settings = {}) {
+    const wasTodayEnabled = state.settings.liveStatsScope === "today" && state.settings.showLiveStats;
     state.settings = normalizeSettings(settings);
+    if (!wasTodayEnabled && state.settings.liveStatsScope === "today" && state.settings.showLiveStats) {
+      requestTodayStats("scope_changed", true);
+    }
+    expireTodayPayload();
     if (!state.settings.hideLiveStatsOnTextOverlap) {
       state.hiddenForTextOverlap = false;
     }

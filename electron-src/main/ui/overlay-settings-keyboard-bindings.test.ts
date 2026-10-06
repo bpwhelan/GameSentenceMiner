@@ -90,6 +90,43 @@ function loadOverlaySettingsPage(platform = "win32") {
   return { dom, ready, sent, listeners };
 }
 
+describe("overlay live stats period settings", () => {
+  it("loads the Session default, persists Today, and restores saved/profile values", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const preload = (userSettings: Record<string, unknown>) => page.listeners.get("preload-settings")?.(null, {
+        userSettings, defaultSettings: { liveStatsScope: "session" },
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      preload({});
+      await nextTick();
+      const control = page.dom.window.document.getElementById("liveStatsScope");
+      expect(control.value).toBe("session");
+      expect(control.closest('[data-tab="reading"]')).not.toBeNull();
+
+      control.value = "today";
+      control.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "liveStatsScope", value: "today"
+      });
+
+      preload({ liveStatsScope: "today" });
+      await nextTick();
+      expect(control.value).toBe("today");
+      page.listeners.get("settings-updated")?.(null, { liveStatsScope: "session" });
+      await nextTick();
+      expect(control.value).toBe("session");
+      preload({ liveStatsScope: "invalid" });
+      await nextTick();
+      expect(control.value).toBe("session");
+    } finally {
+      page.dom.window.close();
+    }
+  });
+});
+
 describe("overlay adaptive OCR retry settings", () => {
   it("defaults off, sends edits, and follows the active GSM profile", async () => {
     const page = loadOverlaySettingsPage();

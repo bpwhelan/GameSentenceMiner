@@ -1,4 +1,5 @@
 import math
+from unittest.mock import Mock
 
 import pytest
 
@@ -106,16 +107,109 @@ def _mock_stats_config(monkeypatch, **overrides):
 
     import GameSentenceMiner.util.stats.live_stats as live_mod
 
-    monkeypatch.setattr(
-        live_mod,
-        "get_stats_config",
-        lambda: SimpleNamespace(
-            session_gap_seconds=1800,
-            regex_out_repetitions=False,
-            extra_punctuation_regex="",
-            **overrides,
-        ),
-    )
+    settings = {
+        "session_gap_seconds": 1800,
+        "regex_out_repetitions": False,
+        "extra_punctuation_regex": "",
+        **overrides,
+    }
+    stats_config = SimpleNamespace(**settings)
+    monkeypatch.setattr(live_mod, "get_stats_config", lambda: stats_config)
+    return stats_config
+
+
+@pytest.mark.parametrize("session_gap_seconds", [600, 1800, 7200])
+@pytest.mark.parametrize("gap_offset", [-1, 0, 1])
+def test_idle_session_resets_only_after_configured_gap(monkeypatch, session_gap_seconds, gap_offset):
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    _mock_stats_config(monkeypatch, session_gap_seconds=session_gap_seconds)
+    publish = Mock()
+    monkeypatch.setattr(live_mod, "publish_live_stats_update", publish)
+    tracker = LiveSessionTracker()
+    for index in range(5):
+        tracker.add_line("あ" * 20, 1000.0 + index * 10, line_id=f"line-{index}")
+    tracker.times_mined = 2
+    before = build_live_stats_payload(tracker, now=1040.0)
+    publish.reset_mock()
+
+    expired = tracker.reset_if_inactive(now=1040.0 + session_gap_seconds + gap_offset)
+
+    assert expired is (gap_offset > 0)
+    if gap_offset <= 0:
+        assert build_live_stats_payload(tracker, now=1040.0) == before
+        publish.assert_not_called()
+    else:
+        payload = build_live_stats_payload(tracker, now=1040.0)
+        assert payload["session_active"] is False
+        assert payload["session_start_time"] is None
+        assert payload["last_line_time"] is None
+        assert all(value == 0 for value in payload["values"].values())
+        assert tracker.last_line_text is None
+        assert tracker.last_line_chars == 0
+        assert tracker.lines_count == 0
+        assert tracker.last_line_id is None
+        assert tracker._line_ledger == {}
+        assert tracker._speed_samples == []
+        publish.assert_called_once_with(tracker, reason="session_timeout")
+
+
+def test_idle_session_publishes_reset_once_and_next_line_starts_fresh(monkeypatch):
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    _mock_stats_config(monkeypatch)
+    publish = Mock()
+    monkeypatch.setattr(live_mod, "publish_live_stats_update", publish)
+    tracker = LiveSessionTracker()
+    tracker.add_line("old session", 1000.0, line_id="one")
+    tracker.add_line("last line", 1010.0, line_id="two")
+    publish.reset_mock()
+
+    assert tracker.reset_if_inactive(now=2811.0) is True
+    assert tracker.reset_if_inactive(now=3000.0) is False
+    publish.assert_called_once_with(tracker, reason="session_timeout")
+
+    # Resetting also clears the revision ledger and the pending line's credit.
+    tracker.add_line("fresh session", 3010.0, line_id="one")
+    assert tracker.session_start_time == 3010.0
+    assert tracker.lines_count == 1
+    assert tracker.get_total_chars() == 0
+    assert tracker.get_active_reading_time() == 0
+    assert tracker.get_raw_reading_time() == 0
+    assert tracker.reset_if_inactive(now=3011.0) is False
+
+
+def test_idle_session_check_uses_current_gap_setting(monkeypatch):
+    config = _mock_stats_config(monkeypatch, session_gap_seconds=600)
+    tracker = LiveSessionTracker()
+    tracker.add_line("reading", 1000.0)
+
+    config.session_gap_seconds = 1800
+    assert tracker.reset_if_inactive(now=1601.0) is False
+    config.session_gap_seconds = 600
+    assert tracker.reset_if_inactive(now=1601.0) is True
+
+
+def test_revisions_and_mining_do_not_extend_idle_session(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("first", 1000.0, line_id="one")
+    tracker.add_line("last", 1010.0, line_id="two")
+    tracker.add_line("revised", 1000.0, line_id="one", revision=2)
+    tracker.add_mined_line()
+
+    assert tracker.reset_if_inactive(now=2811.0) is True
+    assert tracker.get_cards_mined() == 0
+
+
+def test_empty_session_does_not_publish_idle_resets(monkeypatch):
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    publish = Mock()
+    monkeypatch.setattr(live_mod, "publish_live_stats_update", publish)
+
+    assert LiveSessionTracker().reset_if_inactive(now=10000.0) is False
+    publish.assert_not_called()
 
 
 @pytest.mark.parametrize("legacy_settings", [{}, {"reading_time_adaptive_v2": False}])

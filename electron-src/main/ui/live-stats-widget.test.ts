@@ -83,7 +83,168 @@ function rect(left: number, top: number, right: number, bottom: number) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+describe('live stats Session/Today scope', () => {
+  const now = new Date('2026-10-05T12:00:00Z').getTime();
+
+  function payload(scope: 'session' | 'today', totalCharacters: number, active = false) {
+    return {
+      type: 'live_stats_update',
+      scope,
+      reason: 'refresh',
+      updated_at: now / 1000,
+      session_active: active,
+      session_start_time: now / 1000 - 30,
+      last_line_time: now / 1000 - 10,
+      session_expires_at: now / 1000 + 1800,
+      period_end: now / 1000 + 3600,
+      values: {
+        chars_per_hour: 7200,
+        total_characters: totalCharacters,
+        active_reading_time: 30,
+        raw_reading_time: scope === 'today' ? 120 : 30,
+        cards_mined: 2,
+      },
+    };
+  }
+
+  function value(dom: JSDOM, key: string) {
+    return dom.window.document.querySelector(`[data-field-key="${key}"]`)?.getAttribute('data-text');
+  }
+
+  it('offers Session by default and Today in saved overlay settings', () => {
+    const dom = new JSDOM(settingsHtml);
+    const select = dom.window.document.querySelector<HTMLSelectElement>('#liveStatsScope');
+    expect(select?.value).toBe('session');
+    expect(Array.from(select?.options ?? []).map((option) => option.value)).toEqual(['session', 'today']);
+    expect(settingsHtml).toContain('createSelectBinding("liveStatsScope", "#liveStatsScope",');
+    expect(mainSource).toContain('"liveStatsScope": "session"');
+    dom.window.close();
+  });
+
+  it('keeps the session default and switches to cached day totals immediately', () => {
+    const { dom, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    // Existing backends send session snapshots without a scope.
+    const session = payload('session', 20);
+    delete (session as { scope?: string }).scope;
+    widget.handleStatsUpdate(session);
+    widget.handleStatsUpdate(payload('today', 500));
+    expect(value(dom, 'total_characters')).toBe('20');
+
+    widget.applySettings({ liveStatsScope: 'today' });
+    expect(value(dom, 'total_characters')).toBe('500');
+    widget.handleStatsUpdate(payload('session', 0));
+    expect(value(dom, 'total_characters')).toBe('500');
+
+    widget.applySettings({ liveStatsScope: 'unknown' });
+    expect(value(dom, 'total_characters')).toBe('0');
+    dom.window.close();
+  });
+
+  it('routes daily snapshot requests through the active overlay and Today setting', () => {
+    const start = mainSource.indexOf('  ipcMain.on("request-live-stats-today",');
+    const end = mainSource.indexOf('  ipcMain.on("translate-blocks",', start);
+    const sender = {};
+    const send = vi.fn();
+    let handler: (event: { sender: object }, payload?: Record<string, string>) => void;
+    const settings = { liveStatsScope: 'session', showLiveStats: true };
+    const backend = { connected: true, send };
+    vm.runInNewContext(mainSource.slice(start, end), {
+      ipcMain: { on: (_channel: string, callback: typeof handler) => { handler = callback; } },
+      mainWindow: { isDestroyed: () => false, webContents: sender },
+      userSettings: settings,
+      backend,
+    });
+    handler!({ sender });
+    expect(send).not.toHaveBeenCalled();
+    settings.liveStatsScope = 'today';
+    handler!({ sender: {} });
+    expect(send).not.toHaveBeenCalled();
+    handler!({ sender });
+    expect(send).toHaveBeenCalledWith({ type: 'get-live-stats-today', reason: 'refresh' });
+    send.mockClear();
+    backend.connected = false;
+    handler!({ sender });
+    expect(send).not.toHaveBeenCalled();
+    backend.connected = true;
+    settings.showLiveStats = false;
+    handler!({ sender });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('ticks daily raw time from the accumulated total and freezes it while inactive', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    let clock = now;
+    vi.spyOn(dom.window.Date, 'now').mockImplementation(() => clock);
+    widget.applySettings({ liveStatsScope: 'today' });
+    widget.handleStatsUpdate(payload('today', 500, true));
+    expect(value(dom, 'raw_reading_time')).toBe('2:00');
+
+    clock += 10000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('2:10');
+    widget.handleStatsUpdate(payload('today', 500, false));
+    clock += 1800000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('2:00');
+    dom.window.close();
+  });
+
+  it('clears every daily field at cutover even without a new backend update', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    let clock = now;
+    vi.spyOn(dom.window.Date, 'now').mockImplementation(() => clock);
+    widget.applySettings({ liveStatsScope: 'today' });
+    const today = payload('today', 500, true);
+    today.period_end = now / 1000 + 1;
+    widget.handleStatsUpdate(today);
+
+    clock += 1000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'total_characters')).toBe('0');
+    expect(value(dom, 'cards_mined')).toBe('0');
+    expect(value(dom, 'active_reading_time')).toBe('0:00');
+    expect(value(dom, 'raw_reading_time')).toBe('0:00');
+    widget.handleStatsUpdate(today);
+    expect(value(dom, 'total_characters')).toBe('0');
+    dom.window.close();
+  });
+
+  it('requests fresh day totals only while Today stats are enabled', () => {
+    vi.useFakeTimers();
+    const { dom, ipcSend, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    ipcSend.mockClear();
+    vi.advanceTimersByTime(6000);
+    expect(ipcSend).not.toHaveBeenCalledWith('request-live-stats-today', expect.anything());
+
+    widget.applySettings({ liveStatsScope: 'today' });
+    expect(ipcSend).toHaveBeenCalledWith('request-live-stats-today', { reason: 'scope_changed' });
+    ipcSend.mockClear();
+    widget.applySettings({ showLiveStats: false });
+    vi.advanceTimersByTime(6000);
+    expect(ipcSend).not.toHaveBeenCalledWith('request-live-stats-today', expect.anything());
+    dom.window.close();
+  });
+
+  it('allows brief daily stats to hide between background refreshes', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    widget.applySettings({ liveStatsScope: 'today', liveStatsDisplayModeV2: 'new-line', liveStatsAutoHideSeconds: 1 });
+    widget.handleStatsUpdate(payload('today', 500));
+    expect(dom.window.document.querySelector('#gsm-live-stats')?.classList.contains('gsm-live-stats-visible')).toBe(true);
+    vi.advanceTimersByTime(1000);
+    widget.handleStatsUpdate(payload('today', 500));
+    expect(dom.window.document.querySelector('#gsm-live-stats')?.classList.contains('gsm-live-stats-visible')).toBe(false);
+    dom.window.close();
+  });
 });
 
 describe('live stats completed goals', () => {

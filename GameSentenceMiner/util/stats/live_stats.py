@@ -1,4 +1,7 @@
 import time
+from datetime import datetime, timedelta, timezone
+from datetime import time as datetime_time
+from itertools import pairwise
 from math import isfinite
 
 from GameSentenceMiner.util.config.configuration import get_stats_config
@@ -7,6 +10,7 @@ from GameSentenceMiner.util.stats.stats_util import (
     MIN_LINES_FOR_CPH,
     _median,
     adaptive_cap_seconds,
+    count_cards_from_lines,
     reading_speed_sample,
 )
 
@@ -77,6 +81,95 @@ def build_live_stats_payload(
     }
 
 
+def build_today_live_stats_payload(
+    tracker: "LiveSessionTracker",
+    *,
+    reason: str = "refresh",
+    now: float | None = None,
+) -> dict:
+    """Restore the current stats day from saved history, including live revisions.
+
+    This queries the database and must run outside the live text/websocket loop.
+    Daily raw time adds session spans, so time between sessions is not counted.
+    """
+    from GameSentenceMiner.util.database.game_archive import archived_stats_lines
+    from GameSentenceMiner.web.stats import calculate_actual_reading_time
+    from GameSentenceMiner.web.stats_repository import StatsLineRecord, query_stats_lines
+
+    updated_at = time.time() if now is None else float(now)
+    config = get_stats_config()
+    rollover_hour = max(0, min(23, int(getattr(config, "day_rollover_hour", 4))))
+    local_now = datetime.fromtimestamp(updated_at, timezone.utc).astimezone()
+    stats_date = local_now.date()
+    if local_now.hour < rollover_hour:
+        stats_date -= timedelta(days=1)
+    # Construct both local boundaries separately to respect daylight saving time.
+    period_start = datetime.combine(stats_date, datetime_time(rollover_hour)).timestamp()
+    period_end = datetime.combine(stats_date + timedelta(days=1), datetime_time(rollover_hour)).timestamp()
+
+    lines = query_stats_lines(
+        where_clause="timestamp >= ? AND timestamp < ? AND timestamp <= ?",
+        params=(period_start, period_end, updated_at),
+    )
+    lines.extend(archived_stats_lines(period_start, min(period_end, updated_at)))
+    by_id = {line.id: line for line in lines if period_start <= line.timestamp < period_end}
+    for line_id, text, timestamp in tracker.get_live_lines():
+        if not period_start <= timestamp < period_end or timestamp > updated_at:
+            continue
+        line = by_id.get(line_id)
+        if line is None:
+            line = StatsLineRecord(line_id, "", "", timestamp=timestamp)
+            by_id[line_id] = line
+        # Keep the saved mining information when replacing provisional text.
+        line.line_text = clean_text_for_stats(
+            text,
+            regex_out_repetitions=getattr(config, "regex_out_repetitions", False),
+            extra_punctuation_regex=getattr(config, "extra_punctuation_regex", ""),
+        )
+
+    sorted_lines = sorted(by_id.values(), key=lambda line: line.timestamp)
+    timestamps = [line.timestamp for line in sorted_lines]
+    texts = [line.line_text or "" for line in sorted_lines]
+    total_characters = sum(len(text) for text in texts)
+    active_seconds = calculate_actual_reading_time(timestamps, texts)
+    raw_seconds = sum(
+        gap
+        for previous, current in pairwise(timestamps)
+        if 0 <= (gap := current - previous) <= config.session_gap_seconds
+    )
+    last_line_time = tracker.last_line_time
+    session_active = (
+        last_line_time is not None
+        and period_start <= last_line_time <= updated_at
+        and updated_at - last_line_time <= config.session_gap_seconds
+    )
+    if session_active:
+        raw_seconds += updated_at - last_line_time
+
+    return {
+        "type": LIVE_STATS_UPDATE_TYPE,
+        "scope": "today",
+        "reason": reason,
+        "updated_at": updated_at,
+        "period_start": period_start,
+        "period_end": period_end,
+        "session_active": session_active,
+        "session_start_time": tracker.session_start_time,
+        "last_line_time": last_line_time,
+        "session_expires_at": last_line_time + config.session_gap_seconds if session_active else None,
+        "fields": get_live_stats_field_options(),
+        "values": {
+            "chars_per_hour": int(total_characters * 3600 / active_seconds)
+            if active_seconds > 5 and len(sorted_lines) >= MIN_LINES_FOR_CPH
+            else 0,
+            "total_characters": total_characters,
+            "active_reading_time": round(active_seconds, 1),
+            "raw_reading_time": round(raw_seconds, 1),
+            "cards_mined": count_cards_from_lines(sorted_lines),
+        },
+    }
+
+
 def publish_live_stats_update(
     tracker: "LiveSessionTracker",
     *,
@@ -123,6 +216,17 @@ class LiveSessionTracker:
         self._line_ledger: dict[str, dict[str, object]] = {}
         # Per-line raw reading speeds (chars/sec) for the adaptive cap.
         self._speed_samples: list[float] = []
+
+    def reset_if_inactive(self, *, now: float | None = None) -> bool:
+        """Expire an idle session without waiting for another line to arrive."""
+        if self.last_line_time is None:
+            return False
+        current_time = time.time() if now is None else float(now)
+        if current_time - self.last_line_time <= get_stats_config().session_gap_seconds:
+            return False
+        self.reset()
+        publish_live_stats_update(self, reason="session_timeout")
+        return True
 
     def _credit_gap(self, gap: float):
         """Credit the previous line's reading time, capped at the session's pace."""
@@ -211,6 +315,7 @@ class LiveSessionTracker:
                 "revision": int(revision),
                 "chars": char_count,
                 "text": line_text,
+                "timestamp": timestamp,
                 "credited": False,
             }
 
@@ -222,6 +327,12 @@ class LiveSessionTracker:
             schedule_live_goals_update()
         except Exception:
             pass
+
+    def get_live_lines(self) -> list[tuple[str, str, float]]:
+        """Copy live text for daily snapshots without exposing the revision ledger."""
+        return [
+            (line_id, str(line["text"]), float(line["timestamp"])) for line_id, line in self._line_ledger.copy().items()
+        ]
 
     def get_chars_per_hour(self) -> int:
         """

@@ -29,7 +29,13 @@ from .models import (
 
 
 class TextProjectionActor(Actor[TextDomainEvent, None]):
-    def __init__(self, projector: Callable[[TextDomainEvent], None], *, capacity: int = 2048) -> None:
+    def __init__(
+        self,
+        projector: Callable[[TextDomainEvent], None],
+        *,
+        capacity: int = 2048,
+        idle_callback: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(
             "gsm-text-projection",
             capacity=capacity,
@@ -37,9 +43,14 @@ class TextProjectionActor(Actor[TextDomainEvent, None]):
             execution_class=ExecutionClass.LATENCY,
         )
         self._projector = projector
+        self._idle_callback = idle_callback
 
     def handle(self, message: TextDomainEvent) -> None:
         self._projector(message)
+
+    def on_idle(self) -> None:
+        if self._idle_callback is not None:
+            self._idle_callback()
 
 
 class AuthoritativeTextRuntime:
@@ -50,10 +61,13 @@ class AuthoritativeTextRuntime:
         projector: Callable[[TextDomainEvent], None],
         *,
         retention_provider: Callable[[], timedelta | None] | None = None,
+        projection_idle_callback: Callable[[], None] | None = None,
     ) -> None:
         self.supervisor = RuntimeSupervisor()
         self.scheduler: SchedulerActor | None = None
-        self.projection = self.supervisor.register(TextProjectionActor(projector))
+        self.projection = self.supervisor.register(
+            TextProjectionActor(projector, idle_callback=projection_idle_callback)
+        )
         state = TextCoordinatorState()
         self.coordinator = self.supervisor.register(
             TextCoordinatorActor(
