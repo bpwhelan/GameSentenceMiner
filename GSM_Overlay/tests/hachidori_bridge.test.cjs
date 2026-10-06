@@ -10,6 +10,7 @@ function setup() {
     removeEventListener: name => events.delete(name),
     postMessage: data => replies.push(data),
     dispatchEvent() {},
+    queueMicrotask,
     GsmHachidoriPopup: { create: () => ({ control(action) { calls.push(action); return true; }, refresh() {}, destroy() {} }) },
   };
   const document = { documentElement: { dataset: {} }, querySelector: () => null };
@@ -38,6 +39,24 @@ test('only GSM overlay URLs get a privileged bridge', () => {
   assert.equal(isGsmHost('file:///C:/app/resources/app.asar/index.html'), true);
   assert.equal(isGsmHost('http://127.0.0.1:5174/'), true);
   assert.equal(isGsmHost('http://127.0.0.1:5174/unrelated'), false);
+});
+
+test('popup lifecycle bursts refresh once after binding and never after teardown', async () => {
+  const h = setup();
+  let refreshes = 0;
+  h.window.GsmHachidoriPopup.create = () => ({ control() {}, refresh() { refreshes++; }, destroy() {} });
+  h.bridge.destroy();
+  const bridge = install(h.api, { window: h.window, document: h.document });
+  bridge.scheduleRefresh();
+  bridge.scheduleRefresh();
+  bridge.scheduleRefresh();
+  assert.equal(refreshes, 0, 'Wait until native entry buttons have been bound');
+  await Promise.resolve();
+  assert.equal(refreshes, 1);
+  bridge.scheduleRefresh();
+  bridge.destroy();
+  await Promise.resolve();
+  assert.equal(refreshes, 1);
 });
 
 test('capability discovery and native requests use fixed routes and preserve lookup defaults', async () => {

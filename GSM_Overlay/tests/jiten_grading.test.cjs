@@ -4,6 +4,31 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { JitenParseCache, DEFAULT_JITEN_PARSE_URL } = require('../jiten_cache');
+const { JSDOM } = require('jsdom');
+
+test('unchanged Hachidori grading refreshes do not invalidate popup layout or readiness', t => {
+  const { window } = new JSDOM('<div id="popup"></div>');
+  const { document } = window;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../jiten_grading_bar.js'), 'utf8'), { window });
+  const grading = new window.GsmJitenGradingBar({ window, document,
+    getHeadword: () => ({ term: '猫', reading: 'ねこ' }) });
+  const popup = document.getElementById('popup');
+  const owner = { lookupToken: 1 };
+  grading.config = { enabled: true };
+  grading.refresh(owner, popup);
+  const observer = new window.MutationObserver(() => {});
+  observer.observe(popup, { attributes: true, childList: true, subtree: true });
+  t.after(() => { observer.disconnect(); grading.destroy(); window.close(); });
+  for (const enabled of [true, false]) {
+    grading.config.enabled = enabled;
+    grading.refresh(owner, popup);
+    observer.takeRecords();
+    for (let i = 0; i < 4; i++) grading.refresh(owner, popup);
+    assert.equal(observer.takeRecords().length, 0);
+  }
+  assert.equal(popup.firstChild.hidden, true);
+  assert.equal(popup.firstChild.style.display, 'none');
+});
 
 test('duplicate Yomitan popup messages submit one grade through real renderer and IPC handlers', async (t) => {
   const calls = [];

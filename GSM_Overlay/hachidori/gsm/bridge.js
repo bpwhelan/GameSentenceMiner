@@ -45,6 +45,7 @@
     if (!isGsmHost(win.location.href)) return null;
     let destroyed = false, navigationActive = doc.documentElement.dataset.gsmGamepadNavigationActive === 'true';
     let lookupRevision = 0;
+    let refreshScheduled = false;
     let knownPopups = new Map();
     const level = () => api.state().levels.findLast(item => item.popup && !item.popup.hidden && !item.retired);
     const popup = win.GsmHachidoriPopup.create(api, { window: win, document: doc });
@@ -62,6 +63,15 @@
         if (!next.has(popupId)) emit('gsm-hachidori-popup-hidden', { popupId });
       }
       knownPopups = next;
+    }
+
+    function scheduleRefresh() {
+      if (destroyed || refreshScheduled) return;
+      refreshScheduled = true;
+      win.queueMicrotask(() => {
+        refreshScheduled = false;
+        refresh();
+      });
     }
 
     async function control(body) {
@@ -176,6 +186,7 @@
     return {
       get navigationActive() { return navigationActive; },
       refresh,
+      scheduleRefresh,
       requestCompleted(type, reply) {
         if (type === 'hd_anki_submit' && ['added', 'updated'].includes(reply.state)) {
           emit('gsm-anki-note-added', { reader: 'hachidori', noteId: reply.noteId });

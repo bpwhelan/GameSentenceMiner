@@ -10,16 +10,17 @@ function setup(t) {
   window.GsmPopupNavigation = PopupNavigation;
   const root = document.querySelector('hachidori-host').attachShadow({ mode: 'open' });
   const levels = [];
+  const reads = { bounds: 0, visibility: 0, entry: 0 };
   function addLevel() {
     const popup = document.createElement('div');
     popup.innerHTML = '<button class="audio">Audio</button><div class="actions"><button data-action="add" disabled>Mine</button></div>';
     root.append(popup);
     const audio = popup.querySelector('.audio'), mine = popup.querySelector('[data-action="add"]');
     for (const [index, button] of [audio, mine].entries()) {
-      button.getClientRects = () => button.closest('[hidden]') ? [] : [{ left: index * 30, top: 0 }];
-      button.getBoundingClientRect = () => ({ left: index * 30, top: 0 });
+      button.getClientRects = () => { reads.visibility++; return button.closest('[hidden]') ? [] : [{ left: index * 30, top: 0 }]; };
+      button.getBoundingClientRect = () => { reads.bounds++; return { left: index * 30, top: 0 }; };
     }
-    const level = { popup, lookupToken: 1, view: { currentEntryIndex: () => 0, scrollElement: popup },
+    const level = { popup, lookupToken: 1, view: { currentEntryIndex: () => { reads.entry++; return 0; }, scrollElement: popup },
       entryAudio: [{ button: audio }], entryMining: [{ actions: popup.querySelector('.actions') }] };
     levels.push(level);
     return { level, audio, mine };
@@ -29,8 +30,50 @@ function setup(t) {
   navigation.refresh();
   navigation.control('reset-action-selection');
   t.after(() => { navigation.destroy(); window.close(); });
-  return { ...first, navigation, addLevel, selected: () => root.querySelector('.gsm-controller-selected') };
+  return { ...first, navigation, addLevel, reads, document,
+    resetReads: () => { reads.bounds = reads.visibility = reads.entry = 0; },
+    selected: () => root.querySelector('.gsm-controller-selected') };
 }
+
+test('definition rendering does not remeasure controller actions or rescan entries', async t => {
+  const h = setup(t);
+  const definitions = h.document.createElement('div');
+  h.level.popup.append(definitions);
+  await Promise.resolve();
+  h.resetReads();
+  // Dictionary glossaries fill asynchronously, including expandable/hidden content.
+  for (let i = 0; i < 4; i++) {
+    definitions.innerHTML = '<div hidden><button disabled>Dictionary content</button></div>';
+    definitions.firstChild.hidden = false;
+    await Promise.resolve();
+  }
+  assert.deepEqual(h.reads, { bounds: 0, visibility: 0, entry: 0 });
+  assert.equal(h.selected(), h.audio);
+});
+
+test('default action readiness does not sort button geometry; explicit navigation does', async t => {
+  const h = setup(t);
+  await Promise.resolve();
+  h.resetReads();
+  h.mine.disabled = false;
+  await Promise.resolve();
+  assert.equal(h.selected(), h.mine);
+  assert.equal(h.reads.bounds, 0);
+  h.navigation.control('select-action', { direction: -1 });
+  assert.equal(h.selected(), h.audio);
+  assert.equal(h.reads.bounds, 2, 'Read each available button position once when ordering actions');
+});
+
+test('revealing an action ancestor still refreshes controller readiness', async t => {
+  const h = setup(t);
+  h.mine.parentElement.hidden = true;
+  h.mine.disabled = false;
+  await Promise.resolve();
+  assert.equal(h.selected(), h.audio);
+  h.mine.parentElement.hidden = false;
+  await Promise.resolve();
+  assert.equal(h.selected(), h.mine);
+});
 
 for (const audioState of ['playing', 'no-result']) {
   test(`mining readiness updates the default while audio is ${audioState}, without another popup event`, async t => {

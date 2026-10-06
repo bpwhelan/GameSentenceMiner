@@ -13,8 +13,9 @@
       this.selected?.classList.remove(selectionClass);
       this.selected = null;
     }
-    buttons() {
-      return this.adapter.buttons(this.scope).filter(button => this.adapter.isAvailable(button));
+    buttons(ordered = false) {
+      const buttons = this.adapter.buttons(this.scope).filter(button => this.adapter.isAvailable(button));
+      return ordered && this.adapter.orderButtons ? this.adapter.orderButtons(buttons) : buttons;
     }
     select(button) {
       if (button && button === this.selected) return true;
@@ -63,7 +64,7 @@
         case 'reset-action-selection': return this.reset();
         case 'select-action': {
           this.automatic = false;
-          const buttons = this.buttons();
+          const buttons = this.buttons(true);
           if (!buttons.length) return false;
           const index = buttons.indexOf(this.selected);
           return this.select(buttons[(Math.max(0, index) + (body.direction < 0 ? -1 : 1) + buttons.length) % buttons.length]);
