@@ -88,6 +88,7 @@ def test_get_audio_uses_trimmed_clip_for_editing_and_defers_user_reencode(tmp_pa
         str(trimmed_audio),
         1.0,
         4.0,
+        None,
     )
     ffmpeg_stub.get_audio_length = lambda path: 3.0 if path == str(trimmed_audio) else 30.0
     ffmpeg_stub.reencode_file_with_user_config = lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -186,6 +187,7 @@ def test_get_audio_maps_vad_window_back_to_full_source_for_editing(tmp_path):
         str(trimmed_audio),
         1.0,
         4.0,
+        None,
     )
     ffmpeg_stub.get_audio_length = lambda path: 3.0 if path == str(trimmed_audio) else 30.0
     ffmpeg_stub.reencode_file_with_user_config = lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -292,6 +294,7 @@ def test_get_audio_marks_condensed_audio_for_rebased_editing(tmp_path):
         str(trimmed_audio),
         1.0,
         4.0,
+        None,
     )
     ffmpeg_stub.get_audio_length = lambda path: 3.0 if path == str(trimmed_audio) else 30.0
     ffmpeg_stub.reencode_file_with_user_config = lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -396,6 +399,7 @@ def test_get_audio_leaves_output_empty_when_vad_finds_no_voice_and_dialog_is_dis
         str(trimmed_audio),
         1.0,
         4.0,
+        None,
     )
     ffmpeg_stub.get_audio_length = lambda path: 3.0 if path == str(trimmed_audio) else 30.0
     ffmpeg_stub.reencode_file_with_user_config = lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -501,6 +505,7 @@ def test_get_audio_no_voice_without_fallback_does_not_emit_missing_file_warning(
         str(trimmed_audio),
         1.0,
         4.0,
+        None,
     )
     ffmpeg_stub.get_audio_length = lambda path: 3.0 if path == str(trimmed_audio) else 30.0
     ffmpeg_stub.reencode_file_with_user_config = lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -599,6 +604,7 @@ def test_get_audio_leaves_output_empty_when_vad_reports_success_without_a_real_f
         str(trimmed_audio),
         1.0,
         4.0,
+        None,
     )
     ffmpeg_stub.get_audio_length = lambda path: 3.0 if path == str(trimmed_audio) else 30.0
     ffmpeg_stub.reencode_file_with_user_config = lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -707,6 +713,7 @@ def test_get_audio_warns_clearly_when_vad_reports_missing_output_file(tmp_path):
         str(trimmed_audio),
         1.0,
         4.0,
+        None,
     )
     ffmpeg_stub.get_audio_length = lambda path: 3.0 if path == str(trimmed_audio) else 30.0
     ffmpeg_stub.reencode_file_with_user_config = lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -805,6 +812,7 @@ def test_get_audio_notifies_when_vad_finds_no_voice_and_no_fallback(tmp_path):
         str(trimmed_audio),
         1.0,
         4.0,
+        None,
     )
     ffmpeg_stub.get_audio_length = lambda path: 3.0 if path == str(trimmed_audio) else 30.0
 

@@ -95,6 +95,7 @@ export interface Settings {
 	showAudioButton$: boolean;
 	trimAudioWithVAD$: boolean;
 	showTrimVideoButton$: boolean;
+	showSaveClipButton$: boolean;
 	trimVideoWithVAD$: boolean;
 	showTrimmedVideoInExplorer$: boolean;
 	showGSMCheckboxes$: boolean;
@@ -173,6 +174,13 @@ export interface TextFeedSessionSync {
 	timedOutIds: string[];
 	missingLines: TextFeedSessionLine[];
 	requestedIds: string[];
+}
+
+/** A clip saved for later, as listed by GSM's /api/clips. */
+export interface SavedClip {
+	id: string;
+	size_bytes: number;
+	lines: { id: string; text: string }[];
 }
 
 export interface LineItemEditEvent {

@@ -1013,7 +1013,7 @@ def get_screenshot():
 
         handle_texthooker_button(gsm_state.previous_replay)
     else:
-        obs.save_replay_buffer()
+        _save_replay_for([line])
     return jsonify({}), 200
 
 
@@ -1078,7 +1078,7 @@ def play_audio():
     ):
         handle_texthooker_button(gsm_state.previous_replay)
     else:
-        obs.save_replay_buffer()
+        _save_replay_for([line])
     return jsonify({"queued": True, "line_id": event_id}), 200
 
 
@@ -1115,9 +1115,39 @@ def trim_video():
     ):
         handle_texthooker_button(gsm_state.previous_replay)
     else:
-        obs.save_replay_buffer()
+        _save_replay_for([line])
 
     return jsonify({"queued": True, "line_id": event_id}), 200
+
+
+def _save_replay_for(lines):
+    """Run the queued Text Feed action on a saved clip once lines left the buffer, else save an OBS replay."""
+    from GameSentenceMiner import clip_cards
+    from GameSentenceMiner.web.service import handle_texthooker_button
+
+    if clip_replay := clip_cards.replay_for_lines(lines):
+        handle_texthooker_button(clip_replay)
+    else:
+        obs.save_replay_buffer()
+
+
+def _missing_output_folder_response():
+    """No destination configured: open the settings to the Paths tab so the user can set one."""
+    try:
+        settings_window = gsm_state.config_app
+        if settings_window is None:
+            factory = getattr(gsm_state, "config_app_factory", None)
+            settings_window = factory() if callable(factory) else None
+        if settings_window:
+            settings_window.show_window(root_tab_key="general", subtab_key="paths")
+    except Exception as e:
+        logger.debug(f"Failed to open settings for output folder: {e}")
+    return jsonify(
+        {
+            "error": ("No output folder is set. Set an Output Folder in the Paths settings, then try again."),
+            "open_settings": True,
+        }
+    ), 400
 
 
 @app.route("/create-media", methods=["POST"])
@@ -1129,22 +1159,7 @@ def create_media():
     trim_with_vad = bool(data.get("trim_with_vad", False))
 
     if not get_config().paths.output_folder:
-        # No destination configured: open the settings to the Paths tab so the user can set one.
-        try:
-            settings_window = gsm_state.config_app
-            if settings_window is None:
-                factory = getattr(gsm_state, "config_app_factory", None)
-                settings_window = factory() if callable(factory) else None
-            if settings_window:
-                settings_window.show_window(root_tab_key="general", subtab_key="paths")
-        except Exception as e:
-            logger.debug(f"Failed to open settings for output folder: {e}")
-        return jsonify(
-            {
-                "error": ("No output folder is set. Set an Output Folder in the Paths settings, then try again."),
-                "open_settings": True,
-            }
-        ), 400
+        return _missing_output_folder_response()
 
     lines = [line for event_id in ids if (line := get_event_line_by_id(event_id)) is not None]
     if not lines:
@@ -1177,9 +1192,55 @@ def create_media():
     if reuse_replay:
         handle_texthooker_button(gsm_state.previous_replay)
     else:
-        obs.save_replay_buffer()
+        _save_replay_for(lines)
 
     return jsonify({"queued": True, "count": len(lines)}), 200
+
+
+def _queue_clip_save(line, wait_seconds):
+    """Save an OBS replay once it covers the line; the replay handler writes the clip."""
+
+    def run():
+        gsm_state.pending_clip_saves.append(line)
+        try:
+            obs.save_replay_buffer()
+        except Exception as e:
+            logger.exception(f"Failed to save OBS replay for Save clip for later: {e}")
+            if line in gsm_state.pending_clip_saves:
+                gsm_state.pending_clip_saves.remove(line)
+            from GameSentenceMiner.web.service import _send_texthooker_audio_event
+
+            _send_texthooker_audio_event(
+                "clip_save_failed", line_ids=[line.id], error=f"Could not save the OBS replay: {e}"
+            )
+
+    timer = threading.Timer(wait_seconds, run)
+    timer.daemon = True
+    timer.start()
+
+
+@app.route("/save-clip", methods=["POST"])
+def save_clip():
+    """Keep the line as an OBS-shaped clip plus manifest, so a card can be made from it later."""
+    from GameSentenceMiner.util import clips
+
+    event_id = (request.get_json() or {}).get("id")
+    if not event_id:
+        return jsonify({"error": "Missing id"}), 400
+    if not get_config().paths.output_folder:
+        return _missing_output_folder_response()
+
+    line = get_event_line_by_id(event_id)
+    if line is None:
+        return jsonify({"error": "Invalid id"}), 400
+
+    existing = clips.find_clip_folder(clips.get_clips_root(), line)
+    if existing:
+        return jsonify({"queued": False, "already_saved": True, "line_ids": [line.id], "folder": existing}), 200
+
+    wait_seconds = clips.seconds_until_clip_ready(line)
+    _queue_clip_save(line, wait_seconds)
+    return jsonify({"queued": True, "line_ids": [line.id], "wait_seconds": wait_seconds}), 200
 
 
 @app.route("/texthooker/audio/<token>", methods=["GET"])
@@ -1582,7 +1643,12 @@ def get_event_line_by_id(event_id: str):
         return line
 
     event = event_manager.get(event_id)
-    return event.line if event else None
+    if event:
+        return event.line
+    # A saved line outlives the session's text log.
+    from GameSentenceMiner.util import clips
+
+    return clips.find_saved_line(event_id)
 
 
 def are_lines_selected():

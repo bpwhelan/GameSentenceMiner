@@ -83,6 +83,7 @@
 		showAudioButton$,
 		trimAudioWithVAD$,
 		showTrimVideoButton$,
+		showSaveClipButton$,
 		trimVideoWithVAD$,
 		showGSMCheckboxes$,
 		unblurTLTimer$,
@@ -96,15 +97,16 @@
 		type ExportedData,
 		type ExportedSettings,
 		type LineItem,
+		type SavedClip,
 		type SettingPreset,
 	} from '../types';
 	import { deduplicateLineData } from '../session-sync';
 	import { clickOutside } from '../use-click-outside';
-	import { applyCustomCSS, dummyFn, timeStringToSeconds } from '../util';
+	import { applyCustomCSS, dummyFn, getErrorMessage, timeStringToSeconds } from '../util';
 	import Icon from './Icon.svelte';
 	import Presets from './Presets.svelte';
 	import ReplacementSettings from './ReplacementSettings.svelte';
-	import { getGSMEndpoint } from '../gsm';
+	import { describeSavedClips, fetchSavedClips, getGSMEndpoint, trashSavedClips } from '../gsm';
 
 	export let selectedLineIds: string[];
 	export let settingsElement: SVGElement;
@@ -138,11 +140,60 @@
 		}
 	}
 
+	function notify(message: string, isError = true) {
+		return new Promise<DialogResult>((resolve) => {
+			$openDialog$ = isError
+				? { icon: mdiClose, type: 'error', message, showCancel: false, callback: resolve }
+				: { icon: mdiHelpCircle, message, showCancel: false, callback: resolve };
+		});
+	}
+
+	async function trashClips(clips: SavedClip[]) {
+		try {
+			await trashSavedClips(clips);
+		} catch (error) {
+			await notify(`Could not move every clip to the trash: ${getErrorMessage(error)}`);
+		} finally {
+			dispatch('savedClipsChanged');
+		}
+	}
+
 	async function handleResetAllData() {
+		// GSM may not be running; the rest of the reset doesn't need it.
+		const clips = await fetchSavedClips().catch(() => []);
 		const removedLines = $lineData$;
-		await resetAllData();
-		if (removedLines.length && !$lineData$.length) {
+		const clipsNote = clips.length ? `, and ${describeSavedClips(clips)} will be moved to the trash` : '';
+		if (!(await resetAllData(clipsNote))) {
+			return;
+		}
+		if (removedLines.length) {
 			dispatch('linesRemoved', removedLines);
+		}
+		if (clips.length) {
+			await trashClips(clips);
+		}
+	}
+
+	// Saved clips are files on disk, so resetting them always asks first.
+	async function handleResetSavedClips() {
+		let clips: SavedClip[];
+		try {
+			clips = await fetchSavedClips();
+		} catch (error) {
+			return notify(`Could not load the saved clips: ${getErrorMessage(error)}`);
+		}
+		if (!clips.length) {
+			return notify('There are no saved clips.', false);
+		}
+		const { canceled } = await new Promise<DialogResult>((resolve) => {
+			$openDialog$ = {
+				icon: mdiHelpCircle,
+				message: `${describeSavedClips(clips)} will be moved to the trash.`,
+				callback: resolve,
+			};
+		});
+		if (!canceled) {
+			await trashClips(clips);
 		}
 	}
 
@@ -150,6 +201,7 @@
 		layoutChange: void;
 		linesRemoved: LineItem[];
 		maxLinesChange: void;
+		savedClipsChanged: void;
 	}>();
 	const onlineFonts = [
 		OnlineFont.OFF,
@@ -775,6 +827,16 @@
 				<div
 					role="button"
 					class="flex flex-col items-center hover:text-primary"
+					on:click={handleResetSavedClips}
+					on:keyup={dummyFn}
+					title="Move every saved clip to the trash"
+				>
+					<Icon path={mdiDelete} />
+					<span class="label-text">Reset Saved Clips</span>
+				</div>
+				<div
+					role="button"
+					class="flex flex-col items-center hover:text-primary"
 					on:click={() => handleReset(false)}
 					on:keyup={dummyFn}
 				>
@@ -1140,6 +1202,8 @@
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimAudioWithVAD$} />
 			<span class="label-text col-span-2">Pin Save Cropped Replay Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimVideoButton$} />
+			<span class="label-text col-span-2">Pin Save Clip Button</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showSaveClipButton$} />
 			<span class="label-text col-span-2">Trim Video With VAD</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimVideoWithVAD$} />
 			<span class="label-text col-span-2">Show Checkboxes</span>

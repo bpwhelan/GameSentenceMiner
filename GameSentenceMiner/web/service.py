@@ -334,8 +334,33 @@ def create_media_for_lines(video_path=""):
         _open_folder(word_path)
 
 
+def save_clip_from_replay(video_path=""):
+    """Keep an OBS-shaped clip of the oldest queued line so a card can be made later."""
+    from GameSentenceMiner.util import clips
+
+    if not gsm_state.pending_clip_saves:
+        return
+    line = gsm_state.pending_clip_saves.pop(0)
+    line_ids = [line.id]
+    try:
+        folder = clips.save_clip(video_path, line, clips.get_clips_root())
+    except clips.LineOutsideReplayError as e:
+        logger.warning(f"Could not save clip for later: {e}")
+        _send_texthooker_audio_event("clip_save_failed", line_ids=line_ids, error=str(e))
+        return
+    except Exception as e:
+        logger.exception(f"Failed to save clip for later: {e}")
+        _send_texthooker_audio_event("clip_save_failed", line_ids=line_ids, error=f"Saving failed: {e}")
+        return
+    _send_texthooker_audio_event("clip_saved", line_ids=line_ids, folder=folder)
+
+
 def handle_texthooker_button(video_path=""):
     try:
+        if gsm_state.pending_clip_saves:
+            save_clip_from_replay(video_path)
+            return
+
         if gsm_state.lines_for_media_creation:
             create_media_for_lines(video_path)
             return

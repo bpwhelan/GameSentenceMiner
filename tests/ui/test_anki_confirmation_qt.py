@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 
 from GameSentenceMiner.ui import anki_confirmation_qt, audio_waveform_widget
 from GameSentenceMiner.util.config.configuration import Anki
+from GameSentenceMiner.util.media.pause_gaps import AudioTimeline
 
 
 class _UnavailableAudioPlayer:
@@ -937,6 +938,7 @@ def test_normalize_audio_edit_context_uses_provided_duration(monkeypatch):
         "range_start": 8.0,
         "range_end": 11.0,
         "rebase_on_selection_trim": False,
+        "timeline": None,
     }
 
 
@@ -958,6 +960,7 @@ def test_normalize_audio_edit_context_falls_back_to_probe_duration(monkeypatch):
         "range_start": 8.0,
         "range_end": 42.0,
         "rebase_on_selection_trim": False,
+        "timeline": None,
     }
 
 
@@ -1060,11 +1063,46 @@ def test_build_dialog_result_metadata_includes_audio_edit_range():
         _dialog_audio_result=None,
         _dialog_translation_regenerated=False,
         _audio_edit_range=(10.25, 12.75),
+        _audio_edit_context=None,
     )
 
     result = anki_confirmation_qt.AnkiConfirmationDialog._build_dialog_result_metadata(probe)
 
     assert result["audio_edit_range"] == (10.25, 12.75)
+
+
+def test_build_dialog_result_metadata_reports_the_edit_range_on_the_video_after_pause_removal():
+    probe = SimpleNamespace(
+        _selected_lines_for_pipeline=list,
+        _dialog_line_selection_changed=False,
+        _dialog_audio_result=None,
+        _dialog_translation_regenerated=False,
+        _audio_edit_range=(1.5, 3.0),
+        # 10s of pause silence was cut at 2.0s of the video.
+        _audio_edit_context={"timeline": AudioTimeline(((2.0, 12.0),))},
+    )
+
+    result = anki_confirmation_qt.AnkiConfirmationDialog._build_dialog_result_metadata(probe)
+
+    assert result["audio_edit_range"] == (1.5, 13.0)
+
+
+def test_line_audio_anchor_is_placed_in_the_pause_cleaned_audio(monkeypatch):
+    monkeypatch.setattr(
+        anki_confirmation_qt, "get_config", lambda: SimpleNamespace(audio=SimpleNamespace(beginning_offset=0.0))
+    )
+    replay_end = datetime(2026, 9, 28, 3, 35, 0)  # noqa: DTZ001 - replay times are naive local time
+    probe = SimpleNamespace(
+        _replay_video_duration=30.0,
+        _replay_file_mod_time=replay_end,
+        _dialogue_line_start_cache={},
+        _audio_edit_context={"timeline": AudioTimeline(((2.0, 12.0),))},
+    )
+    line = SimpleNamespace(id="next", time=replay_end - timedelta(seconds=10))
+
+    anchor = anki_confirmation_qt.AnkiConfirmationDialog._line_audio_anchor(probe, line)
+
+    assert anchor == pytest.approx(10.0)  # 20s into the video, 10s into the cleaned audio
 
 
 def test_expand_audio_start_resets_existing_start_trim_and_keeps_end_trim():

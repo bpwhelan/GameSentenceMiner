@@ -1151,7 +1151,7 @@ def _prepare_anki_note_fields(note: Dict, last_note: "AnkiCard", assets: MediaAs
         )
 
     if _field_is_active("game_name_field"):
-        _apply_field_policy(note, last_note, "game_name_field", get_current_game(), anki_cfg=config.anki)
+        _apply_field_policy(note, last_note, "game_name_field", _game_name_for(game_line), anki_cfg=config.anki)
 
     return note
 
@@ -1498,12 +1498,17 @@ def _get_prefetched_animated_screenshot_path(assets: MediaAssets) -> str:
     return ""
 
 
-def _prepare_anki_tags() -> List[str]:
+def _game_name_for(game_line=None) -> str:
+    """The game a line came from: a saved line keeps its capture scene, live lines use the OBS scene."""
+    return (game_line.scene if getattr(game_line, "clip", None) else "") or get_current_game()
+
+
+def _prepare_anki_tags(game_line=None) -> List[str]:
     """Generates a list of tags to be added to the Anki note."""
     config = get_config()
     tags = []
     if config.anki.add_game_tag:
-        game = get_current_game().replace(" ", "").replace("::", "")
+        game = _game_name_for(game_line).replace(" ", "").replace("::", "")
         if config.anki.parent_tag:
             game = f"{config.anki.parent_tag}::{game}"
         tags.append(game)
@@ -1725,7 +1730,7 @@ def update_anki_card(
         translation = game_line.TL
 
     with time_anki_card_block(timing_context, "anki.update_anki_card.prepare_tags"):
-        tags = _prepare_anki_tags()
+        tags = _prepare_anki_tags(game_line)
 
     # 4. (Optional) Show confirmation dialog to the user, which may alter media
     use_voice = update_audio_flag or assets.audio_in_anki
@@ -3573,7 +3578,11 @@ def update_single_card(card):
     gsm_status.add_word_being_processed(card.get_field(get_config().anki.word_field))
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}")
     lines = _get_texthooking_page_module().get_selected_lines()
-    game_line = _resolve_mined_line_for_card(card, lines)
+    from GameSentenceMiner import clip_cards
+
+    # A saved clip stands in for the OBS replay when no live line matches.
+    clip_line = None if lines else clip_cards.match_new_card(card)
+    game_line = clip_line or _resolve_mined_line_for_card(card, lines)
     game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
     timing_context = new_anki_card_timing_context(
@@ -3677,7 +3686,10 @@ def update_single_card(card):
         }
         if timing_context is not None:
             queue_kwargs["timing_context"] = timing_context
-        queue_card_for_processing(card, lines, game_line, **queue_kwargs)
+        if clip_line is not None:
+            clip_cards.queue_clip_card(card, clip_line, **queue_kwargs)
+        else:
+            queue_card_for_processing(card, lines, game_line, **queue_kwargs)
 
 
 def queue_card_for_processing(
@@ -3687,7 +3699,10 @@ def queue_card_for_processing(
     reuse_audio_result_id: Optional[str] = None,
     reuse_screenshot_result_id: Optional[str] = None,
     timing_context: Optional[AnkiCardTimingContext] = None,
+    replay_path: Optional[str] = None,
+    created_at: Optional[datetime] = None,
 ):
+    """Queue a card for the next OBS replay, or for replay_path (e.g. a saved clip) when given."""
     current_word = last_card.get_field(get_config().anki.word_field) if last_card else ""
     if timing_context is None:
         timing_context = new_anki_card_timing_context(
@@ -3717,7 +3732,7 @@ def queue_card_for_processing(
 
     card_queue_item = (
         last_card,
-        datetime.now(),
+        created_at or datetime.now(),
         lines,
         last_mined_line,
         reuse_audio_result_id,
@@ -3725,8 +3740,14 @@ def queue_card_for_processing(
         timing_context,
         translation_future,
     )
+    if replay_path:
+        from GameSentenceMiner import replay_handler
+
+        enqueue = lambda item: replay_handler.process_replay_file(replay_path, item)  # noqa: E731
+    else:
+        enqueue = card_queue.append
     try:
-        card_queue.append(card_queue_item)
+        enqueue(card_queue_item)
     except Exception as error:
         if translation_future is not None:
             translation_future.cancel()
@@ -3746,6 +3767,8 @@ def queue_card_for_processing(
         reuse_audio_result_id=reuse_audio_result_id or "",
         reuse_screenshot_result_id=reuse_screenshot_result_id or "",
     )
+    if replay_path:
+        return
     try:
         with time_anki_card_block(timing_context, "anki.obs_save_replay_buffer", queue_depth=len(card_queue)):
             obs.save_replay_buffer()
