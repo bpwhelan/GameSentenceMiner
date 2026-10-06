@@ -15,6 +15,9 @@ another explicit settings change, or a different process is selected.
 
 - Keeps the selected game window's focus queries active and suppresses its
   `WM_ACTIVATEAPP(FALSE)`, `WM_ACTIVATE(WA_INACTIVE)`, and `WM_KILLFOCUS` messages.
+  It selects the ANSI or Unicode window-procedure lookup to match the game;
+  querying the wrong encoding can return a Windows conversion token instead of
+  a callable address.
   It does not change the actual foreground window or undo minimization.
 - Filters XInput 1.1, 1.2, 1.3, 1.4, 9.1.0 and UAP exports already loaded in that
   game. Successful state reads become neutral in the background, preserving
@@ -23,6 +26,14 @@ another explicit settings change, or a different process is selected.
   covered when exported. Late-loaded XInput libraries are discovered too.
 - Uses an unmodified foreground query for input filtering. The fake focus used
   for rendering cannot accidentally re-enable the game's background controller.
+- Filters DirectInput 8 joystick/gamepad state and buffered events, including
+  devices the game created before injection. It discovers the shared device
+  method implementations through unacquired probe devices. Keyboard and mouse
+  calls to those same methods pass through. Game data-format offsets and axis
+  ranges determine released buttons, centred absolute axes, zero relative axes
+  and neutral POV hats; unused fields stay intact. Data-format/property changes
+  invalidate cached neutral layouts. Background buffered events are drained,
+  including peeked events, so they cannot replay on refocus.
 - Exposes hook counts, intercepted focus messages, controller read counts and
   blocked read counts. These show interception, not proof that every game engine
   continues rendering or that all of its input paths are covered.
@@ -33,7 +44,7 @@ metadata; GSM refuses to stack this experiment on it. This is a best-effort
 conflict check, not an exhaustive detector of other injectors. No elevation,
 debug-privilege request, global hook, driver or game-directory file is used.
 
-DirectInput, Raw Input/HID, native Steam Input and GameInput are not implemented.
+DirectInput versions before 8, Raw Input/HID, native Steam Input and GameInput are not implemented.
 Steam Input mapped through XInput uses the implemented path; keyboard emulation
 does not. Engines that pause through other mechanisms, stop pumping messages,
 or suspend an exclusive-fullscreen graphics device may still need Special K or a
@@ -64,13 +75,19 @@ npm run test:game-background
 npm run test:ts -- electron-src/main/services/game_background.test.ts
 ```
 
-The native test creates disposable hidden game processes with a deterministic
-XInput DLL. It verifies real x86/x64 injection, neutral buttons/axes/triggers,
+The native test creates disposable hidden ANSI and Unicode game windows with a
+deterministic XInput DLL. It verifies real x86/x64 injection, window-message
+interception for both encodings, neutral buttons/axes/triggers,
 disconnected-slot preservation, keystroke filtering, packet changes, render
 ticks, independent options, clean stop, reconnection, single ownership, crash
 recovery and late module loading. Real game animation and foreground controller
 behavior must additionally be tried in the game; counters alone cannot prove
 those behaviors.
+
+The DirectInput suite additionally covers devices created before injection,
+ANSI/Unicode device interfaces, keyboard/mouse pass-through, custom formats,
+signed and changed axis ranges, relative axes, unmapped POV fields, buffered
+events, device-loss errors, independent input toggling and late DLL loading.
 
 Electron's main-process build, renderer bundle and focused service/UI tests pass.
 The standalone full renderer type-check still reports errors in unchanged

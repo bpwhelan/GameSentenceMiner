@@ -8,6 +8,8 @@ Research references:
 - [Special K window management](https://github.com/SpecialKO/SpecialK/blob/main/src/window.cpp)
 - [Special K XInput management](https://github.com/SpecialKO/SpecialK/blob/main/src/input/xinput_core.cpp)
 - [Microsoft XInputGetState documentation](https://learn.microsoft.com/en-us/windows/win32/api/xinput/nf-xinput-xinputgetstate)
+- [Microsoft DirectInput data-format object lookup](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee417906(v=vs.85))
+- [Microsoft XInput/DirectInput interoperability](https://learn.microsoft.com/en-us/windows/win32/xinput/xinput-and-directinput)
 
 `third_party/minhook` contains the unmodified include and src directories and
 license from [MinHook v1.3.4](https://github.com/TsudaKageyu/minhook/tree/v1.3.4).

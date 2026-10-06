@@ -2,6 +2,7 @@
 #include <xinput.h>
 #include <iostream>
 #include <string>
+#include "direct_input_fixture.h"
 
 bool active = false;
 unsigned ticks = 0, deactivations = 0;
@@ -9,18 +10,31 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_ACTIVATEAPP) { active = wp != 0; if (!wp) ++deactivations; }
     if (message == WM_ACTIVATE && LOWORD(wp) == WA_INACTIVE) active = false;
     if (message == WM_KILLFOCUS) active = false;
-    return DefWindowProcW(window, message, wp, lp);
+    return IsWindowUnicode(window) ? DefWindowProcW(window, message, wp, lp) : DefWindowProcA(window, message, wp, lp);
 }
-int wmain() {
-    WNDCLASSW cls{};
-    cls.hInstance = GetModuleHandleW(nullptr);
-    cls.lpfnWndProc = window_proc;
-    cls.lpszClassName = L"GsmBackgroundFixture";
-    RegisterClassW(&cls);
-    HWND window = CreateWindowW(cls.lpszClassName, L"GSM background hook test", WS_OVERLAPPEDWINDOW,
-                                0, 0, 100, 100, nullptr, nullptr, cls.hInstance, nullptr);
+int wmain(int argc, wchar_t** argv) {
+    const bool ansi = argc > 1 && wcscmp(argv[1], L"--ansi") == 0;
+    HWND window;
+    if (ansi) {
+        WNDCLASSA cls{};
+        cls.hInstance = GetModuleHandleW(nullptr);
+        cls.lpfnWndProc = window_proc;
+        cls.lpszClassName = "GsmBackgroundFixture";
+        RegisterClassA(&cls);
+        window = CreateWindowA(cls.lpszClassName, "GSM background hook test", WS_OVERLAPPEDWINDOW,
+                              0, 0, 100, 100, nullptr, nullptr, cls.hInstance, nullptr);
+    } else {
+        WNDCLASSW cls{};
+        cls.hInstance = GetModuleHandleW(nullptr);
+        cls.lpfnWndProc = window_proc;
+        cls.lpszClassName = L"GsmBackgroundFixture";
+        RegisterClassW(&cls);
+        window = CreateWindowW(cls.lpszClassName, L"GSM background hook test", WS_OVERLAPPEDWINDOW,
+                              0, 0, 100, 100, nullptr, nullptr, cls.hInstance, nullptr);
+    }
     // A hidden test window is guaranteed to start in the background.
-    std::cout << "{\"pid\":" << GetCurrentProcessId() << ",\"hwnd\":\"" << reinterpret_cast<uintptr_t>(window) << "\"}" << std::endl;
+    std::cout << "{\"pid\":" << GetCurrentProcessId() << ",\"hwnd\":\"" << reinterpret_cast<uintptr_t>(window)
+              << "\",\"unicode\":" << (IsWindowUnicode(window) ? "true" : "false") << "}" << std::endl;
     HMODULE input = nullptr;
     using GetState = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
     using GetKey = DWORD(WINAPI*)(DWORD, DWORD, XINPUT_KEYSTROKE*);
@@ -38,7 +52,8 @@ int wmain() {
             size_t end;
             while ((end = commands.find('\n')) != std::string::npos) {
                 const auto command = commands.substr(0, end); commands.erase(0, end + 1);
-                if (command == "quit") { DestroyWindow(window); return 0; }
+                if (command == "quit") { close_direct_input_fixture(); DestroyWindow(window); return 0; }
+                direct_input_fixture_command(command);
                 if (command == "load") {
                     wchar_t location[32768]; GetModuleFileNameW(nullptr, location, 32768);
                     std::wstring path(location); path = path.substr(0, path.find_last_of(L"\\") + 1) + L"xinput1_3.dll";
@@ -66,5 +81,6 @@ int wmain() {
                   << ",\"trigger\":" << static_cast<int>(result.Gamepad.bLeftTrigger) << ",\"axis\":" << result.Gamepad.sThumbLX
                   << ",\"packet\":" << result.dwPacketNumber << ",\"keyCode\":" << keyCode << '}' << std::endl;
         Sleep(100);
+        print_direct_input_fixture();
     }
 }

@@ -1,5 +1,6 @@
 // Original, deliberately narrow GSM implementation. See NOTICE.md for research and dependencies.
 #include "protocol.h"
+#include "direct_input.h"
 #include <xinput.h>
 #include <MinHook.h>
 #include <array>
@@ -112,13 +113,22 @@ void pin(void* address) {
 }
 void scan_window() {
     HWND window = target_window(state);
-    auto target = reinterpret_cast<void*>(GetWindowLongPtrW(window, GWLP_WNDPROC));
-    for (size_t i = 0; i < windowCount; ++i) if (windowTargets[i] == target) return;
-    if (windowCount >= MaxHooks || !target) return;
+    // Query in the window's own encoding. Querying an ANSI procedure through
+    // the Unicode API can return an opaque CallWindowProc conversion token,
+    // not an executable address (as in Trails in the Sky 1st Chapter).
+    auto target = reinterpret_cast<void*>(IsWindowUnicode(window)
+        ? GetWindowLongPtrW(window, GWLP_WNDPROC)
+        : GetWindowLongPtrA(window, GWLP_WNDPROC));
+    for (size_t i = 0; i < windowCount; ++i) if (windowTargets[i] == target) {
+        InterlockedAnd(&state->errors, ~2L);
+        return;
+    }
+    if (windowCount >= MaxHooks || !target) { InterlockedOr(&state->errors, 2); return; }
     if (hook(target, reinterpret_cast<void*>(windowCallbacks[windowCount]), reinterpret_cast<void**>(&windowOriginals[windowCount]))) {
         pin(target);
         windowTargets[windowCount++] = target;
         InterlockedExchange(&state->windowHooks, static_cast<LONG>(windowCount));
+        InterlockedAnd(&state->errors, ~2L);
     } else InterlockedOr(&state->errors, 2);
 }
 void scan_input() {
@@ -134,7 +144,7 @@ void scan_input() {
             if (hook(target, reinterpret_cast<void*>(stateCallbacks[stateCount]), reinterpret_cast<void**>(&stateOriginals[stateCount]))) {
                 pin(target);
                 stateTargets[stateCount++] = target;
-                InterlockedExchange(&state->inputHooks, static_cast<LONG>(stateCount));
+                InterlockedIncrement(&state->inputHooks);
             } else InterlockedOr(&state->errors, 4);
         }
         auto target = reinterpret_cast<void*>(GetProcAddress(module, "XInputGetKeystroke"));
@@ -146,6 +156,7 @@ void scan_input() {
             keyTargets[keyCount++] = target;
         } else InterlockedOr(&state->errors, 4);
     }
+    scan_direct_input({state, flags, foreground, hook, pin});
 }
 void notify_activation(bool active) {
     const HWND window = target_window(state);

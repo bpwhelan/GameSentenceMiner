@@ -48,8 +48,9 @@ export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; a
         finally { savingRef.current = false; setSaving(false); }
     };
     const reason = state?.reason;
-    return <fieldset className="game-background-settings" disabled={!ready || saving}>
-        <legend>{t('gameBackground.title')}</legend>
+    return <details className="game-background-settings">
+        <summary>{t('gameBackground.title')}</summary>
+        <fieldset disabled={!ready || saving} aria-label={t('gameBackground.title')}>
         <p className="game-background-help">{t('gameBackground.help')}</p>
         <label className="game-background-option">
             <input type="checkbox" checked={ready && state?.options.enabled === true}
@@ -71,8 +72,8 @@ export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; a
                 t(`gameBackground.status.${matches ? state.phase : 'waiting'}`)}
             {ready && state.target && <> {t('gameBackground.target', { name: state.target.title, pid: state.target.pid })}</>}
         </p>
-        {matches && state.telemetry && state.phase === 'active' && <p className="game-background-help">
-            {t('gameBackground.blockedReads', { count: state.telemetry.blockedCalls })}
+        {matches && state.telemetry && state.phase === 'active' &&
+            ((state.options.blockGamepad && state.telemetry.inputHooks === 0) || state.telemetry.errors !== 0) && <p className="game-background-help">
             {state.options.blockGamepad && state.telemetry.inputHooks === 0 && <> {t('gameBackground.noInput')}</>}
             {state.telemetry.errors !== 0 && <> {t('gameBackground.partial')}</>}
         </p>}
@@ -83,5 +84,6 @@ export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; a
             {t('gameBackground.retry')}
         </button>}
         <p className="game-background-help">{t('gameBackground.limitations')}</p>
-    </fieldset>;
+        </fieldset>
+    </details>;
 }

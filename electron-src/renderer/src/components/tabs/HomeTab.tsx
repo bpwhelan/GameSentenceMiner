@@ -1073,10 +1073,6 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                 </div>
               </div>
 
-              {isWindows && selectedScene && !isHelperScene && (
-                <GameBackgroundSettings sceneId={selectedScene.id} active={active} />
-              )}
-
               {/* Game executable — Linux Wine/Proton hook target (read-only on Windows) */}
               {selectedScene && !isHelperScene && (
                 <div className="home-row">
@@ -1128,6 +1124,10 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     )}
                   </div>
                 </div>
+              )}
+
+              {isWindows && selectedScene && !isHelperScene && (
+                <GameBackgroundSettings sceneId={selectedScene.id} active={active} />
               )}
             </div>
           </section>}

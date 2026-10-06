@@ -33,15 +33,17 @@ function start(file, args = []) {
     };
 }
 
-for (const arch of ['x64', 'x86']) {
+for (const arch of ['x64', 'x86']) for (const windowKind of ['unicode', 'ansi']) {
     const build = path.join(root, `build-${arch}`, 'Release');
     const exe = path.join(build, 'game-background-fixture.exe');
     const { buildId } = JSON.parse(readFileSync(path.join(root, 'bin', arch, 'current.json'), 'utf8'));
     const helper = path.join(root, 'bin', arch, buildId, 'gsm-game-background-helper.exe');
-    const fixture = start(exe);
+    const fixtureOptions = windowKind === 'ansi' ? ['--ansi'] : [];
+    const fixture = start(exe, fixtureOptions);
     let controller;
     try {
         const identity = await fixture.wait(x => x.pid, 'fixture identity');
+        assert.equal(identity.unicode, windowKind === 'unicode');
         fixture.command('load');
         await fixture.wait(x => x.buttons === 4096 && !x.foreground && !x.active, 'unmodified background input');
         const args = ['--attach', '--pid', String(identity.pid), '--hwnd', identity.hwnd, '--path', exe,
@@ -54,6 +56,7 @@ for (const arch of ['x64', 'x86']) {
         await controller.wait(x => x.type === 'ready', 'native hook ready');
         const ready = await controller.wait(x => x.effective === 3 && x.inputHooks > 0, 'both options enabled');
         assert.equal(ready.errors, 0);
+        assert.equal(ready.windowHooks, 1, `${arch}/${windowKind}: window messages must be intercepted`);
         assert.equal(ready.foreground, false, 'synthetic activation must not take real focus');
         fixture.clear();
         fixture.command('deactivate');
@@ -87,13 +90,13 @@ for (const arch of ['x64', 'x86']) {
         fixture.clear();
         controller.child.kill();
         await fixture.wait(x => !x.active && !x.foreground && x.buttons === 4096, 'lease expires after controller crash', 6000);
-        console.log(`${arch}: real injection, neutral input, render ticks, independent options, stop, reconnect, ownership and crash recovery passed`);
+        console.log(`${arch}/${windowKind}: real injection, neutral input, render ticks, independent options, stop, reconnect, ownership and crash recovery passed`);
     } finally {
         controller?.child.kill();
         fixture.command('quit');
     }
     // Input APIs loaded after injection are discovered without restarting the game.
-    const late = start(exe);
+    const late = start(exe, fixtureOptions);
     let host;
     try {
         const identity = await late.wait(x => x.pid, 'late fixture identity');
@@ -105,6 +108,6 @@ for (const arch of ['x64', 'x86']) {
         await late.wait(x => x.buttons === 0 && x.code === 0, 'late input filtered');
         host.command('stop');
         await host.wait(x => x.type === 'stopped', 'late controller stop');
-        console.log(`${arch}: late-loaded XInput passed`);
+        console.log(`${arch}/${windowKind}: late-loaded XInput passed`);
     } finally { host?.child.kill(); late.command('quit'); }
 }
