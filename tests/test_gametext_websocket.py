@@ -20,6 +20,7 @@ def test_live_stats_expire_on_existing_projection_worker_without_new_text(monkey
     reset_threads = []
     published = []
     monkeypatch.setattr(gametext, "live_stats_tracker", tracker)
+    monkeypatch.setattr(gametext.obs, "get_current_game", lambda **kwargs: tracker.game_name)
     monkeypatch.setattr(live_stats, "time", SimpleNamespace(time=lambda: now[0]))
     monkeypatch.setattr(
         live_stats,
@@ -79,6 +80,22 @@ def _make_config(*, use_websocket: bool):
         ),
         advanced=SimpleNamespace(),
     )
+
+
+def test_live_stats_follow_active_game_without_waiting_for_new_text(monkeypatch):
+    from GameSentenceMiner.util.stats import live_stats
+
+    tracker = live_stats.LiveSessionTracker()
+    tracker.add_line("old game", 1000.0, line_id="one", game_name="First Game")
+    monkeypatch.setattr(gametext, "live_stats_tracker", tracker)
+    monkeypatch.setattr(gametext.obs, "get_current_game", lambda **kwargs: "Second Game")
+    monkeypatch.setattr(live_stats, "publish_live_stats_update", lambda *args, **kwargs: False)
+
+    gametext._expire_live_stats_session()
+
+    assert tracker.game_name == "Second Game"
+    assert tracker.last_line_time is None
+    assert tracker.get_live_lines() == []
 
 
 def test_listen_on_websocket_pauses_when_general_websocket_disabled(

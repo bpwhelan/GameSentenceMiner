@@ -176,6 +176,48 @@ describe('live stats Session/Today scope', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('clears the previous game and immediately requests the selected game totals', () => {
+    const { dom, ipcSend, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    widget.applySettings({ liveStatsScope: 'today' });
+    widget.handleStatsUpdate({ ...payload('today', 500), game_name: 'First Game' });
+    expect(value(dom, 'total_characters')).toBe('500');
+    ipcSend.mockClear();
+
+    widget.handleStatsUpdate({
+      ...payload('session', 0), game_name: 'Second Game', reason: 'game_changed', updated_at: now / 1000 + 1,
+    });
+    expect(value(dom, 'total_characters')).not.toBe('500');
+    expect(ipcSend).toHaveBeenCalledWith('request-live-stats-today', { reason: 'game_changed' });
+    widget.handleStatsUpdate({ ...payload('today', 40), game_name: 'Second Game', updated_at: now / 1000 + 2 });
+    expect(value(dom, 'total_characters')).toBe('40');
+
+    // A query started before the switch must not bring back the old game.
+    widget.handleStatsUpdate({ ...payload('today', 500), game_name: 'First Game' });
+    expect(value(dom, 'total_characters')).toBe('40');
+
+    widget.handleStatsUpdate({
+      ...payload('session', 0), game_name: 'First Game', reason: 'game_changed', updated_at: now / 1000 + 3,
+    });
+    widget.handleStatsUpdate({ ...payload('today', 520), game_name: 'First Game', updated_at: now / 1000 + 4 });
+    expect(value(dom, 'total_characters')).toBe('520');
+    dom.window.close();
+  });
+
+  it('follows daily game changes after reconnect before the first live line', () => {
+    const { dom, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    widget.applySettings({ liveStatsScope: 'today' });
+    widget.handleStatsUpdate({ ...payload('session', 0), game_name: '', reason: 'connect' });
+    widget.handleStatsUpdate({ ...payload('today', 500), game_name: 'First Game' });
+    widget.handleStatsUpdate({ ...payload('today', 40), game_name: 'Second Game', updated_at: now / 1000 + 1 });
+    expect(value(dom, 'total_characters')).toBe('40');
+    // Old session metadata must not undo the newer active game.
+    widget.handleStatsUpdate({ ...payload('session', 500), game_name: 'First Game' });
+    expect(value(dom, 'total_characters')).toBe('40');
+    dom.window.close();
+  });
+
   it('ticks daily raw time from the accumulated total and freezes it while inactive', () => {
     vi.useFakeTimers();
     const { dom, widget } = loadWidget();

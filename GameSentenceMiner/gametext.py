@@ -118,8 +118,10 @@ MAX_JAPANESE_QUOTE_PAIRS = 10
 
 
 def _expire_live_stats_session() -> None:
-    # Reuse the projection worker's idle poll so expiry and incoming lines
-    # update the tracker on the same thread, without a separate timer.
+    # Reconcile game changes and expiry on the same thread as incoming lines.
+    current_game = obs.get_current_game(update=False)
+    if current_game:
+        live_stats_tracker.set_game(current_game)
     live_stats_tracker.reset_if_inactive()
 
 
@@ -1069,6 +1071,7 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
                 record.first_seen_at_utc.timestamp(),
                 line_id=record.line_id,
                 revision=record.revision,
+                game_name=record.scene,
             )
         _notify_discord_activity(record.scene)
         return

@@ -118,6 +118,50 @@ def _mock_stats_config(monkeypatch, **overrides):
     return stats_config
 
 
+def test_switching_games_starts_a_new_session_without_crediting_previous_game(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("あ" * 20, 1000.0, line_id="one", game_name="First Game")
+    tracker.add_line("あ" * 20, 1010.0, line_id="two", game_name="First Game")
+    tracker.add_mined_line()
+    tracker.add_line("new game", 1020.0, line_id="three", game_name="Second Game")
+
+    payload = build_live_stats_payload(tracker, now=1020.0)
+    assert payload["game_name"] == "Second Game"
+    assert tracker.lines_count == 1
+    assert tracker.session_start_time == 1020.0
+    assert all(value == 0 for value in payload["values"].values())
+
+
+def test_game_change_publishes_an_empty_session_before_the_next_line(monkeypatch):
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    _mock_stats_config(monkeypatch)
+    publish = Mock()
+    monkeypatch.setattr(live_mod, "publish_live_stats_update", publish)
+    tracker = LiveSessionTracker()
+    tracker.add_line("reading", 1000.0, line_id="one", game_name="First Game")
+    publish.reset_mock()
+
+    assert tracker.set_game("Second Game") is True
+    assert tracker.set_game("Second Game") is False
+    publish.assert_called_once_with(tracker, reason="game_changed")
+    assert tracker.game_name == "Second Game"
+    assert tracker.last_line_time is None
+    assert tracker.get_live_lines() == []
+
+
+def test_delayed_mining_from_previous_game_does_not_count_for_current_game(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("reading", 1000.0, line_id="one", game_name="First Game")
+    tracker.set_game("Second Game")
+    tracker.add_mined_line(game_name="First Game")
+    assert tracker.get_cards_mined() == 0
+    tracker.add_mined_line(game_name="Second Game")
+    assert tracker.get_cards_mined() == 1
+
+
 @pytest.mark.parametrize("session_gap_seconds", [600, 1800, 7200])
 @pytest.mark.parametrize("gap_offset", [-1, 0, 1])
 def test_idle_session_resets_only_after_configured_gap(monkeypatch, session_gap_seconds, gap_offset):

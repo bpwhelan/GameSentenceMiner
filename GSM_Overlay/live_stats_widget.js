@@ -52,6 +52,8 @@
     fieldDefinitions: DEFAULT_FIELD_DEFINITIONS.map((field) => ({ ...field })),
     payload: null,
     todayPayload: null,
+    gameName: null,
+    gameChangedAt: 0,
     lastTodayStatsRequest: null,
     pomodoro: null,
     pomodoroEl: null,
@@ -834,6 +836,23 @@
     }
 
     const scope = normalizedPayload.scope === "today" ? "today" : "session";
+    const hasGameName = typeof normalizedPayload.game_name === "string" && (
+      scope === "today" || normalizedPayload.game_name !== "" || normalizedPayload.reason === "game_changed"
+    );
+    let gameChanged = false;
+    if (hasGameName) {
+      const updatedAt = Number(normalizedPayload.updated_at);
+      if (Number.isFinite(updatedAt) && updatedAt < state.gameChangedAt) return;
+      if (normalizedPayload.game_name !== state.gameName) {
+        gameChanged = state.gameName !== null;
+        state.gameName = normalizedPayload.game_name;
+        state.gameChangedAt = Number.isFinite(updatedAt) ? updatedAt : Date.now() / 1000;
+        if (gameChanged) {
+          state.payload = null;
+          state.todayPayload = null;
+        }
+      }
+    }
     const hadPayload = selectedStatsPayload() !== null;
     if (scope === "today") {
       if (state.todayPayload && Number(normalizedPayload.updated_at) < Number(state.todayPayload.updated_at)) {
@@ -845,7 +864,10 @@
       state.payload = normalizedPayload;
     }
     if (scope !== state.settings.liveStatsScope) {
-      if (state.settings.liveStatsScope === "today") requestTodayStats(normalizedPayload.reason || "update");
+      if (gameChanged) render();
+      if (state.settings.liveStatsScope === "today") {
+        requestTodayStats(gameChanged ? "game_changed" : normalizedPayload.reason || "update", gameChanged);
+      }
       return;
     }
     render();
