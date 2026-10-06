@@ -1,8 +1,37 @@
+import type { SavedClip } from './types';
+
 export function getGSMEndpoint(endpoint: string) {
 	if (window.location.port === '4173' || window.location.port === '5174') {
 		return window.location.protocol + '//' + window.location.hostname + ':7275' + endpoint;
 	}
 	return endpoint;
+}
+
+export async function fetchSavedClips(): Promise<SavedClip[]> {
+	const response = await fetch(getGSMEndpoint('/api/clips'));
+	return (await response.json()).clips || [];
+}
+
+export async function trashSavedClips(clips: SavedClip[]) {
+	const response = await fetch(getGSMEndpoint('/api/clips/trash'), {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ ids: clips.map((clip) => clip.id) }),
+	});
+	const data = await response.json().catch(() => ({}));
+	if (!response.ok || data.failed?.length) {
+		throw new Error(data.failed?.[0]?.error || data.error || `HTTP error: ${response.status}`);
+	}
+}
+
+export function formatMegabytes(bytes: number) {
+	const megabytes = bytes / 1024 / 1024;
+	return `${megabytes.toFixed(megabytes < 10 ? 1 : 0)} MB`;
+}
+
+export function describeSavedClips(clips: SavedClip[], noun = 'saved clip') {
+	const bytes = clips.reduce((total, clip) => total + clip.size_bytes, 0);
+	return `${clips.length} ${noun}${clips.length === 1 ? '' : 's'} (${formatMegabytes(bytes)})`;
 }
 
 const GSM_TEXTHOOKER_WEBSOCKET_PATH = '/ws/texthooker';

@@ -33,6 +33,13 @@ def _get_character_summary_service():
     return CharacterSummaryService
 
 
+def _clip_context(lines, current_line, game_title):
+    """A saved line's context is its clip's lines and the game it was captured in, not the live log."""
+    if getattr(current_line, "clip", None):
+        return current_line.clip.lines, current_line.scene or game_title
+    return lines, game_title
+
+
 def get_ai_prompt_result(
     lines: List[GameLine],
     sentence: str,
@@ -41,6 +48,7 @@ def get_ai_prompt_result(
     force_refresh: bool = False,
     custom_prompt=None,
 ) -> str:
+    lines, game_title = _clip_context(lines, current_line, game_title)
     try:
         config = get_config()
         AIService, snapshot_config = _get_ai_service_components()
@@ -63,6 +71,7 @@ def get_ai_prompt_result(
 
 
 def get_sentence_analysis(lines, sentence, current_line, game_title="", mode="sentence", question="") -> str:
+    lines, game_title = _clip_context(lines, current_line, game_title)
     config = get_config()
     AIService, snapshot_config = _get_ai_service_components()
     service = AIService(config_snapshot=snapshot_config(config.ai, config.general), logger=logger)

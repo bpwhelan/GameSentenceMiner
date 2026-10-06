@@ -75,6 +75,7 @@ export const defaultSettings: Settings = {
 	showAudioButton$: true,
 	trimAudioWithVAD$: false,
 	showTrimVideoButton$: false,
+	showSaveClipButton$: true,
 	trimVideoWithVAD$: false,
 	showTrimmedVideoInExplorer$: false,
 	showGSMCheckboxes$: true,
@@ -342,6 +343,8 @@ export const trimAudioWithVAD$ = writableBooleanSubject()('bannou-texthooker-tri
 
 export const showTrimVideoButton$ = writableBooleanSubject()('bannou-texthooker-showTrimVideoButton', false);
 
+export const showSaveClipButton$ = writableBooleanSubject()('bannou-texthooker-showSaveClipButton', true);
+
 export const trimVideoWithVAD$ = writableBooleanSubject()('bannou-texthooker-trimVideoWithVAD', false);
 
 export const showTrimmedVideoInExplorer$ = writableBooleanSubject()(
@@ -355,18 +358,19 @@ export const lastPipHeight$ = writableNumberSubject()('bannou-texthooker-lastPip
 
 export const lastPipWidth$ = writableNumberSubject()('bannou-texthooker-lastPipWidth', 0);
 
-export async function resetAllData() {
-	if (!skipResetConfirmations$.getValue()) {
+/** Returns whether the reset happened. Deleting saved clips (savedClipsNote) is always confirmed. */
+export async function resetAllData(savedClipsNote = '') {
+	if (!skipResetConfirmations$.getValue() || savedClipsNote) {
 		const { canceled } = await new Promise<DialogResult>((resolve) => {
 			openDialog$.next({
 				icon: mdiHelpCircle,
-				message: 'All Settings and Data will be reset',
+				message: `All Settings and Data will be reset${savedClipsNote}`,
 				callback: resolve,
 			});
 		});
 
 		if (canceled) {
-			return;
+			return false;
 		}
 	}
 
@@ -439,7 +443,9 @@ export async function resetAllData() {
 	showAudioButton$.next(defaultSettings.showAudioButton$);
 	trimAudioWithVAD$.next(defaultSettings.trimAudioWithVAD$);
 	showTrimVideoButton$.next(defaultSettings.showTrimVideoButton$);
+	showSaveClipButton$.next(defaultSettings.showSaveClipButton$);
 	trimVideoWithVAD$.next(defaultSettings.trimVideoWithVAD$);
 	showTrimmedVideoInExplorer$.next(defaultSettings.showTrimmedVideoInExplorer$);
 	showGSMCheckboxes$.next(defaultSettings.showGSMCheckboxes$);
+	return true;
 }

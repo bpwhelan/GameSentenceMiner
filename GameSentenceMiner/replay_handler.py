@@ -192,6 +192,7 @@ class ReplayAudioExtractor:
                 or gsm_state.line_for_screenshot
                 or gsm_state.line_for_video_trim
                 or gsm_state.lines_for_media_creation
+                or gsm_state.pending_clip_saves
             ):
                 return _TEXTHOOKER_REPLAY_JOB
             if anki.card_queue:
@@ -807,14 +808,22 @@ class ReplayAudioExtractor:
         )
 
 
+# Keep ordinary cards serialized so their shared Anki/dialog state cannot overlap.
+card_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gsm-replay")
+
+
+def process_replay_file(video_path, queued_job) -> Future:
+    """Run queued_job on an existing video instead of a new OBS replay, on the card worker."""
+    return card_executor.submit(ReplayAudioExtractor().process_replay, video_path, queued_job=queued_job)
+
+
 class ReplayFileWatcher(FileSystemEventHandler):
     def __init__(self, extractor: ReplayAudioExtractor, executor=None, refresh_executor=None):
         super().__init__()
         self._extractor = extractor
-        # Keep ordinary cards serialized so their shared Anki/dialog state cannot
-        # overlap. Follow-up dialogue replays get a separate lane, which is what
-        # lets them finish while the original card worker is blocked on the dialog.
-        self._executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="gsm-replay")
+        # Follow-up dialogue replays get a separate lane, which is what lets them
+        # finish while the card worker is blocked on the dialog.
+        self._executor = executor or card_executor
         self._refresh_executor = refresh_executor or ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="gsm-dialogue-replay"
         )
