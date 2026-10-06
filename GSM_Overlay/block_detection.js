@@ -238,7 +238,8 @@
     const advance = Math.min(a.advance, b.advance) + Math.min(a.spacing, b.spacing);
     return Math.min(
       advance * tuning.maxWordGapMultiplier,
-      Math.max(advance * tuning.horizontalGapMultiplier, Math.min(a.spacing, b.spacing) * tuning.wordGapMultiplier)
+      // A missing dash leaves both glyph space and ordinary word spacing.
+      advance * tuning.horizontalGapMultiplier + Math.min(a.spacing, b.spacing) * tuning.wordGapMultiplier
     );
   }
 
