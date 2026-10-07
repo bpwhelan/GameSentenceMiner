@@ -1159,7 +1159,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2026.10.0"
+version = "2026.10.0.post1"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
