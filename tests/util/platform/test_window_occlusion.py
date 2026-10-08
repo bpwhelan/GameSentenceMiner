@@ -8,7 +8,6 @@ from unittest.mock import Mock
 
 import pytest
 
-
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows window coverage")
 wwm = (
     importlib.import_module("GameSentenceMiner.util.platform.windows_window_monitor")
@@ -220,6 +219,10 @@ def test_audio_mutes_on_overlay_coverage_and_waits_for_focus(desktop, monkeypatc
     asyncio.run(monitor.check_and_send())
     assert monitor.last_state == "active"
     assert audio_calls == [(222, True, None), (222, False, None)]
+
+    # Keep checking audio when focus and geometry stay unchanged, without clients.
+    asyncio.run(monitor.check_and_send())
+    assert audio_calls == [(222, True, None), (222, False, None), (222, False, None)]
 
 
 def test_window_events_only_invalidate_top_level_geometry(desktop):

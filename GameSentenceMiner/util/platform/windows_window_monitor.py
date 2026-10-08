@@ -562,12 +562,13 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # the overlay. Its audio stays muted until the game regains focus.
         keep_muted_until_focus = covered_mute_latched and current_state != "active"
         if current_state not in mute_states and not keep_muted_until_focus:
-            should_force_restore = (self.last_state in mute_states or covered_mute_latched) and current_state in {
-                "active",
-                "background",
-                "obscured",
-                "minimized",
-            }
+            # Check Windows audio on every focused poll, even if mute ownership or
+            # the focus transition was lost. This also retries failed restores and
+            # catches late mutes/session replacements while the game stays focused.
+            should_force_restore = current_state == "active" or (
+                (self.last_state in mute_states or covered_mute_latched)
+                and current_state in {"background", "obscured", "minimized"}
+            )
             restored = False
             if pid > 0:
                 restored = self._restore_minimized_audio_mute_internal(
