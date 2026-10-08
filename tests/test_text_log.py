@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from GameSentenceMiner.util import text_log
+from tests.clip_helpers import write_clip
 
 
 def test_normalize_text_for_comparison_removes_punctuation_and_whitespace():
@@ -366,3 +367,57 @@ def test_find_matching_line_prefers_newest_on_a_tie(monkeypatch):
     match = text_log.find_matching_line(_card("同じ台詞"), [first, second], respect_replay_window=False)
 
     assert match is second
+
+
+@pytest.mark.parametrize("history", ["empty", "unrelated", "expired"])
+def test_history_fallback_uses_saved_clip(history, tmp_path, monkeypatch):
+    from GameSentenceMiner.util import clips
+
+    _matcher_config(monkeypatch)
+    write_clip(tmp_path, "saved", [("saved", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+    monkeypatch.setattr(clips, "get_clips_root", lambda: str(tmp_path))
+    now = datetime.now().astimezone().replace(tzinfo=None)
+    lines = []
+    if history != "empty":
+        lines.append(
+            text_log.GameLine(
+                id="live",
+                text="心当たりはねえのかこの声の主" if history == "expired" else "全く関係のない今の台詞",
+                time=now - timedelta(days=3) if history == "expired" else now,
+                prev=None,
+                next=None,
+            )
+        )
+    monkeypatch.setattr(text_log, "get_all_lines", lambda: lines)
+
+    matched = text_log.get_matching_line(_card("心当たりはねえのか<b>この声</b>の主", "声"))
+
+    assert matched.id == "saved"
+    assert matched.clip.selected == [matched]
+
+
+def test_live_match_does_not_search_saved_clips(monkeypatch):
+    from GameSentenceMiner.util import clips
+
+    _matcher_config(monkeypatch)
+    now = datetime.now().astimezone().replace(tzinfo=None)
+    line = text_log.GameLine(id="live", text="心当たりはねえのかこの声の主", time=now, prev=None, next=None)
+    monkeypatch.setattr(clips, "match_card_to_clip", lambda *args: pytest.fail("saved clips searched"))
+
+    assert text_log.get_matching_line(_card(line.text), [line]) is line
+
+
+def test_broken_clip_lookup_keeps_latest_line_fallback(monkeypatch):
+    from GameSentenceMiner.util import clips
+
+    _matcher_config(monkeypatch)
+    now = datetime.now().astimezone().replace(tzinfo=None)
+    line = text_log.GameLine(id="live", text="全く関係のない今の台詞", time=now, prev=None, next=None)
+    monkeypatch.setattr(clips, "get_clips_root", lambda: "saved")
+
+    def fail_lookup(*args):
+        raise OSError("clip folder unavailable")
+
+    monkeypatch.setattr(clips, "match_card_to_clip", fail_lookup)
+
+    assert text_log.get_matching_line(_card("心当たりはねえのかこの声の主"), [line]) is line

@@ -16,8 +16,6 @@ def match_new_card(card):
     """The saved line a new card belongs to, only when no live line or overlay scan matches it."""
     # This runs inside the live flow, so it must never stop a card from being processed.
     try:
-        if anki._is_overlay_mine(card):
-            return None
         config = get_config()
         clips_root = clips.get_clips_root()
         if not clips_root:

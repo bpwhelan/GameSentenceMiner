@@ -45,59 +45,85 @@ def _seconds(delta_time):
 # --- plan_clip_window -------------------------------------------------------
 
 
-def test_window_includes_close_previous_line_and_next_line_context():
-    prev, line, nxt = _chain(("p", "前", 10), ("l", "今", 20), ("n", "次", 25))
+def test_window_includes_two_lines_before_and_after_with_two_seconds_padding():
+    before, prev, line, nxt, after = _chain(
+        ("p2", "前々", 10), ("p", "前", 15), ("l", "今", 20), ("n", "次", 25), ("n2", "次々", 30)
+    )
 
     window = clips.plan_clip_window(line)
 
-    assert window.previous_line is prev
-    assert window.next_line is nxt
-    assert _seconds(window.start_time) == pytest.approx(10 - clips.LEAD_SECONDS)
-    assert _seconds(window.end_time) == pytest.approx(25 + clips.NEXT_LINE_CONTEXT_SECONDS)
+    assert window.previous_lines == [before, prev]
+    assert window.next_lines == [nxt, after]
+    assert _seconds(window.start_time) == pytest.approx(8)
+    assert _seconds(window.end_time) == pytest.approx(32)
 
 
-def test_window_skips_previous_line_that_is_too_far_back():
-    _, line = _chain(("p", "前", 0), ("l", "今", 20 + clips.PREVIOUS_LINE_MAX_GAP_SECONDS))
+def test_window_keeps_two_neighbors_even_when_dialogue_has_long_gaps():
+    before, prev, line, nxt, after = _chain(
+        ("p2", "前々", 0), ("p", "前", 30), ("l", "今", 60), ("n", "次", 90), ("n2", "次々", 120)
+    )
 
     window = clips.plan_clip_window(line)
 
-    assert window.previous_line is None
-    assert window.start_time == line.time - timedelta(seconds=clips.LEAD_SECONDS)
+    assert window.previous_lines == [before, prev]
+    assert window.next_lines == [nxt, after]
+    assert _seconds(window.start_time) == pytest.approx(-2)
+    assert _seconds(window.end_time) == pytest.approx(122)
 
 
-def test_window_end_stops_shortly_after_the_line_following_next():
-    _, nxt, after = _chain(("l", "今", 20), ("n", "次", 22), ("a", "後", 24))
+def test_window_excludes_neighbors_beyond_two_lines_each_way():
+    _, before, prev, line, nxt, after, _ = _chain(
+        ("p3", "外", 0),
+        ("p2", "前々", 10),
+        ("p", "前", 15),
+        ("l", "今", 20),
+        ("n", "次", 25),
+        ("n2", "次々", 30),
+        ("n3", "外", 40),
+    )
 
-    window = clips.plan_clip_window(nxt.prev)
+    window = clips.plan_clip_window(line)
 
-    assert window.end_time == after.time + timedelta(seconds=clips.TRAIL_SECONDS)
+    assert window.previous_lines == [before, prev]
+    assert window.next_lines == [nxt, after]
+    assert _seconds(window.start_time) == pytest.approx(8)
+    assert _seconds(window.end_time) == pytest.approx(32)
 
 
-def test_window_for_newest_line_leaves_room_for_the_voice():
+def test_window_uses_available_lines_at_the_edges_of_history():
     (line,) = _chain(("l", "今", 20))
 
     window = clips.plan_clip_window(line)
 
-    assert window.next_line is None
-    assert window.end_time == line.time + timedelta(seconds=clips.NEWEST_LINE_WINDOW_SECONDS)
+    assert window.previous_lines == []
+    assert window.next_lines == []
+    assert _seconds(window.start_time) == pytest.approx(18)
+    assert _seconds(window.end_time) == pytest.approx(22)
 
 
-def test_window_adds_source_padding_before_the_line():
+def test_window_uses_exact_padding_regardless_of_text_source():
     (line,) = _chain(("l", "今", 20))
     line.source_padding = 2.5
 
     window = clips.plan_clip_window(line)
 
-    assert window.start_time == line.time - timedelta(seconds=clips.LEAD_SECONDS + 2.5)
+    assert window.start_time == line.time - timedelta(seconds=2)
 
 
 def test_wait_is_needed_until_the_planned_end_is_recorded():
-    (line,) = _chain(("l", "今", 20))
-    now = line.time + timedelta(seconds=3)
+    line, _, after = _chain(("l", "今", 20), ("n", "次", 25), ("n2", "次々", 30))
+    now = after.time + timedelta(seconds=1)
 
     wait = clips.seconds_until_clip_ready(line, now=now)
 
-    assert wait == pytest.approx(clips.NEWEST_LINE_WINDOW_SECONDS - 3)
+    assert wait == pytest.approx(1)
+
+
+def test_newest_line_waits_for_two_following_lines_with_a_deadline():
+    (line,) = _chain(("l", "今", 20))
+
+    assert clips.seconds_until_clip_ready(line, now=line.time + timedelta(seconds=3)) == pytest.approx(17)
+    assert clips.seconds_until_clip_ready(line, now=line.time + timedelta(seconds=20)) == 0
 
 
 def test_no_wait_for_old_lines_and_wait_is_capped():
@@ -166,7 +192,13 @@ def test_clip_is_shaped_like_an_obs_replay(tmp_path, monkeypatch):
     replay = tmp_path / "Replay 2026-09-27 12-01-30.mkv"
     length = _make_replay(replay, duration=90, keyframe_interval=17)
     _end_replay_at(replay, BASE + timedelta(seconds=length))
-    prev, line, nxt = _chain(("p", "前の行", 44), ("l", "保存する行", 50), ("n", "次の行", 54))
+    before, prev, line, nxt, after = _chain(
+        ("p2", "前々の行", 40),
+        ("p", "前の行", 44),
+        ("l", "保存する行", 50),
+        ("n", "次の行", 54),
+        ("n2", "次々の行", 60),
+    )
     windows = []
     monkeypatch.setattr(
         clips, "pause_history", SimpleNamespace(get_pauses_between=lambda *window: windows.append(window) or [(1, 2)])
@@ -176,9 +208,11 @@ def test_clip_is_shaped_like_an_obs_replay(tmp_path, monkeypatch):
 
     manifest = clips.read_manifest(folder)
     assert [(entry["id"], entry["role"]) for entry in manifest["lines"]] == [
+        ("p2", "previous"),
         ("p", "previous"),
         ("l", "selected"),
         ("n", "next"),
+        ("n2", "next"),
     ]
     clip = os.path.join(folder, manifest["clip"]["file"])
     # The game pauses inside the clip are kept, so their silence can be removed however late it is mined.
@@ -192,7 +226,7 @@ def test_clip_is_shaped_like_an_obs_replay(tmp_path, monkeypatch):
     assert os.path.getmtime(clip) == pytest.approx(clip_end.timestamp(), abs=0.01)
 
     # The Anki flow finds a line from the file's length and modification time, exactly as for OBS.
-    for context_line in (prev, line, nxt):
+    for context_line in (before, prev, line, nxt, after):
         _, position_in_clip, _, _ = ffmpeg.get_video_timings(clip, context_line)
         from_clip = _audio(clip, position_in_clip)
         from_replay = _audio(replay, _seconds(context_line.time))
@@ -230,6 +264,32 @@ def test_saving_the_same_line_again_reuses_its_folder(tmp_path):
     assert second == first
     assert os.path.basename(first).startswith("12-00-15-750_")
     assert len(os.listdir(os.path.dirname(first))) == 1
+
+
+def test_saved_context_only_exposes_dialogue_covered_by_the_replay(tmp_path, monkeypatch):
+    replay = tmp_path / "replay.mkv"
+    replay.write_bytes(b"replay")
+    _end_replay_at(replay, BASE + timedelta(seconds=30))
+    _, _, line, _, _ = _chain(
+        ("p2", "前々", 5), ("p", "前", 10), ("s", "選択", 20), ("n", "次", 25), ("n2", "次々", 35)
+    )
+    monkeypatch.setattr(ffmpeg, "get_video_duration", lambda path: 15.0)
+    monkeypatch.setattr(clips.pause_history, "get_pauses_between", lambda *args: [])
+
+    def copy_segment(video_path, start, end, output_path):
+        assert (start, end) == (0.0, 15.0)
+        with open(output_path, "wb") as output:
+            output.write(b"clip")
+        return 0.0
+
+    monkeypatch.setattr(ffmpeg, "copy_replay_segment", copy_segment)
+
+    folder = clips.save_clip(str(replay), line, str(tmp_path / "Saved"))
+    saved = clips.load_clip(folder)
+
+    assert [context.id for context in saved.lines] == ["s", "n"]
+    assert saved.selected[0].prev is None
+    assert saved.selected[0].next.next is None
 
 
 # --- reading clip lines back ------------------------------------------------

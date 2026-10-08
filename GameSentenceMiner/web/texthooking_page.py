@@ -1199,8 +1199,20 @@ def create_media():
 
 def _queue_clip_save(line, wait_seconds):
     """Save an OBS replay once it covers the line; the replay handler writes the clip."""
+    from GameSentenceMiner.util import clips
+
+    deadline = time.monotonic() + max(0.0, wait_seconds)
+
+    def schedule(delay):
+        timer = threading.Timer(min(max(0.0, delay), 0.5), run)
+        timer.daemon = True
+        timer.start()
 
     def run():
+        remaining = min(deadline - time.monotonic(), clips.seconds_until_clip_ready(line))
+        if remaining > 0:
+            schedule(remaining)
+            return
         gsm_state.pending_clip_saves.append(line)
         try:
             obs.save_replay_buffer()
@@ -1214,9 +1226,7 @@ def _queue_clip_save(line, wait_seconds):
                 "clip_save_failed", line_ids=[line.id], error=f"Could not save the OBS replay: {e}"
             )
 
-    timer = threading.Timer(wait_seconds, run)
-    timer.daemon = True
-    timer.start()
+    schedule(wait_seconds)
 
 
 @app.route("/save-clip", methods=["POST"])

@@ -31,6 +31,7 @@ def config(monkeypatch):
     cfg = _config()
     for module in (text_log, clips, clip_cards, anki):
         monkeypatch.setattr(module, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "lines_match", text_log.lines_match)
     return cfg
 
 
@@ -78,7 +79,7 @@ def test_live_line_wins_over_a_clip_with_the_same_sentence(config, clips_root, m
     assert clip_cards.match_new_card(FakeCard("心当たりはねえのかこの声の主")) is None
 
 
-def test_overlay_scan_line_and_overlay_cards_stay_with_the_live_flow(config, clips_root, monkeypatch):
+def test_matching_overlay_scan_line_stays_with_the_live_flow(config, clips_root, monkeypatch):
     write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
     monkeypatch.setattr(clip_cards, "get_all_lines", lambda: [])
     card = FakeCard("心当たりはねえのかこの声の主")
@@ -87,9 +88,42 @@ def test_overlay_scan_line_and_overlay_cards_stay_with_the_live_flow(config, cli
     monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", scan, raising=False)
     assert clip_cards.match_new_card(card) is None
 
-    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
+
+def test_overlay_card_uses_saved_clip_when_history_and_scan_do_not_match(config, clips_root, monkeypatch):
+    write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+    now = datetime.now().astimezone().replace(tzinfo=None)
+    live = GameLine(id="live", text="全く関係のない今の台詞", time=now, prev=None, next=None)
+    monkeypatch.setattr(clip_cards, "get_all_lines", lambda: [live])
+    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", live, raising=False)
+    card = FakeCard("心当たりはねえのか<b>この声</b>の主")
     card.tags = ["overlay"]
-    assert clip_cards.match_new_card(card) is None
+
+    assert clip_cards.match_new_card(card).id == "s"
+
+
+@pytest.mark.parametrize("saved_text", ["この声の主", "心当たりはないのかこの声の主"])
+def test_saved_clip_requires_a_confident_sentence_match(config, clips_root, monkeypatch, saved_text):
+    write_clip(clips_root, "a", [("s", saved_text, "selected", 10)], 20)
+    monkeypatch.setattr(clip_cards, "get_all_lines", list)
+
+    assert clip_cards.match_new_card(FakeCard("心当たりはねえのかこの声の主")) is None
+
+
+def test_saved_clip_can_match_the_bold_word_context_in_a_combined_sentence(config, clips_root):
+    write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+
+    line = clips.match_card_to_clip(
+        FakeCard("長い前の台詞がここにあります。心当たりはねえのか<b>この声</b>の主"), str(clips_root)
+    )
+
+    assert line.id == "s"
+
+
+def test_saved_clip_without_video_is_not_used(config, clips_root):
+    folder = write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+    (folder / "clip.mkv").unlink()
+
+    assert clips.match_card_to_clip(FakeCard("心当たりはねえのかこの声の主"), str(clips_root)) is None
 
 
 def test_lines_that_left_the_buffer_use_their_saved_clip_as_the_replay(clips_root, monkeypatch):
@@ -125,22 +159,71 @@ def _live_flow(monkeypatch, selected=()):
 def test_update_single_card_hands_clip_cards_to_the_clip_flow(config, monkeypatch):
     calls = _live_flow(monkeypatch)
     line = GameLine(id="s", text="心当たり", time=BASE, prev=None, next=None)
-    monkeypatch.setattr(clip_cards, "match_new_card", lambda card: line)
+    line.clip = SimpleNamespace(clip_end_time=BASE)
+    monkeypatch.setattr(anki, "_resolve_mined_line_for_card", lambda card, lines: line)
 
     anki.update_single_card(FakeCard("心当たり"))
 
     assert calls == {"queued": [], "clip": [line]}
 
 
+def test_update_single_card_routes_history_fallback_to_saved_media(config, clips_root, monkeypatch):
+    folder = write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+    now = datetime.now().astimezone().replace(tzinfo=None)
+    live = GameLine(id="live", text="全く関係のない今の台詞", time=now, prev=None, next=None)
+    monkeypatch.setattr(text_log, "get_all_lines", lambda: [live])
+    monkeypatch.setattr(anki, "get_mined_line", text_log.get_mined_line)
+    calls = _live_flow(monkeypatch)
+    card = FakeCard("心当たりはねえのか<b>この声</b>の主")
+    card.tags = ["overlay"]
+
+    anki.update_single_card(card)
+
+    assert calls["queued"] == []
+    (line,) = calls["clip"]
+    assert line.id == "s" and line.clip.folder == str(folder)
+    assert line.mined_time == line.clip.clip_end_time
+
+
 def test_checked_lines_keep_the_card_in_the_live_flow(config, monkeypatch):
     checked = SimpleNamespace(id="checked", text="心当たり", source="")
     calls = _live_flow(monkeypatch, selected=[checked])
-    monkeypatch.setattr(clip_cards, "match_new_card", lambda card: pytest.fail("clip lines consulted"))
+    monkeypatch.setattr(clips, "match_card_to_clip", lambda *args: pytest.fail("clip lines consulted"))
     monkeypatch.setattr(anki, "_resolve_mined_line_for_card", lambda card, lines: checked)
 
     anki.update_single_card(FakeCard("心当たり"))
 
     assert calls["clip"] == [] and len(calls["queued"]) == 1
+
+
+def test_checked_lines_do_not_switch_to_an_automatic_saved_match(config, clips_root, monkeypatch):
+    write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+    now = datetime.now().astimezone().replace(tzinfo=None)
+    checked = GameLine(id="checked", text="全く関係のない今の台詞", time=now, prev=None, next=None)
+    calls = _live_flow(monkeypatch, selected=[checked])
+    monkeypatch.setattr(anki, "get_mined_line", text_log.get_mined_line)
+    monkeypatch.setattr(clips, "match_card_to_clip", lambda *args: pytest.fail("saved clips searched"))
+
+    anki.update_single_card(FakeCard("心当たりはねえのかこの声の主"))
+
+    assert calls["clip"] == []
+    assert calls["queued"][0][2] is checked
+
+
+def test_matching_overlay_scan_keeps_its_media_when_a_saved_clip_exists(config, clips_root, monkeypatch):
+    write_clip(clips_root, "a", [("s", "心当たりはねえのかこの声の主", "selected", 10)], 20)
+    now = datetime.now().astimezone().replace(tzinfo=None)
+    scan = GameLine(id="scan", text="心当たりはねえのかこの声の主", time=now, prev=None, next=None)
+    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", scan, raising=False)
+    monkeypatch.setattr(text_log, "get_all_lines", list)
+    monkeypatch.setattr(anki, "get_all_lines", list)
+    monkeypatch.setattr(anki, "get_mined_line", text_log.get_mined_line)
+    calls = _live_flow(monkeypatch)
+
+    anki.update_single_card(FakeCard(scan.text))
+
+    assert calls["clip"] == []
+    assert calls["queued"][0][2] is scan
 
 
 # --- running the Anki flow on a clip ------------------------------------

@@ -1,6 +1,8 @@
+import base64
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -68,7 +70,7 @@ text_log_stub.GameLine = object
 text_log_stub.TextSource = object
 text_log_stub.get_all_lines = lambda *args, **kwargs: []
 text_log_stub.get_text_event = lambda *args, **kwargs: None
-text_log_stub.get_mined_line = lambda card, lines=None: SimpleNamespace(id="line-1", text="Line")
+text_log_stub.get_mined_line = lambda card, lines=None, **kwargs: SimpleNamespace(id="line-1", text="Line")
 text_log_stub.lines_match = lambda *args, **kwargs: False
 text_log_stub.strip_whitespace_and_punctuation = lambda text: "".join(ch for ch in text if ch.isalnum())
 
@@ -651,7 +653,8 @@ def test_resolve_mined_line_prefers_recent_match_for_overlay_card(monkeypatch):
     )
     calls = []
 
-    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False):
+    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False, search_saved_clips=True):
+        assert not search_saved_clips
         calls.append((lines, prefer_recent))
         return latest_matching_line if prefer_recent else earlier_line
 
@@ -672,7 +675,8 @@ def test_resolve_mined_line_prefers_text_event_over_injected_overlay_scan(monkey
     )
     calls = []
 
-    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False):
+    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False, search_saved_clips=True):
+        assert not search_saved_clips
         calls.append((lines, prefer_recent))
         return lines[-1]
 
@@ -732,7 +736,7 @@ def test_update_single_card_reuses_audio_only_for_same_selection_different_mined
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: second_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: second_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -789,7 +793,7 @@ def test_update_single_card_reuses_all_media_for_same_selection_different_mined_
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: second_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: second_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -837,7 +841,7 @@ def test_update_single_card_reuses_same_selection_and_mined_line(monkeypatch):
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: first_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: first_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -883,7 +887,7 @@ def test_update_single_card_does_not_use_line_result_without_matching_selection_
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: first_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: first_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -940,7 +944,7 @@ def test_update_single_card_reuses_screenshot_only_when_configured(monkeypatch):
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: second_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: second_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -2771,6 +2775,92 @@ def test_process_audio_notifies_when_upload_fails(monkeypatch, tmp_path):
     anki._process_audio(assets, note, cfg, use_voice=True, use_existing_files=False)
 
     assert messages == ["Failed to upload audio to Anki media collection."]
+
+
+@pytest.mark.parametrize("kind", ["screenshot", "previous_screenshot", "audio", "animation", "video"])
+def test_saved_clip_media_uploads_use_saved_game_names_without_changing_source(kind, monkeypatch, tmp_path):
+    cfg = _base_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    suffix = ".opus" if kind == "audio" else ".webm" if kind in {"animation", "video"} else ".avif"
+    media = tmp_path / f"akaiito_2026-10-06-20-02-48-892{suffix}"
+    media.write_bytes(b"saved clip content")
+    uploads = []
+
+    def upload(action, **kwargs):
+        assert action == "storeMediaFile"
+        uploads.append(kwargs)
+        return Path(kwargs["filename"]).name
+
+    monkeypatch.setattr(anki, "invoke", upload)
+    monkeypatch.setattr(anki, "_encode_and_replace_raw_image", lambda path, **kwargs: path)
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda path: None)
+    assets = anki.MediaAssets(game_name="FFVII Rebirth")
+    note = {"fields": {}}
+    if kind == "screenshot":
+        assets.screenshot_path = str(media)
+        anki._process_screenshot(assets, note, cfg, True, False)
+    elif kind == "previous_screenshot":
+        assets.prev_screenshot_path = str(media)
+        anki._process_previous_screenshot(assets, note, cfg, False)
+    elif kind == "audio":
+        assets.audio_path = str(media)
+        anki._process_audio(assets, note, cfg, True, False)
+    elif kind == "animation":
+        assets.pending_animated = True
+        monkeypatch.setattr(anki, "_generate_animated_screenshot_for_window", lambda *args: str(media))
+        anki._process_animated_screenshot(assets, note, cfg, True, False)
+    else:
+        assets.pending_video = True
+        assets.video_params = {"video_path": "clip.mkv", "start_time": 0, "vad_start": 0, "vad_end": 1}
+        monkeypatch.setattr(anki.ffmpeg, "get_anki_compatible_video", lambda *args, **kwargs: str(media), raising=False)
+        anki._process_video(assets, note, cfg, False)
+
+    (uploaded,) = uploads
+    filename = Path(uploaded["filename"]).name
+    assert filename.startswith("FFVIIRebirth_")
+    assert "akaiito" not in filename
+    assert filename.endswith(suffix)
+    assert "2026-10-06-20-02-48-892" in filename
+    assert base64.b64decode(uploaded["data"]) == b"saved clip content"
+    assert media.read_bytes() == b"saved clip content"
+
+
+def test_saved_clip_output_files_use_the_same_names_as_anki(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.paths.output_folder = str(tmp_path / "output")
+    cfg.paths.copy_temp_files_to_output_folder = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_encode_and_replace_raw_image", lambda path, **kwargs: path)
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: Path(kwargs["filename"]).name)
+    audio = tmp_path / "akaiito_2026-10-06-20-02-49-652.opus"
+    screenshot = tmp_path / "akaiito_2026-10-06-20-02-48-892.avif"
+    audio.write_bytes(b"audio")
+    screenshot.write_bytes(b"image")
+    assets = anki.MediaAssets(game_name="FFVII Rebirth", audio_path=str(audio), screenshot_path=str(screenshot))
+    note = {"fields": {}}
+
+    anki._process_audio(assets, note, cfg, True, False)
+    anki._process_screenshot(assets, note, cfg, True, False)
+    anki._handle_file_management("word", False, SimpleNamespace(id="saved"), assets, "", 0, 1)
+
+    assert Path(assets.final_audio_path).name == assets.audio_in_anki
+    assert Path(assets.final_screenshot_path).name == assets.screenshot_in_anki
+    assert Path(assets.final_audio_path).read_bytes() == b"audio"
+    assert Path(assets.final_screenshot_path).read_bytes() == b"image"
+    assert "akaiito" not in assets.audio_in_anki + assets.screenshot_in_anki
+
+
+def test_saved_clip_game_name_is_carried_into_media_assets(monkeypatch):
+    cfg = _base_config()
+    cfg.screenshot.enabled = False
+    cfg.anki.previous_image_field = ""
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "get_current_game", lambda: "akaiito")
+    line = SimpleNamespace(clip=object(), scene="FFVII Rebirth", prev=None)
+
+    assets = anki._generate_media_files(False, line, "clip.mkv", 0, 0, None, [])
+
+    assert assets.game_name == "FFVII Rebirth"
 
 
 def test_update_anki_card_confirmation_marks_reused_media(monkeypatch):

@@ -1351,6 +1351,42 @@ def test_next_dialogue_line_exposes_line_arriving_after_mine():
     assert anki_confirmation_qt.AnkiConfirmationDialog._next_dialogue_line(probe) is future_line
 
 
+def test_saved_clip_dialogue_can_expand_two_lines_each_way_after_loading(tmp_path):
+    from GameSentenceMiner.util import clips
+    from tests.clip_helpers import write_clip
+
+    folder = write_clip(
+        tmp_path,
+        "a",
+        [
+            ("p2", "前々", "previous", 5),
+            ("p", "前", "previous", 10),
+            ("s", "選択", "selected", 15),
+            ("n", "次", "next", 20),
+            ("n2", "次々", "next", 25),
+        ],
+        27,
+    )
+    clip = clips.load_clip(str(folder))
+    dialog = anki_confirmation_qt.AnkiConfirmationDialog
+    context = SimpleNamespace(mined_line=clip.selected[0], selected_lines=[])
+    probe = SimpleNamespace(_dialog_selected_lines=dialog._dialogue_lines_from_context(context))
+    probe._previous_dialogue_line = lambda: dialog._previous_dialogue_line(probe)
+    probe._next_dialogue_line = lambda: dialog._next_dialogue_line(probe)
+    probe._selection_requires_fresh_replay = lambda lines: False
+    probe._apply_dialogue_line_change = lambda lines: setattr(probe, "_dialog_selected_lines", lines)
+
+    assert [line.id for line in probe._dialog_selected_lines] == ["s"]
+    for _ in range(2):
+        dialog._add_previous_dialogue_line(probe)
+        dialog._add_next_dialogue_line(probe)
+
+    assert [line.id for line in probe._dialog_selected_lines] == ["p2", "p", "s", "n", "n2"]
+    assert probe._previous_dialogue_line() is None
+    assert probe._next_dialogue_line() is None
+    assert all(line.clip is clip for line in probe._dialog_selected_lines)
+
+
 def test_next_line_control_stays_visible_and_disabled_while_waiting():
     title = _WidgetProbe()
     previous_button = _WidgetProbe()

@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import os
 import platform
@@ -729,6 +730,8 @@ class MediaAssets:
     # Success Message Flags
     animated: bool = False
     video: bool = False
+    # Saved clips keep their original game identity through deferred media work.
+    game_name: str = ""
 
 
 def _get_anki_field_config(field_key: str, anki_cfg=None):
@@ -842,6 +845,32 @@ def _image_tags(media_names: List[str]) -> str:
     return "".join(f'<img src="{html_escape(name, quote=True)}">' for name in media_names)
 
 
+def _media_filename_for_game(path: str, game_name: str = "") -> str:
+    """Name exported clip media after its saved game, retaining a unique file identity."""
+    source = Path(path)
+    if not game_name:
+        return source.name
+    timestamp = re.search(r"_\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3}", source.stem)
+    timestamp_suffix = timestamp.group(0) if timestamp else ""
+    identity = hashlib.sha256(os.path.normcase(os.path.abspath(path)).encode("utf-8")).hexdigest()[:16]
+    prefix = sanitize_filename(game_name) or "game"
+    return f"{prefix}{timestamp_suffix}_{identity}{source.suffix}"
+
+
+def _store_asset_media_file(
+    assets: MediaAssets,
+    path: str,
+    timing_context: AnkiCardTimingContext | None = None,
+    media_kind: str = "",
+):
+    kwargs = {}
+    if assets.game_name:
+        kwargs["filename"] = _media_filename_for_game(path, assets.game_name)
+    if timing_context is not None:
+        kwargs.update(timing_context=timing_context, media_kind=media_kind)
+    return store_media_file(path, **kwargs)
+
+
 def _put_selected_images_in_field(note: Dict, last_note: "AnkiCard", field_key: str, media_names: List[str], config):
     """Apply the field's append/replacement policy without erasing unrelated markup."""
     field_cfg = _get_anki_field_config(field_key, anki_cfg=config.anki)
@@ -885,7 +914,7 @@ def _process_selected_screenshots(
             raise RuntimeError(f"Selected {media_kind} media is missing; the Anki note was not changed")
         names = []
         for path in paths:
-            name = store_media_file(path, timing_context=timing_context, media_kind=media_kind)
+            name = _store_asset_media_file(assets, path, timing_context=timing_context, media_kind=media_kind)
             if not name:
                 raise RuntimeError(f"Failed to upload {media_kind} media; the Anki note was not changed")
             names.append(name)
@@ -965,7 +994,7 @@ def _generate_media_files(
     timing_context: Optional[AnkiCardTimingContext] = None,
 ) -> MediaAssets:
     """Generates or retrieves paths for all media assets (audio, video, screenshots)."""
-    assets = MediaAssets()
+    assets = MediaAssets(game_name=_game_name_for(game_line) if getattr(game_line, "clip", None) else "")
     config = get_config()
 
     if reuse_audio:
@@ -1536,6 +1565,12 @@ def _handle_file_management(
     word_path = os.path.join(date_path, sanitize_filename(tango))
     os.makedirs(word_path, exist_ok=True)
 
+    def copy_media(path, previous=False):
+        filename = _media_filename_for_game(path, assets.game_name)
+        if previous:
+            filename = "prev_" + filename
+        return shutil.copy(path, os.path.join(word_path, filename))
+
     if reuse_audio:
         # If reusing, copy all files from the original word's folder
         result_id = reuse_result_id or (game_line.id if game_line else None)
@@ -1549,29 +1584,26 @@ def _handle_file_management(
     elif config.paths.copy_temp_files_to_output_folder:
         # If creating new, copy generated files to the new word's folder
         if assets.audio_path and os.path.exists(assets.audio_path):
-            assets.final_audio_path = shutil.copy(assets.audio_path, word_path)
+            assets.final_audio_path = copy_media(assets.audio_path)
         if assets.screenshot_path and os.path.exists(assets.screenshot_path):
-            assets.final_screenshot_path = shutil.copy(assets.screenshot_path, word_path)
+            assets.final_screenshot_path = copy_media(assets.screenshot_path)
         if assets.selected_screenshots:
             for item in assets.selected_screenshots.items[1:]:
                 if os.path.exists(item.path):
-                    shutil.copy(item.path, word_path)
+                    copy_media(item.path)
         if assets.prev_screenshot_path and os.path.exists(assets.prev_screenshot_path):
-            dest_name = "prev_" + Path(assets.prev_screenshot_path).name
-            assets.final_prev_screenshot_path = shutil.copy(
-                assets.prev_screenshot_path, os.path.join(word_path, dest_name)
-            )
+            assets.final_prev_screenshot_path = copy_media(assets.prev_screenshot_path, previous=True)
         if assets.selected_prev_screenshots:
             for item in assets.selected_prev_screenshots.items[1:]:
                 if os.path.exists(item.path):
-                    shutil.copy(item.path, os.path.join(word_path, "prev_" + Path(item.path).name))
+                    copy_media(item.path, previous=True)
         if assets.video_path and os.path.exists(assets.video_path):
-            assets.final_video_path = shutil.copy(assets.video_path, word_path)
+            assets.final_video_path = copy_media(assets.video_path)
         elif video_path and config.paths.copy_trimmed_replay_to_output_folder and os.path.exists(video_path):
             try:
                 trimmed_video = ffmpeg.trim_replay_for_gameline(video_path, start_time, end_time, accurate=True)
                 if os.path.exists(trimmed_video):
-                    assets.final_video_path = shutil.copy(trimmed_video, word_path)
+                    assets.final_video_path = copy_media(trimmed_video)
             except Exception as e:
                 logger.error(f"Failed to trim replay video: {e}")
 
@@ -1676,6 +1708,8 @@ def update_anki_card(
                 reuse_result_id=reuse_result_id,
                 timing_context=timing_context,
             )
+    if getattr(game_line, "clip", None):
+        assets.game_name = _game_name_for(game_line)
     with time_anki_card_block(timing_context, "anki.update_anki_card.synchronize_deferred_media_metadata"):
         _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
     if reuse_audio_result_id:
@@ -2074,14 +2108,9 @@ def _process_screenshot(
 
     if assets.screenshot_path and not assets.screenshot_in_anki:
         logger.info("Uploading encoded screenshot to Anki...")
-        if timing_context is not None:
-            assets.screenshot_in_anki = store_media_file(
-                assets.screenshot_path,
-                timing_context=timing_context,
-                media_kind="screenshot",
-            )
-        else:
-            assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
+        assets.screenshot_in_anki = _store_asset_media_file(
+            assets, assets.screenshot_path, timing_context=timing_context, media_kind="screenshot"
+        )
         logger.info(f"Stored screenshot in Anki media collection: {assets.screenshot_in_anki}")
         if not assets.screenshot_in_anki:
             _notify_anki_enhancement_failure("Failed to upload screenshot to Anki media collection.")
@@ -2121,14 +2150,9 @@ def _process_previous_screenshot(
 
     if assets.prev_screenshot_path and not assets.prev_screenshot_in_anki:
         logger.info("Uploading encoded previous screenshot to Anki...")
-        if timing_context is not None:
-            assets.prev_screenshot_in_anki = store_media_file(
-                assets.prev_screenshot_path,
-                timing_context=timing_context,
-                media_kind="previous_screenshot",
-            )
-        else:
-            assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
+        assets.prev_screenshot_in_anki = _store_asset_media_file(
+            assets, assets.prev_screenshot_path, timing_context=timing_context, media_kind="previous_screenshot"
+        )
         logger.info(f"Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}")
         if not assets.prev_screenshot_in_anki:
             _notify_anki_enhancement_failure("Failed to upload the previous screenshot to Anki media collection.")
@@ -2256,14 +2280,9 @@ def _process_animated_screenshot(
                 wait_for_stable_file(path)
             logger.info(f"Animated screenshot generated: {path}")
 
-            if timing_context is not None:
-                assets.screenshot_in_anki = store_media_file(
-                    path,
-                    timing_context=timing_context,
-                    media_kind="animated_screenshot",
-                )
-            else:
-                assets.screenshot_in_anki = store_media_file(path)
+            assets.screenshot_in_anki = _store_asset_media_file(
+                assets, path, timing_context=timing_context, media_kind="animated_screenshot"
+            )
             logger.info(f"<bold>Stored animated screenshot in Anki: {assets.screenshot_in_anki}</bold>")
             if not assets.screenshot_in_anki:
                 _notify_anki_enhancement_failure("Failed to upload animated screenshot to Anki media collection.")
@@ -2327,10 +2346,9 @@ def _process_video(
             logger.info(f"Video generated: {path}")
             assets.video_path = path
 
-            if timing_context is not None:
-                assets.video_in_anki = store_media_file(path, timing_context=timing_context, media_kind="video")
-            else:
-                assets.video_in_anki = store_media_file(path)
+            assets.video_in_anki = _store_asset_media_file(
+                assets, path, timing_context=timing_context, media_kind="video"
+            )
             logger.info(f"Stored video in Anki: {assets.video_in_anki}")
             if not assets.video_in_anki:
                 _notify_anki_enhancement_failure("Failed to upload replay video to Anki media collection.")
@@ -2405,10 +2423,9 @@ def _process_audio(
             logger.error(f"Failed to encode audio with user settings: {e}")
 
     logger.info(f"Uploading audio to Anki: {assets.audio_path}...")
-    if timing_context is not None:
-        assets.audio_in_anki = store_media_file(assets.audio_path, timing_context=timing_context, media_kind="audio")
-    else:
-        assets.audio_in_anki = store_media_file(assets.audio_path)
+    assets.audio_in_anki = _store_asset_media_file(
+        assets, assets.audio_path, timing_context=timing_context, media_kind="audio"
+    )
     logger.info(f"Stored audio in Anki media collection: {assets.audio_in_anki}")
     if not assets.audio_in_anki:
         _notify_anki_enhancement_failure("Failed to upload audio to Anki media collection.")
@@ -3028,19 +3045,21 @@ def store_media_file(
     retries=5,
     timing_context: Optional[AnkiCardTimingContext] = None,
     media_kind: str = "",
+    filename: str | None = None,
 ):
     """Store media file in Anki with retry logic.
 
     Args:
         path: Path to the media file
         retries: Number of retries (default 5)
+        filename: Optional destination name in Anki, independent of the temporary source path.
     """
     try:
         path_obj = Path(path)
         original_filename = path_obj.name
-        sanitized_filename = sanitize_filename(original_filename)
+        sanitized_filename = sanitize_filename(filename or original_filename)
 
-        if original_filename != sanitized_filename:
+        if filename is None and original_filename != sanitized_filename:
             new_path = path_obj.parent / sanitized_filename
             logger.warning(
                 f"File contains unsafe characters. Reading and rewriting '{original_filename}' to '{sanitized_filename}', Report this in Discord/Github Please!"
@@ -3068,13 +3087,13 @@ def store_media_file(
             "anki.media.convert_to_base64",
             media_kind=media_kind,
             file_size_bytes=file_size,
-            filename=os.path.basename(path or ""),
+            filename=sanitized_filename,
         ):
             encoded_data = convert_to_base64(path)
 
         return invoke(
             "storeMediaFile",
-            filename=path,
+            filename=sanitized_filename if filename is not None else path,
             data=encoded_data,
             retries=retries,
             timeout=60,
@@ -3528,6 +3547,7 @@ def _resolve_mined_line_for_card(card, lines):
     """
     overlay_line = getattr(gsm_state, "last_overlay_scan_line", None)
     anki_sentence = remove_html_and_cloze_tags(get_sentence(card)) if card else ""
+    overlay_matches = overlay_line is not None and anki_sentence and lines_match(overlay_line.text, anki_sentence)
     overlay_mine = _is_overlay_mine(card)
     matching_lines = lines
     if overlay_mine:
@@ -3536,15 +3556,16 @@ def _resolve_mined_line_for_card(card, lines):
         text_event_lines = [line for line in available_lines if getattr(line, "source", None) != overlay_source]
         if text_event_lines:
             matching_lines = text_event_lines
+    match_kwargs = {"search_saved_clips": False} if lines or overlay_matches else {}
     try:
         if overlay_mine:
-            matched = get_mined_line(card, matching_lines, prefer_recent=True)
+            matched = get_mined_line(card, matching_lines, prefer_recent=True, **match_kwargs)
         else:
-            matched = get_mined_line(card, matching_lines)
+            matched = get_mined_line(card, matching_lines, **match_kwargs)
     except Exception:
         matched = None
 
-    if overlay_line is not None and anki_sentence and lines_match(overlay_line.text, anki_sentence):
+    if overlay_matches:
         matched_is_genuine = matched is not None and lines_match(matched.text, anki_sentence)
         if not matched_is_genuine:
             return overlay_line
@@ -3552,8 +3573,8 @@ def _resolve_mined_line_for_card(card, lines):
     if matched is None:
         # Preserve the original "nothing to mine" error from get_mined_line.
         if overlay_mine:
-            return get_mined_line(card, matching_lines, prefer_recent=True)
-        return get_mined_line(card, matching_lines)
+            return get_mined_line(card, matching_lines, prefer_recent=True, **match_kwargs)
+        return get_mined_line(card, matching_lines, **match_kwargs)
     return matched
 
 
@@ -3580,10 +3601,13 @@ def update_single_card(card):
     lines = _get_texthooking_page_module().get_selected_lines()
     from GameSentenceMiner import clip_cards
 
-    # A saved clip stands in for the OBS replay when no live line matches.
-    clip_line = None if lines else clip_cards.match_new_card(card)
-    game_line = clip_line or _resolve_mined_line_for_card(card, lines)
-    game_line.mined_time = datetime.now()
+    game_line = _resolve_mined_line_for_card(card, lines)
+    clip_line = None
+    if getattr(game_line, "clip", None) is not None:
+        clip_line = game_line
+        game_line.mined_time = game_line.clip.clip_end_time
+    else:
+        game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
     timing_context = new_anki_card_timing_context(
         note_id=getattr(card, "noteId", ""),
