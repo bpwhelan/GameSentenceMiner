@@ -194,10 +194,6 @@
             "label": "有効化:",
             "tooltip": "Ankiとの連携を有効化または無効化します。"
           },
-          "update_anki": {
-            "label": "Ankiを更新:",
-            "tooltip": "自動的にAnkiを更新します。"
-          },
           "show_update_confirmation_dialog": {
             "label": "更新確認ダイアログを表示:",
             "tooltip": "Ankiカードを更新する前に確認ダイアログを表示します。"

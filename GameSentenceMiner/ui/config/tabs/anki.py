@@ -110,10 +110,6 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "anki", "enabled", color=LabelColor.RECOMMENDED, bold=True),
         window.anki_enabled_check,
     )
-    layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "update_anki"),
-        window.update_anki_check,
-    )
     layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "url"), window.anki_url_edit)
     window.anki_recommended_setup_button = QPushButton("Set up recommended note type: Lapis, Kiku, Senren…")
     window.anki_recommended_setup_button.clicked.connect(

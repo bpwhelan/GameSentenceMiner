@@ -139,7 +139,6 @@ def apply_recommended_fields(window, result: SetupResult) -> None:
             window.anki_note_type_combo.addItem(result.model_name)
         window.anki_note_type_combo.setCurrentText(result.model_name)
         window.anki_enabled_check.setChecked(True)
-        window.update_anki_check.setChecked(True)
         for key, field_name in preset.gsm_fields.items():
             getattr(window, f"{key}_field_edit").setCurrentText(field_name)
             if key == "word":

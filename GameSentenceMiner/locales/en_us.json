@@ -205,10 +205,6 @@
             "label": "Enabled:",
             "tooltip": "Enable or disable Anki integration."
           },
-          "update_anki": {
-            "label": "Update Anki:",
-            "tooltip": "Automatically update Anki with new data."
-          },
           "show_update_confirmation_dialog": {
             "label": "Show Update Confirmation Dialog:",
             "tooltip": "Show a confirmation dialog before updating Anki cards."

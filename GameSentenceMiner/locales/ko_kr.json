@@ -199,10 +199,6 @@
             "label": "활성화:",
             "tooltip": "Anki 연동을 활성화하거나 비활성화합니다."
           },
-          "update_anki": {
-            "label": "Anki 업데이트:",
-            "tooltip": "새 데이터로 Anki를 자동으로 업데이트합니다."
-          },
           "show_update_confirmation_dialog": {
             "label": "업데이트 확인 대화상자 표시:",
             "tooltip": "Anki 카드를 업데이트하기 전에 확인 대화상자를 표시합니다."

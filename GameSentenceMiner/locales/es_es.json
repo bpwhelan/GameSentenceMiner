@@ -195,10 +195,6 @@
             "label": "Habilitado:",
             "tooltip": "Habilitar o deshabilitar la integración con Anki."
           },
-          "update_anki": {
-            "label": "Actualizar Anki:",
-            "tooltip": "Actualizar automáticamente Anki con nuevos datos."
-          },
           "show_update_confirmation_dialog": {
             "label": "Mostrar Diálogo de Confirmación de Actualización:",
             "tooltip": "Mostrar un diálogo de confirmación antes de actualizar tarjetas de Anki."

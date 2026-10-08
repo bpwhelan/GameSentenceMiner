@@ -833,7 +833,6 @@ class Anki:
     }
 
     enabled: bool = True
-    update_anki: bool = True
     show_update_confirmation_dialog_v2: bool = True
     auto_accept_timer: int = 10
     confirmation_always_on_top: bool = True
@@ -1915,6 +1914,11 @@ class Config:
         if not isinstance(anki_data, dict):
             return
 
+        if "update_anki" in anki_data:
+            # Preserve either old switch being off when consolidating Anki integration.
+            legacy_updates_enabled = anki_data.pop("update_anki")
+            anki_data["enabled"] = bool(anki_data.get("enabled", True) and legacy_updates_enabled)
+
         field_specs = {
             "sentence": {
                 "legacy": "sentence_field",
@@ -2629,11 +2633,12 @@ def load_config():
                         config_file = json.load(file)
                     config_file = _remove_legacy_hotkeys(config_file)
                     config_file = _remove_deprecated_config_settings(config_file)
+                    Config._migrate_anki_profile_data(config_file)
 
                     config = ProfileConfig.from_dict(config_file)
                     new_config = Config(configs={DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG)
 
-                    config.save()
+                    new_config.save()
                     return new_config
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing config.json, saving backup and returning new config: {e}")

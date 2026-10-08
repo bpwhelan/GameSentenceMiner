@@ -1,6 +1,62 @@
+import json
+
 import pytest
 
+from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import Anki, Config, ProfileConfig
+
+
+@pytest.mark.parametrize("loader", [Config.load, configuration.load_config])
+def test_legacy_anki_toggles_migrate_to_one_enabled_setting(tmp_path, monkeypatch, loader):
+    legacy_states = [
+        ({"enabled": True, "update_anki": True}, True),
+        ({"enabled": True, "update_anki": False}, False),
+        ({"enabled": False, "update_anki": True}, False),
+        ({"enabled": False, "update_anki": False}, False),
+        ({"update_anki": False}, False),
+        ({"update_anki": True}, True),
+        ({"enabled": False}, False),
+        ({"enabled": True}, True),
+        ({}, True),
+    ]
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "current_profile": "0",
+                "configs": {
+                    str(index): {"name": str(index), "anki": state} for index, (state, _) in enumerate(legacy_states)
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(configuration, "get_config_path", lambda: str(config_path))
+
+    loaded = loader()
+
+    for index, (_, enabled) in enumerate(legacy_states):
+        profile = loaded.configs[str(index)]
+        assert profile.anki.enabled is enabled
+        assert "update_anki" not in profile.anki.to_dict()
+
+    # Enabling Anki after migration must not leave a hidden switch blocking updates.
+    loaded.configs["1"].anki.enabled = True
+    loaded.save()
+    reloaded = loader()
+    assert reloaded.configs["1"].anki.enabled is True
+    assert all("update_anki" not in profile.anki.to_dict() for profile in reloaded.configs.values())
+
+
+def test_profileless_config_preserves_disabled_anki_updates(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"anki": {"enabled": True, "update_anki": False}}), encoding="utf-8")
+    monkeypatch.setattr(configuration, "get_config_path", lambda: str(config_path))
+
+    loaded = configuration.load_config()
+
+    assert loaded.get_config().anki.enabled is False
+    assert "update_anki" not in loaded.get_config().anki.to_dict()
 
 
 def test_same_selected_lines_different_mined_line_reuse_defaults():

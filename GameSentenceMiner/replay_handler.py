@@ -400,7 +400,7 @@ class ReplayAudioExtractor:
 
             # Just for safety
             if not context.last_note:
-                if get_config().anki.update_anki:
+                if get_config().anki.enabled:
                     with time_anki_card_block(context.timing_context, "replay.get_last_anki_card"):
                         context.last_note = anki.get_last_anki_card()
 
@@ -482,7 +482,7 @@ class ReplayAudioExtractor:
                     elif not get_config().anki.sentence_audio_field:
                         logger.info("No SentenceAudio Field in config, skipping audio processing!")
 
-                if get_config().anki.update_anki and context.last_note:
+                if get_config().anki.enabled and context.last_note:
                     media_future = executor.submit(
                         run_anki_card_timed,
                         context.timing_context,
@@ -559,7 +559,7 @@ class ReplayAudioExtractor:
                         except Exception as e:
                             logger.exception(f"Failed to start animated screenshot prefetch early: {e}")
 
-            if get_config().anki.update_anki and context.last_note:
+            if get_config().anki.enabled and context.last_note:
                 with time_anki_card_block(context.timing_context, "replay.schedule_update_anki_card"):
                     context.background_update_started = bool(
                         anki.update_anki_card(

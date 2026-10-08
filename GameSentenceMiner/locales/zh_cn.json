@@ -195,10 +195,6 @@
             "label": "启用:",
             "tooltip": "启用或禁用 Anki 集成。"
           },
-          "update_anki": {
-            "label": "更新 Anki:",
-            "tooltip": "使用新数据自动更新 Anki。"
-          },
           "show_update_confirmation_dialog": {
             "label": "显示更新确认对话框:",
             "tooltip": "在更新 Anki 卡片之前显示确认对话框。"

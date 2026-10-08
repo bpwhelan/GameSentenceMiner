@@ -511,7 +511,7 @@ def handle_texthooker_button(video_path=""):
                     if isinstance(encoded_image, ScreenshotSelectionResult)
                     else encoded_image
                 )
-                if get_config().anki.update_anki and get_config().screenshot.screenshot_hotkey_updates_anki:
+                if get_config().anki.enabled and get_config().screenshot.screenshot_hotkey_updates_anki:
                     last_note = anki.get_last_anki_card()
                     if last_note:
                         anki.add_image_to_card(last_note, encoded_image)

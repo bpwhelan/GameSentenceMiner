@@ -814,7 +814,6 @@ class ConfigWindow(QWidget):
                 ),
                 anki=Anki(
                     enabled=self.anki_enabled_check.isChecked(),
-                    update_anki=self.update_anki_check.isChecked(),
                     show_update_confirmation_dialog_v2=self.show_update_confirmation_dialog_check.isChecked(),
                     auto_accept_timer=self._get_auto_accept_timer_value(),
                     url=self.anki_url_edit.text(),
@@ -1513,7 +1512,6 @@ class ConfigWindow(QWidget):
 
         # Anki
         self.anki_enabled_check = QCheckBox()
-        self.update_anki_check = QCheckBox()
         self.show_update_confirmation_dialog_check = QCheckBox()
         self.auto_accept_timer_enabled_check = QCheckBox()
         self.auto_accept_timer_edit = QLineEdit()
@@ -3144,7 +3142,6 @@ class ConfigWindow(QWidget):
 
         # Anki
         self.anki_enabled_check.setChecked(s.anki.enabled)
-        self.update_anki_check.setChecked(s.anki.update_anki)
         self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog_v2)
         auto_accept_timer_enabled = s.anki.auto_accept_timer > 0
         self.auto_accept_timer_enabled_check.setChecked(auto_accept_timer_enabled)
