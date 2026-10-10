@@ -1,5 +1,5 @@
 /*
- * Page-document styles for Hachidori's hover highlight.
+ * Page-document styles for Hachidori's hover highlight and word highlights.
  *
  * Everything else the extension draws lives in the popup's shadow root and is
  * styled by render/reader.css. This rule cannot: `::highlight()` resolves
@@ -23,4 +23,62 @@
     var(--hoshidicts-palette-primary, #7aa2ff) 34%,
     transparent
   );
+}
+
+/*
+ * Word highlighting (#520): one highlight per Anki status, and one for words
+ * set to Ignore from the popup, each with its own line style so the statuses
+ * differ by more than colour. Under forced colours Chrome paints every
+ * highlight in Highlight and HighlightText whatever its author colours, and
+ * these line styles are what tells the statuses apart.
+ * word-highlights.js adds the selected palette's colours, made legible
+ * against the page's background, in an owned sheet outside forced colours,
+ * where Settings may also swap the line for coloured text or a background.
+ */
+::highlight(hd-word-unknown),
+::highlight(hd-word-learning),
+::highlight(hd-word-known),
+::highlight(hd-word-ignored) {
+  text-decoration-line: underline;
+  text-decoration-thickness: max(2px, 0.08em);
+  text-underline-offset: 0.2em;
+}
+
+::highlight(hd-word-unknown) {
+  text-decoration-style: solid;
+}
+
+::highlight(hd-word-learning) {
+  text-decoration-style: dashed;
+}
+
+::highlight(hd-word-known) {
+  text-decoration-style: dotted;
+}
+
+/* Two thin lines, about the depth of one of the others. */
+::highlight(hd-word-ignored) {
+  text-decoration-style: double;
+  text-decoration-thickness: max(1px, 0.05em);
+}
+
+/*
+ * Under forced colours the line is HighlightText, the colour of the page's
+ * Canvas, and only the text box behind it is painted Highlight. A line below
+ * that box would vanish, so it moves up to just below the glyphs (ideographs
+ * end about 0.12em below the baseline), inside the box of a font whose descent
+ * is at least about 0.19em. A double line does not fit there, so an ignored
+ * word keeps the box alone: the one mark without a line.
+ */
+@media (forced-colors: active) {
+  ::highlight(hd-word-unknown),
+  ::highlight(hd-word-learning),
+  ::highlight(hd-word-known) {
+    text-decoration-thickness: max(1px, 0.07em);
+    text-underline-offset: 0.12em;
+  }
+
+  ::highlight(hd-word-ignored) {
+    text-decoration-line: none;
+  }
 }

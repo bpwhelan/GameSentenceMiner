@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { ankiMultiResults } from "./anki.js";
 import { ankiDigest } from "./anki-digest.js";
-import { ankiSetupFamily, ankiSetupTemplates } from "./anki-setup.js";
+import { ankiSetupFamily, ankiSetupTemplates, fieldList, modelMap } from "./anki-setup.js";
 import { encodeAnkiClozeBraces, escapeAnkiHtml, resolveAnkiTemplates } from "./anki-templates.js";
 import "./reader-options.js";
 
@@ -53,20 +53,6 @@ export async function ankiIndexSource(config) {
     ...(config.duplicateScope === "deck" ? { deck: config.deck } : {}),
   };
   return { key: await ankiDigest(new TextEncoder().encode(JSON.stringify(source))), ...source };
-}
-
-function modelMap(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("AnkiConnect returned an invalid note type list.");
-  }
-  return value;
-}
-
-function fieldList(value) {
-  if (!Array.isArray(value) || value.some(field => typeof field !== "string" || !field)) {
-    throw new Error("AnkiConnect returned an invalid field list.");
-  }
-  return value;
 }
 
 async function recognizedModels(invoke, source) {

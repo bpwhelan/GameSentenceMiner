@@ -1,5 +1,10 @@
 /*
- * Settings page: dictionary import, load order, and lookup options.
+ * Settings page: section navigation and status, the controllers of the larger
+ * sections, engine status, storage events and start-up. The Library,
+ * Add dictionaries, Updates, the personal dictionary, lookup counts and the
+ * option controls live in their own *-settings.js modules, which import from
+ * each other and from this one. A binding is assigned only in the module that
+ * declares it; the others read it through the import.
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -13,75 +18,73 @@ import { createLocalAudioSetup } from "./local-audio-setup.js";
 import { createBackupSettingsController } from "./backup-settings.js";
 import { createExperimentalSettings } from "./experimental-settings.js";
 import { createThemeStore } from "./theme-store.js";
-import { createActivationSettings } from "./activation-settings.js";
 import { createMemorySettings } from "./memory-settings.js";
 import { downloadBlob } from "./blob-download.js";
+import { collectDebugInfo, debugInfoBlob, debugInfoFilename } from "./debug-info.js";
+import { captureDebugLog } from "./debug-log.js";
+import { describeErrorOrJson } from "./error-text.js";
 import { createSharingSettingsController } from "./sharing-settings.js";
-import { LINKED_IMPORT_TARGET } from "./sharing-protocol.js";
-import { uploadDictionary } from "./linked-import.js";
 import { ANKI_ADDON_FILE_NAME, fetchAnkiAddon } from "./anki-addon.js";
 import { createLocalFileAccessController } from "./local-file-access.js";
 import { createSettingsSearch } from "./settings-search.js";
-import { applyPageTheme, setStatusOutput } from "./settings-dom.js";
+import { setStatusOutput } from "./settings-dom.js";
 import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import { createRecommendedInstallClient } from "./recommended-install-client.js";
 import { createCustomButtonSettings } from "./custom-button-settings.js";
-import { createDictionaryNameDrafts, renameWithBaseline } from "./dictionary-name-drafts.js";
-import {
-  createDictionaryProgressList,
-  installEntryState,
-  formatSeconds,
-} from "./dictionary-progress.js";
-import {
-  createDictionaryGroupController,
-  normaliseDictionaryGroups,
-} from "./dictionary-groups.js";
-import {
-  effectiveDictionarySchedule,
-  managedDictionarySource,
-  nextDictionaryUpdateCheck,
-  normaliseUpdateSettings,
-  recommendedDictionaryInstalled,
-} from "./managed-dictionary-source.js";
-import { RECOMMENDED_DICTIONARIES, describeRecommendedCatalogue } from "./recommended-dictionaries.js";
-import {
-  CUSTOM_DICTIONARY_ID,
-  CUSTOM_DICTIONARY_SOURCE_KEY,
-  normaliseCustomDictionaryDocument,
-  parseCustomDictionary,
-} from "./custom-dictionary.js";
+import { createDictionaryNameDrafts } from "./dictionary-name-drafts.js";
+import { createDictionaryGroupController } from "./dictionary-groups.js";
+import { CUSTOM_DICTIONARY_SOURCE_KEY } from "./custom-dictionary.js";
 import { SETUP_STATE_KEY, normaliseSetupState, setupIncomplete } from "./setup-state.js";
-import { readDictionaryArchiveIdentity } from "./dictionary-import-archive.js";
-import { dictionaryImportError } from "./dictionary-import-errors.js";
 import {
-  describeRevisionComparison,
-  dictionaryImportMatches,
-  dictionaryImportTarget,
-  mdxImportNotes,
-} from "./dictionary-import.js";
+  attachGroupHandlers, attachLibraryHandlers, bindNameDraft, commitGroups, committing, dictionaries,
+  dictionaryLabel, dictionaryState, handleDictionaryStateChange, moveListItem, pendingDictionaryCommits,
+  reloadDictionaries, removing, renderChangedDictionaryState, renderDeferredAfterBlur, setControlsDisabled,
+  setPendingManagementFocus, updateItemById,
+} from "./library-settings.js";
+import {
+  attachImportHandlers, attachRecommendedHandlers, importing, installingRecommended,
+  renderRecommendedCatalogue, renderRecommendedInstallation, setImportState,
+} from "./import-settings.js";
+import {
+  adoptUpdateSettings, attachUpdateHandlers, pendingSchedule, renderUpdateControls, renderUpdatingRows,
+  savingSchedule, updating,
+} from "./update-settings.js";
+import {
+  adoptCustomDictionaryDocument, attachCustomDictionaryHandlers, customDictionaryDirty, customEditorLoaded,
+  customLoading, customSaving, handleCustomDictionarySourceChange, loadCustomDictionarySource,
+  renderCustomDictionaryControls,
+} from "./custom-dictionary-settings.js";
+import { renderLookupCountsReset, resetLookupCounts } from "./lookup-stats-settings.js";
+import {
+  attachOptionHandlers, flushOptionsUntilIdle, optionsEditRevision, pendingOptions, renderOptions,
+  renderThemeChoices, renderWordHighlightControls, savingOptions, writeOptions,
+} from "./option-settings.js";
 
 const TARGET = "hoshidicts-offscreen";
 const WORKER_TARGET = "hoshidicts-worker";
 const UPDATE_TARGET = "hachidori-updates";
 const AUDIO_TARGET = "hachidori-audio";
 const SHARING_TARGET = "hachidori-sharing";
+const ANKI_TARGET = "hachidori-anki";
 const BACKUP_LIFECYCLE_PORT = "hachidori-backup-settings";
 const OPTION_SECTIONS = {
   lookup: "Reading",
+  "word-highlighting": "Word highlighting",
   design: "Design",
   audio: "Audio",
   anki: "Anki",
   keybinds: "Keybinds",
+  // Backup & restore → Automatic backups → Days kept.
+  backup: "Backup & restore",
   advanced: "Advanced",
-  // Library → Personal dictionary owns its lookup switches.
+  // Dictionaries → Personal dictionary owns its lookup switches.
   "custom-dictionary": "Personal dictionary",
 };
-const LIBRARY_SECTIONS = new Set(["dictionaries", "add-dictionaries", "updates", "dictionary-groups", "custom-dictionary"]);
 const {
   DEFAULT_OPTIONS, DEFINITION_LOOKUP_MODES, FREQUENCY_ORDERS,
   POPUP_THEME_GROUPS, POPUP_RENDERER_IDS, popupRenderer, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS,
-  DEFINITION_BLUR_FREQUENCY_ORDERS, EXPERIMENTAL_FEATURES, definitionBlurFrequencyDictionary,
-  activationLabel, clampOption, normaliseCustomButtons, normaliseKanjiSelection, normaliseOptions,
+  DEFINITION_BLUR_FREQUENCY_ORDERS, EXPERIMENTAL_FEATURES, WORD_HIGHLIGHT_STYLES, definitionBlurFrequencyDictionary,
+  activationLabel, clampOption, hasCapability, normaliseCustomButtons, normaliseKanjiSelection, normaliseOptions,
 } = globalThis.HDReaderOptions;
 const STATUS_POLL_MS = 1000;
 // Slower than the boot poll: a failing poll may be failing for a while, and the
@@ -91,6 +94,7 @@ const STATUS_RETRY_MS = 5000;
 const NUMBER_FIELDS = [
   { key: "scanLength", id: "opt-scan-length" },
   { key: "maxResults", id: "opt-max-results" },
+  { key: "scanDelayMs", id: "opt-scan-delay" },
   { key: "popupHideDelayMs", id: "opt-hide-delay" },
   { key: "hidePopupOnCursorExitDelayMs", id: "opt-hide-on-cursor-exit-delay" },
   { key: "popupNestingMaxDepth", id: "opt-popup-nesting-depth" },
@@ -127,74 +131,38 @@ const APPEARANCE_CHOICES = [
   { key: "definitionBlurDirection", id: "opt-blur-direction", values: DEFINITION_BLUR_DIRECTIONS },
   { key: "definitionBlurFrequencyOrder", id: "opt-blur-frequency-order", values: DEFINITION_BLUR_FREQUENCY_ORDERS },
   { key: "definitionBlurReveal", id: "opt-blur-reveal", values: DEFINITION_BLUR_REVEALS },
+  { key: "wordHighlightStyle", id: "opt-word-highlight-style", values: WORD_HIGHLIGHT_STYLES },
+];
+// Reading → Word highlighting (#520, experimental).
+const WORD_HIGHLIGHT_SWITCHES = [
+  { key: "wordHighlightEnabled", id: "opt-word-highlight" },
+  { key: "wordHighlightUnknown", id: "opt-word-highlight-unknown" },
+  { key: "wordHighlightLearning", id: "opt-word-highlight-learning" },
+  { key: "wordHighlightKnown", id: "opt-word-highlight-known" },
+  { key: "wordHighlightIgnored", id: "opt-word-highlight-ignored" },
 ];
 
 const numberFormat = new Intl.NumberFormat();
-
-let dictionaryState = { schemaVersion: 1, revision: -1, dictionaries: [], groups: [] };
-let dictionaries = dictionaryState.dictionaries;
-let options = normaliseOptions({});
+let options = normaliseOptions({}); // NOSONAR: shared with the other Settings modules
 const themeStore = createThemeStore({ root: document.getElementById("theme-store"), design: document.getElementById("design"), onSelect(slug) {
   options.popupTheme = slug;
   renderThemeChoices();
   writeOptions();
 } });
-let savedOptions = normaliseOptions({});
-let optionsRevision = -1;
-let pendingOptions = {};
-let pendingOptionsRevision = 0;
-let savingOptions = null;
-let optionsSaveCompletion = Promise.resolve();
-let optionsTimer = null;
-let optionsSaveFailed = false;
-let optionsEditRevision = null;
+let savedOptions = normaliseOptions({}); // NOSONAR: shared with the other Settings modules
+let optionsRevision = -1; // NOSONAR: shared with the other Settings modules
 const OPTIONS_SAVE_DELAY_MS = 150;
 const nameDrafts = createDictionaryNameDrafts({
   delayMs: OPTIONS_SAVE_DELAY_MS,
   afterSave: () => renderChangedDictionaryState(),
 });
-let updateSettings = { revision: -1, schedule: "off", lastCheckedAt: null };
-let pendingSchedule = null, savingSchedule = null, scheduleTimer = null;
-let scheduleSaveFailed = false;
-let customDocument = null;
-let customBaseDocument = null;
-let customBaseEditorText = "";
-let customValidationTimer = null;
-let customEditorLoaded = false;
-let customLoading = false;
-let customSaving = false;
-let customDraftStale = false;
-let customDraftNewline = "\n";
-let importing = false;
-let installingRecommended = false;
-let renderedInstallRun = null;
 const recommendedInstallation = createRecommendedInstallClient({
   send: sourceIds => send("hd_setup_install", { sourceIds }, "hachidori-setup"),
   onChange: renderRecommendedInstallation,
-  onError(error) { setImportState(`Could not observe dictionary installation: ${describe(error)}`, "error"); },
+  onError(error) { setImportState(`Could not observe dictionary installation: ${describeErrorOrJson(error)}`, "error"); },
 });
-let updating = false;
-let removing = false;
-let committing = false;
-let pendingDictionaryCommits = 0;
-let pendingDictionaryReorders = 0;
-let pendingDictionaryOrder = null;
-let dictionaryReorderEpoch = 0;
-let dictionaryCommitTail = Promise.resolve();
-let dictionaryCommitFailed = false;
-let dictionaryRenderDeferred = false;
-// A pending reorder can reuse the existing rows: only their order and the
-// index-dependent controls change, not the package set or per-package metadata.
-// Any other queued change clears this so a coalesced render rebuilds instead.
-let reorderReuseHint = false;
-let pendingManagementFocus = null;
-let managementPointerDown = false;
-let dictionarySearch = "";
-const selectedDictionaryIds = new Set();
-const expandedDictionaryIds = new Set();
-let draggedDictionaryId = null;
 let statusTimer = null;
-let lastEngineStatus = null;
+let lastEngineStatus = null; // NOSONAR: shared with the other Settings modules
 let requestCounter = 0;
 let audioController;
 let keybindController;
@@ -202,30 +170,30 @@ let ankiController;
 let localAudioSetup;
 let sharingController;
 // The address of the Hachidori this install is linked to, or null.
-let sharingLinkedAddress = null;
+let sharingLinkedAddress = null; // NOSONAR: shared with the other Settings modules
 let backupController;
 let backupLifecyclePort = null;
 let backupLifecycleReconnectTimer = null;
 const backupLifecycleTokens = new Set();
-let customButtonController;
+let customButtonController; // NOSONAR: shared with the other Settings modules
 let experimentalController;
-let activationController;
 let memoryController;
-let backingUp = false;
+let backingUp = false; // NOSONAR: shared with the other Settings modules
 let settingsSearch;
-let importProgress;
-let importDragDepth = 0;
 
 const SECTION_STATUSES = {
+  "library-reset-status": { section: "dictionaries", label: "Dictionaries" },
   "import-state": { section: "add-dictionaries", label: "Import" },
   "update-state": { section: "updates", label: "Updates" },
   "custom-dictionary-status": { section: "custom-dictionary", label: "Personal dictionary" },
   "options-status": { section: "lookup", label: "Reading" },
+  "lookup-counts-reset-status": { section: "lookup", label: "Lookup history" },
   "dict-group-error": { section: "dictionary-groups", label: "Groups" },
   "backup-status": { section: "backup", label: "Backup" },
   "sharing-status": { section: "sharing", label: "Sharing" },
+  "debug-info-status": { section: "advanced", label: "Troubleshooting" },
 };
-let activeSection = "dictionaries";
+let activeSection = "dictionaries"; // NOSONAR: shared with the other Settings modules
 const unseenSectionCompletions = new Set();
 
 function element(id) {
@@ -251,8 +219,28 @@ function sectionHasPendingWork(id) {
   }
 }
 
+// A rail destination with views of its own shows them as a row of tabs; the
+// first tab is the destination itself (Dictionaries, Reading).
+function sectionTabs(section) {
+  return [...document.querySelectorAll(".section-tabs")]
+    .find(tabs => tabs.querySelector(`a[href="#${section}"]`)) ?? null;
+}
+
 function primaryNavigationSection(section) {
-  return LIBRARY_SECTIONS.has(section) ? "dictionaries" : section;
+  return sectionTabs(section)?.querySelector("a").hash.slice(1) ?? section;
+}
+
+// A tab row shows under its own destination while it offers more than one
+// view, so Reading has none while Word highlighting is switched off.
+function renderSectionTabs() {
+  const active = sectionTabs(activeSection);
+  for (const tabs of document.querySelectorAll(".section-tabs")) {
+    tabs.hidden = tabs !== active || tabs.querySelectorAll("a:not([hidden])").length < 2;
+    for (const link of tabs.querySelectorAll("a")) {
+      if (tabs === active && link.hash === `#${activeSection}`) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    }
+  }
 }
 
 function renderNavigationStatuses() {
@@ -322,18 +310,13 @@ function showSettingsSection(focus = false) {
   settingsSearch?.clear();
   const sections = availableSections();
   activeSection = resolveSection(requestedSection());
-  pendingManagementFocus = null;
+  setPendingManagementFocus(null);
   for (const section of sections) section.hidden = section.id !== activeSection;
   element("settings-section").value = activeSection;
-  const libraryActive = LIBRARY_SECTIONS.has(activeSection);
-  element("library-navigation").hidden = !libraryActive;
+  renderSectionTabs();
   const primarySection = primaryNavigationSection(activeSection);
   for (const link of document.querySelectorAll(".settings-nav a")) {
     if (link.hash === `#${primarySection}`) link.setAttribute("aria-current", "page");
-    else link.removeAttribute("aria-current");
-  }
-  for (const link of document.querySelectorAll("#library-navigation a")) {
-    if (libraryActive && link.hash === `#${activeSection}`) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   }
   if (Object.hasOwn(OPTION_SECTIONS, activeSection)) {
@@ -378,11 +361,18 @@ function updateAudioSettings() {
     readSources: () => options.audioSources,
     editSources: sources => {
       options.audioSources = sources;
+      localAudioSetup?.render();
       writeOptions();
     },
     send: (type, fields) => send(type, fields, AUDIO_TARGET),
   });
   audioController.render();
+  // Audio → Sources → Local Audio Server add-on: an added source joins the list above it.
+  localAudioSetup ??= createLocalAudioSetup({ document, readSources: () => options.audioSources,
+    isLinked: () => sharingLinkedAddress !== null,
+    editSources: sources => { options.audioSources = sources; audioController.render(); writeOptions(); },
+  });
+  localAudioSetup.render();
 }
 
 function updateKeybindSettings() {
@@ -402,6 +392,7 @@ function updateAnkiSettings() {
   if (activeSection !== "anki" || optionsRevision < 0) return;
   ankiController ??= createAnkiTemplateSettingsController({ document, readAnki: () => options.anki,
     capabilities: MINING_CAPABILITIES,
+    readExperimental: () => options.experimental,
     readButtons: () => options.customButtons,
     editAnki: anki => {
       options.anki = anki;
@@ -418,14 +409,10 @@ function updateAnkiSettings() {
     },
   });
   ankiController.render();
-  localAudioSetup ??= createLocalAudioSetup({ document, readSources: () => options.audioSources,
-    isLinked: () => sharingLinkedAddress !== null,
-    editSources: sources => { options.audioSources = sources; writeOptions(); },
-  });
-  localAudioSetup.render();
 }
 
 // While linked, imported archives go to the host and backups belong to it; the notices say so.
+// The two resets act only on this browser's own data, so they wait for Unlink.
 function renderSharingLink(value) {
   const wasLinked = sharingLinkedAddress !== null;
   sharingLinkedAddress = typeof value?.client?.address === "string" ? value.client.address : null;
@@ -434,10 +421,38 @@ function renderSharingLink(value) {
   element("sharing-overlay-preferences").hidden = !linked || !OVERLAY_MODE;
   element("sharing-import-notice").hidden = !linked;
   element("sharing-backup-notice").hidden = !linked;
-  for (const node of document.querySelectorAll("#backup > .backup-action, #backup > .section-note")) node.hidden = linked;
+  element("library-reset-linked").hidden = !linked;
+  element("lookup-counts-reset-linked").hidden = !linked;
+  element("backup-files").hidden = linked;
   element("automatic-backups").hidden = linked;
+  setControlsDisabled(importing);
+  renderLookupCountsReset();
   if (wasLinked && !linked) {
     void backupController?.refreshAutomaticBackups();
+  }
+}
+
+// Advanced → Troubleshooting. A blob download, so it also works in hosts
+// without chrome.downloads.
+async function downloadDebugInfo() {
+  const button = element("debug-info-download");
+  button.disabled = true;
+  setSectionStatus("debug-info-status", "Collecting debug info… This can take up to half a minute.", "working");
+  try {
+    const report = await collectDebugInfo({ chrome, window, send,
+      targets: { worker: WORKER_TARGET, sharing: SHARING_TARGET, anki: ANKI_TARGET }, context: {
+        overlayMode: OVERLAY_MODE, hostCapabilities: HOST_CAPABILITIES, miningCapabilities: MINING_CAPABILITIES,
+        linkedTo: sharingLinkedAddress, activeSection, lastEngineStatus, effectiveOptions: options,
+        busy: { importing, installingRecommended, updating, removing, committing, customLoading, customSaving,
+          backingUp, pendingDictionaryCommits, savingOptions: savingOptions !== null },
+        statuses: Object.fromEntries(Object.keys(SECTION_STATUSES).map(id => [id, element(id).textContent])),
+      } });
+    downloadBlob(document, debugInfoBlob(report), debugInfoFilename(new Date(report.generatedAt)));
+    setSectionStatus("debug-info-status", "Debug info downloaded.", "ready", true);
+  } catch (error) {
+    setSectionStatus("debug-info-status", `Could not collect debug info: ${describeErrorOrJson(error)}`, "error");
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -459,6 +474,12 @@ function updateSharingSettings() {
 
 async function toggleExperimental(id, enabled) {
   options.experimental = { ...options.experimental, [id]: enabled };
+  // Word highlighting keeps its own switches and style, but its marks must
+  // not stay on pages behind a hidden section.
+  if (id === "wordHighlighting" && !enabled) {
+    options.wordHighlightEnabled = false;
+    renderWordHighlightControls();
+  }
   renderExperimentalSettings();
   writeOptions();
 }
@@ -472,12 +493,17 @@ function renderExperimentalSettings() {
   for (const feature of EXPERIMENTAL_FEATURES) {
     if (!feature.section) continue;
     const hidden = !options.experimental[feature.id] || !sectionAvailable(feature.section);
-    document.querySelector(`.settings-nav a[href="#${feature.section}"]`).parentElement.hidden = hidden;
+    // A gated section is a rail destination or one tab of one.
+    const link = document.querySelector(`.settings-nav a[href="#${feature.section}"], .section-tabs a[href="#${feature.section}"]`);
+    (link.closest(".nav-item") ?? link).hidden = hidden;
     element("settings-section").querySelector(`option[value="${feature.section}"]`).hidden = hidden;
+    // Global search leaves the hidden section's settings out as well.
+    element(feature.section).toggleAttribute("data-settings-gated", hidden);
   }
   // A flag that changed elsewhere can hide the visible section, or reveal the
   // one this page was opened on before the stored options arrived.
   if (resolveSection(requestedSection()) !== activeSection) showSettingsSection();
+  else renderSectionTabs();
 }
 
 // Low memory mode recycles the engine worker, so it needs the threaded engine:
@@ -492,6 +518,11 @@ function renderLowMemoryMode() {
   element("dictionary-entry-storage").hidden = !available;
   element("opt-dictionary-entry-storage").value = options.dictionaryEntryStorage;
   element("opt-dictionary-entry-storage").disabled = options.lowMemoryMode;
+  element("dictionary-index-storage").hidden = !available || lastEngineStatus?.storageBackend !== "opfs";
+  element("opt-dictionary-index-storage").value = options.dictionaryIndexStorage;
+  element("use-less-ram-by-default").hidden = element("dictionary-index-storage").hidden;
+  element("opt-use-less-ram-by-default").checked = options.useLessRamByDefault;
+  element("opt-use-less-ram-by-default").disabled = options.lowMemoryMode || options.dictionaryIndexStorage !== "auto";
 }
 
 function memorySettings() {
@@ -656,7 +687,7 @@ function attachSettingsNavigation() {
     event.preventDefault();
     element("settings-content").focus();
   });
-  for (const link of document.querySelectorAll(".settings-nav a, #library-navigation a, .section-action")) {
+  for (const link of document.querySelectorAll(".settings-nav a, .section-tabs a, .section-action")) {
     link.addEventListener("click", (event) => {
       if (link.hash === window.location.hash
           && event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
@@ -668,13 +699,6 @@ function attachSettingsNavigation() {
     });
   }
   showSettingsSection();
-}
-
-function describe(error) {
-  if (error instanceof Error) {
-    return error.message || String(error);
-  }
-  return typeof error === "string" ? error : JSON.stringify(error);
 }
 
 async function send(type, fields = {}, target = TARGET) {
@@ -689,218 +713,6 @@ async function send(type, fields = {}, target = TARGET) {
     throw new Error("the extension's service worker did not reply");
   }
   return reply;
-}
-
-function nonnegativeCount(value) {
-  const count = Math.trunc(Number(value));
-  return Number.isFinite(count) && count > 0 ? count : 0;
-}
-
-function stringValue(value, fallback = "") {
-  return typeof value === "string" ? value : fallback;
-}
-
-function nonemptyString(value) {
-  return typeof value === "string" && value !== "" ? value : null;
-}
-
-function displayName(value) {
-  const name = stringValue(value).trim();
-  return name === "" ? null : name;
-}
-
-function normaliseDictionary(row) {
-  const title = stringValue(row?.title);
-  if (title === "") {
-    return null;
-  }
-  const sourceId = nonemptyString(row?.sourceId);
-  return {
-    ...(row && typeof row === "object" && !Array.isArray(row) ? row : {}),
-    id: stringValue(row?.id),
-    title,
-    displayName: displayName(row?.displayName),
-    path: nonemptyString(row?.path) ?? `/dicts/${title}`,
-    enabled: row?.enabled !== false,
-    favorite: row?.favorite === true,
-    revision: stringValue(row?.revision),
-    isUpdatable: row?.isUpdatable === true,
-    indexUrl: nonemptyString(row?.indexUrl),
-    downloadUrl: nonemptyString(row?.downloadUrl),
-    language: nonemptyString(row?.language),
-    frequencyMode: nonemptyString(row?.frequencyMode),
-    termCount: nonnegativeCount(row?.termCount),
-    frequencyCount: nonnegativeCount(row?.frequencyCount),
-    pitchCount: nonnegativeCount(row?.pitchCount),
-    kanjiCount: nonnegativeCount(row?.kanjiCount),
-    mediaCount: nonnegativeCount(row?.mediaCount),
-    installedAt: stringValue(row?.installedAt),
-    lastUpdateCheck: row?.lastUpdateCheck ?? null,
-    ...(row?.updateScheduleOverride === undefined ? {} : { updateScheduleOverride: row.updateScheduleOverride }),
-    ...(sourceId === null ? {} : { sourceId }),
-  };
-}
-
-function normaliseDictionaries(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.map(normaliseDictionary).filter((entry) => entry !== null);
-}
-
-function normaliseDictionaryState(value) {
-  if (value?.schemaVersion !== 1) {
-    throw new Error(`Unsupported dictionary state schema ${String(value?.schemaVersion)}`);
-  }
-  const revision = Number.isInteger(value?.revision) && value.revision >= 0 ? value.revision : 0;
-  const dictionaries = normaliseDictionaries(value?.dictionaries);
-  return {
-    schemaVersion: 1,
-    revision,
-    dictionaries,
-    groups: normaliseDictionaryGroups(value?.groups, dictionaries),
-  };
-}
-
-// A key-order-independent serialization for comparing two normalised package
-// records: the stored state and the page produce the same values in a
-// different key sequence, so JSON.stringify order cannot decide equality.
-function canonicalDictionary(entry) {
-  return JSON.stringify(entry, Object.keys(entry).sort((a, b) => a.localeCompare(b)));
-}
-
-function adoptDictionaryState(value) {
-  const next = normaliseDictionaryState(value);
-  if (next.revision <= dictionaryState.revision) {
-    return false;
-  }
-  if (reorderReuseHint) {
-    // Only the order may differ for a reuse: compare each package's fields
-    // independent of key order, since the stored state and the page normalise
-    // the same values in a different key sequence.
-    const previous = new Map(dictionaries.map(entry => [entry.id, canonicalDictionary(entry)]));
-    reorderReuseHint = next.dictionaries.length === previous.size
-      && next.dictionaries.every(entry => previous.get(entry.id) === canonicalDictionary(entry));
-  }
-  dictionaryState = next;
-  // Keep the newest local order visible across storage events and older
-  // acknowledgements. The final settlement adopts the authoritative snapshot.
-  if (pendingDictionaryReorders === 0) dictionaries = dictionaryState.dictionaries;
-  pruneDictionarySelection();
-  return true;
-}
-
-function adoptUpdateSettings(value) {
-  const next = normaliseUpdateSettings(value);
-  if (next.revision <= updateSettings.revision) return false;
-  const changedSchedule = next.schedule !== updateSettings.schedule;
-  updateSettings = next;
-  if (changedSchedule) refreshDictionarySchedules();
-  return true;
-}
-
-function pruneDictionarySelection() {
-  const installedIds = new Set(dictionaryState.dictionaries.map((dictionary) => dictionary.id));
-  for (const id of selectedDictionaryIds) {
-    if (!installedIds.has(id)) {
-      selectedDictionaryIds.delete(id);
-    }
-  }
-}
-
-function normaliseDictionarySearch(value) {
-  return stringValue(value).normalize("NFKC").trim().toLowerCase();
-}
-
-function visibleDictionaries() {
-  const search = normaliseDictionarySearch(dictionarySearch);
-  if (search === "") {
-    return dictionaries;
-  }
-  return dictionaries.filter((dictionary) =>
-    [dictionary.title, dictionary.displayName].some((name) =>
-      normaliseDictionarySearch(name).includes(search)));
-}
-
-function hasCapability(dictionary, kind) {
-  if (kind === "freq") return dictionary.frequencyCount > 0;
-  if (kind === "pitch") return dictionary.pitchCount > 0;
-  if (kind === "kanji") return dictionary.kanjiCount > 0;
-  if (dictionary.termCount > 0) return true;
-  return dictionary.frequencyCount === 0 && dictionary.pitchCount === 0 && dictionary.kanjiCount === 0;
-}
-
-function dictionaryLabel(dictionary) {
-  return dictionary.displayName || dictionary.title;
-}
-
-function isManagedCustomDictionary(dictionary) {
-  return dictionary?.id === CUSTOM_DICTIONARY_ID;
-}
-
-function selectionParts(value) {
-  if (value && typeof value === "object") {
-    return value;
-  }
-  return typeof value === "string" && value !== ""
-    ? { title: value, kind: "" }
-    : null;
-}
-
-function selectionValue(selection) {
-  return selection ? JSON.stringify(selection) : "";
-}
-
-function selectionFromValue(value) {
-  if (!value) {
-    return "";
-  }
-  try {
-    const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object") {
-      return normaliseKanjiSelection(parsed);
-    }
-  } catch {
-    // Legacy title-only values are not JSON.
-  }
-  return normaliseKanjiSelection(value);
-}
-
-function isAvailableFrequencyDictionary(dictionary) {
-  return dictionary.enabled !== false && hasCapability(dictionary, "freq");
-}
-
-function selectedFrequencyDictionary(title = options.frequencyDictionary) {
-  return dictionaries.find((dictionary) => dictionary.title === title
-    && isAvailableFrequencyDictionary(dictionary));
-}
-
-// The dictionary the blur threshold reads: its own choice, or "Same as sorting".
-function selectedDefinitionBlurFrequencyDictionary(title = definitionBlurFrequencyDictionary(options)) {
-  return dictionaries.find((dictionary) => dictionary.title === title
-    && isAvailableFrequencyDictionary(dictionary));
-}
-
-function normaliseDictionarySelections() {
-  let changed = false;
-  const kanjiSelection = selectionParts(options.kanjiClickDictionary);
-  if (kanjiSelection?.kind === "tabGroup") {
-    if (!dictionaryState.groups.some((group) => group.id === kanjiSelection.id)) {
-      options.kanjiClickDictionary = "";
-      changed = true;
-    }
-  } else if (kanjiSelection) {
-    const selected = dictionaries.find((entry) => entry.title === kanjiSelection.title);
-    const requestedKind = kanjiSelection.kind || (selected && hasCapability(selected, "kanji") ? "kanji" : "term");
-    if (!selected || selected.enabled === false || !hasCapability(selected, requestedKind)) {
-      options.kanjiClickDictionary = "";
-      changed = true;
-    } else if (kanjiSelection.kind === "") {
-      options.kanjiClickDictionary = { title: kanjiSelection.title, kind: requestedKind };
-      changed = true;
-    }
-  }
-  return changed;
 }
 
 function setStatus(message, tone, failures = []) {
@@ -938,371 +750,6 @@ function renderStatusFailures(failures) {
   list.replaceChildren(items);
 }
 
-function setImportState(message, tone) {
-  setSectionStatus("import-state", message, tone, tone === "ready");
-}
-
-function setUpdateState(message, tone = "") {
-  setSectionStatus("update-state", message, tone, tone === "ready");
-}
-
-function setCustomDictionaryStatus(message, tone = "", completed = false) {
-  setSectionStatus("custom-dictionary-status", message, tone, completed);
-}
-
-function renderCustomDictionaryErrors(errors) {
-  const list = element("custom-dictionary-errors");
-  const messages = (Array.isArray(errors) ? errors : []).map((error) =>
-    `Line ${String(error?.lineNumber)}: ${stringValue(error?.reason, "invalid entry")}`);
-  if (list.childElementCount === messages.length
-      && messages.every((message, index) => list.children[index].textContent === message)) {
-    return;
-  }
-  const items = document.createDocumentFragment();
-  for (const message of messages) {
-    const item = document.createElement("li");
-    item.textContent = message;
-    items.appendChild(item);
-  }
-  list.replaceChildren(items);
-  list.hidden = list.childElementCount === 0;
-}
-
-function customDictionaryDirty() {
-  return customEditorLoaded
-    && customBaseDocument !== null
-    && element("custom-dictionary-source").value !== customBaseEditorText;
-}
-
-function customDictionaryDraftSource() {
-  // Textareas expose LF-normalized text; restore the document's newline only on save.
-  const source = element("custom-dictionary-source").value;
-  return customDraftNewline === "\r\n" ? source.replaceAll("\n", "\r\n") : source;
-}
-
-function renderCustomDictionaryControls() {
-  const busy = importing || installingRecommended || updating || removing || committing || customLoading || customSaving || backingUp;
-  const source = element("custom-dictionary-source");
-  source.disabled = busy || !customEditorLoaded;
-  element("custom-dictionary-save").disabled = busy
-    || !customDictionaryDirty()
-    || customDraftStale;
-  element("custom-dictionary-reload").disabled = busy;
-}
-
-function cancelCustomDictionaryValidation() {
-  clearTimeout(customValidationTimer);
-  customValidationTimer = null;
-}
-
-function renderCustomDictionaryValidation(source = element("custom-dictionary-source").value) {
-  cancelCustomDictionaryValidation();
-  const parsed = parseCustomDictionary(source);
-  renderCustomDictionaryErrors(parsed.errors);
-  return parsed;
-}
-
-function resetCustomDictionaryDraft(documentValue) {
-  customBaseDocument = documentValue;
-  customDraftStale = false;
-  customDraftNewline = documentValue.text.includes("\r\n") ? "\r\n" : "\n";
-  element("custom-dictionary-source").value = documentValue.text;
-  customBaseEditorText = element("custom-dictionary-source").value;
-  renderCustomDictionaryValidation();
-  renderCustomDictionaryControls();
-}
-
-function markCustomDictionaryStale() {
-  customDraftStale = true;
-  setCustomDictionaryStatus(
-    "The custom dictionary source changed elsewhere. Reload the saved source before saving.",
-    "error",
-  );
-  renderCustomDictionaryControls();
-}
-
-function adoptCustomDictionaryDocument(value) {
-  const next = normaliseCustomDictionaryDocument(value);
-  if (customDocument !== null && next.revision <= customDocument.revision) {
-    return false;
-  }
-  const preserveDraft = customEditorLoaded
-    && (customDictionaryDirty() || customDraftStale || customSaving);
-  customDocument = next;
-  if (!customEditorLoaded) {
-    return true;
-  }
-  if (preserveDraft) {
-    if (customBaseDocument === null || next.revision > customBaseDocument.revision) {
-      markCustomDictionaryStale();
-    }
-  } else {
-    resetCustomDictionaryDraft(next);
-    setCustomDictionaryStatus("Loaded the newest saved source.", "ready");
-  }
-  return true;
-}
-
-function adoptCustomDictionaryState(value) {
-  if (value === null || value === undefined) return;
-  if (adoptDictionaryState(value)) {
-    renderChangedDictionaryState();
-  }
-}
-
-async function loadCustomDictionarySource() {
-  if (customLoading || customSaving) return;
-  cancelCustomDictionaryValidation();
-  customLoading = true;
-  setCustomDictionaryStatus("Loading the saved custom dictionary source…");
-  renderCustomDictionaryControls();
-  try {
-    const reply = await send("hd_custom_read", {}, WORKER_TARGET);
-    if (!reply.ok || reply.document === undefined) {
-      throw new Error(reply.error || "the custom dictionary source could not be read");
-    }
-    adoptCustomDictionaryDocument(reply.document);
-    adoptCustomDictionaryState(reply.state);
-    if (customDocument === null) {
-      throw new Error("the custom dictionary source reply was empty");
-    }
-    customEditorLoaded = true;
-    resetCustomDictionaryDraft(customDocument);
-    setCustomDictionaryStatus(`Loaded source revision ${customDocument.revision}.`, "ready", true);
-  } catch (error) {
-    setCustomDictionaryStatus(`Could not load the custom dictionary source: ${describe(error)}`, "error");
-  } finally {
-    customLoading = false;
-    syncNavigationStatus("custom-dictionary-status");
-    renderCustomDictionaryControls();
-  }
-}
-
-function customDictionarySavedMessage(reply, validCount, errorCount) {
-  let message;
-  if (reply.removed === true) {
-    message = "Saved the source and removed the custom dictionary because it has no valid entries.";
-  } else if (reply.rebuilt === false) {
-    message = `Saved ${validCount} valid ${validCount === 1 ? "entry" : "entries"} without rebuilding.`;
-  } else {
-    message = `Saved ${validCount} valid ${validCount === 1 ? "entry" : "entries"} and rebuilt the custom dictionary.`;
-  }
-  if (errorCount > 0) {
-    message += ` Skipped ${errorCount} malformed ${errorCount === 1 ? "line" : "lines"}.`;
-  }
-  return message;
-}
-
-async function saveCustomDictionarySource(event) {
-  event.preventDefault();
-  if (!customEditorLoaded || customLoading || customSaving || !customDictionaryDirty()) {
-    return;
-  }
-  if (customDraftStale) {
-    markCustomDictionaryStale();
-    return;
-  }
-
-  const source = customDictionaryDraftSource();
-  const parsed = renderCustomDictionaryValidation(source);
-  const pending = {
-    baseRevision: customBaseDocument.revision,
-    source,
-    parsed,
-    editorText: element("custom-dictionary-source").value,
-  };
-  customSaving = true;
-  setCustomDictionaryStatus("Saving and compiling the custom dictionary…");
-  setControlsDisabled(importing);
-  try {
-    const reply = await send("hd_custom_save", {
-      baseDocumentRevision: pending.baseRevision,
-      text: pending.source,
-    });
-    if (reply.document !== undefined) {
-      adoptCustomDictionaryDocument(reply.document);
-    }
-    adoptCustomDictionaryState(reply.state);
-    renderCustomDictionaryErrors(reply.errors ?? pending.parsed.errors);
-    if (!reply.ok) {
-      if (reply.stale === true
-          || (customDocument !== null && customDocument.revision > pending.baseRevision)) {
-        markCustomDictionaryStale();
-      }
-      setCustomDictionaryStatus(
-        `Could not save the custom dictionary: ${reply.error || "the source changed elsewhere"}`,
-        "error",
-      );
-      return;
-    }
-
-    const saved = normaliseCustomDictionaryDocument(reply.document);
-    if (saved.text !== pending.source) {
-      throw new Error("the saved custom dictionary source did not match the submitted draft");
-    }
-    customBaseDocument = saved;
-    customBaseEditorText = pending.editorText;
-    const newerDocumentExists = customDocument !== null
-      && (customDocument.revision > saved.revision
-        || customDocument.text !== saved.text
-        || customDocument.semanticRevision !== saved.semanticRevision);
-    customDraftStale = newerDocumentExists;
-    if (newerDocumentExists) {
-      setCustomDictionaryStatus(
-        "Saved this draft, but the source changed again elsewhere. Reload before saving.",
-        "error",
-      );
-    } else {
-      setCustomDictionaryStatus(
-        customDictionarySavedMessage(reply, pending.parsed.entries.length, pending.parsed.errors.length),
-        "ready",
-        true,
-      );
-    }
-  } catch (error) {
-    setCustomDictionaryStatus(`Could not save the custom dictionary: ${describe(error)}`, "error");
-  } finally {
-    customSaving = false;
-    syncNavigationStatus("custom-dictionary-status");
-    setControlsDisabled(importing);
-  }
-}
-
-function isUpdateCheckable(dictionary) {
-  return managedDictionarySource(dictionary) !== null;
-}
-
-function availableUpdates() {
-  return dictionaries.filter((dictionary) =>
-    isUpdateCheckable(dictionary) && dictionary.lastUpdateCheck?.status === "update-available");
-}
-
-function renderUpdateControls() {
-  const schedule = element("update-schedule");
-  const value = pendingSchedule?.schedule ?? savingSchedule?.schedule ?? updateSettings.schedule;
-  if (schedule.value !== value) schedule.value = value;
-  element("update-schedule-conflict-actions").hidden = !scheduleSaveFailed;
-  const checked = updateSettings.lastCheckedAt === null
-    ? null
-    : new Date(updateSettings.lastCheckedAt);
-  element("update-last-checked").textContent = checked !== null && !Number.isNaN(checked.getTime())
-    ? `Last checked ${checked.toLocaleString()}.`
-    : "Never checked.";
-  const busy = updating || importing || installingRecommended || removing || committing || customSaving || backingUp;
-  element("update-all").disabled = busy || availableUpdates().length === 0;
-  element("update-check-now").disabled = busy;
-  schedule.disabled = busy || updateSettings.revision < 0;
-}
-
-function refreshDictionarySchedules() {
-  const byId = new Map(dictionaries.map(dictionary => [dictionary.id, dictionary]));
-  for (const row of document.querySelectorAll(".dict-row")) {
-    const entry = byId.get(row.dataset.dictionaryId);
-    if (entry) renderDictionarySchedule(row, entry);
-  }
-}
-
-function clearImportResults() {
-  importProgressView().clear();
-}
-
-function importProgressView() {
-  if (importProgress) return importProgress;
-  importProgress = createDictionaryProgressList({
-    document,
-    ariaLabel: "Dictionary import progress",
-    idPrefix: "settings-import",
-  });
-  element("import-progress").appendChild(importProgress.element);
-  return importProgress;
-}
-
-function setImportEntries(entries) {
-  importProgressView().setEntries(entries);
-}
-
-function updateImportResult(index, state) {
-  importProgressView().update(String(index), state);
-}
-
-function importDuration(started) {
-  return formatSeconds(Math.max(0, (Date.now() - started) / 1000));
-}
-
-function renderRecommendedCatalogue() {
-  const { count, topics } = describeRecommendedCatalogue();
-  element("recommended-dictionaries-hint").textContent =
-    `${count[0].toUpperCase()}${count.slice(1)} trusted sources for ${topics}. Already installed sources are skipped.`;
-  const list = element("recommended-dictionary-list");
-  for (const entry of RECOMMENDED_DICTIONARIES) {
-    const item = document.createElement("li");
-    const link = document.createElement("a");
-    link.className = "recommended-dictionary-link";
-    link.href = entry.publisherUrl;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = entry.name;
-    const description = document.createElement("span");
-    description.textContent = entry.description;
-    item.append(link, description);
-    list.appendChild(item);
-  }
-}
-
-function missingRecommendedDictionaries() {
-  return RECOMMENDED_DICTIONARIES.filter((entry) => !recommendedDictionaryInstalled(entry, dictionaries));
-}
-
-function renderRecommendedActions() {
-  const missing = missingRecommendedDictionaries();
-  element("recommended-starter").hidden = missing.length === 0;
-  element("install-recommended").hidden = missing.length < RECOMMENDED_DICTIONARIES.length;
-  element("recommended-retry").hidden =
-    missing.length === 0 || missing.length === RECOMMENDED_DICTIONARIES.length;
-}
-
-function setControlsDisabled(disabled) {
-  const blocked = disabled || installingRecommended || removing || updating || customSaving || backingUp;
-  const importBlocked = blocked || committing;
-  element("import-file").disabled = importBlocked;
-  element("import-drop-zone").setAttribute("aria-disabled", String(importBlocked));
-  if (importBlocked) {
-    importDragDepth = 0;
-    element("import-drop-zone").classList.remove("is-dragging");
-  }
-  element("install-recommended").disabled = blocked || committing;
-  element("retry-recommended").disabled = blocked || committing;
-  element("empty-install-recommended").disabled = blocked || committing;
-  element("empty-import-dictionaries").disabled = blocked || committing;
-  for (const control of document.querySelectorAll(".dict-row select, .dict-row input, .dict-row button")) {
-    control.disabled = blocked || control.dataset.pinnedDisabled === "true"
-      || (committing && control.classList.contains("dict-update-schedule"));
-  }
-  for (const drag of document.querySelectorAll(".dict-drag")) {
-    drag.draggable = !blocked && drag.dataset.pinnedDisabled !== "true";
-  }
-  for (const control of document.querySelectorAll(
-    "#dict-group-create-form input, #dict-group-create-form button, #dict-group-list input, #dict-group-list select, #dict-group-list button",
-  )) {
-    control.disabled = blocked || control.dataset.pinnedDisabled === "true";
-  }
-  element("dict-select-visible").disabled = blocked || visibleDictionaries().length === 0;
-  for (const control of element("dict-controls").querySelectorAll(".dict-bulk-actions button")) {
-    control.disabled = blocked || selectedDictionaryIds.size === 0;
-  }
-  element("dict-bulk-remove").disabled = blocked || !selectedRemovableDictionaries().length;
-  renderUpdateControls();
-  renderCustomDictionaryControls();
-}
-
-function elapsedSince(started) {
-  const seconds = Math.round((Date.now() - started) / 1000);
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
-}
-
 function scheduleStatusPoll(delay = STATUS_POLL_MS) {
   if (statusTimer !== null) {
     return;
@@ -1323,7 +770,7 @@ async function refreshStatus() {
     // or the offscreen document can be recreated faster than background.js's
     // retries. Keep polling, or one blip freezes this line on a stale error while
     // the engine finishes booting and every lookup works.
-    setStatus(`Cannot reach the engine: ${describe(error)}`, "error");
+    setStatus(`Cannot reach the engine: ${describeErrorOrJson(error)}`, "error");
     scheduleStatusPoll(STATUS_RETRY_MS);
     return;
   }
@@ -1364,7 +811,7 @@ function renderEngineStatus() {
     if (count === 0 && !lastEngineStatus.loading) {
       setStatus(dictionaries.length === 0
         ? "Ready to add your first dictionary."
-        : "Ready. Enable a dictionary in Library to start reading.");
+        : "Ready. Enable a dictionary in Dictionaries to start reading.");
       return;
     }
     const enabled = count === 1 ? "1 dictionary enabled" : `${numberFormat.format(count)} dictionaries enabled`;
@@ -1372,1234 +819,6 @@ function renderEngineStatus() {
   } else {
     setStatus("Starting the engine and loading dictionaries…");
   }
-}
-
-function renderFrequencyChoices() {
-  const select = element("opt-frequency-dictionary");
-  if (select === document.activeElement) return;
-  const previous = options.frequencyDictionary;
-  select.textContent = "";
-
-  const automatic = document.createElement("option");
-  automatic.value = "";
-  automatic.textContent = "Any — automatic across all dictionaries";
-  select.appendChild(automatic);
-
-  const enabled = dictionaries.filter(isAvailableFrequencyDictionary);
-  const withFrequencies = new Set(
-    enabled.map((entry) => entry.title),
-  );
-  const groups = [{ label: "Frequency dictionaries", titles: [...withFrequencies] }];
-  for (const group of groups) {
-    if (group.titles.length === 0) {
-      continue;
-    }
-    const optgroup = document.createElement("optgroup");
-    optgroup.label = group.label;
-    for (const title of group.titles) {
-      const dictionary = enabled.find((entry) => entry.title === title);
-      const option = document.createElement("option");
-      option.value = title;
-      option.textContent = dictionary ? dictionaryLabel(dictionary) : title;
-      optgroup.appendChild(option);
-    }
-    select.appendChild(optgroup);
-  }
-
-  // Keep a removed selection visible rather than silently rewriting the option.
-  if (previous !== "" && !withFrequencies.has(previous)) {
-    const stale = document.createElement("option");
-    stale.value = previous;
-    stale.textContent = `${previous} (unavailable)`;
-    stale.disabled = true;
-    select.appendChild(stale);
-  }
-  select.value = previous;
-}
-
-function renderDefinitionBlurFrequencyChoices() {
-  const select = element("opt-blur-frequency-dictionary");
-  if (select === document.activeElement) return;
-  const previous = options.definitionBlurFrequencyDictionary;
-  select.disabled = !options.definitionBlurFrequencyEnabled;
-  const sorting = selectedFrequencyDictionary();
-  select.replaceChildren(new Option(sorting ? `Same as sorting (${dictionaryLabel(sorting)})` : "Same as sorting", ""));
-  const available = dictionaries.filter(isAvailableFrequencyDictionary);
-  for (const dictionary of available) select.add(new Option(dictionaryLabel(dictionary), dictionary.title));
-  if (previous !== "" && !available.some(dictionary => dictionary.title === previous)) {
-    const known = dictionaries.find(dictionary => dictionary.title === previous);
-    const status = known?.enabled === false ? "disabled" : "unavailable";
-    const stale = new Option(`${known ? dictionaryLabel(known) : previous} (${status})`, previous);
-    stale.disabled = true;
-    select.add(stale);
-  }
-  select.value = previous;
-}
-
-function renderCursorExitControls() {
-  element("opt-hide-on-cursor-exit").checked = options.hidePopupOnCursorExit;
-  const delay = element("opt-hide-on-cursor-exit-delay");
-  // Like the compact summary count: a focused draft keeps its field enabled.
-  if (delay !== document.activeElement) delay.disabled = !options.hidePopupOnCursorExit;
-}
-
-// The notice belongs to the personal dictionary, and the Library card says why
-// its entries are missing from lookups while it is off.
-function renderPersonalDictionaryControls() {
-  const enabled = options.personalDictionaryEnabled;
-  element("opt-personal-dictionary").checked = enabled;
-  element("selection-notice-controls").hidden = !enabled;
-  element("custom-dictionary-off").hidden = enabled;
-}
-
-function renderCompactSummaryControls() {
-  const enabled = options.showCompactDefinitionSummary;
-  element("opt-compact-summary").checked = enabled;
-  const count = element("opt-summary-count");
-  // Disabling Chrome's focused select emits blur before its pending change.
-  // Keep that draft's captured revision until the existing focusout boundary.
-  if (count !== document.activeElement) count.disabled = !enabled;
-  renderPreferredDictionary("opt-summary-dictionary", options.compactDefinitionSummaryDictionary,
-    "term", "Automatic — first available definition", enabled);
-}
-
-// All blur rules use the shared reveal controls. The delay field shows
-// seconds, fractions allowed, for the stored milliseconds.
-function renderDefinitionBlurControls() {
-  const countEnabled = options.definitionBlurCountEnabled;
-  const ankiEnabled = options.definitionBlurAnkiMature;
-  const frequencyEnabled = options.definitionBlurFrequencyEnabled;
-  const enabled = countEnabled || ankiEnabled || frequencyEnabled;
-  for (const [id, checked] of [["opt-blur-count", countEnabled], ["opt-blur-anki", ankiEnabled],
-    ["opt-blur-frequency", frequencyEnabled]]) element(id).checked = checked;
-  // Hiding a focused native control can emit blur before its pending change.
-  // Defer hiding until focusout so the change keeps its captured revision.
-  for (const [id, hidden] of [["definition-blur-count-controls", !countEnabled],
-    ["definition-blur-frequency-controls", !frequencyEnabled], ["definition-blur-reveal-controls", !enabled],
-    ["definition-blur-delay-control", options.definitionBlurReveal !== "timed"]]) {
-    const group = element(id);
-    if (!hidden || !group.contains(document.activeElement)) group.hidden = hidden;
-  }
-  element("definition-blur-count-paused").hidden = !countEnabled || options.showLookupCounts;
-  element("definition-blur-anki-help").hidden = !ankiEnabled;
-  element("definition-blur-any-help").hidden = [countEnabled, ankiEnabled, frequencyEnabled].filter(Boolean).length < 2;
-  element("definition-blur-help").hidden = !enabled;
-  renderDefinitionBlurFrequencyChoices();
-  for (const [id, key, controlEnabled] of [["opt-blur-direction", "definitionBlurDirection", countEnabled],
-    ["opt-blur-frequency-order", "definitionBlurFrequencyOrder", frequencyEnabled],
-    ["opt-blur-frequency-threshold", "definitionBlurFrequencyThreshold", frequencyEnabled],
-    ["opt-blur-reveal", "definitionBlurReveal", enabled], ["opt-blur-threshold", "definitionBlurThreshold", countEnabled]]) {
-    const control = element(id);
-    if (control === document.activeElement) continue;
-    control.value = String(options[key]);
-    control.disabled = !controlEnabled;
-  }
-  const delay = element("opt-blur-delay");
-  if (delay !== document.activeElement) {
-    delay.value = String(options.definitionBlurDelayMs / 1000);
-    delay.disabled = !enabled || options.definitionBlurReveal !== "timed";
-  }
-  const frequencyHelp = element("definition-blur-frequency-help");
-  frequencyHelp.hidden = !frequencyEnabled;
-  if (frequencyEnabled) {
-    const selected = selectedDefinitionBlurFrequencyDictionary();
-    if (!definitionBlurFrequencyDictionary(options)) {
-      frequencyHelp.textContent = "Sorting compares every frequency dictionary, so choose one here. Missing frequency data leaves this condition unqualified.";
-    } else if (!selected) {
-      frequencyHelp.textContent = "The saved frequency dictionary is unavailable. This condition fails open until it is enabled or reinstalled.";
-    } else {
-      const automatic = options.definitionBlurFrequencyOrder === "auto";
-      const order = automatic && selected.frequencyMode === "rank-based"
-        ? "ascending" : automatic ? "descending" : options.definitionBlurFrequencyOrder;
-      const mode = automatic
-        ? selected.frequencyMode === "rank-based" ? "rank-based metadata"
-          : selected.frequencyMode === "occurrence-based" ? "occurrence-based metadata" : "undeclared metadata"
-        : "your manual order";
-      frequencyHelp.textContent = order === "ascending"
-        ? `Using ${mode}: values at or below the threshold qualify.`
-        : `Using ${mode}: values at or above the threshold qualify.`;
-    }
-  }
-}
-
-function renderPreferredDictionary(id, preferred, kind, automaticLabel, enabled) {
-  const select = element(id);
-  if (select === document.activeElement) return;
-  select.disabled = !enabled;
-  select.replaceChildren(new Option(automaticLabel, ""));
-  let available = preferred === "";
-  for (const dictionary of dictionaries) {
-    if (!hasCapability(dictionary, kind)) continue;
-    const label = dictionaryLabel(dictionary) + (dictionary.enabled === false ? " (disabled)" : "");
-    select.add(new Option(label, dictionary.title));
-    available ||= dictionary.title === preferred;
-  }
-  // Already-missing sources remain a soft preference, not a lookup filter.
-  if (!available) select.add(new Option(`${preferred} (unavailable)`, preferred));
-  select.value = preferred;
-}
-
-function renderMetadataControls() {
-  for (const field of METADATA_FIELDS) {
-    element(field.id).checked = field.inverted ? !options[field.key] : options[field.key];
-  }
-  renderDefinitionBlurControls();
-  // The dictionary picks the furigana's pitch, which also gives the headword's colour.
-  renderPreferredDictionary("opt-pitch-dictionary", options.pitchAccentFuriganaDictionary,
-    "pitch", "Automatic — first available pitch", options.showPitchAccentFurigana || options.showPitchAccentColors);
-  // Like the dictionary picker, a focused style keeps its draft until blur.
-  const furiganaStyle = element("opt-pitch-furigana-style");
-  if (furiganaStyle !== document.activeElement) {
-    furiganaStyle.disabled = !options.showPitchAccentFurigana;
-    furiganaStyle.value = options.pitchAccentFuriganaStyle;
-  }
-}
-
-function renderPopupImageSources() {
-  const select = element("opt-image-source");
-  if (select === document.activeElement) return;
-  const source = options.popupImageSource;
-  const previous = selectionValue(source);
-  select.replaceChildren(new Option("Automatic — current tab", ""));
-  let available = source === null;
-  function addSource(value, label) {
-    const encoded = selectionValue(value);
-    select.add(new Option(label, encoded));
-    available ||= encoded === previous;
-  }
-  for (const dictionary of dictionaries) {
-    addSource({ kind: "dictionary", title: dictionary.title },
-      `Dictionary: ${dictionaryLabel(dictionary)}${dictionary.enabled === false ? " (disabled)" : ""}`);
-  }
-  for (const group of dictionaryState.groups) {
-    addSource({ kind: "tabGroup", id: group.id }, `Group: ${group.name}`);
-  }
-  if (!available) addSource(source, `${source.title || source.id} (unavailable)`);
-  select.value = previous;
-}
-
-function renderFrequencyOrder() {
-  const order = element("opt-frequency-order");
-  if (order !== document.activeElement) order.value = options.frequencyOrder;
-  const selected = selectedFrequencyDictionary();
-  for (const choice of order.options) {
-    choice.disabled = !selected && (choice.value === "ascending" || choice.value === "descending");
-  }
-  element("opt-frequency-auto").disabled = !selected;
-  let hint;
-  if (options.frequencyOrder === "auto") hint = "Automatic compares all enabled frequency dictionaries in their listed order.";
-  else if (options.frequencyOrder === "disabled") hint = "Frequency sorting is off. Your dictionary choice is remembered.";
-  else if (!selected) hint = "Choose an available frequency dictionary to use this direction.";
-  else if (selected.frequencyMode === "rank-based") hint = "Rank-based: Auto puts the lowest numbers first.";
-  else if (selected.frequencyMode === "occurrence-based") hint = "Occurrence-based: Auto puts the highest numbers first.";
-  else hint = "No mode declared: Auto uses highest numbers first.";
-  const hintElement = element("frequency-order-hint");
-  if (hintElement.textContent !== hint) hintElement.textContent = hint;
-}
-
-function applyFrequencyDirection() {
-  const direction = selectedFrequencyDictionary()?.frequencyMode === "rank-based" ? "ascending" : "descending";
-  options.frequencyOrder = options.frequencyDictionary === "" ? "auto" : direction;
-  renderFrequencyOrder();
-  writeOptions();
-}
-
-function appendKanjiGroup(select, enabled, group, availableValues) {
-  if (group.titles.length === 0) {
-    return;
-  }
-  const optgroup = document.createElement("optgroup");
-  optgroup.label = group.label;
-  for (const title of group.titles) {
-    const dictionary = enabled.find((entry) => entry.title === title);
-    const option = document.createElement("option");
-    option.value = selectionValue({ title, kind: group.kind });
-    option.textContent = dictionary ? dictionaryLabel(dictionary) : title;
-    availableValues.add(option.value);
-    optgroup.appendChild(option);
-  }
-  select.appendChild(optgroup);
-}
-
-function selectedKanjiValue(previousSelection, withKanji, withTerms) {
-  if (previousSelection?.kind !== "") {
-    return selectionValue(previousSelection);
-  }
-  let kind = "";
-  if (withKanji.has(previousSelection.title)) {
-    kind = "kanji";
-  } else if (withTerms.has(previousSelection.title)) {
-    kind = "term";
-  }
-  return kind === ""
-    ? previousSelection.title
-    : selectionValue({ title: previousSelection.title, kind });
-}
-
-function appendStaleKanjiChoice(select, previousSelection, selectedValue, availableValues) {
-  if (!previousSelection || availableValues.has(selectedValue)) {
-    return;
-  }
-  const stale = document.createElement("option");
-  stale.value = selectedValue;
-  stale.textContent = `${previousSelection.kind === "tabGroup" ? "Group" : previousSelection.title} (not available)`;
-  select.appendChild(stale);
-}
-
-function appendKanjiGroupChoices(select, availableValues) {
-  if (dictionaryState.groups.length === 0) return;
-  const optgroup = document.createElement("optgroup");
-  optgroup.label = "Groups";
-  for (const group of dictionaryState.groups) {
-    const option = new Option(group.name, selectionValue({ kind: "tabGroup", id: group.id }));
-    availableValues.add(option.value);
-    optgroup.appendChild(option);
-  }
-  select.appendChild(optgroup);
-}
-
-function renderKanjiChoices() {
-  const select = element("opt-kanji-dictionary");
-  // Inventory updates wait for focusout, as the Image source chooser does.
-  if (select === document.activeElement) return;
-  const previousSelection = selectionParts(options.kanjiClickDictionary);
-  select.textContent = "";
-
-  const automatic = document.createElement("option");
-  automatic.value = "";
-  automatic.textContent = "Automatic — use every kanji dictionary";
-  select.appendChild(automatic);
-
-  const enabled = dictionaries.filter((entry) => entry.enabled !== false);
-  const withKanji = new Set(
-    enabled.filter((entry) => hasCapability(entry, "kanji")).map((entry) => entry.title),
-  );
-  const withTerms = new Set(
-    enabled.filter((entry) => hasCapability(entry, "term")).map((entry) => entry.title),
-  );
-  const groups = [
-    { kind: "kanji", label: "Kanji dictionaries", titles: [...withKanji] },
-    {
-      kind: "term",
-      label: "Term dictionaries — requires a matching single-kanji entry",
-      titles: [...withTerms],
-    },
-  ];
-  const availableValues = new Set();
-  for (const group of groups) {
-    appendKanjiGroup(select, enabled, group, availableValues);
-  }
-  appendKanjiGroupChoices(select, availableValues);
-
-  const selectedValue = selectedKanjiValue(previousSelection, withKanji, withTerms);
-  appendStaleKanjiChoice(select, previousSelection, selectedValue, availableValues);
-  select.value = selectedValue;
-}
-
-// Theme Store renderer names for the Theme select, matching the Store cards.
-const rendererLabel = slug => slug === "jl" ? "JL" : slug[0].toUpperCase() + slug.slice(1);
-
-function renderThemeChoices() {
-  themeStore.render(options);
-  if (activeSection !== "design") return;
-  const theme = element("opt-popup-theme");
-  if (theme.options.length === 0) {
-    for (const group of POPUP_THEME_GROUPS) {
-      const optgroup = document.createElement("optgroup");
-      optgroup.label = group.label;
-      for (const entry of group.themes) optgroup.append(new Option(entry.label, entry.id));
-      theme.append(optgroup);
-    }
-  }
-  let storeGroup = [...theme.children].find(group => group.label === "Theme Store");
-  if (!storeGroup && (options.experimental.themeStore || popupRenderer(options.popupTheme) !== "default")) {
-    storeGroup = document.createElement("optgroup");
-    storeGroup.label = "Theme Store";
-    for (const slug of POPUP_RENDERER_IDS) storeGroup.append(new Option(rendererLabel(slug), slug));
-    theme.append(storeGroup);
-  }
-  if (storeGroup) storeGroup.hidden = !options.experimental.themeStore && popupRenderer(options.popupTheme) === "default";
-  if (theme !== document.activeElement) theme.value = options.popupTheme;
-}
-
-function renderCustomCss(force = false) {
-  const editor = element("opt-custom-popup-css");
-  if ((force || editor !== document.activeElement) && editor.value !== options.customPopupCss) {
-    editor.value = options.customPopupCss;
-  }
-  element("custom-css-count").textContent = `${numberFormat.format(editor.value.length)} characters`;
-}
-
-function renderCustomJavascript(force = false) {
-  const editor = element("opt-custom-popup-javascript");
-  if ((force || editor !== document.activeElement) && editor.value !== options.customPopupJavascript) {
-    editor.value = options.customPopupJavascript;
-  }
-  element("custom-javascript-count").textContent = `${numberFormat.format(editor.value.length)} characters`;
-}
-
-// Yomitan's "Scan modifier key" lists No key first. Its empty value is never
-// stored: it means lookupMode "hover" and keeps the remembered activationKey.
-// No key leaves the keep-open switch on for the next key, as a re-render would.
-function renderActivationControls() {
-  activationController ??= createActivationSettings({ document, report: message => setOptionsStatus(message) });
-  activationController.render(options.lookupMode === "hover" ? "" : options.activationKey);
-  element("opt-lookup-sticky").checked = options.lookupMode !== "activation";
-  element("opt-lookup-sticky-row").hidden = options.lookupMode === "hover";
-  // Child popups name the remembered key, which No key keeps.
-  const childPopups = element("opt-definition-lookup-mode");
-  childPopups.querySelector('option[value="activation"]').textContent = `Hold ${activationLabel(options.activationKey)}`;
-  if (childPopups !== document.activeElement) childPopups.value = options.definitionLookupMode;
-}
-
-function renderOptions() {
-  applyPageTheme(document, options);
-  for (const field of NUMBER_FIELDS) {
-    const input = element(field.id);
-    if (input !== document.activeElement) {
-      input.value = String(options[field.key]);
-    }
-  }
-  element("opt-hover-enabled").checked = options.hoverEnabled;
-  element("opt-japanese-only").checked = options.onlyScanJapaneseText;
-  renderPersonalDictionaryControls();
-  element("opt-no-result-notice").checked = options.showNoResultNotice;
-  renderCursorExitControls();
-  element("opt-source-highlight").checked = options.sourceHighlightEnabled;
-  element("opt-popup-audio-button").checked = options.showPopupAudioButton;
-  element("opt-audio-autoplay").checked = options.audioAutoplay;
-  renderThemeChoices();
-  renderCustomCss();
-  renderCustomJavascript();
-  customButtonController?.render();
-  const toolbar = element("opt-popup-toolbar");
-  if (toolbar !== document.activeElement) toolbar.value = options.popupToolbarPosition;
-  const imageHoverPreview = element("opt-image-hover-preview");
-  if (imageHoverPreview !== document.activeElement) imageHoverPreview.value = options.imageHoverPreview;
-  const glossaryLayout = element("opt-glossary-layout");
-  if (glossaryLayout !== document.activeElement) glossaryLayout.value = options.glossaryLayoutMode;
-  renderActivationControls();
-  renderFrequencyOrder();
-  renderKanjiChoices();
-  renderFrequencyChoices();
-  renderCompactSummaryControls();
-  renderPopupImageSources();
-  renderMetadataControls();
-  renderExperimentalSettings();
-  renderLowMemoryMode();
-  updateDesignPreview();
-  updateAudioSettings();
-  updateAnkiSettings();
-  updateKeybindSettings();
-}
-
-function addCountBadge(container, label, count) {
-  const badge = document.createElement("span");
-  badge.className = "dict-badge";
-  badge.dataset.capability = label.toLowerCase();
-  badge.classList.toggle("is-empty", count === 0);
-  badge.textContent = `${label} ${numberFormat.format(count)}`;
-  container.appendChild(badge);
-}
-
-function dictionaryMetadata(entry) {
-  const details = [];
-  if (entry.revision) {
-    details.push(`Revision ${entry.revision}`);
-  }
-  if (entry.language) {
-    details.push(entry.language);
-  }
-  if (entry.installedAt) {
-    const installed = new Date(entry.installedAt);
-    if (!Number.isNaN(installed.getTime())) {
-      details.push(`Imported ${installed.toLocaleString()}`);
-    }
-  }
-  details.push(`Package ID ${entry.id}`, isUpdateCheckable(entry) ? "Update source available" : "Local archive");
-  return details.join(" · ");
-}
-
-function dictionaryUpdateStatus(entry) {
-  const engineUpdating = lastEngineStatus?.updating;
-  if (engineUpdating?.id === entry.id) {
-    return {
-      text: engineUpdating.fallback === "memory" ? "Updating… lookups pause until it finishes" : "Updating…",
-      tone: "busy",
-    };
-  }
-  if (!isUpdateCheckable(entry)) {
-    return { text: "Not update-checkable", tone: "" };
-  }
-  const check = entry.lastUpdateCheck;
-  if (check?.status === "up-to-date") {
-    return { text: "Up to date", tone: "ready" };
-  }
-  if (check?.status === "update-available") {
-    const revision = check.remoteRevision ? `: ${check.remoteRevision}` : "";
-    const failure = check.error ? ` · Update failed: ${check.error}` : "";
-    return { text: `Update available${revision}${failure}`, tone: "available" };
-  }
-  if (check?.status === "check-failed") {
-    return { text: `Check failed: ${check.error || "unknown error"}`, tone: "error" };
-  }
-  return { text: "Not checked", tone: "" };
-}
-
-function renderDictionaryUpdateStatus(row, entry) {
-  const status = dictionaryUpdateStatus(entry);
-  const output = row.querySelector(".dict-update-status");
-  output.textContent = status.text;
-  output.hidden = !entry.lastUpdateCheck && status.tone !== "busy";
-  output.classList.toggle("is-ready", status.tone === "ready");
-  output.classList.toggle("is-available", status.tone === "available");
-  output.classList.toggle("is-error", status.tone === "error");
-}
-
-// hd_status.updating names the package an import is replacing; only that row
-// (and the one a previous poll named) changes.
-function renderUpdatingRows(previousId, currentId) {
-  for (const id of new Set([previousId, currentId])) {
-    const entry = id === null ? undefined : dictionaries.find((dictionary) => dictionary.id === id);
-    const row = entry === undefined ? null
-      : element("dict-list").querySelector(`.dict-row[data-dictionary-id="${CSS.escape(id)}"]`);
-    if (row !== null) renderDictionaryUpdateStatus(row, entry);
-  }
-}
-
-function bindDictionaryUpdate(row, entry) {
-  renderDictionaryUpdateStatus(row, entry);
-
-  const check = row.querySelector(".dict-update-check");
-  check.hidden = !isUpdateCheckable(entry);
-  check.setAttribute("aria-label", `Check for updates to ${dictionaryLabel(entry)}`);
-  check.title = `Check for updates to ${dictionaryLabel(entry)}`;
-  check.addEventListener("click", () => {
-    void runManagedUpdate("hd_updates_check", [entry.id]);
-  });
-
-  const update = row.querySelector(".dict-update");
-  update.hidden = entry.lastUpdateCheck?.status !== "update-available" || !isUpdateCheckable(entry);
-  update.setAttribute("aria-label", `Update ${dictionaryLabel(entry)}`);
-  update.title = `Update ${dictionaryLabel(entry)}`;
-  update.addEventListener("click", () => {
-    void runManagedUpdate("hd_updates_install", [entry.id]);
-  });
-  renderDictionarySchedule(row, entry);
-  const schedule = row.querySelector(".dict-update-schedule");
-  schedule.value = entry.updateScheduleOverride ?? "inherit";
-  schedule.setAttribute("aria-label", `Automatic updates for ${dictionaryLabel(entry)}`);
-  schedule.addEventListener("change", async () => {
-    const value = schedule.value === "inherit" ? null : schedule.value;
-    let stale = false;
-    await commitDictionaries(updateDictionary(entry.id, current => {
-      if ((current.updateScheduleOverride ?? null) !== (entry.updateScheduleOverride ?? null)
-          || !isUpdateCheckable(current)) {
-        stale = true;
-        return current;
-      }
-      return value === (current.updateScheduleOverride ?? null) ? current : { ...current, updateScheduleOverride: value };
-    }), false);
-    if (stale) {
-      const current = dictionaries.find(dictionary => dictionary.id === entry.id);
-      if (current) {
-        schedule.value = current.updateScheduleOverride ?? "inherit";
-        renderDictionarySchedule(row, current);
-      }
-      setStatus("The dictionary schedule changed elsewhere. Review its current value before choosing again.", "error");
-    }
-  });
-}
-
-function renderDictionarySchedule(row, entry) {
-  row.querySelector(".dict-schedule").hidden = !isUpdateCheckable(entry);
-  const schedule = row.querySelector(".dict-update-schedule");
-  const effective = effectiveDictionarySchedule(entry, updateSettings.schedule);
-  const inherit = schedule.querySelector('[value="inherit"]');
-  const label = `Use default (${updateSettings.schedule})`;
-  if (inherit.textContent !== label) inherit.textContent = label;
-  const now = Date.now();
-  const due = nextDictionaryUpdateCheck(entry, updateSettings.schedule, now);
-  const output = row.querySelector(".dict-next-check");
-  let text = "Automatic updates off";
-  if (due !== null) {
-    const next = due <= now ? "Due now" : `Next check ${new Date(due).toLocaleString()}`;
-    text = `${effective.charAt(0).toUpperCase()}${effective.slice(1)} · ${next}`;
-  }
-  if (output.textContent !== text) output.textContent = text;
-}
-
-function updateItemById(current, id, update) {
-  const index = current.findIndex((entry) => entry.id === id);
-  if (index < 0) {
-    return null;
-  }
-  const replacement = update(current[index]);
-  if (replacement === current[index]) {
-    return null;
-  }
-  const next = [...current];
-  next[index] = replacement;
-  return next;
-}
-
-function updateDictionary(id, update) {
-  return (current) => updateItemById(current, id, update);
-}
-
-function moveListItem(values, index, target) {
-  if (index < 0 || target < 0 || target >= values.length || index === target) {
-    return null;
-  }
-  const next = [...values];
-  const [entry] = next.splice(index, 1);
-  next.splice(target, 0, entry);
-  return next;
-}
-
-function updateSelectedDictionaries(field, value, reloadEngine) {
-  const ids = new Set(selectedDictionaryIds);
-  void commitDictionaries((current) => {
-    let changed = false;
-    const next = current.map((dictionary) => {
-      if ((field === "enabled" && isManagedCustomDictionary(dictionary))
-          || !ids.has(dictionary.id)
-          || dictionary[field] === value) {
-        return dictionary;
-      }
-      changed = true;
-      return { ...dictionary, [field]: value };
-    });
-    return changed ? next : null;
-  }, reloadEngine);
-}
-
-function focusedManagementControl() {
-  const active = document.activeElement;
-  const dictionaryRow = active?.closest?.(".dict-row");
-  if (dictionaryRow?.dataset.dictionaryId) {
-    const controlClass = [
-      "dict-selected",
-      "dict-details-toggle",
-      "dict-display-name",
-      "dict-enabled",
-      "dict-up",
-      "dict-down",
-      "dict-position-input",
-      "dict-move",
-      "dict-update-check",
-      "dict-update",
-      "dict-update-schedule",
-      "dict-remove",
-    ].find((name) => active.classList.contains(name));
-    return controlClass
-      ? { kind: "dictionary", id: dictionaryRow.dataset.dictionaryId, controlClass }
-      : null;
-  }
-
-  const groupRow = active?.closest?.(".dict-group");
-  if (!groupRow?.dataset.groupId) return null;
-  const memberRow = active.closest(".dict-group-member");
-  const controlClasses = memberRow
-    ? ["dict-group-member-up", "dict-group-member-down", "dict-group-member-remove"]
-    : ["dict-group-name", "dict-group-up", "dict-group-down", "dict-group-delete", "dict-group-add-select", "dict-group-add"];
-  const controlClass = controlClasses.find((name) => active.classList.contains(name));
-  if (!controlClass) return null;
-
-  const groupRows = [...groupRow.parentElement.children];
-  const focus = {
-    kind: memberRow ? "group-member" : "group",
-    groupId: groupRow.dataset.groupId,
-    groupIndex: groupRows.indexOf(groupRow),
-    controlClass,
-  };
-  if (memberRow) {
-    focus.dictionaryId = memberRow.dataset.dictionaryId;
-    focus.memberIndex = [...memberRow.parentElement.children].indexOf(memberRow);
-  }
-  return focus;
-}
-
-function renderDictionarySelection(visible) {
-  const visibleSelected = visible.filter((dictionary) => selectedDictionaryIds.has(dictionary.id)).length;
-  const selectVisible = element("dict-select-visible");
-  selectVisible.checked = visible.length > 0 && visibleSelected === visible.length;
-  selectVisible.indeterminate = visibleSelected > 0 && visibleSelected < visible.length;
-  element("dict-selection-count").textContent = `${selectedDictionaryIds.size} selected`;
-  element("dict-bulk-actions").hidden = selectedDictionaryIds.size === 0;
-  element("dict-match-count").textContent = `${visible.length} of ${dictionaries.length}`;
-}
-
-function clearDictionaryDropTargets() {
-  for (const row of document.querySelectorAll("#dict-list .is-drop-target")) {
-    row.classList.remove("is-drop-target");
-  }
-}
-
-function bindDictionarySelection(row, entry) {
-  const selected = row.querySelector(".dict-selected");
-  selected.checked = selectedDictionaryIds.has(entry.id);
-  selected.setAttribute("aria-label", `Select ${dictionaryLabel(entry)}`);
-  selected.addEventListener("change", () => {
-    if (selected.checked) {
-      selectedDictionaryIds.add(entry.id);
-    } else {
-      selectedDictionaryIds.delete(entry.id);
-    }
-    renderDictionarySelection(visibleDictionaries());
-    setControlsDisabled(importing);
-  });
-}
-
-function bindDictionaryDrag(row, entry) {
-  const drag = row.querySelector(".dict-drag");
-  drag.title = `Drag ${dictionaryLabel(entry)} to reorder`;
-  if (isManagedCustomDictionary(entry)) {
-    drag.dataset.pinnedDisabled = "true";
-    drag.draggable = false;
-    return;
-  }
-  drag.addEventListener("dragstart", (event) => {
-    draggedDictionaryId = entry.id;
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", entry.id);
-    }
-  });
-  drag.addEventListener("dragend", () => {
-    draggedDictionaryId = null;
-    clearDictionaryDropTargets();
-  });
-  row.addEventListener("dragover", (event) => {
-    if (draggedDictionaryId && draggedDictionaryId !== entry.id) {
-      event.preventDefault();
-      clearDictionaryDropTargets();
-      row.classList.add("is-drop-target");
-    }
-  });
-  row.addEventListener("dragleave", () => {
-    row.classList.remove("is-drop-target");
-  });
-  row.addEventListener("drop", (event) => {
-    event.preventDefault();
-    clearDictionaryDropTargets();
-    if (draggedDictionaryId && draggedDictionaryId !== entry.id) {
-      moveDictionary(draggedDictionaryId, { targetId: entry.id });
-    }
-    draggedDictionaryId = null;
-  });
-}
-
-function renderDeferredAfterBlur(control) {
-  control.addEventListener("blur", () => {
-    if (!dictionaryRenderDeferred) {
-      return;
-    }
-    setTimeout(() => {
-      if (dictionaryRenderDeferred) renderChangedDictionaryState();
-    }, 0);
-  });
-}
-
-function bindDictionaryAlias(row, entry) {
-  const input = row.querySelector(".dict-display-name");
-  input.placeholder = entry.title;
-  input.setAttribute("aria-label", `Display name for ${entry.title}`);
-  input.title = `Display name for ${entry.title}`;
-  bindNameDraft(input, "dictionaries", entry.id, "displayName", entry.displayName ?? "", value => value.trim());
-  renderDeferredAfterBlur(input);
-}
-
-function bindDictionaryEnabled(row, entry) {
-  const enabled = row.querySelector(".dict-enabled");
-  enabled.checked = entry.enabled;
-  enabled.setAttribute(
-    "aria-label",
-    isManagedCustomDictionary(entry)
-      ? `Enabled for ${entry.title} (managed; always enabled)`
-      : `Enabled for ${entry.title}`,
-  );
-  enabled.title = `Enabled for ${entry.title}`;
-  if (isManagedCustomDictionary(entry)) {
-    enabled.checked = true;
-    enabled.dataset.pinnedDisabled = "true";
-    enabled.disabled = true;
-    return;
-  }
-  enabled.addEventListener("change", () => {
-    const value = enabled.checked;
-    void commitDictionaries(updateDictionary(entry.id, (dictionary) =>
-      dictionary.enabled === value ? dictionary : { ...dictionary, enabled: value }), true);
-  });
-}
-
-// The rank badge, up/down enablement, and position input all depend on where a
-// package sits in the list, so a reorder must refresh them. Everything here is
-// idempotent value-setting with no listeners, so it is also what a reused row
-// needs after a reorder instead of a full rebuild.
-function refreshDictionaryOrder(row, entry, index) {
-  const fixed = isManagedCustomDictionary(entry);
-  const minimumIndex = isManagedCustomDictionary(dictionaries[0]) ? 1 : 0;
-  row.querySelector(".dict-rank").textContent = String(index + 1);
-  const up = row.querySelector(".dict-up");
-  const down = row.querySelector(".dict-down");
-  up.title = `Move ${entry.title} up`;
-  down.title = `Move ${entry.title} down`;
-  up.dataset.pinnedDisabled = String(fixed || index <= minimumIndex);
-  down.dataset.pinnedDisabled = String(fixed || index === dictionaries.length - 1);
-  up.disabled = up.dataset.pinnedDisabled === "true";
-  down.disabled = down.dataset.pinnedDisabled === "true";
-
-  const position = row.querySelector(".dict-position-input");
-  const move = row.querySelector(".dict-move");
-  position.value = String(index + 1);
-  position.min = String(minimumIndex + 1);
-  position.max = String(dictionaries.length);
-  position.dataset.pinnedDisabled = String(fixed);
-  move.dataset.pinnedDisabled = String(fixed);
-  move.title = `Move ${dictionaryLabel(entry)} to position`;
-  if (fixed) {
-    up.setAttribute("aria-label", `Move ${entry.title} up (managed; fixed first)`);
-    down.setAttribute("aria-label", `Move ${entry.title} down (managed; fixed first)`);
-    position.setAttribute("aria-label", `Position for ${dictionaryLabel(entry)} (managed; fixed first)`);
-    move.setAttribute("aria-label", `Move ${dictionaryLabel(entry)} (managed; fixed first)`);
-  } else {
-    up.setAttribute("aria-label", `Move ${entry.title} up`);
-    down.setAttribute("aria-label", `Move ${entry.title} down`);
-    position.setAttribute("aria-label", `Position for ${dictionaryLabel(entry)}`);
-    move.setAttribute("aria-label", `Move ${dictionaryLabel(entry)} to position`);
-  }
-}
-
-function bindDictionaryOrder(row, entry, index) {
-  refreshDictionaryOrder(row, entry, index);
-  const up = row.querySelector(".dict-up");
-  const down = row.querySelector(".dict-down");
-  up.addEventListener("click", () => {
-    moveDictionary(entry.id, { step: -1 });
-  });
-  down.addEventListener("click", () => {
-    moveDictionary(entry.id, { step: 1 });
-  });
-
-  const position = row.querySelector(".dict-position-input");
-  const move = row.querySelector(".dict-move");
-  // Read the live index and bounds so a reused row keeps working after the
-  // package moves; only the entry id is stable across reorders. An
-  // out-of-range integer clamps to the nearest movable slot: with the managed
-  // dictionary pinned first, typing 1 means "as high as possible", so it lands
-  // on position 2 instead of being silently discarded.
-  const moveToPosition = () => {
-    if (isManagedCustomDictionary(entry)) return;
-    const currentIndex = dictionaries.findIndex((candidate) => candidate.id === entry.id);
-    const minimumIndex = isManagedCustomDictionary(dictionaries[0]) ? 1 : 0;
-    const requested = Number(position.value);
-    if (position.value.trim() === "" || !Number.isInteger(requested)) {
-      position.value = String(currentIndex + 1);
-      return;
-    }
-    const target = Math.min(dictionaries.length, Math.max(minimumIndex + 1, requested));
-    position.value = String(target);
-    moveDictionary(entry.id, { position: target });
-  };
-  position.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      moveToPosition();
-    }
-  });
-  move.addEventListener("click", moveToPosition);
-}
-
-function renderDictionaryRow(template, entry, index) {
-  const row = template.content.firstElementChild.cloneNode(true);
-  row.dataset.dictionaryId = entry.id;
-  const details = row.querySelector(".dict-details");
-  details.open = expandedDictionaryIds.has(entry.id);
-  const toggle = row.querySelector(".dict-details-toggle");
-  toggle.setAttribute("aria-label", `Details for ${entry.title}`);
-  // A reader opening Details asks for the In memory line; a rebuilt row that
-  // is already open shows the last reading.
-  toggle.addEventListener("click", () => { if (!details.open) refreshMemorySettings(); });
-  row.querySelector(".dict-pinned").hidden = !isManagedCustomDictionary(entry);
-  row.classList.toggle("is-off", !entry.enabled);
-  bindDictionarySelection(row, entry);
-  bindDictionaryDrag(row, entry);
-
-  const title = row.querySelector(".dict-title");
-  title.textContent = dictionaryLabel(entry);
-  title.title = entry.path;
-
-  const canonical = row.querySelector(".dict-canonical");
-  canonical.textContent = entry.displayName ? entry.title : "";
-  canonical.hidden = !entry.displayName;
-  row.querySelector(".dict-favorite").hidden = !entry.favorite;
-
-  const badges = row.querySelector(".dict-badges");
-  addCountBadge(badges, "Terms", entry.termCount);
-  addCountBadge(badges, "Frequency", entry.frequencyCount);
-  addCountBadge(badges, "Pitch", entry.pitchCount);
-  addCountBadge(badges, "Kanji", entry.kanjiCount);
-  addCountBadge(badges, "Media", entry.mediaCount);
-  const metadata = dictionaryMetadata(entry);
-  row.querySelector(".dict-metadata").textContent = isManagedCustomDictionary(entry)
-    ? `Managed · always enabled and first · ${metadata}`
-    : metadata;
-  bindDictionaryUpdate(row, entry);
-
-  bindDictionaryAlias(row, entry);
-  bindDictionaryEnabled(row, entry);
-  bindDictionaryOrder(row, entry, index);
-
-  const remove = row.querySelector(".dict-remove");
-  remove.setAttribute("aria-label", `Remove ${entry.title}`);
-  remove.title = `Remove ${entry.title}`;
-  if (isManagedCustomDictionary(entry)) {
-    remove.dataset.pinnedDisabled = "true";
-    remove.disabled = true;
-    remove.hidden = true;
-  } else {
-    remove.addEventListener("click", () => {
-      void removeDictionary(entry.id, entry.title);
-    });
-  }
-  return row;
-}
-
-function dictionaryRowsMatch(list, visible) {
-  const domIds = new Set([...list.children].map((row) => row.dataset.dictionaryId));
-  return domIds.size === visible.length && visible.every((entry) => domIds.has(entry.id));
-}
-
-function renderDictionaryOrder() {
-  const list = element("dict-list");
-  const rows = new Map([...list.children].map(row => [row.dataset.dictionaryId, row]));
-  let visibleIndex = 0;
-  dictionaries.forEach((entry, index) => {
-    const row = rows.get(entry.id);
-    if (!row) return;
-    if (list.children[visibleIndex] !== row) list.insertBefore(row, list.children[visibleIndex]);
-    visibleIndex += 1;
-    if (row.querySelector(".dict-rank").textContent !== String(index + 1)) refreshDictionaryOrder(row, entry, index);
-  });
-}
-
-function collectReusableDictionaryRows(list, reuseRows) {
-  const reusableRows = new Map();
-  // Retain disclosure state by package identity, including temporarily filtered rows.
-  for (const row of list.children) {
-    if (row.querySelector(".dict-details").open) expandedDictionaryIds.add(row.dataset.dictionaryId);
-    else expandedDictionaryIds.delete(row.dataset.dictionaryId);
-    // Filtering can retain unchanged controls, but an adopted state awaiting
-    // blur has newer metadata and listener inputs than the displayed rows.
-    if (reuseRows && !dictionaryRenderDeferred) reusableRows.set(row.dataset.dictionaryId, row);
-  }
-  const installedIds = new Set(dictionaries.map((entry) => entry.id));
-  for (const id of expandedDictionaryIds) {
-    if (!installedIds.has(id)) expandedDictionaryIds.delete(id);
-  }
-  return reusableRows;
-}
-
-function renderDictionaries(reuseRows = false) {
-  // A queued reorder changes only the order and the index-dependent controls,
-  // so its rows can be reappended in the new order and refreshed instead of
-  // rebuilt from the template. The hint is single-use per render.
-  const reorderReuse = reorderReuseHint;
-  reorderReuseHint = false;
-  const list = element("dict-list");
-  const visible = visibleDictionaries();
-  // A failed or conflicting commit can restore a different set than the one
-  // being reordered, so only reuse when the rows on screen still match the
-  // packages about to be shown (the same visible set, only reordered).
-  const reorderReuseSafe = reorderReuse && dictionaryRowsMatch(list, visible);
-  if (reorderReuseSafe && !dictionaryRenderDeferred) {
-    renderDictionaryOrder();
-    return;
-  }
-  reuseRows = reuseRows || reorderReuseSafe;
-  const reusableRows = collectReusableDictionaryRows(list, reuseRows);
-  const template = element("dict-row-template");
-  const visibleIds = new Set(visible.map((dictionary) => dictionary.id));
-  draggedDictionaryId = null;
-  if (reusableRows.size > 0) clearDictionaryDropTargets();
-  list.textContent = "";
-
-  dictionaries.forEach((entry, index) => {
-    if (!visibleIds.has(entry.id)) {
-      return;
-    }
-    const reused = reusableRows.get(entry.id);
-    if (reused) {
-      // The package set and metadata are unchanged; only its position moved.
-      if (reorderReuseSafe) refreshDictionaryOrder(reused, entry, index);
-      list.appendChild(reused);
-    } else {
-      list.appendChild(renderDictionaryRow(template, entry, index));
-    }
-  });
-
-  element("dict-controls").hidden = dictionaries.length === 0;
-  const empty = element("dict-empty");
-  const isEmpty = dictionaries.length === 0;
-  element("dict-empty-heading").textContent = isEmpty ? "Your Japanese library starts here" : "No dictionaries found";
-  element("dict-empty-description").textContent = isEmpty
-    ? "Install the recommended set, or bring your own Yomitan ZIP files."
-    : "Try a different title or display name.";
-  element("dict-empty-actions").hidden = !isEmpty;
-  element("empty-clear-search").hidden = isEmpty;
-  element("dict-reorder-help").hidden = isEmpty;
-  empty.hidden = visible.length > 0;
-  if (!element("engine-status").classList.contains("is-error")) renderEngineStatus();
-  renderDictionarySelection(visible);
-  setControlsDisabled(importing);
-  memorySettings().renderRows();
-}
-
-function dictionaryMoveTarget(current, index, move) {
-  if (move.targetId) {
-    return current.findIndex((entry) => entry.id === move.targetId);
-  }
-  if (move.step) {
-    return index + move.step;
-  }
-  return move.position - 1;
-}
-
-function moveDictionary(id, move) {
-  const index = dictionaries.findIndex(entry => entry.id === id);
-  if (index < 0 || isManagedCustomDictionary(dictionaries[index])) return;
-  const minimumIndex = isManagedCustomDictionary(dictionaries[0]) ? 1 : 0;
-  const target = Math.max(minimumIndex, dictionaryMoveTarget(dictionaries, index, move));
-  const next = moveListItem(dictionaries, index, target);
-  if (next === null) return;
-  const focus = focusedManagementControl();
-  dictionaries = next;
-  renderDictionaryOrder();
-  if (focus) restoreManagementFocus(focus);
-
-  if (pendingDictionaryOrder === null) {
-    const batch = { ids: [], epoch: dictionaryReorderEpoch, timer: null };
-    batch.ready = new Promise(resolve => { batch.release = resolve; });
-    pendingDictionaryOrder = batch;
-    void queueDictionaryStateChange(current => {
-      const byId = new Map(current.dictionaries.map(entry => [entry.id, entry]));
-      return { ...current, dictionaries: batch.ids.map(id => byId.get(id)) };
-    }, true, { orderBatch: batch });
-  }
-  pendingDictionaryOrder.ids = next.map(entry => entry.id);
-  clearTimeout(pendingDictionaryOrder.timer);
-  pendingDictionaryOrder.timer = setTimeout(flushDictionaryOrder, 150);
-}
-
-function flushDictionaryOrder() {
-  if (pendingDictionaryOrder === null) return;
-  clearTimeout(pendingDictionaryOrder.timer);
-  pendingDictionaryOrder.release();
-  pendingDictionaryOrder = null;
-}
-
-async function restoreAuthoritativeState(reply) {
-  if (reply?.state) {
-    adoptDictionaryState(reply.state);
-    return;
-  }
-  const fresh = await send("hd_state_read", {}, WORKER_TARGET);
-  if (!fresh.ok || !fresh.state) {
-    throw new Error(fresh.error || "the dictionary state could not be read");
-  }
-  adoptDictionaryState(fresh.state);
-}
-
-function directionalFocus(row, controlClass, upClass, downClass) {
-  let control = row?.querySelector(`.${controlClass}`);
-  if (control?.disabled && controlClass === upClass) {
-    control = row.querySelector(`.${downClass}`);
-  } else if (control?.disabled && controlClass === downClass) {
-    control = row.querySelector(`.${upClass}`);
-  }
-  return control?.disabled ? null : control;
-}
-
-function restoreManagementFocus(focus) {
-  const section = focus.kind === "dictionary" ? "dictionaries" : "dictionary-groups";
-  if (element(section).hidden) return;
-  if (focus.kind === "dictionary") {
-    const row = [...element("dict-list").children]
-      .find((candidate) => candidate.dataset.dictionaryId === focus.id);
-    const control = directionalFocus(row, focus.controlClass, "dict-up", "dict-down")
-      ?? row?.querySelector(".dict-details-toggle");
-    control?.focus();
-    return;
-  }
-
-  const groupRows = [...element("dict-group-list").children];
-  const groupRow = groupRows.find((candidate) => candidate.dataset.groupId === focus.groupId)
-    ?? groupRows[Math.min(focus.groupIndex, groupRows.length - 1)];
-  if (!groupRow) {
-    element("dict-group-name-new").focus();
-    return;
-  }
-
-  if (focus.kind === "group") {
-    const control = directionalFocus(groupRow, focus.controlClass, "dict-group-up", "dict-group-down")
-      ?? groupRow.querySelector(".dict-group-name");
-    control?.focus();
-    return;
-  }
-
-  const memberRows = [...groupRow.querySelectorAll(".dict-group-member")];
-  const memberRow = memberRows.find((candidate) => candidate.dataset.dictionaryId === focus.dictionaryId)
-    ?? memberRows[Math.min(focus.memberIndex, memberRows.length - 1)];
-  const control = directionalFocus(
-    memberRow,
-    focus.controlClass,
-    "dict-group-member-up",
-    "dict-group-member-down",
-  ) ?? groupRow.querySelector(".dict-group-add-select:not(:disabled), .dict-group-name");
-  control?.focus();
-}
-
-function renderDictionaryState() {
-  const focus = focusedManagementControl()
-    ?? (document.activeElement === document.body ? pendingManagementFocus : null);
-  pendingManagementFocus = null;
-  dictionaries = dictionaryState.dictionaries;
-  nameDrafts.retain(new Set([
-    ...dictionaries.map(entry => `dictionaries:${entry.id}`),
-    ...dictionaryState.groups.map(group => `groups:${group.id}`),
-  ]));
-  dictionaryRenderDeferred = false;
-  renderDictionaries();
-  dictionaryGroupController.render();
-  renderRecommendedActions();
-  setControlsDisabled(importing);
-  normaliseDictionarySelections();
-  renderOptions();
-  if (focus) restoreManagementFocus(focus);
-}
-
-async function commitDictionaryStateChange(update, reloadEngine, baseState = dictionaryState) {
-  const next = update(baseState);
-  if (next === null) {
-    return { ok: true, state: baseState };
-  }
-  const baseRevision = baseState.revision;
-  try {
-    const target = reloadEngine ? TARGET : WORKER_TARGET;
-    const type = reloadEngine ? "hd_apply_state" : "hd_state_cas";
-    const fields = {
-      baseRevision,
-      dictionaries: next.dictionaries,
-    };
-    if (!reloadEngine) {
-      fields.groups = next.groups;
-    }
-    const reply = await send(type, fields, target);
-    if (!reply.ok) {
-      await restoreAuthoritativeState(reply);
-      reorderReuseHint = false;
-      dictionaryCommitFailed = true;
-      dictionaryReorderEpoch += 1;
-      setStatus(`Dictionary change was not saved: ${reply.error ?? "the state changed elsewhere"}`, "error");
-      return reply;
-    }
-    adoptDictionaryState(reply.state);
-    return reply;
-  } catch (error) {
-    try {
-      await restoreAuthoritativeState();
-    } catch {
-      // Keep the visible error from the failed write; a later storage event or
-      // page reload will supply the authoritative state.
-    }
-    reorderReuseHint = false;
-    dictionaryCommitFailed = true;
-    dictionaryReorderEpoch += 1;
-    setStatus(`Dictionary change was not saved: ${describe(error)}`, "error");
-    return { ok: false, error: describe(error) };
-  }
-}
-
-function queueDictionaryStateChange(update, reloadEngine, { orderBatch = null } = {}) {
-  const reorder = orderBatch !== null;
-  // A different edit ends the current burst, so later moves cannot jump ahead
-  // of an enable, alias, favourite, or group edit in the existing CAS queue.
-  if (!reorder) flushDictionaryOrder();
-  const queuedBehindChange = pendingDictionaryCommits > 0;
-  const baseState = dictionaryState;
-  if (pendingDictionaryCommits === 0) {
-    dictionaryCommitFailed = false;
-  }
-  // The next render can reuse the existing rows only if every change coalesced
-  // into it was a reorder: reorders touch just the order and index-dependent
-  // controls, while any other change can alter per-package metadata.
-  reorderReuseHint = reorder && (pendingDictionaryCommits === 0 || reorderReuseHint);
-  pendingDictionaryCommits += 1;
-  if (reorder) pendingDictionaryReorders += 1;
-  committing = true;
-  pendingManagementFocus = focusedManagementControl() ?? pendingManagementFocus;
-  setControlsDisabled(importing);
-
-  const run = dictionaryCommitTail.then(async previous => {
-    if (orderBatch === null) return commitDictionaryStateChange(update, reloadEngine);
-    await orderBatch.ready;
-    // Every failed commit bumps the epoch after restoring the authoritative
-    // state, so a batch drafted before that rollback is stale and dropped.
-    if (orderBatch.epoch !== dictionaryReorderEpoch) return { ok: false, state: dictionaryState };
-    // Advance only through this page's preceding successful commit. Adopting
-    // another page's revision here would silently overwrite its winning order.
-    return commitDictionaryStateChange(update, reloadEngine, queuedBehindChange ? previous.state : baseState);
-  });
-  const settled = run.finally(async () => {
-    pendingDictionaryCommits -= 1;
-    if (reorder) pendingDictionaryReorders -= 1;
-    if (pendingDictionaryCommits > 0) {
-      return;
-    }
-    committing = false;
-    renderChangedDictionaryState();
-    if (!dictionaryCommitFailed && !reorder) {
-      await refreshStatus();
-    }
-  });
-  dictionaryCommitTail = settled.then(
-    reply => reply,
-    error => ({ ok: false, error: describe(error) }),
-  );
-  return settled;
-}
-
-function commitDictionaries(update, reloadEngine) {
-  return queueDictionaryStateChange((current) => {
-    const dictionaries = update(current.dictionaries);
-    return dictionaries === null ? null : { ...current, dictionaries };
-  }, reloadEngine);
-}
-
-function commitGroups(update) {
-  return queueDictionaryStateChange((current) => {
-    const groups = update(current.groups);
-    return groups === null ? null : { ...current, groups };
-  }, false);
-}
-
-function bindNameDraft(input, collection, id, field, value, normalise, validate) {
-  nameDrafts.bind(`${collection}:${id}`, input, {
-    value, normalise,
-    readName: () => {
-      const entry = dictionaryState[collection].find(item => item.id === id);
-      return entry ? entry[field] ?? "" : undefined;
-    },
-    async save(baseName, name) {
-      let renamed;
-      const reply = await queueDictionaryStateChange(current => {
-        renamed = renameWithBaseline(current[collection], id, field, baseName, name, validate);
-        return renamed.error || renamed.items === current[collection] ? null : { ...current, [collection]: renamed.items };
-      }, false);
-      return renamed?.error ? { ok: false, ...renamed } : reply;
-    },
-  });
 }
 
 const dictionaryGroupController = createDictionaryGroupController({
@@ -2614,927 +833,21 @@ const dictionaryGroupController = createDictionaryGroupController({
   bindNameDraft,
 });
 
-async function removeDictionary(id, title) {
-  if (!window.confirm(`Remove ${title}? Its imported data is deleted and has to be imported again.`)) {
-    return;
-  }
-  await removeDictionaries([{ id, title }]);
-}
-
-function selectedRemovableDictionaries() {
-  return dictionaries.filter((entry) => selectedDictionaryIds.has(entry.id)
-    && !isManagedCustomDictionary(entry));
-}
-
-async function removeSelectedDictionaries() {
-  const selected = selectedRemovableDictionaries();
-  if (!selected.length || !window.confirm(`Remove ${selected.length} selected dictionaries? Their imported data is deleted and has to be imported again. The personal dictionary is kept.`)) {
-    return;
-  }
-  await removeDictionaries(selected);
-}
-
-async function removeDictionaries(entries) {
-  removing = true;
-  setControlsDisabled(true);
-  const failures = [];
-  try {
-    await dictionaryCommitTail;
-    for (const { id, title } of entries) {
-      try {
-        const reply = await send("hd_remove", { id, title });
-        if (!reply.ok) throw new Error(reply.error ?? "unknown error");
-        selectedDictionaryIds.delete(id);
-      } catch (error) {
-        failures.push(`${title}: ${describe(error)}`);
-      }
-    }
-    if (await reloadDictionaries()) {
-      await refreshStatus();
-    }
-    if (failures.length) setStatus(`Could not remove ${failures.join("; ")}`, "error");
-  } finally {
-    removing = false;
-    setControlsDisabled(importing);
-  }
-}
-
-async function reloadDictionaries() {
-  try {
-    let reply = await send("hd_state_read", {}, WORKER_TARGET);
-    if (!reply.ok) {
-      throw new Error(reply.error || "the dictionary state could not be read");
-    }
-    if (!reply.state) {
-      const reloaded = await send("hd_reload");
-      if (!reloaded.ok) {
-        throw new Error(reloaded.error || "the dictionary state could not be migrated");
-      }
-      reply = await send("hd_state_read", {}, WORKER_TARGET);
-    }
-    if (!reply.ok || !reply.state) {
-      throw new Error(reply.error || "the dictionary state could not be read");
-    }
-    adoptDictionaryState(reply.state);
-  } catch (error) {
-    setStatus(`Could not read the dictionary list: ${describe(error)}`, "error");
-    return false;
-  }
-  renderDictionaryState();
-  return true;
-}
-
-function summariseReport(report) {
-  const counts = [
-    [report.termCount, "term", "terms"],
-    [report.frequencyCount, "frequency entry", "frequency entries"],
-    [report.pitchCount, "pitch entry", "pitch entries"],
-    [report.kanjiCount, "kanji", "kanji"],
-    [report.mediaCount, "media file", "media files"],
-  ]
-    .filter(([value]) => Number(value) > 0)
-    .map(([value, singular, plural]) => `${numberFormat.format(value)} ${value === 1 ? singular : plural}`);
-  return counts.length === 0 ? "no entries" : counts.join(", ");
-}
-
-function revisionLabel(value) {
-  return value === null || value === "" ? "(missing)" : value;
-}
-
-function chooseDictionaryImport(identity, matches) {
-  const dialog = element("import-decision-dialog");
-  const target = element("import-decision-target");
-  const imported = element("import-decision-imported");
-  const installed = element("import-decision-installed");
-  const description = element("import-decision-description");
-  target.replaceChildren(...matches.map(({ dictionary }, index) => {
-    const option = document.createElement("option");
-    option.value = String(index);
-    const name = dictionary.displayName
-      ? `${dictionary.displayName} (${dictionary.title})`
-      : dictionary.title;
-    option.textContent = `${name} — revision ${revisionLabel(dictionary.revision)}`
-      + ` · ID ${dictionary.id.slice(0, 8)}`;
-    return option;
-  }));
-  element("import-decision-target-row").hidden = matches.length === 1;
-  imported.textContent = `${identity.title} — revision ${revisionLabel(identity.revision)}`;
-
-  const renderTarget = () => {
-    const match = matches[Number(target.value) || 0];
-    installed.textContent = `${match.dictionary.displayName || match.dictionary.title}`
-      + ` — revision ${revisionLabel(match.dictionary.revision)}`;
-    description.textContent = describeRevisionComparison(
-      identity.revision,
-      match.dictionary.revision,
-    );
-  };
-  target.value = "0";
-  target.onchange = renderTarget;
-  renderTarget();
-  dialog.returnValue = "";
-
-  return new Promise((resolve) => {
-    const finish = () => {
-      dialog.removeEventListener("cancel", cancel);
-      const action = ["replace", "separate"].includes(dialog.returnValue)
-        ? dialog.returnValue
-        : "cancel";
-      const match = matches[Number(target.value) || 0];
-      target.onchange = null;
-      resolve(action === "cancel" ? null : {
-        action,
-        identity,
-        matchKind: match.kind,
-        target: dictionaryImportTarget(match.dictionary),
-      });
-    };
-    const cancel = (event) => {
-      event.preventDefault();
-      dialog.close("cancel");
-    };
-    dialog.addEventListener("close", finish, { once: true });
-    dialog.addEventListener("cancel", cancel, { once: true });
-    dialog.showModal();
-  });
-}
-
-async function importFile(file, index, total, request = {}, label = file.name) {
-  updateImportResult(index, { text: "Reading dictionary metadata…", progress: { value: null } });
-  let identity;
-  try {
-    identity = await readDictionaryArchiveIdentity(file);
-  } catch (error) {
-    updateImportResult(index, {
-      text: `Failed before import: ${dictionaryImportError(error, file.name, "reading dictionary metadata").message}`,
-      tone: "error",
-    });
-    return "failed";
-  }
-
-  const matches = dictionaryImportMatches(identity, dictionaries);
-  let importDecision = {
-    action: "install",
-    identity,
-    matchKind: null,
-    target: null,
-  };
-  if (matches.length > 0) {
-    importDecision = await chooseDictionaryImport(identity, matches);
-    if (importDecision === null) {
-      updateImportResult(index, {
-        text: "Cancelled before import. Existing dictionary unchanged.",
-      });
-      return "cancelled";
-    }
-  }
-
-  // The decision happens before this URL exists, so Cancel cannot start a
-  // native import, create a generation, or mutate persistent storage.
-  const started = Date.now();
-  // A linked browser sends the archive to the host, which applies the same
-  // choice against its own library (the one mirrored here).
-  if (sharingLinkedAddress !== null) {
-    return importArchive(() => uploadDictionary({
-      blob: file, fileName: file.name, replace: importDecision.action === "replace",
-      send: (type, fields) => send(type, fields, LINKED_IMPORT_TARGET),
-    }), index, total, label, started);
-  }
-  const blobUrl = URL.createObjectURL(file);
-  try {
-    return await importArchive(() => send("hd_import", {
-      blobUrl,
-      fileName: file.name,
-      ...request,
-      importDecision,
-    }), index, total, label, started);
-  } finally {
-    // The offscreen document has read the bytes by now; holding the URL any
-    // longer just pins the file.
-    URL.revokeObjectURL(blobUrl);
-  }
-}
-
-async function importArchive(runImport, index, total, label, started) {
-  const tick = () => {
-    const elapsed = elapsedSince(started);
-    setImportState(
-      `Importing ${label} (${index + 1} of ${total}) — ${index} of ${total} complete — ${elapsed} elapsed`,
-      "busy",
-    );
-    updateImportResult(index, { text: `Importing… ${elapsed} elapsed`, progress: { value: null } });
-  };
-  tick();
-  const ticker = setInterval(tick, 1000);
-
-  try {
-    const reply = await runImport();
-    const report = reply.report ?? {};
-    if (reply.ok && report.success) {
-      // What an MDX import left out. Notes never turn a success into a
-      // failure: the dictionary is installed and counts as imported.
-      const notes = mdxImportNotes(report, numberFormat);
-      updateImportResult(index, {
-        text: `Imported ${report.title} in ${importDuration(started)}: ${summariseReport(report)}.`,
-        tone: "ok",
-        notes,
-      });
-      return notes.length > 0 ? "imported-with-notes" : "imported";
-    }
-    const reason = dictionaryImportError(reply.error || report.error || "The engine gave no reason.", label, "importing the dictionary").message;
-    updateImportResult(index, {
-      text: `Failed after ${importDuration(started)}: ${reason}`,
-      tone: "error",
-    });
-  } catch (error) {
-    updateImportResult(index, {
-      text: `Failed after ${importDuration(started)}: ${dictionaryImportError(error, label, "requesting the import").message}`,
-      tone: "error",
-    });
-  } finally {
-    clearInterval(ticker);
-  }
-  return "failed";
-}
-
-function renderRecommendedInstallation() {
-  const { run, failed, pending } = recommendedInstallation;
-  const wasInstalling = installingRecommended;
-  installingRecommended = !failed && (run?.finished === false || pending?.installing === true);
-  setControlsDisabled(importing);
-  if (failed || importing) return;
-  if (!run?.runId) {
-    if (wasInstalling) setImportState("Installation was interrupted. Retry missing dictionaries.", "error");
-    return;
-  }
-  if (renderedInstallRun !== run.runId) {
-    renderedInstallRun = run.runId;
-    clearImportResults();
-    setImportEntries(run.entries.map(entry => {
-      const source = RECOMMENDED_DICTIONARIES.find(source => source.sourceId === entry.sourceId);
-      return { id: entry.sourceId, name: source?.name ?? entry.sourceId, purpose: source?.description ?? "" };
-    }));
-  }
-  for (const entry of run.entries) importProgressView().update(entry.sourceId, installEntryState(entry));
-  const failedCount = run.entries.filter(entry => entry.phase === "failed").length;
-  const complete = run.entries.filter(entry => ["installed", "already-installed", "failed"].includes(entry.phase)).length;
-  const total = run.entries.length;
-  const label = total === 1 ? "recommended dictionary" : "recommended dictionaries";
-  if (run.finished) {
-    setImportState(`Finished ${total} of ${total} ${label} — ${total - failedCount} imported, ${failedCount} failed.`,
-      failedCount ? "error" : "ready");
-    if (wasInstalling) void reloadDictionaries().then(refreshStatus);
-  } else {
-    setImportState(`Installing recommended dictionaries — ${complete} of ${total} complete. You can close this page.`, "busy");
-  }
-  renderRecommendedActions();
-}
-
-async function runImportBatch(items, importOne, singular, plural, describeItem) {
-  if (importing || installingRecommended) {
-    return;
-  }
-  importing = true;
-  setControlsDisabled(true);
-  clearImportResults();
-  setImportEntries(items.map((item, index) => ({
-    id: String(index),
-    ...describeItem(item),
-  })));
-
-  let imported = 0;
-  let withNotes = 0;
-  let cancelled = 0;
-  try {
-    for (const [index, item] of items.entries()) {
-      let outcome;
-      try {
-        outcome = await importOne(item, index, items.length); // NOSONAR: each import reviews and commits the state left by the previous item
-      } catch (error) {
-        updateImportResult(index, {
-          text: dictionaryImportError(error, describeItem(item).name, "preparing the import").message,
-          tone: "error",
-        });
-        continue;
-      }
-      if (outcome === "imported" || outcome === "imported-with-notes") {
-        imported += 1;
-        if (outcome === "imported-with-notes") withNotes += 1;
-        // A later archive in the same batch must decide against the state the
-        // previous archive actually committed, not a delayed storage event.
-        await reloadDictionaries();
-      } else if (outcome === "cancelled") cancelled += 1;
-    }
-    const failed = items.length - imported - cancelled;
-    const itemLabel = items.length === 1 ? singular : plural;
-    // #import-state is the polite live region, so it announces the notes.
-    const importedLabel = withNotes === 0
-      ? `${imported} imported`
-      : `${imported} imported (${withNotes} with notes)`;
-    const outcomes = [
-      importedLabel,
-      ...(cancelled === 0 ? [] : [`${cancelled} cancelled`]),
-      `${failed} failed`,
-    ].join(", ");
-    setImportState(
-      `Finished ${items.length} of ${items.length} ${itemLabel} — ${outcomes}.`,
-      failed === 0 ? "ready" : "error",
-    );
-    await reloadDictionaries();
-    await refreshStatus();
-  } finally {
-    importing = false;
-    syncNavigationStatus("import-state");
-    setControlsDisabled(false);
-  }
-}
-
-// An MDX dictionary is one .mdx plus the .mdd resource files named after its
-// stem (`Dict.mdd`, `Dict.1.mdd`, ...; case does not matter), which the engine
-// discovers as siblings. Every other file imports as a Yomitan ZIP, and a .mdd
-// without its .mdx is reported rather than imported on its own.
-function isMddResourceOf(mdxName, name) {
-  const stem = mdxName.slice(0, -".mdx".length).toLowerCase();
-  const lower = name.toLowerCase();
-  return lower.startsWith(`${stem}.`) && /^(\d+\.)?mdd$/u.test(lower.slice(stem.length + 1));
-}
-
-function groupImportFiles(files) {
-  // An upload carries one archive, so a linked browser sends every file as a
-  // ZIP and the host explains why it refuses an .mdx or .mdd.
-  if (sharingLinkedAddress !== null) return files.map((file) => ({ kind: "zip", file }));
-  const items = [];
-  const resourceFiles = files.filter((file) => /\.mdd$/iu.test(file.name));
-  const claimed = new Set();
-  for (const file of files) {
-    if (/\.mdd$/iu.test(file.name)) continue;
-    if (!/\.mdx$/iu.test(file.name)) {
-      items.push({ kind: "zip", file });
-      continue;
-    }
-    const resources = resourceFiles.filter((resource) => !claimed.has(resource) && isMddResourceOf(file.name, resource.name));
-    for (const resource of resources) claimed.add(resource);
-    items.push({ kind: "mdx", file, resources });
-  }
-  for (const resource of resourceFiles) {
-    if (!claimed.has(resource)) items.push({ kind: "orphan-mdd", file: resource });
-  }
-  return items;
-}
-
-async function importMdx(item, index, total) {
-  const { file, resources } = item;
-  const started = Date.now();
-  const urls = [file, ...resources].map((entry) => URL.createObjectURL(entry));
-  try {
-    return await importArchive(() => send("hd_import", {
-      blobUrl: urls[0],
-      fileName: file.name,
-      resources: resources.map((resource, position) => ({ fileName: resource.name, blobUrl: urls[position + 1] })),
-    }), index, total, file.name, started);
-  } finally {
-    for (const url of urls) URL.revokeObjectURL(url);
-  }
-}
-
-async function importGroupedItem(item, index, total) {
-  if (item.kind === "mdx") return importMdx(item, index, total);
-  if (item.kind === "orphan-mdd") {
-    updateImportResult(index, {
-      text: "Not imported: choose this .mdd together with the .mdx it belongs to.",
-      tone: "error",
-    });
-    return "failed";
-  }
-  return importFile(item.file, index, total);
-}
-
-function importItemPurpose(item) {
-  if (item.kind === "orphan-mdd") return "MDD resource file";
-  if (item.kind !== "mdx") return "Yomitan ZIP file";
-  const count = item.resources.length;
-  if (count === 0) return "MDX dictionary";
-  return `MDX dictionary with ${count} MDD ${count === 1 ? "file" : "files"}`;
-}
-
-function describeImportItem(item) {
-  return { name: item.file.name, purpose: importItemPurpose(item) };
-}
-
-function runImports(files) {
-  const items = groupImportFiles(files);
-  const onlyArchives = items.every((item) => item.kind === "zip");
-  return runImportBatch(items, importGroupedItem, onlyArchives ? "archive" : "file",
-    onlyArchives ? "archives" : "files", describeImportItem);
-}
-
-function hasDroppedFiles(event) {
-  const transfer = event.dataTransfer;
-  return (transfer?.files?.length ?? 0) > 0 || Array.from(transfer?.types ?? []).includes("Files");
-}
-
-function clearImportDropState() {
-  importDragDepth = 0;
-  element("import-drop-zone").classList.remove("is-dragging");
-}
-
-function bindImportDropZone(file) {
-  const zone = element("import-drop-zone");
-  zone.setAttribute("aria-disabled", String(file.disabled));
-  zone.addEventListener("dragenter", (event) => {
-    if (!hasDroppedFiles(event)) return;
-    event.preventDefault();
-    if (file.disabled || importing) return;
-    importDragDepth += 1;
-    zone.classList.add("is-dragging");
-  });
-  zone.addEventListener("dragover", (event) => {
-    if (!hasDroppedFiles(event)) return;
-    event.preventDefault();
-    if (file.disabled || importing) return;
-    event.dataTransfer.dropEffect = "copy";
-    zone.classList.add("is-dragging");
-  });
-  zone.addEventListener("dragleave", () => {
-    if (importDragDepth === 0) return;
-    importDragDepth -= 1;
-    if (importDragDepth === 0) zone.classList.remove("is-dragging");
-  });
-  zone.addEventListener("drop", (event) => {
-    if (!hasDroppedFiles(event)) return;
-    event.preventDefault();
-    const dropped = [...(event.dataTransfer?.files ?? [])];
-    clearImportDropState();
-    if (!file.disabled && !importing && dropped.length > 0) {
-      void runImports(dropped);
-    }
-  });
-}
-
-function installMissingRecommendedDictionaries() {
-  const missing = missingRecommendedDictionaries();
-  if (missing.length > 0 && !importing && !installingRecommended) {
-    installingRecommended = true;
-    setControlsDisabled(importing);
-    void recommendedInstallation.request(missing.map(entry => entry.sourceId));
-  }
-}
-
-function updateOutcomeSummary(type, outcomes) {
-  const failed = outcomes.filter((outcome) => outcome.status === "check-failed" || outcome.error).length;
-  if (type === "hd_updates_check") {
-    const available = outcomes.filter((outcome) => outcome.status === "update-available").length;
-    const dictionariesLabel = outcomes.length === 1 ? "managed dictionary" : "managed dictionaries";
-    const updatesLabel = available === 1 ? "update" : "updates";
-    return {
-      message: `Checked ${outcomes.length} ${dictionariesLabel} — ${available} ${updatesLabel} available, ${failed} failed.`,
-      tone: failed === 0 ? "ready" : "error",
-    };
-  }
-  const updated = outcomes.filter((outcome) => outcome.status === "updated").length;
-  const updatesLabel = outcomes.length === 1 ? "dictionary update" : "dictionary updates";
-  return {
-    message: `Finished ${outcomes.length} ${updatesLabel} — ${updated} updated, ${failed} failed.`,
-    tone: failed === 0 ? "ready" : "error",
-  };
-}
-
-async function runManagedUpdate(type, dictionaryIds = null) {
-  if (updating) {
-    return;
-  }
-  updating = true;
-  setControlsDisabled(true);
-  setUpdateState(type === "hd_updates_check" ? "Checking managed dictionaries…" : "Updating dictionaries…");
-  // The engine names the package it is replacing (hd_status.updating); polls
-  // continue while this operation runs so that row can say so.
-  scheduleStatusPoll(0);
-  try {
-    const fields = dictionaryIds === null ? {} : { dictionaryIds };
-    const reply = await send(type, fields, UPDATE_TARGET);
-    if (!reply.ok) {
-      throw new Error(reply.error || "the dictionary update operation failed");
-    }
-    adoptUpdateSettings(reply.settings);
-    await reloadDictionaries();
-    const summary = updateOutcomeSummary(type, reply.outcomes ?? []);
-    setUpdateState(summary.message, summary.tone);
-  } catch (error) {
-    setUpdateState(`Dictionary updates failed: ${describe(error)}`, "error");
-  } finally {
-    updating = false;
-    syncNavigationStatus("update-state");
-    setControlsDisabled(importing);
-  }
-}
-
-function writeUpdateSchedule(schedule) {
-  pendingSchedule = { schedule, baseRevision: pendingSchedule?.baseRevision ?? savingSchedule?.baseRevision ?? updateSettings.revision };
-  window.clearTimeout(scheduleTimer);
-  scheduleTimer = null;
-  if (scheduleSaveFailed) return;
-  setUpdateState("Unsaved schedule…", "");
-  scheduleTimer = window.setTimeout(() => { void flushUpdateSchedule(); }, OPTIONS_SAVE_DELAY_MS);
-}
-
-async function flushUpdateSchedule() {
-  window.clearTimeout(scheduleTimer);
-  scheduleTimer = null;
-  if (savingSchedule || scheduleSaveFailed || !pendingSchedule) return;
-  const sent = pendingSchedule;
-  pendingSchedule = null;
-  savingSchedule = sent;
-  renderUpdateControls();
-  setUpdateState("Saving schedule…", "");
-  try {
-    const reply = await send("hd_updates_schedule", sent, UPDATE_TARGET);
-    if (reply.settings) adoptUpdateSettings(reply.settings);
-    if (!reply.ok) throw new Error(reply.error || "the dictionary update schedule could not be saved");
-    // Advance a queued draft only through our own commit, never through an
-    // unrelated newer event that happened to arrive before this reply.
-    if (pendingSchedule) pendingSchedule.baseRevision = Math.max(pendingSchedule.baseRevision, reply.settings.revision);
-    setUpdateState(pendingSchedule ? "Unsaved schedule…" : "Schedule saved.", pendingSchedule ? "" : "ready");
-  } catch (error) {
-    pendingSchedule ??= sent;
-    scheduleSaveFailed = true;
-    try {
-      const stored = await chrome.storage.local.get("dictionaryUpdates");
-      adoptUpdateSettings(stored.dictionaryUpdates);
-    } catch { /* Keep the draft even if the committed state cannot be read. */ }
-    setUpdateState(`Could not save the schedule: ${describe(error)} Current schedule: ${updateSettings.schedule}. Your draft is retained.`, "error");
-  } finally {
-    savingSchedule = null;
-    renderUpdateControls();
-    syncNavigationStatus("update-state");
-    if (!scheduleSaveFailed && scheduleTimer === null && pendingSchedule) void flushUpdateSchedule();
-  }
-}
-
 function attachHandlers() {
-  element("custom-dictionary-form").addEventListener("submit", (event) => {
-    void saveCustomDictionarySource(event);
-  });
-  element("custom-dictionary-reload").addEventListener("click", () => {
-    void loadCustomDictionarySource();
-  });
-  element("custom-dictionary-source").addEventListener("input", () => {
-    cancelCustomDictionaryValidation();
-    if (customDraftStale) {
-      markCustomDictionaryStale();
-    } else {
-      setCustomDictionaryStatus(customDictionaryDirty() ? "Unsaved changes." : "No unsaved changes.");
-    }
-    renderCustomDictionaryControls();
-    // Keep full-document parsing and diagnostics off the typing path. Saving
-    // cancels this preview and validates the exact submitted source immediately.
-    customValidationTimer = setTimeout(() => {
-      const parsed = renderCustomDictionaryValidation();
-      if (customDraftStale || !customDictionaryDirty()) return;
-      setCustomDictionaryStatus(
-        `${parsed.entries.length} valid ${parsed.entries.length === 1 ? "entry" : "entries"} ready to save.`,
-      );
-    }, 150);
-  });
+  attachCustomDictionaryHandlers();
 
-  const file = element("import-file");
-  file.addEventListener("change", () => {
-    const picked = [...(file.files ?? [])];
-    // Snapshot before clearing so picking the same batch again fires a change event.
-    file.value = "";
-    if (picked.length > 0) {
-      void runImports(picked);
-    }
-  });
-  bindImportDropZone(file);
+  attachImportHandlers();
 
-  element("dict-search").addEventListener("input", (event) => {
-    dictionarySearch = event.target.value;
-    renderDictionaries(true);
-  });
+  attachLibraryHandlers();
+  element("lookup-counts-reset").addEventListener("click", () => { void resetLookupCounts(); });
+  element("debug-info-download").addEventListener("click", () => { void downloadDebugInfo(); });
 
-  element("dict-select-visible").addEventListener("change", (event) => {
-    const visible = visibleDictionaries();
-    for (const dictionary of visible) {
-      if (event.target.checked) {
-        selectedDictionaryIds.add(dictionary.id);
-      } else {
-        selectedDictionaryIds.delete(dictionary.id);
-      }
-    }
-    if (dictionaryRenderDeferred) {
-      renderDictionaries();
-    } else {
-      for (const row of element("dict-list").children) {
-        row.querySelector(".dict-selected").checked = selectedDictionaryIds.has(row.dataset.dictionaryId);
-      }
-      renderDictionarySelection(visible);
-      setControlsDisabled(importing);
-    }
-  });
+  attachGroupHandlers();
 
-  element("dict-bulk-enable").addEventListener("click", () => {
-    updateSelectedDictionaries("enabled", true, true);
-  });
-  element("dict-bulk-disable").addEventListener("click", () => {
-    updateSelectedDictionaries("enabled", false, true);
-  });
-  element("dict-bulk-favorite").addEventListener("click", () => {
-    updateSelectedDictionaries("favorite", true, false);
-  });
-  element("dict-bulk-unfavorite").addEventListener("click", () => {
-    updateSelectedDictionaries("favorite", false, false);
-  });
-  element("dict-bulk-remove").addEventListener("click", removeSelectedDictionaries);
+  attachRecommendedHandlers();
+  attachUpdateHandlers();
 
-  element("dict-group-create-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    dictionaryGroupController.create();
-  });
-  document.querySelector("main").addEventListener("pointerdown", (event) => {
-    if (event.target.closest("#dict-list, #dict-group-list")) managementPointerDown = true;
-  });
-  const finishManagementPointer = () => {
-    managementPointerDown = false;
-    setTimeout(() => {
-      if (dictionaryRenderDeferred) renderChangedDictionaryState();
-    }, 0);
-  };
-  window.addEventListener("pointerup", finishManagementPointer, true);
-  window.addEventListener("pointercancel", finishManagementPointer, true);
-
-  element("install-recommended").addEventListener("click", installMissingRecommendedDictionaries);
-  element("empty-install-recommended").addEventListener("click", () => {
-    window.location.hash = "add-dictionaries";
-    installMissingRecommendedDictionaries();
-  });
-  element("empty-import-dictionaries").addEventListener("click", () => {
-    window.location.hash = "add-dictionaries";
-    element("import-file").click();
-  });
-  element("empty-clear-search").addEventListener("click", () => {
-    const search = element("dict-search");
-    search.value = "";
-    search.dispatchEvent(new Event("input", { bubbles: true }));
-    search.focus();
-  });
-  element("retry-recommended").addEventListener("click", installMissingRecommendedDictionaries);
-  element("update-check-now").addEventListener("click", () => {
-    void runManagedUpdate("hd_updates_check");
-  });
-  element("update-all").addEventListener("click", () => {
-    void runManagedUpdate("hd_updates_install", availableUpdates().map((dictionary) => dictionary.id));
-  });
-  element("update-schedule").addEventListener("change", (event) => {
-    writeUpdateSchedule(event.target.value);
-  });
-  element("update-schedule-retry").addEventListener("click", () => {
-    if (!pendingSchedule) return;
-    pendingSchedule.baseRevision = updateSettings.revision;
-    scheduleSaveFailed = false;
-    void flushUpdateSchedule();
-  });
-  element("update-schedule-discard").addEventListener("click", () => {
-    window.clearTimeout(scheduleTimer);
-    scheduleTimer = pendingSchedule = null;
-    scheduleSaveFailed = false;
-    renderUpdateControls();
-    setUpdateState("Current schedule restored.", "ready");
-  });
-
-  for (const field of NUMBER_FIELDS) {
-    const input = element(field.id);
-    input.addEventListener("change", () => {
-      options[field.key] = clampOption(field.key, input.value);
-      input.value = String(options[field.key]);
-      writeOptions();
-    });
-  }
-
-  element("opt-hover-enabled").addEventListener("change", (event) => {
-    options.hoverEnabled = event.target.checked;
-    writeOptions();
-  });
-  for (const field of APPEARANCE_CHOICES) {
-    element(field.id).addEventListener("change", (event) => {
-      options[field.key] = field.values && !field.values.includes(event.target.value)
-        ? DEFAULT_OPTIONS[field.key] : event.target.value;
-      if (field.key === "definitionBlurReveal") renderDefinitionBlurControls();
-      writeOptions();
-    });
-  }
-  for (const [id, key] of [["opt-blur-count", "definitionBlurCountEnabled"],
-    ["opt-blur-anki", "definitionBlurAnkiMature"],
-    ["opt-blur-frequency", "definitionBlurFrequencyEnabled"]]) {
-    element(id).addEventListener("change", (event) => {
-      options[key] = event.target.checked;
-      renderDefinitionBlurControls();
-      writeOptions();
-    });
-  }
-  element("opt-blur-frequency-dictionary").addEventListener("change", (event) => {
-    if (event.target.value && !selectedDefinitionBlurFrequencyDictionary(event.target.value)) {
-      event.target.value = options.definitionBlurFrequencyDictionary;
-      setOptionsStatus("That frequency dictionary is no longer available.");
-      return;
-    }
-    options.definitionBlurFrequencyDictionary = event.target.value;
-    renderDefinitionBlurControls();
-    writeOptions();
-  });
-  element("opt-blur-delay").addEventListener("change", (event) => {
-    options.definitionBlurDelayMs = clampOption("definitionBlurDelayMs", Math.round(Number(event.target.value) * 1000));
-    event.target.value = String(options.definitionBlurDelayMs / 1000);
-    writeOptions();
-  });
-  element("opt-source-highlight").addEventListener("change", (event) => {
-    options.sourceHighlightEnabled = event.target.checked;
-    writeOptions();
-  });
-  element("opt-popup-audio-button").addEventListener("change", (event) => {
-    options.showPopupAudioButton = event.target.checked;
-    writeOptions();
-  });
-  element("reset-design").addEventListener("click", () => {
-    for (const key of DESIGN_OPTION_KEYS) options[key] = DEFAULT_OPTIONS[key];
-    customButtonController?.reset();
-    renderCustomCss(true);
-    renderCustomJavascript(true);
-    renderOptions();
-    writeOptions();
-  });
-  element("opt-custom-popup-css").addEventListener("input", event => {
-    // This target listener runs before the section's bubbling draft listener.
-    optionsEditRevision ??= Math.max(0, optionsRevision);
-    options.customPopupCss = event.target.value;
-    renderCustomCss();
-    writeOptions();
-  });
-  element("reset-custom-css").addEventListener("click", () => {
-    options.customPopupCss = DEFAULT_OPTIONS.customPopupCss;
-    renderCustomCss(true);
-    writeOptions();
-  });
-  element("opt-custom-popup-javascript").addEventListener("input", event => {
-    optionsEditRevision ??= Math.max(0, optionsRevision);
-    options.customPopupJavascript = event.target.value;
-    renderCustomJavascript();
-    writeOptions();
-  });
-  element("reset-custom-javascript").addEventListener("click", () => {
-    options.customPopupJavascript = DEFAULT_OPTIONS.customPopupJavascript;
-    renderCustomJavascript(true);
-    writeOptions();
-  });
-  for (const field of METADATA_FIELDS) {
-    element(field.id).addEventListener("change", (event) => {
-      options[field.key] = field.inverted ? !event.target.checked : event.target.checked;
-      renderMetadataControls();
-      writeOptions();
-    });
-  }
-  element("opt-pitch-dictionary").addEventListener("change", (event) => {
-    options.pitchAccentFuriganaDictionary = event.target.value;
-    writeOptions();
-  });
-  element("opt-japanese-only").addEventListener("change", (event) => {
-    options.onlyScanJapaneseText = event.target.checked;
-    writeOptions();
-  });
-  element("opt-personal-dictionary").addEventListener("change", (event) => {
-    options.personalDictionaryEnabled = event.target.checked;
-    renderPersonalDictionaryControls();
-    writeOptions();
-  });
-  element("opt-no-result-notice").addEventListener("change", (event) => {
-    options.showNoResultNotice = event.target.checked;
-    writeOptions();
-  });
-  element("opt-hide-on-cursor-exit").addEventListener("change", (event) => {
-    options.hidePopupOnCursorExit = event.target.checked;
-    renderCursorExitControls();
-    writeOptions();
-  });
-  element("opt-low-memory-mode").addEventListener("change", (event) => {
-    options.lowMemoryMode = event.target.checked;
-    renderLowMemoryMode();
-    writeOptions();
-  });
-  element("opt-dictionary-entry-storage").addEventListener("change", (event) => {
-    options.dictionaryEntryStorage = event.target.value;
-    writeOptions();
-  });
-  element("opt-audio-autoplay").addEventListener("change", (event) => {
-    options.audioAutoplay = event.target.checked;
-    writeOptions();
-  });
-  element("opt-compact-summary").addEventListener("change", (event) => {
-    options.showCompactDefinitionSummary = event.target.checked;
-    renderCompactSummaryControls();
-    writeOptions();
-  });
-  element("opt-summary-dictionary").addEventListener("change", (event) => {
-    options.compactDefinitionSummaryDictionary = event.target.value;
-    writeOptions();
-  });
-  element("opt-image-source").addEventListener("change", (event) => {
-    // Values come from the canonical descriptors rendered above, not labels.
-    options.popupImageSource = event.target.value ? JSON.parse(event.target.value) : null;
-    writeOptions();
-  });
-  // The picker and the keep-open switch together choose one lookup mode, so
-  // either control's change reads both.
-  const writeActivation = () => {
-    const key = element("opt-activation-key").value;
-    if (key === "") {
-      options.lookupMode = "hover";
-    } else {
-      options.activationKey = key;
-      options.lookupMode = element("opt-lookup-sticky").checked ? "activationSticky" : "activation";
-    }
-    renderActivationControls();
-    writeOptions();
-  };
-  element("opt-activation-key").addEventListener("change", writeActivation);
-  element("opt-lookup-sticky").addEventListener("change", writeActivation);
-  element("opt-definition-lookup-mode").addEventListener("change", (event) => {
-    options.definitionLookupMode = DEFINITION_LOOKUP_MODES.includes(event.target.value) ? event.target.value : "inherit";
-    writeOptions();
-  });
-
-  element("opt-frequency-order").addEventListener("change", (event) => {
-    options.frequencyOrder = FREQUENCY_ORDERS.includes(event.target.value) ? event.target.value : "auto";
-    renderFrequencyOrder();
-    writeOptions();
-  });
-
-  element("opt-frequency-dictionary").addEventListener("change", (event) => {
-    // A focused native chooser can outlive a dictionary capability change.
-    if (event.target.value && !selectedFrequencyDictionary(event.target.value)) {
-      event.target.value = options.frequencyDictionary;
-      setOptionsStatus("That frequency dictionary is no longer available.");
-      return;
-    }
-    options.frequencyDictionary = event.target.value;
-    // Blur set to "Same as sorting" follows this choice.
-    renderDefinitionBlurControls();
-    applyFrequencyDirection();
-  });
-  element("opt-frequency-auto").addEventListener("click", applyFrequencyDirection);
-
-  element("opt-kanji-dictionary").addEventListener("change", (event) => {
-    options.kanjiClickDictionary = selectionFromValue(event.target.value);
-    writeOptions();
-  });
-  const optionSections = Object.keys(OPTION_SECTIONS).map(element);
-  for (const section of optionSections) {
-    section.addEventListener("input", (event) => {
-      if (!event.target.id.startsWith("opt-")) return;
-      optionsEditRevision ??= Math.max(0, optionsRevision);
-      const field = NUMBER_FIELDS.find(({ id, live }) => live && id === event.target.id);
-      if (field && event.target.value !== "" && event.target.validity.valid) {
-        options[field.key] = Number(event.target.value);
-        writeOptions();
-      }
-    });
-    section.addEventListener("change", () => {
-      optionsEditRevision = null;
-    });
-    section.addEventListener("focusout", (event) => {
-      optionsEditRevision = null;
-      if (event.target.id === "opt-custom-popup-css") renderCustomCss(true);
-      if (event.target.id === "opt-custom-popup-javascript") renderCustomJavascript(true);
-      if (event.target.id === "opt-frequency-dictionary") renderFrequencyChoices();
-      if (event.target.id === "opt-blur-frequency-dictionary") renderDefinitionBlurFrequencyChoices();
-      if (event.target.id === "opt-image-source") renderPopupImageSources();
-      if (event.target.id === "opt-kanji-dictionary") renderKanjiChoices();
-      if (event.target.id === "opt-pitch-dictionary" || event.target.id === "opt-pitch-furigana-style") renderMetadataControls();
-      if (event.target.closest("#definition-blur-settings")) {
-        renderDefinitionBlurControls();
-      }
-      if (event.target.id === "opt-summary-dictionary" || event.target.id === "opt-summary-count") renderCompactSummaryControls();
-      if (event.target.id === "opt-hide-on-cursor-exit-delay") renderCursorExitControls();
-      const choice = APPEARANCE_CHOICES.find(({ id }) => id === event.target.id);
-      if (choice) event.target.value = options[choice.key];
-      const field = NUMBER_FIELDS.find(({ id }) => id === event.target.id);
-      if (field) event.target.value = String(options[field.key]);
-    });
-  }
-  element("options-retry").addEventListener("click", () => {
-    optionsSaveFailed = false;
-    pendingOptionsRevision = optionsRevision;
-    void flushOptions();
-  });
-  element("options-use-saved").addEventListener("click", () => {
-    window.clearTimeout(optionsTimer);
-    optionsTimer = null;
-    pendingOptions = {};
-    optionsEditRevision = null;
-    optionsSaveFailed = false;
-    renderCurrentOptions();
-    renderCustomCss(true);
-    renderCustomJavascript(true);
-    setOptionsStatus("Using saved settings.");
-  });
+  attachOptionHandlers();
 
   window.addEventListener("beforeunload", (event) => {
     if (!importing && !backingUp && pendingDictionaryCommits === 0 && savingOptions === null && optionsEditRevision === null
@@ -3553,45 +866,6 @@ function attachHandlers() {
   window.addEventListener("pageshow", event => { if (event.persisted) void recommendedInstallation.request(); });
 }
 
-function dictionaryNameIsBeingEdited() {
-  const active = document.activeElement;
-  return active instanceof HTMLInputElement
-    && (active.classList.contains("dict-display-name") || active.classList.contains("dict-group-name"));
-}
-
-function renderChangedDictionaryState() {
-  if (committing || nameDrafts.hasInFlightSave() || managementPointerDown || dictionaryNameIsBeingEdited()) {
-    dictionaryRenderDeferred = true;
-    return;
-  }
-  renderDictionaryState();
-}
-
-// A scheduled update records that an update is available immediately before
-// installing it; that write is the page's cue to start polling hd_status so
-// the row can show which package is being replaced.
-function updateAvailabilityRecorded(previous, next) {
-  const before = new Map((previous?.dictionaries ?? []).map((entry) => [entry?.id, JSON.stringify(entry?.lastUpdateCheck ?? null)]));
-  return (next?.dictionaries ?? []).some((entry) =>
-    entry?.lastUpdateCheck?.status === "update-available"
-      && before.get(entry.id) !== JSON.stringify(entry.lastUpdateCheck));
-}
-
-function handleDictionaryStateChange(change) {
-  let adopted;
-  try {
-    adopted = adoptDictionaryState(change.newValue);
-  } catch (error) {
-    setStatus(describe(error), "error");
-    return false;
-  }
-  if (adopted) {
-    renderChangedDictionaryState();
-    if (updateAvailabilityRecorded(change.oldValue, change.newValue)) scheduleStatusPoll(0);
-  }
-  return true;
-}
-
 function renderCurrentOptions() {
   options = { ...savedOptions, ...savingOptions?.patch, ...pendingOptions };
   renderOptions();
@@ -3608,14 +882,6 @@ function adoptOptions(value) {
 
 function handleOptionsChange(change) {
   adoptOptions(change.newValue);
-}
-
-function handleCustomDictionarySourceChange(change) {
-  try {
-    adoptCustomDictionaryDocument(change.newValue);
-  } catch (error) {
-    setCustomDictionaryStatus(`Could not read the changed custom dictionary source: ${describe(error)}`, "error");
-  }
 }
 
 function renderSetupResume(value) {
@@ -3655,104 +921,13 @@ function handleStorageChange(changes, area) {
   }
 }
 
-function setOptionsStatus(message, completed = false) {
-  let tone = message === "Saved." ? "ready" : "";
-  if (optionsSaveFailed) tone = "error";
-  setSectionStatus("options-status", message, tone, completed);
-  element("options-status").classList.toggle("is-quiet", !optionsSaveFailed
-    && ["Saved.", "Saving…", "Unsaved changes…", "Using saved settings."].includes(message));
-  element("options-conflict-actions").hidden = !optionsSaveFailed;
-}
-
-// Keep only edited fields. A storage event can update the committed snapshot,
-// but cannot replace a local draft or authorize a stale draft's write.
-function writeOptions() {
-  applyPageTheme(document, options);
-  themeStore.render(options);
-  updateDesignPreview();
-  const previous = { ...savedOptions, ...savingOptions?.patch };
-  const changes = Object.fromEntries(Object.entries(options).filter(([key, value]) =>
-    JSON.stringify(value) !== JSON.stringify(previous[key])));
-  if (Object.keys(pendingOptions).length === 0) {
-    pendingOptionsRevision = optionsEditRevision ?? Math.max(0, optionsRevision);
-  }
-  pendingOptions = changes;
-  window.clearTimeout(optionsTimer);
-  optionsTimer = null;
-  if (optionsSaveFailed) return;
-  setOptionsStatus("Unsaved changes…");
-  optionsTimer = window.setTimeout(() => { void flushOptions(); }, OPTIONS_SAVE_DELAY_MS);
-}
-
-async function flushOptions() {
-  window.clearTimeout(optionsTimer);
-  optionsTimer = null;
-  if (savingOptions !== null) return optionsSaveCompletion;
-  if (optionsSaveFailed) return;
-  if (Object.keys(pendingOptions).length === 0) {
-    setOptionsStatus("Saved.");
-    return;
-  }
-  let finishSave;
-  optionsSaveCompletion = new Promise(resolve => { finishSave = resolve; });
-  const sent = { patch: pendingOptions, baseRevision: pendingOptionsRevision };
-  savingOptions = sent;
-  pendingOptions = {};
-  setOptionsStatus("Saving…");
-  try {
-    const reply = await send("hd_options_write", {
-      baseRevision: sent.baseRevision,
-      options: sent.patch,
-    }, WORKER_TARGET);
-    if (reply.options) adoptOptions(reply.options);
-    if (!reply.ok) {
-      throw new Error(reply.error || "the options could not be saved");
-    }
-    // A newer external event may already have arrived; keep that state, while
-    // binding queued edits to the reply we actually committed, not that event.
-    pendingOptionsRevision = Math.max(pendingOptionsRevision, reply.options.revision);
-    if (optionsEditRevision !== null) {
-      optionsEditRevision = Math.max(optionsEditRevision, reply.options.revision);
-    }
-    setOptionsStatus(Object.keys(pendingOptions).length > 0 ? "Unsaved changes…" : "Saved.", true);
-  } catch (error) {
-    pendingOptions = { ...sent.patch, ...pendingOptions };
-    optionsSaveFailed = true;
-    // A reply can be lost after storage commits. Read the current revision for
-    // explicit retry; do not silently overwrite it or drop the retained draft.
-    try {
-      const stored = await chrome.storage.local.get("options");
-      adoptOptions(stored.options);
-    } catch { /* The draft stays available even while storage is unreachable. */ }
-    setOptionsStatus(`Could not save settings: ${describe(error)}`);
-  } finally {
-    savingOptions = null;
-    syncNavigationStatus("options-status");
-    renderCurrentOptions();
-    if (!optionsSaveFailed && optionsTimer === null && Object.keys(pendingOptions).length > 0) {
-      void flushOptions();
-    }
-    finishSave();
-  }
-}
-
-async function flushOptionsUntilIdle() {
-  window.clearTimeout(optionsTimer);
-  optionsTimer = null;
-  for (;;) {
-    if (optionsSaveFailed) {
-      throw new Error("Save the pending settings before checking AnkiConnect.");
-    }
-    if (savingOptions === null && Object.keys(pendingOptions).length === 0) return;
-    await flushOptions();
-  }
-}
-
 function renderMiningCapabilityHelp() {
   element("audio-mining-help").hidden = MINING_CAPABILITIES.browserSpeech;
 }
 
 async function start() {
+  // Get debug info includes this page's own recent warnings and errors.
+  captureDebugLog(window, { context: "settings" });
   configureBrowserUi();
   renderMiningCapabilityHelp();
   element("custom-buttons-settings").disabled = false;
@@ -3777,5 +952,18 @@ async function start() {
   await refreshStatus();
   void recommendedInstallation.request();
 }
+
+export {
+  activationLabel, activeSection, adoptOptions, APPEARANCE_CHOICES, backingUp, clampOption,
+  customButtonController, DEFAULT_OPTIONS, DEFINITION_LOOKUP_MODES, definitionBlurFrequencyDictionary,
+  DESIGN_OPTION_KEYS, dictionaryGroupController, element, FREQUENCY_ORDERS, hasCapability, lastEngineStatus,
+  memorySettings, METADATA_FIELDS, nameDrafts, normaliseKanjiSelection, NUMBER_FIELDS, numberFormat,
+  OPTION_SECTIONS, options, OPTIONS_SAVE_DELAY_MS, optionsRevision, POPUP_RENDERER_IDS, POPUP_THEME_GROUPS,
+  popupRenderer, recommendedInstallation, refreshMemorySettings, refreshStatus, renderCurrentOptions,
+  renderEngineStatus, renderExperimentalSettings, renderLowMemoryMode, savedOptions, scheduleStatusPoll, send,
+  setSectionStatus, setStatus, sharingLinkedAddress, syncNavigationStatus, TARGET, themeStore, UPDATE_TARGET,
+  updateAnkiSettings, updateAudioSettings, updateDesignPreview, updateKeybindSettings,
+  WORD_HIGHLIGHT_SWITCHES, WORKER_TARGET
+};
 
 await start();

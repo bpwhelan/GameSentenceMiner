@@ -35,6 +35,12 @@
       description: "Look up words in Google Docs. Asks Google Docs to expose its text to Hachidori, which Google may change or remove without notice; the sentence is the hovered run of text." },
     { id: "smallerAnkiCards", label: "Smaller Anki cards",
       description: "Write compact definitions to new Anki notes: dictionary stylesheets, classes and wrappers are left out, keeping the text, line breaks, lists, tables, furigana and images. Notes already in Anki are not changed." },
+    { id: "netflixMining", label: "Netflix mining",
+      description: "Add the Netflix subtitle line's audio to Anki notes with {sentence-audio} and a looping GIF of it with {gif}, and use the whole line as the sentence. Hovering a subtitle pauses the video until the pointer leaves the subtitle and the popup. Reads Netflix's subtitle files (adapted from Subadub), which Netflix may change without notice. The video's sound plays through Hachidori, which keeps the last 30 seconds in memory to cut the line from; a line you have not heard all of plays on or replays once. Reload Netflix after turning this on. Protected video can make the audio silent or the GIF black." },
+    { id: "netflixPreviewScreenshots", label: "Netflix preview screenshots",
+      description: "Use Netflix's timeline preview image for {screenshot} when the video comes out black. Preview images have lower resolution and show a nearby moment, not necessarily the exact frame. Does not record or replay the video. Other pages keep normal screenshots. Netflix may change or remove these previews." },
+    { id: "wordHighlighting", label: "Word highlighting", section: "word-highlighting",
+      description: "Mark the Japanese words on every page by their Anki status: unknown, learning or known, or as you set them with Mark as known and Ignore in the popup. Your dictionaries split the page into words on this computer, and the status comes from Hachidori's copy of your Anki index, so opening a page never contacts Anki." },
   ];
   const DEFAULT_EXPERIMENTAL = Object.fromEntries(EXPERIMENTAL_FEATURES.map(feature => [feature.id, false]));
   // yomitan-gsm hotkey actions that map onto existing Hachidori behaviour, in
@@ -59,6 +65,11 @@
     // Yomitan offers this only inside its popup. Hachidori's popup cannot
     // exist while lookups are off, so the page scope can turn them back on.
     { id: "toggleOption", label: "Toggle option", argument: "option", scopes: ["popup", "web"] },
+    // Hachidori's own: shows or hides the word highlights (#520) of the page,
+    // and sets the current entry's word to known or ignored for them.
+    { id: "toggleWordHighlights", label: "Toggle word highlights", scopes: ["web"] },
+    { id: "markWordKnown", label: "Mark word as known" },
+    { id: "ignoreWord", label: "Ignore word" },
   ].map(action => ({ scopes: ["popup"], ...action }));
   const KEYBIND_ARGUMENT_DEFAULTS = { count: "1", audioSource: "", option: "" };
   // Yomitan's popup scope, adapted: Hachidori's hover popup never takes focus,
@@ -106,6 +117,11 @@
     lookupMode: "activationSticky",
     activationKey: "Shift",
     definitionLookupMode: "inherit",
+    // Reading → Activation: how long a lookup that needs no key waits for the
+    // pointer to rest on one word (0 looks up at once), and the same wait in a
+    // popup's definitions, where null follows the page's.
+    scanDelayMs: 0,
+    definitionScanDelayMs: null,
     popupHideDelayMs: 160,
     // Yomitan's scanning.hidePopupOnCursorExit and hidePopupOnCursorExitDelay.
     hidePopupOnCursorExit: false,
@@ -143,6 +159,15 @@
     definitionBlurThreshold: 5,
     definitionBlurReveal: "timed",
     definitionBlurDelayMs: 5000,
+    // Reading → Word highlighting (#520, experimental): marks the page's words
+    // by their Anki status. Its switches and style stay while it is off.
+    wordHighlightEnabled: false,
+    wordHighlightUnknown: true,
+    wordHighlightLearning: true,
+    wordHighlightKnown: false,
+    // Words set to Ignore from the popup, which are otherwise left unmarked.
+    wordHighlightIgnored: false,
+    wordHighlightStyle: "underline",
     showCompactDefinitionSummary: false,
     compactDefinitionSummaryCount: 3,
     compactDefinitionSummaryDictionary: "",
@@ -173,17 +198,25 @@
     frequencyDictionary: "",
     frequencyOrder: "auto",
     automaticBackupDays: 2,
+    useLessRamByDefault: false,
     // Recycle the engine worker after dictionary changes and import on one
     // thread; see docs/memory.md. Not a reader behaviour, so no hotkey toggle.
     lowMemoryMode: false,
     dictionaryEntryStorage: "auto",
+    dictionaryIndexStorage: "auto",
     keybinds: DEFAULT_KEYBINDS,
   };
+  // Word highlighting's switches stay with its experimental Settings section;
+  // a page shows or hides its marks with Toggle word highlights instead.
+  const UNTOGGLED_OPTIONS = new Set(["lowMemoryMode", "useLessRamByDefault", "wordHighlightEnabled", "wordHighlightUnknown",
+    "wordHighlightLearning", "wordHighlightKnown", "wordHighlightIgnored"]);
   const KEYBIND_TOGGLE_OPTIONS = Object.keys(DEFAULT_OPTIONS)
-    .filter(key => typeof DEFAULT_OPTIONS[key] === "boolean" && key !== "lowMemoryMode");
+    .filter(key => typeof DEFAULT_OPTIONS[key] === "boolean" && !UNTOGGLED_OPTIONS.has(key));
   const NUMBER_RANGES = {
     scanLength: [1, 64],
     maxResults: [1, 256],
+    scanDelayMs: [0, 5000],
+    definitionScanDelayMs: [0, 5000],
     popupHideDelayMs: [0, 5000],
     hidePopupOnCursorExitDelayMs: [0, 5000],
     popupNestingMaxDepth: [0, Number.MAX_SAFE_INTEGER],
@@ -208,6 +241,8 @@
   // Yomitan's stored values, so its "compact-popup-anki" can follow without a migration.
   const GLOSSARY_LAYOUT_MODES = ["default", "compact"];
   const PITCH_ACCENT_FURIGANA_STYLES = ["contour", "overline"];
+  // How a word highlight marks its word: a line under it, its text, or its background.
+  const WORD_HIGHLIGHT_STYLES = ["underline", "color", "background"];
   // Audited Hoshidicts catalogue from GSM PR #549; palette values live in reader.css.
   const POPUP_THEME_GROUPS = [
     { label: "Automatic", ids: ["auto"] },
@@ -609,6 +644,7 @@
   // Enumerated options fall back to their default outside the listed values.
   const ENUMERATED_OPTIONS = {
     dictionaryEntryStorage: new Set(["auto", "paged", "resident"]),
+    dictionaryIndexStorage: new Set(["auto", "paged", "resident"]),
     lookupMode: new Set(LOOKUP_MODES),
     definitionLookupMode: new Set(DEFINITION_LOOKUP_MODES),
     popupTheme: POPUP_THEME_IDS,
@@ -620,9 +656,12 @@
     imageHoverPreview: new Set(IMAGE_HOVER_PREVIEWS),
     glossaryLayoutMode: new Set(GLOSSARY_LAYOUT_MODES),
     pitchAccentFuriganaStyle: new Set(PITCH_ACCENT_FURIGANA_STYLES),
+    wordHighlightStyle: new Set(WORD_HIGHLIGHT_STYLES),
   };
 
   function normaliseField(key, value) {
+    // Same as page delay is null, not a copy of the page value.
+    if (key === "definitionScanDelayMs" && value === null) return null;
     if (Object.hasOwn(NUMBER_RANGES, key)) return clampOption(key, value);
     if (typeof DEFAULT_OPTIONS[key] === "boolean") {
       return typeof value === "boolean" ? value : DEFAULT_OPTIONS[key];
@@ -642,14 +681,25 @@
     }
   }
 
+  // Whether a dictionary has entries of a kind: "freq", "pitch", "kanji", or
+  // terms for any other kind. A package with no entries of any kind counts as
+  // a term dictionary. Settings and the service worker check option
+  // selections with it.
+  function hasCapability(dictionary, kind) {
+    if (kind === "freq") return dictionary.frequencyCount > 0;
+    if (kind === "pitch") return dictionary.pitchCount > 0;
+    if (kind === "kanji") return dictionary.kanjiCount > 0;
+    if (dictionary.termCount > 0) return true;
+    return dictionary.frequencyCount === 0 && dictionary.pitchCount === 0 && dictionary.kanjiCount === 0;
+  }
+
   // A dictionary's clicked-kanji capability: native kanji entries when it has
   // them, otherwise its term entries. Metadata-only packages have neither.
   function kanjiCapability(dictionary, requestedKind = "") {
     if (!dictionary || dictionary.enabled === false) return null;
     const defaultKind = dictionary.kanjiCount > 0 ? "kanji" : "term";
     const kind = requestedKind === "" ? defaultKind : requestedKind;
-    const available = kind === "kanji" ? dictionary.kanjiCount > 0 : dictionary.termCount > 0
-      || (dictionary.frequencyCount === 0 && dictionary.pitchCount === 0 && dictionary.kanjiCount === 0);
+    const available = hasCapability(dictionary, kind === "kanji" ? "kanji" : "term");
     return available ? { kind, title: dictionary.title } : null;
   }
 
@@ -706,7 +756,8 @@
   }
 
   // Keys an older stored record or backup may still carry. `modifier` and
-  // `definitionBlurEnabled` migrate; `hoverDelayMs` was never adjustable and is dropped.
+  // `definitionBlurEnabled` migrate; `hoverDelayMs` was never adjustable and is
+  // dropped rather than read as `scanDelayMs`.
   const RETIRED_OPTION_KEYS = ["modifier", "definitionBlurEnabled", "hoverDelayMs"];
 
   // `definitionBlurEnabled` was renamed; the new key wins when both are present.
@@ -743,6 +794,7 @@
     if (key === "experimental") return validExperimental(raw, normalized);
     if (key === "kanjiClickDictionary") return typeof raw === "string" || typeof normalized === "object";
     if (key === "popupImageSource") return raw === null || normalized !== null;
+    if (key === "definitionScanDelayMs") return raw === null || (typeof raw === "number" && raw === normalized);
     if (key === "keybinds") return Array.isArray(raw) && raw.length === normalized.length
       && normalized.every((bind, index) => raw[index] && typeof raw[index] === "object" && JSON.stringify(bind)
         === JSON.stringify(Object.fromEntries(Object.keys(bind).map(field => [field, raw[index][field]]))));
@@ -807,9 +859,9 @@
     normaliseCustomButtons, normaliseExperimental, ankiTemplateConfig,
     definitionBlurFrequencyDictionary, definitionBlurFrequencyEvidence, definitionBlurQualifies,
     DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS, DEFINITION_BLUR_FREQUENCY_ORDERS, IMAGE_HOVER_PREVIEWS,
-    GLOSSARY_LAYOUT_MODES, PITCH_ACCENT_FURIGANA_STYLES,
+    GLOSSARY_LAYOUT_MODES, PITCH_ACCENT_FURIGANA_STYLES, WORD_HIGHLIGHT_STYLES,
     projectStoredOptions, projectContentOptions, validateOptionsPatch,
     resolvePopupImageSources,
-    resolveKanjiDictionary,
+    hasCapability, resolveKanjiDictionary,
   };
 }());

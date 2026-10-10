@@ -3056,11 +3056,13 @@
       ipaRow.className = "gsm-hoshidicts-metadata gsm-hoshidicts-ipa-metadata";
       let frequencyCount = 0;
       function updateFrequency(context) {
+        // Every frequency dictionary keeps its tag (#505); the metadata
+        // display budget only limits the pitch badges after them.
         const frequencyTags = includeFrequency ? createFrequencyTags(
           documentRef,
           result,
           context.dictionaryPresentation || [],
-          maxMetadataTags,
+          Infinity,
           context.averageFrequency === true,
           context.showFrequencyDictionaryNames === true,
           context.compactFrequencyNumbers === true
@@ -3192,7 +3194,7 @@
           documentRef,
           result,
           Array.isArray(context.dictionaryPresentation) ? context.dictionaryPresentation : [],
-          maxMetadataTags,
+          Infinity,
           context.averageFrequency === true,
           context.showFrequencyDictionaryNames === true,
           context.compactFrequencyNumbers === true
@@ -3484,8 +3486,8 @@
       let shown = 0;
       const shownParts = index => index > 0
         ? [entryMetadata[index].header.headword, entryMetadata[index].header.mining.actions]
-        : [entryMetadata[0].header.headword, ...lookupActions.querySelectorAll(
-          ":scope > .gsm-hoshidicts-mine-button, :scope > .gsm-hoshidicts-audio-control")];
+        : [entryMetadata[0].header.headword, ...lookupActions.querySelectorAll(":scope > .gsm-hoshidicts-mine-button, "
+          + ":scope > .gsm-hoshidicts-audio-control, :scope > .gsm-hoshidicts-word-status-button")];
 
       function showEntry(index, moveFocus = true) {
         const focused = popup.getRootNode().activeElement;
@@ -3516,7 +3518,11 @@
         entryMetadata[0].header.headword.hidden = index > 0;
         shown = index;
         if (focusLeaves) {
-          const kind = focused.matches(".gsm-hoshidicts-mine-button") ? ".gsm-hoshidicts-mine-button" : null;
+          let kind = focused.matches(".gsm-hoshidicts-mine-button") ? ".gsm-hoshidicts-mine-button" : null;
+          // Mark as known and Ignore, which word-highlights.js adds beside them.
+          if (focused.matches(".gsm-hoshidicts-word-status-button")) {
+            kind = `.gsm-hoshidicts-word-status-button[data-word-status="${focused.dataset.wordStatus}"]`;
+          }
           const find = selector => incoming.flatMap(part => [...part.querySelectorAll(selector)])[0]
             ?? incoming.find(part => part.matches(selector));
           ((kind && find(kind)) || find(".gsm-hoshidicts-audio-button"))?.focus({ preventScroll: true });
@@ -4017,6 +4023,30 @@
       glyph.lang = "ja";
       glyph.textContent = kanji.character;
       navigation.appendChild(glyph);
+      // kanji_meta_bank frequencies, shown as the term view shows a term's.
+      const kanjiFrequencies = Array.isArray(kanji.frequencies) ? kanji.frequencies : [];
+      const frequencyCapsule = documentRef.createElement("div");
+      frequencyCapsule.className = "gsm-hoshidicts-primary-metadata-capsule gsm-hoshidicts-kanji-frequencies";
+      frequencyCapsule.setAttribute("role", "group");
+      frequencyCapsule.setAttribute("aria-label", "Kanji frequencies");
+      function renderKanjiFrequencies(context) {
+        const tags = createFrequencyTags(
+          documentRef,
+          { term: { frequencies: kanjiFrequencies } },
+          Array.isArray(context.dictionaryPresentation) ? context.dictionaryPresentation : [],
+          Infinity,
+          context.averageFrequency === true,
+          context.showFrequencyDictionaryNames === true,
+          context.compactFrequencyNumbers === true
+        );
+        const frequencies = documentRef.createElement("span");
+        frequencies.className = "gsm-hoshidicts-primary-frequencies";
+        frequencies.append(...tags);
+        frequencyCapsule.replaceChildren(frequencies);
+        frequencyCapsule.hidden = tags.every(tag => tag.hidden);
+      }
+      renderKanjiFrequencies(renderOptions);
+      navigation.appendChild(frequencyCapsule);
       for (const previous of noteControls.actions.querySelectorAll(
         ":scope > .gsm-hoshidicts-popup-close, :scope > .gsm-hoshidicts-kanji-back"
       )) previous.remove();
@@ -4120,6 +4150,7 @@
         dictionaryDisplayNames = next.dictionaryDisplayNames;
         if (selected.key !== nextSelected.key) renderOptions.onDictionaryTabSelected?.(normaliseDictionaryTab(nextSelected));
         selected = nextSelected;
+        renderKanjiFrequencies(renderOptions);
         let changed = false;
         if (sameMembers) {
           for (const heading of contentScroll.querySelectorAll(":scope > .gsm-hoshidicts-kanji-entry > h3")) {

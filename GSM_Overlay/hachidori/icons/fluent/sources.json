@@ -22,6 +22,7 @@
     "star": "assets/Star/SVG/ic_fluent_star_20_regular.svg",
     "reorder": "assets/Reorder/SVG/ic_fluent_reorder_20_regular.svg",
     "settings": "assets/Settings/SVG/ic_fluent_settings_20_regular.svg",
-    "desktop": "assets/Desktop/SVG/ic_fluent_desktop_20_regular.svg"
+    "desktop": "assets/Desktop/SVG/ic_fluent_desktop_20_regular.svg",
+    "prohibited": "assets/Prohibited/SVG/ic_fluent_prohibited_20_regular.svg"
   }
 }

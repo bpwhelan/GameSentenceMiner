@@ -8,6 +8,7 @@ const MAX_OPTIONS_FRAME_BYTES = 1024 * 1024;
 const BOUNDED_REQUESTS = new Set([
   "hd_lookup",
   "hd_lookup_dictionary",
+  "hd_segment",
   "hd_kanji",
   "hd_media",
   "hd_options_write",

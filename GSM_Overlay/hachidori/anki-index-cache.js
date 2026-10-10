@@ -100,6 +100,8 @@ export function createAnkiDuplicateIndex({
 }) {
   let snapshot = null;
   let rows = new Map();
+  // The revision of the rows held here; every row change installs both.
+  let rowRevision = 0;
   let active = null;
   // The reservation this worker made most recently. A stored attempt that has
   // no recorded outcome and was not reserved here belongs to a worker that
@@ -109,14 +111,13 @@ export function createAnkiDuplicateIndex({
   let controlTail = Promise.resolve();
   let suspended = false;
   const liveLookups = new Map();
-  const hydrate = readState().then(value => {
-    snapshot = cacheState(value).snapshot;
-    rows = rowMap(snapshot);
-  }).catch(reportError);
+  const hydrate = readState().then(install).catch(reportError);
 
   function install(value) {
-    snapshot = cacheState(value).snapshot;
+    const state = cacheState(value);
+    snapshot = state.snapshot;
     rows = rowMap(snapshot);
+    rowRevision = state.rowRevision;
   }
 
   function control(job) {
@@ -367,6 +368,26 @@ export function createAnkiDuplicateIndex({
       if (source === null || wordKey === null) return false;
       await hydrate;
       return snapshot?.sourceKey === source.key && rows.get(wordKey)?.mature === true;
+    },
+    // A page's headwords, keyed only by the first Template's cached rows and
+    // answered from memory like `has`, with the revision of those same rows.
+    // A source with no cached snapshot is unavailable (null), not a page of
+    // unknown words.
+    async statuses(config, headwords) {
+      const source = await ankiIndexSource(config);
+      await hydrate;
+      if (source === null || snapshot?.sourceKey !== source.key) {
+        return { revision: rowRevision, statuses: null };
+      }
+      return {
+        revision: rowRevision,
+        statuses: headwords.map(headword => {
+          const wordKey = ankiWordKey(headword);
+          const row = wordKey === null ? null : rows.get(wordKey) ?? null;
+          if (row === null) return "unknown";
+          return row.mature ? "known" : "learning";
+        }),
+      };
     },
   };
 }

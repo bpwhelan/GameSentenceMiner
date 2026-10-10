@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { BlobReader, Writer, ZipReader, ZipWriter } from "./vendor/zip.js";
 import { assertLookupStatsRows, emptyLookupStats } from "./lookup-stats.js";
+import "./word-status-overrides.js";
 
 const MANIFEST = "hachidori-backup.json";
 const ZIP_OPTIONS = {
@@ -68,7 +69,7 @@ export async function createBackupArchive(snapshot, files, lookupStatsRows, crea
   const entries = files.map(({ path, data }) => ({ path, size: data.size }));
   assertFileList(entries);
   assertLookupStatsRows(snapshot?.lookupStats, lookupStatsRows);
-  const manifest = { format: "hachidori-backup", version: 2, createdAt, snapshot, lookupStatsRows, files: entries };
+  const manifest = { format: "hachidori-backup", version: 3, createdAt, snapshot, lookupStatsRows, files: entries };
   /** @type {{add(name: string, reader: object): Promise<unknown>, close(): Promise<Blob>}} */
   const writer = new ZipWriter(new BackupBlobWriter("application/zip"), ZIP_OPTIONS);
   await writer.add(MANIFEST, new BlobReader(new Blob([JSON.stringify(manifest)])));
@@ -93,6 +94,22 @@ function readEntry(entry) {
   });
 }
 
+// A supported manifest's snapshot and statistics rows in the current shape:
+// version 1 has no lookup statistics, and versions 1 and 2 no words marked as
+// known or ignored. Older backups also include the retired external corpus
+// integration; only those fields are dropped before the complete snapshot
+// contract validates the restore.
+function currentSnapshot(manifest) {
+  let { snapshot } = manifest;
+  if (manifest.version === 1) snapshot = { ...snapshot, lookupStats: emptyLookupStats() };
+  if (manifest.version < 3) {
+    snapshot = { ...snapshot, wordStatusOverrides: globalThis.HDWordStatusOverrides.emptyWordStatusOverrides() };
+  }
+  delete snapshot?.options?.corpusSeenEnabled;
+  delete snapshot?.options?.corpusSeenUrl;
+  return { snapshot, lookupStatsRows: manifest.version === 1 ? [] : manifest.lookupStatsRows };
+}
+
 export async function openBackupArchive(blob) {
   const reader = new ZipReader(new BlobReader(blob), { useWebWorkers: false, checkAmbiguity: true });
   try {
@@ -106,16 +123,11 @@ export async function openBackupArchive(blob) {
     const manifestEntry = byPath.get(MANIFEST);
     if (!manifestEntry) throw new Error("The selected archive is not a Hachidori backup.");
     const manifest = JSON.parse(await (await readEntry(manifestEntry)).text());
-    if (manifest?.format !== "hachidori-backup" || ![1, 2].includes(manifest.version)
+    if (manifest?.format !== "hachidori-backup" || ![1, 2, 3].includes(manifest.version)
         || typeof manifest.createdAt !== "string" || Number.isNaN(Date.parse(manifest.createdAt))) {
       throw new Error("The selected archive is not a supported Hachidori backup.");
     }
-    const snapshot = manifest.version === 1 ? { ...manifest.snapshot, lookupStats: emptyLookupStats() } : manifest.snapshot;
-    // Older backups include the retired external corpus integration. Drop only
-    // those fields before the complete snapshot contract validates the restore.
-    delete snapshot?.options?.corpusSeenEnabled;
-    delete snapshot?.options?.corpusSeenUrl;
-    const lookupStatsRows = manifest.version === 1 ? [] : manifest.lookupStatsRows;
+    const { snapshot, lookupStatsRows } = currentSnapshot(manifest);
     assertLookupStatsRows(snapshot?.lookupStats, lookupStatsRows);
     assertFileList(manifest.files);
     if (entries.length !== manifest.files.length + 1) throw new Error("The backup contains unlisted or missing files.");

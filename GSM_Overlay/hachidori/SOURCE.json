@@ -1,16 +1,16 @@
 {
   "name": "Hachidori",
   "repository": "https://github.com/bee-san/hachidori",
-  "commit": "991c48cd4c7ed65b946a4b42e7a5d7e5a770ddd1",
+  "commit": "51eb85486fd9d9b00561c623bbc6defa60853f16",
   "gsmIntegration": {
     "version": 1,
-    "sha256": "9654e71dc770e1c47355c17c6c3a70fc5b86cf0912f2b3d274f4aabd5ab28d9f"
+    "sha256": "750ba35662ee3df92e366a75e0d08d3409dd2ee1e30e596f32d3e7ff2c0f1eb1"
   },
   "release": {
-    "tag": "0.2.3",
-    "id": 403841208,
-    "publishedAt": "2026-10-05T15:00:42Z",
-    "url": "https://github.com/bee-san/hachidori/releases/tag/0.2.3"
+    "tag": "0.3.0",
+    "id": 408832410,
+    "publishedAt": "2026-10-10T09:16:27Z",
+    "url": "https://github.com/bee-san/hachidori/releases/tag/0.3.0"
   },
   "sourceDirectory": "extension",
   "license": "GPL-3.0-or-later",

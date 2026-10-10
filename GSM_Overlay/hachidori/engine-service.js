@@ -1,4 +1,7 @@
+import { actualIndexPolicy, planIndexStorage, residentHashBudgetBytes } from "./dictionary-index-storage.js";
 import { encodeBase64 } from "./base64.js";
+import { readDebugLog, recordDebugFailure } from "./debug-log.js";
+import { describeErrorMessageOrJson } from "./error-text.js";
 import {
   httpsUrl,
   assertRecommendedDictionary,
@@ -93,7 +96,10 @@ const MEDIA_TYPES = {
 // revalidation and native installation phase.
 // Dictionary download reads serve an archive already built by its open, so
 // they need no turn in the queue either.
-const UNQUEUED = new Set(["hd_status", "hd_memory", "hd_backup_release", "hd_import", "hd_api_dictionary_read", "hd_api_dictionary_close"]);
+// Segmentation is unqueued too: its handler serialises one engine turn per
+// chunk itself (hd_segment) and lets pending messages in between chunks, so a
+// hover's lookup runs between a page's chunks.
+const UNQUEUED = new Set(["hd_status", "hd_memory", "hd_debug_log", "hd_backup_release", "hd_import", "hd_segment", "hd_api_dictionary_read", "hd_api_dictionary_close"]);
 
 // A storage read-modify-write spans two messages, so another context can write
 // in between; the worker refuses the write when that happens and the change is
@@ -127,6 +133,9 @@ let lowRam = true;
 // import threading and recycler (docs/memory.md).
 let pagedDictionaries = false;
 let dictionaryEntryStorage = "auto";
+let dictionaryIndexStorage = "auto";
+let useLessRamByDefault = true;
+let indexPagedPaths = new Set();
 // Whether this is a pthread runtime, as hd_status reports it.
 let threaded = false;
 // Optional sink for import download/installation phases, keyed by request ID.
@@ -150,30 +159,22 @@ export function configureEngineService(request, options = {}) {
   lowRam = options.lowRam !== false;
   pagedDictionaries = options.pagedDictionaries === true;
   dictionaryEntryStorage = options.dictionaryEntryStorage ?? "auto";
+  dictionaryIndexStorage = options.dictionaryIndexStorage ?? "auto";
+  useLessRamByDefault = options.useLessRamByDefault !== false;
   threaded = options.threaded ?? !lowRam;
   reportProgress = typeof options.reportProgress === "function" ? options.reportProgress : null;
   isolatedImport = typeof options.isolatedImport === "function" ? options.isolatedImport : null;
 }
 
-function describe(error) {
-  if (error instanceof Error) {
-    return error.message || String(error);
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  return error?.message ? String(error.message) : JSON.stringify(error);
-}
-
 function asError(error) {
-  return error instanceof Error ? error : new Error(describe(error));
+  return error instanceof Error ? error : new Error(describeErrorMessageOrJson(error));
 }
 
 class UnknownDictionaryStateCommitError extends Error {
   constructor(commitError, readError, subject = "dictionary state") {
     super(
-      `${subject} commit outcome is unknown: ${describe(commitError)}; `
-      + `readback failed: ${describe(readError)}`,
+      `${subject} commit outcome is unknown: ${describeErrorMessageOrJson(commitError)}; `
+      + `readback failed: ${describeErrorMessageOrJson(readError)}`,
     );
     this.name = "UnknownDictionaryStateCommitError";
     this.cause = commitError;
@@ -184,17 +185,27 @@ function text(value) {
   return typeof value === "string" ? value : "";
 }
 
+// The folder a package's files live in, as hoshidicts'
+// dictionary_importer::folder_name chooses it: the title itself when it is one
+// plain path component, otherwise the title with "/", "\\", ":" and NUL as "_"
+// plus " #" and the FNV-1a 32-bit hash of its UTF-8 bytes. A Yomitan title is
+// any string ("Nico/Pixiv"); only the folder has to be a path component.
+function dictionaryFolderName(title) {
+  if (title !== "" && title !== "." && title !== ".." && !/[/\\\0]/u.test(title)) {
+    return title;
+  }
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(title)) {
+    hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+  }
+  return `${title.replace(/[/\\:\0]/gu, "_")} #${hash.toString(16).padStart(8, "0")}`;
+}
+
+// Whether a title can name a package: any nonempty title whose folder is not
+// one of the engine's own staging directories.
 function usableDictionaryTitle(title) {
-  return (
-    title !== "" &&
-    title !== "." &&
-    title !== ".." &&
-    title !== ".hdw-import" &&
-    title !== ".hdw-remove" &&
-    !title.includes("/") &&
-    !title.includes("\\") &&
-    !title.includes("\0")
-  );
+  const folder = title === "" ? "" : dictionaryFolderName(title);
+  return folder !== "" && folder !== ".hdw-import" && folder !== ".hdw-remove";
 }
 
 function clampInt(value, min, max, fallback) {
@@ -209,7 +220,7 @@ function parseJson(json, source) {
   try {
     return JSON.parse(json);
   } catch (error) {
-    throw new Error(`${source} returned malformed JSON: ${describe(error)}`);
+    throw new Error(`${source} returned malformed JSON: ${describeErrorMessageOrJson(error)}`);
   }
 }
 
@@ -223,17 +234,22 @@ function boundedText(value, label, maxBytes, cString = true) {
   return result;
 }
 
+// The engine's ranking options, the same for a hover lookup and a segment.
+function lookupOptionsJson(options, extra = {}) {
+  return JSON.stringify({
+    frequencyDictionary: boundedText(options?.frequencyDictionary, "frequency dictionary", MAX_LOOKUP_TEXT_BYTES, false),
+    frequencyOrder: FREQUENCY_ORDERS.includes(options?.frequencyOrder) ? options.frequencyOrder : "auto",
+    primaryReading: boundedText(options?.primaryReading, "primary reading", MAX_LOOKUP_TEXT_BYTES, false),
+    ...extra,
+  });
+}
+
 function lookupArguments(message) {
   return [
     boundedText(message.text, "lookup text", MAX_LOOKUP_TEXT_BYTES),
     clampInt(message.maxResults, 1, 256, DEFAULT_MAX_RESULTS),
     clampInt(message.scanLength, 1, 64, DEFAULT_SCAN_LENGTH),
-    JSON.stringify({
-      frequencyDictionary: boundedText(message.options?.frequencyDictionary, "frequency dictionary", MAX_LOOKUP_TEXT_BYTES, false),
-      frequencyOrder: FREQUENCY_ORDERS.includes(message.options?.frequencyOrder)
-        ? message.options.frequencyOrder : "auto",
-      primaryReading: boundedText(message.options?.primaryReading, "primary reading", MAX_LOOKUP_TEXT_BYTES, false),
-    }),
+    lookupOptionsJson(message.options),
   ];
 }
 
@@ -362,6 +378,21 @@ function serialise(job) {
     () => undefined,
   );
   return run;
+}
+
+// Resolves once the messages that reached the engine before it are dispatched.
+// A request arrives as a message event, a task of its own, and a loop of
+// serialised turns runs as one chain of microtasks, which no message can enter
+// until the loop ends.
+function yieldToMessages() {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      resolve();
+    };
+    channel.port2.postMessage(null);
+  });
 }
 
 function requireEngine() {
@@ -655,7 +686,7 @@ function exists(path) {
   try {
     engine.FS.stat(path);
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -677,22 +708,19 @@ function isGenerationRoot(path) {
 function dictionaryRoot(dictionary) {
   const title = text(dictionary?.title);
   const path = text(dictionary?.path);
-  if (title === ""
-      || title === "."
-      || title === ".."
-      || title === ".hdw-import"
-      || title.includes("/")
-      || title.includes("\\")
-      || title.includes("\0")) {
+  // A legacy package may be titled .hdw-remove (the removal recovery keeps
+  // it); only the import staging directory can never hold a package.
+  const folder = title === "" ? "" : dictionaryFolderName(title);
+  if (folder === "" || folder === ".hdw-import") {
     return null;
   }
-  if (path === `${DICT_ROOT}/${title}`) {
+  if (path === `${DICT_ROOT}/${folder}`) {
     return path;
   }
   const separator = path.lastIndexOf("/");
   const root = path.slice(0, separator);
   return separator > DICT_ROOT.length
-    && path === `${root}/${title}`
+    && path === `${root}/${folder}`
     && isGenerationRoot(root)
     ? root
     : null;
@@ -707,7 +735,7 @@ function removeTree(path) {
   let stat;
   try {
     stat = FS.stat(path);
-  } catch (error) {
+  } catch {
     return;
   }
   if (!isDirectory(stat)) {
@@ -740,7 +768,7 @@ function removeUnreferencedDictionaryRoot(name, referencedRoots) {
   let stat;
   try {
     stat = engine.FS.stat(path);
-  } catch (error) {
+  } catch {
     return false;
   }
   if (!isDirectory(stat)) {
@@ -806,13 +834,13 @@ function moveDictionaryFiles(source, destination, markerLast) {
   removeEmptyDirectory(source);
 }
 
-function settleStagedRemoval(title, restore) {
-  const stagedPath = `${REMOVAL_ROOT}/${title}`;
+function settleStagedRemoval(folder, restore) {
+  const stagedPath = `${REMOVAL_ROOT}/${folder}`;
   if (!exists(stagedPath)) {
     return false;
   }
   if (restore) {
-    moveDictionaryFiles(stagedPath, `${DICT_ROOT}/${title}`, true);
+    moveDictionaryFiles(stagedPath, `${DICT_ROOT}/${folder}`, true);
   } else {
     removeTree(stagedPath);
   }
@@ -843,16 +871,6 @@ function recommendedSourceForImport(message) {
     throw new Error(`${source.name} downloaded from an unexpected final URL`);
   }
   return source;
-}
-
-function capabilities(value) {
-  return [
-    ["term", value.termCount],
-    ["freq", value.frequencyCount],
-    ["pitch", value.pitchCount],
-    ["kanji", value.kanjiCount],
-    ["media", value.mediaCount],
-  ].filter(([, count]) => Number(count) > 0).map(([kind]) => kind);
 }
 
 function withRecommendedSource(dictionary, source) {
@@ -946,7 +964,7 @@ async function packageFromIndex(path) {
     language: optionalText(index?.sourceLanguage),
     frequencyMode: optionalText(index?.frequencyMode),
     termCount: count(index?.counts?.terms?.total),
-    frequencyCount: count(index?.counts?.termMeta?.freq),
+    frequencyCount: count(index?.counts?.termMeta?.freq) + count(index?.counts?.kanjiMeta?.freq),
     pitchCount: count(index?.counts?.termMeta?.pitch) + count(index?.counts?.termMeta?.ipa),
     kanjiCount: count(index?.counts?.kanji?.total),
     mediaCount: count(index?.counts?.media?.total),
@@ -963,14 +981,14 @@ async function listLegacyImported(legacy) {
     legacy.map((row) => text(row?.title)).filter((title) => title !== ""),
   );
   for (const title of expectedTitles) {
-    const path = `${DICT_ROOT}/${title}`;
+    const path = `${DICT_ROOT}/${dictionaryFolderName(title)}`;
     if (dictionaryRoot({ title, path }) === null) {
       continue;
     }
     let stat;
     try {
       stat = FS.stat(path);
-    } catch (error) {
+    } catch {
       continue;
     }
     if (isDirectory(stat) && hasDictionaryMarker(path)) {
@@ -999,7 +1017,7 @@ async function ask(type, fields = {}) {
   return reply;
 }
 
-async function readDictionaryStorage() {
+async function requestDictionaryStorage() {
   const reply = await ask("hd_state_read");
   if (reply.ok !== true) {
     throw new Error(reply.error || "the service worker could not read dictionary state");
@@ -1022,7 +1040,7 @@ async function readDictionaryStorage() {
 }
 
 async function readStoredDictionaries() {
-  const { state } = await readDictionaryStorage();
+  const { state } = await requestDictionaryStorage();
   return state?.dictionaries ?? [];
 }
 
@@ -1132,7 +1150,7 @@ async function commitCustomStorage(snapshot, source, semanticRevision, dictionar
       ok: false,
       stale: current.document.revision !== snapshot.document.revision,
       conflict: current.state?.revision !== snapshot.state.revision,
-      error: describe(commitError),
+      error: describeErrorMessageOrJson(commitError),
       ...current,
     };
   }
@@ -1147,7 +1165,7 @@ async function commitDictionaryState(baseRevision, dictionaries) {
   } catch (commitError) {
     let state;
     try {
-      ({ state } = await readDictionaryStorage());
+      ({ state } = await requestDictionaryStorage());
     } catch (readError) {
       throw new UnknownDictionaryStateCommitError(commitError, readError);
     }
@@ -1159,7 +1177,7 @@ async function commitDictionaryState(baseRevision, dictionaries) {
     return {
       ok: false,
       conflict: currentRevision !== baseRevision,
-      error: describe(commitError),
+      error: describeErrorMessageOrJson(commitError),
       state,
     };
   }
@@ -1170,15 +1188,16 @@ async function recoverPendingRemovals(snapshot) {
     return;
   }
   const stored = snapshot.state?.dictionaries ?? snapshot.legacyDictionaries ?? [];
-  const retainedTitles = new Set(stored.map((dictionary) => text(dictionary?.title)));
+  const retainedFolders = new Set(stored.map((dictionary) => text(dictionary?.title))
+    .filter(usableDictionaryTitle).map(dictionaryFolderName));
   let changed = false;
-  for (const title of engine.FS.readdir(REMOVAL_ROOT)) {
-    const stagedPath = `${REMOVAL_ROOT}/${title}`;
-    if (title === "." || title === ".." || !usableDictionaryTitle(title)
+  for (const folder of engine.FS.readdir(REMOVAL_ROOT)) {
+    const stagedPath = `${REMOVAL_ROOT}/${folder}`;
+    if (folder === "." || folder === ".." || !usableDictionaryTitle(folder)
         || !isDirectory(engine.FS.stat(stagedPath))) {
       continue;
     }
-    changed = settleStagedRemoval(title, retainedTitles.has(title)) || changed;
+    changed = settleStagedRemoval(folder, retainedFolders.has(folder)) || changed;
   }
   if (changed) {
     await persistFilesystem();
@@ -1191,7 +1210,7 @@ async function recoverPendingRemovals(snapshot) {
 // published merely because the live engine would otherwise skip it.
 async function commitDictionaryCandidate(buildCandidate) {
   for (let attempt = 0; ; attempt += 1) {
-    const snapshot = await readDictionaryStorage();
+    const snapshot = await requestDictionaryStorage();
     const next = await buildCandidate(snapshot);
     const loadedCount = loadDictionaries(next, { committed: snapshot.state?.dictionaries ?? [] });
     if (snapshot.state !== null && sameDictionaries(next, snapshot.state.dictionaries)) {
@@ -1248,7 +1267,7 @@ async function refreshReferencedPackages(stored) {
       generated = await packageFromIndex(path);
     } catch (error) {
       // Keep the committed row; loading reports the package if it cannot load.
-      console.warn(`hoshidicts: could not refresh ${path}: ${describe(error)}`);
+      console.warn(`hoshidicts: could not refresh ${path}: ${describeErrorMessageOrJson(error)}`);
       entries.push(storedPackage);
       continue;
     }
@@ -1292,7 +1311,7 @@ function migrateLegacyPackages(legacy, onDisk) {
 }
 
 async function reconcile() {
-  await recoverPendingRemovals(await readDictionaryStorage());
+  await recoverPendingRemovals(await requestDictionaryStorage());
   return commitDictionaryCandidate(async (snapshot) => {
     if (snapshot.state !== null) {
       return refreshReferencedPackages(snapshot.state.dictionaries);
@@ -1340,14 +1359,16 @@ function loadsPaged(path) {
 // `validation` adds a disabled package only to prove the engine opens it, then
 // drops it: its entries are read on demand rather than copied into the heap,
 // which would only raise the worker's high-water mark (docs/memory.md). Its
-// index is still loaded and checked exactly as for lookup.
+// hash header is checked without mapping the table under a paged policy.
 function addDictionaryKind(dictionary, kind, { validation = false } = {}) {
+  const indexPaged = indexPagedPaths.has(dictionary.path)
+    || (validation && indexPolicy() !== "resident");
   const add = (paged) => engine.ccall(
-    "hdw_add_dict", "number", ["string", "number", "number"], [dictionary.path, kind, paged ? 1 : 0],
+    "hdw_add_dict", "number", ["string", "number", "number", "number"], [dictionary.path, kind, paged ? 1 : 0, indexPaged ? 1 : 0],
   ) === 1;
   const paged = validation || loadsPaged(dictionary.path);
   if (add(paged)) return true;
-  // Only the index has to fit when the entries are read on demand.
+  // Only the selected resident files have to fit when entries are paged.
   if (paged || !lastError().startsWith(OUT_OF_MEMORY) || !add(true)) return false;
   pagedPaths.add(dictionary.path);
   return true;
@@ -1409,6 +1430,7 @@ function trackLoaded(dictionaries, manifest = dictionaries) {
     path: dictionary.path,
     kinds: packageKinds(dictionary),
     paged: loadsPaged(dictionary.path),
+    indexPaged: engine.ccall("hdw_hash_index_paged", "number", ["string"], [dictionary.path]) === 1,
   }));
   for (const entry of loadedPackages) verifiedPackages.set(entry.path, entry.kinds);
   loadedManifest = new Map(manifest.map(dictionary => [dictionary.path, {
@@ -1480,7 +1502,7 @@ function loadDictionariesIncrementally(dictionaries) {
   const present = new Map(loadedPackages.map((entry) => [entry.path, entry.kinds]));
   try {
     for (const entry of loadedPackages) {
-      if (wanted.get(entry.path) === entry.kinds) continue;
+      if (wanted.get(entry.path) === entry.kinds && entry.indexPaged === indexPagedPaths.has(entry.path)) continue;
       if (!engine.ccall("hdw_remove_dict", "number", ["string"], [entry.path])) return null;
       present.delete(entry.path);
     }
@@ -1512,6 +1534,7 @@ function loadDictionaries(dictionaries, { committed = [] } = {}) {
       throw new Error(`refusing to load an invalid dictionary path: ${text(dictionary?.path)}`);
     }
   }
+  indexPagedPaths = planIndexStorage(dictionaries, indexPolicy(), hashTableBytes, indexBudget() ?? 0);
   const incremental = loadDictionariesIncrementally(dictionaries);
   if (incremental !== null) {
     lastLoadPath = "incremental";
@@ -1591,7 +1614,7 @@ function publishLoadedDictionaries(loadedCount, { warm = true } = {}) {
 }
 
 async function restoreCommittedDictionaries(state = null, { publish = true } = {}) {
-  const committed = state ?? (await readDictionaryStorage()).state;
+  const committed = state ?? (await requestDictionaryStorage()).state;
   if (committed === null) {
     throw new Error("the committed dictionary state is unavailable");
   }
@@ -1704,7 +1727,7 @@ async function boot() {
   try {
     await reloadFromStorage();
   } catch (error) {
-    console.error(`hoshidicts: could not load the dictionaries at startup: ${describe(error)}`);
+    console.error(`hoshidicts: could not load the dictionaries at startup: ${describeErrorMessageOrJson(error)}`);
   }
 }
 
@@ -1932,8 +1955,8 @@ function retitleImportedPackage(generationRoot, currentTitle, nextTitle) {
   if (!usableDictionaryTitle(nextTitle)) {
     throw new Error("the separate dictionary title cannot be used as a filesystem path");
   }
-  const currentPath = `${generationRoot}/${currentTitle}`;
-  const nextPath = `${generationRoot}/${nextTitle}`;
+  const currentPath = `${generationRoot}/${dictionaryFolderName(currentTitle)}`;
+  const nextPath = `${generationRoot}/${dictionaryFolderName(nextTitle)}`;
   if (!exists(currentPath) || exists(nextPath)) {
     throw new Error("the staged dictionary title changed unexpectedly");
   }
@@ -1953,7 +1976,7 @@ function retitleImportedPackage(generationRoot, currentTitle, nextTitle) {
 
 async function cleanupCommittedDictionaries() {
   try {
-    const { state } = await readDictionaryStorage();
+    const { state } = await requestDictionaryStorage();
     if (state === null) {
       return;
     }
@@ -1972,7 +1995,7 @@ async function cleanupCommittedDictionaries() {
       ...(preparedBackup?.dictionaries ?? []),
     ]);
   } catch (error) {
-    console.warn(`hoshidicts: could not remove unreferenced dictionaries: ${describe(error)}`);
+    console.warn(`hoshidicts: could not remove unreferenced dictionaries: ${describeErrorMessageOrJson(error)}`);
   }
 }
 
@@ -1984,7 +2007,7 @@ async function commitImportedGeneration(
   expectedRevision,
   importDecision,
 ) {
-  let generated = await packageFromIndex(`${generationRoot}/${report.title}`);
+  let generated = await packageFromIndex(`${generationRoot}/${dictionaryFolderName(report.title)}`);
   if (generated.title !== report.title) {
     throw new Error("the imported dictionary title changed while it was being committed");
   }
@@ -2027,7 +2050,7 @@ async function commitImportedGeneration(
       retitleImportedPackage(generationRoot, candidateTitle, nextTitle);
       candidateTitle = nextTitle;
       await persistFilesystem();
-      generated = await packageFromIndex(`${generationRoot}/${candidateTitle}`);
+      generated = await packageFromIndex(`${generationRoot}/${dictionaryFolderName(candidateTitle)}`);
     }
     return [...stored, generated];
   });
@@ -2052,11 +2075,11 @@ async function rollbackImportedGenerations(generationRoots, failure) {
     try {
       await discardGenerations(generationRoots.filter(root => !retained.has(root)));
     } catch (error) {
-      console.warn(`hoshidicts: could not discard failed dictionary generations: ${describe(error)}`);
+      console.warn(`hoshidicts: could not discard failed dictionary generations: ${describeErrorMessageOrJson(error)}`);
     }
   }
   if (restoreError !== null) {
-    throw new Error(`${describe(failure)}; dictionary rollback failed: ${describe(restoreError)}`);
+    throw new Error(`${describeErrorMessageOrJson(failure)}; dictionary rollback failed: ${describeErrorMessageOrJson(restoreError)}`);
   }
 }
 
@@ -2272,7 +2295,7 @@ export async function stageImportArchive(response, onProgress = null) {
 function removeStagedFile(module, path) {
   try {
     nativeImportCall(module, () => module.FS.unlink(path));
-  } catch (error) {
+  } catch {
     // Never written, or already gone.
   }
 }
@@ -2335,9 +2358,9 @@ export async function importDictionaryArchive(
       ),
     );
     if (report.success && report.title === "") {
-      // hdw_import refuses a title it cannot use as a folder name, so this is
-      // unreachable; without a title there is nothing to register, and a row
-      // with an empty title would poison reconcile().
+      // hdw_import refuses an empty title, so this is unreachable; without a
+      // title there is nothing to register, and a row with an empty title
+      // would poison reconcile().
       report.success = false;
       report.error = `${fileName} declares no dictionary title`;
     }
@@ -2353,7 +2376,7 @@ export async function importDictionaryArchive(
     if (directory !== null) {
       try {
         nativeImportCall(module, () => FS.rmdir(directory));
-      } catch (error) {
+      } catch {
         // Never created, or already gone.
       }
     }
@@ -2732,7 +2755,7 @@ async function discardImportingRoot(generationRoot) {
   try {
     await discardGeneration(generationRoot);
   } catch (error) {
-    console.warn(`hoshidicts: could not discard the failed dictionary generation: ${describe(error)}`);
+    console.warn(`hoshidicts: could not discard the failed dictionary generation: ${describeErrorMessageOrJson(error)}`);
   }
 }
 
@@ -2863,7 +2886,7 @@ async function rethrowCustomRemovalFailure(error, removesPackage) {
       await restoreCommittedDictionaries();
     } catch (restoreError) {
       reloadError = asError(restoreError);
-      throw new Error(`${describe(error)}; custom dictionary rollback failed: ${describe(restoreError)}`);
+      throw new Error(`${describeErrorMessageOrJson(error)}; custom dictionary rollback failed: ${describeErrorMessageOrJson(restoreError)}`);
     }
   }
   throw error;
@@ -2920,7 +2943,7 @@ async function commitCustomGeneration(
   generationRoot,
   report,
 ) {
-  const generated = await packageFromIndex(`${generationRoot}/${report.title}`);
+  const generated = await packageFromIndex(`${generationRoot}/${dictionaryFolderName(report.title)}`);
   if (report.title !== CUSTOM_DICTIONARY_TITLE
       || generated.title !== CUSTOM_DICTIONARY_TITLE) {
     throw new Error("the compiled custom archive has the wrong dictionary title");
@@ -3080,7 +3103,7 @@ async function stageBackupFiles(prepared, roots) {
   const dictionaries = archived.map(dictionary => {
     const root = createGenerationRoot();
     roots.push(root);
-    const next = { ...dictionary, path: `${root}/${dictionary.title}` };
+    const next = { ...dictionary, path: `${root}/${dictionaryFolderName(text(dictionary.title))}` };
     assertBackupDictionaryPath(next, "The backup contains an invalid dictionary title.");
     return next;
   });
@@ -3138,7 +3161,7 @@ async function commitBackupSnapshot(current, snapshot, lookupStatsRows) {
       throw new UnknownDictionaryStateCommitError(commitError,
         new Error("readback did not match the exact complete restore transaction"), "backup restore");
     }
-    return { ok: false, error: describe(commitError) };
+    return { ok: false, error: describeErrorMessageOrJson(commitError) };
   }
 }
 
@@ -3167,7 +3190,7 @@ async function restoreBackup(message) {
       const cleanup = await ask("hd_lookup_stats_cleanup");
       if (!cleanup.ok) throw new Error(cleanup.error);
     } catch (error) {
-      warning = [warning, `Restored successfully; old lookup statistics could not be cleaned up: ${describe(error)}`].filter(Boolean).join("; ");
+      warning = [warning, `Restored successfully; old lookup statistics could not be cleaned up: ${describeErrorMessageOrJson(error)}`].filter(Boolean).join("; ");
     }
     return { restored: true, dictionaryCount, warning };
   } catch (error) {
@@ -3230,11 +3253,14 @@ const HANDLERS = {
     const dictionary = snapshot.state.dictionaries.find(entry => entry?.id === message.id);
     if (!dictionary) throw new Error("unknown dictionary");
     if (dictionaryRoot(dictionary) === null) throw new Error("Cannot export an invalid dictionary path.");
+    // Like the lookup counts below, the words marked as known or ignored are
+    // the reader's own and stay out of a dictionary's archive.
     const single = {
       ...snapshot,
       state: { ...snapshot.state, dictionaries: [dictionary],
         groups: globalThis.HDDictionaryGroups.normaliseDictionaryGroups(snapshot.state.groups, [dictionary]) },
       document: dictionary.id === CUSTOM_DICTIONARY_ID ? snapshot.document : emptyCustomDictionaryDocument(),
+      wordStatusOverrides: globalThis.HDWordStatusOverrides.emptyWordStatusOverrides(),
     };
     await assertBackupSnapshot(single);
     const files = [];
@@ -3386,6 +3412,47 @@ const HANDLERS = {
     return withFurigana(withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup"), message)));
   },
 
+  // Segment a batch of text chunks into the words a hover would show (#520).
+  // Each chunk is one engine turn through serialise(), so a reader's queued
+  // hd_lookup runs between chunks rather than waiting for the whole page: a
+  // batch yields the engine as often as it has chunks. The handler is UNQUEUED
+  // so it never holds the queue while awaiting its own per-chunk turns.
+  async hd_segment(message) {
+    requireEngine();
+    const scanLength = clampInt(message.scanLength, 1, 64, DEFAULT_SCAN_LENGTH);
+    // A hover with the personal dictionary off drops its results
+    // (withoutPersonalDictionary), so the split leaves its words out as well.
+    const options = lookupOptionsJson(message.options,
+      message.options?.personalDictionary === false ? { excludedDictionary: CUSTOM_DICTIONARY_TITLE } : {});
+    // Every chunk is checked before the first engine turn. A lone surrogate (a
+    // pair split across two text nodes) becomes U+FFFD, one code unit for one,
+    // so the spans' offsets still index the text the page sent.
+    const chunks = (Array.isArray(message.chunks) ? message.chunks : []).map((chunk) => ({
+      id: chunk?.id ?? null,
+      text: boundedText(chunk?.text, "segment text", MAX_LOOKUP_TEXT_BYTES).toWellFormed(),
+    }));
+    const segments = [];
+    for (const [index, { id, text: chunkText }] of chunks.entries()) {
+      // A message that reached the engine during the previous chunk, such as
+      // a hover's hd_lookup, takes its turn before this chunk's.
+      if (index > 0) await yieldToMessages(); // NOSONAR: per-chunk yield is intentional
+      // One chunk per serialised turn: a queued hd_lookup waiting behind this
+      // batch gets the engine between chunks (the engine is not reentrant), so
+      // the sequential await is the point rather than an accident.
+      const spans = await serialise(async () => { // NOSONAR: per-chunk yield is intentional
+        await ensureLoaded();
+        if (chunkText === "") return [];
+        const json = engine.ccall("hdw_segment", "string", ["string", "number", "string"], [chunkText, scanLength, options]);
+        throwIfEngineFailed("hdw_segment");
+        const parsed = parseJson(json, "hdw_segment");
+        if (!Array.isArray(parsed?.spans)) throw new Error("hdw_segment returned a malformed response");
+        return parsed.spans;
+      });
+      segments.push({ id, spans });
+    }
+    return { segments };
+  },
+
   async hd_lookup_dictionary(message) {
     await ensureLoaded();
     const args = lookupArguments(message);
@@ -3506,10 +3573,10 @@ const HANDLERS = {
       const onDownload = reportProgress === null ? null : (event) => {
         try {
           Promise.resolve(reportProgress({ requestId, ...event })).catch((error) => {
-            console.warn(`hoshidicts: could not report import progress: ${describe(error)}`);
+            console.warn(`hoshidicts: could not report import progress: ${describeErrorMessageOrJson(error)}`);
           });
         } catch (error) {
-          console.warn(`hoshidicts: could not report import progress: ${describe(error)}`);
+          console.warn(`hoshidicts: could not report import progress: ${describeErrorMessageOrJson(error)}`);
         }
       };
       const staged = await stageImportArchive(response, onDownload);
@@ -3595,7 +3662,7 @@ const HANDLERS = {
         throw error;
       }
       try {
-        const { state } = await readDictionaryStorage();
+        const { state } = await requestDictionaryStorage();
         await restoreCommittedDictionaries(state);
       } catch (restoreError) {
         reloadError = asError(restoreError);
@@ -3618,7 +3685,7 @@ const HANDLERS = {
     if (!usableDictionaryTitle(title) && !legacyRemovalRoot) {
       throw new Error("the remove request carried an unusable dictionary title");
     }
-    const snapshot = await readDictionaryStorage();
+    const snapshot = await requestDictionaryStorage();
     if (snapshot.state === null) {
       throw new Error("the dictionary state is unavailable");
     }
@@ -3650,7 +3717,7 @@ const HANDLERS = {
         await restoreCommittedDictionaries(snapshot.state);
       } catch (restoreError) {
         reloadError = asError(restoreError);
-        throw new Error(`${describe(error)}; removal rollback failed: ${describe(restoreError)}`);
+        throw new Error(`${describeErrorMessageOrJson(error)}; removal rollback failed: ${describeErrorMessageOrJson(restoreError)}`);
       }
       throw error;
     }
@@ -3671,7 +3738,7 @@ const HANDLERS = {
       reloadError = asError(restoreError);
       throw new Error(
         `${reply.error || "the dictionary removal could not be saved"}; `
-        + `removal rollback failed: ${describe(restoreError)}`,
+        + `removal rollback failed: ${describeErrorMessageOrJson(restoreError)}`,
       );
     }
     return {
@@ -3700,10 +3767,12 @@ const HANDLERS = {
     const failure = bootError ?? reloadError;
     return {
       ok: failure === null,
-      error: failure === null ? null : describe(failure),
+      error: failure === null ? null : describeErrorMessageOrJson(failure),
       ready,
       loading: busy > 0 || stagingImports > 0,
       dictionaryCount,
+      registeredKindCount: dictionaryCount,
+      packageCount: (loadedPackages ?? []).length,
       failedDictionaries: loadFailures,
       lastLoadPath,
       generation,
@@ -3715,6 +3784,10 @@ const HANDLERS = {
       lowMemory: threaded && lowRam,
       pagedDictionaries,
       dictionaryEntryStorage,
+      dictionaryIndexStorage,
+      useLessRamByDefault,
+      hashIndexStorage: indexPolicy(),
+      residentHashBudgetBytes: indexBudget(),
     };
   },
 
@@ -3724,14 +3797,20 @@ const HANDLERS = {
   // read from disk when shown, and a paged package's entries as they are
   // looked up, through a page cache of pageCacheBytes. The heap itself never
   // shrinks, so heapBytes also keeps whatever an import or rebuild peaked at.
+  // The log of the context this engine runs in, for Get debug info.
+  async hd_debug_log() {
+    return { log: await readDebugLog(globalThis) };
+  },
+
   hd_memory() {
     requireEngine();
     const dictionaries = (loadedPackages ?? []).map((entry) => ({
       id: entry.id,
       title: entry.title,
       path: entry.path,
-      bytes: residentBytes(entry),
+      ...residentFiles(entry),
       paged: entry.paged,
+      hashIndexStorage: entry.indexPaged ? "paged" : "resident",
     }));
     // Growth on an engine pthread reaches this thread's HEAPU8 view only once
     // some glue touches the heap; a stat does (see writeFileBytes).
@@ -3739,27 +3818,48 @@ const HANDLERS = {
     return {
       heapBytes: engine.HEAPU8.byteLength,
       pageCacheBytes: engine.ccall("hdw_page_cache_bytes", "number", [], []),
+      ...JSON.parse(engine.ccall("hdw_memory_stats", "string", [], [])),
+      dictionaryIndexStorage,
+      useLessRamByDefault,
+      hashIndexStorage: indexPolicy(),
+      residentHashBudgetBytes: indexBudget(),
+      packageCount: dictionaries.length,
+      registeredKindCount: dictionaryCount,
       dictionaries,
     };
   },
 };
 
 // The files query.cpp keeps in the heap for a loaded package: its index, which
-// every probe reads, and blobs.bin unless the package is paged. dict.zstd is
+// every probe reads, resident hash tables, and blobs.bin unless the package is paged. dict.zstd is
 // read into a zstd dictionary, which holds the same bytes, and scan.idx is
 // mapped only for a package loaded as a term dictionary.
-const INDEX_FILES = ["hash.table", "bloom.filter", "media.idx", "dict.zstd"];
+const INDEX_FILES = ["bloom.filter", "media.idx", "dict.zstd"];
 
-function residentBytes(entry) {
+function indexPolicy() {
+  return actualIndexPolicy(dictionaryIndexStorage, storageBackend, threaded && lowRam, useLessRamByDefault);
+}
+
+function indexBudget() {
+  return indexPolicy() === "budget" ? residentHashBudgetBytes(threaded && lowRam) : null;
+}
+
+function fileBytes(path, name) {
+  const file = `${path}/${name}`;
+  return exists(file) ? engine.FS.stat(file).size : 0;
+}
+
+function hashTableBytes(path) { return fileBytes(path, "hash.table"); }
+
+function residentFiles(entry) {
   const names = [...INDEX_FILES];
-  if (!entry.paged) names.push("blobs.bin");
   if (entry.kinds.split(",").includes("term")) names.push("scan.idx");
-  let bytes = 0;
-  for (const name of names) {
-    const file = `${entry.path}/${name}`;
-    if (exists(file)) bytes += engine.FS.stat(file).size;
-  }
-  return bytes;
+  const otherResidentBytes = names.reduce((bytes, name) => bytes + fileBytes(entry.path, name), 0);
+  const hashBytes = hashTableBytes(entry.path);
+  const residentHashBytes = entry.indexPaged ? 0 : hashBytes;
+  const residentEntryBytes = entry.paged ? 0 : fileBytes(entry.path, "blobs.bin");
+  return { hashBytes, residentHashBytes, otherResidentBytes, residentEntryBytes,
+    bytes: residentHashBytes + otherResidentBytes + residentEntryBytes };
 }
 
 function failurePayload(type) {
@@ -3767,6 +3867,8 @@ function failurePayload(type) {
     case "hd_lookup":
     case "hd_lookup_dictionary":
       return { results: [], dictionaryCount: 0 };
+    case "hd_segment":
+      return { segments: [] };
     case "hd_kanji":
       return { kanji: null };
     case "hd_styles":
@@ -3785,7 +3887,8 @@ function failurePayload(type) {
 }
 
 function engineFailureReply(type, requestId, error) {
-  const description = describe(error);
+  const description = describeErrorMessageOrJson(error);
+  recordDebugFailure(globalThis, type, description);
   let errorCode = error === bootError ? "engine-start-failed" : error?.errorCode ?? null;
   if (errorCode === null && description === "the dictionary engine is still starting") {
     errorCode = "engine-starting";

@@ -12,6 +12,8 @@ let requestCounter = 0;
 
 function adoptOptions(stored) {
   const nextRevision = Number.isInteger(stored?.revision) && stored.revision >= 0 ? stored.revision : 0;
+  // Settings and the startup page skip an equal revision; the toolbar adopts
+  // it again and re-renders.
   if (nextRevision < revision) return;
   revision = nextRevision;
   options = normaliseOptions(stored);

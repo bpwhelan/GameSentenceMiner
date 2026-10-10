@@ -41,6 +41,7 @@ const ADDRESS_HINT = "Enter the address shown under Sharing on the other compute
 
 export const LINKED_ANKI_REQUESTS = new Set([
   "hd_anki_status", "hd_anki_view", "hd_anki_preflight", "hd_anki_submit", "hd_anki_browse", "hd_anki_maturity",
+  "hd_anki_word_status",
 ]);
 
 // Which runtime messages a linked client sends to the host instead of its own
@@ -48,12 +49,12 @@ export const LINKED_ANKI_REQUESTS = new Set([
 // in the reading browser; the host owns every Anki and generation decision.
 export const FORWARDED_REQUESTS = {
   "hoshidicts-offscreen": new Set([
-    "hd_lookup", "hd_lookup_dictionary", "hd_kanji", "hd_styles", "hd_media", "hd_status", "hd_memory", "hd_memory_total",
+    "hd_lookup", "hd_lookup_dictionary", "hd_segment", "hd_kanji", "hd_styles", "hd_media", "hd_status", "hd_memory", "hd_memory_total",
     "hd_custom_append", "hd_custom_save", "hd_apply_state", "hd_reload", "hd_remove", "hd_import",
   ]),
   "hoshidicts-worker": new Set([
     "hd_state_read", "hd_state_cas", "hd_custom_read", "hd_custom_cas", "hd_options_write",
-    "hd_lookup_stats_read", "hd_lookup_stats_record",
+    "hd_lookup_stats_read", "hd_lookup_stats_record", "hd_word_status_override",
   ]),
   "hachidori-updates": new Set(["hd_updates_schedule", "hd_updates_check", "hd_updates_install"]),
   "hachidori-setup": new Set(["hd_setup_install"]),
@@ -66,7 +67,7 @@ const MUTATING_FORWARDED_REQUESTS = {
     "hd_custom_append", "hd_custom_save", "hd_apply_state", "hd_reload", "hd_remove", "hd_import",
   ]),
   "hoshidicts-worker": new Set([
-    "hd_state_cas", "hd_custom_cas", "hd_options_write", "hd_lookup_stats_record",
+    "hd_state_cas", "hd_custom_cas", "hd_options_write", "hd_lookup_stats_record", "hd_word_status_override",
   ]),
   "hachidori-updates": new Set(["hd_updates_schedule", "hd_updates_check", "hd_updates_install"]),
   "hachidori-setup": new Set(["hd_setup_install"]),
@@ -203,6 +204,9 @@ export function allowLinkedAnkiRequest(message) {
     request.term = selectedFields(request.term, ["expression", "reading"]);
     return { ...base, request };
   }
+  if (message.type === "hd_anki_word_status") {
+    return { ...base, request: selectedFields(message.request, ["headwords"]) };
+  }
   if (message.type === "hd_anki_browse") {
     const request = selectedFields(message.request, ["noteIds", "expression", "configKey", "templateId"]);
     Object.assign(request, selectedTemplateId(request));
@@ -323,6 +327,11 @@ export function parseHostFrame(text) {
     case "storage":
       if (!frame.changes || typeof frame.changes !== "object" || Array.isArray(frame.changes)) throw new Error("malformed sharing storage frame");
       return { kind: "storage", changes: frame.changes };
+    case "word-status":
+      if (frame.revision !== null && !(Number.isSafeInteger(frame.revision) && frame.revision >= 0)) {
+        throw new Error("malformed sharing word-status frame");
+      }
+      return { kind: "word-status", revision: frame.revision };
     case "ping":
       return { kind: "ping" };
     case "bye":

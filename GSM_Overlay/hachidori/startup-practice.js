@@ -15,7 +15,7 @@ export function practiceReadiness(options, dictionaries, outcome = null, readerF
       heading: installed ? "Enable a dictionary to try Hachidori" : "Add a dictionary to try Hachidori",
       message: installed ? "Your term dictionaries are turned off. Enable one to look up Japanese words." : "Add a term dictionary to look up Japanese words. The recommended dictionaries are a good place to start.",
       href: installed ? "settings.html#dictionaries" : "settings.html#add-dictionaries",
-      action: installed ? "Open Library" : "Add dictionaries",
+      action: installed ? "Open Dictionaries" : "Add dictionaries",
     };
   }
   if (!options.hoverEnabled) {

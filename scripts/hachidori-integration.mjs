@@ -11,6 +11,10 @@ const files = new Map([
     ['integrations/hachidori/popup.js', 'gsm/popup.js'],
     ['integrations/hachidori/bridge.js', 'gsm/bridge.js'],
 ]);
+const engineHostFiles = new Map([
+    ['integrations/hachidori/engine-host.html', 'gsm/engine-host.html'],
+    ['integrations/hachidori/engine-host.js', 'gsm/engine-host.js'],
+]);
 const begin = '// GSM integration hook begin';
 const end = '// GSM integration hook end';
 const hook = `${begin}
@@ -58,13 +62,17 @@ export function patchContent(source) {
 
 export async function prepareIntegration(extensionDir) {
     const content = patchContent(await fs.readFile(path.join(extensionDir, 'content.js'), 'utf8'));
+    const offscreen = await fs.readFile(path.join(extensionDir, 'chrome-offscreen.js'), 'utf8');
+    for (const anchor of ['export function chromeOffscreenSupported()', 'export async function ensureChromeOffscreen(url)']) {
+        replaceOnce(offscreen, anchor, anchor);
+    }
     const manifest = JSON.parse(await fs.readFile(path.join(extensionDir, 'manifest.json'), 'utf8'));
     const scripts = manifest.content_scripts?.filter(item => item.js?.includes('content.js'));
     if (scripts?.length !== 1) throw new Error('Hachidori manifest must declare exactly one reader content script stack.');
     scripts[0].js = scripts[0].js.filter(file => ![...files.values()].includes(file));
     scripts[0].js.splice(scripts[0].js.indexOf('content.js'), 0, ...files.values());
     const assets = new Map();
-    for (const [source, destination] of files) {
+    for (const [source, destination] of [...files, ...engineHostFiles]) {
         const text = await fs.readFile(path.join(overlayRoot, source), 'utf8');
         assets.set(destination, Buffer.from(text.replaceAll('\r\n', '\n')));
     }

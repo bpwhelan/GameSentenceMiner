@@ -11,7 +11,7 @@ const CORE_MARKERS = ["expression", "reading", "furigana", "furigana-plain", "di
   "frequency", "frequencies", "frequency-harmonic-rank", "frequency-harmonic-occurrence", "frequency-average-rank",
   "frequency-average-occurrence", "pitch", "pitch-position", "pitch-accent-positions", "pitch-categories",
   "pitch-accent-categories", "pitch-accent-graphs", "pitch-accent-graphs-jj",
-  "audio", "screenshot"];
+  "audio", "screenshot", "sentence-audio", "gif"];
 const MARKER_ALIASES = new Map([["pitch-accent", "pitch"], ["pitch-accents", "pitch"]]);
 const MARKER_DESCRIPTIONS = {
   expression: "Dictionary form of the selected term",
@@ -61,6 +61,8 @@ const MARKER_DESCRIPTIONS = {
   "pitch-accent-graphs-jj": "Japanese pitch accent SVG graphs with kana labels (Jidoujisho style)",
   audio: "Selected pronunciation audio",
   screenshot: "Screenshot of the source page",
+  "sentence-audio": "Netflix subtitle line's audio (experimental)",
+  gif: "Netflix subtitle line's animated GIF, otherwise the page screenshot (experimental)",
 };
 const DYNAMIC_MARKER_OPTIONS = [
   ["single-glossary-DICTIONARY", "Definitions from one dictionary; replace DICTIONARY with its marker name"],
@@ -73,11 +75,15 @@ const DYNAMIC_MARKER_OPTIONS = [
   ["single-frequency-number-DICTIONARY", "Numeric value from one frequency dictionary"],
 ];
 export const ANKI_TEMPLATE_MARKERS = Object.freeze([...CORE_MARKERS, ...MARKER_ALIASES.keys()]);
+// Markers of an experimental feature, by the flag that lists them in Settings.
+// They stay valid with the flag off, so a saved template still renders.
+const EXPERIMENTAL_MARKERS = new Map([["sentence-audio", "netflixMining"], ["gif", "netflixMining"]]);
 export const ANKI_TEMPLATE_MARKER_OPTIONS = Object.freeze([
   ...CORE_MARKERS.map(marker => Object.freeze({
     marker,
     value: `{${marker}}`,
     description: MARKER_DESCRIPTIONS[marker],
+    ...(EXPERIMENTAL_MARKERS.has(marker) ? { experimental: EXPERIMENTAL_MARKERS.get(marker) } : {}),
   })),
   ...[...MARKER_ALIASES].map(([marker, canonical]) => Object.freeze({
     marker,
@@ -187,7 +193,11 @@ export function ankiTemplateMarkerNames(template) {
 export function ankiCaptureRequirements(templates) {
   const markers = new Set(Object.values(templates).flatMap(template => ankiTemplateMarkerNames(template.value)));
   return {
-    includeScreenshot: markers.has("screenshot"),
+    // {gif} falls back to the screenshot's <img> off Netflix and on failure,
+    // so a mapped {gif} needs the viewport screenshot taken as well.
+    includeScreenshot: markers.has("screenshot") || markers.has("gif"),
+    includeSentenceAudio: markers.has("sentence-audio"),
+    includeGif: markers.has("gif"),
   };
 }
 

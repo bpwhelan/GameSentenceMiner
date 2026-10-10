@@ -20,6 +20,7 @@ import {
 } from "./dictionary-progress.js";
 import { createRecommendedInstallClient } from "./recommended-install-client.js";
 import { applyPageTheme } from "./settings-dom.js";
+import { describeErrorMessage } from "./error-text.js";
 import { canDiscoverSharingHost } from "./sharing-protocol.js";
 import { findLocalAudioSource } from "./local-audio-source.js";
 import { recommendedDictionaryInstalled } from "./managed-dictionary-source.js";
@@ -83,7 +84,7 @@ let practice;
 const installation = createRecommendedInstallClient({
   send: sourceIds => send("hd_setup_install", { sourceIds }, SETUP_TARGET),
   onChange() { if (!saving) render(); },
-  onError(error) { setStatus(`Could not start dictionary installation: ${describe(error)}`, "error"); },
+  onError(error) { setStatus(`Could not start dictionary installation: ${describeErrorMessage(error)}`, "error"); },
 });
 
 function element(id) {
@@ -92,10 +93,6 @@ function element(id) {
 
 function wait(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
-}
-
-function describe(error) {
-  return typeof error?.message === "string" && error.message !== "" ? error.message : String(error);
 }
 
 async function send(type, fields, target = WORKER_TARGET) {
@@ -115,7 +112,7 @@ function adoptSetupState(value) {
   try {
     state = normaliseSetupState(value);
   } catch (error) {
-    setupError = describe(error);
+    setupError = describeErrorMessage(error);
     return true;
   }
   setupError = null;
@@ -541,7 +538,7 @@ function requestAnkiSetup() {
     if (ankiOutcomeRecorded()) return;
     ankiFailed = true;
     stopAnkiProgress();
-    setStatus(`Could not check Anki: ${describe(error)}`, "error");
+    setStatus(`Could not check Anki: ${describeErrorMessage(error)}`, "error");
   }).finally(() => {
     ankiRequest = null;
     render();
@@ -695,7 +692,7 @@ function loadReader() {
     (chain, src) => chain.then(() => loadScript(src)), Promise.resolve(),
   ).then(() => globalThis.HDReaderReady).catch((error) => {
     // The persistent practice controller also exposes its recovery link.
-    setStatus(`The lookup exercise could not start: ${describe(error)}`, "error");
+    setStatus(`The lookup exercise could not start: ${describeErrorMessage(error)}`, "error");
     throw error;
   });
   return readerLoading;
@@ -856,7 +853,7 @@ async function useSharedHachidori() {
     if (!reply.ok) throw new Error(reply.error || "the link did not complete");
   } catch (error) {
     saving = false;
-    setStatus(`Could not use that Hachidori: ${describe(error)}`, "error");
+    setStatus(`Could not use that Hachidori: ${describeErrorMessage(error)}`, "error");
     render();
     return;
   }
@@ -1019,7 +1016,7 @@ async function advance(stage, { continued = false } = {}) {
     setStatus("");
     advanced = true;
   } catch (error) {
-    setStatus(`Could not save setup progress: ${describe(error)}`, "error");
+    setStatus(`Could not save setup progress: ${describeErrorMessage(error)}`, "error");
   } finally {
     saving = false;
     render();
@@ -1075,6 +1072,6 @@ async function start() {
 try {
   await start();
 } catch (error) {
-  setupError = describe(error);
+  setupError = describeErrorMessage(error);
   render();
 }

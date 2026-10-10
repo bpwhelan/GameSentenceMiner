@@ -106,6 +106,14 @@ node scripts/sync-hachidori.mjs C:\path\to\hachidori
 
 The script validates every expected upstream hook before replacing the vendor copy, inserts small lifecycle hooks, registers the GSM scripts before `content.js`, and copies the source modules into `hachidori/gsm/`. Regeneration is idempotent. `SOURCE.json` records both the upstream commit and an integration SHA-256 fingerprint; Electron includes both in its extension cache identity. Upstream hook drift produces an actionable failure in the release-update workflow.
 
+Dictionary engine ownership is resolved in the generated `gsm/engine-host.html`
+page before GSM starts a hosted engine. When Chrome's offscreen lifecycle API is
+available, Hachidori creates or reuses its own offscreen document. GSM hosts
+`offscreen.html` only when that API is unavailable. Two IDBFS engines must never
+share the dictionary store: each has its own filesystem mirror, and syncing a
+stale mirror can delete another engine's committed files while library metadata
+remains in `chrome.storage.local`.
+
 ### Automatic release updates
 
 `.github/workflows/update-hachidori.yml` checks the latest stable `bee-san/hachidori` release daily at 06:17 UTC and can also be run manually from GitHub Actions. It checks out the exact release tag, syncs the extension, and runs provenance, repeat-sync, TypeScript, overlay, and Electron smoke checks before opening or updating the `automation/hachidori-release` PR. Updates are left for human review.
@@ -121,8 +129,16 @@ node --test scripts/sync-hachidori.test.mjs scripts/hachidori-integration.test.m
 node --test GSM_Overlay/tests/*.test.cjs
 npm run test:ts -- electron-src/main/ui/gamepad-bindings.test.ts
 node GSM_Overlay/tests/run-hachidori-electron-smoke.cjs
+node GSM_Overlay/tests/run-hachidori-persistence-electron.cjs
 node GSM_Overlay/tests/run-gamepad-electron-smoke.cjs
 node GSM_Overlay/tests/run-jiten-electron-smoke.cjs
 ```
 
 The Hachidori smoke test loads its actual content scripts and renderer in Chromium's extension isolation, with fixture dictionary/audio/Anki services in a temporary profile. Its gamepad configuration comes from the production main-process reader selection, settings payload builder, and renderer configuration functions. It checks navigation of a mouse-opened popup, ruby targeting, mining once, nested entry routing, parent restoration, grading, audio, scrolling, hover ownership, and cancellation of late lookups. It makes no real Anki submissions or Jiten requests. Physical controller hardware remains a manual check.
+
+The persistence test starts the production overlay and real WASM engine in a
+temporary profile. It requires one engine per startup, imports two dictionaries,
+and checks their actual IndexedDB files and lookups after an overlay-only
+restart, full Electron restart, simulated extension update and another restart.
+It also checks that package IDs, generation paths, ordering, aliases, enabled
+settings and favorites remain unchanged. On Linux, run it under `xvfb-run -a`.

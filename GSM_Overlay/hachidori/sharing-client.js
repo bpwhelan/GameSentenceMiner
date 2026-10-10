@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { describeError } from "./error-text.js";
 import {
   LINKED_ANKI_UNSUPPORTED, PROTOCOL_VERSION, SHARING_CAPABILITIES, assertLinkedAnkiFrame, parseHostFrame,
 } from "./sharing-protocol.js";
@@ -15,10 +16,6 @@ export const SHARING_LOCAL_STATE_KEY = "sharingLocalState";
 export const NOT_REACHABLE = "The linked Hachidori is not reachable.";
 export const OUTCOME_UNKNOWN = "The linked Hachidori may have completed this change. Check its state before trying again.";
 const CONNECT_WAIT_MS = 5000;
-
-function describe(error) {
-  return error instanceof Error ? error.message || String(error) : String(error);
-}
 
 function requestFailure(failure, entry) {
   if (!entry.sent || !entry.mutation) return failure;
@@ -29,7 +26,9 @@ function requestFailure(failure, entry) {
 
 // `applyBatch(changes, isCurrent, snapshot)` writes one host storage batch locally, checking
 // isCurrent inside its storage queue; `version` and `name` introduce this install.
-export function createSharingClient({ WebSocket, applyBatch, version, name, capabilities = SHARING_CAPABILITIES }) {
+// `onWordStatus(revision)` hears the host's Anki index revision, and null
+// whenever the host's index starts or stops answering this browser.
+export function createSharingClient({ WebSocket, applyBatch, version, name, capabilities = SHARING_CAPABILITIES, onWordStatus = () => {} }) {
   const pending = new Map();
   const waiting = new Set();
   let address = null;
@@ -81,7 +80,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
     try {
       frame = parseHostFrame(text);
     } catch (parseError) {
-      console.warn("hachidori: dropped a sharing frame:", describe(parseError));
+      console.warn("hachidori: dropped a sharing frame:", describeError(parseError));
       return;
     }
     switch (frame.kind) {
@@ -95,6 +94,9 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
         error = null;
         attempt = 0;
         settleWaiting();
+        // Word-status frames sent while this browser was away are lost, and
+        // this host's revisions do not continue the index that answered before.
+        onWordStatus(null);
         return;
       case "reply": {
         const entry = pending.get(frame.id);
@@ -106,6 +108,9 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
       case "storage":
         await applyBatch(frame.changes,
           () => socket === current && linkGeneration === currentGeneration);
+        return;
+      case "word-status":
+        onWordStatus(frame.revision);
         return;
       case "ping":
         current.send(JSON.stringify({ kind: "pong" }));
@@ -125,7 +130,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
     try {
       next = new WebSocket(address);
     } catch (connectError) {
-      error = describe(connectError);
+      error = describeError(connectError);
       settleWaiting(new Error(NOT_REACHABLE));
       scheduleRetry();
       return;
@@ -220,7 +225,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
       try {
         probeSocket = new WebSocket(target);
       } catch (connectError) {
-        reject(new Error(`No shared Hachidori answered at ${target}: ${describe(connectError)}`));
+        reject(new Error(`No shared Hachidori answered at ${target}: ${describeError(connectError)}`));
         return;
       }
       let settled = false;
@@ -285,6 +290,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
       rejectPending(failure);
       settleWaiting(failure);
       previous?.close();
+      onWordStatus(null);
     },
   };
 }
