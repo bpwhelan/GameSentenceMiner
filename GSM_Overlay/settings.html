@@ -386,6 +386,7 @@
     }
 
     input[type="text"],
+    input[type="url"],
     input[type="number"],
     input[type="password"],
     select {
@@ -410,6 +411,7 @@
     }
 
     input[type="text"]:focus,
+    input[type="url"]:focus,
     input[type="number"]:focus,
     input[type="password"]:focus,
     select:focus {
@@ -420,6 +422,7 @@
     }
 
     input[type="text"]:disabled,
+    input[type="url"]:disabled,
     input[type="password"]:disabled {
       opacity: 0.5;
       cursor: not-allowed;
@@ -1363,6 +1366,7 @@
       }
 
       input[type="text"],
+      input[type="url"],
       input[type="number"],
       input[type="password"] {
         min-width: 100%;
@@ -2149,6 +2153,33 @@
           <div class="hotkey-info">Automatically synced from GSM's single-port texthooker setting.</div>
         </span>
         <input type="text" id="texthookerUrl" value="http://localhost:7275/texthooker" readonly />
+      </label>
+    </div>
+
+    <div class="setting-group full-width" data-tab="interaction">
+      <h4>Custom Page</h4>
+      <label>
+        <span class="label-text">
+          Enable Custom Page
+          <div class="hotkey-info">Optionally open a guide or other web page over your game. Nothing opens or loads until you use the hotkey.</div>
+        </span>
+        <input type="checkbox" id="customPageEnabled" />
+      </label>
+      <label>
+        <span class="label-text">
+          Page URL
+          <div class="hotkey-info">Paste an http:// or https:// address, such as https://kanjieater.github.io/VN-Guide/ or a specific game's walkthrough.</div>
+          <div id="custom-page-url-error" class="hotkey-info" style="color: #ff6b6b;" hidden>Enter a full http:// or https:// URL.</div>
+        </span>
+        <input type="url" id="customPageUrl" value="" placeholder="https://kanjieater.github.io/VN-Guide/" aria-describedby="custom-page-url-error" />
+      </label>
+      <label>
+        <span class="label-text">
+          Custom Page Hotkey
+          <div class="hotkey-info">Show or hide the page without losing your place. Escape returns to the game. Alt+Left/Right navigates back/forward.</div>
+          <div id="custompage-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <input type="text" id="customPageHotkey" value="Alt+Shift+U" />
       </label>
     </div>
 
@@ -3253,6 +3284,7 @@
       yomitanSettingsHotkey: { warningElementId: "yomitansettings-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       overlaySettingsHotkey: { warningElementId: "overlaysettings-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       texthookerHotkey: { warningElementId: "texthooker-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      customPageHotkey: { warningElementId: "custompage-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       gamepadKeyboardHotkey: { warningElementId: "gamepadkeyboard-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
     });
     const VALID_PLATFORM_OVERRIDE_VALUES = new Set(["win32", "linux", "darwin"]);
@@ -4174,6 +4206,18 @@
       createHotkeyBinding("yomitanSettingsHotkey", "#yomitanSettingsHotkey"),
       createHotkeyBinding("overlaySettingsHotkey", "#overlaySettingsHotkey"),
       createHotkeyBinding("texthookerHotkey", "#texthookerHotkey"),
+      createCheckboxBinding("customPageEnabled", "#customPageEnabled"),
+      createTextBinding("customPageUrl", "#customPageUrl", {
+        normalize: value => String(value ?? "").trim(),
+        afterApply: value => {
+          let valid = !value;
+          try { valid = ['http:', 'https:'].includes(new URL(value).protocol); } catch {}
+          const control = document.getElementById('customPageUrl');
+          control.setCustomValidity(valid ? '' : 'Enter a full http:// or https:// URL.');
+          document.getElementById('custom-page-url-error').hidden = valid;
+        },
+      }),
+      createHotkeyBinding("customPageHotkey", "#customPageHotkey"),
       createCheckboxBinding("gamepadEnabled", "#gamepadEnabled", {
         afterApply: () => syncGamepadSettingsEnabledUi(),
       }),

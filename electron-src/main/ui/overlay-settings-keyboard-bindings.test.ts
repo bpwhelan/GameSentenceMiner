@@ -90,6 +90,68 @@ function loadOverlaySettingsPage(platform = "win32") {
   return { dom, ready, sent, listeners };
 }
 
+describe("overlay custom page settings", () => {
+  it("starts disabled, saves a URL and hotkey, and restores profile settings", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: {}, defaultSettings: {
+          customPageEnabled: false, customPageUrl: "", customPageHotkey: "Alt+Shift+U"
+        }, websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      const doc = page.dom.window.document;
+      const enabled = doc.getElementById("customPageEnabled");
+      const url = doc.getElementById("customPageUrl");
+      const hotkey = doc.getElementById("customPageHotkey");
+      expect(enabled.checked).toBe(false);
+      expect(url.value).toBe("");
+      expect(url.readOnly).toBe(false);
+      expect(hotkey.value).toBe("Alt+Shift+U");
+      expect(url.closest('[data-tab="interaction"]')).not.toBeNull();
+
+      url.value = "  https://kanjieater.github.io/VN-Guide/  ";
+      url.dispatchEvent(new page.dom.window.Event("blur"));
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "customPageUrl", value: "https://kanjieater.github.io/VN-Guide/"
+      });
+      enabled.checked = true;
+      enabled.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "customPageEnabled", value: true
+      });
+      hotkey.focus();
+      hotkey.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", {
+        key: "g", code: "KeyG", altKey: true, shiftKey: true, bubbles: true
+      }));
+      hotkey.dispatchEvent(new page.dom.window.KeyboardEvent("keyup", {
+        key: "g", code: "KeyG", bubbles: true
+      }));
+      hotkey.blur();
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "customPageHotkey", value: "Alt+Shift+G"
+      });
+
+      page.listeners.get("settings-updated")?.(null, {
+        customPageEnabled: false, customPageUrl: "https://example.com/guide", customPageHotkey: "Alt+Shift+J"
+      });
+      expect(enabled.checked).toBe(false);
+      expect(url.value).toBe("https://example.com/guide");
+      expect(hotkey.value).toBe("Alt+Shift+J");
+      url.value = "javascript:alert(1)";
+      url.dispatchEvent(new page.dom.window.Event("blur"));
+      await nextTick();
+      expect(url.validationMessage).not.toBe("");
+    } finally {
+      page.dom.window.close();
+    }
+  });
+});
+
 describe("overlay live stats period settings", () => {
   it("loads the Session default, persists Today, and restores saved/profile values", async () => {
     const page = loadOverlaySettingsPage();

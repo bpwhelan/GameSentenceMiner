@@ -64,6 +64,7 @@ function setup(t, settings = {}) {
     manualHotkeyPressed: false, manualModeToggleState: false,
     gamepadNavigationActive: false, gamepadReleaseRecoveryVersion: 0,
     overlayCaptureAvailable: true, trackedGameWindowState: 'active', isTexthookerMode: false,
+    customPageController: null,
     trackedGameWindowStateUpdatedAt: 0, magpieYomitanCloseVisibilityGuardActive: false,
     isOverlayVisible: false, resizeMode: false, yomitanShown: false,
     yomitanForegroundActive: false, yomitanRecoveryVersion: 0, lastYomitanEventAt: 0,
@@ -150,6 +151,16 @@ function setup(t, settings = {}) {
     },
   };
 }
+
+test('pending game focus restoration cannot interrupt a visible custom page', t => {
+  const { context, restores } = setup(t);
+  context.customPageController = { isVisible: () => true };
+  assert.equal(context.requestBackendFocusRestore('delayed-manual-release', { force: true }), false);
+  assert.deepEqual(restores, []);
+  context.customPageController = null;
+  assert.equal(context.requestBackendFocusRestore('custom-page-hide', { force: true }), true);
+  assert.deepEqual(restores, ['restore-focus-request']);
+});
 
 test('controller activation keeps focus through both activation messages and lookup changes', t => {
   const { activate, send, state, restores, rendererMessages } = setup(t);

@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const { between } = require('./helpers/overlay-startup.cjs');
+const { createCustomPageController, normalizeCustomPageUrl } = require('../custom_page_window');
 
 const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
 
@@ -24,6 +25,7 @@ function setup(t) {
     console: { log() {}, warn() {} }, Date, setTimeout, clearTimeout, ipcMain,
     overlayCaptureAvailable: false, overlayCaptureExpiryTimer: null,
     trackedGameWindowState: 'unknown', isTexthookerMode: false, texthookerWindow: null,
+    customPageController: null,
     settingsWindow: null, websocketStates: { ws1: false, ws2: false },
     mainWindow: {
       isDestroyed: () => false, isVisible: () => false, isMinimized: () => false,
@@ -103,6 +105,137 @@ function setupTextfeed(t) {
   c.registerTexthookerHotkey();
   return { ...fixture, toggleTextfeed: hotkeys.get('texthooker') };
 }
+
+function setupCustomPage(t) {
+  const fixture = setupTextfeed(t);
+  const { context: c, effects } = fixture;
+  const hotkeys = new Map();
+  const windows = [];
+  class BrowserWindow extends EventEmitter {
+    constructor() {
+      super();
+      this.visible = false;
+      this.urls = [];
+      this.webContents = new EventEmitter();
+      this.webContents.setWindowOpenHandler = () => {};
+      windows.push(this);
+    }
+    isDestroyed() { return !!this.destroyed; }
+    isVisible() { return this.visible; }
+    show() { this.visible = true; }
+    hide() { this.visible = false; }
+    destroy() { this.destroyed = true; this.emit('closed'); }
+    setBounds() {}
+    setAlwaysOnTop() {}
+    setOpacity() {}
+    focus() {}
+    loadURL(url) { this.urls.push(url); return Promise.resolve(); }
+  }
+  Object.assign(c, {
+    BrowserWindow, createCustomPageController, normalizeCustomPageUrl,
+    clearAppHotkey: id => hotkeys.delete(id),
+    setAppHotkey: (id, accelerator, handler) => { hotkeys.set(id, { accelerator, handler }); return true; },
+    getOverlayAppIconPath: () => '', getWindowsFramelessWindowOptions: () => ({}),
+    isManualHotkeyBlockedByGameWindowState: state => !['active', 'background'].includes(state),
+  });
+  loadFunctions(c, ['registerCustomPageHotkey', 'isTexthookerDefinitelyVisible',
+    'getManualHotkeyTriggerBlockReason', 'isTrackedGameWindowVisibleForManualHotkey']);
+  const configure = values => {
+    Object.assign(c.userSettings, values);
+    c.registerCustomPageHotkey();
+  };
+  configure({ customPageEnabled: true, customPageUrl: 'https://kanjieater.github.io/VN-Guide/', customPageHotkey: 'Alt+Shift+U' });
+  return { ...fixture, hotkeys, windows, configure, togglePage: () => hotkeys.get('custom-page')?.handler() };
+}
+
+test('custom page registration is opt-in, rebinds, and requires valid game capture', t => {
+  const { context: c, configure, togglePage, hotkeys, windows } = setupCustomPage(t);
+  togglePage();
+  assert.equal(windows.length, 0);
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
+  configure({ customPageEnabled: false });
+  assert.equal(hotkeys.has('custom-page'), false);
+  configure({ customPageEnabled: true, customPageUrl: 'file:///secret' });
+  assert.equal(hotkeys.has('custom-page'), false);
+  configure({ customPageUrl: 'https://example.com/guide', customPageHotkey: 'Mouse4' });
+  assert.equal(hotkeys.get('custom-page').accelerator, 'Mouse4');
+  assert.equal(windows.length, 0);
+  togglePage();
+  assert.equal(c.customPageController.isVisible(), true);
+  configure({ customPageEnabled: false });
+  assert.equal(windows[0].destroyed, true);
+  assert.equal(hotkeys.has('custom-page'), false);
+});
+
+test('custom page navigation saves to overlay settings and restores after a fresh controller starts', t => {
+  const { context: c, togglePage, windows } = setupCustomPage(t);
+  const snapshots = [];
+  c.saveSettings = () => { snapshots.push(JSON.stringify(c.userSettings)); };
+  const sourceUrl = c.userSettings.customPageUrl;
+  const lastUrl = `${sourceUrl}steinsgate/#route-2`;
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
+  togglePage();
+  windows[0].webContents.emit('did-navigate-in-page', {}, lastUrl, true);
+  assert.equal(snapshots.length, 1);
+  assert.equal(JSON.parse(snapshots[0]).customPageLastUrls[sourceUrl], lastUrl);
+  assert.equal(c.userSettings.customPageUrl, sourceUrl, 'navigation must preserve the configured starting URL');
+  windows[0].webContents.emit('did-navigate-in-page', {}, lastUrl, true);
+  assert.equal(snapshots.length, 1, 'duplicate navigation events must not rewrite settings');
+
+  c.customPageController.dispose();
+  c.customPageController = null;
+  c.userSettings = JSON.parse(snapshots[0]);
+  c.registerCustomPageHotkey();
+  togglePage();
+  assert.deepEqual(windows[1].urls, [lastUrl]);
+});
+
+test('custom pages survive covering the game, block lookups, and return focus when closed', t => {
+  const { context: c, effects, togglePage } = setupCustomPage(t);
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
+  togglePage();
+  effects.length = 0;
+  for (let heartbeat = 0; heartbeat < 6; heartbeat++) {
+    t.mock.timers.tick(1000);
+    c.updateOverlayCaptureStatus({ available: true, window_state: 'obscured' });
+    assert.equal(c.customPageController.isVisible(), true);
+    assert.equal(c.hasValidOverlayCapture(), true);
+    assert.equal(c.canUseOverlayCapture(), false);
+    assert.equal(c.getManualHotkeyTriggerBlockReason(), 'custom-page-visible');
+  }
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'background' });
+  assert.ok(!effects.includes('automatic-reveal'));
+  togglePage();
+  assert.equal(c.customPageController.isVisible(), false);
+  assert.ok(effects.includes('restore-game-focus'));
+  assert.equal(c.canUseOverlayCapture(), true);
+});
+
+test('custom page and TextFeed switch without leaving both windows visible', t => {
+  const { context: c, effects, togglePage, toggleTextfeed } = setupCustomPage(t);
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
+  toggleTextfeed();
+  effects.length = 0;
+  togglePage();
+  assert.equal(c.texthookerWindow.isVisible(), false);
+  assert.equal(c.customPageController.isVisible(), true);
+  assert.ok(!effects.includes('restore-game-focus'), 'switching must not send a competing focus request');
+  toggleTextfeed();
+  assert.equal(c.customPageController.isVisible(), false);
+  assert.equal(c.texthookerWindow.isVisible(), true);
+});
+
+test('losing game capture dismisses the custom page without taking focus back', t => {
+  const { context: c, effects, togglePage } = setupCustomPage(t);
+  c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
+  togglePage();
+  effects.length = 0;
+  c.updateOverlayCaptureStatus({ available: false, window_state: 'minimized' });
+  assert.equal(c.customPageController.isVisible(), false);
+  assert.ok(!effects.includes('restore-game-focus'));
+  togglePage();
+  assert.equal(c.customPageController.isVisible(), false);
+});
 
 test('every reveal, scan, and focus entry rejects unconfirmed capture', t => {
   const { context: c, effects, messages, ipcMain } = setup(t);

@@ -20,6 +20,7 @@ const { JitenParseCache, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = re
 const { installJitenSessionBroker, JitenFrameRequests } = require('./jiten_session');
 const { LocalVocabulary, VocabularyConnection } = require('./local_vocabulary');
 const { forceForegroundWindow } = require('./win_foreground');
+const { createCustomPageController, normalizeCustomPageUrl } = require('./custom_page_window');
 const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
   MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
@@ -354,6 +355,7 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "weburl1",
   "weburl2",
   "texthookerUrl",
+  "customPageLastUrls",
   "mainBoxStartupWarningAcknowledged",
   "pushToShowEnforcedDialogDismissed",
   "dismissedFullscreenRecommendations",
@@ -1124,6 +1126,10 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "dismissedExclusiveFullscreenRecommendations": [], // Games for which display-mode recommendation was dismissed
   "texthookerHotkey": DEFAULT_TEXTHOOKER_HOTKEY,
   "texthookerUrl": DEFAULT_TEXTHOOKER_URL,
+  "customPageEnabled": false,
+  "customPageUrl": "",
+  "customPageHotkey": "Alt+Shift+U",
+  "customPageLastUrls": {},
   "enableJitenReader": true,
   // Jiten Reader style SRS highlighting on the overlay text
   "jitenHighlightingEnabled": false,
@@ -1201,6 +1207,7 @@ const CONFIGURED_HOTKEY_SETTING_KEYS = Object.freeze([
   "translateHotkey",
   "liveStatsToggleHotkey",
   "texthookerHotkey",
+  "customPageHotkey",
   "gamepadKeyboardHotkey",
 ]);
 const CONFIGURED_HOTKEY_SETTING_KEY_SET = new Set(CONFIGURED_HOTKEY_SETTING_KEYS);
@@ -1316,6 +1323,12 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
     if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideLiveStatsOnTextOverlap")) {
       cleanedSettings.hideLiveStatsOnTextOverlap = DEFAULT_USER_SETTINGS.hideLiveStatsOnTextOverlap;
       changed = true;
+    }
+    for (const key of ['customPageEnabled', 'customPageUrl', 'customPageHotkey']) {
+      if (!Object.prototype.hasOwnProperty.call(cleanedSettings, key)) {
+        cleanedSettings[key] = DEFAULT_USER_SETTINGS[key];
+        changed = true;
+      }
     }
     profiles[normalizedName] = cleanedSettings;
   }
@@ -1882,15 +1895,15 @@ function isTrackedGameWindowVisibleForManualHotkey() {
 function hasValidOverlayCapture() {
   if (!overlayCaptureAvailable) return false;
   if (["active", "background"].includes(trackedGameWindowState)) return true;
-  // TextFeed can cover the game itself; keep its existing visibility exception
+  // Reading windows can cover the game itself; keep their visibility exception
   // consistent with window-state-changed while the backend still confirms capture.
   // Also preserve an already-open lookup through the Magpie focus handoff.
   return trackedGameWindowState === "obscured" &&
-    (isTexthookerMode || yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
+    (isTexthookerMode || customPageController?.isVisible() || yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
 }
 
 function canUseOverlayCapture() {
-  return hasValidOverlayCapture() && !isTexthookerMode;
+  return hasValidOverlayCapture() && !isTexthookerMode && !customPageController?.isVisible();
 }
 
 function publishOverlayCaptureAvailability() {
@@ -1915,6 +1928,7 @@ function invalidateOverlayCapture(reason = "capture-unavailable") {
     isTexthookerMode = false;
     if (texthookerWindow && !texthookerWindow.isDestroyed()) texthookerWindow.hide();
   }
+  customPageController?.hide('capture-unavailable');
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (!isLinux()) mainWindow.setIgnoreMouseEvents(true, { forward: true });
     mainWindow.hide();
@@ -1935,7 +1949,7 @@ function updateOverlayCaptureStatus(message) {
   clearTimeout(overlayCaptureExpiryTimer);
   overlayCaptureExpiryTimer = setTimeout(() => invalidateOverlayCapture("capture-status-expired"), 5000);
   publishOverlayCaptureAvailability();
-  if (!wasAvailable && !isTexthookerMode) {
+  if (!wasAvailable && !isTexthookerMode && !customPageController?.isVisible()) {
     if (shouldKeepOverlayVisibleWhenManualInactive()) {
       showOverlayWithoutFocusForManualVisibleMode("capture-ready");
     } else {
@@ -1968,6 +1982,9 @@ function getManualHotkeyTriggerBlockReason() {
   // merely created, hidden, or transitioning TextFeed window does not block it.
   if (isTexthookerDefinitelyVisible()) {
     return "texthooker-visible";
+  }
+  if (customPageController?.isVisible()) {
+    return "custom-page-visible";
   }
 
   if (!isTrackedGameWindowVisibleForManualHotkey()) {
@@ -2383,6 +2400,7 @@ let settingsWindow = null;
 let offsetHelperWindow = null;
 let texthookerWindow = null;
 let texthookerLoadToken = 0;
+let customPageController = null;
 let tray = null;
 let platformOverride = null;
 let backend = null;
@@ -4174,6 +4192,7 @@ function shouldDeferObscuredStateAfterYomitanClose() {
 }
 
 function requestBackendFocusRestore(source, options = {}) {
+  if (customPageController?.isVisible()) return false;
   if (!backend || !backend.connected) {
     return false;
   }
@@ -5233,6 +5252,7 @@ function syncOverlayWindowsToCurrentMonitor(reason = "unknown", options = {}) {
   if (includeTexthooker) {
     updated = applyBoundsIfNeeded(texthookerWindow, bounds, "texthookerWindow", reason) || updated;
   }
+  customPageController?.syncBounds(bounds);
   if (includeOffsetHelper) {
     updated = applyBoundsIfNeeded(offsetHelperWindow, bounds, "offsetHelperWindow", reason) || updated;
   }
@@ -6048,6 +6068,7 @@ function deactivateTexthookerMode(reason = "texthooker-hide") {
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
   if (texthookerWindow && !texthookerWindow.isDestroyed()) texthookerWindow.hide();
+  if (reason === 'custom-page-switch-from-textfeed') return;
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('show-overlay-hotkey', false);
@@ -6083,6 +6104,7 @@ function registerTexthookerHotkey(oldHotkey) {
       return;
     }
     if (!hasValidOverlayCapture()) return;
+    customPageController?.hide('custom-page-switch-to-textfeed');
     if (!texthookerWindow || texthookerWindow.isDestroyed()) {
       createTexthookerWindow();
     }
@@ -6121,6 +6143,61 @@ function registerTexthookerHotkey(oldHotkey) {
   if (!registered) {
     console.warn(`[TexthookerMode] Failed to register texthooker hotkey: ${texthookerHotkey}`);
   }
+}
+
+function registerCustomPageHotkey() {
+  clearAppHotkey('custom-page');
+  customPageController?.configure(userSettings);
+  if (!userSettings.customPageEnabled || !normalizeCustomPageUrl(userSettings.customPageUrl)) return;
+
+  const registered = setAppHotkey('custom-page', userSettings.customPageHotkey, () => {
+    // Closing must still work after focus/capture changes. Opening follows the
+    // same game-availability rule as TextFeed.
+    if (customPageController?.isVisible()) {
+      customPageController.hide('custom-page-hotkey-hide');
+      return;
+    }
+    if (!hasValidOverlayCapture() || !mainWindow || mainWindow.isDestroyed()) return;
+    if (isTexthookerMode) deactivateTexthookerMode('custom-page-switch-from-textfeed');
+    if (!customPageController) {
+      customPageController = createCustomPageController({
+        BrowserWindow,
+        getSavedUrl: sourceUrl => userSettings.customPageLastUrls?.[sourceUrl],
+        onNavigate: (sourceUrl, url) => {
+          if (userSettings.customPageLastUrls?.[sourceUrl] === url) return;
+          setOverlaySettingValue('customPageLastUrls', { ...userSettings.customPageLastUrls, [sourceUrl]: url });
+          saveSettings();
+        },
+        getWindowOptions: () => ({ icon: getOverlayAppIconPath(), ...getWindowsFramelessWindowOptions() }),
+        getBounds: () => getOverlayBoundsForDisplay(getCurrentOverlayMonitor({ logFallback: true })),
+        focusWindow: forceForegroundWindow,
+        onShow: () => {
+          overlayFocusRequestVersion += 1;
+          cancelManualBackgroundRelease();
+          resetOverlayInteractionStateForHiddenGameWindow('custom-page-show');
+          clearManualActivationState('custom-page-show');
+          releaseAllOverlayPauseRequests();
+          mainWindow.webContents.send('show-overlay-hotkey', false);
+          mainWindow.hide();
+          publishOverlayCaptureAvailability();
+        },
+        onHide: (reason) => {
+          publishOverlayCaptureAvailability();
+          if (['capture-unavailable', 'custom-page-dispose', 'custom-page-switch-to-textfeed'].includes(reason)) return;
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            if (!isLinux()) mainWindow.setIgnoreMouseEvents(true, { forward: true });
+            if (canUseOverlayCapture() && (!isManualMode() || shouldKeepOverlayVisibleWhenManualInactive())) {
+              mainWindow.showInactive();
+            }
+          }
+          requestBackendFocusRestore(reason, { force: true });
+        },
+      });
+    }
+    customPageController.configure(userSettings);
+    customPageController.toggle();
+  }, { settingKey: 'customPageHotkey', debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
+  if (!registered) console.warn(`[CustomPage] Failed to register hotkey: ${userSettings.customPageHotkey}`);
 }
 
 function registerManualShowHotkey(oldHotkey) {
@@ -7457,6 +7534,7 @@ async function startOverlayAppImpl() {
     if (changed("overlaySettingsHotkey")) registerOverlaySettingsHotkey(previous.overlaySettingsHotkey);
     if (changed("translateHotkey")) registerTranslateHotkey(previous.translateHotkey);
     if (changed("texthookerHotkey")) registerTexthookerHotkey(previous.texthookerHotkey);
+    if (changed("customPageEnabled") || changed("customPageUrl") || changed("customPageHotkey")) registerCustomPageHotkey();
     if (changed("liveStatsToggleHotkey")) registerLiveStatsToggleHotkey(previous.liveStatsToggleHotkey);
     if (changed("gamepadKeyboardHotkey") || changed("gamepadKeyboardEnabled") || changed("gamepadEnabled")) {
       registerGamepadKeyboardHotkey(previous.gamepadKeyboardHotkey);
@@ -7474,6 +7552,7 @@ async function startOverlayAppImpl() {
       registerToggleFuriganaHotkey();
       registerLiveStatsToggleHotkey();
       registerTexthookerHotkey();
+      registerCustomPageHotkey();
       registerGamepadKeyboardHotkey();
       registerManualShowHotkey();
       syncAppHotkeyInputServerConnection(`${reason}:route-all-hotkeys`);
@@ -7511,6 +7590,7 @@ async function startOverlayAppImpl() {
 
   createTexthookerWindow();
   registerTexthookerHotkey();
+  registerCustomPageHotkey();
   registerManualShowHotkey();
 
   // Initialize backend connector
@@ -8008,7 +8088,7 @@ async function startOverlayAppImpl() {
 
     const normalizedWindowState = setTrackedGameWindowState(state, "window-state-changed");
     publishOverlayCaptureAvailability();
-    if (isTexthookerMode) return;
+    if (isTexthookerMode || customPageController?.isVisible()) return;
 
     currentMagpieState = magpieInfo !== undefined
       ? createMagpieState(magpieInfo)
@@ -8421,9 +8501,15 @@ async function startOverlayAppImpl() {
         registerToggleFuriganaHotkey();
         registerLiveStatsToggleHotkey();
         registerTexthookerHotkey();
+        registerCustomPageHotkey();
         registerGamepadKeyboardHotkey();
         registerManualShowHotkey();
         syncAppHotkeyInputServerConnection("setting-changed:routeAllHotkeysThroughInputServer");
+        break;
+      case "customPageEnabled":
+      case "customPageUrl":
+      case "customPageHotkey":
+        registerCustomPageHotkey();
         break;
       case "texthookerUrl":
         if (texthookerWindow && !texthookerWindow.isDestroyed()) {
@@ -8665,7 +8751,7 @@ async function startOverlayAppImpl() {
   // let alwaysOnTopInterval;
 
   ipcMain.on("text-received", (event, text) => {
-    if (isTexthookerMode) return;
+    if (isTexthookerMode || customPageController?.isVisible()) return;
     // Reset the activity timer on text received
     resetActivityTimer();
     // Reset translation state on new text
@@ -8858,6 +8944,8 @@ async function startOverlayAppImpl() {
   });
 
   registerOverlayEmitterListener(app, "before-quit", () => {
+    customPageController?.dispose();
+    customPageController = null;
     // Clear activity timer on quit
     if (activityTimer) {
       clearTimeout(activityTimer);
@@ -8947,6 +9035,8 @@ async function stopOverlayApp() {
       });
 
       runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());
+      runOverlayCleanupStep('custom page', () => customPageController?.dispose());
+      customPageController = null;
       runOverlayCleanupStep('Jiten requests', () => {
         localVocabulary.cancel();
         clearInterval(vocabularySyncInterval);
