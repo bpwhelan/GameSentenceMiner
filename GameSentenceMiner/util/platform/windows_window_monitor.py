@@ -1963,7 +1963,31 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return False
 
         try:
-            if int(user32.GetForegroundWindow() or 0) == int(hwnd):
+
+            def _is_foreground() -> bool:
+                return int(user32.GetForegroundWindow() or 0) == int(hwnd)
+
+            if _is_foreground():
+                return True
+
+            # A visible game only needs activation. Re-showing/raising it first
+            # causes extra window-order changes, especially under Magpie.
+            if user32.IsIconic(hwnd):
+                logger.debug(f"Target window minimized, restoring (attempt {attempt_number})")
+                user32.ShowWindow(hwnd, SW_RESTORE)
+            elif not user32.IsWindowVisible(hwnd):
+                user32.ShowWindow(hwnd, SW_SHOW)
+
+            def _try_foreground() -> bool:
+                if _is_foreground():
+                    return True
+                user32.SetForegroundWindow(hwnd)
+                if _is_foreground():
+                    return True
+                time.sleep(0.03)
+                return _is_foreground()
+
+            if _try_foreground():
                 return True
 
             fg_hwnd = int(user32.GetForegroundWindow() or 0)
@@ -1979,15 +2003,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                     if user32.AttachThreadInput(a, b, True):
                         attached_pairs.append((a, b))
 
-            def _is_foreground() -> bool:
-                return int(user32.GetForegroundWindow() or 0) == int(hwnd)
-
             def _restore_and_raise(toggle_topmost: bool = False) -> None:
-                if user32.IsIconic(hwnd):
-                    logger.debug(f"Target window minimized, restoring (attempt {attempt_number})")
-                    user32.ShowWindow(hwnd, SW_RESTORE)
-                else:
-                    user32.ShowWindow(hwnd, SW_SHOW)
                 user32.BringWindowToTop(hwnd)
                 if toggle_topmost:
                     user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
@@ -2003,13 +2019,22 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                     user32.SetFocus(hwnd)
                 except Exception:
                     pass
-                user32.SetForegroundWindow(hwnd)
-                time.sleep(0.03)
-                return _is_foreground()
+                return _try_foreground()
 
             _attach(current_tid, fg_tid)
             _attach(current_tid, target_tid)
             _attach(fg_tid, target_tid)
+
+            if _try_foreground():
+                return True
+
+            # Magpie maintains its own ordering relative to the source window.
+            # Topmost toggles/Alt taps can disturb that ordering or scaling; let
+            # activate_target_window retry the direct handoff instead. Query live
+            # geometry too, since the monitor may not have observed scaling yet.
+            if self.magpie_info or get_magpie_info():
+                logger.debug(f"Magpie focus handoff deferred without raising the game (attempt {attempt_number})")
+                return False
 
             try:
                 user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), 0)

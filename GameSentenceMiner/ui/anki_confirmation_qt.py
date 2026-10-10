@@ -35,6 +35,7 @@ from GameSentenceMiner.util.config.configuration import (
     save_current_config,
     reload_config,
 )
+from GameSentenceMiner.util.concurrency.transport import submit_coroutine_to_loop
 from GameSentenceMiner.util.gsm_utils import (
     get_file_modification_time,
     make_unique_file_name,
@@ -48,7 +49,33 @@ from GameSentenceMiner.util.platform.gamepad_hotkey import (
     GamepadInputClient,
     parse_gamepad_binding,
 )
-from GameSentenceMiner.util.platform.window_state_monitor import request_anki_confirmation_process_pause
+from GameSentenceMiner.util.platform.window_state_monitor import (
+    get_window_state_monitor,
+    request_anki_confirmation_process_pause,
+)
+
+
+def _request_game_focus_restore():
+    monitor = get_window_state_monitor()
+    if monitor is None:
+        return
+    loop = getattr(monitor.overlay_processor, "processing_loop", None)
+    if loop is None or not loop.is_running():
+        logger.debug("Window monitor loop unavailable for Anki confirmation focus restore.")
+        return
+
+    restore = None
+    try:
+        from GameSentenceMiner.web.overlay_handler import overlay_handler
+
+        # Reuse the overlay's target resolution and activation retries without
+        # blocking Qt while the game takes foreground focus.
+        restore = overlay_handler.handle_restore_focus_request()
+        submit_coroutine_to_loop(loop, restore)
+    except (ImportError, RuntimeError) as exc:
+        if restore is not None:
+            restore.close()
+        logger.exception(f"Failed requesting game focus after Anki confirmation: {exc}")
 
 
 # -------------------------------------------------------------------------
@@ -2617,11 +2644,14 @@ class AnkiConfirmationDialog(QDialog):
         pause_requested = request_anki_confirmation_process_pause(True)
         try:
             if self._should_focus_on_show():
-                return self._exec_with_activation()
-            return self._exec_without_activation()
+                result = self._exec_with_activation()
+            else:
+                result = self._exec_without_activation()
         finally:
             if pause_requested:
                 request_anki_confirmation_process_pause(False)
+        _request_game_focus_restore()
+        return result
 
 
 def show_anki_confirmation(

@@ -11,7 +11,7 @@ const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
 
 function setup(t, settings = {}) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 10000 });
-  const state = { focused: false, visible: true, ignoreMouseEvents: true, focusCalls: 0 };
+  const state = { focused: false, visible: true, ignoreMouseEvents: true, focusCalls: 0, blurCalls: 0 };
   const restores = [];
   const pauseRequests = [];
   const rendererMessages = [];
@@ -35,7 +35,7 @@ function setup(t, settings = {}) {
     showInactive: () => { state.visible = true; },
     hide: () => { state.visible = false; state.focused = false; },
     focus: () => { state.focused = true; state.focusCalls += 1; },
-    blur: () => { state.focused = false; },
+    blur: () => { state.focused = false; state.blurCalls += 1; },
     setIgnoreMouseEvents: ignore => { state.ignoreMouseEvents = ignore; },
     setAlwaysOnTop() {},
     setVisibleOnAllWorkspaces() {},
@@ -60,6 +60,7 @@ function setup(t, settings = {}) {
     OVERLAY_TOPMOST_REASSERT_THROTTLE_MS: 1500,
     lastFocusRestoreRequestAt: 0, suppressBackendFocusRestoreUntil: 0,
     overlayFocusRequestVersion: 0,
+    pendingMagpieFocusRestore: null,
     lastOverlayTopmostReassertAt: 0, pendingOverlayTopmostReassertTimer: null,
     manualHotkeyPressed: false, manualModeToggleState: false,
     gamepadNavigationActive: false, gamepadReleaseRecoveryVersion: 0,
@@ -103,6 +104,7 @@ function setup(t, settings = {}) {
     'releaseOverlayFocusAfterTopmostRecovery', 'reassertOverlayTopmostWithoutFocus',
     'requestOverlayTopmostReassert', 'showOverlayWithoutFocusForManualVisibleMode',
     'aggressivelyShowOverlayAndReturnFocus', 'setGamepadNavigationModeActive',
+    'restoreAutomaticOverlayPassThrough', 'scheduleGamepadReleaseRecovery',
     'showOverlayUsingManualFlow', 'hideOverlayUsingManualFlow', 'clearManualActivationState',
     'shouldReassertOverlayAroundYomitan', 'shouldPreserveOverlayFocusForYomitan',
     'requestYomitanOverlayTopmostReassert',
@@ -203,6 +205,72 @@ test('controller exit restores game focus and leaves the overlay visible but ina
   assert.equal(state.ignoreMouseEvents, true);
   assert.deepEqual(restores, ['restore-focus-request']);
   assert.equal(rendererMessages.at(-1)[1], false);
+});
+
+for (const exitMode of ['automatic-gamepad', 'manual-gamepad', 'manual-hotkey']) {
+  test(`Magpie ${exitMode} hands focus directly to the game without first blurring`, t => {
+    const { activate, deactivate, pressManualHotkey, context, state, restores } = setup(t, {
+      manualMode: exitMode !== 'automatic-gamepad',
+    });
+    context.currentMagpieState = { active: true };
+    if (exitMode === 'manual-hotkey') pressManualHotkey();
+    else activate();
+    t.mock.timers.tick(1000);
+    if (exitMode === 'manual-hotkey') pressManualHotkey();
+    else deactivate();
+    t.mock.timers.tick(40);
+
+    assert.deepEqual(restores, ['restore-focus-request']);
+    assert.equal(state.focused, true, 'wait for the targeted handoff instead of activating an arbitrary window');
+    assert.equal(state.blurCalls, 0);
+    state.focused = false; // The backend successfully activates the game.
+    t.mock.timers.tick(1000);
+    assert.equal(state.blurCalls, 0);
+    assert.deepEqual(restores, ['restore-focus-request']);
+  });
+}
+
+test('Magpie focus release falls back once if the targeted handoff leaves the overlay focused', t => {
+  const { activate, deactivate, context, state, restores } = setup(t, { manualMode: false });
+  context.currentMagpieState = { active: true };
+  activate();
+  t.mock.timers.tick(1000);
+  deactivate();
+  t.mock.timers.tick(120);
+  t.mock.timers.tick(120);
+  assert.equal(state.focused, true);
+  assert.deepEqual(restores, ['restore-focus-request'], 'topmost recovery must share the pending handoff');
+  t.mock.timers.tick(10);
+  assert.equal(state.focused, false);
+  assert.equal(state.blurCalls, 1);
+  assert.deepEqual(restores, ['restore-focus-request', 'restore-focus-request']);
+  t.mock.timers.tick(1000);
+  assert.equal(state.blurCalls, 1);
+});
+
+test('Magpie handoff fallback cannot blur a new manual activation', t => {
+  const { activate, deactivate, pressManualHotkey, context, state, restores } = setup(t);
+  context.currentMagpieState = { active: true };
+  activate();
+  deactivate();
+  t.mock.timers.tick(40);
+  pressManualHotkey();
+  t.mock.timers.tick(1000);
+  assert.equal(state.focused, true);
+  assert.equal(state.blurCalls, 0);
+  assert.deepEqual(restores, ['restore-focus-request']);
+});
+
+test('Magpie focus release still blurs when the backend is unavailable', t => {
+  const { activate, deactivate, context, state, restores } = setup(t);
+  context.currentMagpieState = { active: true };
+  context.backend.connected = false;
+  activate();
+  deactivate();
+  t.mock.timers.tick(1000);
+  assert.equal(state.focused, false);
+  assert.equal(state.blurCalls, 1);
+  assert.deepEqual(restores, []);
 });
 
 test('controller exit clears an active manual toggle even without Alt-Tab', t => {

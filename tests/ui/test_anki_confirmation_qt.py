@@ -1,4 +1,7 @@
+import asyncio
+import inspect
 import os
+from concurrent.futures import Future
 from copy import deepcopy
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -170,6 +173,7 @@ def test_confirmation_exec_releases_only_acquired_game_pause(monkeypatch, focus_
         return "confirmed"
 
     monkeypatch.setattr(anki_confirmation_qt, "request_anki_confirmation_process_pause", request_pause)
+    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", lambda: probe.calls.append("restore"))
     probe._exec_with_activation = run_dialog
     probe._exec_without_activation = run_dialog
 
@@ -182,6 +186,8 @@ def test_confirmation_exec_releases_only_acquired_game_pause(monkeypatch, focus_
     expected = ["apply", ("pause", True), "dialog"]
     if pause_succeeded:
         expected.append(("pause", False))
+    if not raises:
+        expected.append("restore")
     assert probe.calls == expected
 
 
@@ -205,8 +211,9 @@ def focus_confirmation_dialog(monkeypatch):
 
 @pytest.mark.parametrize("focus_on_show", [False, True])
 @pytest.mark.parametrize("finish", ["accept", "reject", "close"])
+@pytest.mark.parametrize("pause_succeeded", [False, True])
 def test_confirmation_game_pause_lasts_until_dialog_finishes(
-    focus_confirmation_dialog, monkeypatch, focus_on_show, finish
+    focus_confirmation_dialog, monkeypatch, focus_on_show, finish, pause_succeeded
 ):
     dialog, config = focus_confirmation_dialog
     config.anki.confirmation_focus_on_show = focus_on_show
@@ -214,8 +221,17 @@ def test_confirmation_game_pause_lasts_until_dialog_finishes(
     visible_when_finished = []
     monkeypatch.setattr(anki_confirmation_qt, "activate_window", lambda _window: True)
     monkeypatch.setattr(
-        anki_confirmation_qt, "request_anki_confirmation_process_pause", lambda paused: calls.append(paused) or True
+        anki_confirmation_qt,
+        "request_anki_confirmation_process_pause",
+        lambda paused: calls.append(paused) or pause_succeeded,
     )
+    focus_restore_visibility = []
+
+    def restore_focus():
+        focus_restore_visibility.append(dialog.isVisible())
+        calls.append("restore")
+
+    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", restore_focus)
     monkeypatch.setattr(dialog, "_confirm_exit_and_apply_result", lambda: True)
 
     def finish_dialog():
@@ -227,7 +243,103 @@ def test_confirmation_game_pause_lasts_until_dialog_finishes(
     dialog.exec()
 
     assert visible_when_finished == [True]
-    assert calls == [True, "finish", False]
+    assert focus_restore_visibility == [False]
+    assert calls == [True, "finish", *([False] if pause_succeeded else []), "restore"]
+
+
+@pytest.mark.parametrize("finish", ["reject", "close"])
+def test_canceling_discard_prompt_keeps_game_pause_and_focus_in_confirmation(
+    focus_confirmation_dialog, monkeypatch, finish
+):
+    dialog, _config = focus_confirmation_dialog
+    calls = []
+    still_editing = []
+    monkeypatch.setattr(anki_confirmation_qt, "activate_window", lambda _window: True)
+    monkeypatch.setattr(
+        anki_confirmation_qt, "request_anki_confirmation_process_pause", lambda paused: calls.append(paused) or True
+    )
+    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", lambda: calls.append("restore"))
+    choices = iter([anki_confirmation_qt.EXIT_CHOICE_CANCEL, anki_confirmation_qt.EXIT_CHOICE_DISCARD])
+    monkeypatch.setattr(dialog, "_show_exit_confirmation_message", lambda: next(choices))
+
+    def cancel_discard():
+        getattr(dialog, finish)()
+        still_editing.append((dialog.isVisible(), list(calls)))
+        QTimer.singleShot(0, getattr(dialog, finish))
+
+    QTimer.singleShot(20, cancel_discard)
+    dialog.exec()
+
+    assert still_editing == [(True, [True])]
+    assert calls == [True, False, "restore"]
+
+
+def test_request_game_focus_restore_reuses_overlay_target_resolution_and_activation(monkeypatch):
+    from GameSentenceMiner.web import overlay_handler as overlay_handler_module
+
+    calls = []
+    loop = SimpleNamespace(is_running=lambda: True)
+    processor = SimpleNamespace(processing_loop=loop)
+
+    async def activate():
+        calls.append(("activate", monitor.target_hwnd))
+        return True
+
+    monitor = SimpleNamespace(
+        overlay_processor=processor,
+        target_hwnd=None,
+        find_target_hwnd=lambda: 42,
+        activate_target_window=activate,
+    )
+    processor.window_monitor = monitor
+    monkeypatch.setattr(anki_confirmation_qt, "get_window_state_monitor", lambda: monitor)
+    monkeypatch.setattr(overlay_handler_module, "get_overlay_processor", lambda: processor)
+
+    def submit(target_loop, coroutine):
+        assert target_loop is loop
+        calls.append("submit")
+        future = Future()
+        future.set_result(asyncio.run(coroutine))
+        return future
+
+    monkeypatch.setattr(anki_confirmation_qt, "submit_coroutine_to_loop", submit)
+
+    anki_confirmation_qt._request_game_focus_restore()
+
+    assert calls == ["submit", ("activate", 42)]
+
+
+@pytest.mark.parametrize("unavailable", ["monitor", "processor", "loop", "stopped"])
+def test_request_game_focus_restore_skips_unavailable_window_monitor(monkeypatch, unavailable):
+    loop = SimpleNamespace(is_running=lambda: unavailable != "stopped")
+    processor = SimpleNamespace(processing_loop=None if unavailable == "loop" else loop)
+    monitor = SimpleNamespace(overlay_processor=None if unavailable == "processor" else processor)
+    monkeypatch.setattr(
+        anki_confirmation_qt, "get_window_state_monitor", lambda: None if unavailable == "monitor" else monitor
+    )
+    monkeypatch.setattr(
+        anki_confirmation_qt, "submit_coroutine_to_loop", lambda *_args: pytest.fail("Unexpected focus request")
+    )
+
+    anki_confirmation_qt._request_game_focus_restore()
+
+
+def test_request_game_focus_restore_closes_coroutine_if_loop_stops_during_submission(monkeypatch):
+    loop = SimpleNamespace(is_running=lambda: True)
+    monitor = SimpleNamespace(overlay_processor=SimpleNamespace(processing_loop=loop))
+    submitted = []
+    monkeypatch.setattr(anki_confirmation_qt, "get_window_state_monitor", lambda: monitor)
+
+    def submit(_loop, coroutine):
+        submitted.append(coroutine)
+        raise RuntimeError("Event loop is closed")
+
+    monkeypatch.setattr(anki_confirmation_qt, "submit_coroutine_to_loop", submit)
+
+    anki_confirmation_qt._request_game_focus_restore()
+
+    assert len(submitted) == 1
+    assert inspect.getcoroutinestate(submitted[0]) == inspect.CORO_CLOSED
 
 
 @pytest.mark.parametrize("failures_before_focus", [0, 2])

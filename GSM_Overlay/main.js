@@ -4225,6 +4225,29 @@ function suppressBackendFocusRestoreForProfileSwitch(reason = "unknown") {
 
 function blurAndRestoreFocus(options = {}) {
   if (mainWindow && !mainWindow.isDestroyed()) {
+    if (isWindows() && currentMagpieState.active && mainWindow.isFocused()) {
+      const version = overlayFocusRequestVersion;
+      if (pendingMagpieFocusRestore?.version === version) return;
+      // blur() lets Windows activate an arbitrary window before the backend can
+      // select the game. Keep Magpie's tool window foreground until that direct
+      // handoff has had a chance to complete, avoiding an intermediate focus hop.
+      if (requestBackendFocusRestore("magpie-direct", options)) {
+        if (pendingMagpieFocusRestore) clearTimeout(pendingMagpieFocusRestore.timer);
+        const pending = { version, timer: null };
+        pendingMagpieFocusRestore = pending;
+        pending.timer = setTimeout(() => {
+          if (pendingMagpieFocusRestore !== pending) return;
+          pendingMagpieFocusRestore = null;
+          if (version !== overlayFocusRequestVersion) return;
+          if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused()) return;
+          if (shouldPreserveOverlayFocusForYomitan() || yomitanShown || resizeMode) return;
+          if (Date.now() < suppressBackendFocusRestoreUntil) return;
+          mainWindow.blur();
+          requestBackendFocusRestore("magpie-blur-fallback", { ...options, force: true });
+        }, 250);
+        return;
+      }
+    }
     mainWindow.blur();
     requestBackendFocusRestore("blur", options);
   }
@@ -4252,6 +4275,7 @@ function showInactiveAndRestoreFocus(options = {}) {
 }
 
 let overlayFocusRequestVersion = 0;
+let pendingMagpieFocusRestore = null;
 
 function releaseOverlayFocusAfterTopmostRecovery(delayMs = 120) {
   const version = overlayFocusRequestVersion;

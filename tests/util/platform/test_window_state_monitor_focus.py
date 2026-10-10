@@ -25,9 +25,14 @@ class _FakeKernel32:
 
 
 class _FakeUser32:
-    def __init__(self):
+    def __init__(self, succeed_after=3):
         self.foreground_hwnd = 10
+        self.succeed_after = succeed_after
+        self.minimized = False
+        self.visible = True
         self.set_foreground_attempts = 0
+        self.show_calls = []
+        self.raise_calls = []
         self.window_pos_calls = []
         self.keybd_event_calls = []
         self.attach_calls = []
@@ -53,12 +58,19 @@ class _FakeUser32:
         return 1
 
     def IsIconic(self, _hwnd):
-        return 0
+        return self.minimized
 
-    def ShowWindow(self, _hwnd, _cmd):
+    def IsWindowVisible(self, _hwnd):
+        return self.visible
+
+    def ShowWindow(self, hwnd, cmd):
+        self.show_calls.append((hwnd, cmd))
+        self.minimized = False
+        self.visible = True
         return 1
 
-    def BringWindowToTop(self, _hwnd):
+    def BringWindowToTop(self, hwnd):
+        self.raise_calls.append(hwnd)
         return 1
 
     def SetWindowPos(self, hwnd, insert_after, x, y, cx, cy, flags):
@@ -73,7 +85,7 @@ class _FakeUser32:
 
     def SetForegroundWindow(self, hwnd):
         self.set_foreground_attempts += 1
-        if self.set_foreground_attempts >= 3:
+        if self.set_foreground_attempts >= self.succeed_after:
             self.foreground_hwnd = hwnd
             return 1
         return 0
@@ -102,12 +114,13 @@ def _set_focus_constants(monkeypatch):
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
 def test_set_foreground_aggressive_uses_topmost_and_alt_fallbacks(monkeypatch):
     _set_focus_constants(monkeypatch)
-    fake_user32 = _FakeUser32()
+    fake_user32 = _FakeUser32(succeed_after=5)
 
     monkeypatch.setattr(_wwm, "is_windows", lambda: True)
     monkeypatch.setattr(_wwm, "user32", fake_user32)
     monkeypatch.setattr(_wwm, "kernel32", _FakeKernel32())
     monkeypatch.setattr(_wwm.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(_wwm, "get_magpie_info", lambda: None)
 
     monitor = window_state_monitor.WindowStateMonitor()
 
@@ -117,6 +130,87 @@ def test_set_foreground_aggressive_uses_topmost_and_alt_fallbacks(monkeypatch):
     assert fake_user32.keybd_event_calls
     assert any(insert_after == _wwm.HWND_TOPMOST for _hwnd, insert_after, _flags in fake_user32.window_pos_calls)
     assert any(attach is False for _a, _b, attach in fake_user32.attach_calls)
+
+
+@pytest.fixture
+def foreground_monitor(monkeypatch):
+    _set_focus_constants(monkeypatch)
+    fake_user32 = _FakeUser32(succeed_after=1)
+    monkeypatch.setattr(_wwm, "user32", fake_user32)
+    monkeypatch.setattr(_wwm, "kernel32", _FakeKernel32())
+    monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: 222)
+    monkeypatch.setattr(_wwm, "_is_tracked_suspended_pid", lambda pid: False)
+    monkeypatch.setattr(_wwm, "get_magpie_info", lambda: None)
+    monkeypatch.setattr(_wwm.time, "sleep", lambda _seconds: None)
+    return window_state_monitor.WindowStateMonitor(), fake_user32
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+@pytest.mark.parametrize("succeed_after", [1, 2])
+def test_foreground_restore_tries_direct_handoff_before_disruptive_fallbacks(foreground_monitor, succeed_after):
+    monitor, native = foreground_monitor
+    native.succeed_after = succeed_after
+
+    assert monitor._set_foreground_aggressive(20) is True
+    assert native.foreground_hwnd == 20
+    assert native.set_foreground_attempts == succeed_after
+    assert native.show_calls == []
+    assert native.raise_calls == []
+    assert native.window_pos_calls == []
+    assert native.spi_calls == []
+    assert native.allow_calls == []
+    assert native.keybd_event_calls == []
+    if succeed_after == 1:
+        assert native.attach_calls == []
+    else:
+        attached = [(a, b) for a, b, attach in native.attach_calls if attach]
+        detached = [(a, b) for a, b, attach in native.attach_calls if not attach]
+        assert attached
+        assert detached == list(reversed(attached))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+@pytest.mark.parametrize("state", ["minimized", "hidden", "already_focused"])
+def test_foreground_restore_only_shows_windows_that_need_it(foreground_monitor, state):
+    monitor, native = foreground_monitor
+    native.minimized = state == "minimized"
+    native.visible = state != "hidden"
+    if state == "already_focused":
+        native.foreground_hwnd = 20
+
+    assert monitor._set_foreground_aggressive(20) is True
+    expected = {"minimized": [(20, _wwm.SW_RESTORE)], "hidden": [(20, _wwm.SW_SHOW)], "already_focused": []}
+    assert native.show_calls == expected[state]
+    assert native.raise_calls == []
+    assert native.window_pos_calls == []
+    assert native.attach_calls == []
+    assert native.set_foreground_attempts == (0 if state == "already_focused" else 1)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+@pytest.mark.parametrize("cached", [False, True])
+def test_magpie_restore_never_toggles_topmost_or_injects_alt_when_focus_is_denied(
+    foreground_monitor, monkeypatch, cached
+):
+    monitor, native = foreground_monitor
+    native.succeed_after = 100
+    if cached:
+        monitor.magpie_info = {"active": True}
+    else:
+        monkeypatch.setattr(_wwm, "get_magpie_info", lambda: {"active": True})
+
+    assert monitor._set_foreground_aggressive(20) is False
+    assert native.foreground_hwnd == 10
+    assert native.set_foreground_attempts == 2
+    assert native.show_calls == []
+    assert native.raise_calls == []
+    assert native.window_pos_calls == []
+    assert native.keybd_event_calls == []
+    assert native.spi_calls == []
+    attached = [(a, b) for a, b, attach in native.attach_calls if attach]
+    detached = [(a, b) for a, b, attach in native.attach_calls if not attach]
+    assert attached
+    assert detached == list(reversed(attached))
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
