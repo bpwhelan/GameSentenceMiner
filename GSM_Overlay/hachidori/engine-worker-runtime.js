@@ -16,16 +16,14 @@ import {
   startEngine,
 } from "./engine-service.js";
 import { boundResponseFailure } from "./response-limits.js";
+import { captureDebugLog } from "./debug-log.js";
+import { describeError } from "./error-text.js";
 
 let nextHostRequestId = 0;
 let nextProgressId = 0;
 const HOST_REQUEST_TIMEOUT_MS = 30_000;
 const pendingHostRequests = new Map();
 const pendingProgressAcks = new Map();
-
-function describe(error) {
-  return error instanceof Error ? error.message || String(error) : String(error);
-}
 
 function requestHost(message) {
   nextHostRequestId += 1;
@@ -79,7 +77,7 @@ function importInIsolatedWorker(request) {
       finish(value);
     };
     worker.addEventListener("error", (event) => settle(reject)(
-      new Error(describe(event.error || event.message) || "the import worker failed"),
+      new Error(describeError(event.error || event.message) || "the import worker failed"),
     ));
     worker.addEventListener("messageerror", () => settle(reject)(
       new Error("the import worker sent an unreadable message"),
@@ -101,6 +99,7 @@ function importInIsolatedWorker(request) {
 }
 
 export function startEngineWorker({ createHoshidicts, storageBackend, threaded = true }) {
+  captureDebugLog(globalThis, { context: "engine-worker" });
   // offscreen.js picks the name; see engine-recycler.js. The single-thread
   // build has no pool or import threading for Low memory mode to reduce, and
   // keeps resident entries like the document engine.
@@ -115,6 +114,8 @@ export function startEngineWorker({ createHoshidicts, storageBackend, threaded =
     lowRam: !threaded || lowMemory,
     pagedDictionaries: threaded && config.pagedDictionaries,
     dictionaryEntryStorage: threaded ? config.dictionaryEntryStorage : "auto",
+    dictionaryIndexStorage: threaded ? config.dictionaryIndexStorage : "auto",
+    useLessRamByDefault: config.useLessRamByDefault,
     reportProgress: reportEngineProgress,
     // Two IDBFS instances cannot share one store, so only direct OPFS can
     // import outside the engine.
@@ -159,7 +160,7 @@ function onHostMessage(event) {
         type: `${data.message?.type || "hd_unknown"}_result`,
         requestId: data.message?.requestId ?? null,
         ok: false,
-        error: describe(error),
+        error: describeError(error),
       }),
     }),
   );

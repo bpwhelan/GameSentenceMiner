@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import "./reader-options.js";
 import "./dictionary-group-state.js";
+import "./word-status-overrides.js";
 import {
   assertCustomSourceState, customDictionarySemanticRevision,
   normaliseCustomDictionaryDocument, parseCustomDictionary,
@@ -12,19 +13,22 @@ import { assertLookupStatsDescriptor } from "./lookup-stats.js";
 import { withOverlayLookupDefault } from "./setup-state.js";
 
 export function backupRevisions(snapshot) {
-  return Object.fromEntries(["state", "options", "document", "updates", "lookupStats"].map(key => {
+  return Object.fromEntries(["state", "options", "document", "updates", "lookupStats", "wordStatusOverrides"].map(key => {
     const revision = snapshot[key]?.revision;
     return [key, Number.isSafeInteger(revision) && revision >= 0 ? revision : 0];
   }));
 }
 
-// An overlay restores an archive that never chose a lookup mode on hover. The
+// An overlay restores an archive that never chose a lookup mode on hover, and
+// an automatic snapshot from before word status overrides restores none. The
 // engine builds the snapshot once, so the storage CAS and its exact readback
 // commit and verify the same values.
 export function restoredBackupSnapshot(current, archived, dictionaries, { overlay = false } = {}) {
   const options = overlay ? withOverlayLookupDefault(archived.options) : archived.options;
+  const restored = { ...archived, options: globalThis.HDReaderOptions.projectStoredOptions(options),
+    wordStatusOverrides: globalThis.HDWordStatusOverrides.normaliseWordStatusOverrides(archived.wordStatusOverrides) };
   return Object.fromEntries(Object.entries(backupRevisions(current)).map(([key, revision]) => [key, {
-    ...(key === "options" ? globalThis.HDReaderOptions.projectStoredOptions(options) : archived[key]),
+    ...restored[key],
     ...(key === "state" ? { dictionaries } : {}),
     ...(key === "lookupStats" ? { generation: crypto.randomUUID() } : {}),
     revision: revision + 1,
@@ -37,7 +41,6 @@ function assertDictionaryList(dictionaries) {
     assertDictionaryUpdateSchedule(entry);
     if (typeof entry?.id !== "string" || entry.id === "" || ids.has(entry.id)
         || typeof entry.title !== "string" || entry.title === "" || titles.has(entry.title)
-        || /[\\/]/u.test(entry.title) || entry.title.includes("\0") || [".", ".."].includes(entry.title)
         || typeof entry.revision !== "string"
         || typeof entry.enabled !== "boolean" || typeof entry.favorite !== "boolean"
         || (entry.displayName !== null && typeof entry.displayName !== "string")
@@ -115,5 +118,10 @@ export async function assertBackupSnapshot(snapshot) {
   }
   if (!sameJsonValue(snapshot.updates, normaliseUpdateSettings(snapshot.updates))) {
     throw new Error("The backup contains invalid update settings.");
+  }
+  // Absent from automatic snapshots taken before overrides existed.
+  if (snapshot.wordStatusOverrides !== undefined && !sameJsonValue(snapshot.wordStatusOverrides,
+    globalThis.HDWordStatusOverrides.normaliseWordStatusOverrides(snapshot.wordStatusOverrides))) {
+    throw new Error("The backup contains invalid word status overrides.");
   }
 }

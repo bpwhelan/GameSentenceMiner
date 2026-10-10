@@ -2,7 +2,7 @@
 import { audioSourceUrl, parseAudioSourceList } from "./audio-sources.js";
 import { LOCAL_AUDIO_SOURCE_URL, createLocalAudioSource, findLocalAudioSource } from "./local-audio-source.js";
 
-const UNAVAILABLE = "No compatible local audio service found. Open Anki with Local Audio Server enabled and retry. For a custom port, add its URL in Audio settings.";
+const UNAVAILABLE = "No compatible local audio service found. Open Anki with Local Audio Server enabled and retry. For a custom port, add its URL as a Yomitan JSON source.";
 
 export function createLocalAudioSetup({ document, readSources, editSources, isLinked = () => false, detect = detectLocalAudioSource }) {
   const check = document.getElementById("anki-audio-check");
@@ -23,15 +23,15 @@ export function createLocalAudioSetup({ document, readSources, editSources, isLi
     check.disabled = linked;
     const existing = readSources().find(source => source.type === "custom-json" && source.url === detected);
     add.hidden = !detected || Boolean(existing);
-    // Detected now, or already configured and enabled in Audio settings.
+    // Detected now, or already configured and enabled in the source list.
     const ready = Boolean(detected) || findLocalAudioSource(readSources())?.enabled === true;
     pill.textContent = ready ? "Ready" : "Not detected";
     pill.dataset.state = ready ? "connected" : "offline";
     check.textContent = active ? "Cancel audio check" : "Detect local audio";
-    if (linked) status.textContent = "Detect local audio in Anki settings on your Hachidori host.";
+    if (linked) status.textContent = "Detect local audio in Audio settings on your Hachidori host.";
     else if (existing) status.textContent = existing.enabled
-      ? "Local audio is already in Audio settings."
-      : "Local audio is already in Audio settings, but disabled. Enable it there when wanted.";
+      ? "Local audio is already one of your sources."
+      : "Local audio is already one of your sources, but disabled. Enable it in the list when wanted.";
     else if (detected) status.textContent = `Found local audio: ${detected}`;
     else if (status.textContent.includes("Hachidori host")) status.textContent = "";
   }

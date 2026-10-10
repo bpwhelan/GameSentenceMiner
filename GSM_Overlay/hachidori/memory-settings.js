@@ -14,6 +14,7 @@ const UNAVAILABLE = "\u2014";
 export function createMemorySettings({ document, readMemory, readExtensionTotal, numberFormat = new Intl.NumberFormat() }) {
   const total = document.getElementById("memory-total");
   const extensionTotal = document.getElementById("memory-extension-total");
+  const indexes = document.getElementById("memory-indexes");
   let latest = null;
   let inFlight = null;
   let totalInFlight = null;
@@ -21,11 +22,20 @@ export function createMemorySettings({ document, readMemory, readExtensionTotal,
   function renderTotal() {
     if (latest === null) {
       total.textContent = `Engine memory: ${UNAVAILABLE}`;
+      if (indexes) indexes.textContent = "";
       return;
     }
     const count = latest.dictionaries.length;
     const subject = count === 1 ? "1 dictionary" : `${numberFormat.format(count)} dictionaries`;
     total.textContent = `Engine memory: ${formatBytes(latest.heapBytes)} across ${subject}`;
+    if (indexes && latest.hashIndexStorage) {
+      const paged = latest.dictionaries.filter(item => item.hashIndexStorage === "paged").length;
+      const resident = latest.dictionaries.reduce((sum, item) => sum + item.residentHashBytes, 0);
+      const budget = Number.isFinite(latest.residentHashBudgetBytes) ? ` / ${formatBytes(latest.residentHashBudgetBytes)} budget` : "";
+      const requested = { auto: "Automatic", paged: "Read from disk", resident: "Keep in memory" }[latest.dictionaryIndexStorage];
+      indexes.textContent = `Hash indexes: ${formatBytes(resident)} resident${budget}; ${paged} read from disk`
+        + ` (requested: ${requested}). Shared page cache: ${formatBytes(latest.pageCacheBytes)}.`;
+    }
   }
 
   function renderRow(row) {
@@ -33,9 +43,10 @@ export function createMemorySettings({ document, readMemory, readExtensionTotal,
     if (!target) return;
     const entry = latest?.dictionaries.find((item) => item.id === row.dataset.dictionaryId);
     const share = typeof entry?.bytes === "number" ? `\u2248 ${formatBytes(entry.bytes)}` : UNAVAILABLE;
-    // A paged package keeps only its index in memory: the default on OPFS or Low
-    // memory mode, and one that did not fit otherwise.
-    target.textContent = `In memory: ${share}${entry?.paged === true ? " (entries read from disk)" : ""}`;
+    // Entry and hash residency are independent; metadata remains resident.
+    const disk = [entry?.paged === true ? "entries" : "", entry?.hashIndexStorage === "paged" ? "hash index" : ""].filter(Boolean);
+    const detail = disk.length ? ` (${disk.join(" and ")} read from disk)` : "";
+    target.textContent = `In memory: ${share}${detail}`;
   }
 
   function renderRows() {

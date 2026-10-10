@@ -13,6 +13,12 @@ import { extensionApi as chrome, expectedBackgroundUrl } from "./browser-api.js"
 import { engineWorkerName, createEngineRecycler } from "./engine-recycler.js";
 import { boundResponseFailure } from "./response-limits.js";
 import { decodeBase64 } from "./base64.js";
+import { captureDebugLog, readDebugLog, recordDebugFailure } from "./debug-log.js";
+import { describeError } from "./error-text.js";
+
+// Settings → Advanced → Get debug info reads this document's recent warnings,
+// errors and failed replies, and the engine worker's (debug-log.js).
+captureDebugLog(globalThis, { context: "offscreen" });
 
 const TARGET = "hoshidicts-offscreen";
 const WORKER_TARGET = "hoshidicts-worker";
@@ -44,8 +50,10 @@ const MUTATION_TYPES = new Set([
 const STAGED_MUTATION_TYPES = new Set(["hd_custom_append"]);
 const POLL_TYPES = new Set(["hd_status", "hd_memory"]);
 const IMPORT_READ_TYPES = new Set([
+  "hd_debug_log",
   "hd_lookup",
   "hd_lookup_dictionary",
+  "hd_segment",
   "hd_kanji",
   "hd_styles",
   "hd_media",
@@ -55,8 +63,10 @@ const IMPORT_READ_TYPES = new Set([
   "hd_api_dictionary_close",
 ]);
 const STAGED_MUTATION_READ_TYPES = new Set([
+  "hd_debug_log",
   "hd_lookup",
   "hd_lookup_dictionary",
+  "hd_segment",
   "hd_kanji",
   "hd_styles",
   "hd_media",
@@ -98,6 +108,8 @@ let lastEngineStatus = {
   ready: false,
   loading: true,
   dictionaryCount: 0,
+  packageCount: 0,
+  registeredKindCount: 0,
   failedDictionaries: [],
   generation: 0,
 };
@@ -111,17 +123,14 @@ const held = new Set();
 // dictionary change, or when the stored option no longer matches the worker.
 const recycler = createEngineRecycler({
   isIdle: () => pending.size === 0 && held.size === 0,
-  restart: (lowMemory, dictionaryEntryStorage) => {
+  restart: (lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault) => {
     worker.terminate();
-    startWorkerEngine(workerScript, lowMemory, dictionaryEntryStorage);
+    startWorkerEngine(workerScript, lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault);
   },
 });
 
-function describe(error) {
-  return error instanceof Error ? error.message || String(error) : String(error);
-}
-
 function failedResponse(message, error, errorCode = null) {
+  recordDebugFailure(globalThis, message?.type || "hd_unknown", error);
   return boundResponseFailure({
     type: `${message?.type || "hd_unknown"}_result`,
     requestId: message?.requestId ?? null,
@@ -190,6 +199,12 @@ function finishRequest(id, response) {
       ready: response.ready === true,
       loading: response.loading === true,
       dictionaryCount: Number(response.dictionaryCount) || 0,
+      packageCount: Number(response.packageCount) || 0,
+      registeredKindCount: Number(response.registeredKindCount) || 0,
+      dictionaryIndexStorage: response.dictionaryIndexStorage,
+      useLessRamByDefault: response.useLessRamByDefault,
+      hashIndexStorage: response.hashIndexStorage,
+      residentHashBudgetBytes: response.residentHashBudgetBytes,
       failedDictionaries: Array.isArray(response.failedDictionaries) ? response.failedDictionaries : [],
       generation: Number(response.generation) || 0,
     };
@@ -227,7 +242,7 @@ function updatingStatus() {
 
 function failEngine(error) {
   if (engineError !== null) return;
-  engineError = describe(error) || "the Hoshidicts engine stopped";
+  engineError = describeError(error) || "the Hoshidicts engine stopped";
   console.error(`hoshidicts: engine failed: ${engineError}`);
   for (const [id, request] of pending) {
     finishRequest(id, failedResponse(request.message, engineError, "engine-start-failed"));
@@ -251,16 +266,16 @@ function probeDirectOpfs() {
         type: "module",
         name: "hoshidicts-opfs-capability",
       });
-      probe.addEventListener("error", (event) => finish(false, describe(event.error || event.message)));
+      probe.addEventListener("error", (event) => finish(false, describeError(event.error || event.message)));
       probe.addEventListener("messageerror", () => finish(false, "the OPFS capability worker sent an unreadable message"));
       probe.addEventListener("message", (event) => {
         if (event.data?.channel !== "opfs-capability-result") return;
-        finish(event.data.ok === true, describe(event.data.error || ""));
+        finish(event.data.ok === true, describeError(event.data.error || ""));
       });
       timer = setTimeout(() => finish(false, "the OPFS capability probe timed out"), PROBE_TIMEOUT_MS);
       probe.postMessage({ channel: "opfs-capability-probe" });
     } catch (error) {
-      finish(false, describe(error));
+      finish(false, describeError(error));
     }
   });
 }
@@ -289,13 +304,13 @@ async function selectEngine() {
 
 // The name tells engine-worker-runtime.js which pthread pool and import
 // threading to start with; see docs/memory.md.
-function startWorkerEngine(script, lowMemory, dictionaryEntryStorage) {
+function startWorkerEngine(script, lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault) {
   workerScript = script;
   worker = new Worker(new URL(script, import.meta.url), {
     type: "module",
-    name: engineWorkerName(lowMemory, dictionaryEntryStorage),
+    name: engineWorkerName(lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault),
   });
-  recycler.setRunning(lowMemory, dictionaryEntryStorage);
+  recycler.setRunning(lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault);
   worker.addEventListener("error", (event) => failEngine(event.error || event.message));
   worker.addEventListener("messageerror", () => failEngine("the engine worker sent an unreadable message"));
   worker.onmessage = (event) => {
@@ -303,7 +318,7 @@ function startWorkerEngine(script, lowMemory, dictionaryEntryStorage) {
     if (data?.channel === "host-request") {
       Promise.resolve(chrome.runtime.sendMessage(data.message)).then(
         (response) => worker.postMessage({ channel: "host-response", id: data.id, ok: true, response }),
-        (error) => worker.postMessage({ channel: "host-response", id: data.id, ok: false, error: describe(error) }),
+        (error) => worker.postMessage({ channel: "host-response", id: data.id, ok: false, error: describeError(error) }),
       );
       return;
     }
@@ -356,10 +371,11 @@ async function readEngineConfig() {
   try {
     const reply = await chrome.runtime.sendMessage({ target: WORKER_TARGET, type: "hd_engine_config" });
     return { lowMemoryMode: reply?.ok === true && reply.lowMemoryMode === true,
-      dictionaryEntryStorage: reply?.dictionaryEntryStorage ?? "auto" };
+      dictionaryEntryStorage: reply?.dictionaryEntryStorage ?? "auto", dictionaryIndexStorage: reply?.dictionaryIndexStorage ?? "auto",
+      useLessRamByDefault: reply?.useLessRamByDefault === true };
   } catch (error) {
-    console.warn(`hoshidicts: could not read the engine configuration: ${describe(error)}`);
-    return { lowMemoryMode: false, dictionaryEntryStorage: "auto" };
+    console.warn(`hoshidicts: could not read the engine configuration: ${describeError(error)}`);
+    return { lowMemoryMode: false, dictionaryEntryStorage: "auto", dictionaryIndexStorage: "auto", useLessRamByDefault: false };
   }
 }
 
@@ -368,14 +384,15 @@ let pushedEngineConfig = null;
 // Only the pthread workers have a Low memory mode or entry policy to switch to.
 let recyclable = false;
 const engineSelection = Promise.all([selectEngine(), readEngineConfig()]).then(([mode, storedConfig]) => {
-  const { lowMemoryMode: lowMemory, dictionaryEntryStorage } = pushedEngineConfig ?? storedConfig;
+  const { lowMemoryMode: lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault } = pushedEngineConfig ?? storedConfig;
   lastEngineStatus.storageBackend = mode === "opfs" ? "opfs" : "idbfs";
   lastEngineStatus.threaded = mode !== "local" && mode !== "worker-local";
   if (mode === "local") return startLocalEngine();
   if (mode === "worker-local") return startWorkerEngine("./engine-worker-local.js", false);
   recyclable = true;
-  recycler.setDesired(lowMemory, dictionaryEntryStorage);
-  return startWorkerEngine(mode === "opfs" ? "./engine-worker.js" : "./engine-worker-idbfs.js", lowMemory, dictionaryEntryStorage);
+  recycler.setDesired(lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault);
+  return startWorkerEngine(mode === "opfs" ? "./engine-worker.js" : "./engine-worker-idbfs.js",
+    lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault);
 }).catch(failEngine);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -387,8 +404,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // and the single-thread worker is never desired in another mode. Settings
   // hides the Low memory switch when threaded is false.
   pushedEngineConfig = { lowMemoryMode: message.lowMemoryMode === true,
-    dictionaryEntryStorage: message.dictionaryEntryStorage ?? "auto" };
-  if (recyclable) recycler.setDesired(pushedEngineConfig.lowMemoryMode, pushedEngineConfig.dictionaryEntryStorage);
+    dictionaryEntryStorage: message.dictionaryEntryStorage ?? "auto", dictionaryIndexStorage: message.dictionaryIndexStorage ?? "auto",
+    useLessRamByDefault: message.useLessRamByDefault === true };
+  if (recyclable) recycler.setDesired(pushedEngineConfig.lowMemoryMode, pushedEngineConfig.dictionaryEntryStorage,
+    pushedEngineConfig.dictionaryIndexStorage, pushedEngineConfig.useLessRamByDefault);
   sendResponse({ type: "hd_engine_config_result", requestId: message.requestId ?? null, ok: true });
   return true;
 });
@@ -406,7 +425,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   service.then(handle => handle(message)).then(
     result => sendResponse({ type: `${message.type}_result`, requestId: message.requestId, ok: true, ...result }),
-    error => sendResponse(failedResponse(message, describe(error))),
+    error => sendResponse(failedResponse(message, describeError(error))),
   );
   return true;
 });
@@ -477,7 +496,7 @@ function dispatchEngine(message, sendResponse) {
     }
     worker.postMessage({ channel: "engine-request", id, message });
     return undefined;
-  }).catch((error) => finishRequest(id, failedResponse(message, describe(error), "engine-start-failed")));
+  }).catch((error) => finishRequest(id, failedResponse(message, describeError(error), "engine-start-failed")));
 }
 
 // The engine worker and its pthreads: the isolates that share the engine heap.
@@ -510,12 +529,27 @@ async function measureExtensionMemory(message) {
   return reply(bytes, heap);
 }
 
+// This document's log, then the engine worker's. A local engine runs on this
+// document and shares its log.
+async function readDebugLogs(message) {
+  const logs = [await readDebugLog(globalThis)];
+  if (worker !== null) {
+    const reply = await new Promise((resolve) => dispatchEngine({ type: "hd_debug_log", requestId: null }, resolve));
+    logs.push(reply?.ok === true ? reply.log : { context: "engine-worker", error: reply?.error ?? "no reply" });
+  }
+  return { type: "hd_debug_log_result", requestId: message.requestId ?? null, ok: true, error: null, logs };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== TARGET || message.relayed !== true || message.type === "hd_engine_config") {
     return false;
   }
+  if (message.type === "hd_debug_log") {
+    readDebugLogs(message).then(sendResponse, (error) => sendResponse(failedResponse(message, describeError(error))));
+    return true;
+  }
   if (message.type === "hd_memory_total") {
-    measureExtensionMemory(message).then(sendResponse, (error) => sendResponse(failedResponse(message, describe(error))));
+    measureExtensionMemory(message).then(sendResponse, (error) => sendResponse(failedResponse(message, describeError(error))));
     return true;
   }
   dispatchEngine(message, sendResponse);
@@ -537,7 +571,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return installer.attach(message.sourceIds, { recordSetup: message.recordSetup === true });
   }).then(
     (result) => sendResponse({ type: `${message.type}_result`, requestId: message.requestId ?? null, ok: true, error: null, ...result }),
-    (error) => sendResponse(failedResponse(message, describe(error))),
+    (error) => sendResponse(failedResponse(message, describeError(error))),
   );
   return true;
 });
@@ -594,7 +628,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   answerUpload(message).then(
     (result) => sendResponse(message.type === "hd_upload_import" ? result
       : { type: `${message.type}_result`, requestId: message.requestId ?? null, ok: true, error: null, ...result }),
-    (error) => sendResponse(failedResponse(message, describe(error))),
+    (error) => sendResponse(failedResponse(message, describeError(error))),
   );
   return true;
 });

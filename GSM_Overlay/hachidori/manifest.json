@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hachidori",
   "short_name": "Hachidori",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Study Japanese vocabulary: look up words on any page and build Anki cards, optionally capturing on-screen context.",
   "minimum_chrome_version": "128",
   "icons": {
@@ -17,6 +17,7 @@
     "offscreen",
     "scripting",
     "storage",
+    "tabCapture",
     "unlimitedStorage",
     "userScripts"
   ],
@@ -72,6 +73,15 @@
     },
     "scanTextAtSelection": {
       "description": "Look up the text at the selection"
+    },
+    "toggleWordHighlights": {
+      "description": "Show or hide the word highlights on the page"
+    },
+    "markWordKnown": {
+      "description": "Mark the current popup entry's word as known"
+    },
+    "ignoreWord": {
+      "description": "Ignore the current popup entry's word"
     }
   },
   "action": {
@@ -101,6 +111,10 @@
         "render/glossary.js",
         "render/popup.js",
         "theme-host.js",
+        "word-status-overrides.js",
+        "word-highlights.js",
+        "content-dictionaries.js",
+        "content-scan.js",
         "gsm/popup-navigation.js",
         "gsm/jiten-grading-bar.js",
         "gsm/popup.js",
@@ -132,6 +146,14 @@
       ],
       "matches": [
         "<all_urls>"
+      ]
+    },
+    {
+      "resources": [
+        "netflix-recorder.html"
+      ],
+      "matches": [
+        "https://www.netflix.com/*"
       ]
     }
   ],

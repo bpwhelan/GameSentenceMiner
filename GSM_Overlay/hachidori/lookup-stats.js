@@ -16,6 +16,16 @@ export function assertLookupStatsDescriptor(descriptor) {
   }
 }
 
+// A reset publishes a new, empty generation one revision above the current
+// descriptor. Readers reject older revisions, so the revision never restarts;
+// every row of the replaced generation becomes unreachable at this commit.
+export function resetLookupStats(descriptor = emptyLookupStats()) {
+  assertLookupStatsDescriptor(descriptor);
+  const next = { generation: crypto.randomUUID(), revision: descriptor.revision + 1 };
+  assertLookupStatsDescriptor(next);
+  return next;
+}
+
 function assertLookupStatsRow(row) {
   if (!row || typeof row.term !== "string" || row.term.trim() === "" || typeof row.reading !== "string"
       || !Number.isSafeInteger(row.lookupCount) || row.lookupCount < 0

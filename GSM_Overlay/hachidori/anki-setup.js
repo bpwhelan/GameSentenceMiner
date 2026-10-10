@@ -62,12 +62,14 @@ function attention(detail) {
   return { status: "needs-attention", detail, model: null, deck: null, fieldTemplates: null };
 }
 
-function modelMap(value) {
+// AnkiConnect reply validation for `modelNamesAndIds` and `modelFieldNames`,
+// shared with the duplicate index (anki-index.js).
+export function modelMap(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("AnkiConnect returned an invalid note type list.");
   return value;
 }
 
-function fieldList(value) {
+export function fieldList(value) {
   if (!Array.isArray(value) || value.some((field) => typeof field !== "string" || field === "")) {
     throw new Error("AnkiConnect returned an invalid field list.");
   }
