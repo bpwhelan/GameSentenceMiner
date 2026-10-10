@@ -15,13 +15,18 @@
     routeSelect.dataset.currentRoute = state.routeId || '';
     routeSelect.value = state.routeId || '';
     routeSelect.disabled = state.loading || !routes.length;
+    const startIndex = state.startIndex ?? state.index;
+    const position = startIndex < state.index ? `Steps ${startIndex + 1}–${state.index + 1}` : `Step ${state.index + 1}`;
     el('vn-guide-status').textContent = state.error || (state.loading ? 'Loading VN-Guide…' : state.total
-      ? `${state.title} · ${state.routeTitle} · ${state.complete ? 'Complete' : `Step ${state.index + 1} of ${state.total}`}${state.target ? ` · ${state.target}` : ''}${state.reviewed ? '' : ' · Route not yet reviewed upstream'}${state.changed ? ' · Guide content changed; check your position before continuing.' : ''}`
+      ? `${state.title} · ${state.routeTitle} · ${state.complete ? 'Complete' : `${position} of ${state.total}`}${state.target ? ` · ${state.target}` : ''}${state.reviewed ? '' : ' · Route not yet reviewed upstream'}${state.changed ? ' · Guide content changed; check your position before continuing.' : ''}`
       : 'Enable the helper and choose a game guide.');
     el('vn-guide-current').textContent = state.text || '';
+    const saves = state.saveInstructions || [];
+    el('vn-guide-save').hidden = !saves.length;
+    el('vn-guide-save').textContent = saves.length ? `Save before choosing: ${saves.join(' · ')}` : '';
     const active = state.enabled && state.total > 0 && !state.loading;
     for (const name of ['back', 'next', 'toggle', 'jump']) el(`vn-guide-${name}`).disabled = !active;
-    el('vn-guide-back').disabled = !active || state.index === 0;
+    el('vn-guide-back').disabled = !active || startIndex === 0;
     el('vn-guide-next').disabled = !active || state.complete;
     el('vn-guide-refresh').disabled = !state.enabled || state.loading;
     const step = el('vn-guide-step');

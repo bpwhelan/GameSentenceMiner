@@ -1,8 +1,9 @@
 :root { color-scheme: dark; font-family: "Segoe UI", "Yu Gothic UI", sans-serif; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; padding: 0; background: transparent; color: #edf3f6; }
-.card { height: 246px; display: flex; flex-direction: column; padding: 14px 16px; border: 1px solid #ffffff28; border-left: 3px solid #76d5c7; border-radius: 12px; background: #141e27f2; }
-.card[data-kind="save"], .card[data-kind="load"] { border-left-color: #f6c777; }
+.card { height: 100vh; display: flex; flex-direction: column; padding: 14px 16px; border: 1px solid #ffffff28; border-left: 3px solid #76d5c7; border-radius: 12px; background: #141e27f2; }
+.card[data-kind="save"], .card[data-kind="load"], .card[data-save-notice="true"] { border-left-color: #f6c777; }
 header { display: flex; align-items: center; gap: 10px; color: #9ce3d7; font-size: 12px; font-weight: 650; }
 #progress { margin-left: auto; color: #b2bfca; font-variant-numeric: tabular-nums; }
 button { font: inherit; color: #edf3f6; background: #ffffff0e; border: 1px solid #ffffff20; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
@@ -10,6 +11,7 @@ button:hover { background: #ffffff24; }
 button:disabled { opacity: .35; cursor: default; }
 #hide { border: 0; padding: 0 4px; font-size: 19px; line-height: 20px; background: none; color: #9facba; }
 #route { font-size: 11px; margin-top: 7px; color: #a9b6c2; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#save-reminder { flex-shrink: 0; max-height: 60px; overflow: auto; overflow-wrap: anywhere; margin-top: 10px; padding: 7px 9px; border-radius: 6px; background: #f6c77712; color: #f6d399; font-size: 13px; line-height: 1.4; }
 #instruction { font-size: 22px; font-weight: 600; line-height: 1.4; margin: 10px 0 6px; overflow: auto; overflow-wrap: anywhere; flex: 1; min-height: 0; user-select: text; }
 #note { color: #bec9d2; font-size: 11px; line-height: 1.4; min-height: 30px; }
 footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }

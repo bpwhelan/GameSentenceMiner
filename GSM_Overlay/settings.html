@@ -2170,23 +2170,25 @@
       </div>
       <label><span class="label-text">Route</span><select id="vnGuideRoute"><option value="">From URL or first route</option></select></label>
       <p id="vn-guide-status" class="hotkey-info" role="status">Enable the helper and choose a game guide.</p>
+      <p id="vn-guide-save" class="hotkey-info" hidden></p>
       <p id="vn-guide-current" lang="ja"></p>
       <div class="button-row">
         <button type="button" id="vn-guide-back">Back / Undo</button>
         <button type="button" id="vn-guide-next">Next / Done</button>
         <button type="button" id="vn-guide-toggle">Show / Hide</button>
       </div>
-      <label><span class="label-text">Jump to step<div class="hotkey-info">Step numbers start at 1. Future choice text is kept hidden.</div></span><input type="number" id="vn-guide-step" value="1" min="1" step="1" /><button type="button" id="vn-guide-jump">Go</button></label>
+      <label><span class="label-text">Jump to step<div class="hotkey-info">Step numbers start at 1. Saves are shown with the following choice; either step number takes you there. Future choice text is kept hidden.</div></span><input type="number" id="vn-guide-step" value="1" min="1" step="1" /><button type="button" id="vn-guide-jump">Go</button></label>
       <label>
         <span class="label-text">Show the guide card</span>
         <select id="vnGuideMode">
-          <option value="auto">When a choice is detected (save/load stays visible)</option>
+          <option value="auto">When a choice is detected, with save/load reminders</option>
           <option value="always">Always show the current step</option>
           <option value="hotkey">Only when toggled with the hotkey</option>
         </select>
       </label>
+      <p class="hotkey-info">Save steps briefly notify you, then stay with the next choice as a reminder to save before choosing. Advancing that choice clears both instructions. Loads, and saves without a following choice, wait for Done.</p>
       <label>
-        <span class="label-text">Advance when detected choices clear<div class="hotkey-info">Tentative: OCR cannot verify which option you selected. Back undoes an advance. Save/load steps always wait for Done. Turn this off to advance every step yourself.</div></span>
+        <span class="label-text">Advance when detected choices clear<div class="hotkey-info">Tentative: OCR cannot verify which option you selected or whether you saved. Back undoes an advance and restores its save reminder. Turn this off to advance every choice yourself.</div></span>
         <input type="checkbox" id="vnGuideAutoAdvance" checked />
       </label>
       <p class="hotkey-info">Detection needs overlay OCR coordinates with multiple separated options on screen. Short dialogue matches, text hooks alone, and uncertain layouts do not trigger it. Use the hotkey or Always mode when needed; manual mode may need a scan at the choice screen.</p>

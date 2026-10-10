@@ -14,19 +14,23 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
   let sourceKey = '';
   let game = null;
   let tentativeUntil = 0;
+  let saveNoticeUntil = 0;
   let lastVisible = false;
 
   function snapshot() {
     const mode = ['auto', 'always', 'hotkey'].includes(settings.vnGuideMode) ? settings.vnGuideMode : 'auto';
-    const automatic = tracker && (mode === 'always' || mode === 'auto' && (tracker.detected || tracker.current?.kind !== 'choice' || tracker.tentative && now() < tentativeUntil));
+    const saveInstructions = tracker?.saveInstructions || [];
+    const saveNotice = saveInstructions.length > 0 && mode === 'auto' && peek !== true && !tracker.detected && saveNoticeUntil > now();
+    const automatic = tracker && (mode === 'always' || mode === 'auto' && (tracker.detected || tracker.current?.kind !== 'choice' || saveNotice || !saveInstructions.length && tracker.tentative && now() < tentativeUntil));
     return {
       enabled: settings.vnGuideEnabled === true, loading, error, mode,
       visible: !disposed && available && settings.vnGuideEnabled === true && !!tracker && !dismissed && (peek ?? !!automatic),
       title: loaded?.guide.title || '', target: loaded?.guide.target || '',
       routes: loaded?.guide.routes || [], routeId: loaded?.route.id || '', routeTitle: loaded?.route.title || '',
       reviewed: loaded?.route.reviewed === true, changed: loaded?.changed === true,
-      index: tracker?.index ?? 0, total: tracker?.steps.length ?? 0,
+      index: tracker?.index ?? 0, startIndex: tracker?.startIndex ?? 0, total: tracker?.steps.length ?? 0,
       text: tracker?.current?.text || '', kind: tracker?.current?.kind || '',
+      saveInstructions, saveNotice,
       detected: tracker?.detected === true, tentative: tracker?.tentative === true, complete: tracker?.complete === true,
       toggleHotkey: settings.vnGuideToggleHotkey || '', nextHotkey: settings.vnGuideNextHotkey || '',
     };
@@ -41,6 +45,11 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
   function persist() {
     try { library.save(loaded, tracker.index); }
     catch { error = 'Could not save guide progress. Check that the GSM data folder is writable.'; }
+  }
+  function enterStep() {
+    dismissed = false;
+    // Defer the brief notice until there is a game capture to display it on.
+    saveNoticeUntil = tracker.saveInstructions.length ? available ? now() + 8000 : null : 0;
   }
   async function configure(nextSettings, { refresh = false } = {}) {
     if (nextSettings.vnGuideMode !== settings.vnGuideMode) { peek = null; dismissed = false; }
@@ -61,6 +70,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
       if (disposed || epoch !== generation) return snapshot();
       loaded = result;
       tracker = new GuideTracker(result.steps, result.index);
+      enterStep();
       persist();
     } catch (exception) {
       if (!disposed && epoch === generation) error = exception.message || 'Could not load VN-Guide.';
@@ -74,6 +84,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     const changedGame = currentGame != null && game !== null && currentGame !== game;
     if (currentGame != null) game = currentGame;
     if (!next || changedGame) tracker?.resetDetection();
+    if (next && saveNoticeUntil === null) saveNoticeUntil = now() + 8000;
     if (next !== available || changedGame || snapshot().visible !== lastVisible) {
       available = next;
       if (!next || changedGame) peek = null;
@@ -88,7 +99,8 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     const before = JSON.stringify([tracker.index, tracker.detected, tracker.tentative]);
     const previousIndex = tracker.index;
     tracker.observe(message, now(), settings.vnGuideAutoAdvance !== false);
-    if (tracker.index !== previousIndex) { tentativeUntil = now() + 6000; dismissed = false; persist(); }
+    if (tracker.index !== previousIndex) { tentativeUntil = now() + 6000; enterStep(); persist(); }
+    if (tracker.detected) saveNoticeUntil = 0;
     if (before !== JSON.stringify([tracker.index, tracker.detected, tracker.tentative])) publish();
   }
   function command(action, value) {
@@ -96,11 +108,15 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     if (action === 'refresh') return configure(settings, { refresh: true });
     if (!tracker) return snapshot();
     if (action === 'toggle') { dismissed = false; peek = !snapshot().visible; }
-    else if (action === 'hide') { dismissed = true; }
+    else if (action === 'hide') {
+      // Closing the heads-up must not suppress the save reminder at the choice.
+      if (snapshot().saveNotice) saveNoticeUntil = 0;
+      else dismissed = true;
+    }
     else if (['next', 'back', 'jump'].includes(action)) {
       if (action === 'jump') tracker.jump(value);
       else tracker[action]();
-      dismissed = false;
+      enterStep();
       loaded.changed = false;
       persist();
     }

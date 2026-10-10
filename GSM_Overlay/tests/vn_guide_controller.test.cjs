@@ -11,6 +11,7 @@ const manifest = { title: 'Test Game', guide_target: { label: 'Original PC versi
 const route = ['大丈夫', 'セーブ1', '進む', 'セーブ1にロード'].map(simpleJp => ({ simpleJp }));
 const line = (text, y) => ({ text, bounding_rect: { x1: .4, x3: .6, y1: y, y3: y + .03 } });
 const menu = { type: 'word_coordinates', is_final: true, data: [line('大丈夫', .3), line('やめよう', .43)] };
+const nextMenu = { ...menu, data: [line('進む', .3), line('戻る', .43)] };
 const dialogue = { type: 'word_coordinates', is_final: true, data: [line('新しい会話', .8)] };
 function setup(t, overrides = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-vn-test-'));
@@ -33,15 +34,18 @@ test('disabled guides never fetch; cached routes and progress survive restart of
   assert.equal(requests.length, 2);
   const offline = new GuideLibrary(directory, { fetchJson: async () => { throw new Error('Offline'); } });
   const restored = await offline.load(url);
-  assert.equal(restored.index, 1);
+  assert.equal(restored.index, 2);
   assert.equal(restored.guide.target, 'Original PC version');
   await controller.configure({ ...settings, vnGuideMode: 'always' });
   assert.equal(requests.length, 2);
-  assert.equal(controller.snapshot().index, 1);
-  assert.equal(library.progress['test-game/one'].index, 1);
+  assert.equal(controller.snapshot().index, 2);
+  assert.equal(library.progress['test-game/one'].index, 2);
+  const resumed = createVnGuideController({ library: offline, hud: { update() {} } });
+  await resumed.configure(settings);
+  assert.deepEqual(resumed.snapshot().saveInstructions, ['セーブ1']);
 });
 
-test('auto visibility, tentative progression, save confirmation, toggling, jumps and route completion', async t => {
+test('a brief save notice becomes a save reminder alongside the detected choice, then clears on advance', async t => {
   const { controller, settings, advance } = setup(t);
   await controller.configure(settings);
   controller.setAvailable(true);
@@ -50,20 +54,36 @@ test('auto visibility, tentative progression, save confirmation, toggling, jumps
   assert.equal(controller.snapshot().visible, true);
   advance(1500);
   controller.observe(dialogue);
-  assert.equal(controller.snapshot().kind, 'save');
+  assert.equal(controller.snapshot().kind, 'choice');
+  assert.equal(controller.snapshot().text, '進む');
+  assert.equal(controller.snapshot().startIndex, 1);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  assert.equal(controller.snapshot().saveNotice, true);
   assert.equal(controller.snapshot().tentative, true);
   assert.equal(controller.snapshot().visible, true);
-  controller.command('next');
+  advance(8001);
+  controller.setAvailable(true);
   assert.equal(controller.snapshot().visible, false);
-  controller.command('toggle');
+  controller.observe(nextMenu);
   assert.equal(controller.snapshot().visible, true);
-  controller.command('next');
+  assert.equal(controller.snapshot().saveNotice, false);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  advance(1500);
+  controller.observe(dialogue);
   assert.equal(controller.snapshot().kind, 'load');
+  assert.deepEqual(controller.snapshot().saveInstructions, []);
+  assert.equal(controller.snapshot().visible, true);
+  advance(60000);
+  controller.setAvailable(true);
   assert.equal(controller.snapshot().visible, true);
   controller.command('next');
   assert.equal(controller.snapshot().complete, true);
   controller.command('back');
   assert.equal(controller.snapshot().index, 3);
+  controller.command('back');
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  controller.command('back');
+  assert.equal(controller.snapshot().index, 0);
   controller.command('jump', 0);
   assert.equal(controller.snapshot().text, '大丈夫');
 });
@@ -74,14 +94,67 @@ test('hotkey mode never auto-reveals save/load; always mode reveals until toggle
   controller.setAvailable(true);
   controller.command('jump', 1);
   assert.equal(controller.snapshot().visible, false);
+  assert.equal(controller.snapshot().saveNotice, false);
   controller.command('toggle');
   assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().saveNotice, false);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
   controller.command('next');
   assert.equal(controller.snapshot().visible, true);
   controller.command('toggle');
   assert.equal(controller.snapshot().visible, false);
   await controller.configure({ ...settings, vnGuideMode: 'always' });
+  controller.command('back');
   assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().saveNotice, false);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+});
+
+test('the first save notice waits for capture and closing it cannot dismiss the later choice reminder', async t => {
+  const { controller, settings, advance } = setup(t);
+  await controller.configure({ ...settings, vnGuideUrl: `${url}#route=one&step=1` });
+  advance(60000);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().saveNotice, true);
+  controller.command('hide');
+  assert.equal(controller.snapshot().visible, false);
+  controller.observe(nextMenu);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().saveNotice, false);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+});
+
+test('a detected choice replaces the notice immediately and invalidation never brings the notice back', async t => {
+  const { controller, settings } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.command('next');
+  controller.observe({ ...nextMenu, presence_id: 'choice' });
+  assert.equal(controller.snapshot().saveNotice, false);
+  controller.observe({ type: 'ocr_text_invalidated', presence_id: 'choice' });
+  assert.equal(controller.snapshot().visible, false);
+  assert.equal(controller.snapshot().saveNotice, false);
+  controller.command('toggle');
+  assert.equal(controller.snapshot().visible, true);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+});
+
+test('manual-only progression retains the save reminder until the choice is advanced', async t => {
+  const { controller, settings, advance } = setup(t);
+  await controller.configure({ ...settings, vnGuideAutoAdvance: false });
+  controller.setAvailable(true);
+  controller.command('next');
+  controller.observe(nextMenu);
+  advance(1500);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().index, 2);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  controller.command('next');
+  assert.equal(controller.snapshot().index, 3);
+  assert.deepEqual(controller.snapshot().saveInstructions, []);
+  controller.command('back');
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
 });
 
 test('capture loss or game switch disarms detection, hides the HUD, and cannot advance later', async t => {
@@ -114,7 +187,8 @@ test('manual advancement and imported URL positions are saved per route', async 
   await controller.configure(settings);
   assert.equal(controller.snapshot().index, 3);
   await controller.configure({ ...settings, vnGuideRoute: 'two' });
-  assert.equal(controller.snapshot().index, 1);
+  assert.equal(controller.snapshot().index, 2);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
 });
 
 test('choosing a different route does not reuse the URL step from the original route', async t => {
@@ -123,7 +197,7 @@ test('choosing a different route does not reuse the URL step from the original r
   assert.equal(loaded.index, 0);
 });
 
-test('tentative next choices appear briefly; save/load reminders remain until done', async t => {
+test('tentative next choices without saves still appear briefly', async t => {
   const { controller, settings, advance } = setup(t, { fetchJson: async source => source.endsWith('/guide.json') ? manifest : [{ simpleJp: '大丈夫' }, { simpleJp: '進む' }] });
   await controller.configure(settings);
   controller.setAvailable(true);
@@ -162,8 +236,9 @@ test('failed explicit refresh keeps the imported route usable', async t => {
   offline = true;
   await controller.command('refresh');
   assert.equal(controller.snapshot().error, 'Offline');
-  assert.equal(controller.snapshot().index, 1);
-  assert.equal(controller.snapshot().kind, 'save');
+  assert.equal(controller.snapshot().index, 2);
+  assert.equal(controller.snapshot().kind, 'choice');
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
 });
 
 test('late downloads cannot revive a disabled or disposed helper', async t => {

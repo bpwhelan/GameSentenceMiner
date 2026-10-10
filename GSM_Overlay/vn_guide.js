@@ -102,18 +102,34 @@ function findChoice(data, expected) {
   return peers.length ? { text: target, options: [target, ...peers.map(line => line.text)] } : null;
 }
 
+const isSaveControl = line => /セーブ|ロード|上書き|保存先|^(?:(?:quick|auto)?(?:save|load)(?:game|data|slot)?|overwrite)$/iu.test(line.text);
+
 class GuideTracker {
   constructor(steps, index = 0) {
     this.steps = steps;
-    this.index = Number.isInteger(index) && index >= 0 && index <= steps.length ? index : 0;
+    this.index = this.choiceAfterSave(Number.isInteger(index) && index >= 0 && index <= steps.length ? index : 0);
     this.tentative = false;
     this.resetDetection();
   }
   get current() { return this.steps[this.index] || null; }
   get complete() { return this.index === this.steps.length; }
+  get startIndex() {
+    let start = this.index;
+    if (this.current?.kind === 'choice') while (this.steps[start - 1]?.kind === 'save') start -= 1;
+    return start;
+  }
+  get saveInstructions() { return this.steps.slice(this.startIndex, this.index).map(step => step.text); }
+  choiceAfterSave(index) {
+    let next = index;
+    while (this.steps[next]?.kind === 'save') next += 1;
+    // Keep the original indexes for links and saved progress. A save belongs to
+    // the following choice, but must never be carried across a load or route end.
+    return this.steps[next]?.kind === 'choice' ? next : index;
+  }
   resetDetection() { this.detected = false; this.armed = null; this.blockedOptions = null; }
   jump(index) {
     if (!Number.isInteger(index) || index < 0 || index > this.steps.length) throw new Error('Choose a step within this route.');
+    index = this.choiceAfterSave(index);
     const blocked = index > this.index ? this.armed?.options : null;
     this.index = index;
     this.tentative = false;
@@ -121,7 +137,7 @@ class GuideTracker {
     this.blockedOptions = blocked;
   }
   next() { this.jump(Math.min(this.index + 1, this.steps.length)); }
-  back() { this.jump(Math.max(0, this.index - 1)); }
+  back() { this.jump(Math.max(0, this.startIndex - 1)); }
   observe(message, now = Date.now(), autoAdvance = true) {
     if (!this.current || this.current.kind !== 'choice') return;
     if (message?.type === 'overlay_clear') { this.resetDetection(); return; }
@@ -144,7 +160,11 @@ class GuideTracker {
     const match = findChoice(message.data, this.current.text);
     if (match) {
       const previous = this.armed;
-      this.armed = { ...match, since: previous?.since ?? now, presenceId: message.presence_id, stable: message.is_final === true || !!previous && now - previous.since >= 200 };
+      this.armed = {
+        ...match, since: previous?.since ?? now, presenceId: message.presence_id,
+        stable: message.is_final === true || !!previous && now - previous.since >= 200,
+        saveControls: this.saveInstructions.length ? choiceLines(message.data).filter(isSaveControl) : [],
+      };
       this.detected = true;
       return;
     }
@@ -154,6 +174,13 @@ class GuideTracker {
     const lines = choiceLines(message.data);
     if (!lines.length || lines.some(line => armed.options.includes(line.text))) return;
     if (armed.presenceId && armed.presenceId === message.presence_id) return;
+    // Saving at the choice is not selecting an answer. New save/load headings
+    // disarm progression until the menu returns; persistent game buttons do not.
+    if (this.saveInstructions.length && message.is_final === true && lines.some(line => isSaveControl(line)
+      && !armed.saveControls.some(control => control.text === line.text && Math.abs(control.center - line.center) < 0.03 && Math.abs(control.y1 - line.y1) < 0.03))) {
+      this.resetDetection();
+      return;
+    }
     // A blank fade, OCR retries, and a cursor highlight disappearing are not a
     // selection. Require a fresh final text frame with the entire menu gone.
     if (message.is_final !== true || !armed.stable || now - armed.since < 900) return;

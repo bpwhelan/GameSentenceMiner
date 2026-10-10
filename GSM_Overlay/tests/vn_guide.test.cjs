@@ -50,21 +50,96 @@ function tracker(steps = ['大丈夫', 'セーブ1', '進む']) {
   return new GuideTracker(validateRoute(steps.map(simpleJp => ({ simpleJp }))));
 }
 
-test('choice disappearance advances one step tentatively and save/load always wait for Done', () => {
+test('choice disappearance carries a save into the next choice and Back undoes the whole advance', () => {
   const guide = tracker();
   guide.observe(frame(menu()), 1000);
   assert.equal(guide.detected, true);
   guide.observe(frame(menu()), 2000);
   assert.equal(guide.index, 0);
   guide.observe(frame([line('次の会話が始まった。', 0.8)]), 3000);
-  assert.equal(guide.index, 1);
+  assert.equal(guide.index, 2);
+  assert.equal(guide.startIndex, 1);
+  assert.equal(guide.current.text, '進む');
+  assert.deepEqual(guide.saveInstructions, ['セーブ1']);
   assert.equal(guide.tentative, true);
   guide.observe(frame([line('セーブ1', 0.3), line('ロード', 0.43)]), 5000);
-  assert.equal(guide.index, 1);
-  guide.next();
   assert.equal(guide.index, 2);
   guide.back();
+  assert.equal(guide.index, 0);
+  assert.deepEqual(guide.saveInstructions, []);
+  guide.next();
+  assert.deepEqual(guide.saveInstructions, ['セーブ1']);
+  guide.next();
+  assert.equal(guide.complete, true);
+  assert.deepEqual(guide.saveInstructions, []);
+  guide.back();
+  assert.deepEqual(guide.saveInstructions, ['セーブ1']);
+});
+
+test('consecutive saves follow their choice across initial load, manual jumps, and Back', () => {
+  const steps = validateRoute(['セーブ1', 'セーブ2', '大丈夫', '進む'].map(simpleJp => ({ simpleJp })));
+  for (const index of [0, 1, 2]) {
+    const guide = new GuideTracker(steps, index);
+    assert.equal(guide.index, 2);
+    assert.equal(guide.startIndex, 0);
+    assert.deepEqual(guide.saveInstructions, ['セーブ1', 'セーブ2']);
+    guide.back();
+    assert.equal(guide.index, 2);
+    guide.next();
+    assert.equal(guide.index, 3);
+    assert.deepEqual(guide.saveInstructions, []);
+    guide.back();
+    assert.equal(guide.index, 2);
+    guide.jump(index);
+    assert.deepEqual(guide.saveInstructions, ['セーブ1', 'セーブ2']);
+  }
+});
+
+test('saves before loads or the end remain explicit actions and never disappear', () => {
+  const guide = tracker(['セーブ1', 'セーブ2', 'セーブ1にロード', '大丈夫', 'セーブ3']);
+  for (const [index, kind] of [[0, 'save'], [1, 'save'], [2, 'load']]) {
+    assert.equal(guide.index, index);
+    assert.equal(guide.current.kind, kind);
+    assert.deepEqual(guide.saveInstructions, []);
+    guide.observe(frame(menu()), 1000);
+    guide.observe(frame([line('次の会話', .8)]), 3000);
+    assert.equal(guide.index, index);
+    guide.next();
+  }
+  guide.next();
+  assert.equal(guide.current.kind, 'save');
+  guide.next();
+  assert.equal(guide.complete, true);
+  guide.back();
+  assert.equal(guide.current.text, 'セーブ3');
+});
+
+test('opening a save screen or overwrite prompt keeps the reminder until the choice returns', () => {
+  for (const label of ['セーブ', 'SAVE GAME', 'ロード', '上書きしますか？']) {
+    const guide = tracker(['セーブ1', '大丈夫', '進む']);
+    guide.observe(frame(menu()), 1000);
+    guide.observe(frame([line(label, .15), line('空きスロット', .3)]), 3000);
+    assert.equal(guide.index, 1);
+    assert.equal(guide.detected, false);
+    assert.deepEqual(guide.saveInstructions, ['セーブ1']);
+    guide.observe(frame([line('新しい会話', .8)]), 4000);
+    assert.equal(guide.index, 1);
+    guide.observe(frame(menu()), 5000);
+    guide.observe(frame([line('選択後の会話', .8)]), 7000);
+    assert.equal(guide.index, 2);
+  }
+});
+
+test('permanent save buttons do not block progression, but a moved save heading still disarms it', () => {
+  const guide = tracker(['セーブ1', '大丈夫', '進む']);
+  const saveButton = line('セーブ', .92);
+  guide.observe(frame([...menu(), saveButton]), 1000);
+  guide.observe(frame([line('セーブ', .15), line('空きスロット', .3), saveButton]), 3000);
   assert.equal(guide.index, 1);
+  assert.equal(guide.detected, false);
+  guide.observe(frame([...menu(), saveButton]), 5000);
+  guide.observe(frame([line('選択後の会話', .8), saveButton]), 7000);
+  assert.equal(guide.index, 2);
 });
 
 test('dialogue, empty/cleared/supplemental/stale frames and disappearing just one option cannot advance', () => {
@@ -101,16 +176,18 @@ test('manual-only advance, reconnect reset, undo, jumps, repeated choices and co
   assert.throws(() => guide.jump(3));
 });
 
-test('advancing manually while a menu is still open cannot consume the next identical choice', () => {
-  const guide = tracker(['大丈夫', '大丈夫', '進む']);
+test('advancing manually across a save while a menu is open cannot consume the next identical choice', () => {
+  const guide = tracker(['大丈夫', 'セーブ1', '大丈夫', '進む']);
   guide.observe(frame(menu()), 1000);
   guide.next();
   guide.observe(frame(menu()), 2000);
   guide.observe(frame([line('次の会話', .8)]), 4000);
-  assert.equal(guide.index, 1);
+  assert.equal(guide.index, 2);
+  assert.deepEqual(guide.saveInstructions, ['セーブ1']);
   guide.observe(frame(menu()), 5000);
   guide.observe(frame([line('別の会話', .8)]), 7000);
-  assert.equal(guide.index, 2);
+  assert.equal(guide.index, 3);
+  assert.deepEqual(guide.saveInstructions, []);
 });
 
 test('presence invalidation can hide the hint but only fresh final text can advance', () => {
@@ -120,5 +197,5 @@ test('presence invalidation can hide the hint but only fresh final text can adva
   assert.equal(guide.index, 0);
   assert.equal(guide.detected, false);
   guide.observe(frame([line('新しい会話', .8)], { presence_id: 'dialogue' }), 4000);
-  assert.equal(guide.index, 1);
+  assert.equal(guide.index, 2);
 });

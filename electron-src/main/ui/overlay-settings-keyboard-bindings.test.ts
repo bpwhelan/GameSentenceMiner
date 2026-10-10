@@ -533,7 +533,7 @@ describe("overlay settings keyboard binding capture", () => {
       const state = {
         enabled: true, title: 'Example', routeId: 'one', routeTitle: '<img src=x>', reviewed: true,
         routes: [{ id: 'one', title: '<img src=x>', reviewed: true }, { id: 'two', title: 'Second', reviewed: false }],
-        text: '<script>bad()</script>', index: 2, total: 12, kind: 'choice',
+        text: '<script>bad()</script>', index: 2, startIndex: 1, total: 12, kind: 'choice', saveInstructions: ['セーブ1 <img src=x>'],
       };
       page.listeners.get('vn-guide-state')?.(null, state);
       const route = document.getElementById('vnGuideRoute');
@@ -541,6 +541,11 @@ describe("overlay settings keyboard binding capture", () => {
       expect(route.options[2].textContent).toContain('not reviewed upstream');
       expect(document.getElementById('vn-guide-current').textContent).toBe(state.text);
       expect(document.querySelector('#vn-guide-current script')).toBeNull();
+      expect(document.getElementById('vn-guide-save').textContent).toBe('Save before choosing: セーブ1 <img src=x>');
+      expect(document.getElementById('vn-guide-status').textContent).toContain('Steps 2–3 of 12');
+      expect(document.querySelector('#vn-guide-save img')).toBeNull();
+      page.listeners.get('vn-guide-state')?.(null, { ...state, startIndex: 0 });
+      expect(document.getElementById('vn-guide-back').disabled).toBe(true);
       const step = document.getElementById('vn-guide-step');
       step.focus();
       step.value = '8';
@@ -554,6 +559,8 @@ describe("overlay settings keyboard binding capture", () => {
         { action: 'jump', value: 7 }, { action: 'next', value: undefined },
         { action: 'back', value: undefined }, { action: 'use-custom-page', value: undefined },
       ]);
+      page.listeners.get('vn-guide-state')?.(null, { ...state, saveInstructions: [] });
+      expect(document.getElementById('vn-guide-save').hidden).toBe(true);
       route.value = 'two';
       route.dispatchEvent(new page.dom.window.Event('change', { bubbles: true }));
       await nextTick();

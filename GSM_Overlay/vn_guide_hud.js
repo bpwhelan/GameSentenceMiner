@@ -6,7 +6,8 @@ function createVnGuideHud({ BrowserWindow, getBounds, getWindowOptions = () => (
   let ready = false;
   function bounds() {
     const area = getBounds();
-    return { x: area.x + 18, y: area.y + 18, width: Math.min(400, area.width - 36), height: 246 };
+    const height = state?.saveNotice ? 176 : state?.saveInstructions?.length ? 278 : 246;
+    return { x: area.x + 18, y: area.y + 18, width: Math.min(400, area.width - 36), height };
   }
   function render() {
     if (!window || window.isDestroyed() || !ready) return;
