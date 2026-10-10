@@ -32,11 +32,12 @@ function setup(t) {
   return { ...first, navigation, addLevel, selected: () => root.querySelector('.gsm-controller-selected') };
 }
 
-for (const audioState of ['playing', 'no-result']) {
+for (const audioState of ['playing', 'no-result', 'error']) {
   test(`mining readiness updates the default while audio is ${audioState}, without another popup event`, async t => {
     const h = setup(t);
     h.audio.setAttribute('aria-busy', String(audioState === 'playing'));
-    h.audio.dataset.state = audioState === 'playing' ? 'playing' : 'error';
+    // Missing audio is idle in 0.3.0; older releases retain an error state.
+    if (audioState !== 'no-result') h.audio.dataset.state = audioState;
     assert.equal(h.selected(), h.audio);
     h.mine.disabled = false;
     await Promise.resolve();
