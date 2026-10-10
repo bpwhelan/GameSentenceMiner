@@ -50,13 +50,14 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       case 'hd_anki_submit': payload = { state: 'added', noteId: 1234 }; break;
       case 'hd_audio_play': {
         const scenario = focusScenario;
-        if (scenario?.mode === 'playing') await scenario.audio.promise;
+        if (scenario) await scenario.audio.promise;
         payload = { status: scenario?.mode === 'no-result' ? 'no-result' : 'success' }; break;
       }
       case 'hd_status':
         if (message.pauseLookups) pendingLookups = deferred();
         if (message.releaseLookups) { pendingLookups.resolve(); pendingLookups = null; }
         if (message.focusScenario) focusScenario = { mode: message.focusScenario, first: deferred(), later: deferred(), audio: deferred() };
+        if (message.finishAudio) focusScenario.audio.resolve();
         if (message.releaseFirst) focusScenario.first.resolve();
         if (message.finishFocus) {
           focusScenario.first.resolve(); focusScenario.later.resolve(); focusScenario.audio.resolve();
@@ -191,8 +192,13 @@ app.whenReady().then(async () => {
       await wait(async () => (await gsmHachidoriBridge.invoke('selection')).index === 1, 'pending entry selected');
       const audio = () => root().querySelectorAll('.gsm-hoshidicts-audio-button')[1];
       await gsmHachidoriBridge.control('command', { command: 'playAudio' });
-      await wait(() => mode === 'playing' ? audio()?.getAttribute('aria-busy') === 'true'
-        : audio()?.dataset.state === 'error', 'audio scenario: ' + mode);
+      await wait(() => audio()?.getAttribute('aria-busy') === 'true', 'audio scenario started: ' + mode);
+      if (mode === 'no-result') {
+        // Hachidori 0.3.0 leaves missing audio idle instead of showing an error.
+        // Observe a real busy-to-idle transition so an unstarted request cannot pass.
+        await gsmHachidoriBridge.invoke('status', { finishAudio: true });
+        await wait(() => audio()?.getAttribute('aria-busy') === 'false', 'no-result audio completed');
+      }
       await wait(() => audio()?.classList.contains('gsm-controller-selected'), 'provisional audio default');
       await wait(() => root().querySelectorAll('.gsm-hoshidicts-mine-button:disabled').length >= 2, 'pending entry checks');
       await new Promise(resolve => setTimeout(resolve, 100));
