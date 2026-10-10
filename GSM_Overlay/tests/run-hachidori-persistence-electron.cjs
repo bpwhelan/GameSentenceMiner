@@ -25,14 +25,16 @@ async function run() {
   const results = [];
   for (const phase of ['import', 'overlay-restart', 'restart', 'update', 'restart-after-update']) {
     if (phase === 'update') {
-      // Simulate a different vendored build: both production cache invalidation
-      // and extension-copy refresh must run while existing data stays intact.
+      // Simulate a different vendored build: invalidate the worker cache on
+      // every platform and refresh Linux's appdata extension copy too.
       const overlayData = path.join(directory, 'overlay');
       fs.writeFileSync(path.join(overlayData, 'hachidori_last_commit.json'), JSON.stringify({ commit: 'previous-release' }));
-      const versionsPath = path.join(overlayData, 'extensions/versions.json');
-      const versions = JSON.parse(fs.readFileSync(versionsPath, 'utf8'));
-      versions.hachidori = 'previous-release';
-      fs.writeFileSync(versionsPath, JSON.stringify(versions));
+      if (process.platform === 'linux') {
+        const versionsPath = path.join(overlayData, 'extensions/versions.json');
+        const versions = JSON.parse(fs.readFileSync(versionsPath, 'utf8'));
+        versions.hachidori = 'previous-release';
+        fs.writeFileSync(versionsPath, JSON.stringify(versions));
+      }
     }
     const child = spawnSync(require('electron'), [
       ...(process.platform === 'linux' ? ['--ozone-platform=x11'] : []),

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { patchContent, prepareIntegration } from './hachidori-integration.mjs';
@@ -15,6 +17,18 @@ test('the real Hachidori hooks generate valid JS and are idempotent', async () =
 test('upstream hook drift fails with an actionable error', async () => {
     const content = await fs.readFile(new URL('content.js', vendor), 'utf8');
     assert.throws(() => patchContent(content.replace('function onMouseMove(event)', 'function onMouseMove(pointer)')), /changed upstream.*onMouseMove/);
+});
+test('upstream offscreen lifecycle hook drift fails before integration is written', async t => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'gsm-offscreen-hooks-'));
+    t.after(() => fs.rm(directory, { recursive: true, force: true }));
+    for (const file of ['content.js', 'manifest.json', 'chrome-offscreen.js']) {
+        await fs.copyFile(new URL(file, vendor), path.join(directory, file));
+    }
+    const helper = await fs.readFile(path.join(directory, 'chrome-offscreen.js'), 'utf8');
+    for (const name of ['chromeOffscreenSupported', 'ensureChromeOffscreen']) {
+        await fs.writeFile(path.join(directory, 'chrome-offscreen.js'), helper.replace(name, `${name}Changed`));
+        await assert.rejects(prepareIntegration(directory), new RegExp(`hook changed upstream.*${name}`));
+    }
 });
 test('manifest loads GSM modules before the content hook and the integration hash is stable', async () => {
     const { fileURLToPath } = await import('node:url');

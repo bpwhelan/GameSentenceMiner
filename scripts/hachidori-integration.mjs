@@ -62,6 +62,10 @@ export function patchContent(source) {
 
 export async function prepareIntegration(extensionDir) {
     const content = patchContent(await fs.readFile(path.join(extensionDir, 'content.js'), 'utf8'));
+    const offscreen = await fs.readFile(path.join(extensionDir, 'chrome-offscreen.js'), 'utf8');
+    for (const anchor of ['export function chromeOffscreenSupported()', 'export async function ensureChromeOffscreen(url)']) {
+        replaceOnce(offscreen, anchor, anchor);
+    }
     const manifest = JSON.parse(await fs.readFile(path.join(extensionDir, 'manifest.json'), 'utf8'));
     const scripts = manifest.content_scripts?.filter(item => item.js?.includes('content.js'));
     if (scripts?.length !== 1) throw new Error('Hachidori manifest must declare exactly one reader content script stack.');
