@@ -21,6 +21,10 @@ const { installJitenSessionBroker, JitenFrameRequests } = require('./jiten_sessi
 const { LocalVocabulary, VocabularyConnection } = require('./local_vocabulary');
 const { forceForegroundWindow } = require('./win_foreground');
 const { createCustomPageController, normalizeCustomPageUrl } = require('./custom_page_window');
+const { parseGuideUrl } = require('./vn_guide');
+const { GuideLibrary } = require('./vn_guide_library');
+const { createVnGuideController } = require('./vn_guide_controller');
+const { createVnGuideHud } = require('./vn_guide_hud');
 const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
   MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
@@ -1130,6 +1134,14 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "customPageUrl": "",
   "customPageHotkey": "Alt+Shift+U",
   "customPageLastUrls": {},
+  "vnGuideEnabled": false,
+  "vnGuideUrl": "",
+  "vnGuideRoute": "",
+  "vnGuideMode": "auto",
+  "vnGuideAutoAdvance": true,
+  "vnGuideToggleHotkey": "Alt+Shift+G",
+  "vnGuideNextHotkey": "Alt+Shift+Right",
+  "vnGuideBackHotkey": "Alt+Shift+Left",
   "enableJitenReader": true,
   // Jiten Reader style SRS highlighting on the overlay text
   "jitenHighlightingEnabled": false,
@@ -1208,6 +1220,9 @@ const CONFIGURED_HOTKEY_SETTING_KEYS = Object.freeze([
   "liveStatsToggleHotkey",
   "texthookerHotkey",
   "customPageHotkey",
+  "vnGuideToggleHotkey",
+  "vnGuideNextHotkey",
+  "vnGuideBackHotkey",
   "gamepadKeyboardHotkey",
 ]);
 const CONFIGURED_HOTKEY_SETTING_KEY_SET = new Set(CONFIGURED_HOTKEY_SETTING_KEYS);
@@ -1324,7 +1339,7 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
       cleanedSettings.hideLiveStatsOnTextOverlap = DEFAULT_USER_SETTINGS.hideLiveStatsOnTextOverlap;
       changed = true;
     }
-    for (const key of ['customPageEnabled', 'customPageUrl', 'customPageHotkey']) {
+    for (const key of ['customPageEnabled', 'customPageUrl', 'customPageHotkey', ...Object.keys(DEFAULT_USER_SETTINGS).filter(key => key.startsWith('vnGuide'))]) {
       if (!Object.prototype.hasOwnProperty.call(cleanedSettings, key)) {
         cleanedSettings[key] = DEFAULT_USER_SETTINGS[key];
         changed = true;
@@ -2401,6 +2416,8 @@ let offsetHelperWindow = null;
 let texthookerWindow = null;
 let texthookerLoadToken = 0;
 let customPageController = null;
+let vnGuideController = null;
+let vnGuideHud = null;
 let tray = null;
 let platformOverride = null;
 let backend = null;
@@ -2557,6 +2574,10 @@ function enableFindInPage(browserWindow) {
 
 function publishOverlaySocketData(type, data) {
   lastWebsocketData = data;
+  if (type === 'ws2' && vnGuideController) {
+    vnGuideController.setAvailable(canUseOverlayCapture());
+    vnGuideController.observe(data);
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("overlay-websocket-data", { type, data });
   }
@@ -5277,6 +5298,7 @@ function syncOverlayWindowsToCurrentMonitor(reason = "unknown", options = {}) {
     updated = applyBoundsIfNeeded(texthookerWindow, bounds, "texthookerWindow", reason) || updated;
   }
   customPageController?.syncBounds(bounds);
+  vnGuideController?.syncBounds();
   if (includeOffsetHelper) {
     updated = applyBoundsIfNeeded(offsetHelperWindow, bounds, "offsetHelperWindow", reason) || updated;
   }
@@ -6167,6 +6189,34 @@ function registerTexthookerHotkey(oldHotkey) {
   if (!registered) {
     console.warn(`[TexthookerMode] Failed to register texthooker hotkey: ${texthookerHotkey}`);
   }
+}
+
+function registerVnGuideHotkeys() {
+  for (const action of ['toggle', 'next', 'back']) clearAppHotkey(`vn-guide-${action}`);
+  if (!vnGuideController && userSettings.vnGuideEnabled === true) {
+    vnGuideHud = createVnGuideHud({
+      BrowserWindow,
+      getBounds: () => getOverlayBoundsForDisplay(getCurrentOverlayMonitor({ logFallback: true })),
+      getWindowOptions: () => ({ icon: getOverlayAppIconPath(), ...getWindowsFramelessWindowOptions() }),
+    });
+    vnGuideController = createVnGuideController({
+      library: new GuideLibrary(dataPath), hud: vnGuideHud,
+      onChange: state => {
+        if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('vn-guide-state', state);
+      },
+    });
+  }
+  const configured = vnGuideController?.configure(userSettings);
+  if (userSettings.vnGuideEnabled !== true) return configured;
+  for (const [action, settingKey] of [['toggle', 'vnGuideToggleHotkey'], ['next', 'vnGuideNextHotkey'], ['back', 'vnGuideBackHotkey']]) {
+    if (!userSettings[settingKey]) continue;
+    setAppHotkey(`vn-guide-${action}`, userSettings[settingKey], () => {
+      if (!canUseOverlayCapture()) return;
+      vnGuideController?.setAvailable(true);
+      vnGuideController?.command(action);
+    }, { settingKey, debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
+  }
+  return configured;
 }
 
 function registerCustomPageHotkey() {
@@ -7559,6 +7609,7 @@ async function startOverlayAppImpl() {
     if (changed("translateHotkey")) registerTranslateHotkey(previous.translateHotkey);
     if (changed("texthookerHotkey")) registerTexthookerHotkey(previous.texthookerHotkey);
     if (changed("customPageEnabled") || changed("customPageUrl") || changed("customPageHotkey")) registerCustomPageHotkey();
+    if (Object.keys(DEFAULT_USER_SETTINGS).some(key => key.startsWith('vnGuide') && changed(key))) registerVnGuideHotkeys();
     if (changed("liveStatsToggleHotkey")) registerLiveStatsToggleHotkey(previous.liveStatsToggleHotkey);
     if (changed("gamepadKeyboardHotkey") || changed("gamepadKeyboardEnabled") || changed("gamepadEnabled")) {
       registerGamepadKeyboardHotkey(previous.gamepadKeyboardHotkey);
@@ -7577,6 +7628,7 @@ async function startOverlayAppImpl() {
       registerLiveStatsToggleHotkey();
       registerTexthookerHotkey();
       registerCustomPageHotkey();
+      registerVnGuideHotkeys();
       registerGamepadKeyboardHotkey();
       registerManualShowHotkey();
       syncAppHotkeyInputServerConnection(`${reason}:route-all-hotkeys`);
@@ -7615,6 +7667,38 @@ async function startOverlayAppImpl() {
   createTexthookerWindow();
   registerTexthookerHotkey();
   registerCustomPageHotkey();
+  registerVnGuideHotkeys();
+  bg.registerTask(() => vnGuideController?.setAvailable(canUseOverlayCapture()), 250);
+  ipcMain.handle('vn-guide-state', event => {
+    if (!settingsWindow || event.sender !== settingsWindow.webContents) return null;
+    return vnGuideController?.snapshot() || { enabled: false, routes: [] };
+  });
+  ipcMain.handle('vn-guide-command', async (event, { action, value } = {}) => {
+    const fromSettings = settingsWindow && event.sender === settingsWindow.webContents;
+    const fromHud = vnGuideHud?.owns(event.sender);
+    if (!fromSettings && !fromHud) return null;
+    if (fromHud && (!canUseOverlayCapture() || !['next', 'back', 'hide'].includes(action))) return null;
+    if (action === 'use-custom-page' && fromSettings) {
+      const configured = normalizeCustomPageUrl(userSettings.customPageUrl);
+      const url = userSettings.customPageLastUrls?.[configured] || configured;
+      let source;
+      try { source = parseGuideUrl(url); } catch (error) { return { ...vnGuideController?.snapshot(), error: error.message }; }
+      setOverlaySettingValue('vnGuideUrl', url);
+      setOverlaySettingValue('vnGuideRoute', '');
+      setOverlaySettingValue('vnGuideEnabled', true);
+      saveSettings();
+      await registerVnGuideHotkeys();
+      if (userSettings.vnGuideEnabled && userSettings.vnGuideUrl === url && !userSettings.vnGuideRoute
+        && source.step !== null && source.step < (vnGuideController?.snapshot().total || 0)) {
+        vnGuideController.command('jump', source.step);
+      }
+      publishOverlaySettingsSnapshot('vn-guide-import');
+      return vnGuideController?.snapshot();
+    }
+    if (!['toggle', 'next', 'back', 'jump', 'refresh', 'hide'].includes(action)) return null;
+    try { return await vnGuideController?.command(action); }
+    catch (error) { return { ...vnGuideController?.snapshot(), error: error.message }; }
+  });
   registerManualShowHotkey();
 
   // Initialize backend connector
@@ -8526,6 +8610,7 @@ async function startOverlayAppImpl() {
         registerLiveStatsToggleHotkey();
         registerTexthookerHotkey();
         registerCustomPageHotkey();
+        registerVnGuideHotkeys();
         registerGamepadKeyboardHotkey();
         registerManualShowHotkey();
         syncAppHotkeyInputServerConnection("setting-changed:routeAllHotkeysThroughInputServer");
@@ -8534,6 +8619,17 @@ async function startOverlayAppImpl() {
       case "customPageUrl":
       case "customPageHotkey":
         registerCustomPageHotkey();
+        break;
+      case "vnGuideEnabled":
+      case "vnGuideUrl":
+      case "vnGuideRoute":
+      case "vnGuideMode":
+      case "vnGuideAutoAdvance":
+      case "vnGuideToggleHotkey":
+      case "vnGuideNextHotkey":
+      case "vnGuideBackHotkey":
+        if (key === 'vnGuideUrl') setOverlaySettingValue('vnGuideRoute', '');
+        registerVnGuideHotkeys();
         break;
       case "texthookerUrl":
         if (texthookerWindow && !texthookerWindow.isDestroyed()) {
@@ -8968,6 +9064,9 @@ async function startOverlayAppImpl() {
   });
 
   registerOverlayEmitterListener(app, "before-quit", () => {
+    vnGuideController?.dispose();
+    vnGuideController = null;
+    vnGuideHud = null;
     customPageController?.dispose();
     customPageController = null;
     // Clear activity timer on quit
@@ -9061,6 +9160,9 @@ async function stopOverlayApp() {
       runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());
       runOverlayCleanupStep('custom page', () => customPageController?.dispose());
       customPageController = null;
+      runOverlayCleanupStep('VN guide', () => vnGuideController?.dispose());
+      vnGuideController = null;
+      vnGuideHud = null;
       runOverlayCleanupStep('Jiten requests', () => {
         localVocabulary.cancel();
         clearInterval(vocabularySyncInterval);

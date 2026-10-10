@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'">
+  <title>VN Guide</title>
+  <link rel="stylesheet" href="vn_guide_hud.css">
+</head>
+<body>
+  <main class="card" aria-live="polite">
+    <header><span id="status">VN Guide</span><span id="progress"></span><button id="hide" title="Hide this step; use the guide hotkey to reveal it" aria-label="Hide guide">×</button></header>
+    <div id="route"></div>
+    <div id="instruction" lang="ja"></div>
+    <div id="note"></div>
+    <footer><button id="back">Back</button><span id="shortcut"></span><button id="next">Next</button></footer>
+  </main>
+  <script src="vn_guide_hud_renderer.js"></script>
+</body>
+</html>

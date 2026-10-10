@@ -2157,6 +2157,45 @@
     </div>
 
     <div class="setting-group full-width" data-tab="interaction">
+      <h4>VN Guide</h4>
+      <p class="hotkey-info">Follow a route from kanjieater’s VN-Guide in a small card at the top left. Only the current step is shown. Guides are downloaded on demand, cached locally, and credited to VN-Guide; your game text stays on your computer.</p>
+      <label><span class="label-text">Enable VN Guide</span><input type="checkbox" id="vnGuideEnabled" /></label>
+      <label>
+        <span class="label-text">Game guide URL<div class="hotkey-info">Paste a specific game page, including its route/step fragment if desired. A GitHub guide.json URL also works.</div></span>
+        <input type="url" id="vnGuideUrl" placeholder="https://kanjieater.github.io/VN-Guide/hiiro-no-kakera/" />
+      </label>
+      <div class="button-row">
+        <button type="button" id="vn-guide-import">Use current Custom Page</button>
+        <button type="button" id="vn-guide-refresh">Reload guide from source</button>
+      </div>
+      <label><span class="label-text">Route</span><select id="vnGuideRoute"><option value="">From URL or first route</option></select></label>
+      <p id="vn-guide-status" class="hotkey-info" role="status">Enable the helper and choose a game guide.</p>
+      <p id="vn-guide-current" lang="ja"></p>
+      <div class="button-row">
+        <button type="button" id="vn-guide-back">Back / Undo</button>
+        <button type="button" id="vn-guide-next">Next / Done</button>
+        <button type="button" id="vn-guide-toggle">Show / Hide</button>
+      </div>
+      <label><span class="label-text">Jump to step<div class="hotkey-info">Step numbers start at 1. Future choice text is kept hidden.</div></span><input type="number" id="vn-guide-step" value="1" min="1" step="1" /><button type="button" id="vn-guide-jump">Go</button></label>
+      <label>
+        <span class="label-text">Show the guide card</span>
+        <select id="vnGuideMode">
+          <option value="auto">When a choice is detected (save/load stays visible)</option>
+          <option value="always">Always show the current step</option>
+          <option value="hotkey">Only when toggled with the hotkey</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">Advance when detected choices clear<div class="hotkey-info">Tentative: OCR cannot verify which option you selected. Back undoes an advance. Save/load steps always wait for Done. Turn this off to advance every step yourself.</div></span>
+        <input type="checkbox" id="vnGuideAutoAdvance" checked />
+      </label>
+      <p class="hotkey-info">Detection needs overlay OCR coordinates with multiple separated options on screen. Short dialogue matches, text hooks alone, and uncertain layouts do not trigger it. Use the hotkey or Always mode when needed; manual mode may need a scan at the choice screen.</p>
+      <label><span class="label-text">Show / Hide Guide Hotkey</span><input type="text" id="vnGuideToggleHotkey" value="Alt+Shift+G" /></label>
+      <label><span class="label-text">Next / Done Hotkey</span><input type="text" id="vnGuideNextHotkey" value="Alt+Shift+Right" /></label>
+      <label><span class="label-text">Back / Undo Hotkey</span><input type="text" id="vnGuideBackHotkey" value="Alt+Shift+Left" /></label>
+    </div>
+
+    <div class="setting-group full-width" data-tab="interaction">
       <h4>Custom Page</h4>
       <label>
         <span class="label-text">
@@ -3285,6 +3324,9 @@
       overlaySettingsHotkey: { warningElementId: "overlaysettings-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       texthookerHotkey: { warningElementId: "texthooker-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       customPageHotkey: { warningElementId: "custompage-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      vnGuideToggleHotkey: { showCtrlWarning: false, placeholder: "Press keys..." },
+      vnGuideNextHotkey: { showCtrlWarning: false, placeholder: "Press keys..." },
+      vnGuideBackHotkey: { showCtrlWarning: false, placeholder: "Press keys..." },
       gamepadKeyboardHotkey: { warningElementId: "gamepadkeyboard-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
     });
     const VALID_PLATFORM_OVERRIDE_VALUES = new Set(["win32", "linux", "darwin"]);
@@ -4207,6 +4249,16 @@
       createHotkeyBinding("overlaySettingsHotkey", "#overlaySettingsHotkey"),
       createHotkeyBinding("texthookerHotkey", "#texthookerHotkey"),
       createCheckboxBinding("customPageEnabled", "#customPageEnabled"),
+      createCheckboxBinding("vnGuideEnabled", "#vnGuideEnabled"),
+      createTextBinding("vnGuideUrl", "#vnGuideUrl", { normalize: value => String(value ?? '').trim() }),
+      createSelectBinding("vnGuideRoute", "#vnGuideRoute", {
+        write: (control, value) => { control.value = value || control.dataset.currentRoute || ''; },
+      }),
+      createSelectBinding("vnGuideMode", "#vnGuideMode"),
+      createCheckboxBinding("vnGuideAutoAdvance", "#vnGuideAutoAdvance"),
+      createHotkeyBinding("vnGuideToggleHotkey", "#vnGuideToggleHotkey"),
+      createHotkeyBinding("vnGuideNextHotkey", "#vnGuideNextHotkey"),
+      createHotkeyBinding("vnGuideBackHotkey", "#vnGuideBackHotkey"),
       createTextBinding("customPageUrl", "#customPageUrl", {
         normalize: value => String(value ?? "").trim(),
         afterApply: value => {
@@ -6573,6 +6625,7 @@
   <!-- Discoverability layer: descriptions, capability cards, cross-tab search.
        Loaded after the inline script so updateSettingsTabVisibility() exists. -->
   <script src="./components/settings-metadata.js"></script>
+  <script src="./vn_guide_settings.js"></script>
   <script src="./components/settings-enhancer.js"></script>
 </body>
 

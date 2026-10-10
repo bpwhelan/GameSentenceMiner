@@ -1,0 +1,48 @@
+const path = require('node:path');
+
+function createVnGuideHud({ BrowserWindow, getBounds, getWindowOptions = () => ({}) }) {
+  let window = null;
+  let state = null;
+  let ready = false;
+  function bounds() {
+    const area = getBounds();
+    return { x: area.x + 18, y: area.y + 18, width: Math.min(400, area.width - 36), height: 246 };
+  }
+  function render() {
+    if (!window || window.isDestroyed() || !ready) return;
+    window.webContents.send('vn-guide-state', state);
+    if (state?.visible) {
+      window.setBounds(bounds());
+      window.setAlwaysOnTop(true, 'screen-saver');
+      if (!window.isVisible()) window.showInactive();
+    } else window.hide();
+  }
+  function update(next) {
+    state = next;
+    if (next.visible && (!window || window.isDestroyed())) {
+      ready = false;
+      const win = new BrowserWindow({
+        ...getWindowOptions(), ...bounds(), show: false, transparent: true, frame: false,
+        alwaysOnTop: true, resizable: false, focusable: false, skipTaskbar: true,
+        title: 'GSM VN Guide',
+        webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'vn_guide_preload.js') },
+      });
+      window = win;
+      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      win.webContents.on('will-navigate', event => event.preventDefault());
+      win.webContents.on('did-finish-load', () => { if (window === win) { ready = true; render(); } });
+      win.on('closed', () => { if (window === win) { window = null; ready = false; } });
+      void win.loadFile(path.join(__dirname, 'vn_guide_hud.html')).catch(error => console.warn('[VNGuide] Could not open guide card:', error.message));
+    }
+    render();
+  }
+  return {
+    update,
+    owns: sender => !!window && !window.isDestroyed() && sender === window.webContents,
+    syncBounds: () => { if (window && !window.isDestroyed()) window.setBounds(bounds()); },
+    dispose: () => { if (window && !window.isDestroyed()) window.destroy(); window = null; ready = false; },
+  };
+}
+
+module.exports = { createVnGuideHud };

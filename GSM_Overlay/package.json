@@ -11,6 +11,7 @@
     "start": "electron-forge start",
     "test": "node --test tests/*.test.cjs",
     "test:render-electron": "node tests/run-overlay-render-electron.cjs",
+    "test:vn-guide-electron": "node tests/run-vn-guide-electron.cjs",
     "test:jiten-electron": "node tests/run-jiten-electron-smoke.cjs",
     "test:gamepad-electron": "node tests/run-gamepad-electron-smoke.cjs",
     "test:hachidori-electron": "node tests/run-hachidori-electron-smoke.cjs",

@@ -84,6 +84,7 @@
     "hotkeys": "shortcut keybind keyboard hotkey",
     "textfeed": "texthooker feed history lines re-read clipboard window",
     "custom page": "vn-guide vnguide kanjieater walkthrough route guide website url browser shortcut",
+    "vn guide": "vn-guide kanjieater walkthrough route choice choices save load step advance undo spoiler",
     "translation": "translate ai deepl machine translation",
     "text offset": "position align nudge calibrate",
     "profiles": "per-game scene per profile",

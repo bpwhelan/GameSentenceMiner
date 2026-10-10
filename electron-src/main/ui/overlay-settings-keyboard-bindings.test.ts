@@ -21,11 +21,12 @@ function loadOverlaySettingsPage(platform = "win32") {
   const settingsPath = path.resolve(process.cwd(), "GSM_Overlay/settings.html");
   const html = fs.readFileSync(settingsPath, "utf8");
   const sent: Array<{ channel: string; payload: IpcPayload }> = [];
+  const invoked: Array<{ channel: string; payload: IpcPayload }> = [];
   const listeners = new Map<string, IpcListener>();
 
   const ipcRenderer = {
     send: (channel: string, payload?: IpcPayload) => sent.push({ channel, payload }),
-    invoke: async () => null,
+    invoke: async (channel: string, payload?: IpcPayload) => { invoked.push({ channel, payload }); return null; },
     on: (channel: string, handler: IpcListener) => {
       const existing = listeners.get(channel);
       listeners.set(channel, existing
@@ -87,7 +88,7 @@ function loadOverlaySettingsPage(platform = "win32") {
         dom.window.addEventListener("load", () => resolve(), { once: true });
       });
 
-  return { dom, ready, sent, listeners };
+  return { dom, ready, sent, invoked, listeners };
 }
 
 describe("overlay custom page settings", () => {
@@ -522,5 +523,61 @@ describe("overlay settings keyboard binding capture", () => {
     } finally {
       page.dom.window.close();
     }
+  });
+
+  it("renders guide routes safely, preserves a jump being typed, and sends explicit navigation commands", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const document = page.dom.window.document;
+      const state = {
+        enabled: true, title: 'Example', routeId: 'one', routeTitle: '<img src=x>', reviewed: true,
+        routes: [{ id: 'one', title: '<img src=x>', reviewed: true }, { id: 'two', title: 'Second', reviewed: false }],
+        text: '<script>bad()</script>', index: 2, total: 12, kind: 'choice',
+      };
+      page.listeners.get('vn-guide-state')?.(null, state);
+      const route = document.getElementById('vnGuideRoute');
+      expect(route.value).toBe('one');
+      expect(route.options[2].textContent).toContain('not reviewed upstream');
+      expect(document.getElementById('vn-guide-current').textContent).toBe(state.text);
+      expect(document.querySelector('#vn-guide-current script')).toBeNull();
+      const step = document.getElementById('vn-guide-step');
+      step.focus();
+      step.value = '8';
+      page.listeners.get('vn-guide-state')?.(null, { ...state, index: 3 });
+      expect(step.value).toBe('8');
+      document.getElementById('vn-guide-jump').click();
+      document.getElementById('vn-guide-next').click();
+      document.getElementById('vn-guide-back').click();
+      document.getElementById('vn-guide-import').click();
+      expect(page.invoked.filter(entry => entry.channel === 'vn-guide-command').map(entry => entry.payload)).toEqual([
+        { action: 'jump', value: 7 }, { action: 'next', value: undefined },
+        { action: 'back', value: undefined }, { action: 'use-custom-page', value: undefined },
+      ]);
+      route.value = 'two';
+      route.dispatchEvent(new page.dom.window.Event('change', { bubbles: true }));
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.channel === 'setting-changed')?.payload).toEqual({ key: 'vnGuideRoute', value: 'two' });
+    } finally { page.dom.window.close(); }
+  });
+
+  it("persists guide modes and uses the keyboard binding capture for each guide hotkey", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const document = page.dom.window.document;
+      const mode = document.getElementById('vnGuideMode');
+      mode.value = 'always';
+      mode.dispatchEvent(new page.dom.window.Event('change', { bubbles: true }));
+      expect(page.sent.findLast(entry => entry.channel === 'setting-changed')?.payload).toEqual({ key: 'vnGuideMode', value: 'always' });
+      for (const id of ['vnGuideToggleHotkey', 'vnGuideNextHotkey', 'vnGuideBackHotkey']) {
+        const control = document.getElementById(id);
+        control.focus();
+        control.dispatchEvent(new page.dom.window.KeyboardEvent('keydown', { key: 'j', code: 'KeyJ', altKey: true, shiftKey: true, bubbles: true }));
+        control.blur();
+        await nextTick();
+        expect(page.sent.filter(entry => entry.channel === 'setting-changed').findLast(entry => entry.payload?.key === id)?.payload).toEqual({ key: id, value: 'Alt+Shift+J' });
+      }
+    } finally { page.dom.window.close(); }
   });
 });
