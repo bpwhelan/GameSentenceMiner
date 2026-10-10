@@ -4,7 +4,7 @@ window.vnGuide.onState(state => {
   const startIndex = state.startIndex ?? state.index;
   document.querySelector('.card').dataset.kind = state.kind;
   document.querySelector('.card').dataset.saveNotice = String(state.saveNotice === true);
-  el('status').textContent = state.saveNotice ? 'Next step: save' : state.complete ? 'Route complete' : state.kind === 'save' ? 'Save your game' : state.kind === 'load' ? 'Load your save' : state.detected ? 'Choice detected' : 'Next guide step';
+  el('status').textContent = state.saveNotice ? 'Next step: save' : state.complete ? 'Route complete' : state.kind === 'save' ? 'Save your game' : state.kind === 'load' ? 'Load your save' : state.detected ? 'Choice detected' : state.rememberedChoice ? 'Last detected choice' : 'Next guide step';
   el('progress').textContent = `${startIndex < state.index ? `${startIndex + 1}–` : ''}${Math.min(state.index + 1, state.total)} / ${state.total}`;
   el('route').textContent = state.routeTitle;
   el('instruction').textContent = state.saveNotice ? saves.join('\n') : state.complete ? 'おつかれさま！' : state.text;
@@ -14,6 +14,7 @@ window.vnGuide.onState(state => {
   if (state.saveNotice) note = 'Save at your earliest convenience, ideally at the next choice.';
   else if (state.complete) note = 'Choose another route in Overlay Settings → VN Guide.';
   else if (state.kind === 'save' || state.kind === 'load') note = 'Do this in the game, then press Done.';
+  else if (state.rememberedChoice) note = 'Waiting for a fresh scan. You can also advance manually.';
   else if (saves.length) note = state.detected ? 'Save here, then choose this option in the game.' : state.tentative ? 'Save at the next choice. Back undoes the last advance if needed.' : 'At the next choice screen, save first, then choose this option.';
   else note = state.tentative ? 'Advanced after the menu cleared. Back undoes this if needed.' : state.detected ? 'Choose this option in the game.' : 'Waiting for a choice screen. You can advance manually.';
   el('note').textContent = state.error || note;

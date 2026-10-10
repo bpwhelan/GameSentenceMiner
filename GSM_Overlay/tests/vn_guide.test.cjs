@@ -180,6 +180,7 @@ test('advancing manually across a save while a menu is open cannot consume the n
   const guide = tracker(['大丈夫', 'セーブ1', '大丈夫', '進む']);
   guide.observe(frame(menu()), 1000);
   guide.next();
+  guide.suspendDetection();
   guide.observe(frame(menu()), 2000);
   guide.observe(frame([line('次の会話', .8)]), 4000);
   assert.equal(guide.index, 2);
@@ -198,4 +199,24 @@ test('presence invalidation can hide the hint but only fresh final text can adva
   assert.equal(guide.detected, false);
   guide.observe(frame([line('新しい会話', .8)], { presence_id: 'dialogue' }), 4000);
   assert.equal(guide.index, 2);
+});
+
+test('suspended choices only accept revalidation of the remembered presence and clear on new text', () => {
+  const guide = tracker();
+  const original = frame(menu(), { presence_id: 'choice' });
+  guide.observe(original, 1000);
+  guide.suspendDetection();
+  guide.observe({ type: 'ocr_text_revalidated', presence_id: 'other', payload: original }, 3000);
+  guide.observe({ type: 'ocr_text_revalidated', presence_id: 'choice', payload: { ...original, presence_id: 'other' } }, 3000);
+  assert.equal(guide.rememberedChoice, true);
+  guide.observe({ type: 'ocr_text_invalidated', presence_id: 'choice' }, 4000);
+  assert.equal(guide.detected, false);
+  guide.observe({ type: 'ocr_text_revalidated', presence_id: 'choice', payload: original }, 5000);
+  assert.equal(guide.detected, true);
+  assert.equal(guide.rememberedChoice, false);
+  guide.suspendDetection();
+  guide.observe(frame([line('新しい会話', .8)]), 6000);
+  guide.observe({ type: 'ocr_text_revalidated', presence_id: 'choice', payload: original }, 7000);
+  assert.equal(guide.detected, false);
+  assert.equal(guide.index, 0);
 });

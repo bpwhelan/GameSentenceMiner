@@ -126,7 +126,14 @@ class GuideTracker {
     // the following choice, but must never be carried across a load or route end.
     return this.steps[next]?.kind === 'choice' ? next : index;
   }
-  resetDetection() { this.detected = false; this.armed = null; this.blockedOptions = null; }
+  get rememberedChoice() { return this.detected && !this.armed; }
+  resetDetection() { this.detected = false; this.armed = null; this.blockedOptions = null; this.suspendedPresenceId = null; }
+  suspendDetection() {
+    // Retain the hint across a temporary hide, but require new menu evidence
+    // before disappearance can advance. Keep a manual advance's duplicate guard.
+    if (this.armed) this.suspendedPresenceId = this.armed.presenceId;
+    this.armed = null;
+  }
   jump(index) {
     if (!Number.isInteger(index) || index < 0 || index > this.steps.length) throw new Error('Choose a step within this route.');
     index = this.choiceAfterSave(index);
@@ -146,9 +153,12 @@ class GuideTracker {
         this.armed.invalidatedAt = now;
         this.detected = false;
       }
+      if (message.presence_id && message.presence_id === this.suspendedPresenceId) this.detected = false;
       return;
     }
-    if (message?.type === 'ocr_text_revalidated' && message.presence_id === this.armed?.presenceId) {
+    if (message?.type === 'ocr_text_revalidated' && message.presence_id
+      && message.presence_id === (this.armed?.presenceId || this.suspendedPresenceId)
+      && message.payload?.presence_id === message.presence_id && message.payload.type === 'word_coordinates') {
       message = message.payload;
     }
     if (message?.type !== 'word_coordinates' || message.supplemental || !Array.isArray(message.data) || !message.data.length) return;
@@ -166,12 +176,16 @@ class GuideTracker {
         saveControls: this.saveInstructions.length ? choiceLines(message.data).filter(isSaveControl) : [],
       };
       this.detected = true;
+      this.suspendedPresenceId = null;
       return;
     }
     const armed = this.armed;
-    if (!armed) return;
-    if (armed.invalidatedAt && now - armed.invalidatedAt > 15000) { this.resetDetection(); return; }
     const lines = choiceLines(message.data);
+    if (!armed) {
+      if (message.is_final === true && lines.length) this.resetDetection();
+      return;
+    }
+    if (armed.invalidatedAt && now - armed.invalidatedAt > 15000) { this.resetDetection(); return; }
     if (!lines.length || lines.some(line => armed.options.includes(line.text))) return;
     if (armed.presenceId && armed.presenceId === message.presence_id) return;
     // Saving at the choice is not selecting an answer. New save/load headings

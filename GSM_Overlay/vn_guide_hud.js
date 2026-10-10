@@ -14,9 +14,18 @@ function createVnGuideHud({ BrowserWindow, getBounds, getWindowOptions = () => (
     window.webContents.send('vn-guide-state', state);
     if (state?.visible) {
       window.setBounds(bounds());
-      window.setAlwaysOnTop(true, 'screen-saver');
-      if (!window.isVisible()) window.showInactive();
+      reassertTopmost();
     } else window.hide();
+  }
+  function reassertTopmost() {
+    if (!ready || !state?.visible || !window || window.isDestroyed()) return;
+    window.setAlwaysOnTop(true, 'screen-saver');
+    if (!window.isVisible()) window.showInactive();
+    // A newly shown lookup/freeze-frame window has the same topmost level.
+    // Restore the guide above it without taking focus from the game or lookup.
+    if (typeof window.moveTop === 'function') {
+      try { window.moveTop(); } catch { /* Not supported by every window manager. */ }
+    }
   }
   function update(next) {
     state = next;
@@ -40,6 +49,7 @@ function createVnGuideHud({ BrowserWindow, getBounds, getWindowOptions = () => (
   }
   return {
     update,
+    reassertTopmost,
     owns: sender => !!window && !window.isDestroyed() && sender === window.webContents,
     syncBounds: () => { if (window && !window.isDestroyed()) window.setBounds(bounds()); },
     dispose: () => { if (window && !window.isDestroyed()) window.destroy(); window = null; ready = false; },

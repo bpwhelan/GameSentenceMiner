@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
+const { between } = require('./helpers/overlay-startup.cjs');
 const { createVnGuideHud } = require('../vn_guide_hud');
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-vn-render-'));
 app.setPath('userData', path.join(directory, 'profile'));
@@ -48,6 +50,52 @@ app.whenReady().then(async () => {
   assert.equal(window.getBounds().height, 278);
   await new Promise(resolve => setTimeout(resolve, 100));
   fs.writeFileSync(path.join(directory, 'save-choice.png'), (await window.webContents.capturePage()).toPNG());
+  const lookup = new BrowserWindow({ show: false, frame: false, alwaysOnTop: true, skipTaskbar: true, x: 0, y: 0, width: 600, height: 420, backgroundColor: '#243d50' });
+  let captureAvailable = true;
+  const mainSource = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+  const context = vm.createContext({
+    mainWindow: lookup, vnGuideHud: hud, setTimeout,
+    canUseOverlayCapture: () => captureAvailable,
+    vnGuideController: { setAvailable: available => hud.update({ ...state, saveNotice: false, detected: true, visible: available }) },
+  });
+  vm.runInContext(mainSource.match(/^function refreshVnGuideWindow\([\s\S]*?^}/m)[0], context);
+  vm.runInContext(between(mainSource, '  // Keep the VN guide above', '  // Update tray menu when window visibility changes'), context);
+  let assertGuideAbove = () => {};
+  if (process.platform === 'win32') {
+    const user32 = require('koffi').load('user32.dll');
+    const getWindow = user32.func('uintptr_t __stdcall GetWindow(uintptr_t hWnd, uint32_t uCmd)');
+    const handle = win => win.getNativeWindowHandle().length === 8 ? win.getNativeWindowHandle().readBigUInt64LE() : BigInt(win.getNativeWindowHandle().readUInt32LE());
+    assertGuideAbove = () => {
+      const guideHandle = handle(window);
+      let above = handle(lookup);
+      for (let count = 0; above && count < 2000; count += 1) {
+        above = BigInt(getWindow(above, 3)); // GW_HWNDPREV: next window above this one.
+        if (above === guideHandle) return;
+      }
+      assert.fail('The guide must be above the re-shown lookup/freeze-frame window');
+    };
+  }
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    lookup.show();
+    lookup.setAlwaysOnTop(true, 'screen-saver');
+    lookup.moveTop();
+    lookup.focus();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(window.isVisible(), true);
+    assert.equal(window.isFocused(), false);
+    assertGuideAbove();
+    lookup.hide();
+    assert.equal(window.isVisible(), true, 'manual hide-overlay must leave the guide available');
+  }
+  captureAvailable = false;
+  lookup.show();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(window.isVisible(), false, 'a late reveal callback cannot revive the guide without capture');
+  lookup.destroy();
+  hud.update({ ...state, saveNotice: false, detected: false, rememberedChoice: true });
+  rendered = await read();
+  assert.match(rendered.note, /fresh scan/);
+  assert.equal(rendered.reminder, 'Save before choosing: セーブ1');
   await window.webContents.executeJavaScript(`document.querySelector('#next').click()`);
   await read();
   assert.deepEqual(commands, ['hide', 'next']);
@@ -69,6 +117,7 @@ app.whenReady().then(async () => {
   assert.equal(rendered.text, `${unsafe.repeat(20)}\nセーブ2`);
   assert.equal(rendered.overflowing, false);
   hud.update({ ...state, visible: false });
+  hud.reassertTopmost();
   assert.equal(window.isVisible(), false);
   hud.dispose();
   assert.equal(window.isDestroyed(), true);

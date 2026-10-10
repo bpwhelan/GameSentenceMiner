@@ -25,7 +25,7 @@ function setup(t) {
     console: { log() {}, warn() {} }, Date, setTimeout, clearTimeout, ipcMain,
     overlayCaptureAvailable: false, overlayCaptureExpiryTimer: null,
     trackedGameWindowState: 'unknown', isTexthookerMode: false, texthookerWindow: null,
-    customPageController: null,
+    customPageController: null, vnGuideHud: null,
     settingsWindow: null, websocketStates: { ws1: false, ws2: false },
     mainWindow: {
       isDestroyed: () => false, isVisible: () => false, isMinimized: () => false,

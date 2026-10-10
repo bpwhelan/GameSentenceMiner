@@ -4345,6 +4345,7 @@ function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert", options
       // Ignore - moveTop may not be available on all Electron/platform combos.
     }
   }
+  vnGuideHud?.reassertTopmost();
   return true;
 }
 
@@ -6191,6 +6192,12 @@ function registerTexthookerHotkey(oldHotkey) {
   }
 }
 
+function refreshVnGuideWindow() {
+  // Manual "Hide overlay" controls the lookup window, not the guide companion.
+  vnGuideController?.setAvailable(canUseOverlayCapture());
+  vnGuideHud?.reassertTopmost();
+}
+
 function registerVnGuideHotkeys() {
   for (const action of ['toggle', 'next', 'back']) clearAppHotkey(`vn-guide-${action}`);
   if (!vnGuideController && userSettings.vnGuideEnabled === true) {
@@ -8029,6 +8036,12 @@ async function startOverlayAppImpl() {
   mainWindow.on('focus', () => {
     mainWindow.setBackgroundColor('#00000000')
   })
+
+  // Keep the VN guide above the returning lookup window, including freeze frames.
+  // Defer until the reveal/focus operation has finished restacking the overlay.
+  for (const eventName of ['show', 'restore', 'focus']) {
+    mainWindow.on(eventName, () => setTimeout(refreshVnGuideWindow, 0));
+  }
 
   // Update tray menu when window visibility changes
   mainWindow.on('show', () => {

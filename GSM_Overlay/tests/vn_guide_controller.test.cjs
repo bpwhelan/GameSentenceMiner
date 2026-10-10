@@ -176,6 +176,99 @@ test('capture loss or game switch disarms detection, hides the HUD, and cannot a
   assert.equal(controller.snapshot().index, 0);
 });
 
+test('hotkey visibility, including an explicit hide, survives temporary capture interruptions', async t => {
+  const { controller, settings } = setup(t);
+  await controller.configure({ ...settings, vnGuideMode: 'hotkey' });
+  controller.setAvailable(true, 'Game A');
+  controller.command('jump', 1);
+  controller.command('toggle');
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    controller.setAvailable(false);
+    assert.equal(controller.snapshot().visible, false);
+    controller.setAvailable(true);
+    assert.equal(controller.snapshot().visible, true);
+    assert.equal(controller.snapshot().index, 2);
+    assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  }
+  await controller.configure({ ...settings, vnGuideMode: 'always' });
+  controller.command('toggle');
+  controller.setAvailable(false);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, false);
+  controller.command('toggle');
+  controller.command('hide');
+  controller.setAvailable(false);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, false);
+});
+
+test('a detected choice returns after capture resumes without using old evidence to advance', async t => {
+  const { controller, settings, advance } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true, 'Game A');
+  controller.command('jump', 1);
+  controller.observe(nextMenu);
+  controller.setAvailable(false);
+  advance(30000);
+  controller.setAvailable(false);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().rememberedChoice, true);
+  assert.equal(controller.snapshot().detected, false);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  controller.observe({ ...dialogue, supplemental: true });
+  assert.equal(controller.snapshot().visible, true);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().index, 2);
+  assert.equal(controller.snapshot().visible, false);
+  controller.observe(nextMenu);
+  advance(1500);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().index, 3);
+});
+
+test('backend revalidation can restore a choice after a hide without a second full OCR result', async t => {
+  const { controller, settings, advance } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  const frame = { ...menu, presence_id: 'choice' };
+  controller.observe(frame);
+  controller.setAvailable(false);
+  advance(10000);
+  controller.setAvailable(true);
+  controller.observe({ type: 'ocr_text_revalidated', presence_id: 'choice', payload: frame });
+  assert.equal(controller.snapshot().detected, true);
+  assert.equal(controller.snapshot().rememberedChoice, false);
+  advance(1500);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().index, 2);
+});
+
+test('unavailable time does not consume a save notice and game changes discard remembered hints', async t => {
+  const { controller, settings, advance } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true, 'Game A');
+  controller.command('next');
+  advance(3000);
+  controller.setAvailable(false);
+  advance(30000);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().saveNotice, true);
+  advance(4999);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, true);
+  advance(2);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, false);
+  controller.observe(nextMenu);
+  controller.setAvailable(false);
+  controller.setAvailable(true, 'Game B');
+  assert.equal(controller.snapshot().visible, false);
+  assert.equal(controller.snapshot().rememberedChoice, false);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().index, 2);
+});
+
 test('manual advancement and imported URL positions are saved per route', async t => {
   const { controller, settings } = setup(t);
   await controller.configure({ ...settings, vnGuideUrl: `${url}#view=guide&route=one&step=2` });

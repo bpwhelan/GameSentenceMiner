@@ -15,6 +15,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
   let game = null;
   let tentativeUntil = 0;
   let saveNoticeUntil = 0;
+  let suspendedAt = null;
   let lastVisible = false;
 
   function snapshot() {
@@ -31,7 +32,8 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
       index: tracker?.index ?? 0, startIndex: tracker?.startIndex ?? 0, total: tracker?.steps.length ?? 0,
       text: tracker?.current?.text || '', kind: tracker?.current?.kind || '',
       saveInstructions, saveNotice,
-      detected: tracker?.detected === true, tentative: tracker?.tentative === true, complete: tracker?.complete === true,
+      detected: tracker?.detected === true && !tracker.rememberedChoice, rememberedChoice: tracker?.rememberedChoice === true,
+      tentative: tracker?.tentative === true, complete: tracker?.complete === true,
       toggleHotkey: settings.vnGuideToggleHotkey || '', nextHotkey: settings.vnGuideNextHotkey || '',
     };
   }
@@ -83,11 +85,20 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     const next = value === true;
     const changedGame = currentGame != null && game !== null && currentGame !== game;
     if (currentGame != null) game = currentGame;
-    if (!next || changedGame) tracker?.resetDetection();
+    if (!next && available) {
+      suspendedAt = now();
+      tracker?.suspendDetection();
+    }
+    if (next && !available && suspendedAt !== null) {
+      const hiddenFor = now() - suspendedAt;
+      if (saveNoticeUntil > suspendedAt) saveNoticeUntil += hiddenFor;
+      if (tentativeUntil > suspendedAt) tentativeUntil += hiddenFor;
+      suspendedAt = null;
+    }
+    if (changedGame) { tracker?.resetDetection(); peek = null; }
     if (next && saveNoticeUntil === null) saveNoticeUntil = now() + 8000;
     if (next !== available || changedGame || snapshot().visible !== lastVisible) {
       available = next;
-      if (!next || changedGame) peek = null;
       publish();
     }
   }
@@ -96,12 +107,12 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     if (typeof message === 'string') { try { message = JSON.parse(message); } catch { return; } }
     if (message?.type === 'window_state') { setAvailable(available, message.game); return; }
     if (!available) return;
-    const before = JSON.stringify([tracker.index, tracker.detected, tracker.tentative]);
+    const before = JSON.stringify([tracker.index, tracker.detected, tracker.rememberedChoice, tracker.tentative]);
     const previousIndex = tracker.index;
     tracker.observe(message, now(), settings.vnGuideAutoAdvance !== false);
     if (tracker.index !== previousIndex) { tentativeUntil = now() + 6000; enterStep(); persist(); }
     if (tracker.detected) saveNoticeUntil = 0;
-    if (before !== JSON.stringify([tracker.index, tracker.detected, tracker.tentative])) publish();
+    if (before !== JSON.stringify([tracker.index, tracker.detected, tracker.rememberedChoice, tracker.tentative])) publish();
   }
   function command(action, value) {
     if (disposed) return snapshot();

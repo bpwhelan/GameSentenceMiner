@@ -6,6 +6,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { between } = require('./helpers/overlay-startup.cjs');
 const { createManualHotkeyController } = require('../manual_hotkey_controller');
+const { createVnGuideController } = require('../vn_guide_controller');
+const { validateRoute } = require('../vn_guide');
 
 const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
 
@@ -65,7 +67,7 @@ function setup(t, settings = {}) {
     manualHotkeyPressed: false, manualModeToggleState: false,
     gamepadNavigationActive: false, gamepadReleaseRecoveryVersion: 0,
     overlayCaptureAvailable: true, trackedGameWindowState: 'active', isTexthookerMode: false,
-    customPageController: null,
+    customPageController: null, vnGuideController: null, vnGuideHud: null,
     trackedGameWindowStateUpdatedAt: 0, magpieYomitanCloseVisibilityGuardActive: false,
     isOverlayVisible: false, resizeMode: false, yomitanShown: false,
     yomitanForegroundActive: false, yomitanRecoveryVersion: 0, lastYomitanEventAt: 0,
@@ -163,6 +165,59 @@ test('pending game focus restoration cannot interrupt a visible custom page', t 
   assert.equal(context.requestBackendFocusRestore('custom-page-hide', { force: true }), true);
   assert.deepEqual(restores, ['restore-focus-request']);
 });
+
+for (const manualModeType of ['hold', 'toggle']) {
+  for (const background of ['off', 'on_demand']) {
+    test(`VN guide remains usable through manual ${manualModeType} hide-overlay cycles (background ${background})`, async t => {
+      const { context, state, pressManualHotkey, manualController, send } = setup(t, { manualModeType, manualModeInactiveBehavior: 'hide-overlay' });
+      context.getManualModeBackgroundMode = () => background;
+      const overlay = Object.assign(new EventEmitter(), context.mainWindow);
+      context.mainWindow = overlay;
+      for (const event of ['show', 'hide', 'focus']) {
+        const original = overlay[event];
+        overlay[event] = (...args) => { original(...args); overlay.emit(event); };
+      }
+      const originalShowInactive = overlay.showInactive;
+      overlay.showInactive = () => { originalShowInactive(); overlay.emit('show'); };
+      const updates = [];
+      let raises = 0;
+      const steps = validateRoute(['セーブ1', '大丈夫', '進む'].map(simpleJp => ({ simpleJp })));
+      const library = { save() {}, load: async () => ({ guide: { title: 'Test', routes: [] }, route: { id: 'one' }, steps, index: 0 }) };
+      const hud = { update: value => updates.push(value), reassertTopmost: () => { raises += 1; } };
+      const guide = createVnGuideController({ library, hud });
+      context.vnGuideController = guide;
+      context.vnGuideHud = hud;
+      const refresh = source.match(/^function refreshVnGuideWindow\([\s\S]*?^}/m);
+      assert.ok(refresh, 'Missing guide window refresh');
+      vm.runInContext(refresh[0], context);
+      vm.runInContext(between(source, '  // Keep the VN guide above', '  // Update tray menu when window visibility changes'), context);
+      await guide.configure({ vnGuideEnabled: true, vnGuideUrl: 'test', vnGuideMode: 'hotkey' });
+      context.refreshVnGuideWindow();
+      guide.command('toggle');
+      for (let cycle = 0; cycle < 3; cycle += 1) {
+        pressManualHotkey();
+        if (background === 'on_demand') send('manual-mode-background-painted');
+        t.mock.timers.tick(1);
+        assert.equal(state.visible, true);
+        assert.equal(guide.snapshot().visible, true);
+        assert.ok(raises > cycle, 'show/focus should restore the guide above the lookup overlay');
+        if (manualModeType === 'hold') manualController.handleRelease('input_server');
+        else pressManualHotkey();
+        t.mock.timers.tick(300);
+        context.refreshVnGuideWindow();
+        assert.equal(state.visible, false, 'hide-overlay still hides the lookup window');
+        assert.equal(guide.snapshot().visible, true, 'the guide remains available over the game');
+        assert.equal(guide.snapshot().index, 1);
+        assert.deepEqual(guide.snapshot().saveInstructions, ['セーブ1']);
+      }
+      guide.command('next');
+      assert.equal(guide.snapshot().text, '進む', 'guide controls work while the lookup overlay is hidden');
+      guide.command('hide');
+      context.refreshVnGuideWindow();
+      assert.equal(guide.snapshot().visible, false, 'restacking never overrides an explicit guide hide');
+    });
+  }
+}
 
 test('controller activation keeps focus through both activation messages and lookup changes', t => {
   const { activate, send, state, restores, rendererMessages } = setup(t);
