@@ -103,12 +103,14 @@ function findChoice(data, expected) {
 }
 
 const isSaveControl = line => /セーブ|ロード|上書き|保存先|^(?:(?:quick|auto)?(?:save|load)(?:game|data|slot)?|overwrite)$/iu.test(line.text);
+const LOOK_AHEAD_CHOICES = 3;
 
 class GuideTracker {
   constructor(steps, index = 0) {
     this.steps = steps;
     this.index = this.choiceAfterSave(Number.isInteger(index) && index >= 0 && index <= steps.length ? index : 0);
     this.tentative = false;
+    this.recoveredFrom = null;
     this.resetDetection();
   }
   get current() { return this.steps[this.index] || null; }
@@ -127,12 +129,31 @@ class GuideTracker {
     return this.steps[next]?.kind === 'choice' ? next : index;
   }
   get rememberedChoice() { return this.detected && !this.armed; }
-  resetDetection() { this.detected = false; this.armed = null; this.blockedOptions = null; this.suspendedPresenceId = null; }
+  resetDetection() { this.detected = false; this.armed = null; this.blockedOptions = null; this.suspendedPresenceId = null; this.suspendedOptions = null; }
   suspendDetection() {
     // Retain the hint across a temporary hide, but require new menu evidence
     // before disappearance can advance. Keep a manual advance's duplicate guard.
-    if (this.armed) this.suspendedPresenceId = this.armed.presenceId;
+    if (this.armed) { this.suspendedPresenceId = this.armed.presenceId; this.suspendedOptions = this.armed.options; }
     this.armed = null;
+  }
+  findAheadChoice(data, lines) {
+    // An option still present in the current menu, or a save confirmation, must
+    // not be interpreted as a later guide step merely because its text matches.
+    if (lines.some(line => line.text === normalizeChoice(this.current.text) || isSaveControl(line) && line.y3 <= 0.74)) return null;
+    const matches = [];
+    const limit = this.saveInstructions.length ? 1 : LOOK_AHEAD_CHOICES;
+    let index = this.index + 1;
+    for (let count = 0; count < limit && index < this.steps.length; count += 1) {
+      const carriesSave = this.steps[index].kind === 'save';
+      if (carriesSave) index = this.choiceAfterSave(index);
+      if (this.steps[index]?.kind !== 'choice') break;
+      const match = findChoice(data, this.steps[index].text);
+      if (match) matches.push({ index, match });
+      // The save can be shown with its next choice, but never skipped past it.
+      if (carriesSave) break;
+      index += 1;
+    }
+    return matches.length === 1 ? matches[0] : null;
   }
   jump(index) {
     if (!Number.isInteger(index) || index < 0 || index > this.steps.length) throw new Error('Choose a step within this route.');
@@ -140,11 +161,12 @@ class GuideTracker {
     const blocked = index > this.index ? this.armed?.options : null;
     this.index = index;
     this.tentative = false;
+    this.recoveredFrom = null;
     this.resetDetection();
     this.blockedOptions = blocked;
   }
   next() { this.jump(Math.min(this.index + 1, this.steps.length)); }
-  back() { this.jump(Math.max(0, this.startIndex - 1)); }
+  back() { this.jump(this.recoveredFrom ?? Math.max(0, this.startIndex - 1)); }
   observe(message, now = Date.now(), autoAdvance = true) {
     if (!this.current || this.current.kind !== 'choice') return;
     if (message?.type === 'overlay_clear') { this.resetDetection(); return; }
@@ -156,7 +178,8 @@ class GuideTracker {
       if (message.presence_id && message.presence_id === this.suspendedPresenceId) this.detected = false;
       return;
     }
-    if (message?.type === 'ocr_text_revalidated' && message.presence_id
+    const revalidated = message?.type === 'ocr_text_revalidated';
+    if (revalidated && message.presence_id
       && message.presence_id === (this.armed?.presenceId || this.suspendedPresenceId)
       && message.payload?.presence_id === message.presence_id && message.payload.type === 'word_coordinates') {
       message = message.payload;
@@ -167,22 +190,40 @@ class GuideTracker {
       if (message.is_final === true && lines.length && !lines.some(line => this.blockedOptions.includes(line.text))) this.blockedOptions = null;
       return;
     }
-    const match = findChoice(message.data, this.current.text);
+    const lines = choiceLines(message.data);
+    let match = findChoice(message.data, this.current.text);
+    const previousPresence = this.armed?.presenceId || this.suspendedPresenceId;
+    if (!match && autoAdvance && message.is_final === true && !revalidated
+      && (!previousPresence || previousPresence !== message.presence_id)) {
+      const ahead = this.findAheadChoice(message.data, lines);
+      if (ahead && !(this.armed?.options || this.suspendedOptions || []).includes(ahead.match.text)) {
+        const from = this.index;
+        this.jump(ahead.index);
+        this.blockedOptions = null; // This fresh, distinct menu already proves the old one was left.
+        this.tentative = true;
+        this.recoveredFrom = from;
+        match = ahead.match;
+      }
+    }
     if (match) {
       const previous = this.armed;
       this.armed = {
         ...match, since: previous?.since ?? now, presenceId: message.presence_id,
         stable: message.is_final === true || !!previous && now - previous.since >= 200,
-        saveControls: this.saveInstructions.length ? choiceLines(message.data).filter(isSaveControl) : [],
+        saveControls: lines.filter(isSaveControl),
       };
       this.detected = true;
       this.suspendedPresenceId = null;
+      this.suspendedOptions = null;
       return;
     }
     const armed = this.armed;
-    const lines = choiceLines(message.data);
     if (!armed) {
-      if (message.is_final === true && lines.length) this.resetDetection();
+      if (message.is_final === true && lines.length) {
+        const options = this.suspendedOptions;
+        this.resetDetection();
+        if (lines.some(line => options?.includes(line.text))) this.suspendedOptions = options;
+      }
       return;
     }
     if (armed.invalidatedAt && now - armed.invalidatedAt > 15000) { this.resetDetection(); return; }
@@ -190,7 +231,7 @@ class GuideTracker {
     if (armed.presenceId && armed.presenceId === message.presence_id) return;
     // Saving at the choice is not selecting an answer. New save/load headings
     // disarm progression until the menu returns; persistent game buttons do not.
-    if (this.saveInstructions.length && message.is_final === true && lines.some(line => isSaveControl(line)
+    if (message.is_final === true && lines.some(line => isSaveControl(line)
       && !armed.saveControls.some(control => control.text === line.text && Math.abs(control.center - line.center) < 0.03 && Math.abs(control.y1 - line.y1) < 0.03))) {
       this.resetDetection();
       return;

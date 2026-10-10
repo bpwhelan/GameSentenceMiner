@@ -18,7 +18,7 @@
     const startIndex = state.startIndex ?? state.index;
     const position = startIndex < state.index ? `Steps ${startIndex + 1}–${state.index + 1}` : `Step ${state.index + 1}`;
     el('vn-guide-status').textContent = state.error || (state.loading ? 'Loading VN-Guide…' : state.total
-      ? `${state.title} · ${state.routeTitle} · ${state.complete ? 'Complete' : `${position} of ${state.total}`}${state.target ? ` · ${state.target}` : ''}${state.reviewed ? '' : ' · Route not yet reviewed upstream'}${state.changed ? ' · Guide content changed; check your position before continuing.' : ''}`
+      ? `${state.title} · ${state.routeTitle} · ${state.complete ? 'Complete' : `${position} of ${state.total}`}${state.target ? ` · ${state.target}` : ''}${state.reviewed ? '' : ' · Route not yet reviewed upstream'}${state.changed ? ' · Guide content changed; check your position before continuing.' : ''}${state.recoveredFrom != null ? ` · Caught up from step ${state.recoveredFrom + 1}; Back undoes this.` : ''}`
       : 'Enable the helper and choose a game guide.');
     el('vn-guide-current').textContent = state.text || '';
     const saves = state.saveInstructions || [];

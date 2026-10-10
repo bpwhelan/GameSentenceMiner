@@ -34,6 +34,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
       saveInstructions, saveNotice,
       detected: tracker?.detected === true && !tracker.rememberedChoice, rememberedChoice: tracker?.rememberedChoice === true,
       tentative: tracker?.tentative === true, complete: tracker?.complete === true,
+      recoveredFrom: tracker?.recoveredFrom ?? null,
       toggleHotkey: settings.vnGuideToggleHotkey || '', nextHotkey: settings.vnGuideNextHotkey || '',
     };
   }

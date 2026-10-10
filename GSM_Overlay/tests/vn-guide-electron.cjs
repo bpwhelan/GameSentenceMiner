@@ -96,6 +96,16 @@ app.whenReady().then(async () => {
   rendered = await read();
   assert.match(rendered.note, /fresh scan/);
   assert.equal(rendered.reminder, 'Save before choosing: セーブ1');
+  hud.update({ ...state, saveNotice: false, detected: true, tentative: true, recoveredFrom: 0 });
+  rendered = await read();
+  assert.match(rendered.note, /Caught up from step 1/);
+  assert.match(rendered.note, /save here before choosing/);
+  assert.match(rendered.note, /Back undoes/);
+  assert.equal(rendered.overflowing, false);
+  hud.update({ ...state, saveNotice: false, saveInstructions: [], detected: true, tentative: true, recoveredFrom: 0 });
+  rendered = await read();
+  assert.match(rendered.note, /Caught up from step 1/);
+  assert.equal(rendered.overflowing, false);
   await window.webContents.executeJavaScript(`document.querySelector('#next').click()`);
   await read();
   assert.deepEqual(commands, ['hide', 'next']);

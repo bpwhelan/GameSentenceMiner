@@ -220,3 +220,121 @@ test('suspended choices only accept revalidation of the remembered presence and 
   assert.equal(guide.detected, false);
   assert.equal(guide.index, 0);
 });
+
+test('a unique final menu within the next three choices recovers missed progression and Back undoes the jump', () => {
+  for (const distance of [1, 2, 3]) {
+    const guide = tracker(['大丈夫', '進む', '待つ', '帰る', '寝る']);
+    guide.observe(frame(menu()), 500);
+    guide.observe({ type: 'overlay_clear' }, 1000);
+    guide.observe(frame(menu(guide.steps[distance].text)), 2000);
+    assert.equal(guide.index, distance);
+    assert.equal(guide.detected, true);
+    assert.equal(guide.tentative, true);
+    assert.equal(guide.recoveredFrom, 0);
+    guide.back();
+    assert.equal(guide.index, 0);
+    assert.equal(guide.recoveredFrom, null);
+  }
+  const guide = tracker(['大丈夫', '進む', '待つ', '帰る', '寝る']);
+  guide.observe(frame(menu('寝る')), 2000);
+  assert.equal(guide.index, 0, 'recovery must remain bounded');
+});
+
+test('look-ahead rejects dialogue, partial/supplemental/stale frames, and manual-only mode', () => {
+  const guide = tracker(['大丈夫', '進む', '待つ']);
+  for (const payload of [
+    frame([line('進む', .8), line('これは会話です', .84)]),
+    frame(menu('進む'), { is_final: false }),
+    frame(menu('進む'), { supplemental: true }),
+    frame([line('進む', .3)]),
+    frame([line('「進む」', .3), line('やめておこう', .43)]),
+  ]) {
+    guide.observe(payload, 1000);
+    assert.equal(guide.index, 0);
+  }
+  guide.observe(frame(menu('進む')), 2000, false);
+  assert.equal(guide.index, 0);
+  guide.observe(frame(menu(), { presence_id: 'old' }), 3000);
+  guide.observe(frame(menu('進む'), { presence_id: 'old' }), 4000);
+  assert.equal(guide.index, 0);
+  guide.observe(frame(menu('進む'), { presence_id: 'new' }), 5000);
+  assert.equal(guide.index, 1);
+});
+
+test('current choices take priority and ambiguous or repeated future answers never trigger recovery', () => {
+  const guide = tracker(['大丈夫', '進む', '待つ']);
+  guide.observe(frame([line('大丈夫', .3), line('進む', .43)]), 1000);
+  assert.equal(guide.index, 0);
+  guide.observe(frame(menu('進む')), 1500);
+  assert.equal(guide.index, 0, 'a previously visible alternative is not evidence of a later menu');
+  guide.resetDetection();
+  guide.observe(frame([line('進む', .3), line('待つ', .43)]), 3000);
+  assert.equal(guide.index, 0);
+  const repeated = tracker(['大丈夫', '進む', '待つ', '進む']);
+  repeated.observe(frame(menu('進む')), 1000);
+  assert.equal(repeated.index, 0);
+});
+
+test('look-ahead carries a save into its choice but never skips beyond that choice or a load', () => {
+  const guide = tracker(['大丈夫', '待つ', 'セーブ1', 'セーブ2', '進む', '帰る']);
+  guide.observe(frame(menu('帰る')), 1000);
+  assert.equal(guide.index, 0);
+  guide.observe(frame(menu('進む')), 2000);
+  assert.equal(guide.index, 4);
+  assert.deepEqual(guide.saveInstructions, ['セーブ1', 'セーブ2']);
+  assert.equal(guide.recoveredFrom, 0);
+  guide.back();
+  assert.equal(guide.index, 0);
+  const load = tracker(['大丈夫', '待つ', 'セーブ1にロード', '進む']);
+  load.observe(frame(menu('進む')), 1000);
+  assert.equal(load.index, 0);
+  load.observe(frame(menu('待つ')), 2000);
+  assert.equal(load.index, 1);
+  load.next();
+  load.observe(frame(menu('進む')), 3000);
+  assert.equal(load.current.kind, 'load');
+});
+
+test('a pending save reminder limits recovery to the immediately following choice', () => {
+  const guide = tracker(['セーブ1', '大丈夫', '進む', '帰る']);
+  guide.observe(frame(menu('帰る')), 1000);
+  assert.equal(guide.index, 1);
+  assert.deepEqual(guide.saveInstructions, ['セーブ1']);
+  guide.observe(frame(menu('進む')), 2000);
+  assert.equal(guide.index, 2);
+  guide.back();
+  assert.equal(guide.index, 1);
+  assert.deepEqual(guide.saveInstructions, ['セーブ1']);
+});
+
+test('save/overwrite menus cannot trigger look-ahead while permanent lower save buttons remain harmless', () => {
+  for (const caption of ['セーブ', 'LOAD', '上書きしますか？']) {
+    const guide = tracker(['大丈夫', 'はい', '進む']);
+    guide.observe(frame([line(caption, .1), line('はい', .3), line('いいえ', .43)]), 1000);
+    assert.equal(guide.index, 0);
+  }
+  const guide = tracker(['大丈夫', '進む', '帰る']);
+  guide.observe(frame([...menu('進む'), line('セーブ', .92)]), 1000);
+  assert.equal(guide.index, 1);
+  guide.next();
+  guide.back();
+  assert.equal(guide.index, 1, 'an explicit advance confirms recovery and uses ordinary Back navigation');
+});
+
+test('opening save UI after an armed choice cannot advance through either recovery or disappearance', () => {
+  const guide = tracker(['大丈夫', 'はい', '進む']);
+  guide.observe(frame([...menu(), line('セーブ', .92)]), 1000);
+  guide.observe(frame([line('上書きしますか？', .1), line('はい', .3), line('いいえ', .43)]), 3000);
+  assert.equal(guide.index, 0);
+  assert.equal(guide.detected, false);
+});
+
+test('suspension preserves the known alternatives when deciding whether a menu is new', () => {
+  const guide = tracker(['大丈夫', '進む', '待つ']);
+  guide.observe(frame([line('大丈夫', .3), line('進む', .43)], { presence_id: 'old' }), 1000);
+  guide.suspendDetection();
+  guide.observe(frame(menu('進む'), { presence_id: 'new' }), 3000);
+  assert.equal(guide.index, 0);
+  guide.observe(frame(menu('進む'), { presence_id: 'new' }), 4000);
+  assert.equal(guide.index, 0);
+});

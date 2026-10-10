@@ -14,6 +14,7 @@ window.vnGuide.onState(state => {
   if (state.saveNotice) note = 'Save at your earliest convenience, ideally at the next choice.';
   else if (state.complete) note = 'Choose another route in Overlay Settings → VN Guide.';
   else if (state.kind === 'save' || state.kind === 'load') note = 'Do this in the game, then press Done.';
+  else if (state.recoveredFrom != null) note = `Caught up from step ${state.recoveredFrom + 1}; ${saves.length ? 'save here before choosing. ' : ''}Back undoes this.`;
   else if (state.rememberedChoice) note = 'Waiting for a fresh scan. You can also advance manually.';
   else if (saves.length) note = state.detected ? 'Save here, then choose this option in the game.' : state.tentative ? 'Save at the next choice. Back undoes the last advance if needed.' : 'At the next choice screen, save first, then choose this option.';
   else note = state.tentative ? 'Advanced after the menu cleared. Back undoes this if needed.' : state.detected ? 'Choose this option in the game.' : 'Waiting for a choice screen. You can advance manually.';

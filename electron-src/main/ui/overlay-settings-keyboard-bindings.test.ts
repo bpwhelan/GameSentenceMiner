@@ -544,6 +544,8 @@ describe("overlay settings keyboard binding capture", () => {
       expect(document.getElementById('vn-guide-save').textContent).toBe('Save before choosing: セーブ1 <img src=x>');
       expect(document.getElementById('vn-guide-status').textContent).toContain('Steps 2–3 of 12');
       expect(document.querySelector('#vn-guide-save img')).toBeNull();
+      page.listeners.get('vn-guide-state')?.(null, { ...state, recoveredFrom: 0 });
+      expect(document.getElementById('vn-guide-status').textContent).toContain('Caught up from step 1');
       page.listeners.get('vn-guide-state')?.(null, { ...state, startIndex: 0 });
       expect(document.getElementById('vn-guide-back').disabled).toBe(true);
       const step = document.getElementById('vn-guide-step');

@@ -358,3 +358,48 @@ test('concurrent imports share requests and malformed routes are never cached', 
   await assert.rejects(library.get('invalid-test-route', require('../vn_guide').validateRoute));
   assert.equal(library.cache['invalid-test-route'], undefined);
 });
+
+test('catch-up shows the detected choice and its save reminder, persists, and Back restores the original position', async t => {
+  const { controller, settings, library, directory, advance } = setup(t, {
+    fetchJson: async source => source.endsWith('/guide.json') ? manifest
+      : ['大丈夫', '待つ', 'セーブ1', '進む', 'セーブ1にロード'].map(simpleJp => ({ simpleJp })),
+  });
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.observe(nextMenu);
+  assert.equal(controller.snapshot().index, 3);
+  assert.equal(controller.snapshot().detected, true);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().tentative, true);
+  assert.equal(controller.snapshot().recoveredFrom, 0);
+  assert.equal(controller.snapshot().saveNotice, false, 'an already detected choice must show its save reminder immediately');
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  assert.equal(library.progress['test-game/one'].index, 3);
+  const offline = new GuideLibrary(directory, { fetchJson: async () => { throw new Error('Offline'); } });
+  assert.equal((await offline.load(url)).index, 3);
+  controller.setAvailable(false);
+  advance(10000);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().recoveredFrom, 0);
+  controller.command('back');
+  assert.equal(controller.snapshot().index, 0);
+  assert.equal(controller.snapshot().recoveredFrom, null);
+  assert.equal(library.progress['test-game/one'].index, 0);
+});
+
+test('manual-only progression disables catch-up and a capture interruption needs a fresh menu to recover', async t => {
+  const { controller, settings, advance } = setup(t);
+  await controller.configure({ ...settings, vnGuideAutoAdvance: false });
+  controller.setAvailable(true);
+  controller.observe(nextMenu);
+  assert.equal(controller.snapshot().index, 0);
+  await controller.configure(settings);
+  controller.observe(menu);
+  controller.setAvailable(false);
+  advance(1500);
+  controller.observe(nextMenu);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().index, 0);
+  controller.observe(nextMenu);
+  assert.equal(controller.snapshot().index, 2);
+});
