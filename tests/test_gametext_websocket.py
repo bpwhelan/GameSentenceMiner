@@ -475,6 +475,12 @@ def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
     announced_states = []
     paused_notifications = []
     resumed_notifications = []
+    overlay_updates = []
+
+    from GameSentenceMiner.web.gsm_websocket import websocket_manager
+
+    monkeypatch.setattr(websocket_manager, "has_clients", lambda _server_id: True)
+    monkeypatch.setattr(websocket_manager, "send_nowait", lambda _server_id, payload: overlay_updates.append(payload))
 
     monkeypatch.setattr(
         gametext,
@@ -497,14 +503,19 @@ def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
     monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
 
     assert gametext.set_text_intake_paused(True) is True
+    assert gametext.set_text_intake_paused(True) is True
     assert gametext.set_text_intake_paused(False) is False
 
     assert announced_states == [True, False]
     assert paused_notifications == [True]
     assert resumed_notifications == [True]
+    assert [(payload["reason"], payload["text_intake_paused"]) for payload in overlay_updates] == [
+        ("intake_paused", True),
+        ("intake_resumed", False),
+    ]
 
 
-def test_add_line_to_text_log_relays_only_to_outputs_when_text_intake_paused(monkeypatch):
+def test_add_line_to_text_log_excludes_paused_observations_from_stats(monkeypatch):
     observations = []
 
     class FakeRuntime:

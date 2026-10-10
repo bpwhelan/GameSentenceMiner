@@ -616,7 +616,7 @@
           },
           "pause_text_intake": {
             "label": "Pause GSM Text Intake Hotkey:",
-            "tooltip": "Temporarily pause or resume GSM's clipboard and websocket text intake. While paused, GSM skips its own stats/history logging and overlay triggers. Leave blank to disable this shortcut; no default hotkey is assigned."
+            "tooltip": "Temporarily pause or resume GSM's stats collection. Paused text is excluded from live stats, Discord activity, and the database. With text relays enabled, card mining and the overlay stay active. Leave blank to disable this shortcut; no default hotkey is assigned."
           },
           "copy_game_screenshot": {
             "label": "Copy Game Screenshot Hotkey:",
@@ -632,7 +632,7 @@
           },
           "relay_outputs_when_paused": {
             "checkbox": "Relay to Text Feed/output clients while paused",
-            "tooltip": "When enabled, paused text is still forwarded to the Text Feed page and output websocket clients after text processing, but GSM still skips its own stats/history logging and overlay triggers. Disable this for a full no-op that drops incoming text entirely."
+            "tooltip": "When enabled, card mining, the overlay, Text Feed, and output websocket clients stay active while stats collection is paused. Incoming text is kept in memory for mining but excluded from live stats, Discord activity, and the database. Disable this to drop incoming text entirely."
           }
         },
         "obs": {

@@ -1976,6 +1976,11 @@ def update_anki_card(
             anki_results[game_line.id] = published_result
             log_anki_card_timing(timing_context, "anki.background.result_published")
 
+        # Paused/excluded lines can be mined, but completion must not add them
+        # back to local stats, even if intake has since resumed.
+        if getattr(game_line, "excluded_from_stats", False):
+            return
+
         # 9. Update the local application database with final paths
         anki_audio_path = (
             os.path.join(config.audio.anki_media_collection, assets.audio_in_anki) if assets.audio_in_anki else ""

@@ -3028,6 +3028,65 @@ def test_cleanup_assets_invokes_callback():
     assert called == ["ok"]
 
 
+@pytest.mark.parametrize("excluded_from_stats", [False, True])
+def test_card_completion_preserves_line_stats_exclusion(monkeypatch, excluded_from_stats):
+    cfg = _base_config()
+    cfg.anki.show_update_confirmation_dialog_v2 = False
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _note: (False, False))
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
+    monkeypatch.setattr(anki, "_handle_file_management", lambda *_args, **_kwargs: "saved-media")
+    monkeypatch.setattr(anki, "anki_results", {})
+    queued = []
+    monkeypatch.setattr(anki, "submit_background_work", queued.append)
+    completed = []
+
+    def complete_note(_last_note, note, _tags, assets, _voice, _picture, _reuse, callback, **_kwargs):
+        completed.append(note)
+        callback(assets)
+
+    monkeypatch.setattr(anki, "check_and_update_note", complete_note)
+    mined_stats = []
+    db_updates = []
+    monkeypatch.setattr(
+        anki, "live_stats_tracker", SimpleNamespace(add_mined_line=lambda **kwargs: mined_stats.append(kwargs))
+    )
+    monkeypatch.setattr(anki, "GameLinesTable", SimpleNamespace(update=lambda **kwargs: db_updates.append(kwargs)))
+    line = SimpleNamespace(
+        id="paused-line",
+        text="sentence",
+        TL="",
+        prev=None,
+        scene="Paused Game",
+        excluded_from_stats=excluded_from_stats,
+    )
+    note = {"id": 10, "fields": {"Sentence": "sentence"}}
+
+    assert anki.update_anki_card(
+        last_note=SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note=note,
+        tango="word",
+        should_update_audio=False,
+        game_line=line,
+        selected_lines=[],
+        precomputed_assets=anki.MediaAssets(audio_in_anki="sentence.opus", screenshot_in_anki="sentence.webp"),
+    )
+    # Completion can happen after intake resumes; exclusion belongs to the line.
+    monkeypatch.setattr(anki.gsm_state, "text_input_paused", False)
+    assert len(queued) == 1
+    queued[0]()
+
+    assert completed == [note]
+    result = anki.anki_results[line.id]
+    assert result.success is True
+    assert result.audio_in_anki == "sentence.opus"
+    assert result.screenshot_in_anki == "sentence.webp"
+    assert result.word_path == "saved-media"
+    assert len(mined_stats) == (0 if excluded_from_stats else 1)
+    assert len(db_updates) == (0 if excluded_from_stats else 1)
+
+
 def test_update_anki_card_marks_video_pending_for_background_work(monkeypatch):
     cfg = _base_config()
     cfg.anki.show_update_confirmation_dialog_v2 = False

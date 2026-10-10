@@ -74,6 +74,7 @@ class GameLine:
     first_seen_time: datetime | None = None
     finalized_time: datetime | None = None
     source_instance: str = ""
+    excluded_from_stats: bool = False
 
     def get_previous_time(self):
         if self.prev:
@@ -214,8 +215,8 @@ class GameText:
                 first_seen_time=first_seen,
                 finalized_time=finalized,
                 source_instance=record.source_instance,
+                excluded_from_stats=record.excluded_from_stats,
             )
-            line.excluded_from_stats = record.excluded_from_stats
             self.values_dict[line.id] = line
             self.values.append(line)
             self.game_line_index += 1

@@ -87,6 +87,63 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('stats intake pause warning', () => {
+  it.each(['one-line', 'stacked'])('stays visible with stats disabled in %s layout and clears on resume', (layout) => {
+    const { dom, widget } = loadWidget();
+    widget.applySettings({ showLiveStats: false, showLiveGoals: false, liveStatsVisibilityMode: 'hidden', liveStatsLayoutV2: layout });
+    dom.window.dispatchEvent(new dom.window.CustomEvent('gsm-live-stats-update', {
+      detail: { reason: 'connect', updated_at: 100, text_intake_paused: true, session_active: false },
+    }));
+
+    const root = dom.window.document.querySelector('#gsm-live-stats')!;
+    const warning = root.querySelector('.gsm-live-stats-intake-warning');
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(true);
+    expect(warning?.getAttribute('data-text')).toBe('Stats intake paused');
+    expect(warning?.getAttribute('aria-label')).toBe('Stats intake paused');
+    // Keep the warning out of dictionary text scans, like the other stats text.
+    expect(warning?.textContent).toBe('');
+
+    widget.handleStatsUpdate({ updated_at: 101, text_intake_paused: false });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(false);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    dom.window.close();
+  });
+
+  it('survives auto-hide and text overlap until intake resumes', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    dom.window.setTimeout = setTimeout as unknown as typeof dom.window.setTimeout;
+    dom.window.clearTimeout = clearTimeout as unknown as typeof dom.window.clearTimeout;
+    widget.applySettings({ liveStatsDisplayModeV2: 'new-line', liveStatsAutoHideSeconds: 1 });
+    widget.handleStatsUpdate({ updated_at: 100, text_intake_paused: true });
+    const root = dom.window.document.querySelector<HTMLElement>('#gsm-live-stats')!;
+    root.getBoundingClientRect = vi.fn(() => rect(800, 10, 1000, 110) as DOMRect);
+    widget.handleTextBoundsUpdate([rect(850, 40, 900, 80)]);
+    vi.advanceTimersByTime(15 * 60 * 1000);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+
+    widget.handleStatsUpdate({ updated_at: 101, text_intake_paused: false });
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    dom.window.close();
+  });
+
+  it('updates immediately in Today mode and ignores stale daily pause state', () => {
+    const { dom, widget } = loadWidget();
+    widget.applySettings({ liveStatsScope: 'today', showLiveStats: false });
+    const root = dom.window.document.querySelector('#gsm-live-stats')!;
+    widget.handleStatsUpdate({ scope: 'session', updated_at: 200, text_intake_paused: true });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(true);
+    widget.handleStatsUpdate({ scope: 'today', updated_at: 199, text_intake_paused: false });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(true);
+    widget.handleStatsUpdate({ scope: 'session', updated_at: 201, text_intake_paused: false });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(false);
+    widget.handleStatsUpdate({ scope: 'today', updated_at: 200, text_intake_paused: true });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(false);
+    dom.window.close();
+  });
+});
+
 describe('live stats Session/Today scope', () => {
   const now = new Date('2026-10-05T12:00:00Z').getTime();
 

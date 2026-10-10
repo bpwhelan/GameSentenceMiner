@@ -61,6 +61,17 @@ def test_raw_reading_time_zero_without_session():
     assert payload["values"]["raw_reading_time"] == 0.0
 
 
+@pytest.mark.parametrize("paused", [False, True])
+def test_live_stats_snapshot_includes_intake_state_before_any_text(monkeypatch, paused):
+    from GameSentenceMiner.util.config.configuration import gsm_state
+
+    monkeypatch.setattr(gsm_state, "text_input_paused", paused)
+    payload = build_live_stats_payload(LiveSessionTracker(), reason="connect")
+
+    assert payload["text_intake_paused"] is paused
+    assert payload["session_active"] is False
+
+
 def test_raw_reading_time_resets_on_session_gap():
     from GameSentenceMiner.util.config.configuration import get_stats_config
 

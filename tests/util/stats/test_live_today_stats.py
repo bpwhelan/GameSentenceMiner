@@ -70,6 +70,16 @@ def test_today_restores_persisted_totals_across_sessions_and_backend_restarts():
     assert live_stats.build_live_stats_payload(tracker, now=now)["values"]["total_characters"] == 0
 
 
+@pytest.mark.parametrize("paused", [False, True])
+def test_today_snapshot_includes_current_intake_state(monkeypatch, paused):
+    from GameSentenceMiner.util.config.configuration import gsm_state
+
+    monkeypatch.setattr(gsm_state, "text_input_paused", paused)
+    payload = live_stats.build_today_live_stats_payload(live_stats.LiveSessionTracker(), now=local_time(9).timestamp())
+
+    assert payload["text_intake_paused"] is paused
+
+
 @pytest.mark.parametrize("rollover_hour", [0, 4, 6, 23])
 @pytest.mark.parametrize("offset_seconds", [-1, 0, 1])
 def test_today_uses_configured_local_cutover(daily_stats_database, rollover_hour, offset_seconds):

@@ -48,6 +48,8 @@
     root: null,
     grid: null,
     status: null,
+    textIntakePaused: false,
+    intakeStateUpdatedAt: -Infinity,
     settings: { ...DEFAULT_SETTINGS, liveStatsFields: { ...DEFAULT_SETTINGS.liveStatsFields } },
     fieldDefinitions: DEFAULT_FIELD_DEFINITIONS.map((field) => ({ ...field })),
     payload: null,
@@ -555,6 +557,12 @@
     root.id = "gsm-live-stats";
     root.setAttribute("aria-live", "polite");
 
+    const intakeWarning = document.createElement("div");
+    intakeWarning.className = "gsm-live-stats-intake-warning";
+    intakeWarning.setAttribute("role", "status");
+    intakeWarning.setAttribute("aria-label", "Stats intake paused");
+    setText(intakeWarning, "Stats intake paused");
+
     const header = document.createElement("div");
     header.className = "gsm-live-stats-header";
 
@@ -576,6 +584,7 @@
     const goals = document.createElement("div");
     goals.className = "gsm-live-stats-goals";
 
+    root.appendChild(intakeWarning);
     root.appendChild(header);
     root.appendChild(pomodoro);
     root.appendChild(grid);
@@ -596,10 +605,11 @@
     renderPomodoro();
     renderGoals();
     state.root.classList.toggle("gsm-live-stats-one-line", state.settings.liveStatsLayoutV2 === "one-line");
+    state.root.classList.toggle("gsm-live-stats-intake-paused", state.textIntakePaused);
     const statsVisible = isStatsModeVisible();
     state.root.classList.toggle("gsm-live-stats-stats-hidden", !statsVisible);
     const payload = selectedStatsPayload();
-    state.status.classList.toggle("active", !!payload?.session_active);
+    state.status.classList.toggle("active", !!payload?.session_active && !state.textIntakePaused);
     state.grid.replaceChildren();
 
     if (!statsVisible) {
@@ -757,6 +767,12 @@
     const enabled = statsActive || pomodoroActive || goalsActive;
     const hiddenForTextOverlap = state.settings.hideLiveStatsOnTextOverlap && state.hiddenForTextOverlap;
     ensureRoot().classList.toggle("gsm-live-stats-text-overlap-hidden", hiddenForTextOverlap);
+    // Intake can stay paused with no new text or visible stats. Keep the warning
+    // pinned; CSS collapses overlapping stats to just the compact warning.
+    if (state.textIntakePaused) {
+      setVisible(true);
+      return;
+    }
     if (!enabled) {
       setVisible(false);
       return;
@@ -833,6 +849,18 @@
     const normalizedPayload = normalizeStatsPayload(payload);
     if (!normalizedPayload) {
       return;
+    }
+
+    // Pause state belongs to intake, not the selected Session/Today scope.
+    // A slow daily snapshot must not undo a newer pause/resume notification.
+    if (typeof normalizedPayload.text_intake_paused === "boolean") {
+      const updatedAt = Number(normalizedPayload.updated_at);
+      if (!Number.isFinite(updatedAt) || updatedAt >= state.intakeStateUpdatedAt) {
+        const changed = state.textIntakePaused !== normalizedPayload.text_intake_paused;
+        state.textIntakePaused = normalizedPayload.text_intake_paused;
+        if (Number.isFinite(updatedAt)) state.intakeStateUpdatedAt = updatedAt;
+        if (changed) render();
+      }
     }
 
     const scope = normalizedPayload.scope === "today" ? "today" : "session";

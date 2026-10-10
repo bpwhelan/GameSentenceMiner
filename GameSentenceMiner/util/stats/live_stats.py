@@ -4,7 +4,7 @@ from datetime import time as datetime_time
 from itertools import pairwise
 from math import isfinite
 
-from GameSentenceMiner.util.config.configuration import get_stats_config
+from GameSentenceMiner.util.config.configuration import get_stats_config, gsm_state
 from GameSentenceMiner.util.database.db import clean_text_for_stats
 from GameSentenceMiner.util.stats.stats_util import (
     MIN_LINES_FOR_CPH,
@@ -67,6 +67,7 @@ def build_live_stats_payload(
         "type": LIVE_STATS_UPDATE_TYPE,
         "reason": reason,
         "updated_at": updated_at,
+        "text_intake_paused": bool(gsm_state.text_input_paused),
         "game_name": tracker.game_name,
         "session_active": tracker.last_line_time is not None,
         "session_start_time": tracker.session_start_time,
@@ -100,6 +101,7 @@ def build_today_live_stats_payload(
     from GameSentenceMiner.web.stats_repository import StatsLineRecord, query_stats_lines
 
     updated_at = time.time() if now is None else float(now)
+    text_intake_paused = bool(gsm_state.text_input_paused)
     game_name = tracker.game_name if game_name is None else str(game_name).strip()
     config = get_stats_config()
     rollover_hour = max(0, min(23, int(getattr(config, "day_rollover_hour", 4))))
@@ -189,6 +191,7 @@ def build_today_live_stats_payload(
         "game_id": game_id,
         "reason": reason,
         "updated_at": updated_at,
+        "text_intake_paused": text_intake_paused,
         "period_start": period_start,
         "period_end": period_end,
         "session_active": session_active,

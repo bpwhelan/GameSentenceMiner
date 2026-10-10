@@ -202,8 +202,8 @@ def announce_text_intake_state(paused: bool):
 def send_text_intake_paused_notification(relay_outputs_enabled: bool = True):
     if relay_outputs_enabled:
         message = (
-            "Clipboard and websocket text intake is paused. GSM will skip stats and overlay processing, "
-            "but texthooker and output websocket relays stay active."
+            "Stats collection is paused. Card mining, the overlay, Text Feed, and output relays stay active. "
+            "Incoming text will not update live stats, Discord activity, or the database."
         )
     else:
         message = "Clipboard and websocket text intake is paused. Incoming text will be fully ignored until resumed."
