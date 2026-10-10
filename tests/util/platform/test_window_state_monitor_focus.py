@@ -442,7 +442,9 @@ def test_sync_minimized_audio_mute_force_unmutes_active_target_after_untracked_m
 def window_audio_monitor(monkeypatch):
     monitor = window_state_monitor.WindowStateMonitor()
     monitor.target_hwnd = 20
-    advanced = SimpleNamespace(mute_game_on_minimize=False, mute_game_on_background=False)
+    advanced = SimpleNamespace(
+        mute_game_on_minimize=False, mute_game_on_background=False, mute_game_on_background_delay_seconds=0
+    )
     calls = []
 
     def set_mute(pid, muted, session_instance_ids=None):
@@ -454,6 +456,170 @@ def window_audio_monitor(monkeypatch):
     monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: {20: 222, 30: 333}.get(hwnd, 0))
     monkeypatch.setattr(_wwm, "set_process_mute", set_mute)
     return monitor, advanced, calls
+
+
+@pytest.fixture
+def audio_clock(monkeypatch):
+    clock = SimpleNamespace(now=1000.0)
+    monkeypatch.setattr(_wwm, "time", SimpleNamespace(time=_wwm.time.time, monotonic=lambda: clock.now))
+    return clock
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+@pytest.mark.parametrize("delay_seconds", [5, 10])
+def test_background_mute_waits_for_configured_delay(window_audio_monitor, audio_clock, delay_seconds):
+    monitor, advanced, calls = window_audio_monitor
+    advanced.mute_game_on_background = True
+    advanced.mute_game_on_background_delay_seconds = delay_seconds
+
+    monitor._sync_minimized_audio_mute("obscured")
+    audio_clock.now += delay_seconds - 0.1
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == []
+
+    audio_clock.now += 0.1
+    monitor._sync_minimized_audio_mute("obscured")
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == [(222, True, None)]
+
+    # Once muted, uncovering still waits for focus; refocusing unmutes immediately.
+    monitor._sync_minimized_audio_mute("background")
+    assert calls == [(222, True, None)]
+    monitor._sync_minimized_audio_mute("active")
+    assert calls == [(222, True, None), (222, False, None)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_background_mute_uses_default_delay_when_missing(window_audio_monitor, audio_clock):
+    monitor, advanced, calls = window_audio_monitor
+    advanced.mute_game_on_background = True
+    del advanced.mute_game_on_background_delay_seconds
+
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == []
+    audio_clock.now += 5
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == [(222, True, None)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+@pytest.mark.parametrize("interruption", ["active", "background", "minimized", "closed", "unknown"])
+def test_background_mute_requires_continuous_coverage(window_audio_monitor, audio_clock, interruption):
+    monitor, advanced, calls = window_audio_monitor
+    advanced.mute_game_on_background = True
+    advanced.mute_game_on_background_delay_seconds = 5
+
+    monitor._sync_minimized_audio_mute("obscured")
+    audio_clock.now += 4
+    monitor._sync_minimized_audio_mute(interruption)
+    calls.clear()
+    monitor._sync_minimized_audio_mute("obscured")
+    audio_clock.now += 4
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == []
+    audio_clock.now += 1
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == [(222, True, None)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+@pytest.mark.parametrize("mute_minimized", [False, True])
+def test_disabling_background_mute_cancels_pending_delay(window_audio_monitor, audio_clock, mute_minimized):
+    monitor, advanced, calls = window_audio_monitor
+    advanced.mute_game_on_minimize = mute_minimized
+    advanced.mute_game_on_background = True
+    advanced.mute_game_on_background_delay_seconds = 5
+
+    monitor._sync_minimized_audio_mute("obscured")
+    audio_clock.now += 4
+    advanced.mute_game_on_background = False
+    monitor._sync_minimized_audio_mute("obscured")
+    audio_clock.now += 10
+    advanced.mute_game_on_background = True
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == []
+    audio_clock.now += 5
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == [(222, True, None)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+@pytest.mark.parametrize("same_process", [False, True])
+def test_background_mute_delay_restarts_for_new_target(window_audio_monitor, audio_clock, monkeypatch, same_process):
+    monitor, advanced, calls = window_audio_monitor
+    advanced.mute_game_on_background = True
+    advanced.mute_game_on_background_delay_seconds = 5
+    if same_process:
+        monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: 222)
+
+    monitor._sync_minimized_audio_mute("obscured")
+    audio_clock.now += 4
+    monitor.target_hwnd = 30
+    monitor._sync_minimized_audio_mute("obscured")
+    audio_clock.now += 4
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == []
+    audio_clock.now += 1
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == [(222 if same_process else 333, True, None)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+@pytest.mark.parametrize("reset", ["capture", "missing_target", "shutdown"])
+def test_background_mute_delay_restarts_after_target_reset(window_audio_monitor, audio_clock, reset):
+    monitor, advanced, calls = window_audio_monitor
+    advanced.mute_game_on_background = True
+    advanced.mute_game_on_background_delay_seconds = 5
+    monitor._sync_minimized_audio_mute("obscured")
+    audio_clock.now += 4
+    if reset == "capture":
+        monitor._reset_capture_target()
+    elif reset == "missing_target":
+        monitor.target_hwnd = None
+        monitor._sync_minimized_audio_mute("closed")
+    else:
+        monitor._restore_minimized_audio_mute_internal("shutdown", force_all_sessions=True)
+
+    audio_clock.now += 10
+    monitor.target_hwnd = 20
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == []
+    audio_clock.now += 5
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == [(222, True, None)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_background_mute_delay_can_change_while_pending(window_audio_monitor, audio_clock):
+    monitor, advanced, calls = window_audio_monitor
+    advanced.mute_game_on_background = True
+    advanced.mute_game_on_background_delay_seconds = 5
+    monitor._sync_minimized_audio_mute("obscured")
+    audio_clock.now += 5
+    advanced.mute_game_on_background_delay_seconds = 10
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == []
+    advanced.mute_game_on_background_delay_seconds = 0
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == [(222, True, None)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_background_grace_period_preserves_minimize_and_hotkey_muting(window_audio_monitor, audio_clock):
+    monitor, advanced, calls = window_audio_monitor
+    advanced.mute_game_on_minimize = True
+    advanced.mute_game_on_background = True
+    advanced.mute_game_on_background_delay_seconds = 10
+    monitor._sync_minimized_audio_mute("obscured")
+    assert calls == []
+    monitor._sync_minimized_audio_mute("minimized")
+    assert calls == [(222, True, None)]
+    monitor._sync_minimized_audio_mute("obscured")
+    monitor._sync_minimized_audio_mute("background")
+    assert calls == [(222, True, None)]
+    monitor._toggle_target_window_mute_internal()
+    monitor._sync_minimized_audio_mute("active")
+    assert calls == [(222, True, None), (222, True, None)]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")

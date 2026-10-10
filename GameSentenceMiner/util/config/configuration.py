@@ -1315,6 +1315,7 @@ class Advanced:
     wgc_capture_fps: int = DEFAULT_MAIN_WGC_CAPTURE_FPS
     mute_game_on_minimize: bool = False
     mute_game_on_background: bool = False
+    mute_game_on_background_delay_seconds: int = 5
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
     cloud_sync_protocol: str = "relay-v2"
@@ -1345,6 +1346,12 @@ class Advanced:
             self.wgc_capture_fps,
             DEFAULT_MAIN_WGC_CAPTURE_FPS,
         )
+        try:
+            self.mute_game_on_background_delay_seconds = max(
+                0, min(300, int(self.mute_game_on_background_delay_seconds))
+            )
+        except (TypeError, ValueError, OverflowError):
+            self.mute_game_on_background_delay_seconds = 5
         self.cloud_sync_api_url = str(self.cloud_sync_api_url or "").strip().rstrip("/")
         self.cloud_sync_email = str(self.cloud_sync_email or "").strip()
         self.cloud_sync_api_token = str(self.cloud_sync_api_token or "").strip()

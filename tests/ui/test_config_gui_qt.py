@@ -632,11 +632,17 @@ def test_features_tab_collects_optional_feature_controls(monkeypatch) -> None:
             ),
         }
         if sys.platform == "win32":
-            promoted_controls["general"] += (window.mute_game_on_minimize_check, window.mute_game_on_background_check)
+            promoted_controls["general"] += (
+                window.mute_game_on_minimize_check,
+                window.mute_game_on_background_check,
+                window.mute_game_on_background_delay_seconds_spin,
+            )
             convenience_layout = window.mute_game_on_minimize_check.parentWidget().layout()
             minimize_row, _ = convenience_layout.getWidgetPosition(window.mute_game_on_minimize_check)
             background_row, _ = convenience_layout.getWidgetPosition(window.mute_game_on_background_check)
             assert background_row == minimize_row + 1
+            delay_row, _ = convenience_layout.getWidgetPosition(window.mute_game_on_background_delay_seconds_spin)
+            assert delay_row == background_row + 1
         for subtab_key, controls in promoted_controls.items():
             pane = feature_tabs.widget(window._settings_subtab_indices["features"][subtab_key])
             assert all(pane.isAncestorOf(control) for control in controls)
@@ -662,21 +668,31 @@ def test_window_audio_settings_can_be_saved_and_reloaded_independently(monkeypat
 
     window = ConfigWindow()
     try:
-        for mute_minimized, mute_background in ((False, True), (True, False), (True, True), (False, False)):
+        for mute_minimized, mute_background, delay_seconds in (
+            (False, True, 10),
+            (True, False, 0),
+            (True, True, 5),
+            (False, False, 300),
+        ):
             window.mute_game_on_minimize_check.setChecked(mute_minimized)
             window.mute_game_on_background_check.setChecked(mute_background)
+            window.mute_game_on_background_delay_seconds_spin.setValue(delay_seconds)
             assert window.save_settings(show_indicator=False)
             saved = configuration.Config.load().get_config().advanced
             assert saved.mute_game_on_minimize is mute_minimized
             assert saved.mute_game_on_background is mute_background
+            assert saved.mute_game_on_background_delay_seconds == delay_seconds
             window._auto_save_timer.stop()
 
             for checkbox in (window.mute_game_on_minimize_check, window.mute_game_on_background_check):
                 with QSignalBlocker(checkbox):
                     checkbox.setChecked(not checkbox.isChecked())
+            with QSignalBlocker(window.mute_game_on_background_delay_seconds_spin):
+                window.mute_game_on_background_delay_seconds_spin.setValue(42)
             window.reload_settings(force_refresh=True)
             assert window.mute_game_on_minimize_check.isChecked() is mute_minimized
             assert window.mute_game_on_background_check.isChecked() is mute_background
+            assert window.mute_game_on_background_delay_seconds_spin.value() == delay_seconds
     finally:
         window._auto_save_timer.stop()
         window.close()

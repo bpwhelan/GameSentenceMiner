@@ -766,7 +766,11 @@
           },
           "mute_game_on_background": {
             "label": "Mute Game When Covered:",
-            "tooltip": "On Windows, mute the captured game when its window is completely covered by other windows. Keep it muted until you focus the game again, even after uncovering it. Minimized-window muting is controlled separately."
+            "tooltip": "On Windows, mute the captured game after its window stays completely covered by other windows for the delay below. Keep it muted until you focus the game again, even after uncovering it. Minimized-window muting is controlled separately."
+          },
+          "mute_game_on_background_delay_seconds": {
+            "label": "Background Mute Delay (seconds):",
+            "tooltip": "How long the game must stay completely covered before muting (0–300 seconds). Set 0 to mute immediately. Focusing or uncovering it before the delay expires cancels the countdown. Does not delay muting when minimized."
           }
         },
         "ai": {

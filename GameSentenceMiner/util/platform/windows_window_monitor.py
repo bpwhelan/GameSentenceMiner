@@ -214,6 +214,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # between those states never briefly unmute the game.
         self.minimized_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
         self._covered_audio_mute_pids: set[int] = set()
+        # HWND, PID, and monotonic start time of continuous coverage for the current target.
+        self._pending_background_audio_mute: Optional[Tuple[int, int, float]] = None
         self.hotkey_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
         self._audio_mute_lock = threading.RLock()
         self._reprocess_tasks: set = set()  # strong refs so fire-and-forget reprocess tasks aren't GC'd
@@ -376,6 +378,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         pid: Optional[int] = None,
     ) -> bool:
         with self._audio_mute_lock:
+            if pid is None or (self._pending_background_audio_mute and self._pending_background_audio_mute[1] == pid):
+                self._pending_background_audio_mute = None
             if pid is not None:
                 self._covered_audio_mute_pids.discard(pid)
                 if pid not in self.minimized_audio_mutes:
@@ -539,12 +543,14 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return
 
         mute_states = set()
+        background_delay_seconds = 5
         try:
             advanced_cfg = get_config().advanced
             if getattr(advanced_cfg, "mute_game_on_minimize", False):
                 mute_states.add("minimized")
             if getattr(advanced_cfg, "mute_game_on_background", False):
                 mute_states.add("obscured")
+                background_delay_seconds = getattr(advanced_cfg, "mute_game_on_background_delay_seconds", 5)
         except Exception:
             mute_states.clear()
 
@@ -553,9 +559,18 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return
 
         pid = _get_pid_for_hwnd(self.target_hwnd) if self.target_hwnd else 0
+        background_delay_elapsed = False
         with self._audio_mute_lock:
             if "obscured" not in mute_states:
                 self._covered_audio_mute_pids.clear()
+            if "obscured" not in mute_states or current_state != "obscured" or pid <= 0:
+                self._pending_background_audio_mute = None
+            else:
+                now = time.monotonic()
+                pending = self._pending_background_audio_mute
+                if pending is None or pending[:2] != (self.target_hwnd, pid):
+                    pending = self._pending_background_audio_mute = (self.target_hwnd, pid, now)
+                background_delay_elapsed = now - pending[2] >= background_delay_seconds
             covered_mute_latched = pid in self._covered_audio_mute_pids
 
         # Coverage triggers the mute; uncovering an unfocused game only reveals
@@ -590,6 +605,11 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 return
             if pid in self.hotkey_audio_mutes:
                 return
+
+        # Delay only a new coverage mute. Existing automatic mutes and the
+        # independent minimize setting retain their current ownership/restore rules.
+        if current_state == "obscured" and not covered_mute_latched and not background_delay_elapsed:
+            return
 
         try:
             results = set_process_mute(pid, True)
@@ -783,6 +803,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return False
 
     def _reset_capture_target(self) -> None:
+        self._pending_background_audio_mute = None
         self.target_hwnd = None
         self.last_known_target_hwnd = None
         self._browser_target_hwnd = None
@@ -1555,6 +1576,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # Apply any pending target-destroyed notification from the hook thread.
         if self._target_destroyed:
             self._target_destroyed = False
+            self._pending_background_audio_mute = None
             self.target_hwnd = None
             self.last_known_target_hwnd = None
             self._browser_target_hwnd = None
@@ -1614,6 +1636,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             self._zorder_dirty = True
 
         if not self.target_hwnd:
+            self._pending_background_audio_mute = None
             self.occlusion_rects = []
             self.retry_find_count += 1
             if self.ever_had_target_hwnd:

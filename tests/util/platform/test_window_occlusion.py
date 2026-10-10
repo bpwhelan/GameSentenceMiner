@@ -166,9 +166,12 @@ def test_coverage_updates_publish_without_rescanning_unchanged_desktop(desktop, 
     assert sent[-1]["occlusion_rects"] == []
 
 
-def test_audio_mutes_on_overlay_coverage_and_waits_for_focus(desktop, monkeypatch):
+@pytest.mark.parametrize("delay_seconds", [0, 5, 10])
+def test_audio_mutes_on_overlay_coverage_and_waits_for_focus(desktop, monkeypatch, delay_seconds):
     monitor, api, rects = desktop
     now = time.time()
+    audio_clock = SimpleNamespace(now=1000.0)
+    monkeypatch.setattr(wwm, "time", SimpleNamespace(time=time.time, monotonic=lambda: audio_clock.now))
     monitor.last_obs_check_time = monitor.last_hwnd_refresh_time = monitor.last_monitor_validation_time = now
     monitor.last_window_rect = rects[10]
     monitor.last_state = "active"
@@ -185,7 +188,11 @@ def test_audio_mutes_on_overlay_coverage_and_waits_for_focus(desktop, monkeypatc
         wwm,
         "get_config",
         lambda: SimpleNamespace(
-            advanced=SimpleNamespace(mute_game_on_minimize=False, mute_game_on_background=True),
+            advanced=SimpleNamespace(
+                mute_game_on_minimize=False,
+                mute_game_on_background=True,
+                mute_game_on_background_delay_seconds=delay_seconds,
+            ),
             hotkeys=SimpleNamespace(unmute_target_window_on_focus=False),
         ),
     )
@@ -206,6 +213,14 @@ def test_audio_mutes_on_overlay_coverage_and_waits_for_focus(desktop, monkeypatc
     monitor._zorder_dirty = True
     asyncio.run(monitor.check_and_send())
     assert monitor.last_state == "obscured"
+    if delay_seconds:
+        assert audio_calls == []
+        audio_clock.now += delay_seconds - 0.1
+        asyncio.run(monitor.check_and_send())
+        assert audio_calls == []
+        audio_clock.now += 0.1
+        # No new window event or geometry change is needed for the delay to expire.
+        asyncio.run(monitor.check_and_send())
     assert audio_calls == [(222, True, None)]
 
     rects[20] = (100, 100, 400, 400)

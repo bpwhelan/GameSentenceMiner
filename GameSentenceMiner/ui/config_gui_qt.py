@@ -1056,6 +1056,7 @@ class ConfigWindow(QWidget):
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
                     mute_game_on_minimize=self.mute_game_on_minimize_check.isChecked(),
                     mute_game_on_background=self.mute_game_on_background_check.isChecked(),
+                    mute_game_on_background_delay_seconds=self.mute_game_on_background_delay_seconds_spin.value(),
                 ),
                 ai=Ai(
                     add_to_anki=self.ai_enabled_check.isChecked(),
@@ -1827,6 +1828,8 @@ class ConfigWindow(QWidget):
         self.dont_collect_stats_check.clicked.connect(self._on_dont_collect_stats_clicked)
         self.mute_game_on_minimize_check = QCheckBox()
         self.mute_game_on_background_check = QCheckBox()
+        self.mute_game_on_background_delay_seconds_spin = QSpinBox()
+        self.mute_game_on_background_delay_seconds_spin.setRange(0, 300)
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()
 
@@ -3629,6 +3632,9 @@ class ConfigWindow(QWidget):
         self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
         self.mute_game_on_minimize_check.setChecked(bool(getattr(s.advanced, "mute_game_on_minimize", False)))
         self.mute_game_on_background_check.setChecked(bool(getattr(s.advanced, "mute_game_on_background", False)))
+        self.mute_game_on_background_delay_seconds_spin.setValue(
+            getattr(s.advanced, "mute_game_on_background_delay_seconds", 5)
+        )
         self.current_version_label.setText(get_current_version())
         self.latest_version_label.setText(get_latest_version())
 
