@@ -768,7 +768,6 @@ let yomitanBlockedByLowDisk = false;
 let hachidoriExt;
 let activeDictionaryReader = DICTIONARY_READER_YOMITAN;
 let hachidoriEngineWindow = null;
-let hachidoriOwnedEngineWatcherInstalled = false;
 let jitenReaderExt;
 
 // Chromium's session.fetch can terminate the standalone Electron process on
@@ -3658,34 +3657,9 @@ async function loadExtension(name) {
   }
 }
 
-// hoshidicts keeps dictionaries in OPFS behind exclusive sync access handles, so a
-// second engine context on the same origin makes imports fail with "FS error". The
-// hosted window below is only for hosts without Chrome's offscreen-document lifecycle
-// API; once Hachidori creates its own offscreen document, ours is redundant.
-function watchForHachidoriOwnedEngine() {
-  if (!hachidoriExt || hachidoriOwnedEngineWatcherInstalled) {
-    return;
-  }
-  hachidoriOwnedEngineWatcherInstalled = true;
-  const engineUrl = `chrome-extension://${hachidoriExt.id}/offscreen.html`;
-  app.on('web-contents-created', (_event, contents) => {
-    const yieldHostedEngine = () => {
-      const hosted = hachidoriEngineWindow;
-      try {
-        if (contents.isDestroyed() || contents.getURL() !== engineUrl) return;
-        if (!hosted || hosted.isDestroyed() || hosted.webContents.id === contents.id) return;
-      } catch {
-        return;
-      }
-      console.log('[Hachidori] Extension owns its dictionary engine; releasing the redundant hosted one.');
-      hachidoriEngineWindow = null;
-      hosted.destroy();
-    };
-    contents.once('did-finish-load', yieldHostedEngine);
-    contents.once('did-navigate', yieldHostedEngine);
-  });
-}
-
+// IDBFS engines keep independent filesystem mirrors. Starting a hosted engine
+// beside the extension's own offscreen document can erase committed dictionary
+// files when either mirror syncs. Resolve ownership before starting an engine.
 async function createHachidoriEngineWindow() {
   if (!hachidoriExt) {
     return false;
@@ -3693,8 +3667,6 @@ async function createHachidoriEngineWindow() {
   if (hachidoriEngineWindow && !hachidoriEngineWindow.isDestroyed()) {
     return true;
   }
-
-  watchForHachidoriOwnedEngine();
 
   const engineWindow = new BrowserWindow({
     show: false,
@@ -3715,7 +3687,16 @@ async function createHachidoriEngineWindow() {
     }
   });
 
+  // Closing the probe must not end standalone startup before its main window exists.
+  registerOverlayEmitterListener(app, 'window-all-closed', () => {}, true);
   try {
+    await engineWindow.loadURL(`chrome-extension://${hachidoriExt.id}/gsm/engine-host.html`);
+    const extensionOwnsEngine = await engineWindow.webContents.executeJavaScript('GsmHachidoriEngineHost');
+    if (extensionOwnsEngine) {
+      engineWindow.destroy();
+      console.log(`[Hachidori] Extension owns its dictionary engine (${hachidoriExt.id}).`);
+      return true;
+    }
     await engineWindow.loadURL(`chrome-extension://${hachidoriExt.id}/offscreen.html`);
     console.log(`[Hachidori] Hosted dictionary engine ready (${hachidoriExt.id}).`);
     return true;

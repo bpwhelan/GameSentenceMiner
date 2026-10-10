@@ -77,7 +77,7 @@ async function main() {
     path.join(overlayResourcesDir, 'hachidori', 'vendor', 'hoshidicts-threaded.wasm'),
     path.join(overlayResourcesDir, 'hachidori', 'LICENSE.hachidori'),
     path.join(overlayResourcesDir, 'hachidori', 'SOURCE.json'),
-    ...['bridge.js', 'popup.js', 'popup-navigation.js', 'jiten-grading-bar.js'].map(file =>
+    ...['bridge.js', 'popup.js', 'popup-navigation.js', 'jiten-grading-bar.js', 'engine-host.html', 'engine-host.js'].map(file =>
       path.join(overlayResourcesDir, 'hachidori', 'gsm', file)),
   ];
 

@@ -1,0 +1,71 @@
+name: Hachidori dictionary persistence
+
+on:
+  pull_request:
+    paths:
+      - 'GSM_Overlay/**'
+      - 'scripts/hachidori-integration*'
+      - 'scripts/sync-hachidori*'
+      - 'package*.json'
+      - '.github/workflows/test_hachidori_persistence.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'GSM_Overlay/**'
+      - 'scripts/hachidori-integration*'
+      - 'scripts/sync-hachidori*'
+      - 'package*.json'
+      - '.github/workflows/test_hachidori_persistence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hachidori-persistence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  persistence:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.2'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
+      - name: Install dependencies and Electron
+        run: |
+          npm ci --ignore-scripts --no-audit --fund=false
+          npm --prefix GSM_Overlay ci --ignore-scripts --no-audit --fund=false
+          node GSM_Overlay/node_modules/electron/install.js
+      - name: Check integration and engine ownership
+        run: node --test GSM_Overlay/tests/hachidori_engine_host.test.cjs scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs
+      - name: Configure Electron sandbox (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          electron_sandbox="$(node -p 'require("node:path").join(require("node:path").dirname(require("./GSM_Overlay/node_modules/electron")), "chrome-sandbox")')"
+          sudo chown root:root "$electron_sandbox"
+          sudo chmod 4755 "$electron_sandbox"
+      - name: Check dictionary persistence (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node GSM_Overlay/tests/run-hachidori-persistence-electron.cjs
+      - name: Check dictionary persistence (Windows)
+        if: runner.os == 'Windows'
+        run: node GSM_Overlay/tests/run-hachidori-persistence-electron.cjs
+      - name: Upload persistence evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hachidori-persistence-${{ runner.os }}
+          path: ${{ runner.temp }}/gsm-hachidori-persistence-*/
+          if-no-files-found: ignore

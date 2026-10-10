@@ -11,6 +11,10 @@ const files = new Map([
     ['integrations/hachidori/popup.js', 'gsm/popup.js'],
     ['integrations/hachidori/bridge.js', 'gsm/bridge.js'],
 ]);
+const engineHostFiles = new Map([
+    ['integrations/hachidori/engine-host.html', 'gsm/engine-host.html'],
+    ['integrations/hachidori/engine-host.js', 'gsm/engine-host.js'],
+]);
 const begin = '// GSM integration hook begin';
 const end = '// GSM integration hook end';
 const hook = `${begin}
@@ -64,7 +68,7 @@ export async function prepareIntegration(extensionDir) {
     scripts[0].js = scripts[0].js.filter(file => ![...files.values()].includes(file));
     scripts[0].js.splice(scripts[0].js.indexOf('content.js'), 0, ...files.values());
     const assets = new Map();
-    for (const [source, destination] of files) {
+    for (const [source, destination] of [...files, ...engineHostFiles]) {
         const text = await fs.readFile(path.join(overlayRoot, source), 'utf8');
         assets.set(destination, Buffer.from(text.replaceAll('\r\n', '\n')));
     }

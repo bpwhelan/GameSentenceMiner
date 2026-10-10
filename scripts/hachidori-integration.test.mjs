@@ -24,6 +24,10 @@ test('manifest loads GSM modules before the content hook and the integration has
     const scripts = first.manifest.content_scripts.find(item => item.js.includes('content.js')).js;
     assert.ok(scripts.indexOf('gsm/bridge.js') < scripts.indexOf('content.js'));
     assert.equal(new Set(scripts).size, scripts.length);
+    for (const file of ['gsm/engine-host.html', 'gsm/engine-host.js']) {
+        assert.ok(first.assets.has(file), `${file} must be generated for engine ownership`);
+        assert.ok(!scripts.includes(file), `${file} must not run as a reader content script`);
+    }
     for (const [file, bytes] of first.assets) {
         const generated = (await fs.readFile(new URL(file, vendor), 'utf8')).replaceAll('\r\n', '\n');
         assert.equal(generated, bytes.toString(), `${file} must be regenerated from its GSM source`);
