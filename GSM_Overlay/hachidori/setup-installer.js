@@ -11,6 +11,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { describeError } from "./error-text.js";
 import { recommendedDictionaryInstalled } from "./managed-dictionary-source.js";
 import { RECOMMENDED_DICTIONARIES } from "./recommended-dictionaries.js";
 
@@ -21,10 +22,6 @@ const ENGINE_BUSY = "the dictionary engine is busy mutating";
 const IDLE_POLL_MS = 250;
 const RECORD_RETRY_MS = 250;
 const RECORD_RETRY_MAX_MS = 2000;
-
-function describe(error) {
-  return error instanceof Error ? error.message || String(error) : String(error);
-}
 
 function sleep(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
@@ -93,7 +90,7 @@ export function createSetupInstaller({ dispatch, ask, notify, broadcast, now = (
         if (reply?.ok === true) return;
         throw new Error(reply?.error || "no reply");
       } catch (error) {
-        console.warn(`hoshidicts: could not record a setup outcome, retrying: ${describe(error)}`);
+        console.warn(`hoshidicts: could not record a setup outcome, retrying: ${describeError(error)}`);
       }
       await sleep(delay);
     }
@@ -160,7 +157,7 @@ export function createSetupInstaller({ dispatch, ask, notify, broadcast, now = (
         await importEntry(entry, source, last);
       } catch (error) {
         const seconds = entry.installStartedAt === null ? null : (now() - entry.installStartedAt) / 1000;
-        await settle(entry, { status: "failed", seconds, error: describe(error) }, last);
+        await settle(entry, { status: "failed", seconds, error: describeError(error) }, last); // NOSONAR: sources install one at a time
       }
     }
     run.finished = true;
@@ -188,7 +185,7 @@ export function createSetupInstaller({ dispatch, ask, notify, broadcast, now = (
           })),
         };
         execute().catch((error) => {
-          console.error(`hoshidicts: the setup dictionary run stopped: ${describe(error)}`);
+          console.error(`hoshidicts: the setup dictionary run stopped: ${describeError(error)}`);
         });
       }
       if (run !== null && !run.finished && recordSetup) run.recordSetup = true;

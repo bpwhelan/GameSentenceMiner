@@ -75,7 +75,7 @@ function checkResults(result, count, detailed) {
 
 const checkResult = (result, detailed) => checkResults(result, 1, detailed)[0];
 
-export async function checkAnkiDuplicate(invoke, note, config) {
+export async function checkAnkiDuplicate(invoke, note) {
   // Anki also validates clozes in non-first fields. Keep all rendered fields,
   // but omit media-upload objects: preflight must not write collection media.
   const checkNote = allowDuplicate => ({ deckName: note.deckName, modelName: note.modelName, fields: note.fields, tags: note.tags,

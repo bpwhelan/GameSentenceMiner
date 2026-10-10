@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { createAudioRepository } from "./audio-repository.js";
+import { createAudioRepository, undecodableRecording } from "./audio-repository.js";
 import { resolveSpeech } from "./speech.js";
 
 // One pronunciation owner; playback leases and native speech callbacks belong
@@ -30,6 +30,13 @@ export function createAudioPlayer({ window, fetch, repository = createAudioRepos
         signal.addEventListener("abort", abort, { once: true });
       });
       await Promise.all([Promise.resolve().then(() => audio.play()), ended]);
+    } catch (error) {
+      // A media error fires error and rejects play(); whichever arrives
+      // first, explain it. Cancellation and autoplay refusals pass through.
+      if (signal.aborted || !audio?.error) throw error;
+      const diagnosis = await undecodableRecording(lease.blob, audio.error);
+      signal.throwIfAborted();
+      throw diagnosis;
     } finally {
       if (audio) {
         signal.removeEventListener("abort", abort);

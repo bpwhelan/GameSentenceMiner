@@ -1,16 +1,13 @@
 // Settings → Sharing: share this Hachidori with the person's other browsers
 // through Anki, or use another Hachidori instead of this one.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { describeError } from "./error-text.js";
 import { API_CLIENT_ORIGIN, DEFAULT_SHARING_PORT, canDiscoverSharingHost } from "./sharing-protocol.js";
 
 const POLL_MS = 2000;
 // How long a copied address or a saved download outranks the derived status.
 const NOTICE_MS = 8000;
 const ADDRESS_KINDS = { tailscale: "Tailscale", local: "Local network" };
-
-function describe(error) {
-  return error instanceof Error ? error.message || String(error) : String(error);
-}
 
 function lowerFirst(text) {
   return text.charAt(0).toLowerCase() + text.slice(1);
@@ -104,7 +101,7 @@ export function createSharingSettingsController({
     button.addEventListener("click", () => {
       Promise.resolve(copy(entry.address)).then(
         () => show(`Copied ${entry.address}.`, "ready"),
-        error => show(`Could not copy the address: ${describe(error)}`, "error"),
+        error => show(`Could not copy the address: ${describeError(error)}`, "error"),
       );
     });
     item.append(code, kind, button);
@@ -209,7 +206,7 @@ export function createSharingSettingsController({
       sharing = reply.sharing;
     } catch (error) {
       if (current !== sequence) return;
-      setStatus(`Cannot read the sharing status: ${describe(error)}`, "error");
+      setStatus(`Cannot read the sharing status: ${describeError(error)}`, "error");
       return;
     }
     render();
@@ -238,7 +235,7 @@ export function createSharingSettingsController({
       pending = false;
       render();
     }
-    if (failure !== null) show(describe(failure), "error");
+    if (failure !== null) show(describeError(failure), "error");
   }
 
   async function download() {
@@ -249,7 +246,7 @@ export function createSharingSettingsController({
       await downloadAddon();
       show("Saved hachidori-relay.ankiaddon to your downloads. Double-click it to install it in Anki, then restart Anki.", "ready");
     } catch (error) {
-      show(`Could not download the add-on: ${describe(error)}`, "error");
+      show(`Could not download the add-on: ${describeError(error)}`, "error");
     } finally {
       pending = false;
       render();

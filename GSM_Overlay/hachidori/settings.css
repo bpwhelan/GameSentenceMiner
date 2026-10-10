@@ -213,10 +213,10 @@
   --font-body: 14px;
   --font-title: 15px;
   --font-large: 17px;
-  --font-page-title: 28px;
+  --font-page-title: 24px;
 
   --control-height: 36px;
-  --row-padding: 14px;
+  --row-padding: 12px;
 
   --shadow-raised: 0 4px 12px rgb(0 0 0 / 6%);
   --shadow-overlay: 0 12px 32px rgb(0 0 0 / 22%);
@@ -318,6 +318,13 @@ button,
   font-size: var(--font-small);
   font-weight: var(--weight-medium);
 }
+/* A plain footer link, below the sections, like a settings page's About link. */
+.privacy-link {
+  display: block;
+  margin: 0 10px 14px;
+  color: var(--text-dim);
+  font-size: var(--font-caption);
+}
 .settings-search { display: grid; gap: 6px; margin: 22px 10px 0; }
 .settings-search input { width: 100%; min-width: 0; }
 .settings-search-results h1 { margin-top: 0; }
@@ -414,7 +421,7 @@ button,
   border-inline: 1px solid var(--border);
   background: var(--surface);
 }
-.library-navigation {
+.section-tabs {
   display: flex;
   gap: 6px;
   margin: 0 0 28px;
@@ -423,7 +430,7 @@ button,
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
-.library-navigation a {
+.section-tabs a {
   /* The label and its hidden semibold copy share one column. */
   display: grid;
   justify-items: center;
@@ -439,18 +446,22 @@ button,
  * tab as wide as it is when current, so moving aria-current restyles one tab
  * without moving the others. It is clipped so it adds no scrollable overflow.
  */
-.library-navigation a::after {
+.section-tabs a::after {
   content: attr(data-label);
   height: 0;
   overflow: hidden;
   visibility: hidden;
   font-weight: var(--weight-medium);
 }
-.library-navigation a:hover {
+/* An experimental tab stays hidden while its switch is off. */
+.section-tabs a[hidden] {
+  display: none;
+}
+.section-tabs a:hover {
   background: var(--surface-sunken);
   color: var(--text);
 }
-.library-navigation a[aria-current="page"] {
+.section-tabs a[aria-current="page"] {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: var(--weight-medium);
@@ -539,11 +550,24 @@ h1 {
   font-weight: var(--weight-bold);
   letter-spacing: -0.035em;
 }
+/*
+ * A section is its title, then its groups. The quiet autosave status
+ * ("Saved.") sits at the end of the title row, where settings pages put it; a
+ * failure or a refused edit takes a row of its own under the title and stays
+ * in view while the section scrolls. The quiet status is positioned beside
+ * the title, so a section stays the flex column it was.
+ */
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 24px;
   scroll-margin-top: 24px;
+}
+.card > .options-feedback-slot:has(#options-status.is-quiet) {
+  position: absolute;
+  top: 6px;
+  right: 0;
 }
 .section-heading {
   display: flex;
@@ -580,12 +604,6 @@ h2 {
 .editor-help {
   font-size: var(--font-caption);
   line-height: 1.6;
-}
-.local-file-access {
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--surface-sunken);
 }
 .local-file-access h2 {
   margin: 0 0 6px;
@@ -691,30 +709,16 @@ button.danger:hover:not(:disabled) {
   border-color: var(--error);
 }
 
-.backup-action {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 16px 32px;
-  padding: 24px 0;
-  border-bottom: 1px solid var(--border);
-}
-.backup-action > div { flex: 1 1 320px; }
-.backup-action h2, .backup-preview h2 { margin: 0 0 8px; }
-.backup-action p, .backup-preview p { margin: 6px 0; color: var(--text-dim); }
-.automatic-backups { border-bottom: 1px solid var(--border); padding-bottom: 24px; }
-.automatic-backups .backup-action { border-bottom: 0; padding-bottom: 8px; }
-.automatic-backup-list { display: grid; gap: 12px; margin: 12px 0 0; padding: 0; list-style: none; }
+.backup-preview h2 { margin: 0 0 8px; }
+.backup-preview p { margin: 6px 0; color: var(--text-dim); }
+.automatic-backup-list { display: grid; margin: 0; padding: 0; list-style: none; }
 .automatic-backup-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px 32px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--surface-sunken);
+  padding: var(--row-padding) 0;
+  border-top: 1px solid var(--border);
 }
 .automatic-backup-row > div { display: grid; gap: 2px; min-width: 0; }
 .automatic-backup-age { color: var(--text); font-weight: var(--weight-medium); }
@@ -840,7 +844,8 @@ button.danger:hover:not(:disabled) {
 .options-feedback-slot:has(#options-status:empty),
 .update-state:empty,
 .custom-dictionary-status:empty,
-.dict-group-error:empty {
+.dict-group-error:empty,
+.lookup-group > [aria-live]:empty {
   /* Empty live regions must remain available for their first announcement. */
   position: absolute;
   width: 1px;
@@ -864,7 +869,9 @@ button.danger:hover:not(:disabled) {
 .recommendations {
   display: grid;
   gap: 14px;
-  padding-top: 24px;
+  padding-bottom: 0;
+}
+.recommended-dictionary-list:not(:empty) {
   border-top: 1px solid var(--border);
 }
 .recommendations-head {
@@ -966,6 +973,65 @@ input[type="checkbox"] {
   margin: 0;
   accent-color: var(--accent-fill);
 }
+/*
+ * Every on/off setting is a switch: the setting rows, and the Enabled toggle
+ * of a dictionary, audio source or keybind. It stays a native checkbox, so
+ * its keyboard behaviour, label, state and form semantics are unchanged; only
+ * the drawing differs. Selections and one-off choices stay checkboxes.
+ */
+.lookup-enable > input[type="checkbox"],
+input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input) {
+  --switch-knob: var(--border-strong);
+  appearance: none;
+  width: 36px;
+  height: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: radial-gradient(circle closest-side, var(--switch-knob) 0 calc(100% - 1px), transparent 100%)
+    no-repeat 1px 50% / 16px 16px var(--surface);
+  cursor: pointer;
+}
+.lookup-enable > input[type="checkbox"]:checked,
+input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input):checked {
+  --switch-knob: var(--accent-contrast);
+  border-color: var(--accent-fill);
+  background-color: var(--accent-fill);
+  background-position: calc(100% - 1px) 50%;
+}
+.lookup-enable > input[type="checkbox"]:disabled,
+input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input):disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lookup-enable > input[type="checkbox"],
+  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input) {
+    transition: background-position 120ms ease, background-color 120ms ease;
+  }
+}
+/* Windows contrast themes: system colours, the knob's position still says which. */
+@media (forced-colors: active) {
+  .lookup-enable > input[type="checkbox"],
+  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input) {
+    forced-color-adjust: none;
+    --switch-knob: CanvasText;
+    border-color: CanvasText;
+    background-color: Canvas;
+  }
+  .lookup-enable > input[type="checkbox"]:checked,
+  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input):checked {
+    --switch-knob: HighlightText;
+    border-color: Highlight;
+    background-color: Highlight;
+  }
+  .lookup-enable > input[type="checkbox"]:disabled,
+  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input):disabled {
+    --switch-knob: GrayText;
+    border-color: GrayText;
+    background-color: Canvas;
+    opacity: 1;
+  }
+}
 .lookup-enable {
   display: flex;
   align-items: center;
@@ -983,22 +1049,26 @@ input[type="checkbox"] {
   list-style: none;
 }
 /* One separator idiom for every list on the page: the list owns the top and
-   bottom rule, and each row after the first owns the rule above it. */
-.dict-list:not(:empty),
-.audio-source-list:not(:empty),
-.keybind-list:not(:empty),
-.custom-button-list:not(:empty),
-.recommended-dictionary-list:not(:empty),
+   bottom rule, and each row after the first owns the rule above it. A list in a
+   card is closed by the card's edge instead, so each of its rows owns the rule
+   above it (audio sources, keybinds, custom buttons, automatic backups). */
 .dict-group-members:not(:empty),
 .anki-templates:not(:empty) {
   border-block: 1px solid var(--border);
+}
+/* The library is one card; a row's padding is its own, so a disabled row's tint spans it. */
+.dict-list:not(:empty) {
+  overflow: clip;
 }
 .dict-row {
   display: grid;
   grid-template-columns: 16px minmax(30px, max-content) minmax(0, 1fr) auto;
   align-items: start;
   gap: 4px 12px;
-  padding: var(--row-padding) 0;
+  padding: var(--row-padding) 16px;
+}
+.dict-row + .dict-row {
+  border-top: 1px solid var(--border);
 }
 .dict-row.is-drop-target {
   box-shadow: inset 0 3px var(--accent-fill);
@@ -1220,6 +1290,14 @@ textarea {
   align-items: end;
   gap: 8px;
 }
+/* Panels that are not rows of settings (a form, a group, the recommendations) pad themselves. */
+.dict-group-create,
+.dict-group,
+.recommendations,
+.custom-dictionary-form,
+.local-file-access {
+  padding: 16px;
+}
 .dict-group-create label,
 .dict-group-name-field {
   display: grid;
@@ -1241,11 +1319,7 @@ textarea {
 }
 .dict-group-list {
   display: grid;
-  gap: 24px;
-}
-.dict-group {
-  padding-top: var(--row-padding);
-  border-top: 1px solid var(--border);
+  gap: 16px;
 }
 .dict-group-head,
 .dict-group-member {
@@ -1332,16 +1406,6 @@ textarea {
   margin-top: 6px;
 }
 
-.update-controls {
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 16px 24px;
-}
-.update-schedule-field {
-  width: 260px;
-  max-width: 100%;
-}
 .custom-dictionary-form,
 .custom-dictionary-source-field {
   display: grid;
@@ -1360,20 +1424,111 @@ textarea {
   resize: vertical;
   tab-size: 2;
 }
+/*
+ * Every card has one surface: a group of settings, the library, Anki's panels
+ * and the panels that are not rows. Its edge is an inset outline, so a first
+ * row's top rule falls on it instead of doubling it, whatever that row is.
+ */
+.lookup-group,
+.anki-panel,
+.dict-list:not(:empty),
+.dict-group-create,
+.dict-group,
+.recommendations,
+.custom-dictionary-form,
+.local-file-access {
+  border-radius: var(--radius-surface);
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+  background: var(--surface);
+}
+/*
+ * A group of settings is one card of rows, titled by its legend above it, as
+ * in Chrome's and macOS's settings.
+ */
 .lookup-group {
+  position: relative;
   min-width: 0;
   margin: 0;
-  padding: 0;
+  padding: 0 16px;
   border: 0;
 }
-.lookup-group + .lookup-group {
-  margin-top: 4px;
+/*
+ * Cards whose rows rearrange with their own width (see @container below):
+ * Design's half-width column, the keybinds, the audio sources and, on a phone,
+ * every card. Only these are query containers, as each costs a style pass.
+ */
+.design-controls .lookup-group,
+#keybind-settings,
+#audio-sources {
+  container-type: inline-size;
 }
-.lookup-group legend {
-  margin-bottom: 12px;
-  padding: 0;
+.lookup-group:has(> legend) {
+  margin-top: 30px;
+}
+.lookup-group > legend {
+  position: absolute;
+  bottom: 100%;
+  left: 2px;
+  max-width: 100%;
+  padding: 0 0 8px;
   font-size: var(--font-title);
   font-weight: var(--weight-bold);
+  overflow-wrap: anywhere;
+}
+/* Free text in a card is a row of its own: an introduction, a note or a status. */
+.lookup-group > :is(.field-hint, .hint, .section-note):not(.lookup-enable + *),
+.setting-row,
+.setting-block {
+  margin: 0;
+  padding: var(--row-padding) 0;
+  border-top: 1px solid var(--border);
+}
+.lookup-group > :is(.field-hint, .hint, .section-note) {
+  max-width: none;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+}
+.setting-row > :is(.setting-text, .field-hint) {
+  flex: 1 1 320px;
+  min-width: 0;
+  margin: 0;
+}
+.setting-text {
+  display: grid;
+  gap: 3px;
+}
+.setting-text h2 {
+  margin: 0;
+  font-size: var(--font-body);
+  font-weight: var(--weight-medium);
+}
+.setting-text p {
+  margin: 0;
+}
+.setting-block {
+  display: grid;
+  gap: 8px;
+}
+/* A switch's description sits under its label, inside the same row. */
+.lookup-enable:has(+ .field-hint:not([hidden])) {
+  padding-bottom: 2px;
+}
+.lookup-enable + .field-hint {
+  margin: 0;
+  padding: 0 56px var(--row-padding) 0;
+}
+/* An option for the action beside it (Start over), so a checkbox, not a switch. */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
 }
 .settings-disclosure,
 .format-help {
@@ -1381,7 +1536,13 @@ textarea {
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
-  background: var(--surface-sunken);
+  background: var(--surface);
+}
+/* In the personal dictionary's card the format help is a plain disclosure above the source. */
+.custom-dictionary-form > .format-help {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
 }
 .settings-disclosure > summary,
 .format-help > summary {
@@ -1396,7 +1557,18 @@ textarea {
   margin-bottom: 0;
 }
 .settings-disclosure code {
-  background: var(--surface);
+  background: var(--surface-sunken);
+}
+/* Inside a card a disclosure is one more row: its summary reads as the row's title. */
+.lookup-group > .settings-disclosure {
+  padding: var(--row-padding) 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+}
+.lookup-group > .settings-disclosure[open] > summary {
+  margin-bottom: 4px;
 }
 .fields {
   display: grid;
@@ -1454,20 +1626,13 @@ textarea {
   width: 16px;
   height: 16px;
 }
-#anki .lookup-group legend {
-  align-items: center;
-}
-#anki :is(.anki-panel legend, .anki-mapping-header h2) > .hd-icon {
-  width: 20px;
-  height: 20px;
-  color: var(--accent);
-}
 .anki-panel {
   padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--surface);
-  box-shadow: var(--shadow-raised);
+}
+/* An Anki card is padded, so its introduction needs no rule of its own. */
+.lookup-group.anki-panel > legend + .field-hint {
+  padding-top: 0;
+  border-top: 0;
 }
 .anki-card {
   display: grid;
@@ -1582,66 +1747,8 @@ textarea {
 #anki-url-error:empty {
   display: none;
 }
-.anki-setup-row > button,
-.anki-screenshot-options > .anki-switch,
-.anki-audio-card .anki-status-pill {
+.anki-setup-row > button {
   flex-shrink: 0;
-}
-.anki-switch {
-  position: relative;
-  display: inline-block;
-  flex: none;
-  width: 38px;
-  height: 22px;
-}
-.anki-switch input {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.anki-switch-track {
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--surface-sunken);
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.anki-switch-track::before {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-pill);
-  background: var(--border-strong);
-  transition: transform 120ms ease, background 120ms ease;
-}
-.anki-switch input:checked + .anki-switch-track {
-  border-color: var(--accent-fill);
-  background: var(--accent-fill);
-}
-.anki-switch input:checked + .anki-switch-track::before {
-  background: var(--accent-contrast);
-  transform: translateX(16px);
-}
-.anki-switch input:focus-visible + .anki-switch-track {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-.anki-switch input:disabled + .anki-switch-track {
-  opacity: 0.55;
-  cursor: default;
-}
-.anki-template-manager {
-  background: color-mix(in srgb, var(--accent) 3%, var(--surface));
-  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
 }
 .anki-template-strip,
 .anki-template-pills,
@@ -1980,11 +2087,6 @@ textarea {
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
-.anki-audio-card {
-  border-style: dashed;
-  background: transparent;
-  box-shadow: none;
-}
 .anki-audio-status {
   overflow-wrap: anywhere;
 }
@@ -1999,9 +2101,7 @@ textarea {
     flex-basis: auto;
   }
   .anki-connection-actions,
-  .anki-setup-row > button,
-  .anki-screenshot-options > .anki-switch,
-  .anki-audio-card .anki-status-pill {
+  .anki-setup-row > button {
     align-self: flex-start;
   }
   .anki-template-editor,
@@ -2031,46 +2131,59 @@ textarea {
   flex-direction: column;
   gap: 6px;
 }
-.lookup-group .field {
+/* List rows (audio sources, keybinds) lay their own fields out. */
+.lookup-group .field:not(li *) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 50%);
+  grid-template-columns: minmax(0, 1fr) minmax(180px, min(50%, 400px));
   grid-template-rows: auto auto;
   gap: 3px 24px;
   padding: var(--row-padding) 0;
   border-top: 1px solid var(--border);
   align-items: center;
 }
-.lookup-group .field > .field-label {
+.lookup-group .field:not(li *) > .field-label {
   grid-column: 1;
   grid-row: 1;
 }
-.lookup-group .field > .field-hint {
+.lookup-group .field:not(li *) > .field-hint {
   grid-column: 1;
   grid-row: 2;
 }
-.lookup-group .field > :not(.field-label, .field-hint) {
+.lookup-group .field:not(li *) > :not(.field-label, .field-hint) {
   grid-column: 2;
   grid-row: 1 / 3;
   justify-self: end;
 }
-.design-controls .field:has(select) {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 7px;
-}
-.design-controls .lookup-group .field > select {
-  grid-column: 1;
-  grid-row: 2;
-  justify-self: stretch;
-}
-.design-controls .field:has(select) > .field-hint {
-  grid-row: 3;
+/*
+ * In a narrow card (a phone, or Design beside its preview) a chooser or text
+ * field goes under its label at full width, with its hint below it; a number
+ * stays beside its label.
+ */
+@container (max-width: 560px) {
+  .lookup-group .field:not(li *) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 16px;
+  }
+  .lookup-group .field:not(li *):has(select, textarea, input:is([type="text"], [type="url"], [type="password"], [type="search"])) {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 6px;
+  }
+  .lookup-group .field:not(li *):has(select, textarea, input:is([type="text"], [type="url"], [type="password"], [type="search"]))
+    > :not(.field-label, .field-hint) {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: stretch;
+  }
+  .lookup-group .field:not(li *):has(select, textarea, input:is([type="text"], [type="url"], [type="password"], [type="search"]))
+    > .field-hint {
+    grid-row: 3;
+  }
 }
 .lookup-group input[type="number"] {
   width: 8ch;
 }
 #opt-blur-frequency-threshold { width: 12ch; }
 #opt-automatic-backup-days { width: 8ch; }
-.automatic-backups .backup-action > .field { flex: 0 1 auto; }
 #sharing-host-port { width: 12ch; }
 #definition-blur-count-paused label {
   cursor: pointer;
@@ -2090,14 +2203,16 @@ textarea {
   flex: 0 0 auto;
 }
 .frequency-order-controls,
-.activation-input-controls {
+.activation-input-controls,
+.scan-delay-controls {
   display: flex;
   gap: 8px;
   width: 100%;
   flex-wrap: wrap;
 }
 .frequency-order-controls select,
-.activation-input-controls select {
+.activation-input-controls select,
+.scan-delay-controls select {
   min-width: 0;
   flex: 1 1 180px;
 }
@@ -2166,6 +2281,17 @@ textarea {
 }
 
 @media (max-width: 620px) {
+  .lookup-group {
+    container-type: inline-size;
+  }
+  /* On a phone a switch's description may run under the switch's column. */
+  .lookup-enable + .field-hint {
+    padding-right: 0;
+  }
+  /* A long title and "Unsaved changes…" do not fit one row on a phone. */
+  .card > .options-feedback-slot:has(#options-status.is-quiet) {
+    position: static;
+  }
   .settings-sidebar {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 12px;
@@ -2196,7 +2322,7 @@ textarea {
   .dict-row {
     grid-template-columns: 16px minmax(24px, max-content) minmax(0, 1fr);
     gap: 10px;
-    padding: 14px 0;
+    padding: 14px 12px;
   }
   .dict-quick-actions {
     grid-column: 3;
@@ -2222,24 +2348,6 @@ textarea {
     align-items: stretch;
     flex-direction: column;
   }
-  .lookup-group .field {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-  }
-  .lookup-group .field > :not(.field-label, .field-hint) {
-    grid-column: 1;
-    grid-row: 3;
-    justify-self: start;
-  }
-  .lookup-group .field:has(input[type="number"]) {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 3px 16px;
-  }
-  .lookup-group .field:has(input[type="number"]) > :not(.field-label, .field-hint) {
-    grid-column: 2;
-    grid-row: 1 / 3;
-    justify-self: end;
-  }
   .automatic-backup-row {
     align-items: stretch;
     flex-direction: column;
@@ -2256,10 +2364,10 @@ textarea {
 }
 .audio-source-row {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   padding: var(--row-padding) 0;
+  border-top: 1px solid var(--border);
 }
-.audio-source-row + .audio-source-row { border-top: 1px solid var(--border); }
 .audio-source-heading,
 .audio-source-enabled,
 .audio-source-actions,
@@ -2273,7 +2381,20 @@ textarea {
 .audio-source-actions { gap: 6px; }
 .audio-source-row .field { display: grid; gap: 6px; }
 .audio-source-row .field[hidden] { display: none; }
-.audio-source-row select { width: min(100%, 360px); }
+.audio-source-row select { width: 100%; }
+/* A wide card puts a source's type, its URL or voice and Test on one line under its heading. */
+@container (min-width: 640px) {
+  .audio-source-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto;
+    align-items: end;
+    gap: 10px 12px;
+  }
+  .audio-source-heading { grid-column: 1 / -1; }
+  .audio-source-row > .field { grid-row: 2; grid-column: 1; }
+  .audio-source-row > :is(.audio-url-field, .audio-voice-field) { grid-column: 2; }
+  .audio-test-line { grid-row: 2; grid-column: 3; min-height: var(--control-height); align-items: center; }
+  .audio-test-status { max-width: 28ch; }
+}
 .audio-url { width: 100%; }
 .audio-test-status { color: var(--text-dim); overflow-wrap: anywhere; }
 .audio-test-line { align-items: baseline; }
@@ -2292,8 +2413,8 @@ textarea {
   flex-wrap: wrap;
   gap: 8px 12px;
   padding: var(--row-padding) 0;
+  border-top: 1px solid var(--border);
 }
-.custom-button-row + .custom-button-row { border-top: 1px solid var(--border); }
 .custom-button-text { display: grid; gap: 3px; min-width: 0; }
 .custom-button-summary {
   color: var(--text-dim);
@@ -2317,8 +2438,8 @@ textarea {
   display: grid;
   gap: 12px;
   padding: var(--row-padding) 0;
+  border-top: 1px solid var(--border);
 }
-.keybind-row + .keybind-row { border-top: 1px solid var(--border); }
 .keybind-heading,
 .keybind-enabled,
 .keybind-buttons,
@@ -2338,7 +2459,7 @@ textarea {
 .keybind-scope { gap: 6px; }
 .keybind-fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 136px), 1fr));
   gap: 12px;
 }
 .keybind-row .field { display: grid; gap: 6px; }
@@ -2346,11 +2467,77 @@ textarea {
 .keybind-scope[hidden] { display: none; }
 .keybind-row :is(input[type="text"], input[type="number"], select) { width: 100%; }
 .keybind-list-actions { justify-content: flex-start; }
+.keybind-columns { display: none; }
+/*
+ * A wide card shows one row per keybind, as Chrome's and VS Code's shortcut
+ * lists do: the rows and the column titles share one grid, so the columns line
+ * up whatever the buttons and scopes measure. Keys and Action keep their labels
+ * as accessible names; the column titles say them once.
+ */
+@container (min-width: 760px) {
+  .keybind-table {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 0.8fr) auto auto;
+    column-gap: 12px;
+  }
+  .keybind-columns,
+  .keybind-list,
+  .keybind-row {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    align-items: center;
+  }
+  .keybind-columns {
+    padding: 10px 0 6px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: var(--font-caption);
+    font-weight: var(--weight-medium);
+  }
+  .keybind-columns > :nth-child(1) { grid-column: 2; }
+  .keybind-columns > :nth-child(2) { grid-column: 3; }
+  .keybind-columns > :nth-child(3) { grid-column: 5; }
+  .keybind-heading,
+  .keybind-fields { display: contents; }
+  .keybind-row > *,
+  .keybind-heading > *,
+  .keybind-fields > * { grid-row: 1; }
+  .keybind-enabled { grid-column: 1; }
+  .keybind-fields > :nth-child(1) { grid-column: 2; }
+  .keybind-fields > :nth-child(2) { grid-column: 3; }
+  .keybind-fields > :nth-child(n + 3) {
+    grid-column: 4;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+  }
+  .keybind-scopes {
+    grid-column: 5;
+    flex-direction: column;
+    align-items: start;
+    gap: 4px;
+  }
+  .keybind-buttons {
+    grid-column: 6;
+    justify-content: end;
+  }
+  .keybind-number,
+  .keybind-fields > :is(:nth-child(1), :nth-child(2)) > .field-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
 .browser-shortcut-list {
   display: grid;
   gap: 8px;
-  margin: 0 0 12px;
-  padding: 0;
+  margin: 0;
+  padding: var(--row-padding) 0;
+  border-top: 1px solid var(--border);
   list-style: none;
 }
 .browser-shortcut-list li {

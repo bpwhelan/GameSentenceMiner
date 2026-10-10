@@ -20,7 +20,8 @@ export function createSettingsSearch({ document, navigate }) {
     const link = document.createElement("a");
     link.href = `#${section.id}`;
     const breadcrumb = document.createElement("small");
-    const sectionPath = sectionGroup ? `${sectionGroup} › ${sectionName}` : sectionName;
+    // Dictionaries › Dictionaries says its destination once.
+    const sectionPath = sectionGroup && sectionGroup !== sectionName ? `${sectionGroup} › ${sectionName}` : sectionName;
     let breadcrumbText = sectionGroup && label === sectionName ? sectionGroup : sectionPath;
     if (group && group !== label) breadcrumbText = `${sectionPath} › ${group}`;
     breadcrumb.textContent = breadcrumbText;
@@ -78,8 +79,9 @@ export function createSettingsSearch({ document, navigate }) {
     if (!words.length) { navigate(); return; }
     results.replaceChildren();
     panel.hidden = false;
-    document.getElementById("library-navigation").hidden = true;
-    for (const section of document.querySelectorAll("main > section:not([data-settings-unavailable='true'])")) {
+    for (const tabs of document.querySelectorAll(".section-tabs")) tabs.hidden = true;
+    // A section whose experimental flag is off is not offered either.
+    for (const section of document.querySelectorAll("main > section:not([data-settings-unavailable='true']):not([data-settings-gated])")) {
       searchSection(section, words);
     }
     const matches = results.childElementCount;

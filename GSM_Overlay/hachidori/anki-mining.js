@@ -3,10 +3,31 @@ import { ankiAvailability, isUndispatchedAnkiTransportError } from "./anki.js";
 import { ankiCaptureRequirements, resolveAnkiTemplates } from "./anki-templates.js";
 import { ankiDigest } from "./anki-digest.js";
 import { inspectAnkiNoteIds } from "./anki-index.js";
+import { ankiSetupFamily } from "./anki-setup.js";
 import { ankiBrowseQuery, ankiNoteIdsQuery, ankiNoteOptions, canonicalAnkiFields, checkAnkiDuplicate, explainAnkiRefusal,
   findAnkiDuplicateNotes, isAnkiDuplicateError, overwriteAnkiFields, validateAnkiNote, validateAnkiNotes } from "./anki-duplicates.js";
 
 const CONFIG_CHANGED = "Anki configuration changed. Refresh this result before adding a note.";
+// The sentence-audio field the Kiku, Lapis and Senren presets leave blank.
+const SENTENCE_AUDIO_FIELDS = { kiku: "SentenceAudio", lapis: "SentenceAudio", senren: "sentenceAudio" };
+
+// A mining request from a Netflix subtitle line, with or without its cue, while
+// Settings → Advanced → Experimental features → Netflix mining is on.
+const netflixRequest = (config, request) => config.netflixMining === true
+  && request?.netflix !== null && typeof request?.netflix === "object";
+
+// For a recognised note type, a Netflix request fills its blank sentence-audio
+// field with {sentence-audio} in this request's copy of the templates, as the
+// removed media mining did. Saved templates and a field the user filled are
+// never changed.
+function requestConfiguration(current, request) {
+  if (!netflixRequest(current.config, request)) return current;
+  const field = SENTENCE_AUDIO_FIELDS[ankiSetupFamily(current.config.model)];
+  const template = field === undefined ? undefined : current.resolved.templates[field];
+  if (template === undefined || template.value.trim() !== "") return current;
+  return { ...current, resolved: { ...current.resolved,
+    templates: { ...current.resolved.templates, [field]: { ...template, value: "{sentence-audio}" } } } };
+}
 export async function readAnkiNoteFields(invoke, noteId) {
   const infos = await invoke("notesInfo", { notes: [noteId] });
   const info = Array.isArray(infos) ? infos.find(value => value.noteId === noteId) : null;
@@ -49,7 +70,7 @@ async function addableDecision(prepared) {
 
 async function unindexedDecision(prepared) {
   const { invoke, note, config, firstField } = prepared;
-  const checked = await checkAnkiDuplicate(invoke, note, config);
+  const checked = await checkAnkiDuplicate(invoke, note);
   if (!checked.duplicate) return checkedDecision(prepared, checked.addable, checked.error);
   // A non-direct destination field cannot be keyed by the word index. Keep
   // Anki's exact first-field identity as a compatibility path, restricted to
@@ -273,9 +294,9 @@ export function createAnkiMiningService({
 
   async function prepare(request, fresh) {
     const configured = await configuration(request?.templateId, fresh);
-    const current = configured;
-    if (request.configKey !== current.configKey) throw new Error(CONFIG_CHANGED);
-    if (current.errors.length) throw new Error(current.errors.join("\n"));
+    if (request.configKey !== configured.configKey) throw new Error(CONFIG_CHANGED);
+    if (configured.errors.length) throw new Error(configured.errors.join("\n"));
+    const current = requestConfiguration(configured, request);
     const resources = await buildFields(request, current, { preflight: !fresh });
     const { fields } = resources;
     const firstField = current.discovery.fields[0];
@@ -296,11 +317,21 @@ export function createAnkiMiningService({
   // write and may then apply a field this one would have kept.
   const screenshotFor = prepared => prepared.config.captureScreenshot === true
     && ankiCaptureRequirements(prepared.resolved.templates).includeScreenshot;
+  // A mapped {sentence-audio} on a Netflix request: the reader records the
+  // line, or reports why it could not, when it submits.
+  const sentenceAudioFor = (prepared, request) => netflixRequest(prepared.config, request)
+    && ankiCaptureRequirements(prepared.resolved.templates).includeSentenceAudio
+    ? { sentenceAudio: true } : {};
+  // A mapped {gif} on a Netflix request: the reader records a GIF of the line
+  // when it submits, and falls back to the screenshot where it cannot.
+  const gifFor = (prepared, request) => netflixRequest(prepared.config, request)
+    && ankiCaptureRequirements(prepared.resolved.templates).includeGif
+    ? { gif: true } : {};
 
   async function deferredReply(request, prepared) {
     const extra = await preflightExtra({ request, prepared, applied: null, deferred: true });
     return { state: "addable", canAdd: true, error: null, deferred: true, screenshot: screenshotFor(prepared),
-      ...extra };
+      ...sentenceAudioFor(prepared, request), ...gifFor(prepared, request), ...extra };
   }
 
   async function preflightReply(request, prepared, result) {
@@ -313,6 +344,8 @@ export function createAnkiMiningService({
       action: result.action,
       noteIds: result.noteIds,
       screenshot: screenshotFor(prepared),
+      ...sentenceAudioFor(prepared, request),
+      ...gifFor(prepared, request),
       ...extra,
     };
   }

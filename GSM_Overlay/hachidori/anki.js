@@ -267,7 +267,7 @@ export function ankiAvailability(config, discovery, resolvedTemplates) {
   }
   if (discovery.fields.length > 0) {
     const markers = ankiTemplateMarkerNames(resolved.templates[discovery.fields[0]].value);
-    if (markers.includes("screenshot")) {
+    if (markers.includes("screenshot") || markers.includes("sentence-audio") || markers.includes("gif")) {
       errors.push(`Captured media cannot be mapped to the first field, “${discovery.fields[0]}”.`);
     }
   }

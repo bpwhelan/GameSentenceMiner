@@ -5,9 +5,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-function describe(error) {
-  return error instanceof Error ? error.message || String(error) : String(error);
-}
+import { describeError } from "./error-text.js";
 
 // A dedicated worker receives only from its creator over its implicit
 // MessagePort. MessageEvent.origin is always empty, so there is no origin value
@@ -57,6 +55,6 @@ globalThis.onmessage = async (event) => { // NOSONAR
         }
       }
     }
-    globalThis.postMessage({ channel: "opfs-capability-result", ok: false, error: describe(error) });
+    globalThis.postMessage({ channel: "opfs-capability-result", ok: false, error: describeError(error) });
   }
 };

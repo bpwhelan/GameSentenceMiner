@@ -2,6 +2,11 @@
 (function () {
   "use strict";
 
+  // In popup pixels: the chooser's gap from its button, as a root popup keeps
+  // from its word, and its least distance from the popup's edges.
+  const MENU_GAP_PX = 4;
+  const MENU_PADDING_PX = 6;
+
   function current(record) {
     return record.button.isConnected && !record.popup.hidden && record.isCurrent();
   }
@@ -9,14 +14,16 @@
   function setBusy(record, busy) {
     record.button.setAttribute("aria-busy", String(busy));
     if (busy) record.button.dataset.state = "loading";
-    else if (record.button.dataset.state !== "error") delete record.button.dataset.state;
+    else delete record.button.dataset.state;
     record.button.setAttribute("aria-label", `${busy ? "Stop" : "Play"} pronunciation for ${record.term.expression}`);
     record.button.title = `${busy ? "Stop" : "Play"} pronunciation; Shift-click, right-click or press Down for choices`;
   }
 
-  function createAudioController({ window, send, onMenuChange, onSelectionChange = () => {} }) {
+  // `popupRect` converts a page rectangle into the popup's own pixels: the
+  // reader's conversion for its popup scale and browser zoom.
+  function createAudioController({ window, send, onMenuChange, onSelectionChange = () => {}, popupRect = rect => rect }) {
     const document = window.document;
-    const bound = new WeakMap(), visited = new WeakMap(), feedback = new WeakMap();
+    const bound = new WeakMap(), visited = new WeakMap();
     const controls = new Set();
     let selections = new WeakMap();
     let options = window.HDReaderOptions.DEFAULT_OPTIONS;
@@ -77,26 +84,11 @@
       return active === operation && current(operation.record);
     }
 
-    function setStatus(record, text) {
-      if (text) record.button.dataset.state = "error";
-      let output = feedback.get(record.button) || record.status;
-      if (!output && !text) return;
-      if (!output) {
-        output = document.createElement("output");
-        output.className = "gsm-hoshidicts-audio-status";
-        output.setAttribute("aria-live", "polite");
-        record.button.after(output);
-      }
-      feedback.set(record.button, output);
-      output.textContent = text;
-    }
-
     function stop() {
       if (!active) return;
       const previous = active;
       active = null;
       setBusy(previous.record, false);
-      setStatus(previous.record, "");
       void send("hd_audio_stop", { playRequestId: previous.requestId }).catch(() => {});
     }
 
@@ -104,12 +96,81 @@
       if (!menu) return false;
       const previous = menu;
       menu = null;
+      previous.release();
       if (active?.type === "hd_audio_candidates" && active.record === previous.record) stop();
       previous.element.remove();
       previous.record.button.setAttribute("aria-expanded", "false");
       if (restoreFocus && current(previous.record)) previous.record.button.focus({ preventScroll: true });
       onMenuChange(previous.record.owner);
       return true;
+    }
+
+    // A clipping ancestor inside the popup, such as the definitions' scroller,
+    // may have scrolled the button away, or the shown result may have hidden it.
+    function anchorShown({ button, popup }) {
+      if (button.checkVisibility?.() === false) return false;
+      const rect = button.getBoundingClientRect();
+      for (let node = button.parentElement; node && node !== popup; node = node.parentElement) {
+        if ((node.scrollHeight <= node.clientHeight && node.scrollWidth <= node.clientWidth)
+            || window.getComputedStyle(node).overflow === "visible") continue;
+        const clip = node.getBoundingClientRect();
+        if (rect.bottom <= clip.top || rect.top >= clip.bottom || rect.right <= clip.left || rect.left >= clip.right) return false;
+      }
+      return true;
+    }
+
+    // The chooser is its popup's own child, out of the popup's flow, so opening
+    // it moves no definition. It hangs below its button, or above when only that
+    // side has room, shortened to the room it has: a long list scrolls inside it.
+    // A chooser whose button is gone or hidden closes instead.
+    function placeMenu() {
+      if (!menu) return;
+      const { element, record } = menu;
+      const { button, popup } = record;
+      if (!current(record) || !anchorShown(record)) {
+        closeMenu(element.contains(popup.getRootNode().activeElement));
+        return;
+      }
+      // Measure the unconstrained chooser; the list keeps its own scroll.
+      const { scrollTop } = element;
+      element.style.inset = "0 auto auto 0";
+      element.style.maxHeight = "";
+      const box = popupRect(popup.getBoundingClientRect()), anchor = popupRect(button.getBoundingClientRect());
+      const left = box.left + popup.clientLeft, top = box.top + popup.clientTop;
+      const position = window.HDPopup.calculatePopupPosition(
+        { left: anchor.left - left, right: anchor.right - left, top: anchor.top - top, bottom: anchor.bottom - top },
+        { width: element.offsetWidth, height: element.offsetHeight },
+        { width: popup.clientWidth, height: popup.clientHeight },
+        { gap: MENU_GAP_PX, padding: MENU_PADDING_PX, preferBelow: true });
+      element.style.inset = `${position.top}px auto auto ${position.left}px`;
+      element.style.maxHeight = `${position.height}px`;
+      element.scrollTop = scrollTop;
+    }
+
+    // Scroll events do not bubble, so the popup captures every scroller's and,
+    // once per frame, follows a button that moved with its pane. A press
+    // anywhere else in the reader dismisses the chooser and keeps the focus it
+    // gives; a press on the page hides the popup itself. Returns the release.
+    function watchMenu(opened) {
+      const { element, record: { popup } } = opened;
+      const root = popup.getRootNode();
+      const onScroll = event => {
+        if (opened.frame || element.contains(event.target)) return;
+        opened.frame = window.requestAnimationFrame(() => {
+          opened.frame = 0;
+          placeMenu();
+        });
+      };
+      const onPress = event => {
+        if (!element.contains(event.target)) closeMenu(false);
+      };
+      popup.addEventListener("scroll", onScroll, { capture: true, passive: true });
+      root.addEventListener("mousedown", onPress, true);
+      return () => {
+        window.cancelAnimationFrame(opened.frame);
+        popup.removeEventListener("scroll", onScroll, true);
+        root.removeEventListener("mousedown", onPress, true);
+      };
     }
 
     function retire(owner) {
@@ -126,7 +187,6 @@
       const operation = { record, type, requestId: window.crypto.randomUUID() };
       active = operation;
       setBusy(record, true);
-      setStatus(record, "");
       try {
         const reply = await send(type, { term: record.term, requestId: operation.requestId, ...fields });
         if (!owns(operation)) return;
@@ -138,8 +198,12 @@
             selections.delete(record.result);
             onSelectionChange(record.owner);
           }
-          setStatus(record, `Could not play: ${error.message}`);
-          if (menu?.record === record) menu.output.textContent = error.message;
+          // Nothing appears beside the headword (#501): Audio Settings → Test
+          // explains a failing source, and an open chooser shows its error.
+          if (menu?.record === record) {
+            menu.output.textContent = error.message;
+            placeMenu();
+          }
         }
       } finally {
         if (active === operation) { active = null; setBusy(record, false); }
@@ -149,7 +213,6 @@
     function play(record, selection = selections.get(record.result)) {
       closeMenu();
       return request(record, "hd_audio_play", selection ? { selection } : {}, reply => {
-        setStatus(record, reply.status === "no-result" ? "No pronunciation was returned. Check Audio Settings." : "");
         // The pronunciation the user just heard is the one Add to Anki should
         // attach, so a downloadable recording becomes the selection exactly as
         // a menu choice would. Browser speech has no recording to pin.
@@ -183,9 +246,14 @@
       output.textContent = "Finding choices…";
       element.append(heading, close, output);
       record.popup.append(element);
-      menu = { element, output, record };
+      const opened = { element, output, record, frame: 0 };
+      opened.release = watchMenu(opened);
+      menu = opened;
       record.button.setAttribute("aria-expanded", "true");
-      onMenuChange(record.owner);
+      placeMenu();
+      if (menu === opened) onMenuChange(record.owner);
+      // Placement, or the reader answering the change, may have closed it.
+      if (menu !== opened) return;
       close.focus({ preventScroll: true });
       void request(record, "hd_audio_candidates", {}, reply => {
         let count = 0;
@@ -217,9 +285,8 @@
           }
           element.append(section);
         }
-        setStatus(record, "");
         output.textContent = count ? "Choose a pronunciation to play." : "No pronunciations found. Check Audio Settings.";
-        onMenuChange(record.owner);
+        placeMenu();
       });
     }
 
@@ -261,10 +328,7 @@
       void request(record, "hd_audio_candidates", {}, reply => {
         const group = reply.groups.find(item => item.sourceId === sourceId);
         const candidate = group?.candidates?.[0];
-        if (!candidate) {
-          setStatus(record, "No pronunciation was returned. Check Audio Settings.");
-          return;
-        }
+        if (!candidate) return;
         void play(record, { sourceId: group.sourceId, sourceKey: group.sourceKey, ...record.term,
           index: 0, url: candidate.url ?? null, name: candidate.name });
       });
@@ -285,6 +349,10 @@
     return {
       bind, retire, closeMenu, playButton,
       hasMenu: owner => Boolean(menu && (owner === undefined || menu.record.owner === owner)),
+      // The reader calls this once it has placed or resized the owner's popup.
+      positionMenu(owner) {
+        if (menu?.record.owner === owner) placeMenu();
+      },
       selectionFor: result => selections.get(result) ?? null,
       // Releases the owner's held first result for exactly this request once its
       // definitions are revealed. A stale request's late reveal leaves a newer view alone.

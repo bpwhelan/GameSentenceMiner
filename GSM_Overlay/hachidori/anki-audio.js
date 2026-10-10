@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { selectedAudioPlan } from "./audio-repository.js";
+import { selectedAudioPlan, undecodableRecording } from "./audio-repository.js";
 import { ankiMediaFilename } from "./anki-resources.js";
 
 const MIME_EXTENSIONS = { "audio/aac": "aac", "audio/flac": "flac", "audio/mp4": "m4a", "audio/mpeg": "mp3",
@@ -37,6 +37,11 @@ async function candidateFile(window, repository, candidate, signal) {
       signal.addEventListener("abort", abort, { once: true });
       audio.src = lease.url;
       audio.load();
+    }).catch(async error => {
+      if (signal.aborted || !audio.error) throw error;
+      const diagnosis = await undecodableRecording(lease.blob, audio.error);
+      signal.throwIfAborted();
+      throw diagnosis;
     });
     signal.throwIfAborted();
     const suffix = new URL(candidate.url).pathname.split(".").at(-1).toLowerCase();

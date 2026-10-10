@@ -143,6 +143,7 @@
     return { sync, createView,
       attach(root) { shadow = root; applyCss(); },
       get dictionaryStyles() { return current?.dictionaryStyles === true; },
+      get renderer() { return current?.name ?? null; },
     };
   }
   window.HDThemeHost = { createThemeHost };

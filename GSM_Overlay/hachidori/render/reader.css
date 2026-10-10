@@ -1358,7 +1358,7 @@ html[data-hoshidicts-theme="girlypop"],
    stay mounted but hidden, and the shown result's row joins the lookup row. */
 .gsm-hoshidicts-headword[hidden],
 .gsm-hoshidicts-primary-header[data-shown-result] > .gsm-hoshidicts-entry-actions
-  > :is(.gsm-hoshidicts-mine-button, .gsm-hoshidicts-audio-control) {
+  > :is(.gsm-hoshidicts-mine-button, .gsm-hoshidicts-audio-control, .gsm-hoshidicts-word-status-button) {
   display: none;
 }
 
@@ -1546,8 +1546,6 @@ html[data-hoshidicts-theme="girlypop"],
 :host([data-hoshidicts-audio-button="hidden"]) .gsm-hoshidicts-audio-control { display: none; }
 :host([data-hoshidicts-note-button="hidden"]) .gsm-hoshidicts-note-button { display: none; }
 .gsm-hoshidicts-audio-control > button { flex-shrink: 0; }
-.gsm-hoshidicts-audio-status { max-width: 160px; padding-top: 4px; color: var(--text-color-light1); font-size: 11px; overflow-wrap: anywhere; }
-.gsm-hoshidicts-audio-status:empty { display: none; }
 .gsm-hoshidicts-anki-control { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; }
 .gsm-hoshidicts-anki-control[hidden] { display: none; }
 .gsm-hoshidicts-anki-status { min-width: 0; font: inherit; color: inherit; overflow-wrap: anywhere; }
@@ -1984,7 +1982,8 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-audio-button,
 .gsm-hoshidicts-mine-button,
-.gsm-hoshidicts-note-button {
+.gsm-hoshidicts-note-button,
+.gsm-hoshidicts-word-status-button {
   display: inline-flex;
   flex: 0 0 var(--hd-control-size);
   align-items: center;
@@ -2019,7 +2018,8 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-audio-button:focus-visible,
 .gsm-hoshidicts-mine-button:focus-visible,
-.gsm-hoshidicts-note-button:focus-visible {
+.gsm-hoshidicts-note-button:focus-visible,
+.gsm-hoshidicts-word-status-button:focus-visible {
   outline: 2px solid var(--accent-color);
   outline-offset: 1px;
 }
@@ -2033,11 +2033,6 @@ html[data-hoshidicts-theme="girlypop"],
 .gsm-hoshidicts-audio-button[data-state="playing"] {
   border-color: var(--hoshidicts-success);
   color: var(--hoshidicts-success);
-}
-
-.gsm-hoshidicts-audio-button[data-state="error"] {
-  border-color: var(--hoshidicts-danger);
-  color: var(--hoshidicts-danger);
 }
 
 .gsm-hoshidicts-mine-button {
@@ -2061,17 +2056,39 @@ html[data-hoshidicts-theme="girlypop"],
   animation: gsm-hoshidicts-spin 0.8s linear infinite;
 }
 
-.gsm-hoshidicts-note-button {
+/* Mark as known and Ignore (#520), added by word-highlights.js while word
+   highlighting is on, look like the pencil; a pressed one is the word's status.
+   Like a dictionary tab, an unpressed one only lifts under the pointer or
+   focus, so it never looks pressed. */
+.gsm-hoshidicts-note-button,
+.gsm-hoshidicts-word-status-button {
   border: 1px solid var(--hoshidicts-border-strong);
   color: var(--text-color);
 }
 
 .gsm-hoshidicts-note-button:hover,
 .gsm-hoshidicts-note-button:focus-visible,
-.gsm-hoshidicts-note-button[aria-expanded="true"] {
+.gsm-hoshidicts-note-button[aria-expanded="true"],
+.gsm-hoshidicts-word-status-button[aria-pressed="true"] {
   border-color: var(--accent-color);
   background: var(--hoshidicts-accent-soft);
   color: var(--accent-color);
+}
+
+.gsm-hoshidicts-word-status-button:not([aria-pressed="true"]):is(:hover, :focus-visible) {
+  background: var(--hoshidicts-surface-raised);
+}
+
+/* Colour alone shows a pressed button, so forced colours draw it as selected. */
+@media (forced-colors: active) {
+  .gsm-hoshidicts-word-status-button[aria-pressed="true"] {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  .gsm-hoshidicts-word-status-button[aria-pressed="true"] .hd-icon {
+    background: HighlightText;
+  }
 }
 
 .gsm-hoshidicts-text-action-button {
@@ -2152,6 +2169,10 @@ html[data-hoshidicts-theme="girlypop"],
   white-space: nowrap;
 }
 
+/* The pronunciation chooser is an overlay inside its popup, out of the popup's
+   flow: audio-content.js hangs it beside its button and shortens it to the room
+   there, so a long list scrolls inside it and the definitions never move. The
+   12px keep its 6px placement padding from both edges. */
 .gsm-hoshidicts-audio-menu {
   --hoshidicts-menu-background: color-mix(
     in srgb,
@@ -2174,13 +2195,14 @@ html[data-hoshidicts-theme="girlypop"],
     var(--hoshidicts-palette-primary) 18%,
     var(--hoshidicts-palette-base-100)
   );
-  z-index: 5;
-  flex: 0 1 auto;
-  min-height: 0;
-  width: 100%;
-  max-height: 70%;
+  position: absolute;
+  /* Above the resize handle, which shares the popup's bottom-right corner. */
+  z-index: 11;
+  width: min(280px, calc(100% - 12px));
+  max-height: min(360px, calc(100% - 12px));
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   box-sizing: border-box;
   padding: 6px;
   border: 1px solid var(--hoshidicts-menu-border);
@@ -2232,8 +2254,14 @@ html[data-hoshidicts-theme="girlypop"],
 
 .gsm-hoshidicts-audio-menu-item:hover,
 .gsm-hoshidicts-audio-menu-item:focus-visible {
-  outline: none;
   background: var(--hoshidicts-menu-hover);
+}
+
+/* Replaces the browser's focus ring. Forced colours drop the background above
+   but draw this outline in a system colour, so keyboard focus stays visible. */
+.gsm-hoshidicts-audio-menu-item:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: -2px;
 }
 
 .gsm-hoshidicts-audio-menu-close { float: right; width: auto; }
@@ -2346,7 +2374,8 @@ html[data-hoshidicts-theme="girlypop"],
   color: var(--hoshidicts-danger);
 }
 
-.gsm-hoshidicts-mine-button[data-state="error"] {
+.gsm-hoshidicts-mine-button[data-state="error"],
+.gsm-hoshidicts-word-status-button[data-error] {
   border-color: var(--hoshidicts-danger);
   color: var(--hoshidicts-danger);
 }
@@ -3342,6 +3371,11 @@ html[data-hoshidicts-theme="girlypop"],
   /* CJK glyphs have a content area of about 1.45em; a unit line-height lets
      it spill past the header padding and the result chrome grows a scrollbar. */
   line-height: 1.2;
+}
+
+/* Beside the glyph, which the navigation row already centres. */
+.gsm-hoshidicts-primary-metadata-capsule.gsm-hoshidicts-kanji-frequencies {
+  margin: 0;
 }
 
 .gsm-hoshidicts-kanji-entry {

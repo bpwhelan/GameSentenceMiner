@@ -70,7 +70,7 @@ function markerSelection(value, selectionStart, selectionEnd) {
   return { start: selectionStart, end: selectionEnd, query: "" };
 }
 
-function createMarkerCombobox(document, id, labelText, onValue) {
+function createMarkerCombobox(document, id, labelText, onValue, markerListed = () => true) {
   const root = document.createElement("div");
   root.className = "anki-marker-combobox";
   root.innerHTML = `<div class="anki-marker-combobox-editor">
@@ -160,7 +160,9 @@ function createMarkerCombobox(document, id, labelText, onValue) {
   function refreshOptions() {
     const selection = markerSelection(editor.value, editor.selectionStart, editor.selectionEnd);
     const query = showAll ? "" : selection.query.toLocaleLowerCase();
-    for (const option of options) option.element.hidden = query !== "" && !option.search.includes(query);
+    for (const option of options) {
+      option.element.hidden = !markerListed(option) || (query !== "" && !option.search.includes(query));
+    }
     const visible = visibleOptions();
     empty.hidden = visible.length !== 0;
     if (!visible.includes(active)) {
@@ -322,6 +324,8 @@ export function createAnkiSettingsController({
   send,
   capabilities = { screenshot: true },
   readOwnerKey = () => "",
+  // The stored experimental flags: a feature's markers are listed only while it is on.
+  readExperimental = () => ({}),
 }) {
   const { ANKI_FIELDS, ANKI_OVERWRITE_MODES, normaliseAnkiConnectUrl } = document.defaultView.HDReaderOptions;
   const element = id => document.getElementById(id);
@@ -403,7 +407,8 @@ export function createAnkiSettingsController({
     const indexBadge = row.querySelector(".anki-field-index");
     const id = `opt-anki-template-${++nextTemplateId}`;
     let record;
-    const combobox = createMarkerCombobox(document, id, field, value => editTemplate(record.field, { value }));
+    const combobox = createMarkerCombobox(document, id, field, value => editTemplate(record.field, { value }),
+      marker => !marker.experimental || readExperimental()[marker.experimental] === true);
     const editor = combobox.editor;
     row.querySelector(".anki-template-mode").before(combobox.root);
     label.htmlFor = editor.id;
@@ -772,6 +777,7 @@ export function createAnkiTemplateSettingsController({
   send,
   capabilities = { screenshot: true },
   createId = () => document.defaultView.crypto.randomUUID(),
+  readExperimental = () => ({}),
 }) {
   const {
     ANKI_TEMPLATE_CONFIG_KEYS,
@@ -822,6 +828,7 @@ export function createAnkiTemplateSettingsController({
     send,
     capabilities,
     readOwnerKey: () => selected().template.id,
+    readExperimental,
   });
 
   function uniqueId() {
