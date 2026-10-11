@@ -205,7 +205,8 @@ def test_idle_session_resets_only_after_configured_gap(monkeypatch, session_gap_
         assert tracker.lines_count == 0
         assert tracker.last_line_id is None
         assert tracker._line_ledger == {}
-        assert tracker._speed_samples == []
+        assert tracker._reading_gaps == []
+        assert tracker._reading_breaks == []
         publish.assert_called_once_with(tracker, reason="session_timeout")
 
 
@@ -386,6 +387,86 @@ def test_live_and_batch_use_the_same_pace_sample_filters(monkeypatch):
 
     assert tracker.total_reading_seconds == pytest.approx(75.2)
     assert tracker.total_reading_seconds == pytest.approx(calculate_actual_reading_time(timestamps, texts))
+
+
+@pytest.mark.parametrize("gaps", [[10.0] * 10 + [60.0] * 11, [60.0] * 11 + [10.0] * 10, [120.0, 10.0]])
+def test_live_reading_time_matches_batch_after_every_pace_change(monkeypatch, gaps):
+    from GameSentenceMiner.web import stats
+
+    config = _mock_stats_config(monkeypatch)
+    monkeypatch.setattr(stats, "get_stats_config", lambda: config)
+    tracker = LiveSessionTracker()
+    timestamps = [1000.0]
+    texts = ["あ" * 20]
+    tracker.add_line(texts[0], timestamps[0])
+    for gap in gaps:
+        timestamps.append(timestamps[-1] + gap)
+        texts.append("あ" * 20)
+        tracker.add_line(texts[-1], timestamps[-1])
+        assert tracker.get_active_reading_time() == pytest.approx(
+            stats.calculate_actual_reading_time(timestamps, texts)
+        )
+
+
+def test_revising_completed_text_recalculates_the_pace_and_time(monkeypatch):
+    from GameSentenceMiner.web import stats
+
+    config = _mock_stats_config(monkeypatch)
+    monkeypatch.setattr(stats, "get_stats_config", lambda: config)
+    tracker = LiveSessionTracker()
+    timestamps = [1000.0, 1100.0, 1110.0, 1120.0, 1720.0]
+    texts = ["あ" * 20] * len(timestamps)
+    texts[0] = "あ" * 3
+    for index, timestamp in enumerate(timestamps):
+        tracker.add_line(texts[index], timestamp, line_id=str(index))
+
+    texts[0] = "あ" * 200
+    tracker.add_line(texts[0], timestamps[0], line_id="0", revision=2)
+
+    assert tracker.get_active_reading_time() == pytest.approx(stats.calculate_actual_reading_time(timestamps, texts))
+    assert tracker.get_total_chars() == 260
+
+
+def test_pause_gap_is_neither_credited_nor_used_to_learn_pace(monkeypatch):
+    from GameSentenceMiner.web import stats
+
+    config = _mock_stats_config(monkeypatch)
+    monkeypatch.setattr(stats, "get_stats_config", lambda: config)
+    tracker = LiveSessionTracker()
+    timestamps = [1000.0, 1010.0, 1130.0, 1250.0, 1370.0, 1970.0]
+    breaks = [1020.0, 1140.0, 1260.0]
+    texts = ["あ" * 20] * len(timestamps)
+    for index, timestamp in enumerate(timestamps):
+        if 2 <= index <= 4:
+            tracker.mark_reading_break(breaks[index - 2])
+        tracker.add_line(texts[index], timestamp, line_id=str(index))
+
+    # Three interrupted gaps must not replace the established 2 cps pace.
+    assert tracker.get_active_reading_time() == 10.0 + 25.0
+    assert tracker.get_active_reading_time() == stats.calculate_actual_reading_time(
+        timestamps, texts, reading_breaks=breaks
+    )
+
+
+def test_pause_before_first_line_does_not_discard_resumed_reading(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.mark_reading_break(900.0)
+    tracker.add_line("あ" * 20, 1000.0)
+    tracker.add_line("あ" * 20, 1010.0)
+    assert tracker.get_active_reading_time() == 10.0
+
+
+def test_queued_text_before_pause_keeps_its_measured_reading_time(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("あ" * 20, 1000.0)
+    tracker.mark_reading_break(1020.0)
+    # A delayed projection still belongs to the uninterrupted part of the session.
+    tracker.add_line("あ" * 20, 1010.0)
+    tracker.add_line("あ" * 20, 1130.0)
+    tracker.add_line("あ" * 20, 1140.0)
+    assert tracker.get_active_reading_time() == 20.0
 
 
 def test_timestamp_zero_is_a_valid_session_start(monkeypatch):

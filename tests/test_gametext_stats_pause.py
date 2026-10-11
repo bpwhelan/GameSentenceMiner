@@ -135,3 +135,51 @@ def test_resuming_intake_does_not_reclassify_paused_history(text_pipeline):
     assert len(text_pipeline.outputs.stats) == 1
     assert len(text_pipeline.outputs.discord) == 1
     assert [line.id for line in text_pipeline.outputs.database] == [resumed.line_id]
+
+
+def test_explicit_pause_is_excluded_from_live_and_saved_reading_time(text_pipeline, monkeypatch, tmp_path):
+    from GameSentenceMiner.util.database.db import GameLinesTable, SQLiteDB
+    from GameSentenceMiner.util.stats import live_stats
+    from GameSentenceMiner.web import stats
+
+    database_path = str(tmp_path / "pause-accounting.db")
+    database = SQLiteDB(database_path)
+    monkeypatch.setattr(GameLinesTable, "_db", database)
+    GameLinesTable.set_db(database)
+    tracker = live_stats.LiveSessionTracker("Paused Game")
+    monkeypatch.setattr(gametext, "live_stats_tracker", tracker)
+    config = SimpleNamespace(session_gap_seconds=1800)
+    for module in (stats, live_stats):
+        monkeypatch.setattr(module, "get_stats_config", lambda: config)
+    monkeypatch.setattr(live_stats, "publish_live_stats_update", lambda *args, **kwargs: False)
+    monkeypatch.setattr(gametext, "publish_live_stats_update", lambda *args, **kwargs: False)
+    monkeypatch.setattr(gametext, "announce_text_intake_state", lambda *args: None)
+    monkeypatch.setattr(gametext, "send_text_intake_paused_notification", lambda *args: None)
+    monkeypatch.setattr(gametext, "send_text_intake_resumed_notification", lambda *args: None)
+    now = [1020.0]
+    monkeypatch.setattr(gametext.time, "time", lambda: now[0])
+    timestamps = [1000.0, 1010.0, 1130.0, 1140.0]
+    texts = ["あ" * 20] * len(timestamps)
+    try:
+        for index in range(2):
+            tracker.add_line(texts[index], timestamps[index])
+        gametext.set_text_intake_paused(True)
+        gametext.set_text_intake_paused(True)
+        now[0] = 1120.0
+        gametext.set_text_intake_paused(False)
+        for index in range(2, 4):
+            tracker.add_line(texts[index], timestamps[index])
+
+        assert tracker.get_active_reading_time() == 20.0
+        assert stats.calculate_actual_reading_time(timestamps, texts) == 20.0
+        assert database.fetchone("SELECT COUNT(*) FROM stats_reading_breaks") == (1,)
+    finally:
+        database.close()
+
+    # Reopening the database must retain the exclusion without the live tracker.
+    reopened = SQLiteDB(database_path, read_only=True)
+    monkeypatch.setattr(GameLinesTable, "_db", reopened)
+    try:
+        assert stats.calculate_actual_reading_time(timestamps, texts) == 20.0
+    finally:
+        reopened.close()

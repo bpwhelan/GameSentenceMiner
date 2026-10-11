@@ -1,4 +1,5 @@
 import time
+from bisect import insort
 from datetime import datetime, timedelta, timezone
 from datetime import time as datetime_time
 from itertools import pairwise
@@ -8,10 +9,9 @@ from GameSentenceMiner.util.config.configuration import get_stats_config, gsm_st
 from GameSentenceMiner.util.database.db import clean_text_for_stats
 from GameSentenceMiner.util.stats.stats_util import (
     MIN_LINES_FOR_CPH,
-    _median,
-    adaptive_cap_seconds,
     count_cards_from_lines,
-    reading_speed_sample,
+    gap_crosses_reading_break,
+    session_reading_seconds,
 )
 
 LIVE_STATS_UPDATE_TYPE = "live_stats_update"
@@ -256,8 +256,9 @@ class LiveSessionTracker:
         self.lines_count = 0
         self.last_line_id = None
         self._line_ledger: dict[str, dict[str, object]] = {}
-        # Per-line raw reading speeds (chars/sec) for the adaptive cap.
-        self._speed_samples: list[float] = []
+        # Retain raw gaps so a changing median can correct earlier time caps.
+        self._reading_gaps: list[tuple[float, int]] = []
+        self._reading_breaks: list[float] = []
 
     def set_game(self, game_name: str | None, *, publish: bool = True) -> bool:
         """Start a fresh session when the active game changes, including while idle."""
@@ -281,15 +282,18 @@ class LiveSessionTracker:
         publish_live_stats_update(self, reason="session_timeout")
         return True
 
-    def _credit_gap(self, gap: float):
-        """Credit the previous line's reading time, capped at the session's pace."""
-        # Use the same cleaned text length as the CPH numerator and batch stats.
-        prev_char_count = self.last_line_chars
-        speed = reading_speed_sample(gap, prev_char_count)
-        if speed is not None:
-            self._speed_samples.append(speed)
-        max_time = adaptive_cap_seconds(prev_char_count, _median(self._speed_samples))
-        self.total_reading_seconds += min(gap, max_time)
+    def mark_reading_break(self, timestamp: float) -> None:
+        """Exclude the interrupted line's gap without losing the session's totals."""
+        if isfinite(timestamp):
+            insort(self._reading_breaks, timestamp)
+
+    def _credit_gap(self, gap: float, timestamp: float) -> int | None:
+        """Reprice measured gaps together, just as batch stats do."""
+        if gap_crosses_reading_break(self.last_line_time, timestamp, self._reading_breaks):
+            return None
+        self._reading_gaps.append((gap, self.last_line_chars))
+        self.total_reading_seconds = session_reading_seconds(self._reading_gaps)
+        return len(self._reading_gaps) - 1
 
     def add_line(
         self,
@@ -333,6 +337,11 @@ class LiveSessionTracker:
                 previous["text"] = line_text
                 if bool(previous["credited"]):
                     self.total_characters = max(0, self.total_characters + char_count - old_chars)
+                    gap_index = previous.get("gap_index")
+                    if gap_index is not None:
+                        gap, _ = self._reading_gaps[gap_index]
+                        self._reading_gaps[gap_index] = (gap, char_count)
+                        self.total_reading_seconds = session_reading_seconds(self._reading_gaps)
                 elif self.last_line_id == line_id:
                     self.last_line_text = line_text
                     self.last_line_chars = char_count
@@ -350,10 +359,11 @@ class LiveSessionTracker:
                 self.session_start_time = timestamp
             else:
                 # Previous line is now done: credit its time and characters together.
-                self._credit_gap(gap)
+                gap_index = self._credit_gap(gap, timestamp)
                 self.total_characters += self.last_line_chars
                 if self.last_line_id in self._line_ledger:
                     self._line_ledger[self.last_line_id]["credited"] = True
+                    self._line_ledger[self.last_line_id]["gap_index"] = gap_index
         else:
             # This is the first line of a new session.
             self.session_start_time = timestamp

@@ -136,6 +136,21 @@ def test_today_retains_totals_after_idle_reset_and_excludes_breaks():
     assert payload["session_active"] is False
 
 
+def test_today_honors_saved_pause_boundaries_after_tracker_reset():
+    from GameSentenceMiner.util.database.reading_breaks_table import ReadingBreaksTable
+
+    start = local_time(9).timestamp()
+    timestamps = [start, start + 10, start + 130, start + 140]
+    for index, timestamp in enumerate(timestamps):
+        save_line(str(index), "あ" * 20, timestamp)
+    ReadingBreaksTable.record(start + 20)
+
+    payload = live_stats.build_today_live_stats_payload(live_stats.LiveSessionTracker("Game"), now=start + 200)
+
+    assert payload["values"]["active_reading_time"] == 20.0
+    assert payload["values"]["total_characters"] == 80
+
+
 def test_today_resets_at_cutover_during_an_active_session():
     cutover = local_time(4).timestamp()
     tracker = live_stats.LiveSessionTracker("Game")

@@ -1,5 +1,6 @@
 """Lightweight stats helpers for GameSentenceMiner."""
 
+from bisect import bisect_left
 from collections.abc import Iterable, Sequence
 from math import isfinite
 
@@ -72,6 +73,18 @@ def adaptive_cap_seconds(char_count: int, median_cps: float) -> float:
     else:
         cap = max(ADAPTIVE_FLOOR_SECONDS, char_count * MAX_SEC_PER_CHAR)
     return min(cap, ABSOLUTE_CEILING)
+
+
+def session_reading_seconds(gaps: Sequence[tuple[float, int]]) -> float:
+    """Recalculate all measured gaps at the current session median."""
+    median_cps = session_median_cps(gaps)
+    return sum(min(gap, adaptive_cap_seconds(chars, median_cps)) for gap, chars in gaps)
+
+
+def gap_crosses_reading_break(start: float, end: float, reading_breaks: Sequence[float]) -> bool:
+    """Whether a gap spans an explicit pause; break timestamps must be sorted."""
+    index = bisect_left(reading_breaks, start)
+    return index < len(reading_breaks) and reading_breaks[index] < end
 
 
 def count_cards_from_line(line) -> int:

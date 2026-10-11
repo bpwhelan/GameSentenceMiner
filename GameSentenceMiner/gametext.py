@@ -285,6 +285,12 @@ def set_text_intake_paused(paused: bool) -> bool:
     old_state = is_text_intake_paused()
     gsm_state.text_input_paused = new_state
     if new_state != old_state:
+        if new_state:
+            from GameSentenceMiner.util.database.reading_breaks_table import ReadingBreaksTable
+
+            paused_at = time.time()
+            live_stats_tracker.mark_reading_break(paused_at)
+            ReadingBreaksTable.record(paused_at)
         publish_live_stats_update(live_stats_tracker, reason="intake_paused" if new_state else "intake_resumed")
         logger.info(f"GSM text intake {'paused' if new_state else 'resumed'}.")
         announce_text_intake_state(new_state)
