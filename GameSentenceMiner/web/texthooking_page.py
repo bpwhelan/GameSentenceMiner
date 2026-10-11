@@ -8,6 +8,7 @@ import textwrap
 import threading
 import time
 import webbrowser
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import flask
@@ -19,6 +20,7 @@ from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result, get_sentence
 from GameSentenceMiner.ai.prompts.presets import STUDY_TASKS
 from GameSentenceMiner.ai.setup import AI_SETUP_DOCS_URL, ai_setup_required, ai_error_message, open_ai_settings
 from GameSentenceMiner.obs import get_current_game
+from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
 from GameSentenceMiner.util.config.configuration import (
     get_config,
     gsm_state,
@@ -176,7 +178,7 @@ def _find_free_port(bind_host: str) -> int:
         return int(sock.getsockname()[1])
 
 
-def _run_waitress_server(host: str, bind_port: int):
+def _run_waitress_server(host: str, bind_port: int, *, on_ready: Callable[[], None] | None = None):
     server = None
     try:
         server = create_server(
@@ -188,6 +190,10 @@ def _run_waitress_server(host: str, bind_port: int):
         )
         with _waitress_lock:
             _waitress_servers.append(server)
+        # create_server has bound and activated the listener; requests can now
+        # queue while run() starts processing them.
+        if on_ready is not None:
+            on_ready()
         server.run()
     except Exception as waitress_error:
         logger.error(f"Internal waitress server crashed on {host}:{bind_port}: {waitress_error}")
@@ -210,7 +216,9 @@ def _wait_for_tcp_port(host: str, bind_port: int, timeout_seconds: float = 6.0) 
     return False
 
 
-def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
+def _try_start_single_port_gateway(
+    host: str, external_port: int, *, on_ready: Callable[[], None] | None = None
+) -> bool:
     """
     Single-port mode:
       - Keep waitress and the websocket manager as-is on their internal ports.
@@ -518,6 +526,8 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
             await site.start()
             _single_port_gateway_active = True
             _single_port_gateway_port = external_port
+            if on_ready is not None:
+                on_ready()
             await stop_event.wait()
         finally:
             _single_port_gateway_active = False
@@ -1806,14 +1816,7 @@ def _start_legacy_moved_page_server():
     logger.info(f"Legacy moved-page server active on {host}:{legacy_port} (current texthooker port: {current_port}).")
 
 
-def start_web_server(debug=False):
-    logger.debug("Starting web server...")
-    start_default_websocket_server()
-
-    log = logging.getLogger("werkzeug")
-    log.setLevel(logging.ERROR)  # Set to ERROR to suppress most logs
-    _start_legacy_moved_page_server()
-
+def _open_texthooker_on_startup():
     # A browser launched by an elevated process can inherit its admin context.
     # Keep the saved preference so it applies again on a normal GSM launch.
     if get_config().general.open_multimine_on_startup:
@@ -1824,7 +1827,18 @@ def start_web_server(debug=False):
                 f"or open http://localhost:{_get_single_port()} in your browser."
             )
         else:
-            open_texthooker()
+            # Browser launch can block. Keep the HTTP server free to serve the
+            # first request, including the standalone gateway's event loop.
+            submit_background_work(open_texthooker)
+
+
+def start_web_server(debug=False):
+    logger.debug("Starting web server...")
+    start_default_websocket_server()
+
+    log = logging.getLogger("werkzeug")
+    log.setLevel(logging.ERROR)  # Set to ERROR to suppress most logs
+    _start_legacy_moved_page_server()
 
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS
@@ -1832,11 +1846,11 @@ def start_web_server(debug=False):
     host = get_config().advanced.localhost_bind_address
     single_port = _get_single_port()
     if _is_single_port_experiment_enabled():
-        if _try_start_single_port_gateway(host, single_port):
+        if _try_start_single_port_gateway(host, single_port, on_ready=_open_texthooker_on_startup):
             return
         logger.warning("Single-port gateway unavailable; continuing with default waitress mode.")
 
-    _run_waitress_server(host, single_port)
+    _run_waitress_server(host, single_port, on_ready=_open_texthooker_on_startup)
 
 
 def stop_web_server(timeout: float = 5.0) -> None:
