@@ -563,6 +563,11 @@ def _field_grouping_tags(source_note: "AnkiCard", generated_tags: List[str]) -> 
     return result
 
 
+def _release_note_from_browser(note_id: int):
+    if note_id in (invoke("guiSelectedNotes") or []):
+        notification.open_browser_window(1)
+
+
 def _apply_field_grouping_merge(
     source_note: "AnkiCard",
     source_patch: Dict[str, Any],
@@ -589,6 +594,7 @@ def _apply_field_grouping_merge(
     if not merged_note["fields"]:
         raise ValueError("No configured context fields contained data to merge.")
     _normalize_anki_sentence_line_breaks(merged_note, anki_cfg=config.anki)
+    _release_note_from_browser(target_note_id)
     invoke("updateNoteFields", note=merged_note)
 
     merged_tags = _field_grouping_tags(source_note, generated_tags)

@@ -517,6 +517,7 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
     assert merged_target.noteId == 100
     assert calls == [
         ("notesInfo", {"notes": [100]}),
+        ("guiSelectedNotes", {}),
         (
             "updateNoteFields",
             {
@@ -534,6 +535,43 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
         ("deleteNotes", {"notes": [200]}),
     ]
     assert anki.previous_note_ids == {100}
+
+
+def test_apply_field_grouping_merge_moves_browser_off_selected_target(monkeypatch):
+    config = _base_config()
+    config.anki.field_grouping_additional_fields = []
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    source = SimpleNamespace(
+        noteId=200, get_field=lambda field: {"Sentence": "new", "Picture": "", "SentenceAudio": ""}[field]
+    )
+    target = {
+        "noteId": 100,
+        "fields": {"Sentence": {"value": "original"}, "Picture": {"value": ""}, "SentenceAudio": {"value": ""}},
+    }
+    calls = []
+
+    def fake_invoke(action, **kwargs):
+        calls.append(action)
+        if action == "notesInfo":
+            return [target]
+        if action == "guiSelectedNotes":
+            return [100]
+        return None
+
+    monkeypatch.setattr(anki, "invoke", fake_invoke)
+    monkeypatch.setattr(
+        anki.notification, "open_browser_window", lambda note_id, *_a: calls.append(("browse", note_id)), raising=False
+    )
+
+    anki._apply_field_grouping_merge(
+        source,
+        {"fields": {}},
+        [],
+        {"target_note_id": 100, "order": "front", "delete_duplicate": False},
+        config,
+    )
+
+    assert calls.index(("browse", 1)) < calls.index("updateNoteFields")
 
 
 @pytest.mark.parametrize("order", ["front", "back"])
@@ -559,6 +597,8 @@ def test_repeated_field_grouping_merges_keep_line_breaks_inside_contexts(monkeyp
     def fake_invoke(action, **kwargs):
         if action == "notesInfo":
             return [target]
+        if action == "guiSelectedNotes":
+            return []
         if action == "updateNoteFields":
             updates.append(kwargs["note"])
             target["fields"] = kwargs["note"]["fields"]
