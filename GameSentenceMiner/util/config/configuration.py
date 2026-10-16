@@ -834,6 +834,7 @@ class Anki:
 
     enabled: bool = True
     show_update_confirmation_dialog_v2: bool = True
+    skip_confirmation_for_unvoiced: bool = False
     auto_accept_timer: int = 10
     confirmation_always_on_top: bool = True
     confirmation_focus_on_show: bool = True
@@ -2321,6 +2322,7 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "polling_rate")
             self.sync_shared_field(config.anki, profile.anki, "autoplay_audio")
             self.sync_shared_field(config.anki, profile.anki, "show_update_confirmation_dialog_v2")
+            self.sync_shared_field(config.anki, profile.anki, "skip_confirmation_for_unvoiced")
             self.sync_shared_field(config.anki, profile.anki, "auto_accept_timer")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")

@@ -295,6 +295,20 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.show_update_confirmation_dialog_check,
     )
+    skip_unvoiced_label = window._create_labeled_widget(
+        tabs_i18n,
+        "anki",
+        "skip_confirmation_for_unvoiced",
+        (
+            "Warning: Skip confirmation when VAD detects no voice. The confirmation window was originally "
+            "intended to let you double-check VAD results on unvoiced lines. Skipping it can leave missed "
+            "speech unnoticed and create cards without voice audio."
+        ),
+        color=LabelColor.WARNING,
+        bold=True,
+    )
+    window.anki_skip_confirmation_for_unvoiced_check.setToolTip(skip_unvoiced_label.toolTip())
+    layout.addRow(skip_unvoiced_label, window.anki_skip_confirmation_for_unvoiced_check)
     layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,

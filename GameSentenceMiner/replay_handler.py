@@ -720,7 +720,9 @@ class ReplayAudioExtractor:
 
         if not vad_result.success:
             # Store the trimmed audio path so it can be offered to the user in the confirmation dialog
-            if get_config().anki.show_update_confirmation_dialog_v2:
+            if get_config().anki.show_update_confirmation_dialog_v2 and not getattr(
+                get_config().anki, "skip_confirmation_for_unvoiced", False
+            ):
                 vad_result.trimmed_audio_path = trimmed_audio
                 if os.path.exists(trimmed_audio):
                     final_audio_output = trimmed_audio

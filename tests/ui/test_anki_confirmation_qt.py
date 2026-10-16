@@ -115,6 +115,108 @@ def test_regenerate_sentence_meaning_is_enabled_by_default(monkeypatch):
     app.processEvents()
 
 
+def test_overlay_source_warning_is_shown_on_every_overlay_only_card(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", _UnavailableAudioPlayer)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    dialog = anki_confirmation_qt.AnkiConfirmationDialog()
+
+    for overlay_only in [True, False, True]:
+        dialog.populate_ui(
+            expression="overlay",
+            sentence="The overlay sentence.",
+            screenshot_path=None,
+            previous_screenshot_path=None,
+            audio_path=None,
+            translation="",
+            screenshot_timestamp=0,
+            previous_screenshot_timestamp=0,
+            overlay_only=overlay_only,
+        )
+        assert dialog.overlay_source_warning_label.isHidden() is (not overlay_only)
+        assert dialog.disable_session_checkbox.isHidden() is overlay_only
+    warning = dialog.overlay_source_warning_label.text()
+    assert "text hooking" in warning.lower()
+    assert "ocr" in warning.lower()
+    assert "speed" in warning.lower()
+    assert "statistics" in warning.lower()
+    assert "timing" in warning.lower()
+
+    dialog.deleteLater()
+    app.processEvents()
+
+
+def test_overlay_source_warning_bypasses_session_disable(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "disable_anki_confirmation_session", True)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    populated = []
+    dialog = SimpleNamespace(populate_ui=lambda *args: populated.append(args), exec=lambda: "confirmed")
+    monkeypatch.setattr(anki_confirmation_qt, "_anki_confirmation_dialog_instance", dialog)
+
+    result = anki_confirmation_qt.show_anki_confirmation(
+        None, "overlay", "The overlay sentence.", None, None, None, "", 0, 0, overlay_only=True
+    )
+
+    assert result == "confirmed"
+    assert len(populated) == 1
+    assert populated[0][-1] is True
+    app.processEvents()
+
+
+def test_overlay_source_warning_requires_confirmation_even_with_auto_accept(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    config = deepcopy(anki_confirmation_qt.get_config())
+    config.anki.auto_accept_timer = 1
+    config.anki.autoplay_audio = False
+    config.anki.confirmation_gamepad_enabled = False
+    monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
+    monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", _UnavailableAudioPlayer)
+    monkeypatch.setattr(anki_confirmation_qt.AnkiConfirmationDialog, "_should_focus_on_show", lambda self: False)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    dialog = anki_confirmation_qt.AnkiConfirmationDialog()
+    dialog.populate_ui("overlay", "The overlay sentence.", None, None, None, "", 0, 0, overlay_only=True)
+    dialog.show()
+    app.processEvents()
+
+    assert dialog._auto_accept_qtimer is None
+    assert dialog.auto_accept_label.isHidden()
+
+    dialog.hide()
+    dialog.deleteLater()
+    app.processEvents()
+
+
+@pytest.mark.parametrize("async_mode", [False, True])
+def test_overlay_warning_reaches_confirmation_through_dialog_manager(monkeypatch, async_mode):
+    from GameSentenceMiner.ui import qt_main
+
+    app = QApplication.instance() or QApplication([])
+    shown = []
+
+    def show_confirmation(**kwargs):
+        shown.append(kwargs)
+        return "confirmed"
+
+    manager = qt_main.DialogManager()
+    monkeypatch.setattr(qt_main, "get_dialog_manager", lambda: manager)
+    monkeypatch.setattr(qt_main, "_get_show_anki_confirmation", lambda: show_confirmation)
+    if async_mode:
+        result = asyncio.run(manager.anki_confirmation_async("word", "sentence", None, None, overlay_only=True))
+    else:
+        result = qt_main.launch_anki_confirmation("word", "sentence", None, None, overlay_only=True)
+
+    assert result == "confirmed"
+    assert len(shown) == 1
+    assert shown[0]["overlay_only"] is True
+    manager.deleteLater()
+    app.processEvents()
+
+
 def test_apply_window_behavior_preferences_sets_show_without_activating(monkeypatch):
     config = SimpleNamespace(anki=SimpleNamespace(confirmation_always_on_top=True))
     monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)

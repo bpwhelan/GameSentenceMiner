@@ -199,6 +199,10 @@
             "label": "显示更新确认对话框:",
             "tooltip": "在更新 Anki 卡片之前显示确认对话框。"
           },
+          "skip_confirmation_for_unvoiced": {
+            "label": "跳过未检测到语音行的确认：",
+            "tooltip": "警告：VAD 未检测到语音时跳过确认窗口。确认窗口最初是为了让用户复查未检测到语音行的 VAD 结果。跳过确认可能使漏检的语音无法被发现，并生成没有语音音频的卡片。"
+          },
           "confirmation_gamepad_enabled": {
             "label": "手柄控制:",
             "tooltip": "启用 Anki 确认对话框的可配置手柄按键。对话框打开时，其他 GSM 手柄控制会暂停。"

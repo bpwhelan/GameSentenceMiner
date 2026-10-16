@@ -209,6 +209,10 @@
             "label": "Show Update Confirmation Dialog:",
             "tooltip": "Show a confirmation dialog before updating Anki cards."
           },
+          "skip_confirmation_for_unvoiced": {
+            "label": "Skip Confirmation for Unvoiced Lines:",
+            "tooltip": "Warning: Skip confirmation when VAD detects no voice. The confirmation window was originally intended to let you double-check VAD results on unvoiced lines. Skipping it can leave missed speech unnoticed and create cards without voice audio."
+          },
           "confirmation_gamepad_enabled": {
             "label": "Gamepad Controls:",
             "tooltip": "Enable configurable gamepad bindings for the Anki confirmation dialog. Other GSM gamepad controls are paused while the dialog is open."

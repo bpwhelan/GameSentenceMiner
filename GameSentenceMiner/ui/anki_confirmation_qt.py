@@ -272,6 +272,7 @@ class AnkiConfirmationDialog(QDialog):
         self.vad_result = None
         self.reusing_audio = False
         self.reusing_screenshot = False
+        self.overlay_only = False
         self.result = None
         self.first_launch = True
         self._force_autoplay = False
@@ -370,6 +371,22 @@ class AnkiConfirmationDialog(QDialog):
         dialog_layout = QVBoxLayout(self)
         dialog_layout.setContentsMargins(8, 8, 8, 8)
         dialog_layout.setSpacing(4)
+
+        self.overlay_source_warning_label = QLabel(
+            "<b>Warning: this card was created without a conventional text source.</b><br>"
+            "GSM is using overlay text with best-guess audio and screenshot timing. "
+            "GSM strongly recommends receiving text separately through text hooking or an OCR tab "
+            "for overlay speed and consistency, accurate statistics, reliable voice and screenshot timing, "
+            "and other features."
+        )
+        self.overlay_source_warning_label.setWordWrap(True)
+        self.overlay_source_warning_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.overlay_source_warning_label.setTextFormat(Qt.TextFormat.RichText)
+        self.overlay_source_warning_label.setStyleSheet(
+            "color: #664d03; background-color: #fff3cd; border: 1px solid #ffca2c; border-radius: 4px; padding: 8px;"
+        )
+        self.overlay_source_warning_label.setVisible(False)
+        dialog_layout.addWidget(self.overlay_source_warning_label)
 
         self.auto_accept_label = QLabel()
         self.auto_accept_label.setStyleSheet("color: #007bff; font-weight: bold; font-size: 14px;")
@@ -707,8 +724,14 @@ class AnkiConfirmationDialog(QDialog):
         translation_future=None,
         reusing_audio=False,
         reusing_screenshot=False,
+        overlay_only=False,
     ):
         self._apply_window_behavior_preferences()
+        self.overlay_only = bool(overlay_only)
+        self.overlay_source_warning_label.setVisible(self.overlay_only)
+        self.disable_session_checkbox.setVisible(not self.overlay_only)
+        if self.overlay_only:
+            self._cancel_auto_accept()
 
         # Store state
         self.screenshot_timestamp = screenshot_timestamp
@@ -935,7 +958,7 @@ class AnkiConfirmationDialog(QDialog):
             # showEvent runs before the native window has finished being shown.
             self._focus_on_show_timer.start(0)
 
-        if get_config().anki.auto_accept_timer > 0:
+        if get_config().anki.auto_accept_timer > 0 and not self.overlay_only:
             self._cancel_auto_accept()
             self._auto_accept_remaining = int(get_config().anki.auto_accept_timer)
             self.auto_accept_label.setVisible(True)
@@ -2688,6 +2711,7 @@ def show_anki_confirmation(
     translation_future=None,
     reusing_audio=False,
     reusing_screenshot=False,
+    overlay_only=False,
 ):
     global _anki_confirmation_dialog_instance
 
@@ -2695,7 +2719,7 @@ def show_anki_confirmation(
     if app is None:
         app = QApplication(sys.argv)
 
-    if gsm_state.disable_anki_confirmation_session:
+    if gsm_state.disable_anki_confirmation_session and not overlay_only:
         vad_result = gsm_state.vad_result
         vad_ran = vad_result is not None and hasattr(vad_result, "success")
         vad_detected_voice = vad_ran and bool(vad_result.success)
@@ -2735,6 +2759,7 @@ def show_anki_confirmation(
         translation_future,
         reusing_audio,
         reusing_screenshot,
+        overlay_only,
     )
 
     result = _anki_confirmation_dialog_instance.exec()

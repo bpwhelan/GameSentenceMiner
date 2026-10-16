@@ -66,6 +66,26 @@ def test_same_selected_lines_different_mined_line_reuse_defaults():
     assert config.reuse_screenshot_for_same_selected_lines_different_mined_line is False
 
 
+def test_skip_confirmation_for_unvoiced_defaults_off_for_existing_configs():
+    assert Anki().skip_confirmation_for_unvoiced is False
+    existing = Anki().to_dict()
+    existing.pop("skip_confirmation_for_unvoiced")
+    assert Anki.from_dict(existing).skip_confirmation_for_unvoiced is False
+
+
+def test_skip_confirmation_for_unvoiced_round_trips_and_syncs_across_profiles():
+    config = Config(
+        current_profile="active",
+        configs={
+            "active": ProfileConfig(anki=Anki(skip_confirmation_for_unvoiced=True)),
+            "other": ProfileConfig(),
+        },
+    )
+    config.sync_shared_fields()
+    restored = Config.from_dict(config.to_dict())
+    assert all(profile.anki.skip_confirmation_for_unvoiced for profile in restored.configs.values())
+
+
 def test_confirmation_gamepad_binding_defaults_preserve_existing_controls():
     config = Anki()
 

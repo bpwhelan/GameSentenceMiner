@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -63,6 +64,7 @@ from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
 from GameSentenceMiner.util.text_log import (
     GameLine,
     TextSource,
+    find_matching_line,
     get_all_lines,
     get_text_event,
     get_mined_line,
@@ -99,6 +101,20 @@ def _get_ai_prompt_result():
 
 def _animated_screenshot_codec(settings) -> str:
     return getattr(settings, "codec", ANIMATED_SCREENSHOT_CODEC_DEFAULT)
+
+
+def _should_show_confirmation_dialog(config, vad_result, use_existing_files=False, *, overlay_only=False) -> bool:
+    if overlay_only:
+        return True
+    if not getattr(config.anki, "show_update_confirmation_dialog_v2", True) or use_existing_files:
+        return False
+    if not getattr(config.anki, "skip_confirmation_for_unvoiced", False):
+        return True
+    # With no VAD result (or VAD disabled), the line has not been classified as unvoiced.
+    if vad_result is None or getattr(vad_result, "model", None) in ("No VAD", "OFF", ""):
+        return True
+    # Fallback audio can change success; preserve the original speech detection result.
+    return bool(getattr(vad_result, "voice_detected", getattr(vad_result, "success", False)))
 
 
 def _should_animate_screenshot(config, vad_result) -> bool:
@@ -1009,6 +1025,10 @@ def _generate_media_files(
             assets.prev_screenshot_media_in_anki = list(anki_result.prev_screenshot_media_in_anki)
             assets.video_in_anki = anki_result.video_in_anki
             assets.extra_tags = anki_result.extra_tags
+            assets.reused_audio = bool(assets.audio_in_anki)
+            assets.reused_screenshot = bool(assets.screenshot_in_anki)
+            assets.reused_audio_result_id = result_id if assets.reused_audio else ""
+            assets.reused_screenshot_result_id = result_id if assets.reused_screenshot else ""
             return assets
         logger.warning("Requested reuse audio, but no cached Anki result found. Falling back to new media.")
 
@@ -1285,8 +1305,11 @@ def prefetch_animated_screenshot_for_confirmation(
         return
     if assets.selected_screenshots is not None:
         return
+    config = get_config()
+    if not _should_show_confirmation_dialog(config, vad_result):
+        return
     _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
-    _start_animated_screenshot_prefetch(assets, get_config(), timing_context=timing_context)
+    _start_animated_screenshot_prefetch(assets, config, timing_context=timing_context)
 
 
 def _parse_confirmation_dialog_result(result):
@@ -1728,7 +1751,11 @@ def update_anki_card(
         if assets.reused_screenshot:
             assets.screenshot_path = ""
             assets.pending_animated = False
-    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files and not assets.reused_screenshot:
+    overlay_only = getattr(game_line, "source", None) == getattr(TextSource, "OVERLAY", "overlay")
+    show_confirmation = _should_show_confirmation_dialog(
+        config, vad_result, use_existing_files, overlay_only=overlay_only
+    )
+    if show_confirmation and not assets.reused_screenshot:
         with time_anki_card_block(timing_context, "anki.update_anki_card.start_animated_prefetch"):
             _start_animated_screenshot_prefetch(assets, config, timing_context=timing_context)
 
@@ -1745,7 +1772,7 @@ def update_anki_card(
             precomputed=precomputed_translation is not None,
         ):
             if precomputed_translation is None and translation_future is not None:
-                if translation_future.done():
+                if translation_future.done() or not show_confirmation:
                     try:
                         translation = translation_future.result()
                     except Exception as e:
@@ -1768,7 +1795,7 @@ def update_anki_card(
 
     # 4. (Optional) Show confirmation dialog to the user, which may alter media
     use_voice = update_audio_flag or assets.audio_in_anki
-    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
+    if show_confirmation:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
 
         sentence = note["fields"].get(config.anki.sentence_field, last_note.get_field(config.anki.sentence_field))
@@ -1793,7 +1820,7 @@ def update_anki_card(
         with time_anki_card_block(timing_context, "anki.confirmation_dialog.previous_screenshot_time"):
             previous_line = (
                 _get_previous_context_line(game_line, selected_lines)
-                if _field_is_active("previous_image_field")
+                if not use_existing_files and _field_is_active("previous_image_field")
                 else None
             )
             previous_ss_time = ffmpeg.get_screenshot_time(video_path, previous_line) if previous_line else 0
@@ -1811,6 +1838,7 @@ def update_anki_card(
                 translation_future=translation_future,
                 reusing_audio=assets.reused_audio,
                 reusing_screenshot=assets.reused_screenshot,
+                overlay_only=overlay_only,
             )
 
         cancel_action = _confirmation_cancel_action(result)
@@ -1886,6 +1914,11 @@ def update_anki_card(
         # Add NSFW tag if checkbox was selected
         if add_nsfw_tag:
             assets.extra_tags.append("NSFW")
+    elif config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
+        # Initial card preparation deferred furigana to confirmation, which this line skipped.
+        sentence = note["fields"].get(config.anki.sentence_field, "")
+        if sentence and getattr(config.anki, "sentence_furigana_field", "") not in note["fields"]:
+            _apply_sentence_furigana_field(note, last_note, sentence, force=True)
 
     # 5. Prepare tags
     for extra_tag in assets.extra_tags:
@@ -3546,9 +3579,9 @@ def _resolve_mined_line_for_card(card, lines):
 
     Normally this matches the Anki sentence against the text log. Overlay scans (periodic /
     mouse-move, no text event) aren't in the log unless the user opted into the not-recommended
-    "add scanned lines to log" setting, so fall back to the last overlay scan when it matches the
-    card sentence and the log has no genuine match. This lets Yomitan overlay mining attach
-    audio/screenshot without polluting stats or the texthooker.
+    "add scanned lines to log" setting, so use a matching overlay scan when the log has no
+    genuine match. If no scan matches either, overlay cards use their own sentence and the
+    mining time as a best guess, without adding synthetic text to the log or statistics.
     """
     overlay_line = getattr(gsm_state, "last_overlay_scan_line", None)
     anki_sentence = remove_html_and_cloze_tags(get_sentence(card)) if card else ""
@@ -3570,16 +3603,38 @@ def _resolve_mined_line_for_card(card, lines):
     except Exception:
         matched = None
 
-    if overlay_matches:
-        matched_is_genuine = matched is not None and lines_match(matched.text, anki_sentence)
-        if not matched_is_genuine:
-            return overlay_line
+    matched_is_genuine = matched is not None and (
+        lines_match(matched.text, anki_sentence)
+        or find_matching_line(card, [matched], prefer_recent=overlay_mine) is not None
+    )
+    if not matched_is_genuine:
+        if overlay_matches:
+            matched = overlay_line
+        elif overlay_mine and anki_sentence and not getattr(matched, "clip", None):
+            matched = GameLine(
+                id=str(uuid.uuid4()),
+                text=anki_sentence,
+                time=datetime.now(),
+                prev=None,
+                next=None,
+                index=-1,
+                scene=gsm_state.current_game or "",
+                source=TextSource.OVERLAY,
+                source_padding=TextSource.padding_seconds(TextSource.OVERLAY),
+                excluded_from_stats=True,
+            )
 
     if matched is None:
         # Preserve the original "nothing to mine" error from get_mined_line.
         if overlay_mine:
             return get_mined_line(card, matching_lines, prefer_recent=True, **match_kwargs)
         return get_mined_line(card, matching_lines, **match_kwargs)
+    if getattr(matched, "source", None) == getattr(TextSource, "OVERLAY", "overlay"):
+        logger.warning(
+            f"Anki note {getattr(card, 'noteId', 'unknown')} was mined using overlay text without a conventional "
+            "text source. Using best-guess audio and screenshot timing. Configure text hooking or an OCR tab "
+            "for overlay speed and consistency, accurate statistics, and reliable media timing."
+        )
     return matched
 
 

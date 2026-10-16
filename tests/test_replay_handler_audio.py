@@ -3,6 +3,7 @@ import sys
 from contextlib import contextmanager
 from types import ModuleType, SimpleNamespace
 
+import pytest
 
 _MISSING = object()
 
@@ -369,7 +370,9 @@ def test_get_audio_marks_condensed_audio_for_rebased_editing(tmp_path):
     )
 
 
-def test_get_audio_leaves_output_empty_when_vad_finds_no_voice_and_dialog_is_disabled(tmp_path):
+@pytest.mark.parametrize("skip_unvoiced", [False, True])
+@pytest.mark.parametrize("add_raw_audio", [False, True])
+def test_get_audio_respects_fallback_when_no_voice_confirmation_is_disabled(tmp_path, skip_unvoiced, add_raw_audio):
     source_audio = tmp_path / "source.opus"
     source_audio.write_bytes(b"source")
     trimmed_audio = tmp_path / "trimmed.opus"
@@ -381,11 +384,14 @@ def test_get_audio_leaves_output_empty_when_vad_finds_no_voice_and_dialog_is_dis
             do_vad_postprocessing=True,
             trim_beginning=True,
             cut_and_splice_segments=False,
-            add_audio_on_no_results=False,
+            add_audio_on_no_results=add_raw_audio,
             use_tts_as_fallback=False,
         ),
         audio=SimpleNamespace(extension="opus", ffmpeg_reencode_options_to_use="-b:a 64k"),
-        anki=SimpleNamespace(show_update_confirmation_dialog_v2=False),
+        anki=SimpleNamespace(
+            show_update_confirmation_dialog_v2=skip_unvoiced,
+            skip_confirmation_for_unvoiced=skip_unvoiced,
+        ),
         advanced=SimpleNamespace(multi_line_line_break=" "),
     )
 
@@ -464,8 +470,8 @@ def test_get_audio_leaves_output_empty_when_vad_finds_no_voice_and_dialog_is_dis
             video_path="video.mp4",
         )
 
-    assert result.final_audio_output == ""
-    assert result.vad_result.success is False
+    assert result.final_audio_output == (str(trimmed_audio) if add_raw_audio else "")
+    assert result.vad_result.success is add_raw_audio
     assert result.audio_edit_context == replay_handler.AudioEditContext(
         source_audio_path=str(source_audio),
         source_duration=30.0,
