@@ -55,7 +55,28 @@ app
       enableJitenReader: true,
     });
     await run("new Promise(resolve => setTimeout(resolve, 0))");
+    // Scrolling a continuous category must keep both navigation bars in sync.
+    view.setContentSize(1200, 520);
+    await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    await run(`GSMSettingsNavigation.navigate('capture-source')`);
+    for (const page of ["capture-results", "capture-scanning", "capture-source"]) {
+      await run(`(() => {
+        const panel = document.getElementById('settingsPagePanel');
+        const section = document.querySelector('[data-page="${page}"]');
+        panel.scrollTop += section.getBoundingClientRect().top - panel.getBoundingClientRect().top - 8;
+      })()`);
+      await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+      assert.equal(await run("GSMSettingsNavigation.activePage.id"), page, "Scrolling must select the current section");
+      assert.equal(await run(`document.querySelector('[data-settings-page="${page}"]').getAttribute('aria-selected')`), "true");
+      assert.equal(await run(`document.querySelector('[data-settings-tree-page="${page}"]').classList.contains('active')`), true);
+    }
+    await run(`document.getElementById('settingsPagePanel').scrollTop = document.getElementById('settingsPagePanel').scrollHeight`);
+    await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await run("GSMSettingsNavigation.activePage.id"), "capture-advanced", "The final short section is selected at the bottom");
     const pages = await run("GSMSettingsNavigation.availablePages.map(page => page.id)");
+    assert.ok(pages.includes("system-tokenizer"));
+    assert.ok(!pages.includes("reading-tokenizer") && !pages.includes("reading-appearance"));
+    assert.equal(await run(`document.getElementById('furiganaScale').closest('[data-page]').dataset.page`), "reading-readings");
     const sizes = [
       [1200, 980],
       [900, 720],
@@ -87,40 +108,57 @@ app
         assert.deepEqual(layout.clipped, [], `${page} clips controls at ${width}px`);
         assert.ok(layout.controls > 0, `${page} has no visible controls`);
       }
-      for (const page of ["overview-start", "reading-readings", "gamepad-bindings", "tools-guide"]) {
+      for (const page of ["overview-start", "reading-readings", "capture-source", "gamepad-bindings", "tools-guide", "tools-translation", "system-tokenizer"]) {
         await run(`GSMSettingsNavigation.navigate(${JSON.stringify(page)})`);
         if (page === "overview-start") {
           await run(`document.querySelectorAll('#settingsHome details').forEach(details => { details.open = false; })`);
         }
         await run("new Promise(resolve => setTimeout(resolve, 80))");
-        const png = await new Promise((resolve) => {
-          view.webContents.once("paint", (_event, _dirty, image) => resolve(image.toPNG()));
-          view.webContents.invalidate();
-        });
-        fs.writeFileSync(path.join(directory, `${page}-${width}.png`), png);
+        fs.writeFileSync(path.join(directory, `${page}-${width}.png`), (await view.webContents.capturePage()).toPNG());
       }
-      await run(
-        `GSMSettingsNavigation.navigate('overview-start'); GSMSettingsHome.scrollToSection('readings', {behavior: 'instant'})`,
-      );
+      await run(`GSMSettingsNavigation.navigate('overview-start')`);
+      assert.equal(await run(`document.querySelector('.home-anchor-nav') === null`), true);
+      if (width > 1050) {
+        const cards = await run(`Array.from(document.querySelectorAll('.home-card'), card => ({ height: card.offsetHeight, bottom: card.querySelector('.home-card-actions').offsetTop - card.offsetTop }))`);
+        assert.ok(cards.every(card => card.height === cards[0].height), "Home cards must share a height");
+        assert.ok(cards.every(card => Math.abs(card.bottom - cards[0].bottom) <= 1), `Home card actions must line up: ${JSON.stringify(cards)}`);
+      }
+      await run(`(() => {
+        const panel = document.getElementById('settingsPagePanel');
+        const card = document.getElementById('home-section-readings');
+        panel.scrollTop += card.getBoundingClientRect().top - panel.getBoundingClientRect().top - 12;
+      })()`);
       assert.equal(
         await run(`document.documentElement.scrollTop + document.body.scrollTop`),
         0,
-        "Home jump links must keep the app header in place",
-      );
-      assert.equal(
-        await run(
-          `document.getElementById('home-heading-readings').getBoundingClientRect().top >= document.querySelector('.home-anchor-nav').getBoundingClientRect().bottom`,
-        ),
-        true,
-        "The section title must clear the sticky jump links",
+        "Scrolling the Home cards must keep the app header in place",
       );
       await run("new Promise(resolve => setTimeout(resolve, 80))");
-      const controlsPng = await new Promise((resolve) => {
-        view.webContents.once("paint", (_event, _dirty, image) => resolve(image.toPNG()));
-        view.webContents.invalidate();
-      });
-      fs.writeFileSync(path.join(directory, `home-controls-${width}.png`), controlsPng);
+      fs.writeFileSync(path.join(directory, `home-controls-${width}.png`), (await view.webContents.capturePage()).toPNG());
     }
+    await run(`GSMSettingsNavigation.navigate('overview-start')`);
+    const help = `document.querySelector('#home-manualMode').closest('label').querySelector('.setting-help')`;
+    await run(`(() => {
+      const panel = document.getElementById('settingsPagePanel');
+      const card = document.getElementById('home-section-activation');
+      panel.scrollTop += card.getBoundingClientRect().top - panel.getBoundingClientRect().top - 12;
+    })()`);
+    await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    // Offscreen windows do not receive OS focus, so dispatch its focus event.
+    await run(`${help}.focus({ preventScroll: true }); ${help}.dispatchEvent(new FocusEvent('focus'))`);
+    assert.equal(await run(`document.querySelector('.setting-tooltip:popover-open') !== null`), true, "Keyboard focus opens contextual help");
+    assert.equal(await run(`(() => {
+      const rect = document.querySelector('.setting-tooltip:popover-open').getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
+    })()`), true, "Help must fit in the window");
+    await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await run(`document.querySelector('.setting-tooltip:popover-open') !== null`), true);
+    fs.writeFileSync(path.join(directory, "home-help-640.png"), (await view.webContents.capturePage()).toPNG());
+    await run(`${help}.click()`);
+    assert.equal(await run(`document.getElementById('home-manualMode').checked`), true, "Help must not toggle the setting");
+    await run(`${help}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    assert.equal(await run(`document.querySelector('.setting-tooltip:popover-open') === null`), true, "Escape closes help");
+    assert.deepEqual(saved, [], "Navigation and contextual help must not save settings");
     await run(
       `GSMSettingsNavigation.navigate('overview-start'); document.getElementById('home-showTextIndicators').click()`,
     );
@@ -131,6 +169,16 @@ app
     await run("new Promise(resolve => setTimeout(resolve, 0))");
     assert.equal(await run(`document.getElementById('home-showTextIndicators').checked`), true);
     saved.length = 0;
+    // Help stays searchable even while it is tucked away in a tooltip.
+    await run(`(() => {
+      const input = document.getElementById('settingsSearchInput');
+      input.value = 'tightly cropped';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('settingsPagePanel').scrollTop = 10000;
+    })()`);
+    await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await run(`document.getElementById('last_sent_ocr_presence_check').getClientRects().length > 0`), true);
+    assert.equal(await run("GSMSettingsNavigation.activePage.id"), "overview-start", "Scrolling search results must not change categories");
     await run(`(() => {
     const input = document.getElementById('settingsSearchInput');
     input.value = 'Periodic Scan Ratio';
@@ -150,11 +198,11 @@ app
     await run(
       `document.querySelector('[data-settings-page="reading-readings"]').click(); document.getElementById('readingLanguage').value = 'chinese'; document.getElementById('readingLanguage').dispatchEvent(new Event('change', { bubbles: true }))`,
     );
-    await run(`GSMSettingsNavigation.navigate('reading-appearance')`);
+    await run(`GSMSettingsNavigation.navigate('reading-readings')`);
     assert.equal(await run(`document.getElementById('pinyinToneColorsGroup').getClientRects().length > 0`), true);
     assert.deepEqual(errors, []);
     console.log(
-      `Settings: ${pages.length} pages checked at ${sizes.length} sizes; save and profile updates passed. Screenshots: ${directory}`,
+      `Settings: ${pages.length} pages checked at ${sizes.length} sizes; scrolling, search, help, save and profile updates passed. Screenshots: ${directory}`,
     );
     clearTimeout(timeout);
     view.destroy();

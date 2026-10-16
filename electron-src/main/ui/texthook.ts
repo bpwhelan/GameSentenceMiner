@@ -1006,7 +1006,9 @@ function isIgnorableEngineLine(line: string): boolean {
         line === '======================' ||
         line === 'Now showing text from all hooks.' ||
         line === 'Now showing text only from selected hook.' ||
-        /^Selected hook #[0-9a-fA-F]+(?: \(Handle: [0-9a-fA-F]+\))?(?:Now showing text only from selected hook\.)?$/.test(line)
+        /^Now showing text only from \d+ selected hook\(s\)\.$/.test(line) ||
+        // Support both CLI acknowledgement formats, including joined status lines.
+        /^Selected hook(?: #[0-9a-fA-F]+(?: \(Handle: [0-9a-fA-F]+\))?|: [0-9a-fA-F]+)(?:\s*Now showing text only from (?:selected hook|\d+ selected hook\(s\))\.)?$/.test(line)
     );
 }
 

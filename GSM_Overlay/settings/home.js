@@ -10,7 +10,6 @@
     {
       id: "activation",
       title: "Show & hide",
-      description: "Control when the overlay gets your attention.",
       page: "interaction-reveal",
       fields: [
         field("manualMode", "Push to show", "Keep the overlay out of the way until you activate it."),
@@ -33,7 +32,6 @@
     {
       id: "capture",
       title: "Capture source",
-      description: "Choose where text comes from.",
       page: "capture-source",
       fields: [
         field("engine_v2", "OCR engine"),
@@ -45,12 +43,11 @@
     {
       id: "readings",
       title: "Readings & display",
-      description: "Choose readings and capture borders for your game.",
       page: "reading-readings",
       fields: [
         field("showFurigana", "Show furigana / pinyin"),
         field("readingLanguage", "Reading language"),
-        field("showTextIndicators", "Red borders around captured text", "Turn this off for a cleaner screen."),
+        field("showTextIndicators", "Red borders around captured text"),
       ],
       links: [
         ["reading-readings", "Reading settings →"],
@@ -60,9 +57,12 @@
     {
       id: "dictionary",
       title: "Dictionary",
-      description: "Choose and configure your lookup reader.",
       page: "system-dictionary",
-      fields: [field("dictionaryReaderSelection", "Lookup dictionary", "Changing readers restarts the overlay.")],
+      fields: [
+        field("dictionaryReaderSelection", "Lookup dictionary", "Changing readers restarts the overlay.", {
+          inlineHelp: true,
+        }),
+      ],
       actions: [["openDictionarySettings", "Yomitan Settings"]],
       links: [["reading-jiten", "Jiten settings →"]],
     },
@@ -104,6 +104,7 @@
     const copy = element("span", "label-text", config.label);
     if (config.help) {
       const help = element("span", "home-field-help", config.help);
+      if (config.inlineHelp) help.dataset.helpInline = "";
       help.id = `${control.id}-help`;
       control.setAttribute("aria-describedby", help.id);
       copy.append(help);
@@ -120,25 +121,6 @@
     return button;
   }
 
-  function scrollToSection(id, options = {}) {
-    const target = document.getElementById(`home-section-${id}`);
-    const panel = document.getElementById("settingsPagePanel");
-    if (!target || !panel) return;
-    const anchors = document.querySelector(".home-anchor-nav");
-    const top =
-      panel.scrollTop +
-      target.getBoundingClientRect().top -
-      panel.getBoundingClientRect().top -
-      (anchors?.offsetHeight || 0) -
-      12;
-    // Scroll only the settings pane: scrollIntoView can also move the app's
-    // header/sidebar when the root has overflow hidden.
-    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    panel.scrollTo({ top, behavior: options.behavior || (reducedMotion ? "instant" : "smooth") });
-    target.tabIndex = -1;
-    target.focus({ preventScroll: true });
-  }
-
   function makeSection(section) {
     const card = element("section", "setting-group home-card");
     card.dataset.tab = "overview";
@@ -147,9 +129,11 @@
     const heading = element("h4", "", section.title);
     heading.id = `home-heading-${section.id}`;
     card.setAttribute("aria-labelledby", heading.id);
-    header.append(heading, element("p", "home-card-description", section.description));
+    header.append(heading);
     card.append(header);
-    section.fields.forEach((config) => card.append(makeField(config)));
+    const fields = element("div", "home-card-fields");
+    section.fields.forEach((config) => fields.append(makeField(config)));
+    card.append(fields);
     if (section.warning) {
       const warning = element("p", "home-warning");
       warning.id = "homeManualWarning";
@@ -177,7 +161,7 @@
     rendered = true;
     const context = element("div", "home-context");
     const profile = element("span", "home-profile");
-    profile.append(element("span", "", "GSM profile"));
+    profile.append(element("span", "", "Active Profile"));
     const name = element("strong", "", "Default");
     name.id = "homeProfileName";
     profile.append(name);
@@ -185,54 +169,27 @@
     const status = element("span", "home-current-setup");
     status.id = "homeCurrentSetup";
     const actions = element("div", "home-primary-actions");
-    const dictionary = element("button", "home-dictionary-action", "Yomitan Settings");
-    dictionary.type = "button";
-    dictionary.id = "home-openDictionarySettings";
-    dictionary.dataset.homeAction = "openDictionarySettings";
-    dictionary.dataset.dictionarySettingsLabel = "";
-    dictionary.title = "Manage dictionaries, appearance, and lookup behavior";
-    dictionary.addEventListener("click", () => document.getElementById("openDictionarySettings").click());
-    actions.append(dictionary, link("system-profiles", "Profiles →"));
+    actions.append(link("system-profiles", "Manage Profiles →"));
     context.append(status, actions);
     const presets = element("section", "setting-group home-presets");
     presets.dataset.tab = "overview";
     presets.id = "overlayPresetsGroup";
     const header = element("div", "home-presets-heading");
-    header.append(
-      element("h4", "", "Start with a quick setup"),
-      element("span", "", "Apply a starting point. Adjust anything below."),
-    );
+    header.append(element("h4", "", "Quick Setup"));
     const modes = element("div", "preset-cards home-mode-cards");
     modes.id = "overlayPresetCards";
+    const recipesRow = element("div", "home-recipes-row");
+    const recipesLabel = element("span", "home-recipes-heading", "Presets");
     const recipes = element("div", "home-recipe-cards");
     recipes.id = "overlayRecipeCards";
+    recipesRow.append(recipesLabel, recipes);
     const presetStatus = element("p", "home-preset-status");
     presetStatus.id = "homePresetStatus";
     presetStatus.setAttribute("role", "status");
-    presets.append(
-      header,
-      modes,
-      element("p", "home-recipes-heading", "Add what you need"),
-      recipes,
-      element(
-        "p",
-        "home-preset-note",
-        "Each setup changes only the settings it describes. Your OCR engine, capture areas, dictionaries, and API keys are kept.",
-      ),
-      presetStatus,
-    );
-    const anchors = element("nav", "home-anchor-nav");
-    anchors.setAttribute("aria-label", "Home sections");
-    for (const section of sections) {
-      const button = element("button", "", section.title);
-      button.type = "button";
-      button.dataset.homeSection = section.id;
-      button.addEventListener("click", () => scrollToSection(section.id));
-      anchors.append(button);
-    }
+    presets.append(header, modes, recipesRow, presetStatus);
     const grid = element("div", "home-settings-grid");
     grid.append(...sections.map(makeSection));
-    mount.append(context, presets, anchors, grid);
+    mount.append(context, presets, grid);
     const observer = new MutationObserver(refresh);
     for (const { source } of shortcuts)
       observer.observe(source, {
@@ -294,5 +251,5 @@
     warning.hidden = !checked("manualMode") || !warning.textContent;
   }
 
-  global.GSMSettingsHome = { render, refresh, scrollToSection, searchTermsFor: (id) => searchTerms.get(id) || "" };
+  global.GSMSettingsHome = { render, refresh, searchTermsFor: (id) => searchTerms.get(id) || "" };
 })(window);

@@ -175,6 +175,17 @@ describe('text hook flush delay helpers', () => {
                 'Selected hook #4 (Handle: 3)Now showing text only from selected hook.',
             ),
         ).toBe(true);
+        expect(__test.isIgnorableEngineLine('Selected hook: 3')).toBe(true);
+        expect(__test.isIgnorableEngineLine('Selected hook: AF')).toBe(true);
+        expect(__test.isIgnorableEngineLine('Now showing text only from 1 selected hook(s).')).toBe(true);
+        expect(__test.isIgnorableEngineLine('Now showing text only from 2 selected hook(s).')).toBe(true);
+        expect(
+            __test.isIgnorableEngineLine(
+                'Selected hook: 3Now showing text only from 1 selected hook(s).',
+            ),
+        ).toBe(true);
+        expect(__test.isIgnorableEngineLine('Selected hook: the one in the story')).toBe(false);
+        expect(__test.isIgnorableEngineLine('Now showing text only from the game.')).toBe(false);
     });
 
     it('does not treat unreadable PE bitness as x64', async () => {

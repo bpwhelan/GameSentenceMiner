@@ -373,10 +373,12 @@
   const CARD_HTML = `
     <h4>Push to Show</h4>
     <label>
-      <span class="label-text">Manual Mode (Enabled)</span>
+      <span class="label-text">
+        Manual Mode (Enabled)
+        <div class="hotkey-info">Activate with the hotkey or by entering gamepad/keyboard navigation.</div>
+      </span>
       <input type="checkbox" id="manualMode" />
     </label>
-    <div class="hotkey-info">Activate with the hotkey or by entering gamepad/keyboard navigation. Navigation uses its own hold/toggle binding in Gamepad settings.</div>
     <label>
       <span class="label-text">Push to Show Type</span>
       <select id="manualModeType">
@@ -398,23 +400,17 @@
       <span class="label-text">Focus Overlay on Activate</span>
       <input type="checkbox" id="manualModeDisableInteractionFocusOverlay" />
     </label>
-    <div class="hotkey-info">Standard hotkeys use Electron when possible. Modifier-only hotkeys like Shift use the input server.</div>
-    <div id="manualHotkeyBackendStatus" class="hotkey-info">Backend: Electron</div>
-    <div id="manual-hotkey-platform-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
-    <div id="manual-hotkey-runtime-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
-    <div id="manual-hotkey-mouse-hold-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
+    <div id="manual-hotkey-platform-warning" class="hotkey-info ctrl-warning" style="display: none;"></div>
+    <div id="manual-hotkey-runtime-warning" class="hotkey-info ctrl-warning" style="display: none;"></div>
+    <div id="manual-hotkey-mouse-hold-warning" class="hotkey-info ctrl-warning" style="display: none;"></div>
     <label>
       <span class="label-text">
         Hotkey
-        <div class="hotkey-info">Used for the selected Push to Show type above</div>
-        <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key or Mouse4/Mouse5 (modifiers optional)</div>
-        <div id="ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        <div class="hotkey-info">Click input and press a key or Mouse4/Mouse5 (modifiers optional). <span id="manualHotkeyBackendStatus">Backend: Electron</span></div>
+        <div id="ctrl-warning" class="hotkey-info ctrl-warning" style="display: none;">Warning: Ctrl key may interfere with game controls (text skipping)</div>
       </span>
       <div class="input-container">
         <input type="text" id="showHotkey" value="Shift + Space" title="${HOTKEY_INPUT_TITLE.replace(/"/g, "&quot;").replace(/\n/g, "&#10;")}" />
-        <button type="button" class="guide-button" onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
-          Guide
-        </button>
       </div>
     </label>
   `;

@@ -1,8 +1,8 @@
 // Central content for the overlay-settings discoverability layer.
 //
 // Two globals consumed by settings-enhancer.js:
-//   GSM_SETTING_DESCRIPTIONS  id -> one-line description, injected under settings
-//                             that don't already have a hand-written .hotkey-info.
+//   GSM_SETTING_DESCRIPTIONS  id -> optional tooltip for settings whose titles
+//                             need context and have no hand-written help.
 //   GSM_GROUP_KEYWORDS        group-heading substring -> extra search synonyms, so a
 //                             search like "controller" finds the Gamepad settings.
 //
@@ -10,64 +10,27 @@
 (function (global) {
   "use strict";
 
-  // Only ids that lack an inline .hotkey-info need an entry here; the enhancer
-  // skips any control that already has help text so nothing is duplicated.
+  // Keep only useful context. Straightforward titles do not need a second
+  // explanation or a help icon; existing markup supplies the detailed help.
   const GSM_SETTING_DESCRIPTIONS = {
     // Visibility / capture indicators
     showReadyIndicator: "Show a small dot when the overlay is connected and ready to capture.",
     showTextIndicators:
       "The red boxes/borders drawn around captured text — they show the overlay is working. Turn this off to remove the boxes.",
-    fadeTextIndicators: "Fade the capture borders out after a moment instead of keeping them solid.",
     showRecycledIndicator: "Mark lines the overlay has already shown before (recycled text).",
 
     // Behavior / startup
-    openSettingsOnStartup: "Open this settings window automatically each time the overlay starts.",
-    hideOverlayOnStartup: "Keep the overlay window hidden until a game or capture signal reveals it.",
     showMainBoxOnStartup: "Show the floating debug box on startup. Not recommended — use the tray instead.",
-    afkTimer: "Auto-minimize the overlay after this many idle minutes (0 disables).",
 
     // OCR / capture
-    engine_v2: "Which OCR engine reads text from the screen. Stored with your active GSM profile.",
-    monitor_to_capture: "Which monitor the OCR engine captures from.",
     use_overlay_area_config: "Restrict OCR to the capture areas you defined instead of the whole screen.",
-    minimum_character_size: "Ignore detected characters smaller than this pixel height (0 = keep all).",
-    periodic: "Re-run OCR on a timer so text updates without a manual trigger.",
-    periodic_interval: "How often periodic scanning re-runs OCR, in seconds.",
-    scan_on_mouse_move: "Only re-scan while the cursor is moving over the game window.",
-    inject_scanned_lines: "Send scanned lines to the text log so they count toward mining and stats.",
-    use_ocr_result_v2: "Use the newer OCR result pipeline.",
-    supplement_ocr_result_with_overlay: "Merge overlay text into the OCR result for more complete lines.",
-    last_sent_ocr_presence_check:
-      "Start a background image check after each overlay result and mark its text stale when the tight text crop disappears.",
-    last_sent_ocr_presence_remove_notation:
-      "Remove furigana, Jiten highlights, and text indicators when the last OCR text disappears.",
     last_sent_ocr_presence_invalidate_lookups:
       "Remove stale OCR text targets so Yomitan and controller lookups cannot select text that is no longer visible.",
     use_text_filtering: "Filter out junk/noise characters from OCR output.",
-    ocr_full_screen_instead_of_obs: "Capture the full screen for OCR instead of the OBS game window.",
-
-    // Furigana / readings
-    showFurigana: "Draw furigana/pinyin readings above the captured text.",
-    hideFuriganaOnStartup: "Start with readings hidden; reveal them with the toggle hotkey.",
-    hideFuriganaAfterSeconds: "Auto-hide readings this many seconds after they appear (0 = stay visible).",
-    furiganaColor: "Color of the furigana reading text.",
-    furiganaOutlineColor: "Color of the outline drawn around furigana for contrast.",
-    furiganaOutlineWidth: "Thickness of the furigana outline, in pixels.",
-    furiganaFontWeight: "How bold the furigana text is drawn.",
-
-    // Pinyin tone colors
-    pinyinTone1Color: "Color for first-tone (high level) pinyin syllables.",
-    pinyinTone2Color: "Color for second-tone (rising) pinyin syllables.",
-    pinyinTone3Color: "Color for third-tone (dipping) pinyin syllables.",
-    pinyinTone4Color: "Color for fourth-tone (falling) pinyin syllables.",
-    pinyinTone5Color: "Color for neutral-tone pinyin syllables.",
 
     // Live stats fields
-    liveStatsFieldCharsPerHour: "Show your reading speed in characters per hour.",
-    liveStatsFieldTotalCharacters: "Show total characters read this session.",
     liveStatsFieldActiveReadingTime: "Show time spent actively reading this session.",
     liveStatsFieldRawReadingTime: "Show raw elapsed session time, including idle gaps.",
-    liveStatsFieldCardsMined: "Show how many Anki cards you've mined this session.",
   };
 
   // Matched case-insensitively against each group's heading (<h4>/<summary>) text.

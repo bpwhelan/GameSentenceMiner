@@ -12,10 +12,15 @@
     <div class="settings-app">
       <aside class="settings-sidebar">
         <div class="settings-brand">
-          <span class="brand-mark" aria-hidden="true">G</span>
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="14" rx="2" />
+              <path d="M7 10h10M7 14h6" />
+            </svg>
+          </span>
           <div>
-            <strong>Overlay</strong>
-            <span>GameSentenceMiner</span>
+            <strong>GSM Overlay</strong>
+            <span>Settings &amp; Controls</span>
           </div>
         </div>
         <button
@@ -37,7 +42,7 @@
           </svg>
           <span data-dictionary-settings-label>Yomitan Settings</span>
         </button>
-        <div class="sidebar-label">Settings</div>
+        <div class="sidebar-label">Categories</div>
         <div
           id="settingsCategories"
           class="settings-tabs"
@@ -46,55 +51,74 @@
           aria-orientation="vertical"
         ></div>
         <div class="sidebar-footer">
-          <button type="button" class="sidebar-link" data-doc-key="overlay">
-            Overlay guide
-            <span aria-hidden="true">↗</span>
-          </button>
-          <button type="button" class="sidebar-link" data-doc-key="overlayGamepad">
-            Controller guide
-            <span aria-hidden="true">↗</span>
-          </button>
+          <div class="sidebar-doc-links">
+            <button type="button" class="sidebar-link" data-doc-key="overlay">
+              Overlay guide
+              <span aria-hidden="true">↗</span>
+            </button>
+            <button type="button" class="sidebar-link" data-doc-key="overlayGamepad">
+              Controller guide
+              <span aria-hidden="true">↗</span>
+            </button>
+          </div>
         </div>
       </aside>
       <main class="settings-main">
         <header class="settings-header">
-          <div>
+          <div class="settings-header-titles">
             <div class="settings-eyebrow">Overlay settings</div>
-            <h1 id="settingsCategoryTitle">Overview</h1>
+            <div class="settings-title-row">
+              <h1 id="settingsCategoryTitle">Overview</h1>
+              <span class="settings-save-note">
+                <span aria-hidden="true"></span>
+                Auto-saved
+              </span>
+            </div>
           </div>
-          <div class="settings-search" role="search">
-            <svg
-              class="settings-search-icon"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              aria-hidden="true"
-            >
-              <circle cx="10.5" cy="10.5" r="6.5" />
-              <path d="m16 16 5 5" />
-            </svg>
-            <input
-              type="search"
-              id="settingsSearchInput"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="Search all settings…"
-              aria-label="Search all overlay settings"
-              aria-controls="settingsContent"
-            />
-            <span id="settingsSearchCount" class="settings-search-count" role="status"></span>
-            <button
-              type="button"
-              id="settingsSearchClear"
-              class="settings-search-clear"
-              title="Clear search"
-              aria-label="Clear search"
-            >
-              ×
-            </button>
+          <div class="settings-search-area">
+            <div class="settings-search" role="search">
+              <svg
+                class="settings-search-icon"
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                aria-hidden="true"
+              >
+                <circle cx="10.5" cy="10.5" r="6.5" />
+                <path d="m16 16 5 5" />
+              </svg>
+              <input
+                type="search"
+                id="settingsSearchInput"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Search settings or press / …"
+                aria-label="Search all overlay settings"
+                aria-controls="settingsContent"
+              />
+              <span id="settingsSearchCount" class="settings-search-count" role="status"></span>
+              <kbd class="settings-search-kbd" aria-hidden="true">/</kbd>
+              <button
+                type="button"
+                id="settingsSearchClear"
+                class="settings-search-clear"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            </div>
+            <div class="settings-quick-filters" aria-label="Quick filter topics">
+              <button type="button" class="quick-filter-chip" data-quick-filter="hotkey">Hotkeys</button>
+              <button type="button" class="quick-filter-chip" data-quick-filter="furigana">Furigana</button>
+              <button type="button" class="quick-filter-chip" data-quick-filter="ocr">OCR &amp; Area</button>
+              <button type="button" class="quick-filter-chip" data-quick-filter="controller">Controller</button>
+              <button type="button" class="quick-filter-chip" data-quick-filter="jiten">Jiten</button>
+              <button type="button" class="quick-filter-chip" data-quick-filter="stats">Stats</button>
+            </div>
           </div>
         </header>
         <div id="settingsCategoryPanel" role="tabpanel">
@@ -105,13 +129,9 @@
                 <h2 id="settingsPageTitle">Start here</h2>
                 <p id="settingsPageDescription"></p>
               </div>
-              <span class="settings-save-note">
-                <span aria-hidden="true"></span>
-                Changes save automatically
-              </span>
             </div>
             <div id="settingsSearchNoResults" class="settings-search-noresults" hidden>
-              No settings match your search. Try a setting name or a word like “controller” or “furigana”.
+              No settings match your search. Try a setting name or click one of the filter topics above.
             </div>
             <div class="settings-grid" id="settingsContent">
               <!-- Home is assembled from the existing controls by settings/home.js. -->
@@ -120,36 +140,14 @@
               </section>
               <!-- Reading & display -->
 
-              <section class="settings-page" data-page="reading-indicators">
-                <div class="setting-group" data-tab="reading">
-                  <h4>Visibility</h4>
-                  <label>
-                    <span class="label-text">Show "Ready" Indicator</span>
-                    <input type="checkbox" id="showReadyIndicator" />
-                  </label>
-                  <label>
-                    <span class="label-text">Show Text Indicators (Red Border)</span>
-                    <input type="checkbox" id="showTextIndicators" />
-                  </label>
-                  <label class="sub-option">
-                    <span class="label-text">Fade Text Indicators</span>
-                    <input type="checkbox" id="fadeTextIndicators" />
-                  </label>
-                  <label>
-                    <span class="label-text">Show Recycled Line Indicator</span>
-                    <input type="checkbox" id="showRecycledIndicator" />
-                  </label>
-                </div>
-              </section>
-
               <section class="settings-page" data-page="reading-readings">
                 <div class="setting-group" data-tab="reading">
-                  <h4>Furigana Display</h4>
+                  <h4>Furigana &amp; Pinyin Readings</h4>
                   <label>
                     <span class="label-text">
                       Reading Language
                       <div class="hotkey-info">
-                        Choose Japanese furigana or Chinese pinyin. Japanese uses the backend in the Tokenizer tab;
+                        Choose Japanese furigana or Chinese pinyin. Japanese uses the backend in System → Tokenizer;
                         Chinese is computed locally.
                       </div>
                     </span>
@@ -170,50 +168,25 @@
                     <span class="label-text">Hide Furigana After (seconds, 0 = disabled)</span>
                     <input type="number" id="hideFuriganaAfterSeconds" value="0" min="0" max="60" step="1" />
                   </label>
-                </div>
-                <div class="setting-group" data-tab="reading">
-                  <h4>Furigana Hotkeys</h4>
                   <label>
                     <span class="label-text">
                       Toggle Furigana Hotkey
-                      <div class="hotkey-info">Show/hide furigana on overlay</div>
-                      <div class="hotkey-info" style="color: #4caf50; font-size: 10px">
-                        Click input and press your desired key (modifiers optional)
-                      </div>
-                      <div
-                        id="furigana-ctrl-warning"
-                        class="hotkey-info"
-                        style="color: #ff6b6b; font-size: 10px; display: none"
-                      >
-                        ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                      <div class="hotkey-info">Show or hide readings on the overlay</div>
+                      <div id="furigana-ctrl-warning" class="hotkey-info ctrl-warning" style="display: none">
+                        Ctrl may trigger text skipping in visual novels
                       </div>
                     </span>
                     <div class="input-container">
                       <input
                         type="text"
                         id="toggleFuriganaHotkey"
+                        class="hotkey-input"
                         value="Alt+F"
-                        title="Enter a valid hotkey (e.g., Alt+F)
-
-⚠️ WARNING: Avoid Ctrl key in games/visual novels
-(Ctrl is commonly used for text skipping)
-
-Note: Some keys may not work (e.g., numpad +, certain special keys)
-Use regular keyboard keys for best compatibility"
+                        title="Click and press your desired shortcut (e.g., Alt+F). Avoid Ctrl in visual novels."
                       />
-                      <button
-                        type="button"
-                        class="guide-button"
-                        onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')"
-                      >
-                        Guide
-                      </button>
                     </div>
                   </label>
                 </div>
-              </section>
-
-              <section class="settings-page" data-page="reading-appearance">
                 <div class="setting-group" data-tab="reading" id="pinyinToneColorsGroup">
                   <h4>Pinyin Tone Colors</h4>
                   <label>
@@ -295,103 +268,6 @@ Use regular keyboard keys for best compatibility"
                 </div>
               </section>
 
-              <section class="settings-page" data-page="reading-tokenizer">
-                <div class="setting-group" data-tab="reading">
-                  <h4>Furigana Tokenizer</h4>
-                  <div class="shared-setting-note">
-                    These tokenizer settings are shared with controller navigation. Changing them here also updates
-                    Controller → Navigation.
-                  </div>
-                  <label>
-                    <span class="label-text">
-                      Token/Furigana Backend
-                      <div class="hotkey-info">
-                        Choose whether tokenization/furigana uses overlay MeCab, overlay Sudachi (auto-downloads core
-                        dict), Yomitan bridge, Yomitan API, JitenAPI, or JPDB API
-                      </div>
-                    </span>
-                    <select id="furiganaTokenizerBackend">
-                      <option value="mecab">MeCab</option>
-                      <option value="sudachi">Sudachi (Auto-download)</option>
-                      <option value="yomitan-bridge">Yomitan Bridge (Overlay)</option>
-                      <option value="yomitan-api">Yomitan API (Setup Required)</option>
-                      <option value="jiten-api">JitenAPI</option>
-                      <option value="jpdb-api">JPDB API</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span class="label-text">
-                      Local Fallback Provider
-                      <div class="hotkey-info">If the selected backend fails, retry with this local provider.</div>
-                    </span>
-                    <select id="furiganaLocalTokenizerFallbackBackend">
-                      <option value="mecab">MeCab</option>
-                      <option value="sudachi">Sudachi</option>
-                    </select>
-                  </label>
-                  <label id="furiganaSudachiDictionaryLabel" data-tokenizer-setting="sudachi">
-                    <span class="label-text">
-                      Sudachi Dictionary
-                      <div class="hotkey-info">
-                        Choose the Sudachi dictionary edition to auto-download. Core is the default balance; Small is
-                        the mini option; Full includes more proper nouns.
-                      </div>
-                    </span>
-                    <select id="furiganaSudachiDictionary">
-                      <option value="core">Core (Default)</option>
-                      <option value="small">Small (Mini)</option>
-                      <option value="full">Full</option>
-                    </select>
-                  </label>
-                  <div
-                    id="sudachiProgressContainer"
-                    class="sudachi-progress-container"
-                    data-tokenizer-setting="sudachi"
-                  >
-                    <div class="sudachi-progress-header">
-                      <span id="sudachiProgressLabel" class="sudachi-progress-label">
-                        Downloading Sudachi dictionary...
-                      </span>
-                      <span id="sudachiProgressPercent" class="sudachi-progress-percent"></span>
-                    </div>
-                    <div class="sudachi-progress-track">
-                      <div id="sudachiProgressFill" class="sudachi-progress-fill"></div>
-                    </div>
-                    <div id="sudachiProgressError" class="sudachi-progress-error" style="display: none"></div>
-                  </div>
-                  <label id="furiganaYomitanApiUrlLabel" data-tokenizer-setting="yomitan-url">
-                    <span class="label-text">
-                      Yomitan API URL
-                      <div class="hotkey-info">Base URL for Yomitan API (default: http://127.0.0.1:19633)</div>
-                    </span>
-                    <input type="text" id="furiganaYomitanApiUrl" value="http://127.0.0.1:19633" />
-                  </label>
-                  <label id="furiganaYomitanScanLengthLabel" data-tokenizer-setting="yomitan-scan">
-                    <span class="label-text">
-                      Yomitan Scan Length
-                      <div class="hotkey-info">
-                        scanLength sent to Yomitan /tokenize (higher can capture longer compounds)
-                      </div>
-                    </span>
-                    <input type="number" id="furiganaYomitanScanLength" value="10" min="1" max="100" step="1" />
-                  </label>
-                  <label id="furiganaJitenApiKeyLabel" data-tokenizer-setting="jiten-key">
-                    <span class="label-text">
-                      JitenAPI Key
-                      <div class="hotkey-info">Required for Jiten requests. Stored locally in overlay settings.</div>
-                    </span>
-                    <input type="password" id="furiganaJitenApiKey" value="" placeholder="Paste your X-Api-Key" />
-                  </label>
-                  <label id="furiganaJpdbApiKeyLabel" data-tokenizer-setting="jpdb-key">
-                    <span class="label-text">
-                      JPDB API Key
-                      <div class="hotkey-info">Required for JPDB parse API. Stored locally in overlay settings.</div>
-                    </span>
-                    <input type="password" id="furiganaJpdbApiKey" value="" placeholder="Paste your bearer token" />
-                  </label>
-                </div>
-              </section>
-
               <section class="settings-page" data-page="reading-jiten">
                 <div class="setting-group" data-tab="reading">
                   <h4>Jiten Reader</h4>
@@ -427,16 +303,14 @@ Use regular keyboard keys for best compatibility"
                 <div class="setting-group" data-tab="reading">
                   <h4>
                     Overlay Integration
-                    <span style="color: #ff6b6b; font-size: 13px; font-weight: normal">⚠️ WIP</span>
+                    <span class="setting-badge badge-experimental">Experimental</span>
                   </h4>
-                  <div class="hotkey-info" style="color: #ffcc66; margin-bottom: 10px">
-                    Work in progress. To avoid unnecessary API calls, some operations are intentionally delayed in order
-                    to play nice with Jiten's API.
+                  <div class="hotkey-info setting-callout">
+                    To avoid unnecessary API calls, some operations are intentionally throttled to respect Jiten's API rate limits.
                   </div>
                   <label>
                     <span class="label-text">
                       Show Jiten Style Text Highlighting
-                      <div class="hotkey-info" style="color: #ff6b6b">⚠️ WIP Feature</div>
                       <div class="hotkey-info">
                         Highlights overlay text by SRS state, Jiten Reader style. Some options are configured in Jiten
                         Reader itself.
@@ -463,14 +337,35 @@ Use regular keyboard keys for best compatibility"
                 </div>
               </section>
 
+              <section class="settings-page" data-page="reading-indicators">
+                <div class="setting-group" data-tab="reading">
+                  <h4>Capture &amp; Status Indicators</h4>
+                  <label>
+                    <span class="label-text">Show "Ready" Indicator</span>
+                    <input type="checkbox" id="showReadyIndicator" />
+                  </label>
+                  <label>
+                    <span class="label-text">Show Text Indicators (Red Border)</span>
+                    <input type="checkbox" id="showTextIndicators" />
+                  </label>
+                  <label class="sub-option">
+                    <span class="label-text">Fade Text Indicators</span>
+                    <input type="checkbox" id="fadeTextIndicators" />
+                  </label>
+                  <label>
+                    <span class="label-text">Show Recycled Line Indicator</span>
+                    <input type="checkbox" id="showRecycledIndicator" />
+                  </label>
+                </div>
+              </section>
+
               <!-- Capture & OCR -->
 
               <section class="settings-page" data-page="capture-source">
                 <div class="setting-group full-width" data-tab="capture">
-                  <h4>OCR / Capture</h4>
+                  <h4>OCR / Capture Source</h4>
                   <p class="hotkey-info">
-                    These OCR-capture settings are stored with your active GSM profile. This window is their home — edit
-                    them here.
+                    Stored with your active GSM profile.
                   </p>
                   <label>
                     <span class="label-text">OCR Engine</span>
@@ -482,27 +377,18 @@ Use regular keyboard keys for best compatibility"
                     </select>
                   </label>
                   <label>
-                    <span class="label-text">
-                      Text Appears Instantly
-                      <div class="hotkey-info">
-                        Run only the first overlay OCR scan instead of retrying until the text stabilizes. Enable this
-                        only when the full line appears at once; if text spools or types in gradually, Yomitan lookups
-                        can miss characters that appeared after the scan.
-                      </div>
-                    </span>
-                    <input type="checkbox" id="text_appears_instantly" />
+                    <span class="label-text">Monitor to Capture</span>
+                    <select id="monitor_to_capture">
+                      <option value="0">Monitor 1</option>
+                    </select>
                   </label>
                   <label>
-                    <span class="label-text">
-                      Adaptive OCR Retries (Experimental)
-                      <div class="hotkey-info">
-                        Retry almost immediately while text is clearly expanding, and gradually wait longer when
-                        progress is uncertain. After finding text, focus later local scans on a padded area around it,
-                        with a periodic full-source scan and an immediate full-source retry if the text moves or
-                        disappears. Off by default; applies when Text Appears Instantly is off.
-                      </div>
-                    </span>
-                    <input type="checkbox" id="adaptive_ocr_retries" />
+                    <span class="label-text">OCR Capture Area</span>
+                    <button type="button" id="selectOcrAreaButton" class="secondary">Select OCR Area...</button>
+                  </label>
+                  <label>
+                    <span class="label-text">Use OCR Area Config</span>
+                    <input type="checkbox" id="use_overlay_area_config" />
                   </label>
                   <label>
                     <span class="label-text">
@@ -526,31 +412,37 @@ Use regular keyboard keys for best compatibility"
                     </span>
                   </label>
                   <label>
-                    <span class="label-text">Monitor to Capture</span>
-                    <select id="monitor_to_capture">
-                      <option value="0">Monitor 1</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span class="label-text">OCR Capture Area</span>
-                    <button type="button" id="selectOcrAreaButton" class="secondary">Select OCR Area...</button>
-                  </label>
-                  <label>
-                    <span class="label-text">Use OCR Area Config</span>
-                    <input type="checkbox" id="use_overlay_area_config" />
-                  </label>
-                  <label>
                     <span class="label-text">Minimum Character Size (0 = disabled)</span>
                     <input type="number" id="minimum_character_size" value="0" min="0" max="500" />
+                  </label>
+                  <label>
+                    <span class="label-text">
+                      Text Appears Instantly
+                      <div class="hotkey-info">
+                        Run only the first overlay OCR scan instead of retrying until the text stabilizes. Enable this
+                        only when the full line appears at once; if text spools or types in gradually, Yomitan lookups
+                        can miss characters that appeared after the scan.
+                      </div>
+                    </span>
+                    <input type="checkbox" id="text_appears_instantly" />
+                  </label>
+                  <label>
+                    <span class="label-text">
+                      Adaptive OCR Retries
+                      <span class="setting-badge badge-experimental">Experimental</span>
+                      <div class="hotkey-info">
+                        Retry almost immediately while text is clearly expanding, and gradually wait longer when
+                        progress is uncertain. Off by default; applies when Text Appears Instantly is off.
+                      </div>
+                    </span>
+                    <input type="checkbox" id="adaptive_ocr_retries" />
                   </label>
                   <label>
                     <span class="label-text">
                       Scan on Overlay Activation
                       <div class="hotkey-info">
                         Run a fresh overlay scan when entering Push to Show or controller navigation, or when reopening
-                        the main text box. The text event → overlay scan remains preferred for mining; extra scans stay
-                        out of the text log unless Add Scanned Lines is enabled. Results at least 95% similar to the
-                        last overlay scan are not resent.
+                        the main text box.
                       </div>
                     </span>
                     <input type="checkbox" id="scan_on_overlay_activation" />
@@ -582,7 +474,7 @@ Use regular keyboard keys for best compatibility"
 
               <section class="settings-page" data-page="capture-results">
                 <div class="setting-group" data-tab="capture">
-                  <h4>OCR Results</h4>
+                  <h4>OCR Results &amp; Filtering</h4>
                   <label>
                     <span class="label-text">
                       Use OCR Result V2
@@ -610,10 +502,9 @@ Use regular keyboard keys for best compatibility"
                   <label>
                     <span class="label-text">
                       Check Whether the Last OCR Text Is Still Visible
+                      <span class="setting-badge badge-experimental">Experimental</span>
                       <div class="hotkey-info">
-                        Starts a background image check after each overlay result and compares only the tightly cropped
-                        last-sent text area. If similarity is too low, a local OCR scan checks whether the text moved
-                        before removing it and refreshes its position when found. Experimental and off by default.
+                        Compares the tightly cropped last-sent text area in the background and clears or refreshes stale text when it moves or disappears.
                       </div>
                     </span>
                     <input type="checkbox" id="last_sent_ocr_presence_check" />
@@ -634,19 +525,17 @@ Use regular keyboard keys for best compatibility"
                   <h4>Text Offset</h4>
                   <label>
                     <span class="label-text">
-                      X Offset
+                      X Offset (%)
                       <div class="hotkey-info">Not typically needed on Windows</div>
                     </span>
                     <input type="number" id="offsetX" value="0" step="0.1" />
-                    <span style="margin-left: 5px">%</span>
                   </label>
                   <label>
                     <span class="label-text">
-                      Y Offset
+                      Y Offset (%)
                       <div class="hotkey-info">Not typically needed on Windows</div>
                     </span>
                     <input type="number" id="offsetY" value="0" step="0.1" />
-                    <span style="margin-left: 5px">%</span>
                   </label>
                   <label>
                     <span class="label-text">
@@ -658,7 +547,7 @@ Use regular keyboard keys for best compatibility"
                     </span>
                     <div class="input-container">
                       <button type="button" id="openOffsetHelper" class="guide-button">Calibrate</button>
-                      <button type="button" id="resetOffset" class="guide-button">Reset</button>
+                      <button type="button" id="resetOffset" class="secondary">Reset</button>
                     </div>
                   </label>
                 </div>
@@ -666,8 +555,8 @@ Use regular keyboard keys for best compatibility"
 
               <section class="settings-page" data-page="capture-advanced">
                 <div class="setting-group" data-tab="capture">
-                  <details class="setting-section">
-                    <summary>Legacy / Advanced — don't change unless you know why</summary>
+                  <details class="setting-section" open>
+                    <summary>Legacy / Advanced Capture Options</summary>
                     <label>
                       <span class="label-text">
                         Periodic Scan Ratio
@@ -703,8 +592,9 @@ Use regular keyboard keys for best compatibility"
                       <input type="checkbox" id="ocr_area_config_use_exclusion_zones" />
                     </label>
                     <label>
-                      <span class="label-text" style="color: #ff6b6b">
+                      <span class="label-text">
                         OCR Full Screen Instead of OBS
+                        <span class="setting-badge badge-legacy">Legacy</span>
                         <div class="hotkey-info">
                           Legacy/debug capture method: captures the full screen instead of the OBS game window.
                         </div>
@@ -720,7 +610,7 @@ Use regular keyboard keys for best compatibility"
               <section class="settings-page" data-page="interaction-reveal">
                 <div class="setting-group full-width" data-tab="interaction" id="manualModeCardMount"></div>
                 <div class="setting-group" data-tab="interaction">
-                  <h4>Push to Show — Advanced</h4>
+                  <h4>Exclusive Fullscreen Compatibility</h4>
                   <label>
                     <span class="label-text">
                       Freeze Game Frame Behind Overlay (Exclusive Fullscreen)
@@ -737,7 +627,7 @@ Use regular keyboard keys for best compatibility"
 
               <section class="settings-page" data-page="interaction-hotkeys">
                 <div class="setting-group full-width" data-tab="interaction">
-                  <h4>Hotkeys</h4>
+                  <h4>Global Shortcuts</h4>
                   <label>
                     <span class="label-text">
                       Route all hotkeys through input server
@@ -752,148 +642,72 @@ Use regular keyboard keys for best compatibility"
                     <span class="label-text">
                       Toggle Window Hotkey
                       <div class="hotkey-info">Show/hide floating overlay box</div>
-                      <div class="hotkey-info" style="color: #4caf50; font-size: 10px">
-                        Click input and press your desired key (modifiers optional)
-                      </div>
-                      <div
-                        id="togglewindow-ctrl-warning"
-                        class="hotkey-info"
-                        style="color: #ff6b6b; font-size: 10px; display: none"
-                      >
-                        ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                      <div id="togglewindow-ctrl-warning" class="hotkey-info ctrl-warning" style="display: none">
+                        Ctrl may trigger text skipping in visual novels
                       </div>
                     </span>
                     <div class="input-container">
                       <input
                         type="text"
                         id="toggleWindowHotkey"
+                        class="hotkey-input"
                         value="Alt+Shift+H"
-                        title="Enter a valid hotkey (e.g., Alt+Shift+H)
-
-⚠️ WARNING: Avoid Ctrl key in games/visual novels
-(Ctrl is commonly used for text skipping)
-
-Note: Some keys may not work (e.g., numpad +, certain special keys)
-Use regular keyboard keys for best compatibility"
+                        title="Click and press your desired shortcut (e.g., Alt+Shift+H)"
                       />
-                      <button
-                        type="button"
-                        class="guide-button"
-                        onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')"
-                      >
-                        Guide
-                      </button>
                     </div>
                   </label>
                   <label>
                     <span class="label-text">
                       Minimize Hotkey
                       <div class="hotkey-info">Minimize/restore overlay window</div>
-                      <div class="hotkey-info" style="color: #4caf50; font-size: 10px">
-                        Click input and press your desired key (modifiers optional)
-                      </div>
-                      <div
-                        id="minimize-ctrl-warning"
-                        class="hotkey-info"
-                        style="color: #ff6b6b; font-size: 10px; display: none"
-                      >
-                        ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                      <div id="minimize-ctrl-warning" class="hotkey-info ctrl-warning" style="display: none">
+                        Ctrl may trigger text skipping in visual novels
                       </div>
                     </span>
                     <div class="input-container">
                       <input
                         type="text"
                         id="minimizeHotkey"
+                        class="hotkey-input"
                         value="Alt+Shift+J"
-                        title="Enter a valid hotkey (e.g., Alt+Shift+J)
-
-⚠️ WARNING: Avoid Ctrl key in games/visual novels
-(Ctrl is commonly used for text skipping)
-
-Note: Some keys may not work (e.g., numpad +, certain special keys)
-Use regular keyboard keys for best compatibility"
+                        title="Click and press your desired shortcut (e.g., Alt+Shift+J)"
                       />
-                      <button
-                        type="button"
-                        class="guide-button"
-                        onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')"
-                      >
-                        Guide
-                      </button>
                     </div>
                   </label>
                   <label>
                     <span class="label-text">
                       <span data-dictionary-settings-label=" Hotkey">Yomitan Settings Hotkey</span>
                       <div class="hotkey-info">Open settings for the selected dictionary reader</div>
-                      <div class="hotkey-info" style="color: #4caf50; font-size: 10px">
-                        Click input and press your desired key (modifiers optional)
-                      </div>
-                      <div
-                        id="yomitansettings-ctrl-warning"
-                        class="hotkey-info"
-                        style="color: #ff6b6b; font-size: 10px; display: none"
-                      >
-                        ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                      <div id="yomitansettings-ctrl-warning" class="hotkey-info ctrl-warning" style="display: none">
+                        Ctrl may trigger text skipping in visual novels
                       </div>
                     </span>
                     <div class="input-container">
                       <input
                         type="text"
                         id="yomitanSettingsHotkey"
+                        class="hotkey-input"
                         value="Alt+Shift+Y"
-                        title="Enter a valid hotkey (e.g., Alt+Shift+Y)
-
-⚠️ WARNING: Avoid Ctrl key in games/visual novels
-(Ctrl is commonly used for text skipping)
-
-Note: Some keys may not work (e.g., numpad +, certain special keys)
-Use regular keyboard keys for best compatibility"
+                        title="Click and press your desired shortcut (e.g., Alt+Shift+Y)"
                       />
-                      <button
-                        type="button"
-                        class="guide-button"
-                        onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')"
-                      >
-                        Guide
-                      </button>
                     </div>
                   </label>
                   <label>
                     <span class="label-text">
                       Overlay Settings Hotkey
                       <div class="hotkey-info">Open overlay settings (this window)</div>
-                      <div class="hotkey-info" style="color: #4caf50; font-size: 10px">
-                        Click input and press your desired key (modifiers optional)
-                      </div>
-                      <div
-                        id="overlaysettings-ctrl-warning"
-                        class="hotkey-info"
-                        style="color: #ff6b6b; font-size: 10px; display: none"
-                      >
-                        ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                      <div id="overlaysettings-ctrl-warning" class="hotkey-info ctrl-warning" style="display: none">
+                        Ctrl may trigger text skipping in visual novels
                       </div>
                     </span>
                     <div class="input-container">
                       <input
                         type="text"
                         id="overlaySettingsHotkey"
+                        class="hotkey-input"
                         value="Alt+Shift+S"
-                        title="Enter a valid hotkey (e.g., Alt+Shift+S)
-
-⚠️ WARNING: Avoid Ctrl key in games/visual novels
-(Ctrl is commonly used for text skipping)
-
-Note: Some keys may not work (e.g., numpad +, certain special keys)
-Use regular keyboard keys for best compatibility"
+                        title="Click and press your desired shortcut (e.g., Alt+Shift+S)"
                       />
-                      <button
-                        type="button"
-                        class="guide-button"
-                        onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')"
-                      >
-                        Guide
-                      </button>
                     </div>
                   </label>
                 </div>
@@ -901,7 +715,7 @@ Use regular keyboard keys for best compatibility"
 
               <section class="settings-page" data-page="interaction-behavior">
                 <div class="setting-group" data-tab="interaction">
-                  <h4>Behavior</h4>
+                  <h4>Startup &amp; Window Behavior</h4>
                   <label>
                     <span class="label-text">Open Settings on Startup</span>
                     <input type="checkbox" id="openSettingsOnStartup" />
@@ -911,7 +725,10 @@ Use regular keyboard keys for best compatibility"
                     <input type="checkbox" id="hideOverlayOnStartup" />
                   </label>
                   <label>
-                    <span class="label-text">Show Main Box on Startup (Not Recommended)</span>
+                    <span class="label-text">
+                      Show Main Box on Startup
+                      <span class="setting-badge badge-legacy">Debug</span>
+                    </span>
                     <input type="checkbox" id="showMainBoxOnStartup" />
                   </label>
                   <label>
@@ -942,7 +759,7 @@ Use regular keyboard keys for best compatibility"
 
               <div class="setting-group full-width" data-tab="gamepad">
                 <section class="settings-page" data-page="gamepad-setup">
-                  <h4>🎮 Gamepad Navigation (Experimental)</h4>
+                  <h4>Gamepad Navigation</h4>
                   <label>
                     <span class="label-text">
                       Enable Gamepad Navigation
@@ -969,7 +786,7 @@ Use regular keyboard keys for best compatibility"
                         <option value="toggle">Toggle (press to enter/exit mode)</option>
                       </select>
                     </label>
-                    <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888">Activation Methods</h5>
+                    <h5 class="subsection-heading">Activation Methods</h5>
                     <label>
                       <span class="label-text">
                         Enable Controller Activation
@@ -991,15 +808,12 @@ Use regular keyboard keys for best compatibility"
                       <span class="label-text">
                         Keyboard Toggle Hotkey
                         <div class="hotkey-info">Keyboard shortcut to toggle gamepad navigation mode</div>
-                        <div class="hotkey-info" style="color: #4caf50; font-size: 10px">
-                          Click input and press your desired key (modifiers optional)
-                        </div>
                         <div
                           id="gamepadkeyboard-ctrl-warning"
-                          class="hotkey-info"
-                          style="color: #ff6b6b; font-size: 10px; display: none"
+                          class="hotkey-info ctrl-warning"
+                          style="display: none"
                         >
-                          ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                          Warning: Ctrl key may interfere with game controls (text skipping)
                         </div>
                       </span>
                       <div class="input-container">
@@ -1007,35 +821,21 @@ Use regular keyboard keys for best compatibility"
                           type="text"
                           id="gamepadKeyboardHotkey"
                           value="Alt+G"
-                          title="Enter a valid hotkey (e.g., Alt+G)
-
-⚠️ WARNING: Avoid Ctrl key in games/visual novels
-(Ctrl is commonly used for text skipping)
-
-Note: Some keys may not work (e.g., numpad +, certain special keys)
-Use regular keyboard keys for best compatibility"
+                          title="Click and press your desired shortcut (e.g., Alt+G). Avoid Ctrl in visual novels."
                         />
-                        <button
-                          type="button"
-                          class="guide-button"
-                          onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')"
-                        >
-                          Guide
-                        </button>
                       </div>
                     </label>
                   </section>
 
                   <section class="settings-page" data-page="gamepad-bindings">
                     <div class="gamepad-binding-hint">
-                      Click a controller binding field, press one or more controller buttons, then release to save.
-                      Analog stick movement is ignored. Press Backspace/Delete to disable a binding, or Esc to cancel
-                      capture.
+                      Click any binding slot to capture a controller combo or keyboard key. Press Backspace/Delete to
+                      disable a binding, or Esc to cancel.
                     </div>
-                    <div class="gamepad-binding-hint">
-                      Click a keyboard binding field, then press a key (with optional modifiers) to save. Press
-                      Backspace/Delete to disable a binding, or Esc to cancel capture. The key is captured from the
-                      Input Server so it works when the game is focused.
+                    <div class="binding-table-header" aria-hidden="true">
+                      <span>Action</span>
+                      <span>Controller</span>
+                      <span>Keyboard</span>
                     </div>
                     <label>
                       <span class="label-text">
@@ -1448,10 +1248,15 @@ Use regular keyboard keys for best compatibility"
                         readonly=""
                       />
                     </label>
-                    <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888">Navigation Bindings</h5>
+                    <h5 class="subsection-heading">Navigation Bindings</h5>
                     <div class="hotkey-info">
                       Click a controller field, press an input or combo, then release to save. Generic controllers may
                       show numbered buttons. Unmapped axis directions can also be assigned.
+                    </div>
+                    <div class="binding-table-header" aria-hidden="true">
+                      <span>Direction</span>
+                      <span>Controller</span>
+                      <span>Keyboard</span>
                     </div>
                     <label>
                       <span class="label-text">
@@ -1633,7 +1438,7 @@ Use regular keyboard keys for best compatibility"
                       </span>
                       <input type="checkbox" id="gamepadFocusOverlayOnEntry" checked="" />
                     </label>
-                    <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888">Overlay Visibility</h5>
+                    <h5 class="subsection-heading">Overlay Visibility</h5>
                     <label>
                       <span class="label-text">
                         Show Token/Character Mode
@@ -1667,7 +1472,7 @@ Use regular keyboard keys for best compatibility"
                   </section>
 
                   <section class="settings-page" data-page="gamepad-advanced">
-                    <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888">Navigation Experiments</h5>
+                    <h5 class="subsection-heading">Navigation Experiments</h5>
                     <div class="hotkey-info">
                       Mix these options using your existing buttons. Defaults preserve the original navigation. Try
                       sentence jumps for dialogue, or spatial block hopping with nearest-point entry for menus.
@@ -1764,7 +1569,7 @@ Use regular keyboard keys for best compatibility"
                   </section>
                 </div>
                 <section class="settings-page" data-page="gamepad-devices">
-                  <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888">Input Server Settings</h5>
+                  <h5 class="subsection-heading">Input Server Settings</h5>
                   <div id="windows-gamepad-listeners">
                     <label>
                       <span class="label-text">
@@ -1804,14 +1609,14 @@ Use regular keyboard keys for best compatibility"
                       Server Status
                       <div class="hotkey-info">Connection status to the Rust gamepad server</div>
                     </span>
-                    <span id="gamepadServerStatus" style="color: #888">Checking...</span>
+                    <span id="gamepadServerStatus" class="status-pill">Checking...</span>
                   </label>
                   <label>
                     <span class="label-text">
                       Gamepad Status
                       <div class="hotkey-info">Shows connected controller(s)</div>
                     </span>
-                    <span id="gamepadStatusText" style="color: #888">Checking...</span>
+                    <span id="gamepadStatusText" class="status-pill">Checking...</span>
                   </label>
                   <div class="gamepad-device-lists">
                     <div class="gamepad-device-panel">
@@ -1830,7 +1635,7 @@ Use regular keyboard keys for best compatibility"
                     </span>
                     <div class="input-container">
                       <button type="button" id="gamepadInputTestToggle" class="guide-button">Start Test</button>
-                      <span id="gamepadInputTestStatus" style="color: #888">Idle</span>
+                      <span id="gamepadInputTestStatus" class="status-pill">Idle</span>
                     </div>
                   </label>
                   <div class="mini-console-shell">
@@ -1904,15 +1709,12 @@ Use regular keyboard keys for best compatibility"
                       <div class="hotkey-info">
                         Cycles visible live overlay parts: stats only, goals only, hidden, then all.
                       </div>
-                      <div class="hotkey-info" style="color: #4caf50; font-size: 10px">
-                        Click input and press your desired key (modifiers optional)
-                      </div>
                       <div
                         id="livestatstoggle-ctrl-warning"
-                        class="hotkey-info"
-                        style="color: #ff6b6b; font-size: 10px; display: none"
+                        class="hotkey-info ctrl-warning"
+                        style="display: none"
                       >
-                        ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                        Warning: Ctrl key may interfere with game controls (text skipping)
                       </div>
                     </span>
                     <div class="input-container">
@@ -1920,21 +1722,8 @@ Use regular keyboard keys for best compatibility"
                         type="text"
                         id="liveStatsToggleHotkey"
                         value="Alt+Shift+L"
-                        title="Enter a valid hotkey (e.g., Alt+Shift+L)
-
-⚠️ WARNING: Avoid Ctrl key in games/visual novels
-(Ctrl is commonly used for text skipping)
-
-Note: Some keys may not work (e.g., numpad +, certain special keys)
-Use regular keyboard keys for best compatibility"
+                        title="Click and press your desired shortcut (e.g., Alt+Shift+L). Avoid Ctrl in visual novels."
                       />
-                      <button
-                        type="button"
-                        class="guide-button"
-                        onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')"
-                      >
-                        Guide
-                      </button>
                     </div>
                   </label>
                   <div class="overlay-goals-picker" id="overlayGoalsPicker">
@@ -2060,15 +1849,12 @@ Use regular keyboard keys for best compatibility"
                         Toggle the TextFeed window — a scrollable feed of recent lines, great for re-reading or copying
                         text. One of the overlay's most useful shortcuts.
                       </div>
-                      <div class="hotkey-info" style="color: #4caf50; font-size: 10px">
-                        Click input and press your desired key (modifiers optional)
-                      </div>
                       <div
                         id="texthooker-ctrl-warning"
-                        class="hotkey-info"
-                        style="color: #ff6b6b; font-size: 10px; display: none"
+                        class="hotkey-info ctrl-warning"
+                        style="display: none"
                       >
-                        ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                        Warning: Ctrl key may interfere with game controls (text skipping)
                       </div>
                     </span>
                     <div class="input-container">
@@ -2076,21 +1862,8 @@ Use regular keyboard keys for best compatibility"
                         type="text"
                         id="texthookerHotkey"
                         value="Alt+Shift+R"
-                        title="Enter a valid hotkey (e.g., Alt+Shift+R)
-
-⚠️ WARNING: Avoid Ctrl key in games/visual novels
-(Ctrl is commonly used for text skipping)
-
-Note: Some keys may not work (e.g., numpad +, certain special keys)
-Use regular keyboard keys for best compatibility"
+                        title="Click and press your desired shortcut (e.g., Alt+Shift+R). Avoid Ctrl in visual novels."
                       />
-                      <button
-                        type="button"
-                        class="guide-button"
-                        onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')"
-                      >
-                        Guide
-                      </button>
                     </div>
                   </label>
                   <label>
@@ -2130,8 +1903,8 @@ Use regular keyboard keys for best compatibility"
                     />
                   </label>
                   <div class="button-row">
-                    <button type="button" id="vn-guide-import">Use current Custom Page</button>
-                    <button type="button" id="vn-guide-refresh">Reload guide from source</button>
+                    <button type="button" id="vn-guide-import" class="guide-button">Use current Custom Page</button>
+                    <button type="button" id="vn-guide-refresh" class="guide-button">Reload guide from source</button>
                   </div>
                   <label>
                     <span class="label-text">Route</span>
@@ -2145,9 +1918,9 @@ Use regular keyboard keys for best compatibility"
                   <p id="vn-guide-save" class="hotkey-info" hidden=""></p>
                   <p id="vn-guide-current" lang="ja"></p>
                   <div class="button-row">
-                    <button type="button" id="vn-guide-back">Back / Undo</button>
-                    <button type="button" id="vn-guide-next">Next / Done</button>
-                    <button type="button" id="vn-guide-toggle">Show / Hide</button>
+                    <button type="button" id="vn-guide-back" class="guide-button">Back / Undo</button>
+                    <button type="button" id="vn-guide-next" class="guide-button">Next / Done</button>
+                    <button type="button" id="vn-guide-toggle" class="guide-button">Show / Hide</button>
                   </div>
                   <label>
                     <span class="label-text">
@@ -2157,8 +1930,10 @@ Use regular keyboard keys for best compatibility"
                         there. Future choice text is kept hidden.
                       </div>
                     </span>
-                    <input type="number" id="vn-guide-step" value="1" min="1" step="1" />
-                    <button type="button" id="vn-guide-jump">Go</button>
+                    <div class="input-container">
+                      <input type="number" id="vn-guide-step" value="1" min="1" step="1" />
+                      <button type="button" id="vn-guide-jump" class="guide-button">Go</button>
+                    </div>
                   </label>
                   <label>
                     <span class="label-text">
@@ -2240,7 +2015,7 @@ Use regular keyboard keys for best compatibility"
                         Paste an http:// or https:// address, such as https://kanjieater.github.io/VN-Guide/ or a
                         specific game's walkthrough.
                       </div>
-                      <div id="custom-page-url-error" class="hotkey-info" style="color: #ff6b6b" hidden="">
+                      <div id="custom-page-url-error" class="hotkey-info ctrl-warning" hidden="">
                         Enter a full http:// or https:// URL.
                       </div>
                     </span>
@@ -2261,10 +2036,10 @@ Use regular keyboard keys for best compatibility"
                       </div>
                       <div
                         id="custompage-ctrl-warning"
-                        class="hotkey-info"
-                        style="color: #ff6b6b; font-size: 10px; display: none"
+                        class="hotkey-info ctrl-warning"
+                        style="display: none"
                       >
-                        ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                        Warning: Ctrl key may interfere with game controls (text skipping)
                       </div>
                     </span>
                     <input type="text" id="customPageHotkey" value="Alt+Shift+U" />
@@ -2274,11 +2049,11 @@ Use regular keyboard keys for best compatibility"
 
               <section class="settings-page" data-page="tools-translation">
                 <div class="setting-group full-width" data-tab="interaction">
-                  <h4>Translation (Experimental)</h4>
+                  <h4>Translation <span class="setting-badge badge-experimental">Experimental</span></h4>
                   <label>
                     <span class="label-text">
                       Auto-Request Translation
-                      <div class="hotkey-info" style="color: #ff6b6b">⚠️ WIP Feature - Not Recommended</div>
+                      <div class="hotkey-info status-note warning">Work in progress — manual hotkey recommended</div>
                       <div class="hotkey-info">Automatically requests translation when OCR text is received</div>
                     </span>
                     <div class="input-container">
@@ -2296,15 +2071,12 @@ Use regular keyboard keys for best compatibility"
                     <span class="label-text">
                       Translation Hotkey
                       <div class="hotkey-info">Press to request/toggle translation visibility</div>
-                      <div class="hotkey-info" style="color: #4caf50; font-size: 10px">
-                        Click input and press your desired key (modifiers optional)
-                      </div>
                       <div
                         id="translate-ctrl-warning"
-                        class="hotkey-info"
-                        style="color: #ff6b6b; font-size: 10px; display: none"
+                        class="hotkey-info ctrl-warning"
+                        style="display: none"
                       >
-                        ⚠️ Warning: Ctrl key may interfere with game controls (text skipping)
+                        Warning: Ctrl key may interfere with game controls (text skipping)
                       </div>
                     </span>
                     <div class="input-container">
@@ -2312,21 +2084,8 @@ Use regular keyboard keys for best compatibility"
                         type="text"
                         id="translateHotkey"
                         value="Alt+T"
-                        title="Enter a valid hotkey (e.g., Alt+T)
-
-⚠️ WARNING: Avoid Ctrl key in games/visual novels
-(Ctrl is commonly used for text skipping)
-
-Note: Some keys may not work (e.g., numpad +, certain special keys)
-Use regular keyboard keys for best compatibility"
+                        title="Click and press your desired shortcut (e.g., Alt+T). Avoid Ctrl in visual novels."
                       />
-                      <button
-                        type="button"
-                        class="guide-button"
-                        onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')"
-                      >
-                        Guide
-                      </button>
                     </div>
                   </label>
                 </div>
@@ -2340,7 +2099,7 @@ Use regular keyboard keys for best compatibility"
                   <label>
                     <span class="label-text">
                       Dictionary Reader
-                      <div class="hotkey-info">
+                      <div class="hotkey-info" data-help-inline>
                         Choose the dictionary used for lookups. Changing it automatically restarts the overlay and
                         returns here.
                       </div>
@@ -2363,6 +2122,102 @@ Use regular keyboard keys for best compatibility"
                       Yomitan Settings
                     </button>
                   </div>
+                </div>
+              </section>
+
+              <section class="settings-page" data-page="system-tokenizer">
+                <div class="setting-group" data-tab="system">
+                  <h4>Japanese Tokenizer</h4>
+                  <div class="shared-setting-note">
+                    Shared with controller word navigation — changing these updates Controller → Navigation automatically.
+                  </div>
+                  <label>
+                    <span class="label-text">
+                      Token/Furigana Backend
+                      <div class="hotkey-info">
+                        Choose whether tokenization/furigana uses overlay MeCab, overlay Sudachi (auto-downloads core
+                        dict), Yomitan bridge, Yomitan API, JitenAPI, or JPDB API
+                      </div>
+                    </span>
+                    <select id="furiganaTokenizerBackend">
+                      <option value="mecab">MeCab</option>
+                      <option value="sudachi">Sudachi (Auto-download)</option>
+                      <option value="yomitan-bridge">Yomitan Bridge (Overlay)</option>
+                      <option value="yomitan-api">Yomitan API (Setup Required)</option>
+                      <option value="jiten-api">JitenAPI</option>
+                      <option value="jpdb-api">JPDB API</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span class="label-text">
+                      Local Fallback Provider
+                      <div class="hotkey-info">If the selected backend fails, retry with this local provider.</div>
+                    </span>
+                    <select id="furiganaLocalTokenizerFallbackBackend">
+                      <option value="mecab">MeCab</option>
+                      <option value="sudachi">Sudachi</option>
+                    </select>
+                  </label>
+                  <label id="furiganaSudachiDictionaryLabel" data-tokenizer-setting="sudachi">
+                    <span class="label-text">
+                      Sudachi Dictionary
+                      <div class="hotkey-info">
+                        Choose the Sudachi dictionary edition to auto-download. Core is the default balance; Small is
+                        the mini option; Full includes more proper nouns.
+                      </div>
+                    </span>
+                    <select id="furiganaSudachiDictionary">
+                      <option value="core">Core (Default)</option>
+                      <option value="small">Small (Mini)</option>
+                      <option value="full">Full</option>
+                    </select>
+                  </label>
+                  <div
+                    id="sudachiProgressContainer"
+                    class="sudachi-progress-container"
+                    data-tokenizer-setting="sudachi"
+                  >
+                    <div class="sudachi-progress-header">
+                      <span id="sudachiProgressLabel" class="sudachi-progress-label">
+                        Downloading Sudachi dictionary...
+                      </span>
+                      <span id="sudachiProgressPercent" class="sudachi-progress-percent"></span>
+                    </div>
+                    <div class="sudachi-progress-track">
+                      <div id="sudachiProgressFill" class="sudachi-progress-fill"></div>
+                    </div>
+                    <div id="sudachiProgressError" class="sudachi-progress-error" style="display: none"></div>
+                  </div>
+                  <label id="furiganaYomitanApiUrlLabel" data-tokenizer-setting="yomitan-url">
+                    <span class="label-text">
+                      Yomitan API URL
+                      <div class="hotkey-info">Base URL for Yomitan API (default: http://127.0.0.1:19633)</div>
+                    </span>
+                    <input type="text" id="furiganaYomitanApiUrl" value="http://127.0.0.1:19633" />
+                  </label>
+                  <label id="furiganaYomitanScanLengthLabel" data-tokenizer-setting="yomitan-scan">
+                    <span class="label-text">
+                      Yomitan Scan Length
+                      <div class="hotkey-info">
+                        scanLength sent to Yomitan /tokenize (higher can capture longer compounds)
+                      </div>
+                    </span>
+                    <input type="number" id="furiganaYomitanScanLength" value="10" min="1" max="100" step="1" />
+                  </label>
+                  <label id="furiganaJitenApiKeyLabel" data-tokenizer-setting="jiten-key">
+                    <span class="label-text">
+                      JitenAPI Key
+                      <div class="hotkey-info">Required for Jiten requests. Stored locally in overlay settings.</div>
+                    </span>
+                    <input type="password" id="furiganaJitenApiKey" value="" placeholder="Paste your X-Api-Key" />
+                  </label>
+                  <label id="furiganaJpdbApiKeyLabel" data-tokenizer-setting="jpdb-key">
+                    <span class="label-text">
+                      JPDB API Key
+                      <div class="hotkey-info">Required for JPDB parse API. Stored locally in overlay settings.</div>
+                    </span>
+                    <input type="password" id="furiganaJpdbApiKey" value="" placeholder="Paste your bearer token" />
+                  </label>
                 </div>
               </section>
 

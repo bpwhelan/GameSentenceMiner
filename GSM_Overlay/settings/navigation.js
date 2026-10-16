@@ -14,11 +14,9 @@
       label: "Reading & display",
       icon: "book",
       pages: [
-        ["indicators", "Indicators", "Choose which capture and connection indicators appear over your game."],
-        ["readings", "Readings", "Show Japanese furigana or Chinese pinyin, and control when readings appear."],
-        ["appearance", "Appearance", "Adjust reading colors, outlines, and type to suit your game."],
-        ["tokenizer", "Tokenizer", "Choose how Japanese text is split into words and readings."],
+        ["readings", "Readings", "Control Japanese furigana and Chinese pinyin, including their appearance."],
         ["jiten", "Jiten", "Connect Jiten Reader and configure vocabulary highlighting."],
+        ["indicators", "Indicators", "Choose which capture and connection indicators appear over your game."],
       ],
     },
     {
@@ -82,6 +80,11 @@
       icon: "settings",
       pages: [
         ["dictionary", "Dictionary", "Select and configure the dictionary used for lookups."],
+        [
+          "tokenizer",
+          "Tokenizer",
+          "Choose how Japanese text is split into words and readings. Shared with controller navigation.",
+        ],
         ["profiles", "Profiles", "Manage how overlay settings follow your GSM profiles."],
         ["developer", "Developer", "Platform overrides for testing and troubleshooting."],
       ],
@@ -104,19 +107,53 @@
       categoryLabel: category.label,
       label,
       description,
+      experimental: category.id === "tools" && slug === "translation",
     })),
   );
-  const remembered = new Map();
   const unavailable = new Set();
   let activePage = pages[0];
+  let scrollFrame = 0;
+  let navigationScrollTop = null;
 
-  function refresh() {
+  function ensureSectionHeaders() {
+    pages.forEach((page) => {
+      if (page.category === "overview") return;
+      const firstSection = document.querySelector(`.settings-page[data-page="${page.id}"]`);
+      if (!firstSection || firstSection.querySelector(".settings-section-banner")) return;
+      const banner = document.createElement("div");
+      banner.className = "settings-section-banner";
+      const titleEl = document.createElement("div");
+      titleEl.className = "settings-section-banner-title";
+      titleEl.textContent = page.label;
+      titleEl.title = page.description;
+      if (page.experimental) {
+        const badge = document.createElement("span");
+        badge.className = "setting-badge badge-experimental";
+        badge.textContent = "Experimental";
+        titleEl.append(badge);
+      }
+
+      const groups = firstSection.querySelectorAll(".setting-group");
+      const allH4s = firstSection.querySelectorAll("h4");
+      if (groups.length <= 1 && allH4s.length === 1) {
+        allH4s[0].classList.add("sr-only");
+      }
+
+      banner.append(titleEl);
+      firstSection.prepend(banner);
+    });
+  }
+
+  function refreshNavigation() {
     const searching = document.body.classList.contains("search-active");
     document.querySelectorAll("[data-settings-tab]").forEach((button) => {
       const active = button.dataset.settingsTab === activePage.category;
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", String(active));
       button.tabIndex = active ? 0 : -1;
+    });
+    document.querySelectorAll("[data-category-group]").forEach((group) => {
+      group.classList.toggle("expanded", !searching && group.dataset.categoryGroup === activePage.category);
     });
     document.querySelectorAll("[data-settings-page]").forEach((button) => {
       const page = pages.find((item) => item.id === button.dataset.settingsPage);
@@ -126,10 +163,19 @@
       button.setAttribute("aria-selected", String(active));
       button.tabIndex = active ? 0 : -1;
     });
+    document.querySelectorAll("[data-settings-tree-page]").forEach((button) => {
+      const page = pages.find((item) => item.id === button.dataset.settingsTreePage);
+      if (!page) return;
+      button.hidden = unavailable.has(page.id);
+      const active = page.id === activePage.id;
+      button.classList.toggle("active", active);
+      if (active) button.setAttribute("aria-current", "location");
+      else button.removeAttribute("aria-current");
+    });
     document.getElementById("settingsCategoryTitle").textContent = activePage.categoryLabel;
-    document.getElementById("settingsSubtabs").setAttribute("aria-label", `${activePage.categoryLabel} pages`);
+    document.getElementById("settingsSubtabs").setAttribute("aria-label", `${activePage.categoryLabel} sections`);
     document.getElementById("settingsSubtabs").hidden =
-      pages.filter((page) => page.category === activePage.category).length < 2;
+      searching || pages.filter((page) => page.category === activePage.category && !unavailable.has(page.id)).length < 2;
     document
       .getElementById("settingsCategoryPanel")
       .setAttribute("aria-labelledby", `settings-category-${activePage.category}`);
@@ -145,31 +191,104 @@
     document.getElementById("settingsPageDescription").textContent = searching
       ? "Matching settings from every category. Clear the search or choose a tab to return."
       : activePage.description;
-    if (searching) return;
     document.querySelectorAll("[data-page]").forEach((region) => {
-      region.hidden = region.dataset.page !== activePage.id;
-    });
-    document.querySelectorAll(".setting-group[data-tab]").forEach((group) => {
-      const region = group.closest("[data-page]");
-      group.hidden = region ? region.hidden : !group.querySelector(`[data-page="${activePage.id}"]`);
+      region.classList.toggle("is-focused-section", region.dataset.page === activePage.id);
     });
   }
 
+  function refresh() {
+    refreshNavigation();
+    const searching = document.body.classList.contains("search-active");
+    if (searching) return;
+    document.querySelectorAll("[data-page]").forEach((region) => {
+      const pageInfo = pages.find((item) => item.id === region.dataset.page);
+      const visible = Boolean(pageInfo && pageInfo.category === activePage.category && !unavailable.has(pageInfo.id));
+      region.hidden = !visible;
+    });
+    document.querySelectorAll(".setting-group[data-tab]").forEach((group) => {
+      const region = group.closest("[data-page]");
+      if (region) {
+        group.hidden = region.hidden;
+      } else {
+        const hasVisibleChild = Array.from(group.querySelectorAll("[data-page]")).some((el) => !el.hidden);
+        group.hidden = !hasVisibleChild;
+      }
+    });
+  }
+
+  function syncActiveSection() {
+    scrollFrame = 0;
+    if (document.body.classList.contains("search-active")) return;
+    const panel = document.getElementById("settingsPagePanel");
+    // A clicked section can be too close to the end to reach the top. Keep
+    // that explicit selection until the reader actually scrolls again.
+    if (panel.scrollTop === navigationScrollTop) return;
+    navigationScrollTop = null;
+    const panelRect = panel.getBoundingClientRect();
+    const sections = Array.from(document.querySelectorAll(".settings-page[data-page]"))
+      .filter((section) => !section.hidden && section.getClientRects().length)
+      .map((section) => ({
+        page: pages.find((page) => page.id === section.dataset.page),
+        top: section.getBoundingClientRect().top,
+      }))
+      .filter(({ page }) => page?.category === activePage.category && !unavailable.has(page.id));
+    let current = sections[0];
+    for (const section of sections) {
+      if (section.top <= panelRect.top + 24) current = section;
+    }
+    // Short final sections still become active when the reader reaches the end.
+    if (panel.scrollTop > 0 && panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 2) {
+      current = sections.at(-1);
+    }
+    if (!current || current.page.id === activePage.id) return;
+    activePage = current.page;
+    refreshNavigation();
+    const tabs = document.getElementById("settingsSubtabs");
+    const selected = tabs.querySelector(".active");
+    const tabRect = selected.getBoundingClientRect();
+    const tabsRect = tabs.getBoundingClientRect();
+    if (tabRect.right > tabsRect.right) tabs.scrollLeft += tabRect.right - tabsRect.right;
+    else if (tabRect.left < tabsRect.left) tabs.scrollLeft += tabRect.left - tabsRect.left;
+  }
+
+  function scheduleScrollSync() {
+    if (!scrollFrame) scrollFrame = requestAnimationFrame(syncActiveSection);
+  }
+
   function navigate(destination) {
-    if (destination === "overview-setups") destination = "overview-start";
+    destination =
+      {
+        "overview-setups": "overview-start",
+        "reading-appearance": "reading-readings",
+        "reading-tokenizer": "system-tokenizer",
+      }[destination] || destination;
     const category = categories.find((item) => item.id === destination);
     const available = pages.filter((page) => !unavailable.has(page.id));
     const next = category
-      ? available.find((page) => page.id === remembered.get(category.id)) ||
-        available.find((page) => page.category === category.id)
+      ? available.find((page) => page.category === category.id)
       : available.find((page) => page.id === destination);
     if (!next) return;
     document.dispatchEvent(new Event("gsm-settings-before-navigate"));
     activePage = next;
-    remembered.set(next.category, next.id);
     refresh();
-    // A category switch should not strand the reader halfway down a new page.
-    document.getElementById("settingsPagePanel").scrollTop = 0;
+    const panel = document.getElementById("settingsPagePanel");
+    if (panel) {
+      const categoryPages = available.filter((page) => page.category === next.category);
+      const isFirstInCategory = category || (categoryPages[0] && categoryPages[0].id === next.id);
+      if (isFirstInCategory) {
+        panel.scrollTop = 0;
+      } else {
+        const targetSection = document.querySelector(`.settings-page[data-page="${next.id}"]`);
+        if (targetSection) {
+          const panelRect = panel.getBoundingClientRect();
+          const targetRect = targetSection.getBoundingClientRect();
+          panel.scrollTop = Math.max(0, Math.round(panel.scrollTop + targetRect.top - panelRect.top - 8));
+        } else {
+          panel.scrollTop = 0;
+        }
+      }
+      navigationScrollTop = panel.scrollTop;
+    }
     if (next.category === "gamepad" && typeof global.renderGamepadInputConsole === "function") {
       global.renderGamepadInputConsole();
     }
@@ -194,10 +313,16 @@
   }
 
   function initializeSettingsTabs() {
+    ensureSectionHeaders();
+
     const categoryMount = document.getElementById("settingsCategories");
     const pageMount = document.getElementById("settingsSubtabs");
     categoryMount.replaceChildren(
       ...categories.map((category) => {
+        const group = document.createElement("div");
+        group.className = "sidebar-category-group";
+        group.dataset.categoryGroup = category.id;
+
         const button = document.createElement("button");
         button.type = "button";
         button.className = "settings-tab-button";
@@ -207,7 +332,26 @@
         button.setAttribute("aria-controls", "settingsCategoryPanel");
         button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[category.icon]}</svg><span>${category.label}</span>`;
         button.addEventListener("click", () => navigate(category.id));
-        return button;
+        group.appendChild(button);
+
+        const categoryPages = pages.filter((page) => page.category === category.id);
+        if (categoryPages.length > 1) {
+          const treeList = document.createElement("div");
+          treeList.className = "sidebar-tree-items";
+          treeList.dataset.sidebarTree = category.id;
+          categoryPages.forEach((page) => {
+            const subButton = document.createElement("button");
+            subButton.type = "button";
+            subButton.className = "sidebar-tree-button";
+            subButton.dataset.settingsTreePage = page.id;
+            subButton.textContent = page.label;
+            subButton.addEventListener("click", () => navigate(page.id));
+            treeList.appendChild(subButton);
+          });
+          group.appendChild(treeList);
+        }
+
+        return group;
       }),
     );
     pageMount.replaceChildren(
@@ -229,6 +373,7 @@
     });
     wireTabKeys(categoryMount, "[data-settings-tab]", true);
     wireTabKeys(pageMount, "[data-settings-page]", false);
+    document.getElementById("settingsPagePanel").addEventListener("scroll", scheduleScrollSync, { passive: true });
     document.body.classList.add("tabs-initialized");
     refresh();
   }

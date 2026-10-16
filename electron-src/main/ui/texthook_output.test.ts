@@ -72,7 +72,7 @@ function hookLine(engine: CliEngine, hookId: string, text: string): string {
     return `[${context}] ${text}\r\n`;
 }
 
-describe('selected CLI hook duplicate output', () => {
+describe('selected CLI hook output', () => {
     let hook: TextHookModule;
     let proc: ReturnType<typeof createProcess>;
     let engine: CliEngine;
@@ -203,5 +203,45 @@ describe('selected CLI hook duplicate output', () => {
         const entry = previews.at(-1)![1].hooks.find((item: { id: string }) => item.id === '43');
         expect(entry.preview).toBe(subtitle);
         expect(entry.samples).toEqual(['candidate', subtitle]);
+    });
+
+    it.each([
+        'Selected hook: 3\r\nNow showing text only from 1 selected hook(s).\r\n',
+        'Selected hook: 3Now showing text only from 1 selected hook(s).\r\n',
+        'Selected hook #4 (Handle: 3)Now showing text only from selected hook.\r\n',
+    ])('keeps selection acknowledgements out of previews and the text feed: %s', async (status) => {
+        await start('luna', 100);
+        await vi.advanceTimersByTimeAsync(100);
+        const text = '小さな村の手前の原。';
+        const stream = Buffer.from(hookLine(engine, '43', text) + status, 'utf16le');
+
+        // Exercise partial UTF-16 units and status lines arriving across chunks.
+        for (let offset = 0; offset < stream.length; offset += 7) {
+            proc.stdout.emit('data', stream.subarray(offset, offset + 7));
+        }
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(outputTexts()).toEqual([text]);
+        const renderedTexts = mocks.send.mock.calls
+            .filter(([channel]) => channel === 'texthook.text')
+            .map(([, payload]) => payload.text);
+        expect(renderedTexts).toEqual([text]);
+        const previews = mocks.send.mock.calls.filter(([channel]) => channel === 'texthook.hooks');
+        const entry = previews.at(-1)![1].hooks.find((item: { id: string }) => item.id === '43');
+        expect(entry.preview).toBe(text);
+        expect(entry.samples).toEqual(['candidate', text]);
+    });
+
+    it.each(['luna', 'textractor'] as const)('ends %s multiline continuation at selection status', async (selectedEngine) => {
+        await start(selectedEngine);
+        emitText('first line\nsecond line');
+        proc.stdout.emit('data', Buffer.from(
+            'Selected hook: 43\r\nNow showing text only from 1 selected hook(s).\r\n' +
+            'unframed engine output\r\n',
+            'utf16le',
+        ));
+        emitText('next line\nlast line');
+
+        expect(outputTexts()).toEqual(['first line', 'second line', 'next line', 'last line']);
     });
 });

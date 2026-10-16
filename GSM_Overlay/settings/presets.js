@@ -65,9 +65,9 @@ const OVERLAY_PRESETS = [
   {
     id: "controller-ready",
     family: "recipe",
-    name: "Controller ready",
-    blurb: "Hold a controller button to look up.",
-    effect: "Enables controller navigation in hold mode, with Push to show. Existing button assignments are kept.",
+    name: "Controller navigation",
+    blurb: "Hold your modifier button + D-pad to select text.",
+    effect: "Enables controller navigation in hold mode and hides the overlay until you activate it. Hold your assigned modifier button and use the D-pad to select text. Existing button assignments are kept.",
     values: {
       manualMode: true,
       manualModeInactiveBehavior: "hide-overlay",
