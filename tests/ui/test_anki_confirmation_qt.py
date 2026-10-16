@@ -318,6 +318,34 @@ def focus_confirmation_dialog(monkeypatch):
         app.processEvents()
 
 
+def test_confirmation_logs_first_paint_once_per_card(focus_confirmation_dialog, monkeypatch):
+    dialog, config = focus_confirmation_dialog
+    config.anki.confirmation_focus_on_show = False
+    timing_context = object()
+    context = SimpleNamespace(selected_lines=[], mined_line=None, audio_result=None, timing_context=timing_context)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", context)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    events = []
+    monkeypatch.setattr(
+        anki_confirmation_qt, "log_anki_card_timing", lambda ctx, event, **kwargs: events.append((ctx, event))
+    )
+
+    for _ in range(2):
+        dialog.populate_ui("word", "sentence", None, None, None, "", 0, 0)
+        dialog.show()
+        QApplication.instance().processEvents()
+        dialog.repaint()
+        dialog.hide()
+
+    assert [event for ctx, event in events if ctx is timing_context] == [
+        "anki.confirmation_dialog.populated",
+        "anki.confirmation_dialog.shown",
+        "anki.confirmation_dialog.populated",
+        "anki.confirmation_dialog.shown",
+    ]
+
+
 @pytest.mark.parametrize("focus_on_show", [False, True])
 @pytest.mark.parametrize("finish", ["accept", "reject", "close"])
 @pytest.mark.parametrize("pause_succeeded", [False, True])

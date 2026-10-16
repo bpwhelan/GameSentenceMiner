@@ -1475,7 +1475,7 @@ def test_refresh_anki_connect_connection_status_preserves_fresh_beacon_on_failur
 
 def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypatch):
     processed = []
-    monkeypatch.setattr(anki, "update_new_cards", lambda note_ids: processed.append(set(note_ids)))
+    monkeypatch.setattr(anki, "update_new_cards", lambda note_ids, **kwargs: processed.append(set(note_ids)))
 
     payload = {
         "event": "note_added",
@@ -1491,6 +1491,160 @@ def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypat
     assert processed == [{42}]
     assert anki.previous_note_ids == {42}
     assert anki.first_run is False
+
+
+def _full_beacon_payload():
+    return {
+        "event": "note_added",
+        "session_id": "session-1",
+        "note_id": 42,
+        "note_type_id": 1,
+        "note_type_name": "Mining",
+        "tags": ["overlay", "日本語"],
+        "fields": {"Word": "語", "Sentence": "<b>例文</b>", "Picture": "", "SentenceAudio": ""},
+        "card_ids": [43, 44],
+        "cards": [{"card_id": 43, "template_index": 0, "deck_id": 1}],
+    }
+
+
+@pytest.mark.parametrize("card_ids", [[43, 44], []])
+def test_beacon_full_note_uses_real_anki_card_without_fetching(monkeypatch, card_ids):
+    from GameSentenceMiner.util.models import model
+
+    config = _base_config()
+    config.anki.sentence_furigana_field = ""
+    monkeypatch.setattr(model, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "AnkiCard", model.AnkiCard)
+    monkeypatch.setattr(anki, "invoke", lambda *_args, **_kwargs: pytest.fail("full note must not be fetched"))
+    cards = []
+    monkeypatch.setattr(anki, "update_single_card", lambda card, **kwargs: cards.append((card, kwargs)))
+    payload = _full_beacon_payload()
+    payload["card_ids"] = card_ids
+    payload["fields"]["Definition"] = "<ul><li>日本語の定義 &amp; HTML</li></ul>" * 1000
+
+    assert anki.handle_incoming_anki_event(payload) == "note_added"
+    assert anki._process_next_anki_beacon_note() is True
+    assert len(cards) == 1
+    card, kwargs = cards[0]
+    assert isinstance(card, model.AnkiCard)
+    assert card.noteId == 42
+    assert card.modelName == "Mining"
+    assert card.get_field("Sentence") == "<b>例文</b>"
+    assert card.fields["Sentence"].order == 1
+    assert card.get_field("Picture") == ""
+    assert card.cards == card_ids
+    assert card.get_field("Definition") == payload["fields"]["Definition"]
+    assert card.tags == payload["tags"]
+    assert kwargs["timing_context"].note_id == "42"
+    assert anki.previous_note_ids == {42}
+    assert anki.handle_incoming_anki_event(payload) == "duplicate_note_added"
+
+
+@pytest.mark.parametrize(
+    "invalid_fields",
+    [
+        {"fields": {}},
+        {"fields": {"Word": None}},
+        {"tags": None},
+        {"tags": [1]},
+        {"card_ids": None},
+        {"card_ids": ["not-an-id"]},
+        {"note_type_name": None},
+    ],
+)
+def test_beacon_incomplete_note_falls_back_to_fetch(monkeypatch, invalid_fields):
+    processed = []
+    monkeypatch.setattr(anki, "update_new_cards", lambda ids, **kwargs: processed.append(set(ids)))
+    payload = {**_full_beacon_payload(), **invalid_fields}
+
+    assert anki.handle_incoming_anki_event(payload) == "note_added"
+    assert anki._process_next_anki_beacon_note() is True
+    assert processed == [{42}]
+
+
+def test_generated_screenshot_does_not_wait_for_an_already_finished_encoder(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.anki.previous_image_field = ""
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    screenshot = tmp_path / "raw.png"
+    screenshot.write_bytes(b"finished image")
+    monkeypatch.setattr(anki.ffmpeg, "get_raw_screenshot", lambda *args: str(screenshot))
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda *args: pytest.fail("encoder already finished"))
+
+    assets = anki._generate_media_files(False, None, "replay.mkv", 1, 0, None, [])
+
+    assert assets.screenshot_path == str(screenshot)
+
+
+def test_confirmation_starts_missing_translation_in_background(monkeypatch):
+    from concurrent.futures import Future
+
+    cfg = _base_config()
+    cfg.anki.show_update_confirmation_dialog_v2 = True
+    cfg.anki.previous_image_field = ""
+    cfg.ai.add_to_anki = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda card: (False, False))
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *args: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda *args: [])
+    monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *args, **kwargs: None)
+    monkeypatch.setattr(anki, "prefetch_ai_translation", lambda *args: pytest.fail("must not wait for translation"))
+    pending_translation = Future()
+    submissions = []
+    monkeypatch.setattr(
+        anki,
+        "translation_prefetch_executor",
+        SimpleNamespace(submit=lambda *args: submissions.append(args) or pending_translation),
+    )
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+    shown = []
+
+    def launch_confirmation(*args, **kwargs):
+        shown.append(True)
+        assert kwargs["translation_future"] is pending_translation
+        assert not pending_translation.done()
+        return None
+
+    qt_main_stub.launch_anki_confirmation = launch_confirmation
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+
+    assert (
+        anki.update_anki_card(
+            SimpleNamespace(noteId=42, get_field=lambda field: "sentence"),
+            note={"id": 42, "fields": {"Sentence": "sentence"}},
+            precomputed_assets=anki.MediaAssets(),
+        )
+        is False
+    )
+    assert shown == [True]
+    assert len(submissions) == 1
+
+
+def test_beacon_processes_queued_note_before_startup_baseline_fetch(monkeypatch):
+    from GameSentenceMiner.util.models import model
+
+    cfg = _base_config()
+    cfg.anki.enabled = True
+    cfg.anki.polling_rate_v2 = 1000
+    cfg.anki.sentence_furigana_field = ""
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(model, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "AnkiCard", model.AnkiCard)
+    monkeypatch.setattr(anki, "get_anki_beacon_wait_timeout_seconds", lambda: 60)
+    monkeypatch.setattr(anki, "get_note_ids", lambda: pytest.fail("queued note must not wait for baseline"))
+    processed = []
+    monkeypatch.setattr(anki, "update_single_card", lambda card, **kwargs: processed.append(card.noteId))
+    anki.handle_incoming_anki_event(_full_beacon_payload())
+
+    assert anki._monitor_anki_iteration(0, 1) == (0, 1)
+    assert processed == [42]
+
+
+def test_beacon_note_wakes_monitor_during_polling_backoff():
+    anki._anki_monitor_wake.clear()
+    anki.handle_incoming_anki_event({"event": "note_added", "note_id": 42})
+
+    assert anki._anki_monitor_wake.is_set()
 
 
 def test_monitor_anki_iteration_uses_push_queue_when_heartbeat_is_fresh(monkeypatch):
@@ -1514,7 +1668,7 @@ def test_monitor_anki_iteration_uses_push_queue_when_heartbeat_is_fresh(monkeypa
 
     unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
 
-    assert timeouts == [60.0]
+    assert timeouts == [0.0, 60.0]
     assert unsuccessful_count == 0
     assert scaled_polling_rate == 1.0
 

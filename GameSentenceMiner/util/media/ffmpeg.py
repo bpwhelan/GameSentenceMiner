@@ -7,6 +7,8 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable
+from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Tuple, Optional, Any
 
@@ -14,6 +16,7 @@ if TYPE_CHECKING:
     from GameSentenceMiner.ui.qt_main import DialogManager
 
 import numpy as np
+import soundfile as sf
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.command_line import split_command_line
@@ -46,6 +49,12 @@ from GameSentenceMiner.util.media.avif_sizing import (
 from GameSentenceMiner.util.media import pause_gaps
 from GameSentenceMiner.util.media.pause_gaps import AudioTimeline
 from GameSentenceMiner.util.media import pause_history
+
+
+@lru_cache(maxsize=256)
+def _cached_probe_json(file_path, entries, stream_select, executable, signature):
+    # Exceptions are deliberately not cached: a failed/unfinished file can recover.
+    return FFmpegHelper._run_probe_json(file_path, entries, stream_select, executable)
 
 
 supported_formats = {
@@ -493,9 +502,26 @@ class FFmpegHelper:
 
     @staticmethod
     def get_probe_json(file_path: str, entries: str, stream_select: str) -> Optional[dict]:
-        """Runs ffprobe and returns parsed JSON."""
+        """Reuse successful probes while the file and requested stream data are unchanged."""
+        try:
+            path = os.path.abspath(file_path)
+            try:
+                stat = os.stat(path)
+            except OSError:
+                # Preserve probing/error handling for missing or inaccessible paths.
+                return FFmpegHelper._run_probe_json(file_path, entries, stream_select, get_ffprobe_path())
+            signature = (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            # Keep probes from different ffprobe executables separate.
+            info = _cached_probe_json(path, entries, stream_select, get_ffprobe_path(), signature)
+            return deepcopy(info)
+        except Exception as e:
+            logger.error(f"Error probing file {file_path}: {e}")
+            return None
+
+    @staticmethod
+    def _run_probe_json(file_path: str, entries: str, stream_select: str, executable: str) -> dict:
         cmd = [
-            get_ffprobe_path(),
+            executable,
             "-v",
             "error",
         ]
@@ -503,12 +529,8 @@ class FFmpegHelper:
             cmd.extend(["-select_streams", stream_select])
         cmd.extend(["-show_entries", entries, "-of", "json", str(file_path)])
         logger.debug(" ".join(cmd))
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            return json.loads(result.stdout)
-        except Exception as e:
-            logger.error(f"Error probing file {file_path}: {e}")
-            return None
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return json.loads(result.stdout)
 
     @staticmethod
     def parse_custom_settings(custom_settings: str) -> Tuple[List[str], List[str]]:
@@ -913,6 +935,9 @@ def get_raw_screenshot(video_file, screenshot_timing, try_selector=False):
         "-i",
         f"{video_file}",
         "-vframes",
+        "1",
+        # These PNGs are temporary previews; favor encoding speed without losing pixels.
+        "-compression_level",
         "1",
         output_image,
     ]
@@ -1904,6 +1929,14 @@ def is_video_big_enough(file_path, min_size_kb=250):
 
 
 def get_audio_length(path):
+    # libsndfile reads headers in-process, avoiding a ffprobe process for each
+    # trimmed/VAD/source clip. Retain FFmpeg for codecs it cannot read (e.g. AAC).
+    try:
+        duration = float(sf.info(path).duration)
+        if math.isfinite(duration) and duration >= 0:
+            return duration
+    except (OSError, RuntimeError, ValueError, TypeError):
+        pass
     info = FFmpegHelper.get_probe_json(path, "format=duration", "")
     # Original used specific ffprobe command that outputted plain text, not JSON
     # get_probe_json might not work if "default=noprint..." is used with "-of json" which overrides?

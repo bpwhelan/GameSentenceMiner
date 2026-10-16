@@ -43,6 +43,7 @@ from GameSentenceMiner.util.gsm_utils import (
     sanitize_filename,
 )
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
+from GameSentenceMiner.util.anki_card_timing import elapsed_ms, log_anki_card_timing
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length, get_video_duration, splice_audio, trim_audio
 from GameSentenceMiner.util.platform.gamepad_hotkey import (
     GamepadHotkeyDispatcher,
@@ -275,6 +276,8 @@ class AnkiConfirmationDialog(QDialog):
         self.overlay_only = False
         self.result = None
         self.first_launch = True
+        self._dialog_shown_logged = False
+        self._populate_start_perf = 0.0
         self._force_autoplay = False
         self._audio_edit_context = None
         self._audio_edit_source_path = None
@@ -726,6 +729,8 @@ class AnkiConfirmationDialog(QDialog):
         reusing_screenshot=False,
         overlay_only=False,
     ):
+        self._populate_start_perf = time.perf_counter()
+        self._dialog_shown_logged = False
         self._apply_window_behavior_preferences()
         self.overlay_only = bool(overlay_only)
         self.overlay_source_warning_label.setVisible(self.overlay_only)
@@ -853,6 +858,21 @@ class AnkiConfirmationDialog(QDialog):
         self._update_dialogue_line_controls(has_translation=has_translation)
 
         self._configure_tab_order()
+        log_anki_card_timing(
+            getattr(self._replay_context, "timing_context", None),
+            "anki.confirmation_dialog.populated",
+            elapsed_ms=elapsed_ms(self._populate_start_perf),
+        )
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._dialog_shown_logged:
+            self._dialog_shown_logged = True
+            log_anki_card_timing(
+                getattr(self._replay_context, "timing_context", None),
+                "anki.confirmation_dialog.shown",
+                populate_to_show_ms=elapsed_ms(self._populate_start_perf) if self._populate_start_perf else None,
+            )
 
     def _poll_translation_future(self):
         future = self._translation_future

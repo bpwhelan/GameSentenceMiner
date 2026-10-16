@@ -440,15 +440,7 @@ class ReplayAudioExtractor:
             if context.last_note:
                 logger.debug(context.last_note.pretty_print())
 
-            with time_anki_card_block(context.timing_context, "replay.get_screenshot_time"):
-                context.ss_timing = ffmpeg.get_screenshot_time(
-                    video_path,
-                    context.mined_line,
-                    doing_multi_line=bool(context.selected_lines),
-                    anki_card_creation_time=context.anki_card_creation_time,
-                )
-
-            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="gsm-card-prep") as executor:
+            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="gsm-card-prep") as executor:
                 audio_future = None
                 media_future = None
                 translation_future = context.translation_future
@@ -483,6 +475,14 @@ class ReplayAudioExtractor:
                         logger.info("No SentenceAudio Field in config, skipping audio processing!")
 
                 if get_config().anki.enabled and context.last_note:
+                    # Audio extraction can run while the screenshot timestamp is probed.
+                    with time_anki_card_block(context.timing_context, "replay.get_screenshot_time"):
+                        context.ss_timing = ffmpeg.get_screenshot_time(
+                            video_path,
+                            context.mined_line,
+                            doing_multi_line=bool(context.selected_lines),
+                            anki_card_creation_time=context.anki_card_creation_time,
+                        )
                     media_future = executor.submit(
                         run_anki_card_timed,
                         context.timing_context,
@@ -495,7 +495,9 @@ class ReplayAudioExtractor:
                         timing_context=context.timing_context,
                     )
                     if get_config().ai.add_to_anki and translation_future is None:
-                        translation_future = executor.submit(
+                        # A local executor joins its tasks on exit. Translation must
+                        # outlive preparation so the dialog can display it as it arrives.
+                        translation_future = anki.translation_prefetch_executor.submit(
                             run_anki_card_timed,
                             context.timing_context,
                             "replay.future.prefetch_ai_translation",

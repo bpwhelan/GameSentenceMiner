@@ -140,6 +140,7 @@ anki_beacon_note_queue: "Queue[Dict[str, Any]]" = Queue(maxsize=256)
 anki_beacon_state_lock = threading.Lock()
 processed_push_note_keys = set()
 _anki_monitor_stop = threading.Event()
+_anki_monitor_wake = threading.Event()
 
 
 @dataclass
@@ -1062,8 +1063,7 @@ def _generate_media_files(
                     video_path,
                     ss_time,
                 )
-        with time_anki_card_block(timing_context, "anki.media.wait_raw_screenshot_stable"):
-            wait_for_stable_file(assets.screenshot_path)
+        # get_raw_screenshot waits for FFmpeg to exit; its output is already complete.
 
     if _field_is_active("video_field") and vad_result:
         # Store video parameters for deferred generation in background thread
@@ -1092,8 +1092,6 @@ def _generate_media_files(
                     video_path,
                     assets.prev_screenshot_timestamp,
                 )
-            with time_anki_card_block(timing_context, "anki.media.wait_previous_raw_screenshot_stable"):
-                wait_for_stable_file(assets.prev_screenshot_path)
 
     return assets
 
@@ -1779,7 +1777,17 @@ def update_anki_card(
                         logger.exception(f"Failed retrieving prefetched AI translation: {e}")
             elif precomputed_translation is None:
                 sentence_to_translate = _resolve_sentence_for_translation(note, last_note)
-                translation = prefetch_ai_translation(sentence_to_translate, game_line)
+                if show_confirmation:
+                    translation_future = translation_prefetch_executor.submit(
+                        run_anki_card_timed,
+                        timing_context,
+                        "replay.future.prefetch_ai_translation",
+                        prefetch_ai_translation,
+                        sentence_to_translate,
+                        game_line,
+                    )
+                else:
+                    translation = prefetch_ai_translation(sentence_to_translate, game_line)
             else:
                 translation = precomputed_translation
 
@@ -3306,6 +3314,7 @@ def reset_anki_beacon_receiver_state():
         processed_push_note_keys.clear()
         anki_beacon_state = AnkiBeaconState(baseline_seeded=not first_run)
     gsm_status.anki_beacon_connected = False
+    _anki_monitor_wake.clear()
 
 
 def reset_anki_polling_gate_state():
@@ -3354,6 +3363,7 @@ def record_anki_beacon_heartbeat(payload: Dict[str, Any], received_at: Optional[
             anki_beacon_state.baseline_seeded = True
     gsm_status.anki_connected = True
     gsm_status.anki_beacon_connected = True
+    _anki_monitor_wake.set()
 
 
 def get_anki_beacon_wait_timeout_seconds(now: Optional[datetime] = None) -> float:
@@ -3436,11 +3446,13 @@ def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[da
         processed_push_note_keys.add(note_key)
 
     try:
+        timing_context = new_anki_card_timing_context(note_id=note_id, force=True)
         anki_beacon_note_queue.put(
             {
                 "session_id": session_id,
                 "note_id": note_id,
                 "payload": dict(payload),
+                "timing_context": timing_context,
             },
             timeout=0.25,
         )
@@ -3448,7 +3460,40 @@ def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[da
         with anki_beacon_state_lock:
             processed_push_note_keys.discard(note_key)
         raise RuntimeError("Anki event mailbox is backpressured") from error
+    _anki_monitor_wake.set()
     return "note_added"
+
+
+def _anki_card_from_beacon_payload(payload: dict[str, Any]) -> AnkiCard | None:
+    """Adapt Beacon's full-note schema to AnkiConnect's notesInfo schema.
+
+    Incomplete payloads use notesInfo instead, so absent tags/fields cannot bypass
+    the user's tag filters or overwrite policy. Empty field values remain valid.
+    """
+    fields = payload.get("fields")
+    tags = payload.get("tags")
+    card_ids = payload.get("card_ids")
+    model_name = payload.get("note_type_name")
+    if (
+        not isinstance(fields, dict)
+        or not fields
+        or not all(isinstance(name, str) and isinstance(value, str) for name, value in fields.items())
+        or not isinstance(tags, list)
+        or not all(isinstance(tag, str) for tag in tags)
+        or not isinstance(card_ids, list)
+        or not all(isinstance(card_id, int) and not isinstance(card_id, bool) and card_id > 0 for card_id in card_ids)
+        or not isinstance(model_name, str)
+    ):
+        return None
+    return AnkiCard.from_dict(
+        {
+            "noteId": payload["note_id"],
+            "modelName": model_name,
+            "tags": list(tags),
+            "fields": {name: {"value": value, "order": order} for order, (name, value) in enumerate(fields.items())},
+            "cards": list(card_ids),
+        }
+    )
 
 
 def _ensure_anki_beacon_baseline() -> bool:
@@ -3494,8 +3539,15 @@ def _process_next_anki_beacon_note(timeout_seconds: float = 0.0) -> bool:
         return False
 
     note_key = _get_anki_beacon_note_key(session_id, note_id)
+    timing_context = push_event.get("timing_context")
     try:
-        update_new_cards({note_id})
+        with time_anki_card_block(timing_context, "anki.beacon.resolve_note"):
+            card = _anki_card_from_beacon_payload(push_event.get("payload") or {})
+        log_anki_card_timing(timing_context, "anki.beacon.note_received", full_note=card is not None)
+        if card is not None:
+            update_single_card(card, timing_context=timing_context)
+        else:
+            update_new_cards({note_id}, timing_context=timing_context)
         previous_note_ids.add(note_id)
         gsm_status.anki_connected = True
         return True
@@ -3556,15 +3608,18 @@ def check_for_new_cards():
     return True
 
 
-def update_new_cards(new_card_ids):
+def update_new_cards(new_card_ids, timing_context: AnkiCardTimingContext | None = None):
     """Process multiple new cards by looping through each card ID."""
     # Get info for all new cards
-    cards_info = invoke("notesInfo", notes=list(new_card_ids))
+    cards_info = invoke("notesInfo", notes=list(new_card_ids), timing_context=timing_context)
 
     for card_dict in cards_info:
         try:
             card = AnkiCard.from_dict(card_dict)
-            update_single_card(card)
+            if timing_context is None:
+                update_single_card(card)
+            else:
+                update_single_card(card, timing_context=timing_context)
         except Exception as e:
             logger.error(f"Error processing card {card_dict.get('noteId', 'unknown')}: {e}")
             continue
@@ -3638,7 +3693,7 @@ def _resolve_mined_line_for_card(card, lines):
     return matched
 
 
-def update_single_card(card):
+def update_single_card(card, timing_context: AnkiCardTimingContext | None = None):
     """Process a single card (extracted from update_new_card for reusability)."""
     timing_start = time.perf_counter()
     if not card or not check_tags_for_should_update(card):
@@ -3669,15 +3724,15 @@ def update_single_card(card):
     else:
         game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
-    timing_context = new_anki_card_timing_context(
-        note_id=getattr(card, "noteId", ""),
-        line_id=getattr(game_line, "id", ""),
-        word=current_word,
-        selected_line_count=len(lines or []),
-        # The context is passed through bounded queues as correlation metadata
-        # even when the optional timing log sink is disabled.
-        force=True,
-    )
+    if timing_context is None:
+        timing_context = new_anki_card_timing_context(
+            note_id=getattr(card, "noteId", ""),
+            # Keep correlation metadata even when the optional log sink is disabled.
+            force=True,
+        )
+    timing_context.line_id = str(getattr(game_line, "id", ""))
+    timing_context.word = current_word
+    timing_context.selected_line_count = len(lines or [])
     log_anki_card_timing(
         timing_context,
         "anki.update_single_card.card_detected",
@@ -4158,6 +4213,9 @@ def _monitor_anki_iteration(
             if not anki_beacon_state.push_mode_active:
                 logger.info("Anki Beacon heartbeat detected; disabling polling and switching to push event mode.")
                 anki_beacon_state.push_mode_active = True
+        # Newly pushed notes take priority over the one-time polling baseline request.
+        if _process_next_anki_beacon_note(timeout_seconds=0.0):
+            return 0, base_polling_rate
         _ensure_anki_beacon_baseline()
         if _process_next_anki_beacon_note(timeout_seconds=push_wait_timeout):
             return 0, base_polling_rate
@@ -4208,10 +4266,13 @@ def monitor_anki():
         unsuccessful_count = 0
         scaled_polling_rate = _get_anki_base_polling_rate_seconds()
         while not _anki_monitor_stop.is_set():
+            _anki_monitor_wake.clear()
+            if _anki_monitor_stop.is_set():
+                break
             unsuccessful_count, scaled_polling_rate = _monitor_anki_iteration(
                 unsuccessful_count,
                 scaled_polling_rate,
-                sleep_func=_anki_monitor_stop.wait,
+                sleep_func=_anki_monitor_wake.wait,
             )
     except KeyboardInterrupt:
         print("Stopped Checking For Anki Cards...")
@@ -4236,10 +4297,12 @@ def start_monitoring_anki():
 
 def stop_monitoring_anki() -> None:
     _anki_monitor_stop.set()
+    _anki_monitor_wake.set()
 
 
 def stop_anki_runtime() -> None:
     _anki_monitor_stop.set()
+    _anki_monitor_wake.set()
     translation_prefetch_executor.shutdown(wait=True, cancel_futures=False)
 
 
