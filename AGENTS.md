@@ -2,10 +2,11 @@
 
 ## Agent Restart Workflow
 
-- After completing and checking changes the user wants to try, use `npm run agent:restart -- --reason "Brief description of the changes"` to request a clean restart with a desktop warning.
+- After completing and checking changes the user wants to try, use `npm run agent:restart -- --handoff --reason "Brief description of the changes"` to request a clean restart with a desktop warning, then hand off without waiting for GSM to relaunch. The user can choose **Restart Now** or **Cancel Restart**; otherwise GSM restarts when the countdown ends.
 - Add `--build` for Electron changes unless the main process and renderer have already been built. Complete any separate overlay/vendor/native build workflow first.
+- When changing the restart warning or its control code, the already-running app still uses the old implementation. Build the changes and hand off for a normal app relaunch; use the agent restart warning after the new implementation is running.
 - Use `npm run agent:status` to check availability. GSM must have been launched once with restart support using `npm start`; `npm run dev` manages its own restart loop.
-- The command waits for the new app and backend to be ready. Treat a nonzero exit as a failure; do not report success or use broad process-name kills as a fallback.
+- With `--handoff`, the command returns once the running app accepts the request and displays the warning. Without it, the command waits for the new app and backend to be ready. Treat a nonzero exit as a failure; do not report success or use broad process-name kills as a fallback.
 - See `docs/AGENT_RESTART.md` for timing options, startup behavior, and troubleshooting.
 
 ## Yomitan Edit Workflow

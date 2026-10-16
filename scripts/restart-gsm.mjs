@@ -64,6 +64,9 @@ export async function waitForRestart(filename, previous, requestId, timeoutMs, d
     while (now() < deadline) {
         let endpoint;
         try { endpoint = read(filename); } catch (error) { lastError = error.message; }
+        if (endpoint?.instanceId === previous.instanceId && endpoint?.cancelledRestartId === requestId) {
+            return { ...endpoint, cancelled: true };
+        }
         if (endpoint?.error && (endpoint.instanceId === previous.instanceId || endpoint.restartId === requestId)) {
             throw new Error(endpoint.error);
         }
@@ -114,8 +117,20 @@ export async function restartRunningApp(filename, options, dependencies = {}) {
     const accepted = await request(endpoint, 'app.agent.restart', {
         reason: options.reason, delaySeconds: options.delaySeconds,
     }, 15_000);
+    if (accepted.cancelled) {
+        log('GSM restart was cancelled.');
+        return accepted;
+    }
     log(`GSM warned you and will restart at ${new Date(accepted.restartAt).toLocaleTimeString()}: ${accepted.reason}`);
+    if (options.handoff) {
+        log('Restart request accepted; handing off while GSM completes the countdown and restart.');
+        return accepted;
+    }
     const ready = await wait(filename, endpoint, accepted.requestId, options.timeoutSeconds * 1000);
+    if (ready.cancelled) {
+        log('GSM restart was cancelled.');
+        return ready;
+    }
     log(`GSM is ready with the new changes (PID ${ready.pid}).`);
     return ready;
 }
@@ -127,6 +142,7 @@ export function parseOptions(args) {
         timeout: { type: 'string', default: '120' },
         'data-dir': { type: 'string' },
         build: { type: 'boolean', default: false },
+        handoff: { type: 'boolean', default: false },
         status: { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
     } });
@@ -141,15 +157,17 @@ export function parseOptions(args) {
 async function main() {
     const options = parseOptions(process.argv.slice(2));
     if (options.help) {
-        console.log(`Usage: npm run agent:restart -- [--build] [--reason "Changes ready to test"]
+        console.log(`Usage: npm run agent:restart -- [--build] [--handoff] [--reason "Changes ready to test"]
   --build          Build this checkout before warning and restarting (npm start mode).
+  --handoff        Return after GSM shows the warning instead of waiting for startup.
   --delay N        Warning countdown, 5-300 seconds (default: 30).
   --timeout N      Wait for the replacement backend, in seconds (default: 120).
   --status         Print live app status without restarting.
   --data-dir PATH  Override the GSM data folder used for discovery.
 
 GSM must have been started once with agent restart support. The command uses
-GSM's normal cleanup, waits for a new app instance, and exits nonzero on failure.`);
+GSM's normal cleanup. By default it waits for the replacement to be ready; with
+--handoff it returns after the warning is shown. Failures exit nonzero.`);
         return;
     }
     let dataDir = options['data-dir'];

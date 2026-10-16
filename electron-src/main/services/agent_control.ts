@@ -14,7 +14,7 @@ interface AgentControlDependencies {
     restartId: string | null;
     isReady: () => boolean;
     getBlockedReason: () => string | null;
-    notify: (reason: string, seconds: number, restartNow: () => void) => Promise<void>;
+    notify: (reason: string, seconds: number, restartNow: () => void, cancelRestart: () => void) => Promise<void>;
     restart: (requestId: string) => Promise<void>;
 }
 
@@ -32,12 +32,13 @@ export function startAgentControl(deps: AgentControlDependencies) {
         appPath: deps.appPath,
         isPackaged: deps.isPackaged,
         restartId: deps.restartId,
+        cancelledRestartId: null as string | null,
         ...deps.connection,
     };
     let error: string | null = null;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let pending: Promise<{ requestId: string; restartAt: number; reason: string }> | null = null;
+    let pending: Promise<{ requestId: string; restartAt: number; reason: string; cancelled?: boolean }> | null = null;
 
     function save(): void {
         fs.mkdirSync(deps.userDataPath, { recursive: true });
@@ -70,6 +71,7 @@ export function startAgentControl(deps: AgentControlDependencies) {
             appPath: deps.appPath,
             isPackaged: deps.isPackaged,
             restartId: deps.restartId,
+            cancelledRestartId: descriptor.cancelledRestartId,
             ready: !disposed && !pending && !error && deps.isReady(),
             restarting: pending !== null,
             blockedReason: disposed ? 'GSM is shutting down.' : deps.getBlockedReason(),
@@ -94,11 +96,13 @@ export function startAgentControl(deps: AgentControlDependencies) {
         const reason = typeof options.reason === 'string' ? options.reason.trim() : 'New changes are ready to try.';
         const requestId = randomUUID();
         error = null;
+        descriptor.cancelledRestartId = null;
         save();
         let restartEarlyRequested = false;
         let restartStarted = false;
+        let restartCancelled = false;
         const startRestart = () => {
-            if (disposed || restartStarted) return;
+            if (disposed || restartStarted || restartCancelled) return;
             restartStarted = true;
             if (timer) clearTimeout(timer);
             timer = undefined;
@@ -109,12 +113,24 @@ export function startAgentControl(deps: AgentControlDependencies) {
             }
             void Promise.resolve().then(() => deps.restart(requestId)).catch(fail);
         };
+        const cancelRestart = () => {
+            if (disposed || restartStarted || restartCancelled) return;
+            restartCancelled = true;
+            if (timer) clearTimeout(timer);
+            timer = undefined;
+            descriptor.cancelledRestartId = requestId;
+            pending = null;
+            try { save(); } catch (writeError) {
+                console.error('Could not record cancelled agent restart:', writeError);
+            }
+        };
         await deps.notify(reason, delaySeconds, () => {
             restartEarlyRequested = true;
             if (timer) startRestart();
-        });
+        }, cancelRestart);
         if (disposed) throw new Error('GSM shut down while displaying the restart warning.');
         const restartAt = Date.now() + delaySeconds * 1000;
+        if (restartCancelled) return { requestId, restartAt, reason, cancelled: true };
         if (restartEarlyRequested) startRestart();
         else timer = setTimeout(startRestart, delaySeconds * 1000);
         return { requestId, restartAt, reason };

@@ -252,6 +252,7 @@ export async function sendAgentRestartNotification(
     reason: string,
     seconds: number,
     restartNow: () => void = () => {},
+    cancelRestart: () => void = () => {},
 ): Promise<void> {
     if (!Notification.isSupported()) {
         throw new Error('Desktop notifications are unavailable; GSM was not restarted.');
@@ -263,7 +264,10 @@ export async function sendAgentRestartNotification(
         silent: false,
         timeoutType: 'never',
         actions: process.platform === 'win32' || process.platform === 'darwin'
-            ? [{ type: 'button', text: 'Restart Now' }]
+            ? [
+                { type: 'button', text: 'Restart Now' },
+                { type: 'button', text: 'Cancel Restart' },
+            ]
             : undefined,
     });
     await new Promise<void>((resolve, reject) => {
@@ -278,9 +282,13 @@ export async function sendAgentRestartNotification(
         };
         notification.once('failed', (_event, message) => fail(`Restart notification failed: ${message}`));
         notification.once('action', (event) => {
-            if (event.actionIndex !== 0) return;
-            notification.close();
-            restartNow();
+            if (event.actionIndex === 0) {
+                notification.close();
+                restartNow();
+            } else if (event.actionIndex === 1) {
+                notification.close();
+                cancelRestart();
+            }
         });
         notification.once('show', () => {
             if (settled) return;
