@@ -1137,6 +1137,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "vnGuideUrl": "",
   "vnGuideRoute": "",
   "vnGuideMode": "auto",
+  "vnGuideDisplayStyle": "card",
   "vnGuideAutoAdvance": true,
   "vnGuideToggleHotkey": "Alt+Shift+G",
   "vnGuideNextHotkey": "Alt+Shift+Right",
@@ -2573,9 +2574,9 @@ function enableFindInPage(browserWindow) {
 
 function publishOverlaySocketData(type, data) {
   lastWebsocketData = data;
-  if (type === 'ws2' && vnGuideController) {
+  if (vnGuideController && (type === 'ws1' || type === 'ws2')) {
     vnGuideController.setAvailable(canUseOverlayCapture());
-    vnGuideController.observe(data);
+    vnGuideController.observe(type === 'ws1' ? { type: 'game_text', text: data } : data);
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("overlay-websocket-data", { type, data });
@@ -8618,6 +8619,7 @@ async function startOverlayAppImpl() {
       case "vnGuideUrl":
       case "vnGuideRoute":
       case "vnGuideMode":
+      case "vnGuideDisplayStyle":
       case "vnGuideAutoAdvance":
       case "vnGuideToggleHotkey":
       case "vnGuideNextHotkey":

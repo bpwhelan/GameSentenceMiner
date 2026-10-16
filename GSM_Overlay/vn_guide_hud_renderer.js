@@ -3,6 +3,7 @@ window.vnGuide.onState(state => {
   const saves = state.saveInstructions || [];
   const startIndex = state.startIndex ?? state.index;
   document.querySelector('.card').dataset.kind = state.kind;
+  document.querySelector('.card').dataset.displayStyle = state.displayStyle === 'text' ? 'text' : 'card';
   document.querySelector('.card').dataset.saveNotice = String(state.saveNotice === true);
   el('status').textContent = state.saveNotice ? 'Next step: save' : state.complete ? 'Route complete' : state.kind === 'save' ? 'Save your game' : state.kind === 'load' ? 'Load your save' : state.detected ? 'Choice detected' : state.rememberedChoice ? 'Last detected choice' : 'Next guide step';
   el('progress').textContent = `${startIndex < state.index ? `${startIndex + 1}–` : ''}${Math.min(state.index + 1, state.total)} / ${state.total}`;
@@ -20,7 +21,7 @@ window.vnGuide.onState(state => {
   else note = state.tentative ? 'Advanced after the menu cleared. Back undoes this if needed.' : state.detected ? 'Choose this option in the game.' : 'Waiting for a choice screen. You can advance manually.';
   el('note').textContent = state.error || note;
   document.querySelector('footer').hidden = state.saveNotice === true;
-  el('hide').title = state.saveNotice ? 'Dismiss this notice; the save reminder returns at the choice' : 'Hide this step; use the guide hotkey to reveal it';
+  el('hide').title = state.saveNotice ? 'Dismiss this notice; the save reminder returns at the choice' : 'Hide this card; automatic mode shows it again at the next choice';
   el('shortcut').textContent = state.nextHotkey;
   el('back').disabled = startIndex === 0;
   el('next').disabled = state.complete || state.saveNotice;

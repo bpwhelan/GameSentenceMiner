@@ -2161,6 +2161,19 @@ Use regular keyboard keys for best compatibility"
                     <button type="button" id="vn-guide-jump">Go</button>
                   </label>
                   <label>
+                    <span class="label-text">
+                      Guide appearance
+                      <div class="hotkey-info">
+                        Plain text shows only the current instruction, with no box or buttons. Clicks pass through to
+                        the game. Use the guide hotkeys or these settings to navigate.
+                      </div>
+                    </span>
+                    <select id="vnGuideDisplayStyle">
+                      <option value="card">Card with controls</option>
+                      <option value="text">Plain text (click-through)</option>
+                    </select>
+                  </label>
+                  <label>
                     <span class="label-text">Show the guide</span>
                     <select id="vnGuideMode">
                       <option value="auto">When a choice is detected, with save/load reminders</option>

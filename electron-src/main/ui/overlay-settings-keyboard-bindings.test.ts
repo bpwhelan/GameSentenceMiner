@@ -924,6 +924,14 @@ describe("overlay settings keyboard binding capture", () => {
       mode.value = 'always';
       mode.dispatchEvent(new page.dom.window.Event('change', { bubbles: true }));
       expect(page.sent.findLast(entry => entry.channel === 'setting-changed')?.payload).toEqual({ key: 'vnGuideMode', value: 'always' });
+      const appearance = document.getElementById('vnGuideDisplayStyle');
+      expect(appearance.value).toBe('card');
+      appearance.value = 'text';
+      appearance.dispatchEvent(new page.dom.window.Event('change', { bubbles: true }));
+      expect(page.sent.findLast(entry => entry.channel === 'setting-changed')?.payload).toEqual({ key: 'vnGuideDisplayStyle', value: 'text' });
+      page.listeners.get('settings-updated')?.(null, { vnGuideDisplayStyle: 'card' });
+      await nextTick();
+      expect(appearance.value).toBe('card');
       for (const id of ['vnGuideToggleHotkey', 'vnGuideNextHotkey', 'vnGuideBackHotkey']) {
         const control = document.getElementById(id);
         control.focus();

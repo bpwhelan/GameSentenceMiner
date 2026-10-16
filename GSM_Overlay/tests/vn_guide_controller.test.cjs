@@ -110,6 +110,169 @@ test('hotkey mode never auto-reveals save/load; always mode reveals until toggle
   assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
 });
 
+test('hiding a choice only dismisses that choice and the next detected choice reopens the card', async t => {
+  for (const action of ['toggle', 'hide']) {
+    const { controller, settings, advance } = setup(t);
+    await controller.configure(settings);
+    controller.setAvailable(true);
+    controller.observe(menu);
+    controller.command(action);
+    assert.equal(controller.snapshot().visible, false);
+    controller.observe(menu);
+    controller.observe({ type: 'ocr_text_invalidated' });
+    controller.observe(menu);
+    assert.equal(controller.snapshot().visible, false, 'rescanning the dismissed menu must not reopen it');
+    advance(1500);
+    controller.observe(dialogue);
+    controller.observe(nextMenu);
+    assert.equal(controller.snapshot().index, 2);
+    assert.equal(controller.snapshot().visible, true, `${action} must not suppress the next choice`);
+  }
+});
+
+test('hiding a preview before detection does not suppress the upcoming choice', async t => {
+  for (const action of ['toggle', 'hide']) {
+    const { controller, settings } = setup(t);
+    await controller.configure(settings);
+    controller.setAvailable(true);
+    controller.command('toggle');
+    controller.command(action);
+    assert.equal(controller.snapshot().visible, false);
+    controller.observe(menu);
+    assert.equal(controller.snapshot().visible, true);
+  }
+});
+
+test('hotkey previews hide after two fresh lines, ignoring duplicate, stale and supplemental OCR', async t => {
+  for (const mode of ['auto', 'hotkey']) {
+    const { controller, settings, updates } = setup(t);
+    await controller.configure({ ...settings, vnGuideMode: mode });
+    controller.setAvailable(true);
+    controller.observe({ ...dialogue, line_id: 'initial', presence_id: 'initial' });
+    controller.command('toggle');
+    controller.observe({ ...dialogue, line_id: 'initial', presence_id: 'rescan' });
+    controller.observe({ ...dialogue, is_final: false, data: [line('処理中', .8)] });
+    controller.observe({ ...dialogue, supplemental: true, data: [line('追加の文字', .8)] });
+    controller.observe({ type: 'overlay_clear' });
+    controller.observe({ type: 'ocr_text_invalidated', presence_id: 'initial' });
+    controller.observe({ type: 'ocr_text_revalidated', presence_id: 'initial', payload: { ...dialogue, presence_id: 'initial' } });
+    assert.equal(controller.snapshot().visible, true);
+    const first = { ...dialogue, line_id: 'first', data: [line('一つ目の会話', .8)] };
+    controller.observe(first);
+    controller.observe({ ...first, data: [line('一つ目の会話。', .8)] });
+    assert.equal(controller.snapshot().visible, true, 'a revision of the same line is not another advance');
+    controller.observe({ ...dialogue, line_id: 'second', data: [line('二つ目の会話', .8)] });
+    assert.equal(controller.snapshot().visible, false);
+    assert.equal(updates.at(-1).visible, false, 'the HUD must receive the automatic hide');
+    assert.equal(controller.snapshot().index, 0, 'hiding must not advance the guide');
+    controller.observe(menu);
+    assert.equal(controller.snapshot().visible, mode === 'auto');
+    controller.command('toggle');
+    assert.equal(controller.snapshot().visible, mode !== 'auto');
+  }
+});
+
+test('a manual preview hides after dialogue advances across an automatic guide step, then returns at the next choice', async t => {
+  const { controller, settings, advance, updates } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.command('toggle');
+  controller.observe(menu);
+  controller.observe({ ...menu, presence_id: 'rescan' });
+  advance(1500);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().index, 2);
+  assert.equal(controller.snapshot().visible, true);
+  controller.observe({ ...dialogue, data: [line('もう一つの会話', .8)] });
+  assert.equal(controller.snapshot().visible, false);
+  assert.equal(updates.at(-1).visible, false);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  controller.observe(nextMenu);
+  assert.equal(controller.snapshot().visible, true);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+});
+
+test('preview activity pauses without capture and hiding does not depend on automatic progression', async t => {
+  const { controller, settings } = setup(t);
+  await controller.configure({ ...settings, vnGuideAutoAdvance: false });
+  controller.setAvailable(true, 'Game A');
+  controller.command('toggle');
+  controller.observe(dialogue);
+  controller.setAvailable(false);
+  controller.observe({ ...dialogue, data: [line('見えない会話', .8)] });
+  controller.setAvailable(true);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().visible, true);
+  controller.observe({ ...dialogue, data: [line('次の会話', .8)] });
+  assert.equal(controller.snapshot().visible, false);
+  assert.equal(controller.snapshot().index, 0);
+  controller.observe(menu);
+  assert.equal(controller.snapshot().visible, true);
+});
+
+test('plaintext game lines hide previews without a lookup scan and final OCR does not count a line twice', async t => {
+  const { controller, settings } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.observe({ type: 'game_text', text: '今の会話' });
+  controller.command('toggle');
+  controller.observe({ type: 'game_text', text: '今の会話' });
+  controller.observe({ type: 'game_text', text: '一つ目' });
+  controller.observe({ type: 'game_text', text: '一つ目の会話' });
+  controller.observe({ ...dialogue, line_id: 'first', latest_text: '一つ目の会話', data: [line('一つ目の会話', .8)] });
+  assert.equal(controller.snapshot().visible, true);
+  controller.observe({ type: 'game_text', text: '二つ目の会話' });
+  assert.equal(controller.snapshot().visible, false);
+  assert.equal(controller.snapshot().index, 0);
+});
+
+test('Always mode keeps the current step visible as game lines advance', async t => {
+  const { controller, settings } = setup(t);
+  await controller.configure({ ...settings, vnGuideMode: 'always' });
+  controller.setAvailable(true);
+  controller.command('toggle');
+  controller.command('toggle');
+  for (const text of ['一つ目の会話', '二つ目の会話', '三つ目の会話']) controller.observe({ type: 'game_text', text });
+  assert.equal(controller.snapshot().visible, true);
+});
+
+test('plain-text appearance can change live without reloading the guide or changing visibility and progress', async t => {
+  const { controller, settings, requests, updates } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.observe(menu);
+  assert.equal(controller.snapshot().displayStyle, 'card');
+  await controller.configure({ ...settings, vnGuideDisplayStyle: 'text' });
+  assert.equal(controller.snapshot().displayStyle, 'text');
+  assert.equal(updates.at(-1).displayStyle, 'text');
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().index, 0);
+  assert.equal(requests.length, 2);
+  await controller.configure({ ...settings, vnGuideDisplayStyle: 'unsupported' });
+  assert.equal(controller.snapshot().displayStyle, 'card');
+  controller.command('toggle');
+  await controller.configure({ ...settings, vnGuideDisplayStyle: 'text' });
+  assert.equal(controller.snapshot().visible, false);
+});
+
+test('the overlay delivers plaintext activity to the guide while manual mode hides lookup windows', async t => {
+  const { controller, settings } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.command('toggle');
+  const context = require('node:vm').createContext({
+    vnGuideController: controller, mainWindow: { isDestroyed: () => false, webContents: { send() {} } },
+    canUseOverlayCapture: () => true, sendOffsetHelperData() {}, lastWebsocketData: null,
+  });
+  const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+  require('node:vm').runInContext(source.match(/^function publishOverlaySocketData\([\s\S]*?^}/m)[0], context);
+  context.publishOverlaySocketData('ws1', '一つ目の会話');
+  assert.equal(controller.snapshot().visible, true);
+  context.publishOverlaySocketData('ws1', '二つ目の会話');
+  assert.equal(controller.snapshot().visible, false);
+  assert.equal(controller.snapshot().index, 0);
+});
+
 test('the first save notice waits for capture and closing it cannot dismiss the later choice reminder', async t => {
   const { controller, settings, advance } = setup(t);
   await controller.configure({ ...settings, vnGuideUrl: `${url}#route=one&step=1` });

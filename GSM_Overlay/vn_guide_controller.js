@@ -1,4 +1,5 @@
-const { GuideTracker } = require('./vn_guide');
+const { GuideTracker, normalizeChoice } = require('./vn_guide');
+const { prepareTextLines } = require('./block_detection');
 
 function createVnGuideController({ library, hud, onChange = () => {}, now = Date.now }) {
   let settings = {};
@@ -10,7 +11,10 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
   let disposed = false;
   let available = false;
   let peek = null;
+  let peekLines = 0;
   let dismissed = false;
+  let dismissedAtChoice = false;
+  let lastActivity = null;
   let sourceKey = '';
   let game = null;
   let tentativeUntil = 0;
@@ -25,6 +29,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     const automatic = tracker && (mode === 'always' || mode === 'auto' && (tracker.detected || tracker.current?.kind !== 'choice' || saveNotice || !saveInstructions.length && tracker.tentative && now() < tentativeUntil));
     return {
       enabled: settings.vnGuideEnabled === true, loading, error, mode,
+      displayStyle: settings.vnGuideDisplayStyle === 'text' ? 'text' : 'card',
       visible: !disposed && available && settings.vnGuideEnabled === true && !!tracker && !dismissed && (peek ?? !!automatic),
       title: loaded?.guide.title || '', target: loaded?.guide.target || '',
       routes: loaded?.guide.routes || [], routeId: loaded?.route.id || '', routeTitle: loaded?.route.title || '',
@@ -51,11 +56,49 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
   }
   function enterStep() {
     dismissed = false;
+    dismissedAtChoice = false;
     // Defer the brief notice until there is a game capture to display it on.
     saveNoticeUntil = tracker.saveInstructions.length ? available ? now() + 8000 : null : 0;
   }
+  function resetVisibility() {
+    peek = null;
+    peekLines = 0;
+    dismissed = false;
+    dismissedAtChoice = false;
+  }
+  function dismiss(holdChoice = true) {
+    peek = null;
+    peekLines = 0;
+    dismissed = true;
+    dismissedAtChoice = holdChoice && (tracker.detected || !!tracker.armed);
+  }
+  function observeActivity(message, choiceObserved) {
+    let text, lineId, presenceId;
+    if (message?.type === 'game_text') {
+      text = normalizeChoice(message.text);
+    } else if (message?.type === 'word_coordinates' && message.is_final === true && !message.supplemental && Array.isArray(message.data) && message.data.length) {
+      text = normalizeChoice(message.latest_text || prepareTextLines(message.data).map(line => line.text).join('\n'));
+      lineId = message.line_id;
+      presenceId = message.presence_id;
+    } else return;
+    if (!text) return;
+    // A text-feed event and its OCR result describe the same line. Final OCR
+    // revisions and rescans also must not consume another line of a preview.
+    const repeated = lastActivity && (lastActivity.text === text
+      || (lineId && lineId === lastActivity.lineId) || (presenceId && presenceId === lastActivity.presenceId)
+      // Plaintext has no line ID; growing text is usually a revision of the
+      // current line as the game's text animation or OCR finishes.
+      || ((!lineId || !lastActivity.lineId) && (text.startsWith(lastActivity.text) || lastActivity.text.startsWith(text))));
+    lastActivity = {
+      text, lineId: lineId || (repeated ? lastActivity.lineId : null),
+      presenceId: presenceId || (repeated ? lastActivity.presenceId : null),
+    };
+    if (repeated || peek !== true || settings.vnGuideMode === 'always' || choiceObserved) return;
+    if (message.type === 'game_text' && (tracker.armed?.options || [normalizeChoice(tracker.current?.text)]).includes(text)) return;
+    if (++peekLines >= 2) dismiss(false);
+  }
   async function configure(nextSettings, { refresh = false } = {}) {
-    if (nextSettings.vnGuideMode !== settings.vnGuideMode) { peek = null; dismissed = false; }
+    if (nextSettings.vnGuideMode !== settings.vnGuideMode) resetVisibility();
     settings = { ...nextSettings };
     const key = JSON.stringify([settings.vnGuideEnabled === true, settings.vnGuideUrl || '', settings.vnGuideRoute || '']);
     if (!refresh && key === sourceKey) { publish(); return snapshot(); }
@@ -63,8 +106,8 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     const generation = ++epoch;
     if (!refresh) { loaded = null; tracker = null; }
     error = '';
-    peek = null;
-    dismissed = false;
+    resetVisibility();
+    lastActivity = null;
     loading = settings.vnGuideEnabled === true && !!settings.vnGuideUrl?.trim();
     publish();
     if (!loading || disposed) return snapshot();
@@ -96,7 +139,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
       if (tentativeUntil > suspendedAt) tentativeUntil += hiddenFor;
       suspendedAt = null;
     }
-    if (changedGame) { tracker?.resetDetection(); peek = null; }
+    if (changedGame) { tracker?.resetDetection(); resetVisibility(); lastActivity = null; }
     if (next && saveNoticeUntil === null) saveNoticeUntil = now() + 8000;
     if (next !== available || changedGame || snapshot().visible !== lastVisible) {
       available = next;
@@ -110,20 +153,27 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     if (!available) return;
     const before = JSON.stringify([tracker.index, tracker.detected, tracker.rememberedChoice, tracker.tentative]);
     const previousIndex = tracker.index;
+    const previousArmed = tracker.armed;
     tracker.observe(message, now(), settings.vnGuideAutoAdvance !== false);
     if (tracker.index !== previousIndex) { tentativeUntil = now() + 6000; enterStep(); persist(); }
     if (tracker.detected) saveNoticeUntil = 0;
-    if (before !== JSON.stringify([tracker.index, tracker.detected, tracker.rememberedChoice, tracker.tentative])) publish();
+    const choiceObserved = tracker.detected && tracker.armed !== previousArmed;
+    if (choiceObserved && message?.type === 'word_coordinates' && !dismissedAtChoice) dismissed = false;
+    observeActivity(message, choiceObserved);
+    if (before !== JSON.stringify([tracker.index, tracker.detected, tracker.rememberedChoice, tracker.tentative]) || snapshot().visible !== lastVisible) publish();
   }
   function command(action, value) {
     if (disposed) return snapshot();
     if (action === 'refresh') return configure(settings, { refresh: true });
     if (!tracker) return snapshot();
-    if (action === 'toggle') { dismissed = false; peek = !snapshot().visible; }
+    if (action === 'toggle') {
+      if (snapshot().visible) dismiss();
+      else { resetVisibility(); peek = true; }
+    }
     else if (action === 'hide') {
       // Closing the heads-up must not suppress the save reminder at the choice.
       if (snapshot().saveNotice) saveNoticeUntil = 0;
-      else dismissed = true;
+      else dismiss();
     }
     else if (['next', 'back', 'jump'].includes(action)) {
       if (action === 'jump') tracker.jump(value);

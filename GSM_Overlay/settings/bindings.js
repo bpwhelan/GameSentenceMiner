@@ -1034,6 +1034,7 @@ const SETTING_BINDING_DEFINITIONS = [
     },
   }),
   createSelectBinding("vnGuideMode", "#vnGuideMode"),
+  createSelectBinding("vnGuideDisplayStyle", "#vnGuideDisplayStyle"),
   createCheckboxBinding("vnGuideAutoAdvance", "#vnGuideAutoAdvance"),
   createHotkeyBinding("vnGuideToggleHotkey", "#vnGuideToggleHotkey"),
   createHotkeyBinding("vnGuideNextHotkey", "#vnGuideNextHotkey"),
