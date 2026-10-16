@@ -1,0 +1,447 @@
+/* The dashboard is a compact view over the shared setting controls. */
+.home-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin: -3px 0 20px;
+  color: var(--settings-muted);
+  font-size: 11px;
+}
+.home-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.home-profile > span {
+  color: #8d99a7;
+}
+.home-profile strong {
+  padding: 3px 8px;
+  border: 1px solid #3b4942;
+  border-radius: 5px;
+  background: #222e28;
+  color: #c4dfcf;
+  font-weight: 550;
+}
+.home-current-setup {
+  padding-left: 18px;
+  border-left: 1px solid #39413b;
+}
+.home-primary-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.home-dictionary-action {
+  border: 1px solid #82ac93;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #314d3c;
+  color: #e0f2e7;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.home-dictionary-action:hover:not(:disabled) {
+  background: #3c614b;
+  border-color: #b4d7c1;
+}
+.home-dictionary-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.home-presets {
+  padding: 20px;
+  background: linear-gradient(120deg, #202d27, #1d252a 75%);
+  border-color: #3c5145;
+}
+.home-presets-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+.home-presets-heading h4 {
+  margin: 0;
+  font-size: 15px;
+  color: #e1eee6;
+}
+.home-presets-heading > span {
+  font-size: 11px;
+  color: #abbcaf;
+}
+.home-mode-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.home-mode-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 8px;
+  margin: 0;
+  padding: 13px;
+  background: #19221f;
+  border: 1px solid #44544b;
+  border-radius: 7px;
+  min-height: 120px;
+  color: #e1ece6;
+  cursor: pointer;
+}
+.home-mode-card:hover:not(:disabled),
+.home-recipe-card:hover:not(:disabled) {
+  background: #283c30;
+  border-color: #8bb39b;
+  transform: none;
+  box-shadow: none;
+}
+.home-mode-card.active,
+.home-recipe-card.active {
+  background: #2c4134;
+  border-color: #91c5a4;
+  box-shadow: inset 0 0 0 1px #91c5a440;
+}
+.home-mode-card:disabled,
+.home-recipe-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.home-mode-card .preset-card-name,
+.home-recipe-card .preset-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  gap: 7px;
+}
+.home-mode-card .preset-card-blurb {
+  color: #b6c3bd;
+  font-size: 11px;
+  line-height: 1.6;
+  flex: 1;
+}
+.home-preset-kicker {
+  color: #a9c8b6;
+  font-size: 10px;
+  font-weight: 500;
+}
+.home-preset-effect {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.home-presets .preset-card-badge {
+  font-size: 9px;
+  padding: 2px 5px;
+  letter-spacing: 0;
+  text-transform: none;
+  background: #203f2e;
+  color: #c4efd4;
+}
+.home-recipes-heading {
+  margin: 18px 0 8px;
+  color: #c2d0c6;
+  font-size: 11px;
+  font-weight: 600;
+}
+.home-recipe-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+}
+.home-recipe-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: left;
+  gap: 5px;
+  border: 1px solid #3c4c42;
+  border-radius: 6px;
+  padding: 11px;
+  color: #deebe2;
+  background: #1a2420;
+  min-height: 72px;
+}
+.home-recipe-card .preset-card-name {
+  font-size: 11px;
+  flex-wrap: wrap;
+}
+.home-recipe-card .preset-card-blurb {
+  font-size: 10px;
+  color: #a7b8ad;
+  line-height: 1.5;
+}
+.home-preset-note,
+.home-preset-status {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #a6b9ac;
+  margin: 12px 0 0;
+}
+.home-preset-status:empty {
+  display: none;
+}
+.home-preset-status {
+  color: #d3eadb;
+}
+.home-anchor-nav {
+  display: flex;
+  position: sticky;
+  top: -26px;
+  z-index: 2;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0 14px;
+  margin: -5px 0 4px;
+  background: var(--settings-bg);
+}
+.home-anchor-nav button {
+  background: #20262c;
+  border: 1px solid #343e47;
+  border-radius: 5px;
+  color: #afbbc5;
+  padding: 5px 9px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.home-anchor-nav button:hover {
+  border-color: #789a85;
+  color: #d0e5d8;
+  background: #293a30;
+}
+.home-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+.home-card {
+  margin: 0;
+  padding: 17px 18px 13px;
+  min-width: 0;
+  scroll-margin-top: 18px;
+}
+.home-card:focus {
+  outline: none;
+}
+.home-card:focus-visible {
+  outline: 2px solid var(--settings-accent);
+  outline-offset: 3px;
+}
+.home-card-header {
+  padding: 0 0 11px;
+}
+.home-card h4 {
+  font-size: 14px;
+  margin: 0 0 4px;
+}
+.home-card-description {
+  margin: 0;
+  font-size: 11px;
+  color: #9eacb8;
+  line-height: 1.5;
+}
+.home-card .home-field {
+  gap: 12px;
+  padding: 10px 0;
+  align-items: center;
+  font-size: 12px;
+}
+.home-field > .label-text {
+  flex: 1 1 47%;
+  color: #dde6ed;
+  line-height: 1.45;
+}
+.home-field-help {
+  display: block;
+  color: #91a1af;
+  font-size: 10px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.home-card .setting-control-shell {
+  flex: 0 1 auto;
+  max-width: 49%;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.home-card .setting-control-shell input:not([type="checkbox"]):not([type="color"]),
+.home-card .setting-control-shell select {
+  width: 154px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+.home-card .setting-control-shell input[type="number"] {
+  width: 83px;
+}
+.home-card .setting-control-shell input[type="range"] {
+  width: 120px;
+}
+.home-card .setting-control-shell input[type="color"] {
+  width: 40px;
+  min-width: 0;
+}
+.home-card .setting-reset-button {
+  flex: 0 0 23px;
+  width: 23px;
+  height: 25px;
+  font-size: 13px;
+}
+.home-card .setting-reset-button.hidden {
+  display: none;
+}
+.home-card .setting-control-shell:has(input[type="checkbox"]) {
+  flex: 0 0 auto;
+}
+.home-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 12px;
+  border-top: 1px solid #303a43;
+  margin-top: 11px;
+  padding-top: 12px;
+}
+.home-action {
+  border: 1px solid #46544d;
+  border-radius: 4px;
+  background: #25342c;
+  padding: 5px 8px;
+  font-size: 10px;
+  color: #c7dfd1;
+  cursor: pointer;
+}
+.home-action:hover:not(:disabled) {
+  background: #304b3a;
+  border-color: #86b094;
+}
+.home-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.home-detail-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #a8cdb8;
+  font-size: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.home-detail-link:hover {
+  color: #d8f0e2;
+  text-decoration: underline;
+}
+.home-warning {
+  color: #dfcaa0;
+  border-left: 2px solid #a18e66;
+  padding: 6px 8px;
+  margin: 8px 0;
+  background: #41372355;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.search-active .home-context,
+.search-active .home-anchor-nav,
+.search-active .home-preset-note,
+.search-active .home-preset-status {
+  display: none;
+}
+
+@media (max-width: 1050px) {
+  .home-settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .home-mode-cards {
+    grid-template-columns: 1fr;
+  }
+  .home-mode-card {
+    min-height: 0;
+    gap: 7px;
+    padding: 12px;
+  }
+  .home-mode-card .preset-card-blurb {
+    flex: 0;
+  }
+  .home-mode-card .home-preset-effect {
+    border-top: none;
+    padding: 0;
+  }
+  .home-presets-heading {
+    display: block;
+  }
+  .home-presets-heading h4 {
+    margin-bottom: 5px;
+  }
+  .home-card .home-field {
+    flex-wrap: nowrap;
+    flex-direction: row;
+  }
+  .home-card .home-field > .label-text {
+    flex-basis: 47%;
+  }
+  .home-card .setting-control-shell {
+    max-width: 49%;
+  }
+}
+
+@media (max-width: 1000px) {
+  .home-anchor-nav {
+    top: -22px;
+  }
+}
+
+@media (max-width: 720px) {
+  .home-anchor-nav {
+    top: -20px;
+  }
+  .home-context {
+    gap: 8px;
+  }
+  .home-current-setup {
+    border: none;
+    padding-left: 0;
+    flex-basis: 100%;
+  }
+  .home-primary-actions {
+    margin-left: 0;
+  }
+  .home-presets {
+    padding: 14px;
+  }
+  .home-recipe-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .home-card {
+    padding: 15px;
+  }
+  .home-field-help {
+    font-size: 10px;
+  }
+  .home-card .setting-control-shell input:not([type="checkbox"]):not([type="color"]),
+  .home-card .setting-control-shell select {
+    width: 140px;
+  }
+  .home-card .setting-control-shell input[type="number"] {
+    width: 75px;
+  }
+}

@@ -1,12 +1,10 @@
 // Central content for the overlay-settings discoverability layer.
 //
-// Three globals consumed by settings-enhancer.js:
+// Two globals consumed by settings-enhancer.js:
 //   GSM_SETTING_DESCRIPTIONS  id -> one-line description, injected under settings
 //                             that don't already have a hand-written .hotkey-info.
 //   GSM_GROUP_KEYWORDS        group-heading substring -> extra search synonyms, so a
 //                             search like "controller" finds the Gamepad settings.
-//   GSM_CAPABILITY_CARDS      the "what can the overlay do" cards on the Overview tab;
-//                             each jumps to the tab named by `tab`.
 //
 // Descriptions are keyed by the control's element id (which equals its setting key).
 (function (global) {
@@ -17,7 +15,8 @@
   const GSM_SETTING_DESCRIPTIONS = {
     // Visibility / capture indicators
     showReadyIndicator: "Show a small dot when the overlay is connected and ready to capture.",
-    showTextIndicators: "The red boxes/borders drawn around captured text — they show the overlay is working. Turn this off to remove the boxes.",
+    showTextIndicators:
+      "The red boxes/borders drawn around captured text — they show the overlay is working. Turn this off to remove the boxes.",
     fadeTextIndicators: "Fade the capture borders out after a moment instead of keeping them solid.",
     showRecycledIndicator: "Mark lines the overlay has already shown before (recycled text).",
 
@@ -38,9 +37,12 @@
     inject_scanned_lines: "Send scanned lines to the text log so they count toward mining and stats.",
     use_ocr_result_v2: "Use the newer OCR result pipeline.",
     supplement_ocr_result_with_overlay: "Merge overlay text into the OCR result for more complete lines.",
-    last_sent_ocr_presence_check: "Start a background image check after each overlay result and mark its text stale when the tight text crop disappears.",
-    last_sent_ocr_presence_remove_notation: "Remove furigana, Jiten highlights, and text indicators when the last OCR text disappears.",
-    last_sent_ocr_presence_invalidate_lookups: "Remove stale OCR text targets so Yomitan and controller lookups cannot select text that is no longer visible.",
+    last_sent_ocr_presence_check:
+      "Start a background image check after each overlay result and mark its text stale when the tight text crop disappears.",
+    last_sent_ocr_presence_remove_notation:
+      "Remove furigana, Jiten highlights, and text indicators when the last OCR text disappears.",
+    last_sent_ocr_presence_invalidate_lookups:
+      "Remove stale OCR text targets so Yomitan and controller lookups cannot select text that is no longer visible.",
     use_text_filtering: "Filter out junk/noise characters from OCR output.",
     ocr_full_screen_instead_of_obs: "Capture the full screen for OCR instead of the OBS game window.",
 
@@ -71,36 +73,26 @@
   // Matched case-insensitively against each group's heading (<h4>/<summary>) text.
   // Every label inside a matching group inherits these terms in the search index.
   const GSM_GROUP_KEYWORDS = {
-    "visibility": "indicator border boxes box rectangle red remove hide ready recycled status outline",
+    visibility: "indicator border boxes box rectangle red remove hide ready recycled status outline",
     "live stats": "speed cph characters per hour reading time goals widget",
-    "pomodoro": "timer focus break work countdown",
-    "furigana": "reading ruby kana pronunciation rubytext",
-    "pinyin": "chinese tone pronunciation mandarin",
-    "ocr": "capture screen recognize text screenshot scan",
+    pomodoro: "timer focus break work countdown",
+    furigana: "reading ruby kana pronunciation rubytext",
+    pinyin: "chinese tone pronunciation mandarin",
+    ocr: "capture screen recognize text screenshot scan",
     "periodic scanning": "auto timer interval rescan",
-    "jiten": "dictionary srs jpdb anki grade lookup",
+    jiten: "dictionary srs jpdb anki grade lookup",
     "overlay integration": "srs highlight jpdb grade dictionary",
-    "gamepad": "controller xbox playstation joystick dpad hands-free navigation",
-    "hotkeys": "shortcut keybind keyboard hotkey",
-    "textfeed": "texthooker feed history lines re-read clipboard window",
+    gamepad: "controller xbox playstation joystick dpad hands-free navigation",
+    hotkeys: "shortcut keybind keyboard hotkey",
+    textfeed: "texthooker feed history lines re-read clipboard window",
     "custom page": "vn-guide vnguide kanjieater walkthrough route guide website url browser shortcut",
     "vn guide": "vn-guide kanjieater walkthrough route choice choices save load step advance undo spoiler",
-    "translation": "translate ai deepl machine translation",
+    translation: "translate ai deepl machine translation",
     "text offset": "position align nudge calibrate",
-    "profiles": "per-game scene per profile",
-    "behavior": "startup launch auto-minimize afk",
+    profiles: "per-game scene per profile",
+    behavior: "startup launch auto-minimize afk",
   };
-
-  // Overview "what the overlay can do" cards. `tab` must match a data-settings-tab value.
-  const GSM_CAPABILITY_CARDS = [
-    { icon: "📖", title: "Readings, Stats & Jiten", tab: "reading", blurb: "Furigana / pinyin, live stats, goals, Pomodoro, and Jiten Reader integration." },
-    { icon: "✋", title: "Push to Show & Hotkeys", tab: "interaction", blurb: "Reveal the overlay only when you want it, tune hotkeys, and control TextFeed or translation." },
-    { icon: "🎮", title: "Hands-Free Gamepad Nav", tab: "gamepad", blurb: "Drive the cursor and trigger Yomitan lookups with a controller — no keyboard or mouse needed." },
-    { icon: "🔍", title: "OCR Capture", tab: "capture", blurb: "Pick the engine, monitor, and capture area, and scan text on a timer or on demand." },
-    { icon: "🗂️", title: "Profiles & System", tab: "system", blurb: "Tie settings to GSM profiles and check platform or connection details." },
-  ];
 
   global.GSM_SETTING_DESCRIPTIONS = GSM_SETTING_DESCRIPTIONS;
   global.GSM_GROUP_KEYWORDS = GSM_GROUP_KEYWORDS;
-  global.GSM_CAPABILITY_CARDS = GSM_CAPABILITY_CARDS;
 })(typeof window !== "undefined" ? window : globalThis);

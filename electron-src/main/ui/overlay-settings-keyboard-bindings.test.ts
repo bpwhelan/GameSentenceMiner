@@ -26,7 +26,10 @@ function loadOverlaySettingsPage(platform = "win32") {
 
   const ipcRenderer = {
     send: (channel: string, payload?: IpcPayload) => sent.push({ channel, payload }),
-    invoke: async (channel: string, payload?: IpcPayload) => { invoked.push({ channel, payload }); return null; },
+    invoke: async (channel: string, payload?: IpcPayload) => {
+      invoked.push({ channel, payload });
+      return channel === "get-effective-platform" ? platform : null;
+    },
     on: (channel: string, handler: IpcListener) => {
       const existing = listeners.get(channel);
       listeners.set(channel, existing
@@ -90,6 +93,348 @@ function loadOverlaySettingsPage(platform = "win32") {
 
   return { dom, ready, sent, invoked, listeners };
 }
+
+describe("overlay settings navigation", () => {
+  it("shows one focused page and remembers the subtab within each category", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const category = (id: string) => doc.querySelector(`[data-settings-tab="${id}"]`);
+      const subtab = (id: string) => doc.querySelector(`[data-settings-page="${id}"]`);
+      const visiblePages = () => Array.from(doc.querySelectorAll("[data-page]")).filter((el: any) => !el.hidden);
+      expect(visiblePages().every((el: any) => el.dataset.page === "overview-start")).toBe(true);
+      category("reading").click();
+      expect(subtab("reading-indicators").getAttribute("aria-selected")).toBe("true");
+      subtab("reading-appearance").click();
+      expect(visiblePages().every((el: any) => el.dataset.page === "reading-appearance")).toBe(true);
+      category("capture").click();
+      category("reading").click();
+      expect(subtab("reading-appearance").getAttribute("aria-selected")).toBe("true");
+      expect(page.sent.filter(entry => entry.channel === "setting-changed")).toEqual([]);
+    } finally { page.dom.window.close(); }
+  });
+
+  it("routes every setting and overview shortcut to its precise page", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const configured = new Set(Array.from(doc.querySelectorAll("[data-settings-page]")).map((el: any) => el.dataset.settingsPage));
+      for (const control of doc.querySelectorAll(".setting-group input, .setting-group select")) {
+        const region = control.closest("[data-page]");
+        expect(region, control.id).not.toBeNull();
+        expect(configured.has(region.dataset.page), control.id).toBe(true);
+      }
+      doc.defaultView.HTMLElement.prototype.scrollIntoView = () => {};
+      doc.defaultView.gsmJumpToSetting("vnGuideEnabled");
+      expect(doc.querySelector('[data-settings-tab="tools"]').getAttribute("aria-selected")).toBe("true");
+      expect(doc.querySelector('[data-settings-page="tools-guide"]').getAttribute("aria-selected")).toBe("true");
+      expect(doc.getElementById("vnGuideEnabled").closest("[data-page]").hidden).toBe(false);
+    } finally { page.dom.window.close(); }
+  });
+
+  it("supports arrow, Home, and End keys independently in both tab bars", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const first = doc.querySelector('[data-settings-tab="overview"]');
+      first.focus();
+      first.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      expect(doc.activeElement.dataset.settingsTab).toBe("reading");
+      const subtab = doc.querySelector('[data-settings-page="reading-indicators"]');
+      subtab.focus();
+      subtab.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true }));
+      expect(doc.activeElement.dataset.settingsPage).toBe("reading-jiten");
+      doc.activeElement.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+      expect(doc.activeElement.dataset.settingsPage).toBe("reading-indicators");
+    } finally { page.dom.window.close(); }
+  });
+
+  it("searches across subtabs, opens advanced matches, and exits cleanly on navigation", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const input = doc.getElementById("settingsSearchInput");
+      input.value = "Periodic Scan Ratio";
+      input.dispatchEvent(new page.dom.window.Event("input", { bubbles: true }));
+      const control = doc.getElementById("periodic_ratio");
+      expect(control.closest("[data-page]").hidden).toBe(false);
+      expect(control.closest("details").open).toBe(true);
+      expect(doc.getElementById("settingsSearchCount").textContent).toContain("1 match");
+      doc.querySelector('[data-settings-tab="gamepad"]').click();
+      expect(input.value).toBe("");
+      expect(doc.body.classList.contains("search-active")).toBe(false);
+      expect(control.closest("details").open).toBe(false);
+      expect(doc.querySelector('[data-settings-page="gamepad-setup"]').getAttribute("aria-selected")).toBe("true");
+    } finally { page.dom.window.close(); }
+  });
+
+  it("restores conditional controls after search and handles no results and Escape", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const input = doc.getElementById("settingsSearchInput");
+      const conditional = doc.getElementById("gamepadYomitanApiUrl").closest("label");
+      const displayBefore = conditional.style.display;
+      input.value = "no-such-overlay-setting";
+      input.dispatchEvent(new page.dom.window.Event("input", { bubbles: true }));
+      expect(doc.getElementById("settingsSearchNoResults").hidden).toBe(false);
+      input.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(conditional.style.display).toBe(displayBefore);
+      expect(doc.getElementById("settingsSearchNoResults").hidden).toBe(true);
+      expect(doc.querySelector('[data-settings-page="overview-start"]').getAttribute("aria-selected")).toBe("true");
+    } finally { page.dom.window.close(); }
+  });
+
+  it("keeps external System-tab requests working", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      page.dom.window.GSMSettingsNavigation.navigate("system-profiles");
+      page.listeners.get("select-settings-tab")?.(null, "system");
+      expect(page.dom.window.document.querySelector('[data-settings-page="system-dictionary"]').getAttribute("aria-selected")).toBe("true");
+    } finally { page.dom.window.close(); }
+  });
+
+  it.each(["win32", "linux", "darwin"])("keeps platform-specific pages consistent on %s", async platform => {
+    const page = loadOverlaySettingsPage(platform);
+    try {
+      await page.ready;
+      await page.dom.window.applyPlatformSpecifics();
+      const doc = page.dom.window.document;
+      doc.querySelector('[data-settings-tab="capture"]').click();
+      expect(doc.querySelector('[data-settings-page="capture-alignment"]').hidden).toBe(platform === "win32");
+      if (platform !== "win32") {
+        doc.querySelector('[data-settings-page="capture-alignment"]').click();
+        expect(doc.getElementById("offsetX").closest("[data-page]").hidden).toBe(false);
+        expect(doc.getElementById("text-offset-group").style.display).not.toBe("none");
+      }
+    } finally { page.dom.window.close(); }
+  });
+
+  it("keeps shared tokenizer controls, defaults, and profile updates synchronized across pages", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: { gamepadTokenizerBackend: "mecab" },
+        defaultSettings: { gamepadTokenizerBackend: "mecab" },
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      page.dom.window.GSMSettingsNavigation.navigate("reading-tokenizer");
+      const readings = doc.getElementById("furiganaTokenizerBackend");
+      const controller = doc.getElementById("gamepadTokenizerBackend");
+      readings.value = "sudachi";
+      readings.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+      await nextTick();
+      expect(controller.value).toBe("sudachi");
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({ key: "gamepadTokenizerBackend", value: "sudachi" });
+      readings.closest(".setting-control-shell").querySelector(".setting-reset-button").click();
+      await nextTick();
+      expect(readings.value).toBe("mecab");
+      expect(controller.value).toBe("mecab");
+      page.listeners.get("settings-updated")?.(null, { gamepadTokenizerBackend: "yomitan-api" });
+      await nextTick();
+      page.dom.window.GSMSettingsNavigation.navigate("gamepad-navigation");
+      expect(readings.value).toBe("yomitan-api");
+      expect(controller.value).toBe("yomitan-api");
+      expect(doc.getElementById("gamepadYomitanApiUrl").closest("label").style.display).not.toBe("none");
+      const ids = Array.from(doc.querySelectorAll("[id]")).map((el: any) => el.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    } finally { page.dom.window.close(); }
+  });
+});
+
+describe("overlay settings home dashboard", () => {
+  it("combines quick setups with a small set of everyday controls", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      expect(doc.querySelector('[data-settings-page="overview-setups"]')).toBeNull();
+      expect(doc.getElementById("overlayPresetCards").closest("[data-page]").dataset.page).toBe("overview-start");
+      const values = (id: string) => Array.from(doc.getElementById(id).options).map((option: any) => option.value);
+      expect(values("home-manualModeType")).toEqual(values("manualModeType"));
+      expect(doc.getElementById("home-manualModeType").options[0].textContent).toBe("Hold to show");
+      expect(doc.querySelectorAll("#settingsHome [data-setting-alias]")).toHaveLength(11);
+      expect(doc.querySelectorAll(".home-card")).toHaveLength(4);
+      for (const id of ["manualMode", "showHotkey", "engine_v2", "monitor_to_capture", "showFurigana", "showTextIndicators", "dictionaryReaderSelection"]) {
+        const shortcut = doc.getElementById(`home-${id}`);
+        expect(shortcut, id).not.toBeNull();
+        expect(shortcut.closest("[data-page]").dataset.page, id).toBe("overview-start");
+        expect(doc.getElementById(id), id).not.toBeNull();
+      }
+      for (const id of ["gamepadEnabled", "showLiveStats", "pomodoroEnabled", "vnGuideUrl", "furiganaTokenizerBackend", "periodic_interval", "jitenHighlightingEnabled"]) {
+        expect(doc.getElementById(`home-${id}`), id).toBeNull();
+        expect(doc.getElementById(id).closest("[data-page]").dataset.page, id).not.toBe("overview-start");
+      }
+      expect(page.sent.filter(entry => entry.channel === "setting-changed")).toEqual([]);
+    } finally { page.dom.window.close(); }
+  });
+
+  it("shares saving, defaults, and profile updates with the detailed controls", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: { showTextIndicators: true }, defaultSettings: { showTextIndicators: true },
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      const shortcut = doc.getElementById("home-showTextIndicators");
+      const detailed = doc.getElementById("showTextIndicators");
+      shortcut.click();
+      await nextTick();
+      expect(detailed.checked).toBe(false);
+      expect(page.sent.filter(entry => entry.channel === "setting-changed").map(entry => entry.payload)).toEqual([{ key: "showTextIndicators", value: false }]);
+      shortcut.closest(".setting-control-shell").querySelector(".setting-reset-button").click();
+      await nextTick();
+      expect(shortcut.checked).toBe(true);
+      expect(detailed.checked).toBe(true);
+      page.listeners.get("settings-updated")?.(null, { showTextIndicators: false });
+      await nextTick();
+      expect(shortcut.checked).toBe(false);
+      detailed.click();
+      await nextTick();
+      expect(shortcut.checked).toBe(true);
+    } finally { page.dom.window.close(); }
+  });
+
+  it("applies expanded setup recipes without changing unrelated capture settings", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const engine = doc.getElementById("engine_v2").value;
+      doc.querySelector('[data-preset-id="japanese-readings"]').click();
+      await nextTick();
+      expect(doc.getElementById("showFurigana").checked).toBe(true);
+      expect(doc.getElementById("home-showFurigana").checked).toBe(true);
+      expect(doc.getElementById("readingLanguage").value).toBe("japanese");
+      expect(doc.getElementById("engine_v2").value).toBe(engine);
+      expect(page.sent.filter(entry => entry.channel === "setting-changed").map(entry => entry.payload?.key)).toEqual(["readingLanguage", "showFurigana", "hideFuriganaOnStartup"]);
+      expect(doc.querySelector('[data-preset-id="japanese-readings"]').getAttribute("aria-pressed")).toBe("true");
+      page.listeners.get("settings-updated")?.(null, { readingLanguage: "chinese" });
+      await nextTick();
+      expect(doc.querySelector('[data-preset-id="japanese-readings"]').getAttribute("aria-pressed")).toBe("false");
+      expect(doc.getElementById("home-readingLanguage").value).toBe("chinese");
+    } finally { page.dom.window.close(); }
+  });
+
+  it("reuses hotkey capture and window actions from Home", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const hotkey = doc.getElementById("home-showHotkey");
+      hotkey.focus();
+      hotkey.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "j", code: "KeyJ", altKey: true, shiftKey: true, bubbles: true }));
+      hotkey.blur();
+      await nextTick();
+      expect(doc.getElementById("showHotkey").value).toBe("Alt+Shift+J");
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({ key: "showHotkey", value: "Alt+Shift+J" });
+      doc.querySelector('[data-home-action="selectOcrAreaButton"]').click();
+      expect(page.sent.filter(entry => entry.channel === "overlay-select-ocr-area")).toHaveLength(1);
+      doc.getElementById("home-openDictionarySettings").click();
+      doc.getElementById("openYomitanSettings").click();
+      expect(page.sent.filter(entry => entry.channel === "open-yomitan-settings")).toHaveLength(2);
+      page.listeners.get("dictionary-reader-switching")?.(null, true);
+      await nextTick();
+      expect(doc.getElementById("home-openDictionarySettings").disabled).toBe(true);
+      expect(doc.getElementById("openYomitanSettings").disabled).toBe(true);
+      page.listeners.get("dictionary-reader-switching")?.(null, false);
+      await nextTick();
+      expect(doc.getElementById("home-openDictionarySettings").disabled).toBe(false);
+    } finally { page.dom.window.close(); }
+  });
+
+  it("names settings actions for the reader on load, profile updates, and user changes", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const actions = () => doc.querySelectorAll("button[data-dictionary-settings-label], button [data-dictionary-settings-label]");
+      const expectReader = (name: string) => {
+        expect(Array.from(actions()).map((el: any) => el.textContent.trim())).toEqual(Array(4).fill(`${name} Settings`));
+        expect(doc.querySelector('[data-dictionary-settings-label=" Hotkey"]').textContent).toBe(`${name} Settings Hotkey`);
+      };
+      expectReader("Yomitan");
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: { dictionaryReaderSelection: "hachidori" }, defaultSettings: {},
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      expectReader("Hachidori");
+      page.listeners.get("settings-updated")?.(null, { dictionaryReaderSelection: "yomitan" });
+      await nextTick();
+      expectReader("Yomitan");
+      expect(page.sent.filter(entry => entry.channel === "setting-changed")).toEqual([]);
+      const selection = doc.getElementById("home-dictionaryReaderSelection");
+      selection.value = "hachidori";
+      selection.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+      await nextTick();
+      expectReader("Hachidori");
+      expect(doc.getElementById("dictionaryReaderSelection").value).toBe("hachidori");
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({ key: "dictionaryReaderSelection", value: "hachidori" });
+      for (const label of actions()) label.closest("button").click();
+      expect(page.sent.filter(entry => entry.channel === "open-yomitan-settings")).toHaveLength(4);
+    } finally { page.dom.window.close(); }
+  });
+
+  it("keeps monitor options, profile context, and dependent controls current", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      page.listeners.get("settings-updated")?.(null, { monitor_to_capture: 1, manualMode: false });
+      page.listeners.get("gsm-overlay-monitors")?.(null, ["Main display", "Game display"]);
+      page.listeners.get("overlay-profile-state-updated")?.(null, { currentGSMProfileName: "My game", activeProfileName: "My game", enabled: true, profiles: [] });
+      await nextTick();
+      expect(doc.getElementById("home-monitor_to_capture").value).toBe("1");
+      expect(doc.getElementById("home-monitor_to_capture").options[1].textContent).toBe("Game display");
+      expect(doc.getElementById("home-manualModeType").closest("label").hidden).toBe(true);
+      page.listeners.get("settings-updated")?.(null, { manualMode: true });
+      await nextTick();
+      expect(doc.getElementById("home-manualModeType").closest("label").hidden).toBe(false);
+      expect(doc.getElementById("homeProfileName").textContent).toBe("My game");
+    } finally { page.dom.window.close(); }
+  });
+
+  it.each(["linux", "darwin"])("respects platform restrictions on Home on %s", async platform => {
+    const page = loadOverlaySettingsPage(platform);
+    try {
+      await page.ready;
+      await page.dom.window.applyPlatformSpecifics();
+      await nextTick();
+      const doc = page.dom.window.document;
+      const manual = doc.getElementById("home-manualMode");
+      expect(manual.checked).toBe(true);
+      expect(manual.disabled).toBe(true);
+      expect(doc.querySelector('[data-preset-id="automatic"]').disabled).toBe(true);
+    } finally { page.dom.window.close(); }
+  });
+
+  it("searches Home labels without duplicating the setting in results", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const input = doc.getElementById("settingsSearchInput");
+      input.value = "Show / hide shortcut";
+      input.dispatchEvent(new page.dom.window.Event("input", { bubbles: true }));
+      expect(doc.getElementById("settingsSearchCount").textContent).toBe("1 match");
+      expect(doc.getElementById("showHotkey").closest(".setting-group").hidden).toBe(false);
+      expect(doc.getElementById("home-showHotkey").closest(".setting-group").hidden).toBe(true);
+    } finally { page.dom.window.close(); }
+  });
+});
 
 describe("overlay custom page settings", () => {
   it("starts disabled, saves a URL and hotkey, and restores profile settings", async () => {

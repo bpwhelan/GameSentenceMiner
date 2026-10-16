@@ -14,6 +14,7 @@ type LiveStatsWidget = {
 
 const widgetSource = readFileSync(resolve(process.cwd(), 'GSM_Overlay/live_stats_widget.js'), 'utf8');
 const settingsHtml = readFileSync(resolve(process.cwd(), 'GSM_Overlay/settings.html'), 'utf8');
+const settingsBindings = readFileSync(resolve(process.cwd(), 'GSM_Overlay/settings/bindings.js'), 'utf8');
 const overlayHtml = readFileSync(resolve(process.cwd(), 'GSM_Overlay/index.html'), 'utf8');
 const mainSource = readFileSync(resolve(process.cwd(), 'GSM_Overlay/main.js'), 'utf8');
 
@@ -177,7 +178,7 @@ describe('live stats Session/Today scope', () => {
     const select = dom.window.document.querySelector<HTMLSelectElement>('#liveStatsScope');
     expect(select?.value).toBe('session');
     expect(Array.from(select?.options ?? []).map((option) => option.value)).toEqual(['session', 'today']);
-    expect(settingsHtml).toContain('createSelectBinding("liveStatsScope", "#liveStatsScope",');
+    expect(settingsBindings).toContain('createSelectBinding("liveStatsScope", "#liveStatsScope",');
     expect(mainSource).toContain('"liveStatsScope": "session"');
     dom.window.close();
   });
@@ -353,7 +354,7 @@ describe('live stats completed goals', () => {
 
     expect(checkbox).not.toBeNull();
     expect(checkbox?.checked).toBe(true);
-    expect(settingsHtml).toContain('createCheckboxBinding("hideCompletedGoals", "#hideCompletedGoals")');
+    expect(settingsBindings).toContain('createCheckboxBinding("hideCompletedGoals", "#hideCompletedGoals")');
   });
 
   it('hides completed today and overall goals by default', () => {
@@ -456,7 +457,7 @@ describe('live stats text overlap avoidance', () => {
 
     expect(checkbox).not.toBeNull();
     expect(checkbox?.checked).toBe(true);
-    expect(settingsHtml).toContain(
+    expect(settingsBindings).toContain(
       'createCheckboxBinding("hideLiveStatsOnTextOverlap", "#hideLiveStatsOnTextOverlap")',
     );
     expect(mainSource).toContain('"hideLiveStatsOnTextOverlap": true');

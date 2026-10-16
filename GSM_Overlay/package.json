@@ -14,6 +14,7 @@
     "test:vn-guide-electron": "node tests/run-vn-guide-electron.cjs",
     "test:jiten-electron": "node tests/run-jiten-electron-smoke.cjs",
     "test:gamepad-electron": "node tests/run-gamepad-electron-smoke.cjs",
+    "test:settings-electron": "node tests/run-settings-electron.cjs",
     "test:hachidori-electron": "node tests/run-hachidori-electron-smoke.cjs",
     "test:hachidori-persistence": "node tests/run-hachidori-persistence-electron.cjs",
     "test:yomitan-electron": "node tests/run-yomitan-startup-electron-smoke.cjs",

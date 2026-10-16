@@ -1,16 +1,12 @@
-// Discoverability layer for the overlay settings window. Runs after the page's
-// inline script (so updateSettingsTabVisibility() is already defined and tabs are
-// initialized). It does three presentation-only things, driven by settings-metadata.js:
-//   1. Injects a one-line description under every setting that lacks one.
-//   2. Renders the Overview tab's capability cards (each jumps to a tab).
-//   3. Powers the cross-tab search box (filters every setting by name/help/keywords).
+// Discoverability layer for the overlay settings window. Runs after bootstrap.
+// Adds setting descriptions, precise jump links, and cross-page search using
+// settings-metadata.js. Home shortcuts share the original controls' bindings.
 // No persistence or overlay behavior is touched.
 (function (global) {
   "use strict";
 
   const descriptions = global.GSM_SETTING_DESCRIPTIONS || {};
   const groupKeywords = global.GSM_GROUP_KEYWORDS || {};
-  const capabilityCards = global.GSM_CAPABILITY_CARDS || [];
 
   let ipcRenderer = null;
   try {
@@ -23,11 +19,6 @@
     if (typeof global.updateSettingsTabVisibility === "function") {
       global.updateSettingsTabVisibility(tab);
     }
-  }
-
-  function currentActiveTab() {
-    const active = document.querySelector(".settings-tab-button.active[data-settings-tab]");
-    return active ? active.dataset.settingsTab : "overview";
   }
 
   // ----- 1. Inline descriptions -------------------------------------------------
@@ -48,11 +39,10 @@
     });
   }
 
-  // ----- jump-to-setting (used by capability cards + Overview callouts) ----------
+  // ----- Jump to a setting on its full page ------------------------------------
   function jumpToSetting(id, fallbackTab) {
     const control = document.getElementById(id);
-    const group = control?.closest(".setting-group[data-tab]");
-    const tab = group?.dataset?.tab || fallbackTab;
+    const tab = control?.closest("[data-page]")?.dataset.page || fallbackTab;
     clearSearch();
     if (tab) switchToTab(tab);
     if (!control) return;
@@ -70,64 +60,9 @@
   }
   global.gsmJumpToSetting = jumpToSetting;
 
-  // ----- Red-boxes FAQ callout: only relevant while indicators are ON -----------
-  function refreshRedBoxCallout() {
-    const callout = document.getElementById("redBoxesCallout");
-    const indicators = document.getElementById("showTextIndicators");
-    if (!callout || !indicators) return;
-    callout.classList.toggle("red-callout-hidden", !indicators.checked);
-  }
-
-  function wireRedBoxCallout() {
-    const indicators = document.getElementById("showTextIndicators");
-    if (indicators) indicators.addEventListener("change", refreshRedBoxCallout);
-    // Settings arrive asynchronously over IPC; re-check after the page applies them.
-    if (ipcRenderer) {
-      const deferredRefresh = () => setTimeout(refreshRedBoxCallout, 0);
-      ipcRenderer.on("preload-settings", deferredRefresh);
-      ipcRenderer.on("settings-updated", deferredRefresh);
-    }
-    refreshRedBoxCallout();
-  }
-
-  // ----- 2. Capability cards (Overview tab) -------------------------------------
-  function renderCapabilityCards() {
-    const mount = document.getElementById("capabilityCards");
-    if (!mount) return;
-    mount.replaceChildren(...capabilityCards.map((card) => {
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className = "capability-card";
-      el.dataset.tab = card.tab;
-
-      const title = document.createElement("div");
-      title.className = "capability-card-title";
-      title.textContent = `${card.icon ? card.icon + " " : ""}${card.title}`;
-
-      const blurb = document.createElement("div");
-      blurb.className = "capability-card-blurb";
-      blurb.textContent = card.blurb;
-
-      const cta = document.createElement("div");
-      cta.className = "capability-card-cta";
-      cta.textContent = "Open settings →";
-
-      el.append(title, blurb, cta);
-      el.addEventListener("click", () => switchToTab(card.tab));
-      return el;
-    }));
-  }
-
-  function wireOverviewCallouts() {
-    document.querySelectorAll("[data-jump-setting]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        jumpToSetting(btn.dataset.jumpSetting, btn.dataset.jumpTab || undefined);
-      });
-    });
-  }
-
-  // ----- 3. Cross-tab search ----------------------------------------------------
+  // ----- Cross-tab search -------------------------------------------------------
   let searchIndex = [];
+  const openedDetails = new Map();
 
   function keywordsFor(headingCtx) {
     let keywords = "";
@@ -146,41 +81,66 @@
       // Walk headings + labels in document order so each label inherits the
       // nearest sub-heading (groups like Live Stats bundle Fields + Pomodoro).
       let section = firstHeading;
-      group.querySelectorAll("h4, h5, summary, label").forEach((node) => {
-        if (node.tagName !== "LABEL") {
+      group.querySelectorAll("h4, h5, summary, label, .label-row, .preset-card").forEach((node) => {
+        if (node.matches("h4, h5, summary")) {
           section = node.textContent.toLowerCase();
           return;
         }
+        // Home edits the same settings. Index the detailed control once so
+        // search results and counts do not duplicate its dashboard shortcut.
+        if (node.querySelector("[data-setting-alias]")) return;
+        const homeTerms = Array.from(node.querySelectorAll("input[id], select[id]"))
+          .map((control) => global.GSMSettingsHome?.searchTermsFor(control.id) || "")
+          .join(" ");
         const headingCtx = firstHeading + " " + section;
+        const region = node.closest("[data-page]");
+        const page = global.GSMSettingsNavigation.pages.find((page) => page.id === region?.dataset.page);
         searchIndex.push({
           label: node,
           group,
-          text: (node.textContent + " " + headingCtx + " " + keywordsFor(headingCtx)).toLowerCase(),
+          region,
+          text: (
+            node.textContent +
+            " " +
+            homeTerms +
+            " " +
+            headingCtx +
+            " " +
+            keywordsFor(headingCtx) +
+            " " +
+            (page ? `${page.categoryLabel} ${page.label}` : "")
+          ).toLowerCase(),
         });
       });
+    });
+    document.querySelectorAll("[data-page]").forEach((region) => {
+      const page = global.GSMSettingsNavigation.pages.find((page) => page.id === region.dataset.page);
+      if (!page) return;
+      const location = document.createElement("div");
+      location.className = "settings-search-location";
+      location.textContent = `${page.categoryLabel} / ${page.label}`;
+      region.prepend(location);
     });
   }
 
   function clearSearchStyles() {
     searchIndex.forEach((entry) => {
-      entry.label.style.display = "";
+      entry.label.classList.remove("search-hidden");
     });
-    document.querySelectorAll(".setting-group[data-tab]").forEach((g) => {
-      g.style.display = "";
+    openedDetails.forEach((open, details) => {
+      details.open = open;
     });
-    document.querySelectorAll(".settings-grid").forEach((grid) => {
-      grid.style.display = "";
-    });
+    openedDetails.clear();
   }
 
-  function clearSearch() {
+  function clearSearch(restore = true) {
     const input = document.getElementById("settingsSearchInput");
     if (input) input.value = "";
     if (!document.body.classList.contains("search-active")) return;
     document.body.classList.remove("search-active");
     clearSearchStyles();
     setSearchStatus(0, 0, false);
-    switchToTab(currentActiveTab());
+    if (restore) global.GSMSettingsNavigation.refresh();
   }
 
   function setSearchStatus(matches, queryLen, active) {
@@ -188,7 +148,7 @@
     const noResults = document.getElementById("settingsSearchNoResults");
     const plural = matches === 1 ? "" : "es";
     if (count) count.textContent = active && queryLen ? `${matches} match${plural}` : "";
-    if (noResults) noResults.style.display = active && queryLen && matches === 0 ? "block" : "none";
+    if (noResults) noResults.hidden = !(active && queryLen && matches === 0);
   }
 
   function applySearch(rawQuery) {
@@ -200,27 +160,43 @@
     document.body.classList.add("search-active");
 
     const matchedGroups = new Set();
+    const matchedRegions = new Set();
     let matchCount = 0;
     searchIndex.forEach((entry) => {
-      const isMatch = entry.text.includes(query);
-      entry.label.style.display = isMatch ? "" : "none";
+      // Navigation hides whole pages; language/backend/platform rules hide
+      // individual controls. Search should preserve those applicability rules.
+      let applicable = true;
+      for (let node = entry.label; node && node.id !== "settingsContent"; node = node.parentElement) {
+        if (node.style.display === "none" || (node.hidden && !node.matches("[data-page], .setting-group"))) {
+          applicable = false;
+          break;
+        }
+      }
+      const isMatch = applicable && entry.text.includes(query);
+      entry.label.classList.toggle("search-hidden", !isMatch);
       if (isMatch) {
         matchCount += 1;
         matchedGroups.add(entry.group);
+        if (entry.region) matchedRegions.add(entry.region);
+        let details = entry.label.closest("details");
+        while (details) {
+          if (!openedDetails.has(details)) openedDetails.set(details, details.open);
+          details.open = true;
+          details = details.parentElement?.closest("details");
+        }
       }
     });
 
     document.querySelectorAll(".setting-group[data-tab]").forEach((group) => {
       const show = matchedGroups.has(group);
-      group.style.display = show ? "block" : "none";
-      if (show && group.tagName === "DETAILS") group.open = true;
+      group.hidden = !show;
     });
 
-    document.querySelectorAll(".settings-grid").forEach((grid) => {
-      const hasMatch = Array.from(matchedGroups).some((g) => grid.contains(g));
-      grid.style.display = hasMatch ? "grid" : "none";
+    document.querySelectorAll("[data-page]").forEach((region) => {
+      region.hidden = !matchedRegions.has(region);
     });
 
+    global.GSMSettingsNavigation.refresh();
     setSearchStatus(matchCount, query.length, true);
   }
 
@@ -236,18 +212,26 @@
         }
       });
     }
-    if (clearBtn) clearBtn.addEventListener("click", () => clearSearch());
-    // Clicking any tab exits search so its inline styles don't fight the tab view.
-    document.querySelectorAll(".settings-tab-button[data-settings-tab]").forEach((btn) => {
-      btn.addEventListener("click", () => clearSearch());
-    });
+    if (clearBtn)
+      clearBtn.addEventListener("click", () => {
+        clearSearch();
+        input?.focus();
+      });
+    // Navigation owns all entry points, including cards and external IPC requests.
+    document.addEventListener("gsm-settings-before-navigate", () => clearSearch(false));
+    const refreshSearch = () => {
+      if (document.body.classList.contains("search-active")) applySearch(input.value);
+    };
+    document.getElementById("settingsContent").addEventListener("change", refreshSearch);
+    if (ipcRenderer) {
+      ipcRenderer.on("preload-settings", () => setTimeout(refreshSearch, 0));
+      ipcRenderer.on("settings-updated", () => setTimeout(refreshSearch, 0));
+    }
   }
 
   function init() {
     injectDescriptions();
-    renderCapabilityCards();
-    wireOverviewCallouts();
-    wireRedBoxCallout();
+
     buildSearchIndex();
     wireSearch();
   }
