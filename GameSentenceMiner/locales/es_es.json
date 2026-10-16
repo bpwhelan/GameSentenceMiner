@@ -409,8 +409,8 @@
         "features": {
           "title": "Características",
           "notify_on_update": {
-            "label": "Notificar al Actualizar Tarjeta de Anki:",
-            "tooltip": "Notificar al usuario cuando GSM actualiza una tarjeta de Anki."
+            "label": "Notificar al crear o actualizar una tarjeta de Anki:",
+            "tooltip": "Notificar cuando GSM cree o actualice una tarjeta de Anki."
           },
           "open_anki_edit": {
             "label": "Abrir Nota de Anki en Vista de Edición:",
@@ -435,6 +435,31 @@
           "generate_longplay": {
             "label": "Generar Longplay:",
             "tooltip": "Generar un video longplay combinando todas las repeticiones."
+          },
+          "notifications_title": "Notificaciones de escritorio",
+          "notify_on_audio_generated": {
+            "label": "Notificar al generar audio:",
+            "tooltip": "Notificar cuando GSM termine de generar o recortar audio."
+          },
+          "notify_on_screenshot_saved": {
+            "label": "Notificar al guardar una captura:",
+            "tooltip": "Notificar cuando GSM guarde una captura en el disco."
+          },
+          "notify_on_anki_enhancement_failed": {
+            "label": "Notificar si falla la mejora de una tarjeta:",
+            "tooltip": "Notificar cuando GSM no pueda terminar de mejorar una tarjeta de Anki, incluido el audio ausente o fallido."
+          },
+          "notify_on_errors": {
+            "label": "Notificar sobre errores de GSM:",
+            "tooltip": "Notificar cuando GSM encuentre un error que requiera atención."
+          },
+          "notify_on_obs_warning": {
+            "label": "Notificar si la repetición de OBS no está disponible:",
+            "tooltip": "Notificar cuando GSM no pueda usar la memoria de repetición de OBS."
+          },
+          "notify_on_text_intake_state": {
+            "label": "Notificar al pausar o reanudar la entrada de texto:",
+            "tooltip": "Notificar cuando se pause o reanude el procesamiento del texto entrante."
           }
         },
         "screenshot": {

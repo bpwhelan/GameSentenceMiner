@@ -1018,6 +1018,12 @@ for _legacy_key, _attr_name in Anki._LEGACY_FIELD_MAP.items():
 class Features:
     full_auto: bool = True
     notify_on_update: bool = True
+    notify_on_audio_generated: bool = True
+    notify_on_screenshot_saved: bool = True
+    notify_on_anki_enhancement_failed: bool = True
+    notify_on_errors: bool = True
+    notify_on_obs_warning: bool = True
+    notify_on_text_intake_state: bool = True
     open_anki_edit: bool = False
     open_anki_in_browser: bool = False
     browser_query: str = ""
@@ -1773,6 +1779,22 @@ class ProfileConfig:
 
         self.features.full_auto = config_data["features"].get("do_vosk_postprocessing", self.features.full_auto)
         self.features.notify_on_update = config_data["features"].get("notify_on_update", self.features.notify_on_update)
+        self.features.notify_on_audio_generated = config_data["features"].get(
+            "notify_on_audio_generated", self.features.notify_on_update
+        )
+        self.features.notify_on_screenshot_saved = config_data["features"].get(
+            "notify_on_screenshot_saved", self.features.notify_on_screenshot_saved
+        )
+        self.features.notify_on_anki_enhancement_failed = config_data["features"].get(
+            "notify_on_anki_enhancement_failed", self.features.notify_on_anki_enhancement_failed
+        )
+        self.features.notify_on_errors = config_data["features"].get("notify_on_errors", self.features.notify_on_errors)
+        self.features.notify_on_obs_warning = config_data["features"].get(
+            "notify_on_obs_warning", self.features.notify_on_obs_warning
+        )
+        self.features.notify_on_text_intake_state = config_data["features"].get(
+            "notify_on_text_intake_state", self.features.notify_on_text_intake_state
+        )
         self.features.open_anki_edit = config_data["features"].get("open_anki_edit", self.features.open_anki_edit)
 
         self.screenshot.width = config_data["screenshot"].get("width", self.screenshot.width)

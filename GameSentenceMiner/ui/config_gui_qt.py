@@ -948,6 +948,12 @@ class ConfigWindow(QWidget):
                 features=Features(
                     full_auto=self.full_auto_check.isChecked(),
                     notify_on_update=self.editor.profile.features.notify_on_update,
+                    notify_on_audio_generated=self.editor.profile.features.notify_on_audio_generated,
+                    notify_on_screenshot_saved=self.editor.profile.features.notify_on_screenshot_saved,
+                    notify_on_anki_enhancement_failed=(self.editor.profile.features.notify_on_anki_enhancement_failed),
+                    notify_on_errors=self.editor.profile.features.notify_on_errors,
+                    notify_on_obs_warning=self.editor.profile.features.notify_on_obs_warning,
+                    notify_on_text_intake_state=self.editor.profile.features.notify_on_text_intake_state,
                     open_anki_edit=self.editor.profile.features.open_anki_edit,
                     open_anki_in_browser=self.editor.profile.features.open_anki_in_browser,
                     browser_query=self.browser_query_edit.text(),
@@ -1498,6 +1504,12 @@ class ConfigWindow(QWidget):
         self.native_language_combo = QComboBox()
         self.locale_combo = QComboBox()
         self.notify_on_update_check = QCheckBox()
+        self.notify_on_audio_generated_check = QCheckBox()
+        self.notify_on_screenshot_saved_check = QCheckBox()
+        self.notify_on_anki_enhancement_failed_check = QCheckBox()
+        self.notify_on_errors_check = QCheckBox()
+        self.notify_on_obs_warning_check = QCheckBox()
+        self.notify_on_text_intake_state_check = QCheckBox()
 
         # Text Processing
         self.string_replacement_enabled_check = QCheckBox()

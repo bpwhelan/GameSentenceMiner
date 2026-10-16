@@ -19,14 +19,28 @@ def build_features_tab(window: ConfigWindow, binder: BindingManager, i18n: dict)
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
+    notification_i18n = tabs_i18n.get("features", {})
+    notifications_group = window._create_group_box(
+        notification_i18n.get("notifications_title", "Desktop Notifications")
+    )
+    notifications_layout = QFormLayout(notifications_group)
+    notifications_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    for key, checkbox in (
+        ("notify_on_update", window.notify_on_update_check),
+        ("notify_on_audio_generated", window.notify_on_audio_generated_check),
+        ("notify_on_screenshot_saved", window.notify_on_screenshot_saved_check),
+        ("notify_on_anki_enhancement_failed", window.notify_on_anki_enhancement_failed_check),
+        ("notify_on_errors", window.notify_on_errors_check),
+        ("notify_on_obs_warning", window.notify_on_obs_warning_check),
+        ("notify_on_text_intake_state", window.notify_on_text_intake_state_check),
+    ):
+        notifications_layout.addRow(window._create_labeled_widget(tabs_i18n, "features", key), checkbox)
+        binder.bind(("profile", "features", key), checkbox)
+    layout.addRow(notifications_group)
+
     convenience_group = window._create_group_box("Convenience")
     convenience_layout = QFormLayout(convenience_group)
     convenience_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-    convenience_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "features", "notify_on_update"),
-        window.notify_on_update_check,
-    )
-    binder.bind(("profile", "features", "notify_on_update"), window.notify_on_update_check)
     if is_windows():
         convenience_layout.addRow(
             window._create_labeled_widget(tabs_i18n, "advanced", "mute_game_on_minimize"),

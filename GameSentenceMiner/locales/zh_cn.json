@@ -405,8 +405,8 @@
         "features": {
           "title": "功能",
           "notify_on_update": {
-            "label": "更新时通知:",
-            "tooltip": "发生更新时通知用户。"
+            "label": "创建或更新 Anki 卡片时通知：",
+            "tooltip": "GSM 创建或更新 Anki 卡片时通知用户。"
           },
           "open_anki_edit": {
             "label": "打开 Anki 编辑:",
@@ -431,6 +431,31 @@
           "generate_longplay": {
             "label": "生成长流程视频:",
             "tooltip": "从 OBS 录制生成长流程视频，并将 GSM 收到的文本写入 SRT 字幕文件。需要重启。"
+          },
+          "notifications_title": "桌面通知",
+          "notify_on_audio_generated": {
+            "label": "生成音频时通知：",
+            "tooltip": "GSM 完成音频生成或剪辑时通知。"
+          },
+          "notify_on_screenshot_saved": {
+            "label": "保存截图时通知：",
+            "tooltip": "GSM 将截图保存到磁盘时通知。"
+          },
+          "notify_on_anki_enhancement_failed": {
+            "label": "Anki 卡片增强失败时通知：",
+            "tooltip": "GSM 无法完成 Anki 卡片增强时通知，包括音频缺失或生成失败。"
+          },
+          "notify_on_errors": {
+            "label": "GSM 出错时通知：",
+            "tooltip": "GSM 出现需要处理的错误时通知。"
+          },
+          "notify_on_obs_warning": {
+            "label": "OBS 回放不可用时通知：",
+            "tooltip": "GSM 无法使用 OBS 回放缓冲区时通知。"
+          },
+          "notify_on_text_intake_state": {
+            "label": "文本输入暂停或恢复时通知：",
+            "tooltip": "收到的文本处理暂停或恢复时通知。"
           }
         },
         "screenshot": {

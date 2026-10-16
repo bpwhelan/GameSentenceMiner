@@ -587,7 +587,7 @@ class ReplayAudioExtractor:
                             timing_context=context.timing_context,
                         )
                     )
-            elif get_config().features.notify_on_update and context.vad_result and context.vad_result.success:
+            elif get_config().features.notify_on_audio_generated and context.vad_result and context.vad_result.success:
                 from GameSentenceMiner.util.platform import notification
 
                 notification.send_audio_generated_notification(context.vad_trimmed_audio)

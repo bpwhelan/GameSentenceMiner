@@ -447,8 +447,8 @@
         "features": {
           "title": "Features",
           "notify_on_update": {
-            "label": "Notify on Anki Card Update:",
-            "tooltip": "Notify the user when GSM updates an Anki card."
+            "label": "Notify when an Anki Card Is Created or Updated:",
+            "tooltip": "Notify when GSM creates or updates an Anki card."
           },
           "open_anki_edit": {
             "label": "Open Anki Note in Edit View:",
@@ -473,6 +473,31 @@
           "generate_longplay": {
             "label": "Generate Longplay:",
             "tooltip": "Generate a Longplay video from OBS recording and write incoming GSM text to an SRT subtitle file. Restart required."
+          },
+          "notifications_title": "Desktop Notifications",
+          "notify_on_audio_generated": {
+            "label": "Notify on Audio Generated:",
+            "tooltip": "Notify when GSM finishes generating or trimming audio."
+          },
+          "notify_on_screenshot_saved": {
+            "label": "Notify on Screenshot Saved:",
+            "tooltip": "Notify when GSM saves a screenshot to disk."
+          },
+          "notify_on_anki_enhancement_failed": {
+            "label": "Notify on Anki Card Enhancement Failure:",
+            "tooltip": "Notify when GSM cannot finish enhancing an Anki card, including missing or failed audio."
+          },
+          "notify_on_errors": {
+            "label": "Notify on GSM Errors:",
+            "tooltip": "Notify when GSM encounters an error that needs attention."
+          },
+          "notify_on_obs_warning": {
+            "label": "Notify when OBS Replay is Unavailable:",
+            "tooltip": "Notify when GSM cannot use the OBS replay buffer."
+          },
+          "notify_on_text_intake_state": {
+            "label": "Notify when Text Intake Pauses or Resumes:",
+            "tooltip": "Notify when incoming text processing is paused or resumed."
           }
         },
         "screenshot": {

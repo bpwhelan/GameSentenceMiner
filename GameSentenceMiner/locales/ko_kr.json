@@ -413,8 +413,8 @@
         "features": {
           "title": "기능",
           "notify_on_update": {
-            "label": "Anki 카드 업데이트 시 알림:",
-            "tooltip": "GSM이 Anki 카드를 업데이트할 때 알림을 표시합니다."
+            "label": "Anki 카드 생성 또는 업데이트 시 알림:",
+            "tooltip": "GSM이 Anki 카드를 생성하거나 업데이트할 때 알립니다."
           },
           "open_anki_edit": {
             "label": "편집 보기에서 Anki 노트 열기:",
@@ -439,6 +439,31 @@
           "generate_longplay": {
             "label": "롱플레이 생성:",
             "tooltip": "OBS 녹화로 롱플레이 영상을 만들고 GSM에 입력되는 텍스트를 SRT 자막 파일로 기록합니다. 다시 시작해야 합니다."
+          },
+          "notifications_title": "바탕 화면 알림",
+          "notify_on_audio_generated": {
+            "label": "오디오 생성 시 알림:",
+            "tooltip": "GSM이 오디오 생성 또는 자르기를 마치면 알립니다."
+          },
+          "notify_on_screenshot_saved": {
+            "label": "스크린샷 저장 시 알림:",
+            "tooltip": "GSM이 스크린샷을 디스크에 저장하면 알립니다."
+          },
+          "notify_on_anki_enhancement_failed": {
+            "label": "Anki 카드 보강 실패 시 알림:",
+            "tooltip": "오디오 누락 또는 생성 실패를 포함해 Anki 카드 보강을 완료하지 못하면 알립니다."
+          },
+          "notify_on_errors": {
+            "label": "GSM 오류 알림:",
+            "tooltip": "주의가 필요한 오류가 GSM에서 발생하면 알립니다."
+          },
+          "notify_on_obs_warning": {
+            "label": "OBS 리플레이를 사용할 수 없을 때 알림:",
+            "tooltip": "GSM이 OBS 리플레이 버퍼를 사용할 수 없으면 알립니다."
+          },
+          "notify_on_text_intake_state": {
+            "label": "텍스트 입력 일시 중지 또는 재개 시 알림:",
+            "tooltip": "수신 텍스트 처리가 일시 중지되거나 재개되면 알립니다."
           }
         },
         "screenshot": {
