@@ -65,6 +65,38 @@ def test_windows_activation_retries_when_foreground_lock_rejects_request(windows
     ]
 
 
+def test_get_foreground_window_handle_retains_all_bits(windows_activation, monkeypatch):
+    module, state = windows_activation
+    monkeypatch.setattr(module.sys, "platform", "win32")
+    state.foreground = 0x123456789
+
+    assert module.get_foreground_window_handle() == state.foreground
+    assert state.calls == []
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_get_foreground_window_handle_skips_unsupported_platforms(monkeypatch, platform):
+    monkeypatch.setattr(window_activation.sys, "platform", platform)
+
+    assert window_activation.get_foreground_window_handle() is None
+
+
+@pytest.mark.parametrize("failure", ["missing-api", "native-error"])
+def test_get_foreground_window_handle_tolerates_unavailable_api(windows_activation, monkeypatch, failure):
+    module, _state = windows_activation
+    monkeypatch.setattr(module.sys, "platform", "win32")
+    if failure == "missing-api":
+        monkeypatch.setitem(sys.modules, "win32gui", None)
+    else:
+
+        def unavailable():
+            raise OSError("Foreground unavailable")
+
+        monkeypatch.setattr(sys.modules["win32gui"], "GetForegroundWindow", unavailable)
+
+    assert module.get_foreground_window_handle() is None
+
+
 def test_windows_activation_does_not_send_keys_when_direct_request_succeeds(windows_activation):
     module, state = windows_activation
     state.locked = False

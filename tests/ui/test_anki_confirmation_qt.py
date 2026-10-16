@@ -19,6 +19,11 @@ from GameSentenceMiner.util.config.configuration import Anki
 from GameSentenceMiner.util.media.pause_gaps import AudioTimeline
 
 
+@pytest.fixture(autouse=True)
+def mock_foreground_window(monkeypatch):
+    monkeypatch.setattr(anki_confirmation_qt, "get_foreground_window_handle", lambda: None)
+
+
 class _UnavailableAudioPlayer:
     audio_available = False
 
@@ -173,7 +178,9 @@ def test_confirmation_exec_releases_only_acquired_game_pause(monkeypatch, focus_
         return "confirmed"
 
     monkeypatch.setattr(anki_confirmation_qt, "request_anki_confirmation_process_pause", request_pause)
-    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", lambda: probe.calls.append("restore"))
+    monkeypatch.setattr(
+        anki_confirmation_qt, "_request_game_focus_restore", lambda _hwnd: probe.calls.append("restore")
+    )
     probe._exec_with_activation = run_dialog
     probe._exec_without_activation = run_dialog
 
@@ -227,7 +234,7 @@ def test_confirmation_game_pause_lasts_until_dialog_finishes(
     )
     focus_restore_visibility = []
 
-    def restore_focus():
+    def restore_focus(_hwnd):
         focus_restore_visibility.append(dialog.isVisible())
         calls.append("restore")
 
@@ -258,7 +265,7 @@ def test_canceling_discard_prompt_keeps_game_pause_and_focus_in_confirmation(
     monkeypatch.setattr(
         anki_confirmation_qt, "request_anki_confirmation_process_pause", lambda paused: calls.append(paused) or True
     )
-    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", lambda: calls.append("restore"))
+    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", lambda _hwnd: calls.append("restore"))
     choices = iter([anki_confirmation_qt.EXIT_CHOICE_CANCEL, anki_confirmation_qt.EXIT_CHOICE_DISCARD])
     monkeypatch.setattr(dialog, "_show_exit_confirmation_message", lambda: next(choices))
 
@@ -274,8 +281,51 @@ def test_canceling_discard_prompt_keeps_game_pause_and_focus_in_confirmation(
     assert calls == [True, False, "restore"]
 
 
-def test_request_game_focus_restore_reuses_overlay_target_resolution_and_activation(monkeypatch):
+def test_confirmation_restores_the_window_focused_before_activation(monkeypatch):
+    probe = _ExecRoutingProbe(focus_on_show=True)
+    foreground = [0x123456789]
+    restored = []
+    monkeypatch.setattr(anki_confirmation_qt, "get_foreground_window_handle", lambda: foreground[0])
+    monkeypatch.setattr(anki_confirmation_qt, "request_anki_confirmation_process_pause", lambda _paused: False)
+    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", restored.append)
+
+    def run_dialog():
+        foreground[0] = 999
+        return "confirmed"
+
+    probe._exec_with_activation = run_dialog
+    assert anki_confirmation_qt.AnkiConfirmationDialog.exec(probe) == "confirmed"
+    assert restored == [0x123456789]
+
+
+def test_request_game_focus_restore_defers_to_overlay_when_connected(monkeypatch):
+    from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+    loop = SimpleNamespace(is_running=lambda: True)
+    monitor = SimpleNamespace(overlay_processor=SimpleNamespace(processing_loop=loop))
+    sent = []
+    monkeypatch.setattr(anki_confirmation_qt, "get_window_state_monitor", lambda: monitor)
+    monkeypatch.setattr(websocket_manager, "has_clients", lambda channel: channel == ID_OVERLAY)
+
+    async def send(channel, message):
+        sent.append((channel, message))
+
+    monkeypatch.setattr(websocket_manager, "send", send)
+    monkeypatch.setattr(anki_confirmation_qt, "submit_coroutine_to_loop", lambda _loop, coro: asyncio.run(coro))
+
+    anki_confirmation_qt._request_game_focus_restore(0x123456789)
+
+    assert sent == [(ID_OVERLAY, {"type": "anki-confirmation-closed", "previousForegroundHwnd": "4886718345"})]
+
+
+@pytest.mark.parametrize(
+    "previous_hwnd, overlay_state", [(None, "connected"), (42, "disconnected"), (42, "send-error")]
+)
+def test_request_game_focus_restore_reuses_overlay_target_resolution_and_activation(
+    monkeypatch, previous_hwnd, overlay_state
+):
     from GameSentenceMiner.web import overlay_handler as overlay_handler_module
+    from GameSentenceMiner.web.gsm_websocket import websocket_manager
 
     calls = []
     loop = SimpleNamespace(is_running=lambda: True)
@@ -294,6 +344,13 @@ def test_request_game_focus_restore_reuses_overlay_target_resolution_and_activat
     processor.window_monitor = monitor
     monkeypatch.setattr(anki_confirmation_qt, "get_window_state_monitor", lambda: monitor)
     monkeypatch.setattr(overlay_handler_module, "get_overlay_processor", lambda: processor)
+    monkeypatch.setattr(websocket_manager, "has_clients", lambda _channel: overlay_state != "disconnected")
+
+    async def send(_channel, _message):
+        assert overlay_state == "send-error"
+        raise RuntimeError("Overlay disconnected during send")
+
+    monkeypatch.setattr(websocket_manager, "send", send)
 
     def submit(target_loop, coroutine):
         assert target_loop is loop
@@ -304,7 +361,7 @@ def test_request_game_focus_restore_reuses_overlay_target_resolution_and_activat
 
     monkeypatch.setattr(anki_confirmation_qt, "submit_coroutine_to_loop", submit)
 
-    anki_confirmation_qt._request_game_focus_restore()
+    anki_confirmation_qt._request_game_focus_restore(previous_hwnd)
 
     assert calls == ["submit", ("activate", 42)]
 

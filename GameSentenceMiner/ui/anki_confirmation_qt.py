@@ -25,7 +25,7 @@ from urllib.parse import quote
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.audio_waveform_widget import AUDIO_EXPAND_SECONDS, AudioWaveformWidget
-from GameSentenceMiner.ui.window_activation import activate_window
+from GameSentenceMiner.ui.window_activation import activate_window, get_foreground_window_handle
 from GameSentenceMiner.replay_handler import request_dialogue_replay_refresh
 from GameSentenceMiner.util.config.configuration import (
     get_config,
@@ -55,7 +55,7 @@ from GameSentenceMiner.util.platform.window_state_monitor import (
 )
 
 
-def _request_game_focus_restore():
+def _request_game_focus_restore(previous_foreground_hwnd=None):
     monitor = get_window_state_monitor()
     if monitor is None:
         return
@@ -68,9 +68,28 @@ def _request_game_focus_restore():
     try:
         from GameSentenceMiner.web.overlay_handler import overlay_handler
 
-        # Reuse the overlay's target resolution and activation retries without
-        # blocking Qt while the game takes foreground focus.
-        restore = overlay_handler.handle_restore_focus_request()
+        async def restore_focus():
+            if previous_foreground_hwnd:
+                from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+                if websocket_manager.has_clients(ID_OVERLAY):
+                    try:
+                        # The overlay owns the live navigation state. Let it decide
+                        # whether to reclaim its prior focus or return to the game.
+                        await websocket_manager.send(
+                            ID_OVERLAY,
+                            {
+                                "type": "anki-confirmation-closed",
+                                "previousForegroundHwnd": str(previous_foreground_hwnd),
+                            },
+                        )
+                        return
+                    except (OSError, RuntimeError) as exc:
+                        logger.debug(f"Unable to request overlay focus restoration: {exc}")
+            await overlay_handler.handle_restore_focus_request()
+
+        # Reuse focus activation retries without blocking Qt.
+        restore = restore_focus()
         submit_coroutine_to_loop(loop, restore)
     except (ImportError, RuntimeError) as exc:
         if restore is not None:
@@ -2640,6 +2659,7 @@ class AnkiConfirmationDialog(QDialog):
         return self.result
 
     def exec(self):
+        previous_foreground_hwnd = get_foreground_window_handle()
         self._apply_window_behavior_preferences()
         pause_requested = request_anki_confirmation_process_pause(True)
         try:
@@ -2650,7 +2670,7 @@ class AnkiConfirmationDialog(QDialog):
         finally:
             if pause_requested:
                 request_anki_confirmation_process_pause(False)
-        _request_game_focus_restore()
+        _request_game_focus_restore(previous_foreground_hwnd)
         return result
 
 

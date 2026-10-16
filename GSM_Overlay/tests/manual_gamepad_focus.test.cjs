@@ -29,6 +29,11 @@ function setup(t, settings = {}) {
     setBounds() {}, setIgnoreMouseEvents() {}, setAlwaysOnTop() {},
   });
   const mainWindow = {
+    getNativeWindowHandle: () => {
+      const handle = Buffer.alloc(8);
+      handle.writeBigUInt64LE(0x123456789n);
+      return handle;
+    },
     isDestroyed: () => false,
     isMinimized: () => false,
     isVisible: () => state.visible,
@@ -103,6 +108,7 @@ function setup(t, settings = {}) {
     'isManualMode', 'normalizeManualModeInactiveBehavior',
     'shouldKeepOverlayVisibleWhenManualInactive', 'shouldHideOverlayWindowForManualInactive',
     'requestBackendFocusRestore', 'blurAndRestoreFocus', 'hideAndRestoreFocus',
+    'restoreFocusAfterAnkiConfirmation', 'handleOverlayWebSocketControlMessage',
     'releaseOverlayFocusAfterTopmostRecovery', 'reassertOverlayTopmostWithoutFocus',
     'requestOverlayTopmostReassert', 'showOverlayWithoutFocusForManualVisibleMode',
     'aggressivelyShowOverlayAndReturnFocus', 'setGamepadNavigationModeActive',
@@ -155,6 +161,58 @@ function setup(t, settings = {}) {
     },
   };
 }
+
+for (const manualMode of [false, true]) {
+  for (const navigationActive of [false, true]) {
+    for (const previouslyFocused of [false, true]) {
+      test(`Anki confirmation restores focus with manual=${manualMode}, navigation=${navigationActive}, previous overlay=${previouslyFocused}`, t => {
+        const { context, state, restores } = setup(t, { manualMode });
+        context.gamepadNavigationActive = navigationActive;
+        const message = {
+          type: 'anki-confirmation-closed',
+          previousForegroundHwnd: previouslyFocused ? '4886718345' : '42',
+        };
+        // The data socket and BackendConnector receive the same broadcast.
+        assert.equal(context.handleOverlayWebSocketControlMessage('ws2', message), true);
+        assert.equal(context.handleOverlayWebSocketControlMessage('backend-connector', message), true);
+        t.mock.timers.tick(1000);
+
+        const returnToOverlay = previouslyFocused && navigationActive;
+        assert.equal(state.focused, returnToOverlay);
+        assert.deepEqual(restores, returnToOverlay ? [] : ['restore-focus-request']);
+        assert.equal(state.focusCalls, returnToOverlay ? 5 : 0);
+        assert.equal(context.gamepadNavigationActive, navigationActive);
+      });
+    }
+  }
+}
+
+test('Anki confirmation cannot focus the overlay after navigation ends during recovery', t => {
+  const { context, state } = setup(t);
+  context.gamepadNavigationActive = true;
+  context.restoreFocusAfterAnkiConfirmation({ previousForegroundHwnd: '4886718345' });
+  context.gamepadNavigationActive = false;
+  t.mock.timers.tick(1000);
+  assert.equal(state.focusCalls, 0);
+});
+
+test('Anki confirmation returns to the game when overlay capture is unavailable', t => {
+  const { context, state, restores } = setup(t);
+  context.gamepadNavigationActive = true;
+  context.overlayCaptureAvailable = false;
+  context.restoreFocusAfterAnkiConfirmation({ previousForegroundHwnd: '4886718345' });
+  t.mock.timers.tick(1000);
+  assert.equal(state.focusCalls, 0);
+  assert.deepEqual(restores, ['restore-focus-request']);
+});
+
+test('Anki confirmation returns to the game when the overlay window has closed', t => {
+  const { context, restores } = setup(t);
+  context.gamepadNavigationActive = true;
+  context.mainWindow = null;
+  context.restoreFocusAfterAnkiConfirmation({ previousForegroundHwnd: '4886718345' });
+  assert.deepEqual(restores, ['restore-focus-request']);
+});
 
 test('pending game focus restoration cannot interrupt a visible custom page', t => {
   const { context, restores } = setup(t);

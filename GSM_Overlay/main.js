@@ -2620,6 +2620,12 @@ function handleOverlayWebSocketControlMessage(type, data) {
     return true;
   }
 
+  if (message.type === "anki-confirmation-closed") {
+    // Both connections receive broadcasts; restore once through the control connection.
+    if (type === "backend-connector") restoreFocusAfterAnkiConfirmation(message);
+    return true;
+  }
+
   if (message.type === "shutdown-overlay") {
     const launchId = process.env.GSM_OVERLAY_LAUNCH_ID;
     if (launchId && message.launchId === launchId) {
@@ -4505,6 +4511,19 @@ function aggressivelyFocusOverlayForGamepadNavigation() {
       }
     }, delay);
   }
+}
+
+function restoreFocusAfterAnkiConfirmation(message) {
+  if (isWindows() && gamepadNavigationActive && canUseOverlayCapture() &&
+      mainWindow && !mainWindow.isDestroyed()) {
+    const handle = mainWindow.getNativeWindowHandle();
+    const hwnd = handle.length === 8 ? handle.readBigUInt64LE().toString() : handle.readUInt32LE().toString();
+    if (message.previousForegroundHwnd === hwnd) {
+      aggressivelyFocusOverlayForGamepadNavigation();
+      return;
+    }
+  }
+  requestBackendFocusRestore("anki-confirmation-closed", { force: true });
 }
 
 let gamepadToggleRequestSeq = 0;
