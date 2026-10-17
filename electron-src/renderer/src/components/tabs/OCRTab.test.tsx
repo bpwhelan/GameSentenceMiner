@@ -105,6 +105,143 @@ describe("OCRTab", () => {
     ).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  it("switches workspace views and sub-tabs without losing configured controls", async () => {
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+
+    const recognition = container.querySelector<HTMLElement>("#ocr-view-recognition")!;
+    const filtering = container.querySelector<HTMLElement>("#ocr-view-filtering")!;
+    const comparison = container.querySelector<HTMLElement>("#ocr-view-comparison")!;
+    const shortcuts = container.querySelector<HTMLElement>("#ocr-view-shortcuts")!;
+    const binding = container.querySelector<HTMLInputElement>("#manual-hotkey")!;
+    const initialBinding = binding.value;
+    expect(recognition.hidden).toBe(false);
+    expect(filtering.hidden).toBe(true);
+    expect(comparison.hidden).toBe(true);
+    expect(shortcuts.hidden).toBe(true);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#ocr-nav-filtering")!.click();
+    });
+    expect(recognition.hidden).toBe(true);
+    expect(filtering.hidden).toBe(false);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#ocr-nav-comparison")!.click();
+    });
+    expect(filtering.hidden).toBe(true);
+    expect(comparison.hidden).toBe(false);
+    expect(container.querySelector<HTMLElement>("#ocr-comp-panel-primary")!.hidden).toBe(false);
+    expect(container.querySelector<HTMLElement>("#ocr-comp-panel-truncation")!.hidden).toBe(true);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#ocr-comp-tab-truncation")!.click();
+    });
+    expect(container.querySelector<HTMLElement>("#ocr-comp-panel-primary")!.hidden).toBe(true);
+    expect(container.querySelector<HTMLElement>("#ocr-comp-panel-truncation")!.hidden).toBe(false);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#ocr-nav-shortcuts")!.click();
+    });
+    expect(comparison.hidden).toBe(true);
+    expect(shortcuts.hidden).toBe(false);
+    expect(container.querySelector("#manual-hotkey")).toBe(binding);
+    expect(binding.value).toBe(initialBinding);
+    expect(container.querySelector("#ocr-nav-shortcuts")?.getAttribute("aria-selected")).toBe("true");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#ocr-nav-recognition")!.click();
+    });
+    expect(recognition.hidden).toBe(false);
+    expect(shortcuts.hidden).toBe(true);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#ocr-nav-recognition")!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "End", bubbles: true })
+      );
+    });
+    expect(container.querySelector<HTMLElement>("#ocr-view-tools")!.hidden).toBe(false);
+    expect(document.activeElement?.id).toBe("ocr-nav-tools");
+  });
+
+  it("keeps the console always visible while expanding or docking without replacing its terminal surface", async () => {
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+    const studio = container.querySelector<HTMLElement>(".ocr-studio")!;
+    const consolePanel = container.querySelector<HTMLElement>("#ocr-console-drawer")!;
+    const terminal = container.querySelector("#ocr-console-output");
+    const toggle = container.querySelector<HTMLButtonElement>('button[aria-controls="ocr-console-drawer"]')!;
+    const dockBtn = container.querySelector<HTMLButtonElement>(".studio-console-dock-btn")!;
+    expect(consolePanel.hidden).toBe(false);
+    expect(terminal).not.toBeNull();
+
+    for (const expanded of [true, false, true]) {
+      await act(async () => { toggle.click(); });
+      expect(consolePanel.hidden).toBe(false);
+      expect(consolePanel.classList.contains("studio-console--expanded")).toBe(expanded);
+      expect(toggle.getAttribute("aria-expanded")).toBe(String(expanded));
+      expect(container.querySelector("#ocr-console-output")).toBe(terminal);
+    }
+
+    await act(async () => { dockBtn.click(); });
+    expect(studio.classList.contains("ocr-studio--split")).toBe(true);
+    expect(consolePanel.hidden).toBe(false);
+    expect(container.querySelector("#ocr-console-output")).toBe(terminal);
+  });
+
+  it("runs quick-capture actions through the existing OCR commands", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-running-state") return { isRunning: true, mode: "manual" };
+      return null;
+    });
+    await act(async () => {
+      root.render(<OCRTab active />);
+      await flushAsyncWork();
+    });
+    const buttons = container.querySelectorAll<HTMLButtonElement>(".studio-quick-actions button");
+    const channels = ["ocr.manual-ocr", "ocr.menu-ocr", "ocr.area-select-ocr", "ocr.whole-window-ocr"];
+    expect(buttons).toHaveLength(channels.length);
+    for (let index = 0; index < channels.length; index++) {
+      expect(buttons[index].disabled).toBe(false);
+      await act(async () => { buttons[index].click(); });
+      expect(sendMock).toHaveBeenLastCalledWith(channels[index]);
+    }
+  });
+
+  it("saves each output-table checkbox to its own capture mode", async () => {
+    await act(async () => {
+      root.render(<OCRTab active />);
+      await flushAsyncWork();
+    });
+    for (const [mode, clipboardKey, newlineKey] of [
+      ["auto", "send_to_clipboard_auto", "keep_newline_auto"],
+      ["menu", "send_to_clipboard_menu", "keep_newline_menu"],
+      ["area-select", "send_to_clipboard_area_select", "keep_newline_area_select"]
+    ]) {
+      const clipboard = container.querySelector<HTMLInputElement>("#send-to-clipboard-" + mode)!;
+      const newline = container.querySelector<HTMLInputElement>("#keep-newline-" + mode)!;
+      const nextClipboard = !clipboard.checked;
+      const nextNewline = !newline.checked;
+      await act(async () => {
+        clipboard.click();
+        newline.click();
+        await flushAsyncWork();
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+        await flushAsyncWork();
+      });
+      expect(sendMock).toHaveBeenLastCalledWith("ocr.save-ocr-config", expect.objectContaining({
+        [clipboardKey]: nextClipboard,
+        [newlineKey]: nextNewline
+      }));
+    }
+  });
+
   it("loads and saves each autostart mode while preserving the latest game automation settings", async () => {
     const scene = { id: "scene-1", name: "Example Game" };
     let profile = {
