@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseGuideUrl, validateGuide, validateRoute, stepKind, findChoice, GuideTracker } = require('../vn_guide');
+const { parseGuideUrl, validateGuide, validateRoute, stepKind, normalizeChoice, findChoice, GuideTracker } = require('../vn_guide');
 
 const line = (text, y, x = 0.4, width = 0.2) => ({ text, bounding_rect: { x1: x, y1: y, x3: x + width, y3: y + 0.03 } });
 const menu = (text = '大丈夫') => [line(text, 0.3), line('やめておこう', 0.43)];
@@ -34,11 +34,34 @@ test('validates the upstream manifest and step array without silently dropping s
   assert.equal(stepKind({ simpleJp: 'タイトル画面から始める' }), 'choice');
 });
 
-test('only accepts exact, isolated text with credible choice geometry', () => {
+test('choice comparisons remove punctuation and symbols while preserving letters, marks, and numbers', () => {
+  for (const text of ['意識が―もう――', '「意識が——もう…」', '意識が──もう−−', '意識が、もう！？', '１．意識が　もう。', '▶ 意識が　もう。']) {
+    assert.equal(normalizeChoice(text), '意識がもう');
+  }
+  assert.equal(normalizeChoice('“Don’t—go...”'), 'Dontgo');
+  assert.equal(normalizeChoice('【ｺｰﾋｰ２】 cafe\u0301 q\u0301!'), 'コーヒー2caféq\u0301');
+});
+
+test('punctuation differences match in either direction without accepting empty or ambiguous choices', () => {
+  for (const [expected, observed] of [
+    ['意識が―もう――', '意識が──もう──'],
+    ['忘れたくない！', '忘れたくない'],
+    ['忘れたくない', '「忘れたくない…」'],
+  ]) {
+    assert.ok(findChoice(menu(observed), expected));
+    assert.ok(findChoice(menu(expected), observed));
+  }
+  assert.equal(findChoice(menu('……'), '――'), null);
+  assert.equal(findChoice([line('行く！', .3), line('行く？', .43)], '行く'), null);
+  assert.equal(findChoice([line('行く', .3), line('……', .43)], '行く'), null);
+  assert.equal(findChoice(menu('コヒ'), 'コーヒー'), null);
+});
+
+test('only accepts exact normalized, isolated text with credible choice geometry', () => {
   assert.ok(findChoice(menu(), '大丈夫'));
   assert.ok(findChoice(menu('１．　大丈夫'), '大丈夫'));
   assert.equal(findChoice([line('本当に大丈夫なの？', 0.3), line('やめておこう', 0.43)], '大丈夫'), null);
-  assert.equal(findChoice([line('「大丈夫」', 0.3), line('やめておこう', 0.43)], '大丈夫'), null);
+  assert.ok(findChoice([line('「大丈夫」', 0.3), line('やめておこう', 0.43)], '大丈夫'));
   assert.equal(findChoice([line('大丈夫', 0.3)], '大丈夫'), null);
   assert.equal(findChoice([line('大丈夫', 0.8), line('そう言って彼女は笑った。', 0.84)], '大丈夫'), null);
   assert.equal(findChoice([line('大丈夫', 0.3), line('続きの台詞', 0.338)], '大丈夫'), null);
@@ -247,7 +270,7 @@ test('look-ahead rejects dialogue, partial/supplemental/stale frames, and manual
     frame(menu('進む'), { is_final: false }),
     frame(menu('進む'), { supplemental: true }),
     frame([line('進む', .3)]),
-    frame([line('「進む」', .3), line('やめておこう', .43)]),
+    frame([line('「進む」と言った。', .3), line('やめておこう', .43)]),
   ]) {
     guide.observe(payload, 1000);
     assert.equal(guide.index, 0);
@@ -337,4 +360,109 @@ test('suspension preserves the known alternatives when deciding whether a menu i
   assert.equal(guide.index, 0);
   guide.observe(frame(menu('進む'), { presence_id: 'new' }), 4000);
   assert.equal(guide.index, 0);
+});
+
+test('a new-line OCR clear retains the choice until fresh final dialogue confirms its disappearance', () => {
+  const guide = tracker();
+  guide.observe(frame(menu(), { line_id: 'choice', presence_id: 'choice' }), 1000);
+  guide.observe({ type: 'overlay_clear', line_id: 'dialogue' }, 2000);
+  assert.equal(guide.index, 0);
+  assert.equal(guide.detected, false);
+  for (const payload of [
+    frame([], { line_id: 'dialogue' }),
+    frame([line('次の会話', .8)], { line_id: 'dialogue', is_final: false }),
+    frame([line('次の会話', .8)], { line_id: 'dialogue', supplemental: true }),
+    frame([line('次の会話', .8)], { line_id: 'choice', presence_id: 'rescan' }),
+    { type: 'ocr_text_revalidated', presence_id: 'choice', payload: frame(menu(), { line_id: 'choice', presence_id: 'choice' }) },
+  ]) {
+    guide.observe(payload, 3000);
+    assert.equal(guide.index, 0);
+    assert.equal(guide.detected, false);
+  }
+  guide.observe(frame([line('次の会話', .8)], { line_id: 'dialogue', presence_id: 'dialogue' }), 3000);
+  assert.equal(guide.index, 2);
+  assert.equal(guide.recoveredFrom, null, 'ordinary progression must not need catch-up at the next menu');
+  assert.deepEqual(guide.saveInstructions, ['セーブ1']);
+  guide.observe({ type: 'overlay_clear', line_id: 'dialogue-2' }, 4000);
+  guide.observe(frame([line('別の会話', .8)], { line_id: 'dialogue-2' }), 5000);
+  assert.equal(guide.index, 2, 'later dialogue must not consume the unseen next choice');
+  guide.back();
+  assert.equal(guide.index, 0);
+});
+
+test('quick choices can advance on a distinct final text line, while same-line OCR revisions cannot', () => {
+  for (const clear of [false, true]) {
+    const guide = tracker();
+    guide.observe(frame(menu(), { line_id: 'choice', presence_id: 'choice' }), 1000);
+    if (clear) guide.observe({ type: 'overlay_clear', line_id: 'dialogue' }, 1100);
+    guide.observe(frame([line('次の会話', .8)], { line_id: 'dialogue', presence_id: 'dialogue' }), 1200);
+    assert.equal(guide.index, 2, 'a quickly selected choice must not depend on a later OCR event');
+  }
+  const guide = tracker(['大丈夫', '進む', '待つ']);
+  guide.observe(frame(menu(), { line_id: 'choice', presence_id: 'first-pass' }), 1000);
+  guide.observe(frame(menu('進む'), { line_id: 'choice', presence_id: 'final-pass' }), 3000);
+  assert.equal(guide.index, 0, 'revisions of the same line must not trigger catch-up');
+  guide.observe(frame([line('次の会話', .8)], { line_id: 'choice', presence_id: 'rescan' }), 4000);
+  assert.equal(guide.index, 0, 'revisions of the same line must not confirm disappearance');
+});
+
+test('new-line clears can restore the same choice, but reset, suspension, and expiry discard progression evidence', () => {
+  const guide = tracker();
+  guide.observe(frame(menu(), { line_id: 'choice' }), 1000);
+  guide.observe({ type: 'overlay_clear', line_id: 'rescan' }, 2000);
+  guide.observe(frame(menu(), { line_id: 'rescan' }), 3000);
+  assert.equal(guide.detected, true);
+  assert.equal(guide.index, 0);
+  guide.observe({ type: 'overlay_clear', line_id: 'dialogue' }, 4000);
+  guide.observe(frame([line('次の会話', .8)], { line_id: 'dialogue' }), 5000);
+  assert.equal(guide.index, 2);
+
+  for (const reset of [null, { type: 'overlay_clear' }, 'suspend']) {
+    const stale = tracker();
+    stale.observe(frame(menu(), { line_id: 'choice' }), 1000);
+    stale.observe({ type: 'overlay_clear', line_id: 'dialogue' }, 2000);
+    if (reset === 'suspend') stale.suspendDetection();
+    else if (reset) stale.observe(reset, 3000);
+    stale.observe(frame([line('次の会話', .8)], { line_id: 'dialogue' }), reset ? 4000 : 18000);
+    assert.equal(stale.index, 0);
+  }
+});
+
+test('manual advancement keeps the old-menu guard across new-line clears', () => {
+  const guide = tracker(['大丈夫', '大丈夫', '進む']);
+  guide.observe(frame(menu(), { line_id: 'choice' }), 1000);
+  guide.next();
+  guide.observe({ type: 'overlay_clear', line_id: 'rescan' }, 2000);
+  guide.observe(frame(menu(), { line_id: 'rescan' }), 3000);
+  assert.equal(guide.detected, false);
+  guide.observe({ type: 'overlay_clear', line_id: 'dialogue' }, 4000);
+  guide.observe(frame([line('次の会話', .8)], { line_id: 'dialogue' }), 5000);
+  assert.equal(guide.index, 1);
+  guide.observe({ type: 'overlay_clear', line_id: 'choice-2' }, 6000);
+  guide.observe(frame(menu(), { line_id: 'choice-2' }), 7000);
+  assert.equal(guide.detected, true);
+  guide.observe({ type: 'overlay_clear', line_id: 'dialogue-2' }, 8000);
+  guide.observe(frame([line('別の会話', .8)], { line_id: 'dialogue-2' }), 9000);
+  assert.equal(guide.index, 2);
+});
+
+test('a distinct final menu after manual advancement is detected on its first scan', () => {
+  const guide = tracker(['大丈夫', '進む', '待つ']);
+  guide.observe(frame(menu(), { line_id: 'choice' }), 1000);
+  guide.next();
+  guide.observe(frame([line('進む', .3), line('戻る', .43)], { line_id: 'choice-2' }), 3000);
+  assert.equal(guide.index, 1);
+  assert.equal(guide.detected, true);
+});
+
+test('new-line clears still respect save screens and manual-only progression', () => {
+  for (const saving of [false, true]) {
+    const guide = tracker();
+    guide.observe(frame(menu(), { line_id: 'choice' }), 1000);
+    guide.observe({ type: 'overlay_clear', line_id: 'next' }, 2000);
+    guide.observe(frame(saving ? [line('セーブ', .15), line('空きスロット', .3)] : [line('次の会話', .8)], { line_id: 'next' }), 3000, saving);
+    guide.observe({ type: 'overlay_clear', line_id: 'dialogue' }, 4000);
+    guide.observe(frame([line('別の会話', .8)], { line_id: 'dialogue' }), 5000);
+    assert.equal(guide.index, 0);
+  }
 });

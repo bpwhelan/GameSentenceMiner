@@ -45,6 +45,25 @@ test('disabled guides never fetch; cached routes and progress survive restart of
   assert.deepEqual(resumed.snapshot().saveInstructions, ['セーブ1']);
 });
 
+test('punctuation-insensitive choices show the original guide text and retain alternatives until the menu disappears', async t => {
+  const guideText = '意識が―もう――';
+  const { controller, settings, advance } = setup(t, {
+    fetchJson: async source => source.endsWith('/guide.json') ? manifest
+      : [guideText, '進む'].map(simpleJp => ({ simpleJp })),
+  });
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.observe({ ...menu, line_id: 'choice', data: [line('意識が──もう──', .3), line('忘れたくない！', .43)] });
+  assert.equal(controller.snapshot().detected, true);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().text, guideText);
+  advance(1500);
+  controller.observe({ ...menu, line_id: 'rescan', data: [line('忘れたくない…', .43)] });
+  assert.equal(controller.snapshot().index, 0, 'an alternative with different punctuation still belongs to the current menu');
+  controller.observe({ ...dialogue, line_id: 'dialogue' });
+  assert.equal(controller.snapshot().index, 1);
+});
+
 test('a brief save notice becomes a save reminder alongside the detected choice, then clears on advance', async t => {
   const { controller, settings, advance } = setup(t);
   await controller.configure(settings);
@@ -565,4 +584,54 @@ test('manual-only progression disables catch-up and a capture interruption needs
   assert.equal(controller.snapshot().index, 0);
   controller.observe(nextMenu);
   assert.equal(controller.snapshot().index, 2);
+});
+
+test('the backend new-line clear sequence advances and persists each choice without catch-up', async t => {
+  const { controller, settings, library, directory, advance } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true, 'Game A');
+  const send = message => controller.observe(JSON.stringify(message));
+  send({ type: 'overlay_clear', line_id: 'choice-1' });
+  send({ ...menu, line_id: 'choice-1', presence_id: 'choice-1' });
+  assert.equal(controller.snapshot().detected, true);
+  advance(200);
+  send({ type: 'overlay_clear', line_id: 'dialogue-1' });
+  assert.equal(controller.snapshot().visible, false);
+  send({ ...dialogue, line_id: 'dialogue-1', presence_id: 'dialogue-1' });
+  assert.equal(controller.snapshot().index, 2);
+  assert.equal(controller.snapshot().recoveredFrom, null);
+  assert.equal(controller.snapshot().saveNotice, true, 'save instructions must appear before the upcoming choice');
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  assert.equal(library.progress['test-game/one'].index, 2);
+  send({ type: 'overlay_clear', line_id: 'choice-2' });
+  send({ ...nextMenu, line_id: 'choice-2', presence_id: 'choice-2' });
+  assert.equal(controller.snapshot().detected, true);
+  assert.equal(controller.snapshot().saveNotice, false);
+  advance(200);
+  send({ type: 'overlay_clear', line_id: 'dialogue-2' });
+  send({ ...dialogue, line_id: 'dialogue-2', presence_id: 'dialogue-2' });
+  assert.equal(controller.snapshot().index, 3);
+  assert.equal(controller.snapshot().kind, 'load');
+  assert.equal(controller.snapshot().recoveredFrom, null);
+  send({ type: 'overlay_clear', line_id: 'dialogue-3' });
+  send({ ...dialogue, line_id: 'dialogue-3' });
+  assert.equal(controller.snapshot().index, 3, 'load instructions still require manual confirmation');
+  const offline = new GuideLibrary(directory, { fetchJson: async () => { throw new Error('Offline'); } });
+  assert.equal((await offline.load(url)).index, 3);
+  controller.command('back');
+  assert.equal(controller.snapshot().index, 2);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+});
+
+test('a capture interruption during a new-line scan cannot use the previous menu to advance', async t => {
+  const { controller, settings, advance } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true, 'Game A');
+  controller.observe({ ...menu, line_id: 'choice' });
+  controller.observe({ type: 'overlay_clear', line_id: 'dialogue' });
+  controller.setAvailable(false);
+  advance(1500);
+  controller.setAvailable(true);
+  controller.observe({ ...dialogue, line_id: 'dialogue' });
+  assert.equal(controller.snapshot().index, 0);
 });

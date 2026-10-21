@@ -62,8 +62,10 @@ function validateRoute(data) {
 }
 
 function normalizeChoice(value) {
+  // Ignore punctuation and symbol variants (including OCR's dash-like glyphs)
+  // only when comparing text. Keep letters such as the Japanese vowel mark ー.
   return String(value || '').normalize('NFKC').trim()
-    .replace(/^(?:[▶▷►●○・]\s*|\d{1,2}[.)．、]\s*)/u, '').replace(/\s/gu, '');
+    .replace(/^(?:[▶▷►●○・]\s*|\d{1,2}[.)．、]\s*)/u, '').replace(/[\p{P}\p{S}\s]/gu, '');
 }
 
 function choiceLines(data) {
@@ -129,12 +131,25 @@ class GuideTracker {
     return this.steps[next]?.kind === 'choice' ? next : index;
   }
   get rememberedChoice() { return this.detected && !this.armed; }
-  resetDetection() { this.detected = false; this.armed = null; this.blockedOptions = null; this.suspendedPresenceId = null; this.suspendedOptions = null; }
+  resetDetection() {
+    this.detected = false;
+    this.armed = null;
+    this.blockedOptions = null;
+    this.pendingLineId = null;
+    this.suspendedPresenceId = null;
+    this.suspendedLineId = null;
+    this.suspendedOptions = null;
+  }
   suspendDetection() {
     // Retain the hint across a temporary hide, but require new menu evidence
     // before disappearance can advance. Keep a manual advance's duplicate guard.
-    if (this.armed) { this.suspendedPresenceId = this.armed.presenceId; this.suspendedOptions = this.armed.options; }
+    if (this.armed) {
+      this.suspendedPresenceId = this.armed.presenceId;
+      this.suspendedLineId = this.armed.lineId;
+      this.suspendedOptions = this.armed.options;
+    }
     this.armed = null;
+    this.pendingLineId = null;
   }
   findAheadChoice(data, lines) {
     // An option still present in the current menu, or a save confirmation, must
@@ -169,7 +184,17 @@ class GuideTracker {
   back() { this.jump(this.recoveredFrom ?? Math.max(0, this.startIndex - 1)); }
   observe(message, now = Date.now(), autoAdvance = true) {
     if (!this.current || this.current.kind !== 'choice') return;
-    if (message?.type === 'overlay_clear') { this.resetDetection(); return; }
+    if (message?.type === 'overlay_clear') {
+      if (!message.line_id) this.resetDetection();
+      else {
+        // The backend clears boxes before scanning each new text line. Hide the
+        // old hint, but keep its evidence until that scan confirms the menu left.
+        this.pendingLineId = message.line_id;
+        this.detected = false;
+        if (this.armed) this.armed.invalidatedAt ??= now;
+      }
+      return;
+    }
     if (message?.type === 'ocr_text_invalidated') {
       if (this.armed && (!message.presence_id || message.presence_id === this.armed.presenceId)) {
         this.armed.invalidatedAt = now;
@@ -185,15 +210,24 @@ class GuideTracker {
       message = message.payload;
     }
     if (message?.type !== 'word_coordinates' || message.supplemental || !Array.isArray(message.data) || !message.data.length) return;
-    if (this.blockedOptions) {
-      const lines = choiceLines(message.data);
-      if (message.is_final === true && lines.length && !lines.some(line => this.blockedOptions.includes(line.text))) this.blockedOptions = null;
-      return;
+    if (this.pendingLineId) {
+      const staleLine = message.line_id && message.line_id !== this.pendingLineId;
+      const stalePresence = this.armed?.lineId !== this.pendingLineId
+        && message.presence_id && message.presence_id === this.armed?.presenceId;
+      if (revalidated || staleLine || stalePresence) return;
     }
     const lines = choiceLines(message.data);
+    if (this.blockedOptions) {
+      if (message.is_final === true && lines.length && !lines.some(line => this.blockedOptions.includes(line.text))) this.blockedOptions = null;
+      // A distinct menu may be the only scan of the next choice. Once it clears
+      // the old-menu guard, use that same frame to detect the current step.
+      else return;
+    }
     let match = findChoice(message.data, this.current.text);
     const previousPresence = this.armed?.presenceId || this.suspendedPresenceId;
+    const previousLine = this.armed?.lineId || this.suspendedLineId;
     if (!match && autoAdvance && message.is_final === true && !revalidated
+      && (!previousLine || previousLine !== message.line_id)
       && (!previousPresence || previousPresence !== message.presence_id)) {
       const ahead = this.findAheadChoice(message.data, lines);
       if (ahead && !(this.armed?.options || this.suspendedOptions || []).includes(ahead.match.text)) {
@@ -208,12 +242,14 @@ class GuideTracker {
     if (match) {
       const previous = this.armed;
       this.armed = {
-        ...match, since: previous?.since ?? now, presenceId: message.presence_id,
+        ...match, since: previous?.since ?? now, presenceId: message.presence_id, lineId: message.line_id,
         stable: message.is_final === true || !!previous && now - previous.since >= 200,
         saveControls: lines.filter(isSaveControl),
       };
       this.detected = true;
+      if (message.is_final === true) this.pendingLineId = null;
       this.suspendedPresenceId = null;
+      this.suspendedLineId = null;
       this.suspendedOptions = null;
       return;
     }
@@ -226,9 +262,10 @@ class GuideTracker {
       }
       return;
     }
-    if (armed.invalidatedAt && now - armed.invalidatedAt > 15000) { this.resetDetection(); return; }
+    if (armed.invalidatedAt != null && now - armed.invalidatedAt > 15000) { this.resetDetection(); return; }
     if (!lines.length || lines.some(line => armed.options.includes(line.text))) return;
     if (armed.presenceId && armed.presenceId === message.presence_id) return;
+    if (armed.lineId && armed.lineId === message.line_id) return;
     // Saving at the choice is not selecting an answer. New save/load headings
     // disarm progression until the menu returns; persistent game buttons do not.
     if (message.is_final === true && lines.some(line => isSaveControl(line)
@@ -238,7 +275,10 @@ class GuideTracker {
     }
     // A blank fade, OCR retries, and a cursor highlight disappearing are not a
     // selection. Require a fresh final text frame with the entire menu gone.
-    if (message.is_final !== true || !armed.stable || now - armed.since < 900) return;
+    // A different text-event ID is stronger evidence than a minimum dwell time;
+    // fast readers may select a fully scanned choice in well under a second.
+    const freshLine = armed.lineId && message.line_id && armed.lineId !== message.line_id;
+    if (message.is_final !== true || !armed.stable || !freshLine && now - armed.since < 900) return;
     this.resetDetection();
     if (autoAdvance) {
       this.next();
