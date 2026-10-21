@@ -65,6 +65,18 @@ startup settings; this command does not promise to restore an unsaved UI session
 An independently launched overlay or other tool is outside the main app's managed
 processes and must be restarted separately when its code changes.
 
+The backend stops first so its replay-buffer manager cannot restart OBS outputs.
+GSM then stops active recording and replay buffering through OBS WebSocket and
+waits for both outputs to become inactive. Recording has up to 30 seconds to
+finalize, followed by up to 15 seconds for output status to settle. An active
+stream or an unavailable WebSocket connection prevents automatic OBS shutdown.
+Managed OBS then receives a normal close request and has up to 10 seconds to save and
+exit. A confirmation dialog or failed shutdown cancels the restart; GSM leaves
+OBS running instead of force-killing it. Scene collections, recording profiles,
+and their related GSM settings are snapshotted under `<GSM data directory>/backup/obs`
+before startup changes and shutdown, and again after OBS exits. The newest 20
+snapshots are retained. Each includes a `snapshot.json` file listing its contents.
+
 The command does not sync or build Yomitan, regenerate Hachidori, or compile Rust
 helpers. Follow the relevant repository workflows first. `--build` only targets a
 development app running from this checkout; it will not claim local changes were

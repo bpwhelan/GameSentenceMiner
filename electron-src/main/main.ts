@@ -3136,9 +3136,15 @@ async function runQuit(relaunchArgs?: string[]): Promise<void> {
     try {
         const results = await Promise.allSettled([
             stopGameBackgroundHooks(),
-            closeAllPythonProcesses(),
             stopInputServer(),
-            closeOBSFromElectron({ reason: 'app quit' }),
+            closeAllPythonProcesses().then(async () => {
+                // The backend automatically starts replay buffering for an active
+                // game. Stop that manager before asking OBS to stop its outputs.
+                const result = await closeOBSFromElectron({ reason: 'app quit' });
+                if (result.status === 'failed') {
+                    throw new Error(result.error ?? 'OBS could not close safely.');
+                }
+            }),
         ]);
         const cleanupErrors: unknown[] = [];
         for (const result of results) {
@@ -3186,7 +3192,10 @@ async function stopAllChildrenForRelocation(): Promise<void> {
     await stopScripts();
     await closeAllPythonProcesses();
     await stopInputServer();
-    await closeOBSFromElectron({ reason: 'data relocation' });
+    const obsResult = await closeOBSFromElectron({ reason: 'data relocation' });
+    if (obsResult.status === 'failed') {
+        throw new Error(obsResult.error ?? 'OBS could not close safely; data relocation was cancelled.');
+    }
     await stopBus().catch((err) => console.warn('Failed to stop message bus during relocation:', err));
 }
 
