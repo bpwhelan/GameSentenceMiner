@@ -1881,7 +1881,8 @@
                   <h4>VN Guide</h4>
                   <p class="hotkey-info">
                     Follow a route from kanjieater’s VN-Guide at the top left. Only the current step is shown. Guides
-                    are downloaded on demand, cached locally, and credited to VN-Guide; your game text stays on your
+                    are downloaded on demand, cached locally, and checked for updates when opened and hourly. Updates
+                    wait for you to reload the guide. Guides are credited to VN-Guide; your game text stays on your
                     computer.
                   </p>
                   <label>
@@ -1904,6 +1905,7 @@
                   </label>
                   <div class="button-row">
                     <button type="button" id="vn-guide-import" class="guide-button">Use current Custom Page</button>
+                    <button type="button" id="vn-guide-check-updates" class="guide-button">Check for updates</button>
                     <button type="button" id="vn-guide-refresh" class="guide-button">Reload guide from source</button>
                   </div>
                   <label>
@@ -1915,6 +1917,7 @@
                   <p id="vn-guide-status" class="hotkey-info" role="status">
                     Enable the helper and choose a game guide.
                   </p>
+                  <p id="vn-guide-update-status" class="hotkey-info" role="status"></p>
                   <p id="vn-guide-save" class="hotkey-info" hidden=""></p>
                   <p id="vn-guide-current" lang="ja"></p>
                   <div class="button-row">

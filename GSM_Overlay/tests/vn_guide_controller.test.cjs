@@ -13,17 +13,108 @@ const line = (text, y) => ({ text, bounding_rect: { x1: .4, x3: .6, y1: y, y3: y
 const menu = { type: 'word_coordinates', is_final: true, data: [line('大丈夫', .3), line('やめよう', .43)] };
 const nextMenu = { ...menu, data: [line('進む', .3), line('戻る', .43)] };
 const dialogue = { type: 'word_coordinates', is_final: true, data: [line('新しい会話', .8)] };
-function setup(t, overrides = {}) {
+function setup(t, overrides = {}, controllerOptions = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-vn-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const requests = [], updates = [];
   const library = new GuideLibrary(directory, { fetchJson: async source => { requests.push(source); return source.endsWith('/guide.json') ? manifest : route; }, ...overrides });
   let time = 1000;
   const hud = { update: state => updates.push(state), dispose() { this.disposed = true; }, syncBounds() {} };
-  const controller = createVnGuideController({ library, hud, now: () => time });
+  const controller = createVnGuideController({ library, hud, now: () => time, ...controllerOptions });
   const settings = { vnGuideEnabled: true, vnGuideUrl: url, vnGuideMode: 'auto', vnGuideAutoAdvance: true };
   return { controller, library, directory, requests, updates, settings, hud, advance: milliseconds => { time += milliseconds; } };
 }
+
+test('completion waits for Next, then continues in guide order and stops at the last route', async t => {
+  const selections = [];
+  const { controller, settings, library } = setup(t, {}, { onRouteChange: id => selections.push(id) });
+  await controller.configure(settings);
+  assert.equal(controller.snapshot().nextRoute, null);
+  controller.command('jump', 3);
+  controller.command('next');
+  assert.equal(controller.snapshot().complete, true);
+  assert.equal(controller.snapshot().routeId, 'one');
+  assert.deepEqual(controller.snapshot().nextRoute, manifest.routes[1]);
+  assert.deepEqual(selections, []);
+  await controller.command('next');
+  assert.equal(controller.snapshot().routeId, 'two');
+  assert.equal(controller.snapshot().index, 0);
+  assert.equal(controller.snapshot().complete, false);
+  assert.equal(library.progress['test-game/one'].index, 4);
+  assert.deepEqual(selections, ['two']);
+  await controller.configure({ ...settings, vnGuideRoute: selections[0] });
+  assert.equal(controller.snapshot().routeId, 'two');
+  controller.command('jump', 4);
+  assert.equal(controller.snapshot().nextRoute, null);
+  await controller.command('next');
+  assert.equal(controller.snapshot().routeId, 'two');
+  assert.equal(controller.snapshot().complete, true);
+  assert.deepEqual(selections, ['two']);
+});
+
+test('continuing resumes the next route and keeps the finished route complete after reopening', async t => {
+  const { controller, settings, directory } = setup(t);
+  await controller.configure({ ...settings, vnGuideRoute: 'two' });
+  controller.command('next');
+  await controller.configure(settings);
+  controller.command('jump', 4);
+  await controller.command('next');
+  assert.equal(controller.snapshot().routeId, 'two');
+  assert.equal(controller.snapshot().index, 2);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  const offline = new GuideLibrary(directory, { fetchJson: async () => { throw new Error('Offline'); } });
+  assert.equal((await offline.load(url, 'one')).index, 4);
+  assert.equal((await offline.load(url, 'two')).index, 2);
+});
+
+test('a failed continuation keeps the completion screen and can be retried', async t => {
+  let offline = true;
+  const selections = [];
+  const { controller, settings } = setup(t, { fetchJson: async source => {
+    if (source.endsWith('/route_two.json') && offline) throw new Error('Offline');
+    return source.endsWith('/guide.json') ? manifest : route;
+  } }, { onRouteChange: id => selections.push(id) });
+  await controller.configure(settings);
+  controller.command('jump', 4);
+  await controller.command('next');
+  assert.equal(controller.snapshot().routeId, 'one');
+  assert.equal(controller.snapshot().complete, true);
+  assert.equal(controller.snapshot().nextRoute.id, 'two');
+  assert.match(controller.snapshot().error, /Offline/);
+  assert.deepEqual(selections, []);
+  offline = false;
+  await controller.command('next');
+  assert.equal(controller.snapshot().routeId, 'two');
+  assert.equal(controller.snapshot().error, '');
+  assert.deepEqual(selections, ['two']);
+});
+
+test('repeated Next during continuation cannot skip steps, and disabling cancels a late route load', async t => {
+  for (const disable of [false, true]) {
+    let finish;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const selections = [];
+    const { controller, settings, requests } = setup(t, { fetchJson: async source => {
+      requests.push(source);
+      if (source.endsWith('/route_two.json')) return pending;
+      return source.endsWith('/guide.json') ? manifest : route;
+    } }, { onRouteChange: id => selections.push(id) });
+    await controller.configure(settings);
+    controller.command('jump', 4);
+    const continuation = controller.command('next');
+    assert.equal(controller.snapshot().loading, true);
+    controller.command('next');
+    await new Promise(resolve => setImmediate(resolve));
+    if (disable) await controller.configure({ ...settings, vnGuideEnabled: false });
+    finish(route);
+    await continuation;
+    assert.equal(requests.filter(source => source.endsWith('/route_two.json')).length, 1);
+    assert.equal(controller.snapshot().loading, false);
+    assert.deepEqual(selections, disable ? [] : ['two']);
+    assert.equal(controller.snapshot().routeId, disable ? '' : 'two');
+    assert.equal(controller.snapshot().index, 0);
+  }
+});
 
 test('disabled guides never fetch; cached routes and progress survive restart offline', async t => {
   const { controller, library, directory, requests, settings } = setup(t);

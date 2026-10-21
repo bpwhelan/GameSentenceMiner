@@ -52,6 +52,11 @@ app.whenReady().then(async () => {
   assert.equal(rendered.progress, '11–12 / 58');
   assert.equal(rendered.overflowing, false);
   assert.equal(window.getBounds().height, 278);
+  hud.update({ ...state, saveNotice: false, detected: true, updateAvailable: true });
+  rendered = await read();
+  assert.match(rendered.note, /Guide update available/);
+  assert.equal(rendered.overflowing, false);
+  hud.update({ ...state, saveNotice: false, detected: true });
   await new Promise(resolve => setTimeout(resolve, 100));
   fs.writeFileSync(path.join(directory, 'save-choice.png'), (await window.webContents.capturePage()).toPNG());
   hud.update({ ...state, saveNotice: false, detected: true, displayStyle: 'text' });
@@ -156,6 +161,36 @@ app.whenReady().then(async () => {
   hud.update({ ...state, visible: false });
   hud.reassertTopmost();
   assert.equal(window.isVisible(), false);
+  const completion = { ...state, saveNotice: false, saveInstructions: [], complete: true, kind: '', index: 58, startIndex: 58,
+    nextRoute: { id: 'next', title: '次のルート' } };
+  hud.update(completion);
+  rendered = await read();
+  assert.equal(rendered.text, 'おつかれさま！');
+  assert.equal(rendered.next, 'Continue to 次のルート');
+  assert.match(rendered.note, /Continue to 次のルート/);
+  assert.equal(rendered.overflowing, false);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#next').disabled`), false);
+  fs.writeFileSync(path.join(directory, 'route-complete.png'), (await window.webContents.capturePage()).toPNG());
+  await window.webContents.executeJavaScript(`document.querySelector('#next').click()`);
+  await read();
+  assert.equal(commands.at(-1), 'next');
+  hud.update({ ...completion, loading: true });
+  await read();
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#next').disabled`), true);
+  hud.update({ ...completion, nextRoute: { id: 'long', title: '<img src=x onerror=alert(1)> とても長いルート名'.repeat(8) } });
+  rendered = await read();
+  assert.equal(rendered.overflowing, false);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('img').length`), 0);
+  hud.update({ ...completion, displayStyle: 'text' });
+  await read();
+  assert.equal(ignoresMouseEvents, true);
+  assert.match(await window.webContents.executeJavaScript('document.body.innerText'), /おつかれさま！[\s\S]*Continue to 次のルート[\s\S]*Alt\+Shift\+Right/);
+  fs.writeFileSync(path.join(directory, 'route-complete-plain.png'), (await window.webContents.capturePage()).toPNG());
+  hud.update({ ...completion, nextRoute: null });
+  rendered = await read();
+  assert.equal(rendered.text, 'おつかれさま！');
+  assert.match(rendered.note, /last route/);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#next').disabled`), true);
   let guideTime = 1000;
   const guide = createVnGuideController({
     hud, now: () => guideTime,

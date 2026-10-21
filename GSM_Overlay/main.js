@@ -6212,6 +6212,15 @@ function registerVnGuideHotkeys() {
       onChange: state => {
         if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('vn-guide-state', state);
       },
+      onRouteChange: routeId => {
+        const previous = userSettings.vnGuideRoute;
+        setOverlaySettingValue('vnGuideRoute', routeId);
+        if (!saveSettings()) {
+          setOverlaySettingValue('vnGuideRoute', previous);
+          throw new Error('Could not save the next route selection. Check that the GSM data folder is writable.');
+        }
+        publishOverlaySettingsSnapshot('vn-guide-next-route');
+      },
     });
   }
   const configured = vnGuideController?.configure(userSettings);
@@ -7703,8 +7712,8 @@ async function startOverlayAppImpl() {
       publishOverlaySettingsSnapshot('vn-guide-import');
       return vnGuideController?.snapshot();
     }
-    if (!['toggle', 'next', 'back', 'jump', 'refresh', 'hide'].includes(action)) return null;
-    try { return await vnGuideController?.command(action); }
+    if (!['toggle', 'next', 'back', 'jump', 'refresh', 'check-updates', 'hide'].includes(action)) return null;
+    try { return await vnGuideController?.command(action, value); }
     catch (error) { return { ...vnGuideController?.snapshot(), error: error.message }; }
   });
   registerManualShowHotkey();

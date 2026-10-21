@@ -1,7 +1,8 @@
 const { GuideTracker, normalizeChoice } = require('./vn_guide');
 const { prepareTextLines } = require('./block_detection');
+const { UPDATE_INTERVAL_MS } = require('./vn_guide_library');
 
-function createVnGuideController({ library, hud, onChange = () => {}, now = Date.now }) {
+function createVnGuideController({ library, hud, onChange = () => {}, onRouteChange = () => {}, now = Date.now }) {
   let settings = {};
   let loaded = null;
   let tracker = null;
@@ -21,7 +22,18 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
   let saveNoticeUntil = 0;
   let suspendedAt = null;
   let lastVisible = false;
+  let checkingUpdates = false;
+  let updateAvailable = false;
+  let updateError = '';
+  let lastCheckedAt = null;
+  let nextUpdateCheckAt = 0;
+  let updateCheck = null;
 
+  function nextRoute() {
+    if (!tracker?.complete || !loaded) return null;
+    const index = loaded.guide.routes.findIndex(route => route.id === loaded.route.id);
+    return index >= 0 ? loaded.guide.routes[index + 1] || null : null;
+  }
   function snapshot() {
     const mode = ['auto', 'always', 'hotkey'].includes(settings.vnGuideMode) ? settings.vnGuideMode : 'auto';
     const saveInstructions = tracker?.saveInstructions || [];
@@ -29,10 +41,12 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     const automatic = tracker && (mode === 'always' || mode === 'auto' && (tracker.detected || tracker.current?.kind !== 'choice' || saveNotice || !saveInstructions.length && tracker.tentative && now() < tentativeUntil));
     return {
       enabled: settings.vnGuideEnabled === true, loading, error, mode,
+      checkingUpdates, updateAvailable, updateError, lastCheckedAt,
       displayStyle: settings.vnGuideDisplayStyle === 'text' ? 'text' : 'card',
       visible: !disposed && available && settings.vnGuideEnabled === true && !!tracker && !dismissed && (peek ?? !!automatic),
       title: loaded?.guide.title || '', target: loaded?.guide.target || '',
       routes: loaded?.guide.routes || [], routeId: loaded?.route.id || '', routeTitle: loaded?.route.title || '',
+      nextRoute: nextRoute(),
       reviewed: loaded?.route.reviewed === true, changed: loaded?.changed === true,
       index: tracker?.index ?? 0, startIndex: tracker?.startIndex ?? 0, total: tracker?.steps.length ?? 0,
       text: tracker?.current?.text || '', kind: tracker?.current?.kind || '',
@@ -97,6 +111,37 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     if (message.type === 'game_text' && (tracker.armed?.options || [normalizeChoice(tracker.current?.text)]).includes(text)) return;
     if (++peekLines >= 2) dismiss(false);
   }
+  async function checkForUpdates(force = false) {
+    if (disposed || loading || !loaded || settings.vnGuideEnabled !== true || !library.checkForUpdates) return snapshot();
+    if (updateCheck?.generation === epoch) return updateCheck.promise;
+    const generation = epoch;
+    const current = loaded;
+    checkingUpdates = true;
+    updateError = '';
+    nextUpdateCheckAt = now() + UPDATE_INTERVAL_MS;
+    publish();
+    const check = { generation };
+    updateCheck = check;
+    check.promise = (async () => {
+      try {
+        const latest = await library.checkForUpdates(current, { force });
+        if (disposed || epoch !== generation) return snapshot();
+        updateAvailable = latest.fingerprint !== current.fingerprint || JSON.stringify(latest.guide) !== JSON.stringify(current.guide);
+        lastCheckedAt = now();
+      } catch (exception) {
+        if (!disposed && epoch === generation) updateError = exception.message || 'Could not check VN-Guide for updates.';
+      } finally {
+        if (!disposed && epoch === generation) {
+          checkingUpdates = false;
+          nextUpdateCheckAt = now() + UPDATE_INTERVAL_MS;
+          publish();
+        }
+        if (updateCheck === check) updateCheck = null;
+      }
+      return snapshot();
+    })();
+    return check.promise;
+  }
   async function configure(nextSettings, { refresh = false } = {}) {
     if (nextSettings.vnGuideMode !== settings.vnGuideMode) resetVisibility();
     settings = { ...nextSettings };
@@ -104,6 +149,9 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     if (!refresh && key === sourceKey) { publish(); return snapshot(); }
     sourceKey = key;
     const generation = ++epoch;
+    checkingUpdates = false;
+    if (!refresh) { updateAvailable = false; lastCheckedAt = null; }
+    updateError = '';
     if (!refresh) { loaded = null; tracker = null; }
     error = '';
     resetVisibility();
@@ -115,6 +163,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
       const result = await library.load(settings.vnGuideUrl, settings.vnGuideRoute, refresh);
       if (disposed || epoch !== generation) return snapshot();
       loaded = result;
+      updateAvailable = false;
       tracker = new GuideTracker(result.steps, result.index);
       enterStep();
       persist();
@@ -123,9 +172,45 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
     } finally {
       if (!disposed && epoch === generation) { loading = false; publish(); }
     }
+    if (!disposed && epoch === generation && loaded && !error) void checkForUpdates();
+    return snapshot();
+  }
+  async function continueRoute() {
+    const route = nextRoute();
+    if (!route || settings.vnGuideEnabled !== true) return snapshot();
+    const generation = ++epoch;
+    loading = true;
+    checkingUpdates = false;
+    error = '';
+    publish();
+    try {
+      // Keep the completed route available if the next route cannot be loaded.
+      const result = await library.load(settings.vnGuideUrl, route.id);
+      if (disposed || epoch !== generation) return snapshot();
+      onRouteChange(result.route.id);
+      settings = { ...settings, vnGuideRoute: result.route.id };
+      sourceKey = JSON.stringify([settings.vnGuideEnabled === true, settings.vnGuideUrl || '', settings.vnGuideRoute]);
+      loaded = result;
+      tracker = new GuideTracker(result.steps, result.index);
+      updateAvailable = false;
+      updateError = '';
+      lastCheckedAt = null;
+      resetVisibility();
+      lastActivity = null;
+      enterStep();
+      persist();
+    } catch (exception) {
+      if (!disposed && epoch === generation) error = exception.message || 'Could not load the next route. Try again.';
+    } finally {
+      if (!disposed && epoch === generation) { loading = false; publish(); }
+    }
+    if (!disposed && epoch === generation && !error) void checkForUpdates();
     return snapshot();
   }
   function setAvailable(value, currentGame) {
+    // The overlay calls this on its existing availability tick, even without a
+    // capture. Keep WIP checks running without adding a separate timer.
+    if (now() >= nextUpdateCheckAt) void checkForUpdates();
     const next = value === true;
     const changedGame = currentGame != null && game !== null && currentGame !== game;
     if (currentGame != null) game = currentGame;
@@ -164,8 +249,10 @@ function createVnGuideController({ library, hud, onChange = () => {}, now = Date
   }
   function command(action, value) {
     if (disposed) return snapshot();
+    if (action === 'check-updates') return checkForUpdates(true);
     if (action === 'refresh') return configure(settings, { refresh: true });
-    if (!tracker) return snapshot();
+    if (!tracker || loading) return snapshot();
+    if (action === 'next' && tracker.complete) return continueRoute();
     if (action === 'toggle') {
       if (snapshot().visible) dismiss();
       else { resetVisibility(); peek = true; }
