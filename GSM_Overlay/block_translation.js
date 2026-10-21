@@ -26,17 +26,18 @@
       });
     }
 
-    function request({ mode = 'translation', automatic = false } = {}) {
+    function request({ mode = 'translation', automatic = false, question = '' } = {}) {
       const blocks = capture();
-      if (matches(blocks) && active.mode === mode && (active.pending || (mode === 'translation' && document.getElementById('translation-display')))) return;
+      if (matches(blocks) && active.mode === mode && active.question === question && (active.pending || (mode === 'translation' && document.getElementById('translation-display')))) return;
       if (mode !== 'translation' && !blocks.length) {
         showError('No text blocks available. Scan some game text first.', mode);
         return;
       }
       const request_id = `overlay-translation-${++sequence}`;
-      active = { request_id, blocks, mode, pending: true, revision: getRevision() };
+      active = { request_id, blocks, mode, question, pending: true, revision: getRevision() };
       onStart(mode);
       send({ type: 'translate-request', request_id, mode, automatic,
+        ...(mode === 'custom' ? { question } : {}),
         ...(blocks.length ? { blocks: blocks.map((block, i) => ({ id: String(i), text: block.text })) } : {}) });
     }
 

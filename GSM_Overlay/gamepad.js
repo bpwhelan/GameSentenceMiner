@@ -565,6 +565,8 @@ class GamepadHandler {
       manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
       translateButton: options.translateButton ?? -1, // Disabled by default; requests/toggles translation
       pauseToggleButton: options.pauseToggleButton ?? -1, // Disabled by default; pauses/resumes the text source while navigation is active
+      quickActionsButton: options.quickActionsButton ?? 9,
+      getQuickActions: options.getQuickActions || null,
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
       mineButton: options.mineButton ?? 0, // A button to mine the current dictionary entry
       nextEntryButton: options.nextEntryButton ?? 7, // RT trigger - navigate to next dictionary entry
@@ -645,6 +647,7 @@ class GamepadHandler {
       keyboardForwardClickKey: options.keyboardForwardClickKey || null,
       keyboardManualOverlayScanKey: options.keyboardManualOverlayScanKey || null,
       keyboardPauseToggleKey: options.keyboardPauseToggleKey || null,
+      keyboardQuickActionsKey: options.keyboardQuickActionsKey ?? 'Tab',
       keyboardTokenModeToggleKey: options.keyboardTokenModeToggleKey || null,
       keyboardNextEntryKey: options.keyboardNextEntryKey || null,
       keyboardPrevEntryKey: options.keyboardPrevEntryKey || null,
@@ -1477,6 +1480,7 @@ class GamepadHandler {
       manualOverlayScanButton: normalizeGamepadBindingValue(this.config.manualOverlayScanButton, -1),
       translateButton: normalizeGamepadBindingValue(this.config.translateButton, -1),
       pauseToggleButton: normalizeGamepadBindingValue(this.config.pauseToggleButton, -1),
+      quickActionsButton: normalizeGamepadBindingValue(this.config.quickActionsButton, 9),
       tokenModeToggleButton: normalizeGamepadBindingValue(this.config.tokenModeToggleButton, 3),
       mineButton: normalizeGamepadBindingValue(this.config.mineButton, 0),
       nextEntryButton: normalizeGamepadBindingValue(this.config.nextEntryButton, 7),
@@ -1503,6 +1507,7 @@ class GamepadHandler {
       forwardClickKey: normalizeKeyboardBindingValue(this.config.keyboardForwardClickKey),
       manualOverlayScanKey: normalizeKeyboardBindingValue(this.config.keyboardManualOverlayScanKey),
       pauseToggleKey: normalizeKeyboardBindingValue(this.config.keyboardPauseToggleKey),
+      quickActionsKey: normalizeKeyboardBindingValue(this.config.keyboardQuickActionsKey, 'Tab'),
       tokenModeToggleKey: normalizeKeyboardBindingValue(this.config.keyboardTokenModeToggleKey),
       nextEntryKey: normalizeKeyboardBindingValue(this.config.keyboardNextEntryKey),
       prevEntryKey: normalizeKeyboardBindingValue(this.config.keyboardPrevEntryKey),
@@ -2827,6 +2832,15 @@ class GamepadHandler {
   onKeyboardKeyDown(keyName) {
     const matches = binding => keyboardEventMatchesBinding(binding, keyName,
       this.pressedKeys, this.keyboardModifiers);
+    if (this.handleQuickActionsInput('keyboard', matches)) return;
+    if (this.config.getQuickActions?.()?.isOpen) {
+      if (this.navigateDirection(this.getKeyboardDirection(keyName))) {
+        this.startInputRepeat(`keyboard-${keyName}`, () =>
+          this.pressedKeys.has(keyName) && this.config.getQuickActions?.()?.isOpen
+            ? this.getKeyboardDirection(keyName) : null);
+      }
+      return;
+    }
     if (this.config.activationMode === 'toggle' && matches(this.keyboardBindings.toggleKey)) {
       this.toggleNavigationMode({ type: 'keyboard' });
       return;
@@ -2933,6 +2947,8 @@ class GamepadHandler {
       Left: 'navigateCursorLeft', Right: 'navigateCursorRight' };
     const method = methods[direction];
     if (!method) return false;
+    const panel = this.config.getQuickActions?.();
+    if (panel?.isOpen) { panel.navigate(direction); return true; }
     this.hideVirtualMouseCursorForDpadNavigation();
     if (direction === 'Up' || direction === 'Down') this[method]();
     else this[method](isRepeat);
@@ -2944,6 +2960,12 @@ class GamepadHandler {
   
   onButtonDown(buttonIndex, device) {
     const matches = binding => this.matchesButtonBindingDown(binding, device, buttonIndex);
+    if (!this.isNavigationActive() && matches(this.buttonBindings.quickActionsButton)) this.shouldProcessNavigation(device);
+    if (this.handleQuickActionsInput('gamepad', matches)) return;
+    if (this.config.getQuickActions?.()?.isOpen) {
+      if (this.shouldProcessNavigation(device)) this.handleDPadNavigation(buttonIndex, device);
+      return;
+    }
     if (this.config.activationMode === 'toggle' && matches(this.buttonBindings.toggleButton)) {
       if (this.config.controllerEnabled) this.toggleNavigationMode({ type: 'gamepad', device });
       return;
@@ -2953,6 +2975,35 @@ class GamepadHandler {
     if (matches(this.buttonBindings.prevJitenWordButton)) return this.navigateJitenWord(-1);
     if (matches(this.buttonBindings.nextJitenWordButton)) return this.navigateJitenWord(1);
     this.handleDPadNavigation(buttonIndex, device);
+  }
+
+  handleQuickActionsInput(source, matches) {
+    const panel = this.config.getQuickActions?.();
+    if (!panel || !this.isNavigationActive()) return false;
+    const bindings = source === 'keyboard' ? this.keyboardBindings : this.buttonBindings;
+    const opening = matches(bindings[source === 'keyboard' ? 'quickActionsKey' : 'quickActionsButton']);
+    if (opening) {
+      if (!this.shouldAcceptToggleAction('quick-actions')) return true;
+      this.stopNavigationRepeats();
+      if (panel.isOpen) panel.close();
+      else {
+        this.closeDictionaryPopups(); this.hideVisuals();
+        const confirm = bindings[source === 'keyboard' ? 'confirmKey' : 'confirmButton']?.label || 'Confirm';
+        const cancel = bindings[source === 'keyboard' ? 'cancelKey' : 'cancelButton']?.label || 'Back';
+        panel.configure({ hints: `D-pad / stick: move · ${confirm}: select · ${cancel}: back` });
+        void panel.open();
+      }
+      return true;
+    }
+    if (!panel.isOpen) return false;
+    if (matches(bindings[source === 'keyboard' ? 'cancelKey' : 'cancelButton'])) {
+      this.stopNavigationRepeats(); panel.back(); return true;
+    }
+    if (matches(bindings[source === 'keyboard' ? 'confirmKey' : 'confirmButton'])) {
+      if (this.shouldAcceptToggleAction('quick-action-confirm')) void panel.confirm();
+      return true;
+    }
+    return false;
   }
 
   forwardEnterToTargetWindow() {
@@ -3080,6 +3131,25 @@ class GamepadHandler {
     // Neutral events must release a latch even outside navigation.
     if (axis === 'right_x' && Math.abs(value) <= 0.2) this.thumbstickLatch.delete(device);
     if (!this.shouldProcessNavigation(device)) return;
+
+    const panel = this.config.getQuickActions?.();
+    if (panel?.isOpen && ['left_x', 'left_y', 'right_x', 'right_y'].includes(axis)) {
+      const timerKey = `quick-actions-${device}-${axis}`;
+      const threshold = Math.max(0.45, this.config.thumbstickNavigationThreshold * 0.75);
+      const direction = Math.abs(value) >= threshold
+        ? (axis.endsWith('_x') ? (value > 0 ? 'Right' : 'Left') : (value > 0 ? 'Up' : 'Down')) : null;
+      if (!direction) {
+        clearTimeout(this.repeatTimers.get(timerKey)); this.repeatTimers.delete(timerKey);
+      } else if (!this.repeatTimers.has(timerKey)) {
+        panel.navigate(direction);
+        this.startInputRepeat(timerKey, () => {
+          const current = this.gamepads.get(device)?.axes?.[axis] || 0;
+          return panel.isOpen && this.shouldProcessNavigation(device) && Math.abs(current) >= threshold
+            ? (axis.endsWith('_x') ? (current > 0 ? 'Right' : 'Left') : (current > 0 ? 'Up' : 'Down')) : null;
+        });
+      }
+      return;
+    }
 
     const gamepad = this.gamepads.get(device);
     const axes = gamepad && gamepad.axes ? gamepad.axes : {};
@@ -3399,6 +3469,7 @@ class GamepadHandler {
   
   deactivateNavigation() {
     this.stopNavigationRepeats();
+    this.config.getQuickActions?.()?.close();
     this.toggleModeActive = false;
     this.activationSource = null;
     this.thumbstickLatch?.clear();
@@ -5645,7 +5716,7 @@ class GamepadHandler {
 
   updateVirtualMouseCursor() {
     if (!this.virtualMouseCursor) return;
-    if (!this.isNavigationActive() || !this.virtualMouse.initialized || !this.virtualMouse.movedByAnalog) {
+    if (this.config.getQuickActions?.()?.isOpen || !this.isNavigationActive() || !this.virtualMouse.initialized || !this.virtualMouse.movedByAnalog) {
       this.virtualMouseCursor.style.display = 'none';
       return;
     }
@@ -6071,6 +6142,7 @@ class GamepadHandler {
   
   autoConfirmSelection() {
     // Automatically trigger dictionary lookup when cursor moves
+    if (this.config.getQuickActions?.()?.isOpen) return;
     if (this.config.autoConfirmSelection === false) return;
     if (this.pendingNavigationActivation || !this.isOverlayReady()) return;
     
@@ -6380,7 +6452,7 @@ class GamepadHandler {
   }
   
   updateVisuals() {
-    if (!this.isActive) {
+    if (!this.isActive || this.config.getQuickActions?.()?.isOpen) {
       this.hideVisuals();
       return;
     }

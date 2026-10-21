@@ -95,6 +95,37 @@ function loadOverlaySettingsPage(platform = "win32") {
 }
 
 describe("overlay settings navigation", () => {
+  it("saves quick-action choices and order, restores profiles, and supports a saved custom question", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const checkbox = (id: string) => doc.querySelector(`[data-quick-action="${id}"]`) as HTMLInputElement;
+      expect(checkbox('pause-input').checked).toBe(true);
+      expect(checkbox('grammar').checked).toBe(false);
+      checkbox('grammar').click();
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.payload?.key === 'gamepadQuickActions')?.payload).toEqual({
+        key: 'gamepadQuickActions', value: ['pause-input', 'replay-audio', 'furigana', 'translate-menu', 'grammar'],
+      });
+      const up = doc.querySelector('button[aria-label="Move up: Grammar"]') as HTMLButtonElement;
+      up.click();
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.payload?.key === 'gamepadQuickActions')?.payload).toEqual({
+        key: 'gamepadQuickActions', value: ['pause-input', 'replay-audio', 'furigana', 'grammar', 'translate-menu'],
+      });
+      page.listeners.get('settings-updated')?.(null, { gamepadQuickActions: ['context', 'pause-input'] });
+      expect(checkbox('grammar').checked).toBe(false);
+      expect(Array.from(doc.querySelectorAll('[data-quick-action]')).slice(0, 2).map((node: any) => node.dataset.quickAction)).toEqual(['context', 'pause-input']);
+      const question = doc.getElementById('gamepadQuickActionsQuestion') as HTMLInputElement;
+      question.value = 'Explain the omitted subject.';
+      question.dispatchEvent(new page.dom.window.Event('blur', { bubbles: true }));
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.payload?.key === 'gamepadQuickActionsQuestion')?.payload).toEqual({
+        key: 'gamepadQuickActionsQuestion', value: 'Explain the omitted subject.',
+      });
+    } finally { page.dom.window.close(); }
+  });
   it("shows one focused page and remembers the subtab within each category", async () => {
     const page = loadOverlaySettingsPage();
     try {

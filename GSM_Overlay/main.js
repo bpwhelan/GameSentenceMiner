@@ -62,6 +62,8 @@ const {
   createOverlaySettingsReadyHandler,
 } = require('./overlay_settings_delivery');
 const { URL } = require('url');
+const { createQuickActionsBridge } = require('./quick_actions_bridge');
+const { DEFAULT_ACTIONS: DEFAULT_QUICK_ACTIONS, normalizeActions: normalizeQuickActions } = require('./quick_actions');
 
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
 const OVERLAY_HOST_SYMBOL = Symbol.for('gsm.overlay.host');
@@ -1171,6 +1173,10 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
   "gamepadTranslateButton": -1, // Disabled by default; requests/toggles translation
   "gamepadPauseToggleButton": -1, // Disabled by default; pauses/resumes the text source while navigating
+  "gamepadQuickActionsButton": 9,
+  "keyboardQuickActionsKey": "Tab",
+  "gamepadQuickActions": DEFAULT_QUICK_ACTIONS,
+  "gamepadQuickActionsQuestion": "Explain this sentence in simpler terms.",
   "gamepadTokenModeToggleButton": 3, // Y button - toggles token/character navigation
   "gamepadMineButton": 0, // A button - mines the current Yomitan entry
   "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
@@ -2421,6 +2427,7 @@ let vnGuideHud = null;
 let tray = null;
 let platformOverride = null;
 let backend = null;
+const quickActionsBridge = createQuickActionsBridge({ getBackend: () => backend });
 let gsmProfileStateRefreshInterval = null;
 let gamepadServerProcess = null;
 let gamepadServerStarting = false;
@@ -2608,6 +2615,8 @@ function handleOverlayWebSocketControlMessage(type, data) {
   if (!message || typeof message !== "object") {
     return false;
   }
+
+  if (message.type === 'quick-action-result') return quickActionsBridge.receive(message);
 
   if (message.type === "capture_status") {
     // Only the monitored data connection may grant capture availability.
@@ -8171,6 +8180,17 @@ async function startOverlayAppImpl() {
     }
   });
 
+  ipcMain.handle("quick-action", (event, action) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
+      || !userSettings.gamepadEnabled) return { success: false, error: 'Controller navigation is disabled.' };
+    if (action === 'translation') {
+      if (!gamepadNavigationActive || !backend?.connected) return { success: false, error: 'GSM is disconnected or navigation is inactive.' };
+      requestOrToggleTranslation();
+      return { success: true };
+    }
+    return quickActionsBridge.request(action).catch(error => ({ success: false, error: error.message }));
+  });
+
   ipcMain.on("translation-request-failed", (event) => {
     if (mainWindow && event.sender === mainWindow.webContents) translationRequested = false;
   });
@@ -8463,7 +8483,11 @@ async function startOverlayAppImpl() {
       updateTrayMenu();
       return;
     }
-    if (key === "showRecycledIndicator") {
+    if (key === "gamepadQuickActions") {
+      value = normalizeQuickActions(value);
+    } else if (key === "gamepadQuickActionsQuestion") {
+      value = String(value || '').trim().slice(0, 4000);
+    } else if (key === "showRecycledIndicator") {
       value = value === true;
     } else if (key === "fontSize") {
       value = normalizeFloatingWindowFontSize(value);
@@ -8712,6 +8736,9 @@ async function startOverlayAppImpl() {
       case "gamepadManualOverlayScanButton":
       case "gamepadTranslateButton":
       case "gamepadPauseToggleButton":
+      case "gamepadQuickActionsButton":
+      case "gamepadQuickActions":
+      case "gamepadQuickActionsQuestion":
       case "gamepadTokenModeToggleButton":
       case "gamepadMineButton":
       case "gamepadNextEntryButton":
@@ -9182,6 +9209,7 @@ async function stopOverlayApp() {
       });
 
       runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());
+      runOverlayCleanupStep('quick actions', () => quickActionsBridge.destroy());
       runOverlayCleanupStep('custom page', () => customPageController?.dispose());
       customPageController = null;
       runOverlayCleanupStep('VN guide', () => vnGuideController?.dispose());

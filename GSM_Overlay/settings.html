@@ -827,6 +827,26 @@
                     </label>
                   </section>
 
+                  <section class="settings-page" data-page="gamepad-quick-actions">
+                    <h4>Quick actions</h4>
+                    <p class="hotkey-info">While controller navigation is active, press Start to open your shortcuts.
+                      Use the D-pad or either stick to move, your Confirm button to select, and Cancel to go back.
+                      The same menu works with keyboard navigation using Tab.</p>
+                    <label>
+                      <span class="label-text">Open / close quick actions</span>
+                      <input type="text" id="gamepadQuickActionsButton" class="gamepad-binding-input" value="Start" readonly="" placeholder="Click and press a controller combo" />
+                      <input type="text" id="keyboardQuickActionsKey" class="keyboard-binding-input" value="Tab" readonly="" placeholder="Click and press a key" />
+                    </label>
+                    <p class="hotkey-info">Select the buttons to include. Move enabled shortcuts up or down to arrange your menu.
+                      Translate &amp; explain includes all the Text Feed explanation options; you can also add them directly.</p>
+                    <div id="quick-actions-choices"></div>
+                    <label>
+                      <span class="label-text">Custom AI question
+                        <span class="hotkey-info">Saved here so you can ask it from the controller without typing.</span>
+                      </span>
+                      <input type="text" id="gamepadQuickActionsQuestion" maxlength="4000" value="Explain this sentence in simpler terms." />
+                    </label>
+                  </section>
                   <section class="settings-page" data-page="gamepad-bindings">
                     <div class="gamepad-binding-hint">
                       Click any binding slot to capture a controller combo or keyboard key. Press Backspace/Delete to
@@ -2312,6 +2332,8 @@
     <script src="./settings/navigation.js"></script>
     <script src="./settings/window.js"></script>
     <script src="./settings/inputs.js"></script>
+    <script src="./quick_actions.js"></script>
+    <script src="./settings/quick-actions.js"></script>
     <script src="./settings/bindings.js"></script>
     <script src="./settings/features.js"></script>
     <script src="./settings/presets.js"></script>

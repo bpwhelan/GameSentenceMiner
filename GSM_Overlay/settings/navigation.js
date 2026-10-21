@@ -57,6 +57,7 @@
           "Assign controller buttons and keyboard equivalents to navigation and game actions.",
         ],
         ["navigation", "Navigation", "Tune word selection, visibility, and repeat speed."],
+        ["quick-actions", "Quick actions", "Choose and arrange the shortcuts in your controller menu."],
         ["advanced", "Advanced", "Adjust held directions, block movement, and cursor behavior."],
         ["devices", "Devices & testing", "Manage controller listeners, ignore devices, and test incoming input."],
       ],

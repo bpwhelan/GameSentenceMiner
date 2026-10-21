@@ -28,6 +28,14 @@ https://github.com/user-attachments/assets/c691f5d6-da86-4e1c-802f-7c410211846e
 - Only VN-Guide’s `guide.json` plus ordered `route_<id>.json` / `simpleJp` format is supported. The official game page, GitHub file/folder, and raw JSON URLs work; arbitrary walkthrough sites are unsupported. Routes retain upstream order, including documented detours. Instructions and source review status come from VN-Guide; GSM does not rewrite or redistribute the guides.
 - Imports are cached in `vn-guide-cache.json`, and independent per-game/route progress is saved in `vn-guide-progress.json` under the overlay data directory. Cached routes work offline. Save reminders also survive restarts and manual jumps. Original guide step numbers are retained: jumping to a save or its following choice shows both instructions. GSM checks the guide manifest and selected route for updates when opened and hourly while enabled; **Check for updates** checks immediately. Available updates appear in settings and on the guide card, without changing the current instructions, cached guide, or progress. **Update guide from source** (or **Reload guide from source**) applies the latest content; changed instructions reset the position and show a notice, while metadata-only changes preserve progress. Failed checks leave the cached guide usable and retry hourly. GSM’s progress is separate from the website’s local storage. Guide URL, route, display options, and shortcuts follow overlay profiles when enabled.
 
+# Controller quick actions
+
+While controller navigation is active, press **Start** (or **Tab** for keyboard navigation) to open Quick actions. Use the D-pad or either analog stick to move, your configured Confirm button to select, and Cancel to return. Closing the panel keeps your text selection. With modifier activation, keep holding the navigation modifier.
+
+The default panel offers pause/resume text intake, replay the latest line, show/hide furigana, and Translate & explain. The latter includes the Text Feed's sentence breakdown, grammar, vocabulary, nuance and tone, scene summary, and custom question. Long explanations scroll with the D-pad or stick. Audio uses Text Feed's native playback, including its cache and built-in player.
+
+In **Controller → Quick actions**, remap the opening button or combo, select and reorder shortcuts, pin individual explanation types, and save a custom question that can be asked without typing during play. These settings follow overlay profiles. Text intake pause is independent of game/process pausing and remains in effect after the menu closes.
+
 # Acknowledgement
 - [VN-Guide by kanjieater](https://github.com/kanjieater/VN-Guide) (on-demand route data)
 - [Original Project](https://github.com/Saplling/transparent-texthooker-overlay)
