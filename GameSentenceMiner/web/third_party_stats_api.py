@@ -5,6 +5,7 @@ Provides endpoints for importing and managing pre-computed reading stats
 from external applications (Mokuro, manual entry, etc.).
 """
 
+import csv
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -220,6 +221,9 @@ def register_third_party_stats_routes(app):
                             "source": e.source,
                             "label": e.label,
                             "created_at": e.created_at,
+                            "game_id": e.game_id,
+                            "lines_read": e.lines_read,
+                            "timestamp": e.timestamp,
                         }
                         for e in entries
                     ],
@@ -323,6 +327,7 @@ def register_third_party_stats_routes(app):
             if not entry:
                 return jsonify({"error": "Entry not found"}), 404
             entry.delete()
+            ThirdPartyStatsTable.invalidate_profiles()
             return jsonify({"message": "Entry deleted successfully"}), 200
         except Exception as e:
             logger.error(f"Error deleting third-party stat {entry_id}: {e}")
@@ -480,6 +485,47 @@ def register_third_party_stats_routes(app):
         except Exception as e:
             logger.error(f"Error in batch import: {e}")
             return jsonify({"error": f"Import failed: {str(e)}"}), 500
+
+    @app.route("/api/import-kizuna", methods=["POST"])
+    def api_import_kizuna():
+        """Import a Kizuna CSV and queue linked-game metadata refresh after committing."""
+        from GameSentenceMiner.util.cron import cron_scheduler
+        from GameSentenceMiner.web.kizuna_import import import_kizuna_sessions, parse_kizuna_csv
+
+        file = request.files.get("file")
+        if file is None or not file.filename:
+            return jsonify({"error": "Please select a Kizuna CSV file"}), 400
+        if not file.filename.lower().endswith(".csv"):
+            return jsonify({"error": "File must be a CSV file"}), 400
+        try:
+            entries = parse_kizuna_csv(file.read().decode("utf-8-sig"))
+        except UnicodeDecodeError:
+            return jsonify({"error": "Please save the Kizuna CSV with UTF-8 encoding"}), 400
+        except (ValueError, csv.Error) as error:
+            return jsonify({"error": str(error)}), 400
+        try:
+            result = import_kizuna_sessions(
+                entries, clear_previous=request.form.get("clear_previous", "false").lower() == "true"
+            )
+        except Exception:  # noqa: BLE001 - translate atomic import failures at the HTTP boundary
+            logger.exception("Kizuna import failed")
+            return jsonify({"error": "Kizuna import failed. No changes were saved."}), 500
+
+        result["message"] = f"Imported {result['imported_count']} Kizuna sessions from {result['games_count']} games."
+        result["metadata_refresh_status"] = "not_needed"
+        result["metadata_refresh_message"] = "No new VNDB-linked sessions to refresh."
+        if result["vndb_games_count"]:
+            try:
+                cron_scheduler.force_jiten_sync()
+                result["metadata_refresh_status"] = "queued"
+                result["metadata_refresh_message"] = "VNDB metadata refresh queued."
+            except Exception:  # noqa: BLE001 - metadata scheduling must not undo a saved import
+                logger.exception("Could not queue metadata refresh after Kizuna import")
+                result["metadata_refresh_status"] = "failed"
+                result["metadata_refresh_message"] = (
+                    "Import saved, but metadata refresh could not be queued. Run Game Data Update from Background Tasks."
+                )
+        return jsonify(result), 200
 
     @app.route("/api/import-mokuro", methods=["POST"])
     def api_import_mokuro():

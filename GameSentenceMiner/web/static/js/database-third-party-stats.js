@@ -1,7 +1,7 @@
 /**
  * Third-Party Stats Management Module
  *
- * Handles manual entry, Mokuro import, API documentation, and
+ * Handles manual entry, Mokuro and Kizuna import, API documentation, and
  * listing/deletion of third-party reading stats on the database management page.
  */
 
@@ -73,6 +73,7 @@
         var tabMap = {
             'manual': 'tpTabManual',
             'mokuro': 'tpTabMokuro',
+            'kizuna': 'tpTabKizuna',
             'api': 'tpTabApi',
             'entries': 'tpTabEntries'
         };
@@ -239,6 +240,69 @@
             });
     }
     window.importMokuroData = importMokuroData;
+
+    // -------------------------------------------------------
+    // Kizuna Import
+    // -------------------------------------------------------
+
+    async function importKizunaData() {
+        const input = document.getElementById('kizunaFileInput');
+        const button = document.getElementById('kizunaImportButton');
+        const result = document.getElementById('kizunaImportResult');
+        if (button.disabled) return;
+        const file = input.files && input.files[0];
+        if (!file || !file.name.toLowerCase().endsWith('.csv')) {
+            showResult(result, 'error', 'Please select a Kizuna CSV file.');
+            return;
+        }
+        const form = new FormData();
+        form.append('file', file);
+        form.append('clear_previous', document.getElementById('kizunaClearPrevious').checked ? 'true' : 'false');
+        button.disabled = true;
+        input.disabled = true;
+        showResult(result, 'info', 'Importing Kizuna sessions... please wait.');
+        try {
+            const response = await fetch('/api/import-kizuna', { method: 'POST', body: form });
+            const data = await response.json();
+            if (response.status !== 200) {
+                showResult(result, 'error', data.error || 'Kizuna import failed.');
+                return;
+            }
+            function stat(label, value) {
+                return '<div class="stats-row"><span class="stats-label">' + escapeHtml(label) +
+                    '</span><span class="stats-value">' + escapeHtml(String(value)) + '</span></div>';
+            }
+            let html = '<div class="tp-import-result-title success">Import Successful</div>';
+            html += stat('Sessions imported:', data.imported_count || 0);
+            html += stat('Games:', data.games_count || 0);
+            html += stat('Total characters:', (data.total_characters || 0).toLocaleString());
+            html += stat('Total lines:', (data.total_lines || 0).toLocaleString());
+            html += stat('Total time:', (Math.round((data.total_time_seconds || 0) / 60 * 10) / 10).toLocaleString() + ' min');
+            html += stat('Duplicate sessions skipped:', data.skipped_count || 0);
+            if (data.cleared_count) html += stat('Previous sessions cleared:', data.cleared_count);
+            if (data.date_range && data.date_range.min) {
+                html += stat('Date range:', data.date_range.min + ' to ' + data.date_range.max);
+            }
+            const metadataClass = data.metadata_refresh_status === 'failed' ? 'error' : '';
+            html += '<p class="' + metadataClass + '">' + escapeHtml(data.metadata_refresh_message || '') + '</p>';
+            if (data.games && data.games.length) {
+                html += '<details><summary>Imported games (' + data.games.length + ')</summary><ul>';
+                data.games.forEach(function (name) { html += '<li>' + escapeHtml(name) + '</li>'; });
+                html += '</ul></details>';
+            }
+            result.className = 'tp-import-result';
+            result.innerHTML = html;
+            result.style.display = 'block';
+            input.value = '';
+            loadThirdPartySummary();
+        } catch (error) {
+            showResult(result, 'error', 'Network error: ' + error.message);
+        } finally {
+            button.disabled = false;
+            input.disabled = false;
+        }
+    }
+    window.importKizunaData = importKizunaData;
 
     // -------------------------------------------------------
     // Entries List
