@@ -1439,7 +1439,7 @@ def get_audio_codec(video_path):
 
 
 def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation_time):
-    """Returns (untrimmed, trimmed, start, end, timeline); times are on the video, `timeline.to_audio` maps them."""
+    """Return (source audio, trimmed, start, end, timeline); times are on the video timeline."""
     target_ext = get_config().audio.extension
     untrimmed_audio = tempfile.NamedTemporaryFile(
         dir=configuration.get_temporary_directory(), suffix=f"_untrimmed.{target_ext}"
@@ -1450,13 +1450,18 @@ def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation
         timeline = AudioTimeline()
         codec = get_audio_codec(video_path)
         if codec == target_ext:
-            codec_command = ["-c:a", "copy"]
             logger.debug(f"Extracting {target_ext} from video")
         else:
-            codec_command = ["-c:a", f"{supported_formats[target_ext]['codec']}"]
-            logger.debug(f"Re-encoding {codec} to {target_ext}")
+            # Retain the full source for manual expansion without transcoding the
+            # entire replay. Matroska can hold the original audio codec; only the
+            # selected sentence is converted to the configured output format.
+            with tempfile.NamedTemporaryFile(
+                dir=configuration.get_temporary_directory(), suffix="_untrimmed.mka"
+            ) as source_audio:
+                untrimmed_audio = source_audio.name
+            logger.debug(f"Copying {codec} source audio; deferring {target_ext} encoding until after selection")
 
-        command = ffmpeg_base_command_list + ["-i", video_path, "-map", "0:a"] + codec_command + [untrimmed_audio]
+        command = ffmpeg_base_command_list + ["-i", video_path, "-map", "0:a", "-c:a", "copy", untrimmed_audio]
 
         logger.debug("Doing initial audio extraction")
         FFmpegHelper.run(command, check=False)
@@ -1566,28 +1571,30 @@ def trim_audio_based_on_last_line(
     # Trim times stay on the video timeline; the audio may have had pause silence removed.
     audio_start = timeline.to_audio(start_trim_time)
 
-    ffmpeg_command = ffmpeg_base_command_list + [
-        "-i",
-        untrimmed_audio,
-        "-ss",
-        str(audio_start),
-    ]
-
     audio_end = 0
     if next_line and next_line > game_line.time and total_seconds:
         end_trim_seconds = (
             total_seconds + (next_line - game_line.time).total_seconds() + get_config().audio.pre_vad_end_offset
         )
         audio_end = timeline.to_audio(end_trim_seconds)
-        ffmpeg_command.extend(["-to", f"{audio_end:.3f}"])
         logger.debug(f"Trimming end of audio to {end_trim_seconds:.3f} seconds")
     elif get_config().audio.pre_vad_end_offset and get_config().audio.pre_vad_end_offset < 0:
         end_trim_seconds = file_length + get_config().audio.pre_vad_end_offset
         audio_end = timeline.to_audio(end_trim_seconds)
-        ffmpeg_command.extend(["-to", str(audio_end)])
         logger.debug(f"Trimming end of audio to {end_trim_seconds} seconds")
 
-    ffmpeg_command.extend(["-c", "copy", trimmed_audio])
+    if Path(untrimmed_audio).suffix.lower() == ".mka":
+        # Input seeking avoids decoding all the dialogue before this sentence.
+        ffmpeg_command = ffmpeg_base_command_list + ["-ss", str(audio_start), "-i", untrimmed_audio]
+        if audio_end:
+            ffmpeg_command.extend(["-t", f"{audio_end - audio_start:.3f}"])
+        ffmpeg_command.extend(["-map", "0:a", "-c:a", supported_formats[get_config().audio.extension]["codec"]])
+    else:
+        ffmpeg_command = ffmpeg_base_command_list + ["-i", untrimmed_audio, "-ss", str(audio_start)]
+        if audio_end:
+            ffmpeg_command.extend(["-to", f"{audio_end:.3f}"])
+        ffmpeg_command.extend(["-c", "copy"])
+    ffmpeg_command.append(trimmed_audio)
 
     FFmpegHelper.run(ffmpeg_command, check=False)
 
@@ -1751,7 +1758,7 @@ def trim_audio(
     fade_out_duration=0.05,
 ):
     command = ffmpeg_base_command_list.copy()
-    command.extend(["-i", input_audio])
+    command.extend(["-i", input_audio, "-vn"])
 
     fade_in_start = 0
     if trim_beginning and start_time > 0:
@@ -1782,7 +1789,13 @@ def trim_audio(
         # It blindly added BOTH fades if 'fade_filter' list was not empty. Even if one was 0 duration?
         # Actually `if fade_in_duration > 0` adds to list.
         # So I should join the list.
-        command.extend(["-c:a", supported_formats[get_config().audio.extension]["codec"]])
+    output_extension = Path(output_audio).suffix.lower().lstrip(".") if output_audio else ""
+    convert_format = (
+        output_extension in supported_formats and Path(input_audio).suffix.lower() != f".{output_extension}"
+    )
+    if fade_filter or convert_format:
+        output_spec = supported_formats.get(output_extension, supported_formats[get_config().audio.extension])
+        command.extend(["-c:a", output_spec["codec"]])
     else:
         command.extend(["-c", "copy"])
 
