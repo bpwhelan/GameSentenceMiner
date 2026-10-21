@@ -14,7 +14,7 @@ from PyQt6.QtCore import QElapsedTimer, Qt, QTimer
 from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication
 
-from GameSentenceMiner.ui import anki_confirmation_qt, audio_waveform_widget
+from GameSentenceMiner.ui import anki_confirmation_qt
 from GameSentenceMiner.util.config.configuration import Anki
 from GameSentenceMiner.util.media.pause_gaps import AudioTimeline
 
@@ -880,6 +880,9 @@ def test_click_active_component_invokes_focused_clickable_widget(monkeypatch):
 @pytest.fixture
 def gamepad_confirmation_dialog(monkeypatch):
     app = QApplication.instance() or QApplication([])
+    config = deepcopy(anki_confirmation_qt.get_config())
+    config.anki = Anki()
+    monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
     monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", _UnavailableAudioPlayer)
     # Exercise the real dialog and Qt timers without starting controller or audio services.
     monkeypatch.setattr(anki_confirmation_qt.AnkiConfirmationDialog, "showEvent", lambda self, event: None)
@@ -1263,10 +1266,82 @@ def test_normalize_audio_edit_context_falls_back_to_probe_duration(monkeypatch):
     }
 
 
-def test_audio_expand_seconds_shared_between_dialog_and_waveform_labels():
-    assert audio_waveform_widget.AUDIO_EXPAND_SECONDS == 0.25
-    assert anki_confirmation_qt.AUDIO_EXPAND_SECONDS == audio_waveform_widget.AUDIO_EXPAND_SECONDS
-    assert audio_waveform_widget.EXPAND_BUTTON_SECONDS_TEXT == "0.25s"
+def test_audio_expand_default_labels(gamepad_confirmation_dialog):
+    waveform = gamepad_confirmation_dialog.waveform_widget
+    assert waveform.expand_start_button.text() == "◀ +0.25s"
+    assert waveform.expand_end_button.text() == "+0.25s ▶"
+
+
+def test_audio_expansion_refreshes_setting_for_each_card(gamepad_confirmation_dialog, monkeypatch):
+    dialog = gamepad_confirmation_dialog
+    config = deepcopy(anki_confirmation_qt.get_config())
+    monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    calls = []
+    monkeypatch.setattr(dialog, "_expand_audio_window", lambda **kwargs: calls.append(kwargs))
+
+    for step in [0.1, 2, 5, 0.25]:
+        config.anki.confirmation_audio_step = step
+        dialog.populate_ui("", "", None, None, None, "", 0, 0)
+        dialog.show()
+        waveform = dialog.waveform_widget
+        waveform.show()
+        waveform.set_expand_controls(True, can_expand_start=True, can_expand_end=True)
+        dialog.sentence_text.setFocus()
+        for key, modifier, factor in [
+            (Qt.Key.Key_Shift, Qt.KeyboardModifier.ShiftModifier, 5),
+            (Qt.Key.Key_Control, Qt.KeyboardModifier.ControlModifier, 0.2),
+        ]:
+            QTest.keyPress(dialog.sentence_text, key)
+            expected = step * factor
+            assert waveform.expand_start_button.text() == f"◀ +{expected:g}s"
+            QTest.mouseClick(waveform.expand_start_button, Qt.MouseButton.LeftButton, modifier)
+            assert calls[-1] == {"expand_start": pytest.approx(expected)}
+            QTest.keyRelease(dialog.sentence_text, key)
+            assert waveform.expand_end_button.text() == f"+{step:g}s ▶"
+        waveform.expand_end_button.click()
+        assert calls[-1] == {"expand_end": step}
+
+
+def test_audio_expansion_uses_output_format_instead_of_source_container(monkeypatch):
+    monkeypatch.setattr(
+        anki_confirmation_qt, "get_config", lambda: SimpleNamespace(audio=SimpleNamespace(extension="opus"))
+    )
+    renders = []
+    monkeypatch.setattr(anki_confirmation_qt, "trim_audio", lambda **kwargs: renders.append(kwargs))
+    waveform = SimpleNamespace(
+        duration=2.5,
+        get_cut_ranges=list,
+        load_audio=lambda path: None,
+        setVisible=lambda visible: None,
+        set_cut_ranges=lambda ranges: None,
+        set_playback_position=lambda position: None,
+        update=lambda: None,
+    )
+    probe = SimpleNamespace(
+        _audio_edit_source_path="source.mka",
+        _audio_edit_source_window=(10.0, 12.0),
+        waveform_widget=waveform,
+        audio_player=SimpleNamespace(stop_audio=lambda: None),
+        playback_timer=SimpleNamespace(stop=lambda: None),
+        audio_button=_WidgetProbe(),
+        play_original_button=_WidgetProbe(),
+        reset_audio_button=_WidgetProbe(),
+        _set_audio_cut_controls_visible=lambda visible: None,
+        _sync_audio_edit_selection_to_current_clip=lambda start, end: None,
+        _update_audio_buttons=lambda: None,
+        _update_audio_expand_buttons=lambda: None,
+        _update_cut_controls=lambda: None,
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._render_audio_edit_range(probe, 9.5, 12.0)
+
+    assert renders[0]["input_audio"] == "source.mka"
+    assert renders[0]["output_audio"].endswith(".opus")
+    assert renders[0]["output_audio"] == probe.audio_path
+    assert probe._audio_edit_source_window == (9.5, 12.0)
 
 
 def test_refresh_audio_controls_shows_reused_audio_without_waveform():

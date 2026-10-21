@@ -66,6 +66,29 @@ def test_same_selected_lines_different_mined_line_reuse_defaults():
     assert config.reuse_screenshot_for_same_selected_lines_different_mined_line is False
 
 
+def test_confirmation_audio_step_defaults_for_existing_configs():
+    assert Anki.from_dict({}).confirmation_audio_step == 0.25
+
+
+@pytest.mark.parametrize("step", [0.1, 0.25, 0.5, 1, 2, 3, 4, 5])
+def test_confirmation_audio_step_round_trips_and_syncs_across_profiles(step):
+    config = Config(
+        current_profile="active",
+        configs={
+            "active": ProfileConfig(anki=Anki(confirmation_audio_step=step)),
+            "other": ProfileConfig(),
+        },
+    )
+    config.sync_shared_fields()
+    restored = Config.from_dict(config.to_dict())
+    assert all(profile.anki.confirmation_audio_step == step for profile in restored.configs.values())
+
+
+@pytest.mark.parametrize("step", [None, -1, 0, 0.3, 10, float("nan"), float("inf"), "bad"])
+def test_invalid_confirmation_audio_step_uses_default(step):
+    assert Anki(confirmation_audio_step=step).confirmation_audio_step == 0.25
+
+
 def test_skip_confirmation_for_unvoiced_defaults_off_for_existing_configs():
     assert Anki().skip_confirmation_for_unvoiced is False
     existing = Anki().to_dict()

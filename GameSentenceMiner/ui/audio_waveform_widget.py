@@ -1,11 +1,10 @@
 import numpy as np
 import soundfile as sf
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QPointF
 from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
-from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
 AUDIO_EXPAND_SECONDS = 0.25
-EXPAND_BUTTON_SECONDS_TEXT = f"{AUDIO_EXPAND_SECONDS:g}s"
 
 
 class AudioWaveformWidget(QWidget):
@@ -17,8 +16,8 @@ class AudioWaveformWidget(QWidget):
     handle_moved = pyqtSignal(str, float, float)  # which_handle ('start' or 'end'), start_time, end_time
     seek_requested = pyqtSignal(float)
     cut_ranges_changed = pyqtSignal(object)
-    expand_start_requested = pyqtSignal()
-    expand_end_requested = pyqtSignal()
+    expand_start_requested = pyqtSignal(float)
+    expand_end_requested = pyqtSignal(float)
 
     OVERLAY_MARGIN = 4
     OVERLAY_SPACING = 4
@@ -46,6 +45,9 @@ class AudioWaveformWidget(QWidget):
         # Visual caching
         self._waveform_polygon = None
         self._expand_controls_visible = False
+        self._expand_step = AUDIO_EXPAND_SECONDS
+        self._expand_modifiers = Qt.KeyboardModifier.NoModifier
+        self._effective_expand_step = self._expand_step
 
         # Interaction state
         self._dragging_start = False
@@ -73,13 +75,13 @@ class AudioWaveformWidget(QWidget):
         self.color_cut = QColor(220, 65, 65, 155)
         self.color_cut_border = QColor("#ff8a80")
 
-        self.expand_start_button = QPushButton(f"◀ +{EXPAND_BUTTON_SECONDS_TEXT}", self)
+        self.expand_start_button = QPushButton(self)
         self.expand_start_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.expand_start_button.clicked.connect(self.expand_start_requested.emit)
+        self.expand_start_button.clicked.connect(lambda: self.expand_start_requested.emit(self._effective_expand_step))
 
-        self.expand_end_button = QPushButton(f"+{EXPAND_BUTTON_SECONDS_TEXT} ▶", self)
+        self.expand_end_button = QPushButton(self)
         self.expand_end_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.expand_end_button.clicked.connect(self.expand_end_requested.emit)
+        self.expand_end_button.clicked.connect(lambda: self.expand_end_requested.emit(self._effective_expand_step))
 
         self.range_chip = QLabel(self)
         self.range_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -139,7 +141,59 @@ class AudioWaveformWidget(QWidget):
             }
             """
         )
+        self.set_expand_step(AUDIO_EXPAND_SECONDS)
         self.set_expand_controls(False)
+
+    def set_expand_step(self, seconds):
+        self._expand_step = seconds
+        self._update_expand_step_labels(self._expand_modifiers)
+
+    def _update_expand_step_labels(self, modifiers):
+        self._expand_modifiers = modifiers
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        control = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        factor = 1 if shift == control else (5 if shift else 0.2)
+        self._effective_expand_step = round(self._expand_step * factor, 6)
+        seconds_text = f"{self._effective_expand_step:g}s"
+        if self.expand_start_button.text() == f"◀ +{seconds_text}":
+            return
+        self.expand_start_button.setText(f"◀ +{seconds_text}")
+        self.expand_end_button.setText(f"+{seconds_text} ▶")
+        self._position_overlay_controls()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QApplication.instance().installEventFilter(self)
+        self._update_expand_step_labels(QApplication.keyboardModifiers())
+
+    def hideEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
+        self._update_expand_step_labels(Qt.KeyboardModifier.NoModifier)
+        super().hideEvent(event)
+
+    def eventFilter(self, watched, event):
+        # Watch the whole dialog so labels follow modifiers even while editing text.
+        if isinstance(watched, QWidget) and watched.window() is self.window():
+            event_type = event.type()
+            if event_type in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+                modifiers = event.modifiers()
+                modifier = {
+                    Qt.Key.Key_Shift: Qt.KeyboardModifier.ShiftModifier,
+                    Qt.Key.Key_Control: Qt.KeyboardModifier.ControlModifier,
+                }.get(event.key())
+                if modifier is not None:
+                    if event_type == QEvent.Type.KeyPress:
+                        modifiers |= modifier
+                    else:
+                        modifiers &= ~modifier
+                self._update_expand_step_labels(modifiers)
+            elif event_type in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease, QEvent.Type.MouseMove):
+                self._update_expand_step_labels(event.modifiers())
+            elif event_type == QEvent.Type.WindowActivate:
+                self._update_expand_step_labels(QApplication.keyboardModifiers())
+            elif event_type == QEvent.Type.WindowDeactivate:
+                self._update_expand_step_labels(Qt.KeyboardModifier.NoModifier)
+        return super().eventFilter(watched, event)
 
     def set_colors(self, colors):
         """

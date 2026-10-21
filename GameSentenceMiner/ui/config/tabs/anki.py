@@ -340,6 +340,15 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
+            "confirmation_audio_step",
+            "Seconds added by each audio expansion button click in the confirmation dialog.",
+        ),
+        window.anki_confirmation_audio_step_combo,
+    )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
             "confirmation_gamepad_enabled",
             "Enable gamepad bindings for the Anki confirmation dialog.",
         ),
