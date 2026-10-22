@@ -1882,7 +1882,7 @@ class StatsConfig:
     regex_out_punctuation: bool = True
     regex_out_repetitions: bool = False
     extra_punctuation_regex: str = ""
-    tadoku_username: str = ""
+    tadoku_username: str = ""  # Tadoku email; retain the legacy key for existing configs.
     tadoku_password: str = ""
     tadoku_session_cookie: str = ""
     tadoku_language_code: str = "jpn"

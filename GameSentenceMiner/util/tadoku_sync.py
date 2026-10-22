@@ -16,7 +16,9 @@ from GameSentenceMiner.util.database.stats_export_state_table import StatsExport
 # The OpenAPI document still advertises /api/immersion/, but Tadoku's deployed
 # web client and ingress route the service through /api/internal/immersion/.
 TADOKU_API_BASE_URL = "https://tadoku.app/api/internal/immersion/"
-TADOKU_AUTH_BASE_URL = "https://account.tadoku.app/kratos/"
+TADOKU_AUTH_BASE_URL = "https://tadoku.app/api/internal/identity/"
+TADOKU_ORIGIN = "https://tadoku.app"
+TADOKU_SESSION_COOKIE_NAME = "tadoku_session"
 TADOKU_CURSOR_KEY = "tadoku_incremental"
 TADOKU_READING_ACTIVITY_ID = 1
 TADOKU_GAME_TAG = "game"
@@ -228,15 +230,20 @@ class TadokuClient:
         session_cookie: str = "",
         session: requests.Session | None = None,
     ):
-        self._username = str(username or "").strip()
+        # Keep the existing config/constructor name so saved email addresses and
+        # passwords continue working without a destructive settings migration.
+        self._email = str(username or "").strip()
         self._password = str(password or "")
-        if not self._username or not self._password:
-            raise TadokuSyncError("Tadoku username and password are not configured")
+        if not self._email or not self._password:
+            raise TadokuSyncError("Tadoku email and password are not configured")
         self._session = session or requests.Session()
         cookie = str(session_cookie or "").strip()
         if cookie:
+            # Existing configs may contain a retired Kratos token. The first
+            # authenticated request rejects it with 401, then signs in once and
+            # persists the replacement through the existing config field.
             self._session.cookies.set(
-                "ory_kratos_session",
+                TADOKU_SESSION_COOKIE_NAME,
                 cookie,
                 domain=".tadoku.app",
                 path="/",
@@ -244,7 +251,7 @@ class TadokuClient:
             )
 
     def _has_session_cookie(self) -> bool:
-        return any(cookie.name == "ory_kratos_session" and bool(cookie.value) for cookie in self._session.cookies)
+        return bool(self.session_cookie)
 
     @property
     def session_cookie(self) -> str:
@@ -252,14 +259,14 @@ class TadokuClient:
             (
                 str(cookie.value)
                 for cookie in self._session.cookies
-                if cookie.name == "ory_kratos_session" and cookie.value
+                if cookie.name == TADOKU_SESSION_COOKIE_NAME and cookie.value
             ),
             "",
         )
 
     def _clear_session_cookie(self) -> None:
         for cookie in list(self._session.cookies):
-            if cookie.name == "ory_kratos_session":
+            if cookie.name in {TADOKU_SESSION_COOKIE_NAME, "ory_kratos_session"}:
                 self._session.cookies.clear(cookie.domain, cookie.path, cookie.name)
 
     def refresh_session(self) -> None:
@@ -279,49 +286,25 @@ class TadokuClient:
 
     def _login(self) -> None:
         try:
-            flow_response = self._session.request(
-                "GET",
-                f"{TADOKU_AUTH_BASE_URL}self-service/login/browser",
-                timeout=TADOKU_REQUEST_TIMEOUT_SECONDS,
-                headers={"Accept": "application/json"},
-            )
-        except requests.RequestException as exc:
-            raise TadokuSyncError(f"Could not reach Tadoku login: {exc}") from exc
-        if not flow_response.ok:
-            raise TadokuSyncError(f"Tadoku login could not be started (HTTP {flow_response.status_code})")
-        flow = self._json_payload(flow_response, "Tadoku login returned an invalid response")
-        ui = flow.get("ui") or {}
-        action = str(ui.get("action") or "")
-        if not action.startswith(f"{TADOKU_AUTH_BASE_URL}self-service/login?"):
-            raise TadokuSyncError("Tadoku login returned an invalid flow")
-        csrf_token = next(
-            (
-                str((node.get("attributes") or {}).get("value") or "")
-                for node in ui.get("nodes", [])
-                if (node.get("attributes") or {}).get("name") == "csrf_token"
-            ),
-            "",
-        )
-        if not csrf_token:
-            raise TadokuSyncError("Tadoku login did not return a CSRF token")
-
-        try:
             login_response = self._session.request(
                 "POST",
-                action,
+                f"{TADOKU_AUTH_BASE_URL}login",
                 timeout=TADOKU_REQUEST_TIMEOUT_SECONDS,
-                headers={"Accept": "application/json"},
-                data={
-                    "identifier": self._username,
-                    "password": self._password,
-                    "method": "password",
-                    "csrf_token": csrf_token,
-                },
+                headers={"Accept": "application/json", "Origin": TADOKU_ORIGIN},
+                json={"email": self._email, "password": self._password},
             )
         except requests.RequestException as exc:
             raise TadokuSyncError(f"Could not reach Tadoku login: {exc}") from exc
         if not login_response.ok:
-            raise TadokuSyncError("Tadoku login failed; check the saved username and password")
+            if login_response.status_code == 401:
+                raise TadokuSyncError(
+                    "Tadoku login failed; check the saved email and password. Use your email address, not your display name."
+                )
+            if login_response.status_code == 429:
+                raise TadokuSyncError("Too many Tadoku sign-in attempts; wait 15 minutes before trying again")
+            if login_response.status_code == 503:
+                raise TadokuSyncError("Tadoku sign-in is temporarily unavailable; try again later")
+            raise TadokuSyncError(f"Tadoku login failed (HTTP {login_response.status_code})")
         if not self._has_session_cookie():
             raise TadokuSyncError("Tadoku login did not return a browser session cookie")
 

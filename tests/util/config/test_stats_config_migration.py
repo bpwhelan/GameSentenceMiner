@@ -59,3 +59,26 @@ def test_stats_config_preserves_tadoku_title_source(title_source):
     config = configuration.StatsConfig(tadoku_title_source=title_source)
 
     assert configuration.StatsConfig.from_dict(config.to_dict()).tadoku_title_source == title_source
+
+
+def test_load_config_preserves_existing_tadoku_setup(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    legacy_config = configuration.Config.new().to_dict()
+    saved_tadoku_settings = {
+        "tadoku_username": "reader@example.com",
+        "tadoku_password": "saved-password",
+        "tadoku_session_cookie": "legacy-kratos-cookie",
+        "tadoku_language_code": "jpn",
+        "tadoku_title_source": "original",
+        "tadoku_daily_sync_enabled": True,
+        "tadoku_daily_sync_time": "22:30",
+        "tadoku_daily_sync_deduplicate": False,
+        "tadoku_daily_sync_game_ids": ["game-1"],
+    }
+    legacy_config["stats"].update(saved_tadoku_settings)
+    config_path.write_text(json.dumps(legacy_config), encoding="utf-8")
+    monkeypatch.setattr(configuration, "get_config_path", lambda: str(config_path))
+
+    loaded = configuration.load_config().to_dict()["stats"]
+
+    assert {key: loaded[key] for key in saved_tadoku_settings} == saved_tadoku_settings

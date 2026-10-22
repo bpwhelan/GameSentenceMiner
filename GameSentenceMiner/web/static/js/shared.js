@@ -877,7 +877,7 @@ class SettingsManager {
                 this.tadokuSyncBtn.disabled = this.tadokuSyncInProgress || !hasWork
                     || (!this.tadokuConfigured && preview.total_entries > 0);
                 this.tadokuSyncBtn.title = !this.tadokuConfigured && preview.total_entries > 0
-                    ? 'Save a Tadoku username and password before syncing'
+                    ? 'Save a Tadoku email and password before syncing'
                     : '';
             }
             return preview;
