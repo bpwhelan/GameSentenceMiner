@@ -1674,6 +1674,8 @@ async function createWindow() {
     mainWindow = new BrowserWindow({
         width: Math.min(1280, workWidth),
         height: Math.min(1000, workHeight),
+        minWidth: 800,
+        minHeight: 500,
         icon: getIconPath(),
         // Start hidden; show when ready for consistent taskbar icon
         show: false,

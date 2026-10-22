@@ -35,6 +35,8 @@ function previewInvokeResult(channel: string): unknown {
       return PREVIEW_SCENE;
     case "obs.getWindows":
       return [];
+    case "scene-switcher.getState":
+      return { collectionEnabled: false, migrationReady: true, rule: null };
     case "ocr.getActiveOCRConfig":
       return {
         scene: PREVIEW_SCENE.id,

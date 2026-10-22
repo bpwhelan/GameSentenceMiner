@@ -794,8 +794,10 @@ export async function showAgentScriptUi(): Promise<{ success: boolean; error?: s
         }
 
         current.uiWindow = new BrowserWindow({
-            width: 760,
+            width: 800,
             height: 720,
+            minWidth: 800,
+            minHeight: 500,
             title: `Agent UI - ${path.basename(current.scriptPath)}`,
             show: false,
             webPreferences: {

@@ -3998,12 +3998,14 @@ function maybeShowManualModeRecommendation(game) {
   manualModeRecommendationPromptedGames.add(gameKey);
 
   const workArea = getOverlayDisplayWorkArea();
-  const winWidth = 600;
+  const winWidth = 800;
   const winHeight = 800;
 
   manualModeRecommendationWindow = new BrowserWindow({
     width: winWidth,
     height: winHeight,
+    minWidth: 800,
+    minHeight: 500,
     x: Math.round(workArea.x + (workArea.width - winWidth) / 2),
     y: Math.round(workArea.y + (workArea.height - winHeight) / 2),
     icon: getOverlayAppIconPath(),
@@ -4091,12 +4093,14 @@ function maybeShowFullscreenModeRecommendation(game) {
   }
 
   const workArea = getOverlayDisplayWorkArea();
-  const winWidth = Math.min(680, workArea.width);
+  const winWidth = Math.min(800, workArea.width);
   const winHeight = Math.min(850, workArea.height);
 
   fullscreenModeRecommendationWindow = new BrowserWindow({
     width: winWidth,
     height: winHeight,
+    minWidth: 800,
+    minHeight: 500,
     x: Math.round(workArea.x + (workArea.width - winWidth) / 2),
     y: Math.round(workArea.y + (workArea.height - winHeight) / 2),
     icon: getOverlayAppIconPath(),
@@ -6466,6 +6470,8 @@ function openSettings(tab) {
   const openedSettingsWindow = new BrowserWindow({
     width: 1200,
     height: 980,
+    minWidth: 800,
+    minHeight: 500,
     icon: getOverlayAppIconPath(),
     resizable: true,
     title: "Overlay Settings",
@@ -6493,6 +6499,8 @@ function openSettings(tab) {
       show: true,
       width: 1200,
       height: 980,
+      minWidth: 800,
+      minHeight: 500,
       icon: getOverlayAppIconPath(),
       webPreferences: {
         nodeIntegration: true,
@@ -6567,6 +6575,8 @@ function openYomitanSettings() {
   yomitanSettingsWindow = new BrowserWindow({
     width: hachidoriExt ? Math.min(1440, workArea.width) : 1100,
     height: hachidoriExt ? Math.min(900, workArea.height) : 800,
+    minWidth: 800,
+    minHeight: 500,
     icon: getOverlayAppIconPath(),
     webPreferences: {
       preload: FIND_IN_PAGE_PRELOAD_PATH,
@@ -6606,6 +6616,8 @@ function openJitenReaderSettings() {
   jitenReaderSettingsWindow = new BrowserWindow({
     width: 1100,
     height: 600,
+    minWidth: 800,
+    minHeight: 500,
     icon: getOverlayAppIconPath(),
     webPreferences: {
       nodeIntegration: false
@@ -7825,6 +7837,8 @@ async function startOverlayAppImpl() {
       show: true,
       width: 1200,
       height: 980,
+      minWidth: 800,
+      minHeight: 500,
       icon: getOverlayAppIconPath(),
       webPreferences: {
         nodeIntegration: true,

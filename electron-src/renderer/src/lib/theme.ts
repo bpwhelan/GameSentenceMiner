@@ -1,6 +1,6 @@
 // Theme switching for the renderer. Themes are daisyUI palettes selected via the
-// `data-theme` attribute on <html> (see styles.css). Keep ids in sync with the
-// @plugin "daisyui/theme" / built-in theme names declared in styles.css.
+// `data-theme` attribute on <html> (see theme.css). Keep ids in sync with the
+// @plugin "daisyui/theme" / built-in theme names declared in theme.css.
 
 export type ThemeCategory = "dark" | "light" | "highContrast";
 
@@ -21,7 +21,7 @@ const CURATED_THEMES: ThemeOption[] = [
   { id: "high-contrast", category: "highContrast", labelKey: "settings.desktop.themeHighContrast" }
 ];
 
-// All daisyUI 5 built-in themes (enabled via `themes: all` in styles.css),
+// All daisyUI 5 built-in themes (enabled via `themes: all` in theme.css),
 // split by their color-scheme. Names are proper nouns, shown title-cased.
 const DAISYUI_DARK_THEMES = [
   "dark", "synthwave", "halloween", "forest", "aqua", "black", "luxury",

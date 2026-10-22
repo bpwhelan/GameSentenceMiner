@@ -16,6 +16,7 @@ describe("GameAutomationTab overlay automation", () => {
   let runOverlayWithActiveGame: boolean;
 
   beforeEach(() => {
+    window.localStorage.clear();
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
     runOverlayOnStartup = false;
@@ -92,5 +93,45 @@ describe("GameAutomationTab overlay automation", () => {
     await render(false);
     runOverlayWithActiveGame = false;
     expect((await render()).disabled).toBe(false);
+  });
+
+  it("keeps legacy launchers secondary and tool paths behind the shared-settings disclosure", async () => {
+    await render();
+    expect(container.querySelector<HTMLDetailsElement>(".launcher-legacy-details")?.open).toBe(false);
+    expect(container.querySelector("#agent-path-input")).toBeNull();
+    const shared = container.querySelector<HTMLButtonElement>("#automation-nav-shared")!;
+    await act(async () => shared.click());
+    expect(container.querySelector<HTMLElement>("#automation-view-scene")?.hidden).toBe(true);
+    expect(container.querySelector<HTMLElement>("#automation-view-shared")?.hidden).toBe(false);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-controls="tool-paths-legacy-panel"]')!.click());
+    expect(container.querySelector("#agent-path-input")).not.toBeNull();
+    expect(invokeMock).not.toHaveBeenCalledWith("settings.saveSceneLaunchProfile", expect.anything());
+  });
+
+  it("keeps an existing legacy profile editable without opening it for another scene", async () => {
+    const otherScene = { id: "scene-2", name: "Other game" };
+    const original = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string, payload: any) => {
+      if (channel === "obs.getScenes") return [scene, otherScene];
+      if (channel === "settings.getSceneLaunchProfile") return {
+        textHookMode: payload.id === scene.id ? "agent" : "none",
+        agentScriptPath: payload.id === scene.id ? "C:/scripts/game.js" : "",
+      };
+      return original(channel, payload);
+    });
+    await render();
+    expect(container.querySelector<HTMLDetailsElement>(".launcher-legacy-details")?.open).toBe(true);
+    expect(container.querySelector<HTMLInputElement>("#scene-agent-script-scene-1")?.value).toBe("C:/scripts/game.js");
+    await act(async () => {
+      const selector = container.querySelector<HTMLSelectElement>("#launcher-scene-selector")!;
+      selector.value = otherScene.id;
+      selector.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector<HTMLDetailsElement>(".launcher-legacy-details")?.open).toBe(false);
+    const autoOcr = container.querySelectorAll<HTMLInputElement>('input[name="ocr-mode-scene-2"]')[1];
+    await act(async () => autoOcr.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSceneLaunchProfile", expect.objectContaining({
+      scene: otherScene, ocrMode: "auto", textHookMode: "none",
+    }));
   });
 });

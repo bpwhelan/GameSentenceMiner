@@ -1050,6 +1050,8 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         return getSettingsSnapshot();
     });
 
+    ipcMain.handle('settings.getTheme', () => getTheme());
+
     ipcMain.handle('settings.getUpdateStatus', async () => {
         if (!deps) {
             return null;

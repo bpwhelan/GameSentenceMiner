@@ -1111,7 +1111,14 @@ export function getTheme(): string {
 }
 
 export function setTheme(theme: string): void {
-    store.set("theme", theme || "gsm-dark");
+    const nextTheme = theme || "gsm-dark";
+    if (getTheme() === nextTheme) return;
+    store.set("theme", nextTheme);
+    for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+            window.webContents.send('settings.themeChanged', nextTheme);
+        }
+    }
 }
 
 export function getHasCompletedSetup(): boolean {

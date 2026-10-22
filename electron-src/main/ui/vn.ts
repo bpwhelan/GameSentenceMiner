@@ -141,6 +141,8 @@ export function openVNWindow() {
     VNWindow = new BrowserWindow({
         width: 800,
         height: 600,
+        minWidth: 800,
+        minHeight: 500,
         webPreferences: getSecureWebPreferences(),
     });
 

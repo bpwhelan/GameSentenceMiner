@@ -474,6 +474,55 @@
 .ocr-desk .desk-map-canvas--preview .desk-map-area rect {
   fill: color-mix(in srgb, var(--area-color) 5%, transparent);
 }
+.ocr-desk .desk-map-canvas--editing svg {
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  outline-offset: -3px;
+}
+.ocr-desk .desk-map-area.is-selected rect {
+  stroke-width: 3;
+  fill: color-mix(in srgb, var(--area-color) 20%, transparent);
+}
+.ocr-desk .desk-map-area.is-drawing {
+  pointer-events: none;
+}
+.ocr-desk .desk-map-area.is-drawing rect {
+  stroke-dasharray: 5 3;
+}
+.ocr-desk .desk-area-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  margin: 10px 0;
+}
+.ocr-desk .desk-area-editor-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--gsm-text-muted);
+  font-size: 11px;
+}
+.ocr-desk .desk-area-editor-toolbar :is(button, select) {
+  min-height: 32px;
+  font-size: 12px;
+}
+.ocr-desk .desk-area-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.ocr-desk .desk-area-editor-hint {
+  margin: 10px 0;
+  color: var(--gsm-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.ocr-desk .desk-area-editor-error {
+  color: var(--gsm-danger-text);
+  font-size: 12px;
+}
 .ocr-desk .desk-preview-box {
   fill: none;
   stroke: var(--color-info);
@@ -535,6 +584,8 @@
   place-items: center;
   width: 28px;
   height: 28px;
+  min-height: 28px;
+  padding: 0;
   border-radius: 5px;
   border: 1px solid var(--gsm-border-default);
   background: var(--gsm-surface-1);

@@ -284,7 +284,7 @@ describe("OCRTab", () => {
     expect(container.querySelector<HTMLElement>("#ocr-view-console")!.hidden).toBe(true);
   });
 
-  it("opens the existing area selector from the saved layout", async () => {
+  it("keeps Open Area Selector connected to the Python editor", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "obs.getScenes") return [{ id: "scene-1", name: "Example Game" }];
       if (channel === "obs.getActiveScene") return { id: "scene-1", name: "Example Game" };
@@ -293,9 +293,9 @@ describe("OCRTab", () => {
     });
     await act(async () => { root.render(<I18nProvider><OCRTab active /></I18nProvider>); await flushAsyncWork(); });
     expect(container.querySelectorAll(".desk-map-area")).toHaveLength(1);
-    const map = container.querySelector<HTMLButtonElement>(".desk-map-canvas")!;
-    expect(map.disabled).toBe(false);
-    await act(async () => { map.click(); });
+    const selector = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Open Area Selector"))!;
+    expect(selector.disabled).toBe(false);
+    await act(async () => { selector.click(); });
     expect(sendMock).toHaveBeenLastCalledWith("ocr.run-screen-selector");
   });
 

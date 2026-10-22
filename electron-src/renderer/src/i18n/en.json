@@ -946,6 +946,24 @@
     }
   },
   "launcher": {
+    "workspace": {
+      "brand": "Automation",
+      "tagline": "Game & scene behavior",
+      "sharedTitle": "Shared settings",
+      "allScenes": "Across all scenes",
+      "sceneHint": "Choose the OBS scene to configure.",
+      "sceneDescription": "Choose what happens when this OBS scene becomes active.",
+      "sharedDescription": "Set OCR overrides that apply across your game profiles.",
+      "autosave": "Saves automatically",
+      "ocrNoneHint": "Leave OCR off for this scene.",
+      "ocrAutoHint": "Continuously capture game text.",
+      "ocrManualHint": "Capture text with your OCR hotkey.",
+      "overlayHint": "Open the overlay when this scene becomes active.",
+      "overlayManaged": "Managed by the overlay options on Home.",
+      "sceneTitle": "Scene automation",
+      "manualOcrHint": "Keep Manual OCR available for profiles that do not use Auto OCR.",
+      "ignoreSceneHint": "Keep OCR running when you switch OBS scenes."
+    },
     "title": "Game Automation",
     "docsButton": "Auto Launcher Docs",
     "docsButtonTooltip": "Open Auto Launcher documentation",
@@ -1159,23 +1177,74 @@
     "comparison": {
       "title": "Text Comparison Tuning",
       "expertTitle": "Expert Heuristics",
-      "duplicateThreshold": { "label": "Duplicate Match Threshold (%)", "title": "Higher values are stricter. Raise this if different lines are being treated as duplicates." },
-      "changeThreshold": { "label": "Text Change Threshold (%)", "title": "Lower values trigger OCR2 sooner on partial changes. Higher values wait for clearer changes." },
-      "evolvingPrefix": { "label": "Evolving Prefix Match (%)", "title": "Used when checking whether a short line looks like the beginning of a longer line." },
-      "truncationFallbackMin": { "label": "Truncation Fallback Min Threshold (%)", "title": "Minimum compare threshold required before prefix or suffix truncation matching is allowed." },
-      "truncationStrictMin": { "label": "Truncation Strict Threshold (%)", "title": "Above this threshold, GSM also requires a stronger base similarity before treating a truncation as the same text." },
-      "truncationMargin": { "label": "Truncation Base Margin", "title": "How far below the compare threshold the base similarity may be before truncation fallback is rejected." },
-      "truncationMinLength": { "label": "Truncation Min Length (chars)", "title": "Shortest normalized string length allowed for truncation matching." },
-      "truncationMinRatio": { "label": "Truncation Min Length Ratio (%)", "title": "How much of the longer line the shorter line must cover before truncation matching is considered." },
-      "subsetChunkMinLength": { "label": "Subset Chunk Min Length (chars)", "title": "Incoming OCR chunks shorter than this skip the chunk-coverage fallback unless they are exact matches." },
-      "shortChunkLimit": { "label": "Short Chunk Limit (chars)", "title": "Chunks at or below this length use the smaller matching-block minimum." },
-      "shortChunkMinSize": { "label": "Short Chunk Match Min Size", "title": "Minimum contiguous match size counted for short chunks." },
-      "defaultMinSize": { "label": "Default Match Min Size", "title": "Minimum contiguous match size counted for longer chunks." },
-      "coverageFloor": { "label": "Subset Coverage Floor (%)", "title": "Lowest allowed chunk-coverage requirement for dedupe fallback." },
-      "coverageCeiling": { "label": "Subset Coverage Ceiling (%)", "title": "Highest allowed chunk-coverage requirement for dedupe fallback." },
-      "coverageOffset": { "label": "Coverage Threshold Offset", "title": "Offset applied before converting the current compare threshold into a coverage requirement." },
-      "longestBlockMin": { "label": "Longest Block Minimum (chars)", "title": "Minimum contiguous block size required in subset coverage mode." },
-      "longestBlockDivisor": { "label": "Longest Block Divisor", "title": "Larger values reduce the required contiguous block length for longer chunks." }
+      "duplicateThreshold": {
+        "label": "Duplicate Match Threshold (%)",
+        "title": "Higher values are stricter. Raise this if different lines are being treated as duplicates."
+      },
+      "changeThreshold": {
+        "label": "Text Change Threshold (%)",
+        "title": "Lower values trigger OCR2 sooner on partial changes. Higher values wait for clearer changes."
+      },
+      "evolvingPrefix": {
+        "label": "Evolving Prefix Match (%)",
+        "title": "Used when checking whether a short line looks like the beginning of a longer line."
+      },
+      "truncationFallbackMin": {
+        "label": "Truncation Fallback Min Threshold (%)",
+        "title": "Minimum compare threshold required before prefix or suffix truncation matching is allowed."
+      },
+      "truncationStrictMin": {
+        "label": "Truncation Strict Threshold (%)",
+        "title": "Above this threshold, GSM also requires a stronger base similarity before treating a truncation as the same text."
+      },
+      "truncationMargin": {
+        "label": "Truncation Base Margin",
+        "title": "How far below the compare threshold the base similarity may be before truncation fallback is rejected."
+      },
+      "truncationMinLength": {
+        "label": "Truncation Min Length (chars)",
+        "title": "Shortest normalized string length allowed for truncation matching."
+      },
+      "truncationMinRatio": {
+        "label": "Truncation Min Length Ratio (%)",
+        "title": "How much of the longer line the shorter line must cover before truncation matching is considered."
+      },
+      "subsetChunkMinLength": {
+        "label": "Subset Chunk Min Length (chars)",
+        "title": "Incoming OCR chunks shorter than this skip the chunk-coverage fallback unless they are exact matches."
+      },
+      "shortChunkLimit": {
+        "label": "Short Chunk Limit (chars)",
+        "title": "Chunks at or below this length use the smaller matching-block minimum."
+      },
+      "shortChunkMinSize": {
+        "label": "Short Chunk Match Min Size",
+        "title": "Minimum contiguous match size counted for short chunks."
+      },
+      "defaultMinSize": {
+        "label": "Default Match Min Size",
+        "title": "Minimum contiguous match size counted for longer chunks."
+      },
+      "coverageFloor": {
+        "label": "Subset Coverage Floor (%)",
+        "title": "Lowest allowed chunk-coverage requirement for dedupe fallback."
+      },
+      "coverageCeiling": {
+        "label": "Subset Coverage Ceiling (%)",
+        "title": "Highest allowed chunk-coverage requirement for dedupe fallback."
+      },
+      "coverageOffset": {
+        "label": "Coverage Threshold Offset",
+        "title": "Offset applied before converting the current compare threshold into a coverage requirement."
+      },
+      "longestBlockMin": {
+        "label": "Longest Block Minimum (chars)",
+        "title": "Minimum contiguous block size required in subset coverage mode."
+      },
+      "longestBlockDivisor": {
+        "label": "Longest Block Divisor",
+        "title": "Larger values reduce the required contiguous block length for longer chunks."
+      }
     },
     "hotkeys": {
       "title": "Hotkeys",
@@ -1444,7 +1513,7 @@
       "manualMode": "Manual capture",
       "settingsSaved": "Changes save automatically",
       "closeConsole": "Back to workspace",
-      "layoutOverview": "Saved layout · click to edit",
+      "layoutOverview": "Saved layout",
       "wholeWindow": "Whole window",
       "wholeWindowHint": "Draw areas to focus on the text you want.",
       "savedLayout": "Areas are saved",
@@ -1465,7 +1534,32 @@
         "tools": "Manage OCR packages, diagnostics, and configuration files.",
         "console": "Live OCR output and diagnostics. Logs are kept while you use other pages."
       },
-      "shortcutHelp": "Select a binding and press a key combination. Press Escape to clear it."
+      "shortcutHelp": "Select a binding and press a key combination. Press Escape to clear it.",
+      "openAreaSelector": "Open Area Selector",
+      "editor": {
+        "edit": "Edit areas in preview",
+        "areaType": "Draw",
+        "undo": "Undo",
+        "clear": "Clear all",
+        "selectedArea": "Selected area",
+        "none": "None",
+        "areaLabel": "{number} · {kind}",
+        "remove": "Remove",
+        "cancel": "Cancel",
+        "save": "Save areas",
+        "saving": "Saving…",
+        "canvas": "Draw OCR areas on the game preview",
+        "hint": "Drag to draw. Click an area to select it. Preview is paused; save to apply your changes.",
+        "legacyHint": "Use Open Area Selector to edit this older or unsupported layout.",
+        "errors": {
+          "sceneChanged": "The scene changed. Cancel and reopen the preview editor for the current scene.",
+          "conflict": "The saved areas changed elsewhere. Cancel and reload the scene before editing again.",
+          "invalid": "This layout cannot be saved here. Use Open Area Selector.",
+          "failed": "Could not save areas. Your changes are still here; please try again."
+        },
+        "keyboardModifiers": "Keyboard modifiers",
+        "modifierHint": "Shift: Excluded · Ctrl: Menu · Alt: Exclusive · Ctrl+Alt: Black hole"
+      }
     }
   },
   "texthook": {
@@ -1850,6 +1944,7 @@
       "normalizeForm": "Form:"
     },
     "rules": {
+      "mode": "Rule type",
       "addRule": "+ Add Rule",
       "toggleEnabled": "Toggle rule",
       "plain": "Plain",
@@ -1859,6 +1954,17 @@
       "caseSensitive": "Case sensitive",
       "wholeWord": "Whole word",
       "remove": "Remove rule"
+    },
+    "workspace": {
+      "eyebrow": "Captured text",
+      "description": "Clean up captured text and see the result as you edit.",
+      "unsaved": "Unsaved changes",
+      "saved": "Changes saved",
+      "enabledCount": "{count} of {total} enabled",
+      "live": "Live",
+      "sample": "Sample",
+      "previewHint": "Preview uses your current rules, including unsaved changes.",
+      "followLatest": "Follow latest game text"
     }
   }
 }

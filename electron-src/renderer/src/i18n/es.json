@@ -855,23 +855,74 @@
     "comparison": {
       "title": "Ajuste de comparación de texto",
       "expertTitle": "Heurísticas avanzadas",
-      "duplicateThreshold": { "label": "Umbral de coincidencia de duplicados (%)", "title": "Valores más altos son más estrictos. Aumenta este valor si líneas diferentes se tratan como duplicados." },
-      "changeThreshold": { "label": "Umbral de cambio de texto (%)", "title": "Valores más bajos activan OCR2 antes con cambios parciales. Valores más altos esperan cambios más claros." },
-      "evolvingPrefix": { "label": "Coincidencia de prefijo evolutivo (%)", "title": "Se usa al comprobar si una línea corta parece el comienzo de una línea más larga." },
-      "truncationFallbackMin": { "label": "Umbral mínimo de respaldo de truncamiento (%)", "title": "Umbral de comparación mínimo requerido antes de permitir la coincidencia de truncamiento de prefijo o sufijo." },
-      "truncationStrictMin": { "label": "Umbral estricto de truncamiento (%)", "title": "Por encima de este umbral, GSM también requiere una similitud base más fuerte antes de tratar un truncamiento como el mismo texto." },
-      "truncationMargin": { "label": "Margen base de truncamiento", "title": "Cuánto puede estar por debajo del umbral de comparación la similitud base antes de que se rechace el respaldo de truncamiento." },
-      "truncationMinLength": { "label": "Longitud mínima de truncamiento (caracteres)", "title": "Longitud mínima de cadena normalizada permitida para coincidencia de truncamiento." },
-      "truncationMinRatio": { "label": "Ratio mínimo de longitud de truncamiento (%)", "title": "Cuánto de la línea más larga debe cubrir la línea más corta antes de considerar la coincidencia de truncamiento." },
-      "subsetChunkMinLength": { "label": "Longitud mínima de fragmento de subconjunto (caracteres)", "title": "Los fragmentos OCR entrantes más cortos que esto omiten el respaldo de cobertura de fragmentos a menos que sean coincidencias exactas." },
-      "shortChunkLimit": { "label": "Límite de fragmento corto (caracteres)", "title": "Los fragmentos de esta longitud o menos usan el mínimo de bloque de coincidencia más pequeño." },
-      "shortChunkMinSize": { "label": "Tamaño mínimo de coincidencia de fragmento corto", "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos cortos." },
-      "defaultMinSize": { "label": "Tamaño mínimo de coincidencia predeterminado", "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos más largos." },
-      "coverageFloor": { "label": "Piso de cobertura de subconjunto (%)", "title": "Requisito de cobertura de fragmentos más bajo permitido para respaldo de deduplicación." },
-      "coverageCeiling": { "label": "Techo de cobertura de subconjunto (%)", "title": "Requisito de cobertura de fragmentos más alto permitido para respaldo de deduplicación." },
-      "coverageOffset": { "label": "Desplazamiento del umbral de cobertura", "title": "Desplazamiento aplicado antes de convertir el umbral de comparación actual en un requisito de cobertura." },
-      "longestBlockMin": { "label": "Mínimo de bloque más largo (caracteres)", "title": "Tamaño mínimo de bloque contiguo requerido en modo de cobertura de subconjunto." },
-      "longestBlockDivisor": { "label": "Divisor de bloque más largo", "title": "Valores más grandes reducen la longitud de bloque contiguo requerida para fragmentos más largos." }
+      "duplicateThreshold": {
+        "label": "Umbral de coincidencia de duplicados (%)",
+        "title": "Valores más altos son más estrictos. Aumenta este valor si líneas diferentes se tratan como duplicados."
+      },
+      "changeThreshold": {
+        "label": "Umbral de cambio de texto (%)",
+        "title": "Valores más bajos activan OCR2 antes con cambios parciales. Valores más altos esperan cambios más claros."
+      },
+      "evolvingPrefix": {
+        "label": "Coincidencia de prefijo evolutivo (%)",
+        "title": "Se usa al comprobar si una línea corta parece el comienzo de una línea más larga."
+      },
+      "truncationFallbackMin": {
+        "label": "Umbral mínimo de respaldo de truncamiento (%)",
+        "title": "Umbral de comparación mínimo requerido antes de permitir la coincidencia de truncamiento de prefijo o sufijo."
+      },
+      "truncationStrictMin": {
+        "label": "Umbral estricto de truncamiento (%)",
+        "title": "Por encima de este umbral, GSM también requiere una similitud base más fuerte antes de tratar un truncamiento como el mismo texto."
+      },
+      "truncationMargin": {
+        "label": "Margen base de truncamiento",
+        "title": "Cuánto puede estar por debajo del umbral de comparación la similitud base antes de que se rechace el respaldo de truncamiento."
+      },
+      "truncationMinLength": {
+        "label": "Longitud mínima de truncamiento (caracteres)",
+        "title": "Longitud mínima de cadena normalizada permitida para coincidencia de truncamiento."
+      },
+      "truncationMinRatio": {
+        "label": "Ratio mínimo de longitud de truncamiento (%)",
+        "title": "Cuánto de la línea más larga debe cubrir la línea más corta antes de considerar la coincidencia de truncamiento."
+      },
+      "subsetChunkMinLength": {
+        "label": "Longitud mínima de fragmento de subconjunto (caracteres)",
+        "title": "Los fragmentos OCR entrantes más cortos que esto omiten el respaldo de cobertura de fragmentos a menos que sean coincidencias exactas."
+      },
+      "shortChunkLimit": {
+        "label": "Límite de fragmento corto (caracteres)",
+        "title": "Los fragmentos de esta longitud o menos usan el mínimo de bloque de coincidencia más pequeño."
+      },
+      "shortChunkMinSize": {
+        "label": "Tamaño mínimo de coincidencia de fragmento corto",
+        "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos cortos."
+      },
+      "defaultMinSize": {
+        "label": "Tamaño mínimo de coincidencia predeterminado",
+        "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos más largos."
+      },
+      "coverageFloor": {
+        "label": "Piso de cobertura de subconjunto (%)",
+        "title": "Requisito de cobertura de fragmentos más bajo permitido para respaldo de deduplicación."
+      },
+      "coverageCeiling": {
+        "label": "Techo de cobertura de subconjunto (%)",
+        "title": "Requisito de cobertura de fragmentos más alto permitido para respaldo de deduplicación."
+      },
+      "coverageOffset": {
+        "label": "Desplazamiento del umbral de cobertura",
+        "title": "Desplazamiento aplicado antes de convertir el umbral de comparación actual en un requisito de cobertura."
+      },
+      "longestBlockMin": {
+        "label": "Mínimo de bloque más largo (caracteres)",
+        "title": "Tamaño mínimo de bloque contiguo requerido en modo de cobertura de subconjunto."
+      },
+      "longestBlockDivisor": {
+        "label": "Divisor de bloque más largo",
+        "title": "Valores más grandes reducen la longitud de bloque contiguo requerida para fragmentos más largos."
+      }
     },
     "hotkeys": {
       "title": "Atajos de teclado",
@@ -1096,7 +1147,7 @@
       "manualMode": "Captura manual",
       "settingsSaved": "Los cambios se guardan automáticamente",
       "closeConsole": "Volver al espacio de trabajo",
-      "layoutOverview": "Distribución guardada · pulsa para editar",
+      "layoutOverview": "Distribución guardada",
       "wholeWindow": "Ventana completa",
       "wholeWindowHint": "Dibuja áreas para centrarte en el texto que quieres.",
       "savedLayout": "Las áreas están guardadas",
@@ -1117,7 +1168,32 @@
         "tools": "Gestiona paquetes de OCR, diagnósticos y archivos de configuración.",
         "console": "Salida y diagnósticos de OCR en directo. Los registros se conservan al usar otras páginas."
       },
-      "shortcutHelp": "Selecciona una combinación y pulsa las teclas que quieras usar. Escape la borra."
+      "shortcutHelp": "Selecciona una combinación y pulsa las teclas que quieras usar. Escape la borra.",
+      "openAreaSelector": "Abrir selector de áreas",
+      "editor": {
+        "edit": "Editar áreas en la vista previa",
+        "areaType": "Dibujar",
+        "undo": "Deshacer",
+        "clear": "Borrar todo",
+        "selectedArea": "Área seleccionada",
+        "none": "Ninguna",
+        "areaLabel": "{number} · {kind}",
+        "remove": "Eliminar",
+        "cancel": "Cancelar",
+        "save": "Guardar áreas",
+        "saving": "Guardando…",
+        "canvas": "Dibujar áreas de OCR en la vista previa del juego",
+        "hint": "Arrastra para dibujar. Haz clic en un área para seleccionarla. La vista previa está pausada; guarda para aplicar los cambios.",
+        "legacyHint": "Usa Abrir selector de áreas para editar esta distribución antigua o no compatible.",
+        "errors": {
+          "sceneChanged": "La escena ha cambiado. Cancela y vuelve a abrir el editor para la escena actual.",
+          "conflict": "Las áreas guardadas han cambiado en otro lugar. Cancela y recarga la escena antes de editar de nuevo.",
+          "invalid": "Esta distribución no se puede guardar aquí. Usa Abrir selector de áreas.",
+          "failed": "No se pudieron guardar las áreas. Tus cambios siguen aquí; inténtalo de nuevo."
+        },
+        "keyboardModifiers": "Teclas modificadoras",
+        "modifierHint": "Shift: Excluida · Ctrl: Menú · Alt: Exclusiva · Ctrl+Alt: Agujero negro"
+      }
     }
   },
   "texthook": {

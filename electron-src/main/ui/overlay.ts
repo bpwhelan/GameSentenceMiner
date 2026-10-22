@@ -416,6 +416,8 @@ function openYomitanSettings() {
     yomitanSettingsWindow = new BrowserWindow({
         width: 1100,
         height: 600,
+        minWidth: 800,
+        minHeight: 500,
         webPreferences: {
             nodeIntegration: false,
         },
@@ -464,6 +466,8 @@ function openSettings() {
         settingsWindow = new BrowserWindow({
             width: 1200,
             height: 980,
+            minWidth: 800,
+            minHeight: 500,
             resizable: true,
             alwaysOnTop: true,
             title: 'Overlay Settings',
@@ -479,6 +483,8 @@ function openSettings() {
                 show: true,
                 width: 1200,
                 height: 980,
+                minWidth: 800,
+                minHeight: 500,
                 webPreferences: {
                     nodeIntegration: true,
                     contextIsolation: false,

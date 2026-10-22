@@ -134,7 +134,9 @@
     "tabs": {
       "home": "主页",
       "ocr": "OCR",
-      "textHook": "Texthook / Agent",      "textProcessing": "文本预处理",      "stats": "统计",
+      "textHook": "Texthook / Agent",
+      "textProcessing": "文本预处理",
+      "stats": "统计",
       "gameSettings": "游戏自动化",
       "settings": "设置",
       "python": "Python",
@@ -853,23 +855,74 @@
     "comparison": {
       "title": "文本比较调优",
       "expertTitle": "专家启发式",
-      "duplicateThreshold": { "label": "重复匹配阈值（%）", "title": "值越高越严格。如果不同的行被当作重复处理，请提高此值。" },
-      "changeThreshold": { "label": "文本变化阈值（%）", "title": "较低的值会在部分变化时更早触发 OCR2。较高的值会等待更明显的变化。" },
-      "evolvingPrefix": { "label": "递进前缀匹配（%）", "title": "用于检查短行是否看起来像长行的开头。" },
-      "truncationFallbackMin": { "label": "截断回退最小阈值（%）", "title": "允许前缀或后缀截断匹配之前所需的最小比较阈值。" },
-      "truncationStrictMin": { "label": "截断严格阈值（%）", "title": "超过此阈值时，GSM 还要求更强的基本相似度才能将截断视为相同文本。" },
-      "truncationMargin": { "label": "截断基础余量", "title": "在截断回退被拒绝之前，基本相似度可以低于比较阈值多少。" },
-      "truncationMinLength": { "label": "截断最小长度（字符）", "title": "允许截断匹配的最短归一化字符串长度。" },
-      "truncationMinRatio": { "label": "截断最小长度比（%）", "title": "在考虑截断匹配之前，较短行必须覆盖较长行的比例。" },
-      "subsetChunkMinLength": { "label": "子集块最小长度（字符）", "title": "短于此的传入 OCR 块会跳过块覆盖回退，除非是精确匹配。" },
-      "shortChunkLimit": { "label": "短块限制（字符）", "title": "等于或低于此长度的块使用较小的匹配块最小值。" },
-      "shortChunkMinSize": { "label": "短块匹配最小值", "title": "短块计入的最小连续匹配大小。" },
-      "defaultMinSize": { "label": "默认匹配最小值", "title": "较长块计入的最小连续匹配大小。" },
-      "coverageFloor": { "label": "子集覆盖下限（%）", "title": "去重回退允许的最低块覆盖要求。" },
-      "coverageCeiling": { "label": "子集覆盖上限（%）", "title": "去重回退允许的最高块覆盖要求。" },
-      "coverageOffset": { "label": "覆盖阈值偏移", "title": "将当前比较阈值转换为覆盖要求之前应用的偏移量。" },
-      "longestBlockMin": { "label": "最长块最小值（字符）", "title": "子集覆盖模式中所需的最小连续块大小。" },
-      "longestBlockDivisor": { "label": "最长块除数", "title": "较大的值会减少较长块所需的连续块长度。" }
+      "duplicateThreshold": {
+        "label": "重复匹配阈值（%）",
+        "title": "值越高越严格。如果不同的行被当作重复处理，请提高此值。"
+      },
+      "changeThreshold": {
+        "label": "文本变化阈值（%）",
+        "title": "较低的值会在部分变化时更早触发 OCR2。较高的值会等待更明显的变化。"
+      },
+      "evolvingPrefix": {
+        "label": "递进前缀匹配（%）",
+        "title": "用于检查短行是否看起来像长行的开头。"
+      },
+      "truncationFallbackMin": {
+        "label": "截断回退最小阈值（%）",
+        "title": "允许前缀或后缀截断匹配之前所需的最小比较阈值。"
+      },
+      "truncationStrictMin": {
+        "label": "截断严格阈值（%）",
+        "title": "超过此阈值时，GSM 还要求更强的基本相似度才能将截断视为相同文本。"
+      },
+      "truncationMargin": {
+        "label": "截断基础余量",
+        "title": "在截断回退被拒绝之前，基本相似度可以低于比较阈值多少。"
+      },
+      "truncationMinLength": {
+        "label": "截断最小长度（字符）",
+        "title": "允许截断匹配的最短归一化字符串长度。"
+      },
+      "truncationMinRatio": {
+        "label": "截断最小长度比（%）",
+        "title": "在考虑截断匹配之前，较短行必须覆盖较长行的比例。"
+      },
+      "subsetChunkMinLength": {
+        "label": "子集块最小长度（字符）",
+        "title": "短于此的传入 OCR 块会跳过块覆盖回退，除非是精确匹配。"
+      },
+      "shortChunkLimit": {
+        "label": "短块限制（字符）",
+        "title": "等于或低于此长度的块使用较小的匹配块最小值。"
+      },
+      "shortChunkMinSize": {
+        "label": "短块匹配最小值",
+        "title": "短块计入的最小连续匹配大小。"
+      },
+      "defaultMinSize": {
+        "label": "默认匹配最小值",
+        "title": "较长块计入的最小连续匹配大小。"
+      },
+      "coverageFloor": {
+        "label": "子集覆盖下限（%）",
+        "title": "去重回退允许的最低块覆盖要求。"
+      },
+      "coverageCeiling": {
+        "label": "子集覆盖上限（%）",
+        "title": "去重回退允许的最高块覆盖要求。"
+      },
+      "coverageOffset": {
+        "label": "覆盖阈值偏移",
+        "title": "将当前比较阈值转换为覆盖要求之前应用的偏移量。"
+      },
+      "longestBlockMin": {
+        "label": "最长块最小值（字符）",
+        "title": "子集覆盖模式中所需的最小连续块大小。"
+      },
+      "longestBlockDivisor": {
+        "label": "最长块除数",
+        "title": "较大的值会减少较长块所需的连续块长度。"
+      }
     },
     "hotkeys": {
       "title": "热键",
@@ -1094,7 +1147,7 @@
       "manualMode": "手动捕获",
       "settingsSaved": "更改自动保存",
       "closeConsole": "返回工作区",
-      "layoutOverview": "已保存的布局 · 点击编辑",
+      "layoutOverview": "已保存的布局",
       "wholeWindow": "整个窗口",
       "wholeWindowHint": "绘制区域以聚焦所需文本。",
       "savedLayout": "区域已保存",
@@ -1115,7 +1168,32 @@
         "tools": "管理 OCR 组件、诊断与配置文件。",
         "console": "实时 OCR 输出与诊断。使用其他页面时日志仍会保留。"
       },
-      "shortcutHelp": "选择绑定栏并按下组合键。按 Escape 清除绑定。"
+      "shortcutHelp": "选择绑定栏并按下组合键。按 Escape 清除绑定。",
+      "openAreaSelector": "打开区域选择器",
+      "editor": {
+        "edit": "在预览中编辑区域",
+        "areaType": "绘制",
+        "undo": "撤销",
+        "clear": "清空",
+        "selectedArea": "选中的区域",
+        "none": "无",
+        "areaLabel": "{number} · {kind}",
+        "remove": "删除",
+        "cancel": "取消",
+        "save": "保存区域",
+        "saving": "保存中…",
+        "canvas": "在游戏预览上绘制 OCR 区域",
+        "hint": "拖动以绘制，点击区域以选中。预览已暂停；保存后应用更改。",
+        "legacyHint": "请使用“打开区域选择器”编辑此旧版或不受支持的布局。",
+        "errors": {
+          "sceneChanged": "场景已更改。请取消并重新打开当前场景的编辑器。",
+          "conflict": "已保存的区域在其他位置发生了更改。请取消并重新加载场景后再编辑。",
+          "invalid": "无法在此处保存此布局。请使用区域选择器。",
+          "failed": "无法保存区域。您的更改仍保留在此处，请重试。"
+        },
+        "keyboardModifiers": "键盘修饰键",
+        "modifierHint": "Shift: 排除 · Ctrl: 菜单 · Alt: 专属 · Ctrl+Alt: 黑洞"
+      }
     }
   },
   "texthook": {

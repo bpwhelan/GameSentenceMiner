@@ -134,7 +134,9 @@
     "tabs": {
       "home": "홈",
       "ocr": "OCR",
-      "textHook": "Texthook / Agent",      "textProcessing": "텍스트 처리",      "stats": "통계",
+      "textHook": "Texthook / Agent",
+      "textProcessing": "텍스트 처리",
+      "stats": "통계",
       "gameSettings": "게임 자동화",
       "settings": "설정",
       "python": "Python",
@@ -856,23 +858,74 @@
     "comparison": {
       "title": "텍스트 비교 튜닝",
       "expertTitle": "전문가 휴리스틱",
-      "duplicateThreshold": { "label": "중복 일치 임계값 (%)", "title": "값이 높을수록 엄격합니다. 다른 줄이 중복으로 처리되는 경우 이 값을 높이세요." },
-      "changeThreshold": { "label": "텍스트 변경 임계값 (%)", "title": "낮은 값은 부분 변경 시 OCR2를 더 빨리 트리거합니다. 높은 값은 더 명확한 변경을 기다립니다." },
-      "evolvingPrefix": { "label": "진화하는 접두사 일치 (%)", "title": "짧은 줄이 긴 줄의 시작처럼 보이는지 확인할 때 사용됩니다." },
-      "truncationFallbackMin": { "label": "절단 폴백 최소 임계값 (%)", "title": "접두사 또는 접미사 절단 일치가 허용되기 전에 필요한 최소 비교 임계값." },
-      "truncationStrictMin": { "label": "절단 엄격 임계값 (%)", "title": "이 임계값 이상에서 GSM은 절단을 같은 텍스트로 처리하기 전에 더 강한 기본 유사도도 요구합니다." },
-      "truncationMargin": { "label": "절단 기본 여유", "title": "절단 폴백이 거부되기 전에 기본 유사도가 비교 임계값보다 얼마나 낮을 수 있는지." },
-      "truncationMinLength": { "label": "절단 최소 길이 (문자)", "title": "절단 일치에 허용되는 가장 짧은 정규화된 문자열 길이." },
-      "truncationMinRatio": { "label": "절단 최소 길이 비율 (%)", "title": "절단 일치가 고려되기 전에 짧은 줄이 긴 줄의 얼마를 차지해야 하는지." },
-      "subsetChunkMinLength": { "label": "하위 집합 청크 최소 길이 (문자)", "title": "이보다 짧은 수신 OCR 청크는 정확히 일치하지 않는 한 청크 커버리지 폴백을 건너뜁니다." },
-      "shortChunkLimit": { "label": "짧은 청크 제한 (문자)", "title": "이 길이 이하의 청크는 더 작은 일치 블록 최솟값을 사용합니다." },
-      "shortChunkMinSize": { "label": "짧은 청크 일치 최솟값", "title": "짧은 청크에 대해 계산되는 최소 연속 일치 크기." },
-      "defaultMinSize": { "label": "기본 일치 최솟값", "title": "긴 청크에 대해 계산되는 최소 연속 일치 크기." },
-      "coverageFloor": { "label": "하위 집합 커버리지 하한 (%)", "title": "중복 제거 폴백에 허용되는 가장 낮은 청크 커버리지 요구사항." },
-      "coverageCeiling": { "label": "하위 집합 커버리지 상한 (%)", "title": "중복 제거 폴백에 허용되는 가장 높은 청크 커버리지 요구사항." },
-      "coverageOffset": { "label": "커버리지 임계값 오프셋", "title": "현재 비교 임계값을 커버리지 요구사항으로 변환하기 전에 적용되는 오프셋." },
-      "longestBlockMin": { "label": "최장 블록 최솟값 (문자)", "title": "하위 집합 커버리지 모드에서 필요한 최소 연속 블록 크기." },
-      "longestBlockDivisor": { "label": "최장 블록 제수", "title": "값이 클수록 긴 청크에 필요한 연속 블록 길이가 줄어듭니다." }
+      "duplicateThreshold": {
+        "label": "중복 일치 임계값 (%)",
+        "title": "값이 높을수록 엄격합니다. 다른 줄이 중복으로 처리되는 경우 이 값을 높이세요."
+      },
+      "changeThreshold": {
+        "label": "텍스트 변경 임계값 (%)",
+        "title": "낮은 값은 부분 변경 시 OCR2를 더 빨리 트리거합니다. 높은 값은 더 명확한 변경을 기다립니다."
+      },
+      "evolvingPrefix": {
+        "label": "진화하는 접두사 일치 (%)",
+        "title": "짧은 줄이 긴 줄의 시작처럼 보이는지 확인할 때 사용됩니다."
+      },
+      "truncationFallbackMin": {
+        "label": "절단 폴백 최소 임계값 (%)",
+        "title": "접두사 또는 접미사 절단 일치가 허용되기 전에 필요한 최소 비교 임계값."
+      },
+      "truncationStrictMin": {
+        "label": "절단 엄격 임계값 (%)",
+        "title": "이 임계값 이상에서 GSM은 절단을 같은 텍스트로 처리하기 전에 더 강한 기본 유사도도 요구합니다."
+      },
+      "truncationMargin": {
+        "label": "절단 기본 여유",
+        "title": "절단 폴백이 거부되기 전에 기본 유사도가 비교 임계값보다 얼마나 낮을 수 있는지."
+      },
+      "truncationMinLength": {
+        "label": "절단 최소 길이 (문자)",
+        "title": "절단 일치에 허용되는 가장 짧은 정규화된 문자열 길이."
+      },
+      "truncationMinRatio": {
+        "label": "절단 최소 길이 비율 (%)",
+        "title": "절단 일치가 고려되기 전에 짧은 줄이 긴 줄의 얼마를 차지해야 하는지."
+      },
+      "subsetChunkMinLength": {
+        "label": "하위 집합 청크 최소 길이 (문자)",
+        "title": "이보다 짧은 수신 OCR 청크는 정확히 일치하지 않는 한 청크 커버리지 폴백을 건너뜁니다."
+      },
+      "shortChunkLimit": {
+        "label": "짧은 청크 제한 (문자)",
+        "title": "이 길이 이하의 청크는 더 작은 일치 블록 최솟값을 사용합니다."
+      },
+      "shortChunkMinSize": {
+        "label": "짧은 청크 일치 최솟값",
+        "title": "짧은 청크에 대해 계산되는 최소 연속 일치 크기."
+      },
+      "defaultMinSize": {
+        "label": "기본 일치 최솟값",
+        "title": "긴 청크에 대해 계산되는 최소 연속 일치 크기."
+      },
+      "coverageFloor": {
+        "label": "하위 집합 커버리지 하한 (%)",
+        "title": "중복 제거 폴백에 허용되는 가장 낮은 청크 커버리지 요구사항."
+      },
+      "coverageCeiling": {
+        "label": "하위 집합 커버리지 상한 (%)",
+        "title": "중복 제거 폴백에 허용되는 가장 높은 청크 커버리지 요구사항."
+      },
+      "coverageOffset": {
+        "label": "커버리지 임계값 오프셋",
+        "title": "현재 비교 임계값을 커버리지 요구사항으로 변환하기 전에 적용되는 오프셋."
+      },
+      "longestBlockMin": {
+        "label": "최장 블록 최솟값 (문자)",
+        "title": "하위 집합 커버리지 모드에서 필요한 최소 연속 블록 크기."
+      },
+      "longestBlockDivisor": {
+        "label": "최장 블록 제수",
+        "title": "값이 클수록 긴 청크에 필요한 연속 블록 길이가 줄어듭니다."
+      }
     },
     "hotkeys": {
       "title": "단축키",
@@ -1098,7 +1151,7 @@
       "manualMode": "수동 캡처",
       "settingsSaved": "변경 사항이 자동 저장됩니다",
       "closeConsole": "작업 공간으로 돌아가기",
-      "layoutOverview": "저장된 배치 · 클릭하여 편집",
+      "layoutOverview": "저장된 배치",
       "wholeWindow": "전체 창",
       "wholeWindowHint": "원하는 텍스트에 맞춰 영역을 지정하세요.",
       "savedLayout": "영역이 저장되어 있습니다",
@@ -1119,7 +1172,32 @@
         "tools": "OCR 패키지, 진단 및 설정 파일을 관리하세요.",
         "console": "실시간 OCR 출력 및 진단. 다른 페이지를 사용하는 동안에도 로그가 유지됩니다."
       },
-      "shortcutHelp": "입력란을 선택하고 키 조합을 누르세요. Escape를 누르면 해제됩니다."
+      "shortcutHelp": "입력란을 선택하고 키 조합을 누르세요. Escape를 누르면 해제됩니다.",
+      "openAreaSelector": "영역 선택기 열기",
+      "editor": {
+        "edit": "미리보기에서 영역 편집",
+        "areaType": "그리기",
+        "undo": "실행 취소",
+        "clear": "모두 지우기",
+        "selectedArea": "선택한 영역",
+        "none": "없음",
+        "areaLabel": "{number} · {kind}",
+        "remove": "삭제",
+        "cancel": "취소",
+        "save": "영역 저장",
+        "saving": "저장 중…",
+        "canvas": "게임 미리보기에 OCR 영역 그리기",
+        "hint": "드래그하여 그리고 영역을 클릭하여 선택하세요. 미리보기가 일시 정지되었습니다. 저장하면 변경 사항이 적용됩니다.",
+        "legacyHint": "이전 형식 또는 지원되지 않는 배치는 영역 선택기 열기를 사용하여 편집하세요.",
+        "errors": {
+          "sceneChanged": "장면이 변경되었습니다. 취소한 후 현재 장면의 편집기를 다시 여세요.",
+          "conflict": "저장된 영역이 다른 곳에서 변경되었습니다. 취소한 후 장면을 다시 불러오세요.",
+          "invalid": "이 배치는 여기서 저장할 수 없습니다. 영역 선택기를 사용하세요.",
+          "failed": "영역을 저장하지 못했습니다. 변경 사항은 유지됩니다. 다시 시도하세요."
+        },
+        "keyboardModifiers": "보조 키로 선택",
+        "modifierHint": "Shift: 제외 · Ctrl: 메뉴 · Alt: 전용 · Ctrl+Alt: 블랙홀"
+      }
     }
   },
   "texthook": {

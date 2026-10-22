@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const directory = process.env.GSM_SETTINGS_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir(), "gsm-settings-"));
+process.env.GSM_OVERLAY_IN_PROCESS = "1";
 fs.mkdirSync(directory, { recursive: true });
 app.setPath("userData", path.join(directory, "profile"));
 app.commandLine.appendSwitch("disable-background-networking");
@@ -17,6 +18,7 @@ const saved = [];
 ipcMain.on("settings-test-error", (_event, error) => errors.push(error));
 ipcMain.on("setting-changed", (_event, value) => saved.push(value));
 ipcMain.handle("get-effective-platform", () => process.platform);
+ipcMain.handle("settings.getTheme", () => "gsm-dark");
 ipcMain.handle("overlay-get-active-goals", () => ({ goals: [] }));
 ipcMain.handle("vn-guide-state", () => null);
 
@@ -77,6 +79,39 @@ app
     assert.ok(pages.includes("system-tokenizer"));
     assert.ok(!pages.includes("reading-tokenizer") && !pages.includes("reading-appearance"));
     assert.equal(await run(`document.getElementById('furiganaScale').closest('[data-page]').dataset.page`), "reading-readings");
+    // The actual Electron renderer must recolor controls and native widgets live.
+    // Compare semantic colors rather than Chromium's serialized color syntax.
+    view.setContentSize(1200, 980);
+    for (const theme of ["gsm-dark", "solarized-light", "catppuccin-mocha", "high-contrast", "light", "nord"]) {
+      view.webContents.send("settings.themeChanged", theme);
+      await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+      assert.equal(await run("document.documentElement.dataset.theme"), theme);
+      await run(`GSMSettingsNavigation.navigate('overview-start')`);
+      const colors = await run(`(() => {
+        const probe = document.createElement('span');
+        document.body.append(probe);
+        const color = (token) => {
+          probe.style.backgroundColor = 'var(' + token + ')';
+          return getComputedStyle(probe).backgroundColor;
+        };
+        const result = {
+          body: getComputedStyle(document.body).backgroundColor === color('--color-base-100'),
+          card: getComputedStyle(document.querySelector('.home-card')).backgroundColor === color('--color-base-200'),
+          text: getComputedStyle(document.querySelector('.home-card h4')).color === color('--color-base-content'),
+          toggle: getComputedStyle(document.getElementById('home-manualMode')).backgroundColor === color('--color-primary'),
+          thumb: getComputedStyle(document.getElementById('home-manualMode'), '::after').backgroundColor === color('--color-primary-content'),
+          scheme: getComputedStyle(document.documentElement).colorScheme,
+        };
+        probe.remove();
+        return result;
+      })()`);
+      for (const key of ["body", "card", "text", "toggle", "thumb"]) {
+        assert.equal(colors[key], true, `${theme}: ${key} must use the desktop palette`);
+      }
+      assert.equal(colors.scheme, ["solarized-light", "light", "nord"].includes(theme) ? "light" : "dark");
+      fs.writeFileSync(path.join(directory, `theme-${theme}.png`), (await view.webContents.capturePage()).toPNG());
+    }
+    view.webContents.send("settings.themeChanged", "gsm-dark");
     const sizes = [
       [1200, 980],
       [900, 720],
@@ -202,7 +237,7 @@ app
     assert.equal(await run(`document.getElementById('pinyinToneColorsGroup').getClientRects().length > 0`), true);
     assert.deepEqual(errors, []);
     console.log(
-      `Settings: ${pages.length} pages checked at ${sizes.length} sizes; scrolling, search, help, save and profile updates passed. Screenshots: ${directory}`,
+      `Settings: 6 live themes and ${pages.length} pages checked at ${sizes.length} sizes; scrolling, search, help, save and profile updates passed. Screenshots: ${directory}`,
     );
     clearTimeout(timeout);
     view.destroy();

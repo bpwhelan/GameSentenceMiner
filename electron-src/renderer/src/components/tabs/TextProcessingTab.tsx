@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, onIpc } from "../../lib/ipc";
 import { useTranslation } from "../../i18n";
+import { WorkspaceIcon } from "../Workspace";
+import "./TextProcessingTab.css";
 
 interface TextReplacementRule {
   enabled: boolean;
@@ -153,13 +155,13 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   const t = useTranslation();
   const [config, setConfig] = useState<TextProcessingConfig>(getDefaultConfig());
   const [loaded, setLoaded] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; msg: string } | null>(null);
-  const [expandedProcessor, setExpandedProcessor] = useState<string | null>(null);
+  const [expandedProcessor, setExpandedProcessor] = useState<string | null>("string_replacement");
   const [previewInput, setPreviewInput] = useState("");
   const [previewOutput, setPreviewOutput] = useState("");
   const [followingLatestText, setFollowingLatestText] = useState(true);
+  const configRef = useRef(config);
+  const pendingSave = useRef<TextProcessingConfig | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRequest = useRef(0);
   const dragItem = useRef<number | null>(null);
@@ -172,11 +174,17 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   }, []);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || pendingSave.current) return;
+    let cancelled = false;
+    const initialConfig = configRef.current;
     invokeIpc<Partial<TextProcessingConfig> | null>("textprocess.load").then((cfg) => {
-      setConfig(normalizeConfig(cfg));
+      if (cancelled || pendingSave.current || configRef.current !== initialConfig) return;
+      const next = normalizeConfig(cfg);
+      configRef.current = next;
+      setConfig(next);
       setLoaded(true);
     });
+    return () => { cancelled = true; };
   }, [active]);
 
   useEffect(() => {
@@ -185,7 +193,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     const handleLatestText = (latest: LatestTextProcessingInput | null | undefined) => {
       if (!latest || typeof latest.text !== "string" || !latest.text) return;
       setPreviewInput((current) => {
-        if (!followingLatestText && current) return current;
+        if (!followingLatestText) return current;
         return latest.text;
       });
     };
@@ -200,24 +208,54 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   }, [active, followingLatestText]);
 
   const updateConfig = useCallback((updater: (prev: TextProcessingConfig) => TextProcessingConfig) => {
-    setConfig((prev) => {
-      const next = updater(prev);
-      setDirty(true);
-      return next;
-    });
+    const next = updater(configRef.current);
+    configRef.current = next;
+    pendingSave.current = next;
+    setConfig(next);
   }, []);
 
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    const result = await invokeIpc<{ success: boolean; error?: string }>("textprocess.save", config);
-    setSaving(false);
-    if (result.success) {
-      setDirty(false);
-      showNotice(t("textProcessing.saved"), "success");
-    } else {
-      showNotice(result.error || t("textProcessing.saveFailed"), "error");
+  const saveConfig = useCallback(async (next: TextProcessingConfig) => {
+    try {
+      const result = await invokeIpc<{ success: boolean; error?: string }>("textprocess.save", next);
+      if (pendingSave.current !== next) return;
+      if (result.success) {
+        pendingSave.current = null;
+      } else {
+        showNotice(result.error || t("textProcessing.saveFailed"), "error");
+      }
+    } catch {
+      if (pendingSave.current === next) {
+        showNotice(t("textProcessing.saveFailed"), "error");
+      }
     }
-  }, [config, showNotice, t]);
+  }, [showNotice, t]);
+
+  useEffect(() => {
+    const next = pendingSave.current;
+    if (!next) return;
+    if (!active) {
+      void saveConfig(next);
+      return;
+    }
+    const timer = setTimeout(() => { void saveConfig(next); }, 250);
+    return () => clearTimeout(timer);
+  }, [active, config, saveConfig]);
+
+  useEffect(() => {
+    const flushPendingSave = () => {
+      if (pendingSave.current) {
+        // Dispatch the last edit before the renderer leaves; there is no UI for an error here.
+        void invokeIpc("textprocess.save", pendingSave.current).catch(() => {});
+      }
+    };
+    window.addEventListener("beforeunload", flushPendingSave);
+    return () => {
+      window.removeEventListener("beforeunload", flushPendingSave);
+      flushPendingSave();
+      pendingSave.current = null;
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    };
+  }, []);
 
   const moveProcessor = useCallback((fromIndex: number, toIndex: number) => {
     updateConfig((prev) => {
@@ -292,31 +330,32 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
 
   return (
     <div className="tab-panel active text-processing-panel">
-      <div className="text-processing-container">
-        {/* Header */}
-        <div className="text-processing-header">
-          <h2>{t("textProcessing.title")}</h2>
-          <p className="text-processing-subtitle">{t("textProcessing.subtitle")}</p>
-          <div className="text-processing-actions">
-            <button className="btn-primary" onClick={handleSave} disabled={saving || !dirty}>
-              {saving ? t("textProcessing.saving") : t("textProcessing.save")}
-            </button>
-            {notice && (
-              <span className={`notice-badge ${notice.type}`}>{notice.msg}</span>
-            )}
+      <div className="gsm-workspace text-processing-desk">
+        <header className="ws-page-header text-processing-header">
+          <div>
+            <span className="ws-eyebrow">{t("textProcessing.workspace.eyebrow")}</span>
+            <h1>{t("textProcessing.title")}</h1>
+            <p>{t("textProcessing.workspace.description")}</p>
           </div>
-        </div>
+          {notice && (
+            <div className="text-processing-actions">
+              <span role="status" className={`notice-badge ${notice.type}`}>{notice.msg}</span>
+            </div>
+          )}
+        </header>
 
-        {/* Processor List */}
+        <div className="text-processing-body">
         <div className="text-processing-processors">
-          <h3>{t("textProcessing.processorListTitle")}</h3>
+          <div className="text-processing-section-heading">
+            <h2 id="text-processing-pipeline">{t("textProcessing.processorListTitle")}</h2>
+            <span className="ws-state">{t("textProcessing.workspace.enabledCount", { count: orderedProcessors.filter((proc) => isProcessorEnabled(config, proc.id)).length, total: orderedProcessors.length })}</span>
+          </div>
           <p className="text-processing-hint">{t("textProcessing.dragToReorder")}</p>
-          <div className="processor-list">
+          <div className="processor-list" role="list" aria-labelledby="text-processing-pipeline">
             {orderedProcessors.map((proc, index) => (
               <div
                 key={proc.id}
                 role="listitem"
-                tabIndex={0}
                 className={`processor-item ${isProcessorEnabled(config, proc.id) ? "enabled" : "disabled"}`}
                 onDragEnter={() => handleDragEnter(index)}
                 onDragOver={(e) => e.preventDefault()}
@@ -328,15 +367,16 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
                     onDragStart={() => handleDragStart(index)}
                     onDragEnd={handleDragEnd}
                   >⠿</span>
+                  <span className="processor-position" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
                   <label className="processor-toggle">
                     <input
                       type="checkbox"
                       checked={isProcessorEnabled(config, proc.id)}
                       onChange={(e) => updateConfig((c) => setProcessorEnabled(c, proc.id, e.target.checked))}
                     />
-                    <span className="processor-name">{t(proc.labelKey)}</span>
+                    <span className="processor-name" data-tip={t(proc.descKey)}>{t(proc.labelKey)}</span>
                   </label>
-                  <span className="processor-desc">{t(proc.descKey)}</span>
+                  <span className="processor-desc" data-tip={t(proc.descKey)}>{t(proc.descKey)}</span>
                   <div className="processor-item-actions">
                     <button
                       className="btn-icon"
@@ -358,6 +398,8 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
                         onClick={() => setExpandedProcessor(expandedProcessor === proc.id ? null : proc.id)}
                         data-tip={t("textProcessing.configure")}
                         aria-label={t("textProcessing.configure")}
+                        aria-expanded={expandedProcessor === proc.id}
+                        aria-controls={`processor-config-${proc.id}`}
                       >⚙</button>
                     )}
                   </div>
@@ -365,7 +407,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
 
                 {/* Expanded config panels */}
                 {expandedProcessor === proc.id && proc.hasConfig && (
-                  <div className="processor-config-panel">
+                  <div className="processor-config-panel" id={`processor-config-${proc.id}`}>
                     {proc.id === "string_replacement" && (
                       <StringReplacementConfig
                         rules={config.string_replacement.rules}
@@ -464,12 +506,20 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
         </div>
 
         {/* Live Preview */}
-        <div className="text-processing-preview">
-          <h3>{t("textProcessing.preview")}</h3>
+        <section className="text-processing-preview" aria-labelledby="text-preview-heading">
+          <div className="text-processing-section-heading">
+            <h2 id="text-preview-heading">{t("textProcessing.preview")}</h2>
+            <span className={"ws-state " + (followingLatestText ? "is-running" : "")}>
+              <i aria-hidden="true" />
+              {t(followingLatestText ? "textProcessing.workspace.live" : "textProcessing.workspace.sample")}
+            </span>
+          </div>
+          <p className="text-processing-hint">{t("textProcessing.workspace.previewHint")}</p>
           <div className="preview-grid">
             <div className="preview-col">
-              <label>{t("textProcessing.previewInput")}</label>
+              <label htmlFor="text-preview-input">{t("textProcessing.previewInput")}</label>
               <textarea
+                id="text-preview-input"
                 value={previewInput}
                 onChange={(e) => {
                   setFollowingLatestText(false);
@@ -480,10 +530,20 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
               />
             </div>
             <div className="preview-col">
-              <label>{t("textProcessing.previewOutput")}</label>
-              <textarea value={previewOutput} readOnly rows={4} />
+              <label htmlFor="text-preview-output">{t("textProcessing.previewOutput")}</label>
+              <textarea id="text-preview-output" value={previewOutput} readOnly rows={4} />
             </div>
           </div>
+          <button
+            type="button"
+            className="text-preview-follow"
+            aria-pressed={followingLatestText}
+            onClick={() => setFollowingLatestText((current) => !current)}
+          >
+            <WorkspaceIcon name="capture" />
+            {t("textProcessing.workspace.followLatest")}
+          </button>
+        </section>
         </div>
       </div>
     </div>
@@ -533,6 +593,7 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
               aria-label={t("textProcessing.rules.toggleEnabled")}
             />
             <select
+              aria-label={t("textProcessing.rules.mode")}
               value={rule.mode}
               onChange={(e) => updateRule(index, { mode: e.target.value })}
               className="rule-mode-select"
@@ -545,6 +606,7 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
               value={rule.find}
               onChange={(e) => updateRule(index, { find: e.target.value })}
               placeholder={t("textProcessing.rules.findPlaceholder")}
+              aria-label={t("textProcessing.rules.findPlaceholder")}
               className="rule-find-input"
             />
             <span className="rule-arrow">→</span>
@@ -553,6 +615,7 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
               value={rule.replace}
               onChange={(e) => updateRule(index, { replace: e.target.value })}
               placeholder={t("textProcessing.rules.replacePlaceholder")}
+              aria-label={t("textProcessing.rules.replacePlaceholder")}
               className="rule-replace-input"
             />
             <label className="rule-option" data-tip={t("textProcessing.rules.caseSensitive")}>

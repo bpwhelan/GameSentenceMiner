@@ -59,7 +59,7 @@ describe("OCR capture preview", () => {
             scene={currentScene}
             ocrRunning
             disabled={false}
-            onEdit={() => {}}
+            onSaved={() => {}}
           />
         </I18nProvider>
       );

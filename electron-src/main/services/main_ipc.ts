@@ -52,8 +52,8 @@ function openDocsWindow(url: string, parentWindow: BrowserWindow | null): Browse
     const docsWindow = new BrowserWindow({
         width: 1280,
         height: 920,
-        minWidth: 900,
-        minHeight: 640,
+        minWidth: 800,
+        minHeight: 500,
         autoHideMenuBar: true,
         title: 'GameSentenceMiner Documentation',
         parent: parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined,

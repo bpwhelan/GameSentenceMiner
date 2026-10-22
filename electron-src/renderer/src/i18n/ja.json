@@ -1047,6 +1047,24 @@
       "status": "ゲーム自動化アクションからの最新の保存/検出ステータス。",
       "candidatePicker": "このゲームに最も一致するAgentスクリプト候補を選択します。",
       "noScene": "ゲームプロファイルが読み込まれていません。まずゲームを選択してください。"
+    },
+    "workspace": {
+      "brand": "自動化",
+      "tagline": "ゲームとシーンの動作",
+      "sharedTitle": "共通設定",
+      "allScenes": "すべてのシーン",
+      "sceneHint": "設定する OBS シーンを選択してください。",
+      "sceneDescription": "この OBS シーンがアクティブになったときの動作を設定します。",
+      "sharedDescription": "すべてのゲームプロファイルに適用する OCR の上書き設定です。",
+      "autosave": "自動保存",
+      "ocrNoneHint": "このシーンでは OCR を起動しません。",
+      "ocrAutoHint": "ゲームテキストを継続的に取得します。",
+      "ocrManualHint": "OCR ホットキーでテキストを取得します。",
+      "overlayHint": "このシーンがアクティブになるとオーバーレイを開きます。",
+      "overlayManaged": "ホームのオーバーレイ設定で管理されています。",
+      "sceneTitle": "シーンの自動化",
+      "manualOcrHint": "自動 OCR を使わないプロファイルでも手動 OCR を利用できるようにします。",
+      "ignoreSceneHint": "OBS シーンを切り替えても OCR を継続します。"
     }
   },
   "ocr": {
@@ -1137,23 +1155,74 @@
     "comparison": {
       "title": "テキスト比較チューニング",
       "expertTitle": "エキスパートヒューリスティクス",
-      "duplicateThreshold": { "label": "重複一致閾値 (%)", "title": "値が高いほど厳密です。異なる行が重複として扱われる場合はこの値を上げてください。" },
-      "changeThreshold": { "label": "テキスト変更閾値 (%)", "title": "値が低いほど部分的な変更で早くOCR2をトリガーします。値が高いほどより明確な変更を待ちます。" },
-      "evolvingPrefix": { "label": "進行中プレフィックス一致 (%)", "title": "短い行がより長い行の先頭のように見えるかチェックする際に使用されます。" },
-      "truncationFallbackMin": { "label": "切り詰めフォールバック最小閾値 (%)", "title": "プレフィックスまたはサフィックスの切り詰め一致が許可される前に必要な最小比較閾値。" },
-      "truncationStrictMin": { "label": "切り詰め厳密閾値 (%)", "title": "この閾値を超えると、GSMは切り詰めを同じテキストとして扱う前により強いベース類似度も要求します。" },
-      "truncationMargin": { "label": "切り詰めベースマージン", "title": "切り詰めフォールバックが拒否される前にベース類似度が比較閾値をどこまで下回ることができるか。" },
-      "truncationMinLength": { "label": "切り詰め最小長（文字）", "title": "切り詰め一致に許可される最短の正規化文字列長。" },
-      "truncationMinRatio": { "label": "切り詰め最小長比率 (%)", "title": "切り詰め一致が考慮される前に短い行が長い行をカバーする必要がある量。" },
-      "subsetChunkMinLength": { "label": "サブセットチャンク最小長（文字）", "title": "これより短い受信OCRチャンクは、完全一致でない限りチャンクカバレッジフォールバックをスキップします。" },
-      "shortChunkLimit": { "label": "短チャンク制限（文字）", "title": "この長さ以下のチャンクはより小さな一致ブロック最小値を使用します。" },
-      "shortChunkMinSize": { "label": "短チャンク一致最小サイズ", "title": "短チャンクに対してカウントされる最小連続一致サイズ。" },
-      "defaultMinSize": { "label": "デフォルト一致最小サイズ", "title": "長いチャンクに対してカウントされる最小連続一致サイズ。" },
-      "coverageFloor": { "label": "サブセットカバレッジ下限 (%)", "title": "重複排除フォールバックに許可される最低チャンクカバレッジ要件。" },
-      "coverageCeiling": { "label": "サブセットカバレッジ上限 (%)", "title": "重複排除フォールバックに許可される最高チャンクカバレッジ要件。" },
-      "coverageOffset": { "label": "カバレッジ閾値オフセット", "title": "現在の比較閾値をカバレッジ要件に変換する前に適用されるオフセット。" },
-      "longestBlockMin": { "label": "最長ブロック最小（文字）", "title": "サブセットカバレッジモードで要求される最小連続ブロックサイズ。" },
-      "longestBlockDivisor": { "label": "最長ブロック除数", "title": "値が大きいほど長いチャンクに必要な連続ブロック長が減少します。" }
+      "duplicateThreshold": {
+        "label": "重複一致閾値 (%)",
+        "title": "値が高いほど厳密です。異なる行が重複として扱われる場合はこの値を上げてください。"
+      },
+      "changeThreshold": {
+        "label": "テキスト変更閾値 (%)",
+        "title": "値が低いほど部分的な変更で早くOCR2をトリガーします。値が高いほどより明確な変更を待ちます。"
+      },
+      "evolvingPrefix": {
+        "label": "進行中プレフィックス一致 (%)",
+        "title": "短い行がより長い行の先頭のように見えるかチェックする際に使用されます。"
+      },
+      "truncationFallbackMin": {
+        "label": "切り詰めフォールバック最小閾値 (%)",
+        "title": "プレフィックスまたはサフィックスの切り詰め一致が許可される前に必要な最小比較閾値。"
+      },
+      "truncationStrictMin": {
+        "label": "切り詰め厳密閾値 (%)",
+        "title": "この閾値を超えると、GSMは切り詰めを同じテキストとして扱う前により強いベース類似度も要求します。"
+      },
+      "truncationMargin": {
+        "label": "切り詰めベースマージン",
+        "title": "切り詰めフォールバックが拒否される前にベース類似度が比較閾値をどこまで下回ることができるか。"
+      },
+      "truncationMinLength": {
+        "label": "切り詰め最小長（文字）",
+        "title": "切り詰め一致に許可される最短の正規化文字列長。"
+      },
+      "truncationMinRatio": {
+        "label": "切り詰め最小長比率 (%)",
+        "title": "切り詰め一致が考慮される前に短い行が長い行をカバーする必要がある量。"
+      },
+      "subsetChunkMinLength": {
+        "label": "サブセットチャンク最小長（文字）",
+        "title": "これより短い受信OCRチャンクは、完全一致でない限りチャンクカバレッジフォールバックをスキップします。"
+      },
+      "shortChunkLimit": {
+        "label": "短チャンク制限（文字）",
+        "title": "この長さ以下のチャンクはより小さな一致ブロック最小値を使用します。"
+      },
+      "shortChunkMinSize": {
+        "label": "短チャンク一致最小サイズ",
+        "title": "短チャンクに対してカウントされる最小連続一致サイズ。"
+      },
+      "defaultMinSize": {
+        "label": "デフォルト一致最小サイズ",
+        "title": "長いチャンクに対してカウントされる最小連続一致サイズ。"
+      },
+      "coverageFloor": {
+        "label": "サブセットカバレッジ下限 (%)",
+        "title": "重複排除フォールバックに許可される最低チャンクカバレッジ要件。"
+      },
+      "coverageCeiling": {
+        "label": "サブセットカバレッジ上限 (%)",
+        "title": "重複排除フォールバックに許可される最高チャンクカバレッジ要件。"
+      },
+      "coverageOffset": {
+        "label": "カバレッジ閾値オフセット",
+        "title": "現在の比較閾値をカバレッジ要件に変換する前に適用されるオフセット。"
+      },
+      "longestBlockMin": {
+        "label": "最長ブロック最小（文字）",
+        "title": "サブセットカバレッジモードで要求される最小連続ブロックサイズ。"
+      },
+      "longestBlockDivisor": {
+        "label": "最長ブロック除数",
+        "title": "値が大きいほど長いチャンクに必要な連続ブロック長が減少します。"
+      }
     },
     "hotkeys": {
       "title": "ホットキー",
@@ -1416,7 +1485,7 @@
       "manualMode": "手動キャプチャ",
       "settingsSaved": "変更は自動で保存されます",
       "closeConsole": "ワークスペースに戻る",
-      "layoutOverview": "保存済みの配置 · クリックで編集",
+      "layoutOverview": "保存済みの配置",
       "wholeWindow": "ウィンドウ全体",
       "wholeWindowHint": "読み取りたいテキストの範囲を指定してください。",
       "savedLayout": "範囲は保存されています",
@@ -1437,7 +1506,32 @@
         "tools": "OCR パッケージ、診断、設定ファイルを管理します。",
         "console": "OCR の出力と診断ログ。他のページを使用中もログは保持されます。"
       },
-      "shortcutHelp": "入力欄を選択してキーの組み合わせを押してください。Escape で解除できます。"
+      "shortcutHelp": "入力欄を選択してキーの組み合わせを押してください。Escape で解除できます。",
+      "openAreaSelector": "範囲選択ツールを開く",
+      "editor": {
+        "edit": "プレビューで範囲を編集",
+        "areaType": "描画する範囲",
+        "undo": "元に戻す",
+        "clear": "すべて消去",
+        "selectedArea": "選択中の範囲",
+        "none": "なし",
+        "areaLabel": "{number} · {kind}",
+        "remove": "削除",
+        "cancel": "キャンセル",
+        "save": "範囲を保存",
+        "saving": "保存中…",
+        "canvas": "ゲームのプレビューにOCR範囲を描画",
+        "hint": "ドラッグで範囲を描画し、クリックで選択します。プレビューは一時停止中です。保存すると変更が適用されます。",
+        "legacyHint": "この古い形式または未対応の配置は「範囲選択ツールを開く」から編集してください。",
+        "errors": {
+          "sceneChanged": "シーンが変わりました。キャンセルして現在のシーンで編集を開き直してください。",
+          "conflict": "保存済みの範囲が別の場所で変更されました。キャンセルしてシーンを再読み込みしてください。",
+          "invalid": "この配置はここでは保存できません。範囲選択ツールを使用してください。",
+          "failed": "範囲を保存できませんでした。変更内容は保持されています。もう一度お試しください。"
+        },
+        "keyboardModifiers": "修飾キーで選択",
+        "modifierHint": "Shift: 除外 · Ctrl: メニュー · Alt: 専用 · Ctrl+Alt: ブラックホール"
+      }
     }
   },
   "sceneSwitcher": {
@@ -1560,7 +1654,21 @@
     }
   },
   "textProcessing": {
-    "previewFailed": "プレビューを生成できませんでした"
+    "previewFailed": "プレビューを生成できませんでした",
+    "workspace": {
+      "eyebrow": "取得したテキスト",
+      "description": "取得したテキストを整え、編集しながら結果を確認できます。",
+      "unsaved": "未保存の変更",
+      "saved": "保存済み",
+      "enabledCount": "{total} 件中 {count} 件が有効",
+      "live": "ライブ",
+      "sample": "サンプル",
+      "previewHint": "未保存の変更を含む現在のルールでプレビューします。",
+      "followLatest": "最新のゲームテキストに追従"
+    },
+    "rules": {
+      "mode": "ルールの種類"
+    }
   },
   "texthook": {
     "workspace": {

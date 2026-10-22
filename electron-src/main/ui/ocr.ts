@@ -32,6 +32,7 @@ import {
 } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
 import { createOcrPreviewService } from './ocr-preview.js';
+import { createOcrAreaSaver } from './ocr-areas.js';
 import { bus } from '../runtime/bus_client.js';
 import { getProcessManager } from '../runtime/process_supervisor.js';
 import {
@@ -785,6 +786,13 @@ function writeOCRReplacements(replacements: Record<string, string>) {
 export function registerOCRUtilsIPC() {
     const getPreview = createOcrPreviewService(bus);
     ipcMain.handle('ocr.get-preview', (_event, request) => getPreview(request));
+    const saveAreas = createOcrAreaSaver({
+        getScene: getCurrentScene,
+        getPath: getSceneOCRConfig,
+        backup: backupOCRConfig,
+        reload: () => requestOcrConfigReload('preview-area-edit', { reloadArea: true, reloadElectron: false, force: true }),
+    });
+    ipcMain.handle('ocr.save-preview-areas', (_event, request) => saveAreas(request));
     ipcMain.handle('ocr-replacements.load', async () => {
         try {
             return readOCRReplacements();

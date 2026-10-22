@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   getChromeStoreBoolean,
   setChromeStoreBoolean
@@ -15,6 +15,8 @@ import type {
 import { useTranslation } from "../../i18n";
 import { AgentScriptSearchDialog } from "../AgentScriptSearchDialog";
 import { SceneSwitcherSettings } from "../SceneSwitcherSettings";
+import { WorkspaceIcon, WorkspaceNavigation } from "../Workspace";
+import "./GameAutomationTab.css";
 import {
   buildAgentScriptCandidateList,
   type AgentScriptCandidate,
@@ -311,8 +313,18 @@ function formatDownloadSummary(
   return `${toolLabel}: Downloading...`;
 }
 
+function LegacyLauncherDetails({ initialOpen, children }: { initialOpen: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(initialOpen);
+  return (
+    <details className="launcher-legacy-details" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      {children}
+    </details>
+  );
+}
+
 export function GameAutomationTab({ active }: GameAutomationTabProps) {
   const t = useTranslation();
+  const [workspaceView, setWorkspaceView] = useState<"scene" | "shared">("scene");
   const [sharedSettings, setSharedSettings] = useState<SharedGameSettings>(
     DEFAULT_SHARED_SETTINGS
   );
@@ -561,20 +573,22 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
       return;
     }
 
+    let cancelled = false;
     const loadSceneProfile = async () => {
       try {
         const fetched = await invokeIpc<Partial<SceneLaunchProfile> | null>(
           "settings.getSceneLaunchProfile",
           configuredScene
         );
-        setSceneProfile(normalizeSceneProfile(fetched, configuredScene));
+        if (!cancelled) setSceneProfile(normalizeSceneProfile(fetched, configuredScene));
       } catch (error) {
         console.error("Failed to load scene launch profile:", error);
-        setSceneProfile(defaultSceneProfile(configuredScene));
+        if (!cancelled) setSceneProfile(defaultSceneProfile(configuredScene));
       }
     };
 
     void loadSceneProfile();
+    return () => { cancelled = true; };
   }, [configuredScene]);
 
   const saveSharedField = useCallback(
@@ -955,80 +969,73 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
-      <div className="modern-tab">
-        <div className="launcher-tab-header">
-          <h1 data-tip={t(TOOLTIPS.overviewTooltip)}>{t("launcher.title")}</h1>
-          <div className="launcher-header-actions">
-            <button
-              type="button"
-              className="secondary launcher-docs-button"
-              data-tip={t("launcher.docsButtonTooltip")}
-              onClick={() => {
-                void openDocumentation();
-              }}
-            >
-              {t("launcher.docsButton")}
-            </button>
-            <button
-              type="button"
-              className="launcher-info-icon"
-              data-tip={t(TOOLTIPS.overviewTooltip)}
-              aria-label={t("launcher.infoLabel")}
-            >
-              i
+      <div className="gsm-workspace automation-desk">
+        <aside className="ws-sidebar">
+          <div className="ws-brand">
+            <span className="ws-brand-mark"><WorkspaceIcon name="layout" /></span>
+            <div>
+              <strong>{t("launcher.workspace.brand")}</strong>
+              <span>{t("launcher.workspace.tagline")}</span>
+            </div>
+          </div>
+          <div className="automation-scene-picker">
+            <div className="automation-scene-heading">
+              <label htmlFor="launcher-scene-selector" data-tip={t(TOOLTIPS.configureScene)}>
+                {t("launcher.scene.configureScene")}
+              </label>
+              <button type="button" aria-label={t("launcher.scene.refresh")}
+                data-tip={t(TOOLTIPS.refreshScenes)} onClick={() => void loadObsScenes()}>
+                <WorkspaceIcon name="updates" />
+              </button>
+            </div>
+            <select id="launcher-scene-selector" value={configuredSceneId}
+              disabled={obsScenes.length === 0}
+              onChange={(event) => setConfiguredSceneId(event.target.value)}>
+              {obsScenes.length === 0 && <option value="">{t("launcher.scene.noScenesFound")}</option>}
+              {obsScenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
+            </select>
+            <p>{t("launcher.workspace.sceneHint")}</p>
+          </div>
+          <WorkspaceNavigation
+            prefix="automation"
+            items={[
+              { id: "scene", label: t("launcher.workspace.sceneTitle"), icon: "play" },
+              { id: "shared", label: t("launcher.workspace.sharedTitle"), icon: "advanced" },
+            ]}
+            value={workspaceView}
+            onChange={setWorkspaceView}
+            label={t("launcher.title")}
+          />
+          <div className="ws-sidebar-footer automation-session">
+            <span className={"ws-state " + (activeScene ? "is-running" : "")}>
+              <i aria-hidden="true" />{t("launcher.scene.activeScene")}
+            </span>
+            <strong>{activeScene?.name ?? t("launcher.scene.notSelected")}</strong>
+            <button type="button" onClick={() => void openDocumentation()}>
+              {t("launcher.docsButton")}<WorkspaceIcon name="arrow" />
             </button>
           </div>
-        </div>
-        <div className="launcher-stack">
-          <section className="card legacy-card">
-            <h2 data-tip={t(TOOLTIPS.sceneAutomation)}>{t("launcher.scene.title")}</h2>
-            <div className="form-group">
-              <div className="input-group">
-                <label data-tip={t(TOOLTIPS.activeScene)}>{t("launcher.scene.activeScene")}</label>
-                <span className="mono-text" data-tip={t(TOOLTIPS.activeScene)}>
-                  {activeScene?.name ?? t("launcher.scene.notSelected")}
-                </span>
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="launcher-scene-selector" data-tip={t(TOOLTIPS.configureScene)}>
-                  {t("launcher.scene.configureScene")}
-                </label>
-                <select
-                  id="launcher-scene-selector"
-                  data-tip={t(TOOLTIPS.configureScene)}
-                  value={configuredSceneId}
-                  onChange={(event) => setConfiguredSceneId(event.target.value)}
-                >
-                  {obsScenes.length === 0 ? (
-                    <option value="">
-                      {t("launcher.scene.noScenesFound")}
-                    </option>
-                  ) : null}
-                  {obsScenes.map((scene) => (
-                    <option key={scene.id} value={scene.id}>
-                      {scene.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="secondary"
-                  data-tip={t(TOOLTIPS.refreshScenes)}
-                  onClick={() => {
-                    void loadObsScenes();
-                  }}
-                >
-                  {t("launcher.scene.refresh")}
-                </button>
-              </div>
-
-              {configuredScene && sceneProfile ? (
+        </aside>
+        <main className="ws-main">
+          <header className="ws-page-header">
+            <div>
+              <span className="ws-eyebrow">{workspaceView === "scene"
+                ? configuredScene?.name ?? t("launcher.scene.notSelected")
+                : t("launcher.workspace.allScenes")}</span>
+              <h1>{t(workspaceView === "scene" ? "launcher.workspace.sceneTitle" : "launcher.workspace.sharedTitle")}</h1>
+              <p>{t(workspaceView === "scene" ? "launcher.workspace.sceneDescription" : "launcher.workspace.sharedDescription")}</p>
+            </div>
+            <span className="ws-state automation-autosave"><WorkspaceIcon name="check" />{t("launcher.workspace.autosave")}</span>
+          </header>
+          <div className="ws-pages">
+            <section id="automation-view-scene" className="ws-view" role="tabpanel"
+              aria-labelledby="automation-nav-scene" hidden={workspaceView !== "scene"} tabIndex={0}>
+              <div className="automation-scene-content">
+              {configuredScene && sceneProfile && sceneProfile.sceneId === configuredScene.id ? (
                 <>
-                  <div className="input-group">
-                    <label data-tip={t(TOOLTIPS.ocrMode)}>{t("launcher.scene.ocrMode")}</label>
-                  </div>
-                  <div className="launcher-mode-grid">
+                  <section className="ws-section automation-capture" aria-labelledby="automation-ocr-heading">
+                  <h2 id="automation-ocr-heading">{t("launcher.scene.ocrMode")}</h2>
+                  <div className="launcher-mode-grid" role="radiogroup" aria-labelledby="automation-ocr-heading">
                     <label className="launcher-mode-item" data-tip={t(TOOLTIPS.ocrNone)}>
                       <input
                         type="radio"
@@ -1037,7 +1044,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                         checked={sceneProfile.ocrMode === "none"}
                         onChange={() => void patchSceneProfile({ ocrMode: "none" })}
                       />
-                      {t("launcher.scene.ocrNone")}
+                      <span><strong>{t("launcher.scene.ocrNone")}</strong><small>{t("launcher.workspace.ocrNoneHint")}</small></span>
                     </label>
                     <label className="launcher-mode-item" data-tip={t(TOOLTIPS.ocrAuto)}>
                       <input
@@ -1047,7 +1054,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                         checked={sceneProfile.ocrMode === "auto"}
                         onChange={() => void patchSceneProfile({ ocrMode: "auto" })}
                       />
-                      {t("launcher.scene.ocrAuto")}
+                      <span><strong>{t("launcher.scene.ocrAuto")}</strong><small>{t("launcher.workspace.ocrAutoHint")}</small></span>
                     </label>
                     <label className="launcher-mode-item" data-tip={t(TOOLTIPS.ocrManual)}>
                       <input
@@ -1057,16 +1064,21 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                         checked={sceneProfile.ocrMode === "manual"}
                         onChange={() => void patchSceneProfile({ ocrMode: "manual" })}
                       />
-                      {t("launcher.scene.ocrManual")}
+                      <span><strong>{t("launcher.scene.ocrManual")}</strong><small>{t("launcher.workspace.ocrManualHint")}</small></span>
                     </label>
                   </div>
 
-                  <div className="input-group">
+                  </section>
+                  <section className="ws-section automation-overlay">
+                  <div className="input-group automation-toggle-row">
                     <label
                       htmlFor={`scene-launch-overlay-${configuredScene.id}`}
                       data-tip={t(TOOLTIPS.launchOverlay)}
                     >
-                      {t("launcher.scene.launchOverlay")}
+                      <strong>{t("launcher.scene.launchOverlay")}</strong>
+                      <span>{t("launcher.workspace.overlayHint")}</span>
+                      {(runOverlayOnStartup === true || runOverlayWithActiveGame === true) &&
+                        <span className="automation-managed-note">{t("launcher.workspace.overlayManaged")}</span>}
                     </label>
                     <input
                       id={`scene-launch-overlay-${configuredScene.id}`}
@@ -1080,11 +1092,12 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                     />
                   </div>
 
-                  <SceneSwitcherSettings scene={configuredScene} />
+                  </section>
+                  <SceneSwitcherSettings key={`switcher-${configuredScene.id}`} scene={configuredScene} />
 
-                  <details
-                    className="launcher-legacy-details"
-                    defaultOpen={sceneProfile.textHookMode !== "none"}
+                  <LegacyLauncherDetails
+                    key={`launcher-${configuredScene.id}`}
+                    initialOpen={sceneProfile.textHookMode !== "none"}
                   >
                     <summary className="launcher-legacy-summary" data-tip={t(TOOLTIPS.textHookMode)}>
                       <span>{t("launcher.scene.textHookLauncher")}</span>
@@ -1230,7 +1243,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                         </div>
                       ) : null}
                     </div>
-                  </details>
+                  </LegacyLauncherDetails>
                 </>
               ) : (
                 <p className="muted" data-tip={t(TOOLTIPS.noScene)}>
@@ -1240,7 +1253,9 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
             </div>
           </section>
 
-          <section className="card legacy-card">
+          <section id="automation-view-shared" className="ws-view" role="tabpanel"
+            aria-labelledby="automation-nav-shared" hidden={workspaceView !== "shared"} tabIndex={0}>
+          <section className="ws-section automation-overrides">
             <h2 data-tip={t(TOOLTIPS.sharedAutomationSettings)}>
               {t("launcher.shared.title")}
             </h2>
@@ -1250,7 +1265,8 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   htmlFor="force-manual-ocr-all-profiles"
                   data-tip={t(TOOLTIPS.forceManualOcrAllProfiles)}
                 >
-                  {t("launcher.shared.forceManualOcrAllProfiles")}
+                  <strong>{t("launcher.shared.forceManualOcrAllProfiles")}</strong>
+                  <span>{t("launcher.workspace.manualOcrHint")}</span>
                 </label>
                 <input
                   id="force-manual-ocr-all-profiles"
@@ -1268,7 +1284,8 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   htmlFor="ignore-active-scene-for-ocr"
                   data-tip={t(TOOLTIPS.ignoreActiveSceneForOcr)}
                 >
-                  {t("launcher.shared.ignoreActiveSceneForOcr")}
+                  <strong>{t("launcher.shared.ignoreActiveSceneForOcr")}</strong>
+                  <span>{t("launcher.workspace.ignoreSceneHint")}</span>
                 </label>
                 <input
                   id="ignore-active-scene-for-ocr"
@@ -1284,7 +1301,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
             </div>
           </section>
 
-          <section className="card legacy-card">
+          <section className="automation-legacy-tools">
             <div className="launcher-card-header">
               <h2 className="launcher-card-title" data-tip={t(TOOLTIPS.toolPathsLegacy)}>
                 {t("launcher.toolPaths.title")}
@@ -1570,10 +1587,10 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
             ) : null}
           </section>
 
-          <p className="muted launcher-status-text" data-tip={t(TOOLTIPS.status)}>
-            {statusMessage}
-          </p>
-        </div>
+          </section>
+          </div>
+          {statusMessage && <p className="automation-status" role="status">{statusMessage}</p>}
+        </main>
       </div>
 
       {candidateDialog && configuredScene && candidateDialog.sceneId === configuredScene.id ? (

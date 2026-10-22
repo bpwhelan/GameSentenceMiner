@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useTranslation } from "../../i18n";
 import type { ObsScene } from "../../types/models";
 import { useOCRPreview } from "./useOCRPreview";
+import { canEditOcrAreas, type OcrAreaConfig } from "../../../../shared/ocr_areas";
+import type { OcrPreviewFrame } from "../../../../shared/ocr_preview";
+import { OCRAreaEditor } from "./OCRAreaEditor";
 
 export interface CaptureMapConfig {
   coordinate_system?: string;
@@ -69,14 +72,14 @@ export function buildCaptureMap(config: CaptureMapConfig | null) {
 export function OCRCaptureMap({
   config,
   disabled,
-  onEdit,
+  onSaved,
   active,
   scene,
   ocrRunning
 }: {
   config: CaptureMapConfig | null;
   disabled: boolean;
-  onEdit: () => void;
+  onSaved: (config: OcrAreaConfig) => void;
   active: boolean;
   scene: ObsScene | null;
   ocrRunning: boolean;
@@ -84,9 +87,10 @@ export function OCRCaptureMap({
   const t = useTranslation();
   const [paused, setPaused] = useState(false);
   const [showBoxes, setShowBoxes] = useState(true);
+  const [editing, setEditing] = useState<{ config: CaptureMapConfig | null; frame: OcrPreviewFrame } | null>(null);
   const { frame, unavailable } = useOCRPreview({
     active,
-    paused,
+    paused: paused || !!editing,
     sceneId: scene?.id ?? "",
     sceneName: scene?.name ?? "",
     includeBoxes: showBoxes && ocrRunning
@@ -106,14 +110,19 @@ export function OCRCaptureMap({
       ? geometry.width / geometry.height
       : 16 / 9;
 
+  if (editing) return <OCRAreaEditor
+    config={editing.config}
+    frame={editing.frame}
+    disabled={disabled || !active}
+    onCancel={() => setEditing(null)}
+    onSaved={(saved) => { onSaved(saved); setEditing(null); }}
+  />;
+  const editable = canEditOcrAreas(config);
+
   return (
     <div className="desk-map">
-      <button
-        type="button"
+      <div
         className={"desk-map-canvas" + (frame ? " desk-map-canvas--preview" : "")}
-        onClick={onEdit}
-        disabled={disabled}
-        aria-label={t("ocr.sceneAndAreas.selectAreas")}
       >
         <span
           className="desk-map-crosshair"
@@ -186,15 +195,20 @@ export function OCRCaptureMap({
             <span>{t(hasAreas ? "ocr.desk.savedLayoutHint" : "ocr.desk.wholeWindowHint")}</span>
           </span>
         )}
-        <span
+        <button
+          type="button"
           className="desk-map-edit"
-          aria-hidden="true"
+          disabled={disabled || !active || !frame || !editable}
+          aria-label={t("ocr.desk.editor.edit")}
+          title={t("ocr.desk.editor.edit")}
+          onClick={() => { if (frame) setEditing({ config, frame }); }}
         >
           <svg viewBox="0 0 24 24">
             <path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" />
           </svg>
-        </span>
-      </button>
+        </button>
+      </div>
+      {!editable ? <p className="desk-area-editor-hint">{t("ocr.desk.editor.legacyHint")}</p> : null}
       <div className="desk-preview-controls">
         <span
           className={"desk-preview-state" + (frame && !paused && !unavailable ? " is-live" : "")}

@@ -2416,13 +2416,14 @@ export function OCRTab({ active }: OcrTabProps) {
                       {...tooltipProps(ocrTooltips.selectAreas)}
                     >
                       <WorkspaceIcon name="edit" />
-                      {t("ocr.desk.editAreas")}
+                      {t("ocr.desk.openAreaSelector")}
                     </button>
                   </div>
                   <OCRCaptureMap
+                    key={selectedScene ? JSON.stringify([selectedScene.id, selectedScene.name]) : "no-scene"}
                     config={activeSceneAreaConfig}
                     disabled={loadingScenes || scenes.length === 0}
-                    onEdit={runScreenSelector}
+                    onSaved={setActiveSceneAreaConfig}
                     active={active && workspaceView === "capture"}
                     scene={selectedScene}
                     ocrRunning={runningState.isRunning}

@@ -28,7 +28,8 @@ function loadOverlaySettingsPage(platform = "win32") {
     send: (channel: string, payload?: IpcPayload) => sent.push({ channel, payload }),
     invoke: async (channel: string, payload?: IpcPayload) => {
       invoked.push({ channel, payload });
-      return channel === "get-effective-platform" ? platform : null;
+      if (channel === "get-effective-platform") return platform;
+      return channel === "settings.getTheme" ? "gsm-dark" : null;
     },
     on: (channel: string, handler: IpcListener) => {
       const existing = listeners.get(channel);
@@ -74,9 +75,12 @@ function loadOverlaySettingsPage(platform = "win32") {
         if (moduleName === "electron") {
           return { ipcRenderer };
         }
+        if (moduleName === "node:fs") return { readFileSync: () => '{"theme":"gsm-dark"}' };
+        if (moduleName === "node:path") return path;
+        if (moduleName === "node:os") return { homedir: () => 'C:/test-home' };
         throw new Error(`Unexpected require: ${moduleName}`);
       };
-      window.process = { platform };
+      window.process = { platform, env: { GSM_DATA_DIR: 'C:/test-gsm', GSM_OVERLAY_IN_PROCESS: '1' } };
       window.WebSocket = FakeWebSocket;
       window.setInterval = () => 0;
       window.clearInterval = () => {};
