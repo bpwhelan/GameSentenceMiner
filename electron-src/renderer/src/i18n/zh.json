@@ -757,7 +757,7 @@
       "tools": "工具",
       "navigation": "OCR 视图",
       "scanSettings": "扫描设置",
-      "imageAndTiming": "图像与时序",
+      "imageSettings": "图像设置",
       "quickCapture": "快速捕获",
       "quickCaptureHint": "使用快捷键或选择操作。",
       "startToCapture": "启动 OCR 后即可快速捕获。",

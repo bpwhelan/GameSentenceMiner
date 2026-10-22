@@ -1055,7 +1055,7 @@
       "tools": "Tools",
       "navigation": "OCR views",
       "scanSettings": "Scan settings",
-      "imageAndTiming": "Image & timing",
+      "imageSettings": "Image settings",
       "quickCapture": "Quick capture",
       "quickCaptureHint": "Use a shortcut or choose an action.",
       "startToCapture": "Start OCR to use quick capture.",

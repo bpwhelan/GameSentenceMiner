@@ -722,6 +722,13 @@
 .ocr-desk .desk-recognition-form {
   max-width: 820px;
 }
+.ocr-desk .desk-recognition-tuning {
+  display: grid;
+  gap: 24px;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--gsm-border-subtle);
+}
 .ocr-desk .desk-field-grid,
 .ocr-desk .ocr-pipeline-grid {
   display: grid;
@@ -738,7 +745,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 24px 0;
+  padding: 24px 0 0;
   margin-top: 24px;
   border-top: 1px solid var(--gsm-border-subtle);
 }

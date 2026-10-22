@@ -2825,6 +2825,115 @@ export function OCRTab({ active }: OcrTabProps) {
                     </div>
                   </div>
                 ) : null}
+
+                <div className="desk-recognition-tuning">
+                  <div className="desk-field-grid">
+                    <div className="ocr-slider-field">
+                      <div className="ocr-slider-header">
+                        <label
+                          htmlFor="ocr-furigana-filter"
+                          {...tooltipProps(ocrTooltips.furiganaFilter)}
+                        >
+                          {t("ocr.settings.furiganaFilter")}
+                        </label>
+                        <span>{config.furiganaFilterSensitivity}</span>
+                      </div>
+                      <div className="ocr-slider-row">
+                        <input
+                          id="ocr-furigana-filter"
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={config.furiganaFilterSensitivity}
+                          onChange={(event) => {
+                            const next = integerValue(event.target.value, 0);
+                            setConfig((current) => ({
+                              ...current,
+                              furiganaFilterSensitivity: next
+                            }));
+                            sendIpc("update-furigana-character", "龍", next);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="secondary"
+                          {...tooltipProps(ocrTooltips.furiganaPreview)}
+                          onClick={async () => {
+                            const next = await invokeIpc<number>("run-furigana-window");
+                            setConfig((current) => ({
+                              ...current,
+                              furiganaFilterSensitivity: integerValue(next, 0)
+                            }));
+                          }}
+                        >
+                          {t("ocr.settings.preview")}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="input-group">
+                      <label
+                        htmlFor="default-furigana-sensitivity"
+                        {...tooltipProps(ocrTooltips.defaultSceneFurigana)}
+                      >
+                        {t("ocr.debug.defaultFuriganaSensitivity")}
+                      </label>
+                      <input
+                        id="default-furigana-sensitivity"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={config.defaultSceneFuriganaFilterSensitivity}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            defaultSceneFuriganaFilterSensitivity: integerValue(
+                              event.target.value,
+                              0
+                            )
+                          }));
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="ocr-linebreak-row ocr-linebreak-row--warning">
+                    <label
+                      className="ocr-instant-toggle"
+                      htmlFor="ocr-text-appears-instantly"
+                      {...tooltipProps(ocrTooltips.textAppearsInstantly)}
+                    >
+                      <input
+                        id="ocr-text-appears-instantly"
+                        type="checkbox"
+                        checked={config.textAppearsInstantly}
+                        disabled={config.advancedMode && !config.twoPassOCR}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            textAppearsInstantly: event.target.checked
+                          }));
+                        }}
+                      />
+                      <span className="ocr-instant-copy">
+                        <span className="ocr-linebreak-label ocr-instant-label">
+                          <span>{t("ocr.settings.textAppearsInstantly")}</span>
+                          <span className="ocr-instant-qualifier">
+                            (
+                            <span
+                              className="ocr-warning-icon"
+                              aria-hidden="true"
+                            >
+                              ⚠
+                            </span>
+                            <span>{t("ocr.settings.textAppearsInstantlyQualifier")}</span>)
+                          </span>
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -2840,7 +2949,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div className="desk-capture-settings">
                   <div className="desk-section-heading">
                     <div>
-                      <h2>{t("ocr.workspace.imageAndTiming")}</h2>
+                      <h2>{t("ocr.workspace.imageSettings")}</h2>
                     </div>
                   </div>
 
@@ -2890,50 +2999,6 @@ export function OCRTab({ active }: OcrTabProps) {
                         ))}
                       </div>
                     </div>
-
-                    <div className="ocr-slider-field">
-                      <div className="ocr-slider-header">
-                        <label
-                          htmlFor="ocr-furigana-filter"
-                          {...tooltipProps(ocrTooltips.furiganaFilter)}
-                        >
-                          {t("ocr.settings.furiganaFilter")}
-                        </label>
-                        <span>{config.furiganaFilterSensitivity}</span>
-                      </div>
-                      <div className="ocr-slider-row">
-                        <input
-                          id="ocr-furigana-filter"
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={config.furiganaFilterSensitivity}
-                          onChange={(event) => {
-                            const next = integerValue(event.target.value, 0);
-                            setConfig((current) => ({
-                              ...current,
-                              furiganaFilterSensitivity: next
-                            }));
-                            sendIpc("update-furigana-character", "龍", next);
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="secondary"
-                          {...tooltipProps(ocrTooltips.furiganaPreview)}
-                          onClick={async () => {
-                            const next = await invokeIpc<number>("run-furigana-window");
-                            setConfig((current) => ({
-                              ...current,
-                              furiganaFilterSensitivity: integerValue(next, 0)
-                            }));
-                          }}
-                        >
-                          {t("ocr.settings.preview")}
-                        </button>
-                      </div>
-                    </div>
                   </div>
 
                   <div className="desk-field-grid desk-preprocess-grid">
@@ -2964,71 +3029,9 @@ export function OCRTab({ active }: OcrTabProps) {
                         ))}
                       </select>
                     </div>
-
-                    <div className="input-group">
-                      <label
-                        htmlFor="default-furigana-sensitivity"
-                        {...tooltipProps(ocrTooltips.defaultSceneFurigana)}
-                      >
-                        {t("ocr.debug.defaultFuriganaSensitivity")}
-                      </label>
-                      <input
-                        id="default-furigana-sensitivity"
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={config.defaultSceneFuriganaFilterSensitivity}
-                        onChange={(event) => {
-                          setConfig((current) => ({
-                            ...current,
-                            defaultSceneFuriganaFilterSensitivity: integerValue(
-                              event.target.value,
-                              0
-                            )
-                          }));
-                        }}
-                      />
-                    </div>
                   </div>
 
                   <div className="desk-toggle-row-group">
-                    <div className="ocr-linebreak-row ocr-linebreak-row--warning">
-                      <label
-                        className="ocr-instant-toggle"
-                        htmlFor="ocr-text-appears-instantly"
-                        {...tooltipProps(ocrTooltips.textAppearsInstantly)}
-                      >
-                        <input
-                          id="ocr-text-appears-instantly"
-                          type="checkbox"
-                          checked={config.textAppearsInstantly}
-                          disabled={config.advancedMode && !config.twoPassOCR}
-                          onChange={(event) => {
-                            setConfig((current) => ({
-                              ...current,
-                              textAppearsInstantly: event.target.checked
-                            }));
-                          }}
-                        />
-                        <span className="ocr-instant-copy">
-                          <span className="ocr-linebreak-label ocr-instant-label">
-                            <span>{t("ocr.settings.textAppearsInstantly")}</span>
-                            <span className="ocr-instant-qualifier">
-                              (
-                              <span
-                                className="ocr-warning-icon"
-                                aria-hidden="true"
-                              >
-                                ⚠
-                              </span>
-                              <span>{t("ocr.settings.textAppearsInstantlyQualifier")}</span>)
-                            </span>
-                          </span>
-                        </span>
-                      </label>
-                    </div>
-
                     <div className="desk-compact-boxes-row">
                       <label
                         className="ocr-instant-toggle"

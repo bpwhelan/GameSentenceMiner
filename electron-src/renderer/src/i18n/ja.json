@@ -1033,7 +1033,7 @@
       "tools": "ツール",
       "navigation": "OCRビュー",
       "scanSettings": "スキャン設定",
-      "imageAndTiming": "画像と表示タイミング",
+      "imageSettings": "画像設定",
       "quickCapture": "クイックキャプチャ",
       "quickCaptureHint": "ショートカットまたは操作ボタンでスキャンします。",
       "startToCapture": "OCRを開始するとキャプチャできます。",
