@@ -18,7 +18,8 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
   let lastActivity = null;
   let sourceKey = '';
   let game = null;
-  let tentativeUntil = 0;
+  let loggedChoice = null;
+  let loggedUntil = 0;
   let saveNoticeUntil = 0;
   let suspendedAt = null;
   let lastVisible = false;
@@ -37,20 +38,25 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
   function snapshot() {
     const mode = ['auto', 'always', 'hotkey'].includes(settings.vnGuideMode) ? settings.vnGuideMode : 'auto';
     const saveInstructions = tracker?.saveInstructions || [];
-    const saveNotice = saveInstructions.length > 0 && mode === 'auto' && peek !== true && !tracker.detected && saveNoticeUntil > now();
-    const automatic = tracker && (mode === 'always' || mode === 'auto' && (tracker.detected || tracker.current?.kind !== 'choice' || saveNotice || !saveInstructions.length && tracker.tentative && now() < tentativeUntil));
+    const saveNotice = loggedChoice === null && saveInstructions.length > 0 && mode === 'auto' && peek !== true && !tracker.detected && saveNoticeUntil > now();
+    const automatic = tracker && (mode === 'always' || mode === 'auto' && (tracker.detected || tracker.current?.kind !== 'choice' || saveNotice));
+    // Keep the confirmation state after its timer expires so the upcoming step
+    // (including ending labels and completion) cannot replace it automatically.
+    const showing = loggedChoice !== null
+      ? mode === 'always' || (mode === 'auto' || peek === true) && now() < loggedUntil
+      : peek ?? !!automatic;
     return {
       enabled: settings.vnGuideEnabled === true, loading, error, mode,
       checkingUpdates, updateAvailable, updateError, lastCheckedAt,
       displayStyle: settings.vnGuideDisplayStyle === 'text' ? 'text' : 'card',
-      visible: !disposed && available && settings.vnGuideEnabled === true && !!tracker && !dismissed && (peek ?? !!automatic),
+      visible: !disposed && available && settings.vnGuideEnabled === true && !!tracker && !dismissed && showing,
       title: loaded?.guide.title || '', target: loaded?.guide.target || '',
       routes: loaded?.guide.routes || [], routeId: loaded?.route.id || '', routeTitle: loaded?.route.title || '',
       nextRoute: nextRoute(),
       reviewed: loaded?.route.reviewed === true, changed: loaded?.changed === true,
       index: tracker?.index ?? 0, startIndex: tracker?.startIndex ?? 0, total: tracker?.steps.length ?? 0,
       text: tracker?.current?.text || '', kind: tracker?.current?.kind || '',
-      saveInstructions, saveNotice,
+      saveInstructions, saveNotice, loggedChoice,
       detected: tracker?.detected === true && !tracker.rememberedChoice, rememberedChoice: tracker?.rememberedChoice === true,
       tentative: tracker?.tentative === true, complete: tracker?.complete === true,
       recoveredFrom: tracker?.recoveredFrom ?? null,
@@ -69,16 +75,33 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
     catch { error = 'Could not save guide progress. Check that the GSM data folder is writable.'; }
   }
   function enterStep() {
+    clearLoggedChoice();
     dismissed = false;
     dismissedAtChoice = false;
     // Defer the brief notice until there is a game capture to display it on.
     saveNoticeUntil = tracker.saveInstructions.length ? available ? now() + 8000 : null : 0;
+  }
+  function clearLoggedChoice() {
+    loggedChoice = null;
+    loggedUntil = 0;
+  }
+  function logChoice(step) {
+    if (step?.kind !== 'choice') return;
+    loggedChoice = step.text;
+    loggedUntil = now() + 4000;
+    saveNoticeUntil = 0;
+    peekLines = 0;
   }
   function resetVisibility() {
     peek = null;
     peekLines = 0;
     dismissed = false;
     dismissedAtChoice = false;
+  }
+  function revealStep() {
+    resetVisibility();
+    clearLoggedChoice();
+    peek = true;
   }
   function dismiss(holdChoice = true) {
     peek = null;
@@ -107,7 +130,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
       text, lineId: lineId || (repeated ? lastActivity.lineId : null),
       presenceId: presenceId || (repeated ? lastActivity.presenceId : null),
     };
-    if (repeated || peek !== true || settings.vnGuideMode === 'always' || choiceObserved) return;
+    if (repeated || loggedChoice !== null || peek !== true || settings.vnGuideMode === 'always' || choiceObserved) return;
     if (message.type === 'game_text' && (tracker.armed?.options || [normalizeChoice(tracker.current?.text)]).includes(text)) return;
     if (++peekLines >= 2) dismiss(false);
   }
@@ -155,6 +178,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
     if (!refresh) { loaded = null; tracker = null; }
     error = '';
     resetVisibility();
+    clearLoggedChoice();
     lastActivity = null;
     loading = settings.vnGuideEnabled === true && !!settings.vnGuideUrl?.trim();
     publish();
@@ -221,10 +245,10 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
     if (next && !available && suspendedAt !== null) {
       const hiddenFor = now() - suspendedAt;
       if (saveNoticeUntil > suspendedAt) saveNoticeUntil += hiddenFor;
-      if (tentativeUntil > suspendedAt) tentativeUntil += hiddenFor;
+      if (loggedUntil > suspendedAt) loggedUntil += hiddenFor;
       suspendedAt = null;
     }
-    if (changedGame) { tracker?.resetDetection(); resetVisibility(); lastActivity = null; }
+    if (changedGame) { tracker?.resetDetection(); resetVisibility(); clearLoggedChoice(); lastActivity = null; }
     if (next && saveNoticeUntil === null) saveNoticeUntil = now() + 8000;
     if (next !== available || changedGame || snapshot().visible !== lastVisible) {
       available = next;
@@ -238,12 +262,17 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
     if (!available) return;
     const before = JSON.stringify([tracker.index, tracker.detected, tracker.rememberedChoice, tracker.tentative]);
     const previousIndex = tracker.index;
+    const previousStep = tracker.current;
     const previousArmed = tracker.armed;
     tracker.observe(message, now(), settings.vnGuideAutoAdvance !== false);
-    if (tracker.index !== previousIndex) { tentativeUntil = now() + 6000; enterStep(); persist(); }
-    if (tracker.detected) saveNoticeUntil = 0;
+    if (tracker.index !== previousIndex) {
+      enterStep();
+      if (!tracker.detected) logChoice(previousStep);
+      persist();
+    }
+    if (tracker.detected) { saveNoticeUntil = 0; clearLoggedChoice(); }
     const choiceObserved = tracker.detected && tracker.armed !== previousArmed;
-    if (choiceObserved && message?.type === 'word_coordinates' && !dismissedAtChoice) dismissed = false;
+    if (choiceObserved && ['word_coordinates', 'game_text'].includes(message?.type) && !dismissedAtChoice) dismissed = false;
     observeActivity(message, choiceObserved);
     if (before !== JSON.stringify([tracker.index, tracker.detected, tracker.rememberedChoice, tracker.tentative]) || snapshot().visible !== lastVisible) publish();
   }
@@ -252,10 +281,17 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
     if (action === 'check-updates') return checkForUpdates(true);
     if (action === 'refresh') return configure(settings, { refresh: true });
     if (!tracker || loading) return snapshot();
+    if (action === 'next' && loggedChoice !== null) {
+      // Automatic progress already moved the tracker. Right opens that pending
+      // instruction first, including after the confirmation has faded away.
+      revealStep();
+      publish();
+      return snapshot();
+    }
     if (action === 'next' && tracker.complete) return continueRoute();
     if (action === 'toggle') {
       if (snapshot().visible) dismiss();
-      else { resetVisibility(); peek = true; }
+      else revealStep();
     }
     else if (action === 'hide') {
       // Closing the heads-up must not suppress the save reminder at the choice.
@@ -266,6 +302,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
       if (action === 'jump') tracker.jump(value);
       else tracker[action]();
       enterStep();
+      if (action !== 'jump') revealStep();
       loaded.changed = false;
       persist();
     }

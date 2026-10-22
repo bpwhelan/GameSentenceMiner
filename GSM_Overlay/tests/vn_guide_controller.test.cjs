@@ -155,7 +155,7 @@ test('punctuation-insensitive choices show the original guide text and retain al
   assert.equal(controller.snapshot().index, 1);
 });
 
-test('a brief save notice becomes a save reminder alongside the detected choice, then clears on advance', async t => {
+test('choice confirmations keep upcoming save reminders for their detected menu', async t => {
   const { controller, settings, advance } = setup(t);
   await controller.configure(settings);
   controller.setAvailable(true);
@@ -168,7 +168,8 @@ test('a brief save notice becomes a save reminder alongside the detected choice,
   assert.equal(controller.snapshot().text, '進む');
   assert.equal(controller.snapshot().startIndex, 1);
   assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
-  assert.equal(controller.snapshot().saveNotice, true);
+  assert.equal(controller.snapshot().saveNotice, false);
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
   assert.equal(controller.snapshot().tentative, true);
   assert.equal(controller.snapshot().visible, true);
   advance(8001);
@@ -177,6 +178,7 @@ test('a brief save notice becomes a save reminder alongside the detected choice,
   controller.observe(nextMenu);
   assert.equal(controller.snapshot().visible, true);
   assert.equal(controller.snapshot().saveNotice, false);
+  assert.equal(controller.snapshot().loggedChoice, null);
   assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
   advance(1500);
   controller.observe(dialogue);
@@ -185,6 +187,9 @@ test('a brief save notice becomes a save reminder alongside the detected choice,
   assert.equal(controller.snapshot().visible, true);
   advance(60000);
   controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, false);
+  controller.command('next');
+  assert.equal(controller.snapshot().index, 3, 'Right reveals the pending load without confirming it');
   assert.equal(controller.snapshot().visible, true);
   controller.command('next');
   assert.equal(controller.snapshot().complete, true);
@@ -282,7 +287,7 @@ test('hotkey previews hide after two fresh lines, ignoring duplicate, stale and 
   }
 });
 
-test('a manual preview hides after dialogue advances across an automatic guide step, then returns at the next choice', async t => {
+test('a manual preview becomes a timed confirmation on advance, then returns at the next choice', async t => {
   const { controller, settings, advance, updates } = setup(t);
   await controller.configure(settings);
   controller.setAvailable(true);
@@ -294,6 +299,10 @@ test('a manual preview hides after dialogue advances across an automatic guide s
   assert.equal(controller.snapshot().index, 2);
   assert.equal(controller.snapshot().visible, true);
   controller.observe({ ...dialogue, data: [line('もう一つの会話', .8)] });
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+  advance(4001);
+  controller.setAvailable(true);
   assert.equal(controller.snapshot().visible, false);
   assert.equal(updates.at(-1).visible, false);
   assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
@@ -383,6 +392,57 @@ test('the overlay delivers plaintext activity to the guide while manual mode hid
   assert.equal(controller.snapshot().index, 0);
 });
 
+test('both socket feeds reveal a choice, including OCR with unrelated hooked text', async t => {
+  const { controller, settings } = setup(t, {
+    fetchJson: async source => source.endsWith('/guide.json') ? manifest
+      : ['わたしは首を横に振る', '進む'].map(simpleJp => ({ simpleJp })),
+  });
+  await controller.configure(settings);
+  const context = require('node:vm').createContext({
+    vnGuideController: controller, mainWindow: null, canUseOverlayCapture: () => true,
+    sendOffsetHelperData() {}, lastWebsocketData: null,
+  });
+  const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+  require('node:vm').runInContext(source.match(/^function publishOverlaySocketData\([\s\S]*?^}/m)[0], context);
+  context.publishOverlaySocketData('ws1', 'わたしは首を横に振る');
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().detected, true);
+  context.publishOverlaySocketData('ws1', 'きゅうっと胸が締め付けられる。');
+  assert.equal(controller.snapshot().visible, false);
+  context.publishOverlaySocketData('ws2', JSON.stringify({
+    ...menu, data: [line('わたしは首を横に振ろ', .78), line('わたしはこくりと頷いた', .58)],
+    line_id: 'old-hook', latest_text: 'きゅうっと胸が締め付けられる。',
+  }));
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().detected, true);
+  assert.equal(controller.snapshot().text, 'わたしは首を横に振る', 'keep the original guide spelling');
+  assert.equal(controller.snapshot().index, 0);
+});
+
+test('text-detected choices reopen a dismissed preview and respect an explicitly hidden choice', async t => {
+  const { controller, settings } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.command('toggle');
+  controller.command('hide');
+  controller.observe({ type: 'game_text', text: '大丈夫' });
+  assert.equal(controller.snapshot().visible, true);
+  controller.command('hide');
+  controller.observe({ type: 'game_text', text: '大丈夫' });
+  controller.observe(menu);
+  assert.equal(controller.snapshot().visible, false);
+  controller.command('next');
+  controller.observe({ type: 'game_text', text: '次の会話' });
+  controller.observe({ type: 'game_text', text: '進む' });
+  assert.equal(controller.snapshot().visible, true);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  controller.setAvailable(false);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().rememberedChoice, true);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().index, 2, 'capture interruptions discard text progression evidence too');
+});
+
 test('the first save notice waits for capture and closing it cannot dismiss the later choice reminder', async t => {
   const { controller, settings, advance } = setup(t);
   await controller.configure({ ...settings, vnGuideUrl: `${url}#route=one&step=1` });
@@ -402,7 +462,7 @@ test('a detected choice replaces the notice immediately and invalidation never b
   const { controller, settings } = setup(t);
   await controller.configure(settings);
   controller.setAvailable(true);
-  controller.command('next');
+  controller.command('jump', 1);
   controller.observe({ ...nextMenu, presence_id: 'choice' });
   assert.equal(controller.snapshot().saveNotice, false);
   controller.observe({ type: 'ocr_text_invalidated', presence_id: 'choice' });
@@ -521,7 +581,7 @@ test('unavailable time does not consume a save notice and game changes discard r
   const { controller, settings, advance } = setup(t);
   await controller.configure(settings);
   controller.setAvailable(true, 'Game A');
-  controller.command('next');
+  controller.command('jump', 1);
   advance(3000);
   controller.setAvailable(false);
   advance(30000);
@@ -563,7 +623,7 @@ test('choosing a different route does not reuse the URL step from the original r
   assert.equal(loaded.index, 0);
 });
 
-test('tentative next choices without saves still appear briefly', async t => {
+test('advancing logs the previous choice for four seconds without revealing the next step', async t => {
   const { controller, settings, advance } = setup(t, { fetchJson: async source => source.endsWith('/guide.json') ? manifest : [{ simpleJp: '大丈夫' }, { simpleJp: '進む' }] });
   await controller.configure(settings);
   controller.setAvailable(true);
@@ -571,11 +631,199 @@ test('tentative next choices without saves still appear briefly', async t => {
   advance(1500);
   controller.observe(dialogue);
   assert.equal(controller.snapshot().visible, true);
-  advance(6001);
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+  advance(3999);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, true);
+  advance(2);
   controller.setAvailable(true);
   assert.equal(controller.snapshot().visible, false);
+  controller.observe(nextMenu);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().loggedChoice, null);
+  assert.equal(controller.snapshot().text, '進む');
   controller.command('back');
   assert.equal(controller.snapshot().index, 0);
+});
+
+test('a logged choice hides upcoming ending labels and route completion after its timeout', async t => {
+  for (const steps of [['大丈夫', 'Bad End「雫」 (ED4)'], ['大丈夫']]) {
+    const { controller, settings, advance, updates } = setup(t, {
+      fetchJson: async source => source.endsWith('/guide.json') ? manifest : steps.map(simpleJp => ({ simpleJp })),
+    });
+    await controller.configure(settings);
+    controller.setAvailable(true);
+    controller.observe(menu);
+    advance(1500);
+    controller.observe(dialogue);
+    assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+    assert.equal(controller.snapshot().visible, true);
+    advance(4001);
+    controller.setAvailable(true);
+    assert.equal(controller.snapshot().visible, false);
+    assert.equal(updates.at(-1).visible, false);
+    advance(60000);
+    controller.setAvailable(true);
+    assert.equal(controller.snapshot().visible, false);
+  }
+});
+
+test('Always mode retains the logged choice until the next detected menu or explicit navigation', async t => {
+  const { controller, settings, advance } = setup(t);
+  await controller.configure({ ...settings, vnGuideMode: 'always' });
+  controller.setAvailable(true);
+  controller.observe(menu);
+  advance(1500);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+  advance(60000);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+  controller.observe(nextMenu);
+  assert.equal(controller.snapshot().loggedChoice, null);
+  assert.equal(controller.snapshot().detected, true);
+  advance(1500);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().loggedChoice, '進む');
+  controller.command('back');
+  assert.equal(controller.snapshot().loggedChoice, null);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+});
+
+test('manual Next shows the next instruction without a logged confirmation', async t => {
+  for (const mode of ['auto', 'always', 'hotkey']) {
+    const { controller, settings } = setup(t);
+    await controller.configure({ ...settings, vnGuideMode: mode, vnGuideAutoAdvance: false });
+    controller.setAvailable(true);
+    controller.command('next');
+    assert.equal(controller.snapshot().index, 2);
+    assert.equal(controller.snapshot().text, '進む');
+    assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+    assert.equal(controller.snapshot().saveNotice, false);
+    assert.equal(controller.snapshot().loggedChoice, null);
+    assert.equal(controller.snapshot().visible, true);
+    controller.command('next');
+    assert.equal(controller.snapshot().index, 3);
+    assert.equal(controller.snapshot().text, 'セーブ1にロード');
+    assert.equal(controller.snapshot().loggedChoice, null);
+    assert.equal(controller.snapshot().visible, true);
+  }
+});
+
+test('Right after automatic progress reveals the pending choice without consuming it or saving again', async t => {
+  for (const mode of ['auto', 'always', 'hotkey']) {
+    for (const delay of [0, 5000]) {
+      const { controller, settings, advance, library } = setup(t);
+      await controller.configure({ ...settings, vnGuideMode: mode });
+      controller.setAvailable(true);
+      controller.command('toggle');
+      controller.observe(menu);
+      advance(1500);
+      controller.observe(dialogue);
+      assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+      advance(delay);
+      controller.setAvailable(true);
+      const saved = [];
+      library.save = (_loaded, index) => saved.push(index);
+      controller.command('next');
+      assert.equal(controller.snapshot().index, 2);
+      assert.equal(controller.snapshot().text, '進む');
+      assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+      assert.equal(controller.snapshot().loggedChoice, null);
+      assert.equal(controller.snapshot().visible, true);
+      assert.equal(controller.snapshot().saveNotice, false);
+      assert.deepEqual(saved, [], 'revealing the instruction must not write progress');
+      controller.command('next');
+      assert.equal(controller.snapshot().index, 3, 'a second Right manually confirms the revealed choice');
+      assert.equal(controller.snapshot().loggedChoice, null);
+      assert.deepEqual(saved, [3]);
+    }
+  }
+});
+
+test('Left on a confirmation undoes automatic progress and reveals the original choice and save reminder', async t => {
+  const { controller, settings, advance, library } = setup(t, {
+    fetchJson: async source => source.endsWith('/guide.json') ? manifest
+      : ['セーブ1', '大丈夫', '進む'].map(simpleJp => ({ simpleJp })),
+  });
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.observe(menu);
+  advance(1500);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().index, 2);
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+  controller.command('back');
+  assert.equal(controller.snapshot().index, 1);
+  assert.equal(controller.snapshot().text, '大丈夫');
+  assert.equal(controller.snapshot().loggedChoice, null);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().saveNotice, false);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  assert.equal(library.progress['test-game/one'].index, 1);
+});
+
+test('Right on the last automatic confirmation reveals completion before continuing routes', async t => {
+  const { controller, settings, advance, requests } = setup(t, {
+    fetchJson: async source => {
+      requests.push(source);
+      return source.endsWith('/guide.json') ? manifest : [{ simpleJp: '大丈夫' }];
+    },
+  });
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.observe(menu);
+  advance(1500);
+  controller.observe(dialogue);
+  assert.equal(controller.snapshot().complete, true);
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+  const requestCount = requests.length;
+  await controller.command('next');
+  assert.equal(controller.snapshot().routeId, 'one');
+  assert.equal(controller.snapshot().index, 1);
+  assert.equal(controller.snapshot().complete, true);
+  assert.equal(controller.snapshot().loggedChoice, null);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(requests.length, requestCount);
+  await controller.command('next');
+  assert.equal(controller.snapshot().routeId, 'two');
+  assert.equal(controller.snapshot().index, 0);
+});
+
+test('manual Next without automatic advancement still uses the ordinary preview lifetime', async t => {
+  for (const mode of ['auto', 'hotkey']) {
+    const { controller, settings, advance } = setup(t);
+    await controller.configure({ ...settings, vnGuideMode: mode, vnGuideAutoAdvance: false });
+    controller.setAvailable(true);
+    controller.command('next');
+    advance(10000);
+    controller.setAvailable(true);
+    assert.equal(controller.snapshot().visible, true, 'manual navigation is not a timed confirmation');
+    controller.observe(dialogue);
+    controller.observe({ type: 'game_text', text: '別の会話' });
+    assert.equal(controller.snapshot().visible, false, 'manual previews hide after two fresh lines');
+  }
+});
+
+test('confirmation time pauses without capture and a different game clears it', async t => {
+  const { controller, settings, advance } = setup(t);
+  await controller.configure(settings);
+  controller.setAvailable(true, 'Game A');
+  controller.observe(menu);
+  advance(1500);
+  controller.observe(dialogue);
+  advance(2000);
+  controller.setAvailable(false);
+  advance(30000);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+  advance(2001);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, false);
+  controller.setAvailable(true, 'Game B');
+  assert.equal(controller.snapshot().loggedChoice, null);
 });
 
 test('guide refresh detects changed content and avoids resuming at a different instruction', async t => {
@@ -691,7 +939,8 @@ test('the backend new-line clear sequence advances and persists each choice with
   send({ ...dialogue, line_id: 'dialogue-1', presence_id: 'dialogue-1' });
   assert.equal(controller.snapshot().index, 2);
   assert.equal(controller.snapshot().recoveredFrom, null);
-  assert.equal(controller.snapshot().saveNotice, true, 'save instructions must appear before the upcoming choice');
+  assert.equal(controller.snapshot().saveNotice, false, 'the confirmation must not show upcoming instructions');
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
   assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
   assert.equal(library.progress['test-game/one'].index, 2);
   send({ type: 'overlay_clear', line_id: 'choice-2' });

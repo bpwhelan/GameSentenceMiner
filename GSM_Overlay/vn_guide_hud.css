@@ -17,6 +17,8 @@ button:disabled { opacity: .35; cursor: default; }
 footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
 #shortcut { margin-left: auto; color: #95a6b5; font-size: 10px; flex-shrink: 0; }
 #next { background: #26493f; border-color: #79d2b63b; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.card[data-choice-logged="true"] #hide { margin-left: auto; }
+.card[data-choice-logged="true"] #instruction { font-size: 16px; margin-bottom: 0; }
 .card[data-display-style="text"] { padding: 2px; border: 0; border-radius: 0; background: transparent; pointer-events: none; }
 .card[data-display-style="text"] > :not(#instruction) { display: none; }
 .card[data-display-style="text"] #instruction { margin: 0; color: #fff; user-select: none; overflow: hidden; text-shadow: -1px -1px 1px #000, 1px -1px 1px #000, -1px 1px 1px #000, 1px 1px 1px #000, 0 2px 4px #000; }

@@ -59,6 +59,23 @@ app.whenReady().then(async () => {
   hud.update({ ...state, saveNotice: false, detected: true });
   await new Promise(resolve => setTimeout(resolve, 100));
   fs.writeFileSync(path.join(directory, 'save-choice.png'), (await window.webContents.capturePage()).toPNG());
+  for (const displayStyle of ['card', 'text']) {
+    for (const complete of [false, true]) {
+      hud.update({ ...state, loggedChoice: '大丈夫', displayStyle, complete, text: 'Bad End「雫」 (ED4)',
+        routeTitle: 'Ending route', nextRoute: { title: 'Future ending' }, updateAvailable: true });
+      rendered = await read();
+      assert.equal(rendered.text, 'Choice 大丈夫 logged');
+      assert.equal(rendered.footerVisible, false);
+      assert.equal(rendered.progress, '');
+      assert.equal(rendered.note, '');
+      assert.equal(rendered.overflowing, false);
+      assert.equal(window.getBounds().height, 96);
+      const contents = await window.webContents.executeJavaScript('document.body.textContent');
+      assert.doesNotMatch(contents, /End|ending|セーブ1|complete|Next|Continue/);
+      assert.equal(await window.webContents.executeJavaScript('document.body.innerText.trim()'), displayStyle === 'text' ? 'Choice 大丈夫 logged' : 'VN Guide\n×\nChoice 大丈夫 logged');
+    }
+    fs.writeFileSync(path.join(directory, `choice-logged-${displayStyle}.png`), (await window.webContents.capturePage()).toPNG());
+  }
   hud.update({ ...state, saveNotice: false, detected: true, displayStyle: 'text' });
   rendered = await read();
   assert.equal(ignoresMouseEvents, true, 'plain-text guides must let mouse clicks through to the game');
@@ -224,7 +241,35 @@ app.whenReady().then(async () => {
   guide.observe(guideDialogue('一つ目の会話'));
   assert.equal(window.isVisible(), true);
   guide.observe(guideDialogue('二つ目の会話'));
-  assert.equal(window.isVisible(), false, 'two game lines must hide a hotkey preview');
+  assert.equal(window.isVisible(), true, 'advancing replaces a preview with a timed confirmation');
+  rendered = await read();
+  assert.equal(rendered.text, 'Choice 進む logged');
+  guideTime += 4001;
+  guide.setAvailable(true);
+  assert.equal(window.isVisible(), false, 'the confirmation must hide after four seconds');
+  guide.command('back');
+  rendered = await read();
+  assert.equal(guide.snapshot().index, 1, 'Left undoes the automatic advance');
+  assert.equal(rendered.text, '進む');
+  assert.equal(window.isVisible(), true);
+  guide.observe({ ...guideMenu('進む'), line_id: 'choice-2-again' });
+  guideTime += 1500;
+  guide.observe({ ...guideDialogue('選択肢の後の会話'), line_id: 'dialogue-2-again' });
+  rendered = await read();
+  assert.equal(rendered.text, 'Choice 進む logged');
+  guide.command('next');
+  rendered = await read();
+  assert.equal(guide.snapshot().index, 2, 'Right reveals the pending choice without advancing it');
+  assert.equal(rendered.text, '待つ');
+  assert.equal(rendered.footerVisible, true);
+  guide.command('back');
+  rendered = await read();
+  assert.equal(rendered.text, '進む');
+  guide.command('next');
+  rendered = await read();
+  assert.equal(guide.snapshot().index, 2);
+  assert.equal(guide.snapshot().loggedChoice, null, 'manual navigation must not create a confirmation');
+  assert.equal(rendered.text, '待つ');
   guide.dispose();
   assert.equal(window.isDestroyed(), true);
   console.log(JSON.stringify({ result: 'VN guide render, sandbox, focus, buttons and layout passed', screenshots: directory }));

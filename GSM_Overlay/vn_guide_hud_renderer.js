@@ -1,11 +1,30 @@
 window.vnGuide.onState(state => {
   const el = id => document.getElementById(id);
+  const card = document.querySelector('.card');
+  const choiceLogged = typeof state.loggedChoice === 'string';
+  card.dataset.choiceLogged = String(choiceLogged);
+  card.dataset.displayStyle = state.displayStyle === 'text' ? 'text' : 'card';
+  card.dataset.kind = choiceLogged ? '' : state.kind;
+  card.dataset.saveNotice = String(!choiceLogged && state.saveNotice === true);
+  card.dataset.complete = String(!choiceLogged && state.complete === true);
+  for (const id of ['progress', 'route', 'note']) el(id).hidden = choiceLogged;
+  if (choiceLogged) {
+    el('status').textContent = 'VN Guide';
+    // Clear all previous content, including hidden controls, so no future
+    // instruction or route information is exposed by the confirmation.
+    for (const id of ['progress', 'route', 'save-reminder', 'note', 'shortcut', 'next']) el(id).textContent = '';
+    el('save-reminder').hidden = true;
+    el('instruction').textContent = `Choice ${state.loggedChoice} logged`;
+    el('instruction').lang = 'en';
+    document.querySelector('footer').hidden = true;
+    el('hide').title = 'Hide confirmation';
+    el('next').disabled = true;
+    el('next').title = '';
+    return;
+  }
+  el('instruction').lang = 'ja';
   const saves = state.saveInstructions || [];
   const startIndex = state.startIndex ?? state.index;
-  document.querySelector('.card').dataset.kind = state.kind;
-  document.querySelector('.card').dataset.displayStyle = state.displayStyle === 'text' ? 'text' : 'card';
-  document.querySelector('.card').dataset.saveNotice = String(state.saveNotice === true);
-  document.querySelector('.card').dataset.complete = String(state.complete === true);
   el('status').textContent = state.saveNotice ? 'Next step: save' : state.complete ? 'Route complete' : state.kind === 'save' ? 'Save your game' : state.kind === 'load' ? 'Load your save' : state.detected ? 'Choice detected' : state.rememberedChoice ? 'Last detected choice' : 'Next guide step';
   el('progress').textContent = `${startIndex < state.index ? `${startIndex + 1}–` : ''}${Math.min(state.index + 1, state.total)} / ${state.total}`;
   el('route').textContent = state.routeTitle;
