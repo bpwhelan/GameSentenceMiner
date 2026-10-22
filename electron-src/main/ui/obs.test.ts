@@ -33,6 +33,7 @@ const readFileSyncMock = vi.fn();
 const writeFileSyncMock = vi.fn();
 const rmSyncMock = vi.fn();
 const mkdirSyncMock = vi.fn();
+const createObsSettingsSnapshotMock = vi.fn();
 
 const UNIFORM_PNG_DATA_URL =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAkSURBVChThcihAQAACIAw/n9asxAMKwOYR8ISlrCEJSxhiWMBgkg/wTHeyiUAAAAASUVORK5CYII=';
@@ -81,6 +82,10 @@ vi.mock('../main.js', () => ({
 
 vi.mock('../data_dir.js', () => ({
     getBaseDir: () => TEST_BASE_DIR,
+}));
+
+vi.mock('../services/obs_settings_snapshot.js', () => ({
+    createObsSettingsSnapshot: createObsSettingsSnapshotMock,
 }));
 
 vi.mock('../util.js', () => ({
@@ -482,6 +487,283 @@ describe('launchOBSFromElectron', () => {
 
         expect(result.status).toBe('missing');
         expect(spawnMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('closeOBSFromElectron', () => {
+    const OBS_PID_PATH = 'C:\\test-gsm\\obs_pid.txt';
+    const DEFAULT_OBS_PATH = 'C:\\test-gsm\\obs-studio\\bin\\64bit\\obs64.exe';
+
+    beforeEach(() => {
+        existsSyncMock.mockReset();
+        readFileSyncMock.mockReset();
+        writeFileSyncMock.mockReset();
+        rmSyncMock.mockReset();
+        mkdirSyncMock.mockReset();
+        execFileAsyncMock.mockReset();
+        createObsSettingsSnapshotMock.mockReset();
+        obsCallMock.mockReset();
+        obsCallMock.mockResolvedValue({ outputActive: false });
+        obsConnectMock.mockReset();
+        obsConnectMock.mockResolvedValue({});
+        obsDisconnectMock.mockReset();
+        obsDisconnectMock.mockResolvedValue(undefined);
+        spawnMock.mockReset();
+        storeData.clear();
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === OBS_PID_PATH);
+        readFileSyncMock.mockImplementation((targetPath: string) =>
+            targetPath === OBS_PID_PATH ? '4242' : '{}'
+        );
+        execFileAsyncMock.mockResolvedValue({ stdout: '"obs64.exe","4242"', stderr: '' });
+        vi.spyOn(process, 'kill').mockImplementation(() => true);
+    });
+
+    it('requests a graceful close of the exact OBS process and waits for it to save and exit', async () => {
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toEqual({ status: 'closed', pid: 4242 });
+
+        const [executable, args, options] = execFileAsyncMock.mock.calls.at(-1)!;
+        expect(executable).toMatch(/WindowsPowerShell\\v1\.0\\powershell\.exe$/i);
+        expect(args.slice(0, -1)).toEqual(['-NoProfile', '-NonInteractive', '-EncodedCommand']);
+        const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+        expect(script).toContain('Get-Process -Id 4242');
+        expect(script).toContain("'^obs(32|64)?$'");
+        expect(script).toContain('CloseMainWindow()');
+        expect(script).toContain('EnumWindows');
+        expect(script).toContain('GetWindowThreadProcessId');
+        expect(script).toContain('WaitForExit(10000)');
+        expect(script).not.toMatch(/taskkill|Stop-Process|TerminateProcess/i);
+        expect(options).toEqual({ windowsHide: true, timeout: 20_000 });
+        expect(process.kill).toHaveBeenCalledWith(4242, 0);
+        expect(rmSyncMock).toHaveBeenCalledWith(OBS_PID_PATH, { force: true });
+    });
+
+    it('keeps PID tracking until OBS has actually exited', async () => {
+        let completeClose!: (value: { stdout: string; stderr: string }) => void;
+        const closed = new Promise<{ stdout: string; stderr: string }>((resolve) => {
+            completeClose = resolve;
+        });
+        execFileAsyncMock.mockImplementation(async (executable: string) =>
+            executable === 'tasklist' ? { stdout: '"obs64.exe","4242"', stderr: '' } : closed
+        );
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        const closing = closeOBSFromElectron();
+        await flushPromises();
+        expect(rmSyncMock).not.toHaveBeenCalled();
+        completeClose({ stdout: '', stderr: '' });
+        await expect(closing).resolves.toEqual({ status: 'closed', pid: 4242 });
+        expect(rmSyncMock).toHaveBeenCalledWith(OBS_PID_PATH, { force: true });
+    });
+
+    it('finalizes recording and waits for the replay buffer to stop before requesting close', async () => {
+        const order: string[] = [];
+        let recording = true;
+        let replayChecks = 0;
+        obsCallMock.mockImplementation(async (request: string) => {
+            order.push(request);
+            if (request === 'GetStreamStatus') return { outputActive: false };
+            if (request === 'GetRecordStatus') return { outputActive: recording };
+            if (request === 'GetReplayBufferStatus') return { outputActive: ++replayChecks < 3 };
+            if (request === 'StopRecord') { recording = false; return { outputPath: 'recording.mkv' }; }
+        });
+        execFileAsyncMock.mockImplementation(async (executable: string) => {
+            if (executable !== 'tasklist') {
+                expect(recording).toBe(false);
+                expect(replayChecks).toBeGreaterThanOrEqual(3);
+                order.push('close window');
+            }
+            return { stdout: '"obs64.exe","4242"', stderr: '' };
+        });
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toEqual({ status: 'closed', pid: 4242 });
+        expect(order.indexOf('StopRecord')).toBeLessThan(order.indexOf('close window'));
+        expect(order.indexOf('StopReplayBuffer')).toBeLessThan(order.indexOf('close window'));
+        expect(obsDisconnectMock).toHaveBeenCalledOnce();
+    });
+
+    it('leaves OBS open when an output cannot be stopped', async () => {
+        obsCallMock.mockImplementation(async (request: string) => {
+            if (request === 'StopRecord') throw new Error('Recording is still finalizing.');
+            return { outputActive: request === 'GetRecordStatus' };
+        });
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toMatchObject({ status: 'failed', error: 'Recording is still finalizing.' });
+        expect(execFileAsyncMock).toHaveBeenCalledOnce();
+        expect(rmSyncMock).not.toHaveBeenCalled();
+        expect(obsDisconnectMock).toHaveBeenCalledOnce();
+    });
+
+    it('leaves an active stream running without requesting a close', async () => {
+        obsCallMock.mockResolvedValue({ outputActive: true });
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toMatchObject({ status: 'failed', error: expect.stringMatching(/streaming/i) });
+        expect(obsCallMock).not.toHaveBeenCalledWith('StopRecord');
+        expect(obsCallMock).not.toHaveBeenCalledWith('StopReplayBuffer');
+        expect(execFileAsyncMock).toHaveBeenCalledOnce();
+        expect(rmSyncMock).not.toHaveBeenCalled();
+    });
+
+    it('does not close OBS when its websocket cannot be reached', async () => {
+        obsConnectMock.mockRejectedValue(new Error('OBS websocket unavailable.'));
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toMatchObject({ status: 'failed', error: 'OBS websocket unavailable.' });
+        expect(execFileAsyncMock).toHaveBeenCalledOnce();
+        expect(rmSyncMock).not.toHaveBeenCalled();
+    });
+
+    it('closes safely when the recording profile has replay buffering disabled', async () => {
+        obsCallMock.mockImplementation(async (request: string) => {
+            if (request === 'GetReplayBufferStatus') throw Object.assign(new Error('Replay buffer is not available.'), { code: 604 });
+            return { outputActive: false };
+        });
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toEqual({ status: 'closed', pid: 4242 });
+        expect(obsCallMock).not.toHaveBeenCalledWith('StopRecord');
+        expect(obsCallMock).not.toHaveBeenCalledWith('StopReplayBuffer');
+    });
+
+    it('accepts a concurrent manual stop but verifies that outputs have stopped', async () => {
+        let checks = 0;
+        obsCallMock.mockImplementation(async (request: string) => {
+            if (request === 'GetRecordStatus') return { outputActive: ++checks === 1 };
+            if (request === 'StopRecord') throw Object.assign(new Error('Output is not running.'), { code: 501 });
+            return { outputActive: false };
+        });
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toEqual({ status: 'closed', pid: 4242 });
+        expect(checks).toBe(2);
+    });
+
+    it('leaves OBS open if outputs remain active after the stop deadline', async () => {
+        obsCallMock.mockImplementation(async (request: string) => ({ outputActive: request === 'GetReplayBufferStatus' }));
+        const { closeOBSFromElectron } = await loadObsModule();
+        vi.useFakeTimers();
+        try {
+            const closing = closeOBSFromElectron();
+            await vi.advanceTimersByTimeAsync(16_000);
+            await expect(closing).resolves.toMatchObject({ status: 'failed', error: expect.stringMatching(/outputs did not finish stopping/) });
+            expect(execFileAsyncMock).toHaveBeenCalledOnce();
+            expect(rmSyncMock).not.toHaveBeenCalled();
+            expect(obsDisconnectMock).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it.each(['OBS did not exit before the timeout.', 'OBS has no main window to close.'])(
+        'leaves OBS and PID tracking intact when graceful shutdown fails: %s',
+        async (message) => {
+            execFileAsyncMock.mockImplementation(async (executable: string) => {
+                if (executable === 'tasklist') return { stdout: '"obs64.exe","4242"', stderr: '' };
+                throw new Error(message);
+            });
+            const { closeOBSFromElectron } = await loadObsModule();
+
+            await expect(closeOBSFromElectron()).resolves.toEqual({
+                status: 'failed',
+                pid: 4242,
+                error: message,
+            });
+            expect(rmSyncMock).not.toHaveBeenCalled();
+            expect(process.kill).toHaveBeenCalledExactlyOnceWith(4242, 0);
+            expect(execFileAsyncMock.mock.calls.some(([executable]) => /taskkill/i.test(executable))).toBe(false);
+        }
+    );
+
+    it.each(['notepad.exe', 'obsidian.exe'])('does not close %s when it reused the saved PID', async (image) => {
+        execFileAsyncMock.mockResolvedValue({ stdout: `"${image}","4242"`, stderr: '' });
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toEqual({ status: 'not-running', pid: 4242 });
+        expect(execFileAsyncMock).toHaveBeenCalledExactlyOnceWith('tasklist', [
+            '/NH', '/FO', 'CSV', '/FI', 'PID eq 4242',
+        ]);
+        expect(process.kill).toHaveBeenCalledExactlyOnceWith(4242, 0);
+    });
+
+    it('rejects a malformed saved PID before looking up or closing any process', async () => {
+        readFileSyncMock.mockReturnValue('4242-unrelated');
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toEqual({ status: 'not-running' });
+        expect(execFileAsyncMock).not.toHaveBeenCalled();
+        expect(process.kill).not.toHaveBeenCalled();
+    });
+
+    it('backs up settings before closing OBS and again after its exit flushes changes', async () => {
+        const order: string[] = [];
+        createObsSettingsSnapshotMock.mockImplementation(async (_source, _target, reason) => {
+            order.push(reason);
+            return null;
+        });
+        execFileAsyncMock.mockImplementation(async (executable: string) => {
+            if (executable !== 'tasklist') order.push('exit confirmed');
+            return { stdout: '"obs64.exe","4242"', stderr: '' };
+        });
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toEqual({ status: 'closed', pid: 4242 });
+        expect(order).toEqual(['before OBS shutdown', 'exit confirmed', 'after OBS shutdown']);
+        expect(createObsSettingsSnapshotMock).toHaveBeenCalledWith(
+            'C:\\test-gsm\\obs-studio\\config\\obs-studio',
+            'C:\\test-gsm\\backup\\obs',
+            'before OBS shutdown',
+            {
+                relatedFiles: [
+                    { sourcePath: 'C:\\test-gsm\\config.json', snapshotPath: 'gsm/config.json' },
+                    { sourcePath: 'C:\\test-gsm\\electron\\config.json', snapshotPath: 'gsm/electron-config.json' },
+                ],
+            }
+        );
+    });
+
+    it('does not prevent a graceful close when a settings snapshot cannot be written', async () => {
+        createObsSettingsSnapshotMock.mockRejectedValue(new Error('Backup disk is unavailable.'));
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { closeOBSFromElectron } = await loadObsModule();
+
+        await expect(closeOBSFromElectron()).resolves.toEqual({ status: 'closed', pid: 4242 });
+        expect(createObsSettingsSnapshotMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('backs up existing settings before startup creates or repairs seed files', async () => {
+        const order: string[] = [];
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === DEFAULT_OBS_PATH);
+        createObsSettingsSnapshotMock.mockImplementation(async () => {
+            order.push('snapshot');
+            return null;
+        });
+        writeFileSyncMock.mockImplementation(() => { order.push('write'); });
+        const { ensureObsInstalled } = await loadObsModule();
+
+        await expect(ensureObsInstalled()).resolves.toBe('already-installed');
+        expect(order[0]).toBe('snapshot');
+        expect(order).toContain('write');
+    });
+
+    it('does not launch a second OBS instance when restart cannot close the first', async () => {
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === DEFAULT_OBS_PATH);
+        spawnMock.mockReturnValue({ pid: 4242, once: vi.fn(), unref: vi.fn() });
+        const { launchOBSFromElectron, closeOBSFromElectron } = await loadObsModule();
+        await expect(launchOBSFromElectron()).resolves.toEqual({ status: 'launched', pid: 4242 });
+        execFileAsyncMock.mockRejectedValue(new Error('OBS is still saving.'));
+
+        await expect(launchOBSFromElectron({ forceRestart: true })).resolves.toEqual({
+            status: 'failed', pid: 4242, error: 'OBS is still saving.',
+        });
+        expect(spawnMock).toHaveBeenCalledOnce();
+        expect(rmSyncMock).not.toHaveBeenCalledWith(OBS_PID_PATH, { force: true });
+
+        execFileAsyncMock.mockResolvedValue({ stdout: '', stderr: '' });
+        await expect(closeOBSFromElectron()).resolves.toEqual({ status: 'closed', pid: 4242 });
     });
 });
 

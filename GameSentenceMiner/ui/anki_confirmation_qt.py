@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
 from urllib.parse import quote
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
-from GameSentenceMiner.ui.audio_waveform_widget import AUDIO_EXPAND_SECONDS, AudioWaveformWidget
+from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
 from GameSentenceMiner.ui.window_activation import activate_window, get_foreground_window_handle
 from GameSentenceMiner.replay_handler import request_dialogue_replay_refresh
 from GameSentenceMiner.util.config.configuration import (
@@ -585,6 +585,7 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout.addWidget(self.codec_info_label)
 
         self.waveform_widget = AudioWaveformWidget()
+        self.waveform_widget.set_expand_step(get_config().anki.confirmation_audio_step)
         self.waveform_widget.setMinimumHeight(54)
         self.waveform_widget.setMaximumHeight(92)
         self.waveform_widget.set_dark_mode()
@@ -733,6 +734,7 @@ class AnkiConfirmationDialog(QDialog):
         self._dialog_shown_logged = False
         self._apply_window_behavior_preferences()
         self.overlay_only = bool(overlay_only)
+        self.waveform_widget.set_expand_step(get_config().anki.confirmation_audio_step)
         self.overlay_source_warning_label.setVisible(self.overlay_only)
         self.disable_session_checkbox.setVisible(not self.overlay_only)
         if self.overlay_only:
@@ -868,6 +870,7 @@ class AnkiConfirmationDialog(QDialog):
         super().paintEvent(event)
         if not self._dialog_shown_logged:
             self._dialog_shown_logged = True
+            logger.info("Anki confirmation dialog shown.")
             log_anki_card_timing(
                 getattr(self._replay_context, "timing_context", None),
                 "anki.confirmation_dialog.shown",
@@ -2088,8 +2091,8 @@ class AnkiConfirmationDialog(QDialog):
             raise RuntimeError("Expanded audio range is empty.")
 
         game_name = sanitize_filename(gsm_state.current_game) if gsm_state.current_game else "expanded"
-        orig_ext = os.path.splitext(self._audio_edit_source_path)[1] or ".wav"
-        filename = f"{game_name}_manual_audio_expand_{int(time.time())}{orig_ext}"
+        output_ext = get_config().audio.extension
+        filename = f"{game_name}_manual_audio_expand_{int(time.time())}.{output_ext}"
         new_path = make_unique_file_name(os.path.join(get_temporary_directory(), filename))
         previous_cut_ranges = self.waveform_widget.get_cut_ranges()
         previous_window = self._audio_edit_source_window
@@ -2150,11 +2153,11 @@ class AnkiConfirmationDialog(QDialog):
         self._update_audio_expand_buttons()
         self.waveform_widget.update()
 
-    def _expand_audio_start(self):
-        self._expand_audio_window(expand_start=AUDIO_EXPAND_SECONDS)
+    def _expand_audio_start(self, seconds):
+        self._expand_audio_window(expand_start=seconds)
 
-    def _expand_audio_end(self):
-        self._expand_audio_window(expand_end=AUDIO_EXPAND_SECONDS)
+    def _expand_audio_end(self, seconds):
+        self._expand_audio_window(expand_end=seconds)
 
     def _expand_audio_window(self, expand_start=0.0, expand_end=0.0):
         if not self._audio_edit_range or not self._audio_edit_source_path or not self._audio_edit_source_window:

@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -3686,6 +3687,163 @@ def test_invoke_success_and_failure_retry(monkeypatch):
     with pytest.raises(Exception):
         anki.invoke("deckNames", retries=1)
     assert attempts["count"] >= 2
+
+
+def _anki_connect_response(*, error=None, result=None):
+    return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"error": error, "result": result})
+
+
+@pytest.fixture
+def anki_connect(monkeypatch):
+    post = Mock()
+    wait = Mock(return_value=False)
+    stop = anki.threading.Event()
+    monkeypatch.setattr(anki, "get_config", _base_config)
+    monkeypatch.setattr(anki.requests, "post", post)
+    monkeypatch.setattr(anki, "_anki_monitor_stop", stop)
+    monkeypatch.setattr(stop, "wait", wait)
+    return SimpleNamespace(post=post, wait=wait, stop=stop)
+
+
+@pytest.mark.parametrize("raise_on_error", [True, False])
+def test_invoke_waits_for_collection_without_retry_limit(monkeypatch, anki_connect, raise_on_error):
+    anki_connect.post.side_effect = [
+        *[_anki_connect_response(error="A collection operation is active.") for _ in range(12)],
+        _anki_connect_response(result=[42]),
+    ]
+    errors = Mock()
+    timing = Mock()
+    monkeypatch.setattr(anki.logger, "error", errors)
+    monkeypatch.setattr(anki, "log_anki_card_timing", timing)
+
+    assert anki.invoke("guiSelectedNotes", raise_on_error=raise_on_error) == [42]
+
+    assert anki_connect.post.call_count == 13
+    assert all(call == anki_connect.post.call_args_list[0] for call in anki_connect.post.call_args_list)
+    assert [call.args[0] for call in anki_connect.wait.call_args_list] == [1, 2, 4, *([5] * 9)]
+    errors.assert_not_called()
+    assert all(call.kwargs["will_retry"] for call in timing.call_args_list[:-1])
+    assert [call.kwargs["attempt"] for call in timing.call_args_list] == list(range(1, 14))
+
+
+def test_invoke_busy_wait_does_not_use_other_error_retry_budget(monkeypatch, anki_connect):
+    busy = _anki_connect_response(error="A collection operation is active.")
+    anki_connect.post.side_effect = [
+        busy,
+        busy,
+        anki.requests.ConnectionError("connection lost"),
+        busy,
+        _anki_connect_response(result=42),
+    ]
+    sleep = Mock()
+    monkeypatch.setattr(anki.time, "sleep", sleep)
+
+    assert anki.invoke("deckNames", retries=1) == 42
+
+    assert anki_connect.post.call_count == 5
+    assert anki_connect.wait.call_count == 3
+    sleep.assert_called_once_with(1.0)
+
+
+@pytest.mark.parametrize("raise_on_error", [True, False])
+def test_invoke_still_stops_on_other_errors_after_collection_busy(anki_connect, raise_on_error):
+    anki_connect.post.side_effect = [
+        _anki_connect_response(error="A collection operation is active."),
+        _anki_connect_response(error="note was not found"),
+    ]
+
+    if raise_on_error:
+        with pytest.raises(Exception, match="note was not found"):
+            anki.invoke("updateNoteFields", raise_on_error=raise_on_error)
+    else:
+        assert anki.invoke("updateNoteFields", raise_on_error=raise_on_error) is None
+
+    assert anki_connect.post.call_count == 2
+    anki_connect.wait.assert_called_once_with(1.0)
+
+
+@pytest.mark.parametrize("stop_during_wait", [True, False])
+@pytest.mark.parametrize("raise_on_error", [True, False])
+def test_invoke_collection_busy_stops_on_shutdown(monkeypatch, anki_connect, stop_during_wait, raise_on_error):
+    anki_connect.post.return_value = _anki_connect_response(error="A collection operation is active.")
+    monkeypatch.setattr(anki, "translation_prefetch_executor", Mock())
+
+    def stop_runtime(_timeout):
+        anki.stop_anki_runtime()
+        return True
+
+    if stop_during_wait:
+        anki_connect.wait.side_effect = stop_runtime
+    else:
+        anki.stop_anki_runtime()
+
+    if raise_on_error:
+        with pytest.raises(Exception, match="A collection operation is active"):
+            anki.invoke("guiSelectedNotes", retries=5)
+    else:
+        assert anki.invoke("guiSelectedNotes", retries=5, raise_on_error=False) is None
+
+    anki_connect.post.assert_called_once()
+    assert anki_connect.wait.call_count == int(stop_during_wait)
+
+
+@pytest.mark.parametrize(
+    "busy_action", ["storeMediaFile", "guiSelectedNotes", "updateNoteFields", "addTags", "removeTags"]
+)
+def test_check_and_update_note_finishes_after_collection_busy(monkeypatch, tmp_path, anki_connect, busy_action):
+    config = _base_config()
+    config.anki.remove_overlay_tag = True
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    audio = tmp_path / "audio.mp3"
+    audio.write_bytes(b"audio")
+    cleanup = Mock()
+    assets = anki.MediaAssets(audio_path=str(audio), cleanup_callback=cleanup)
+    last_note = SimpleNamespace(noteId=42, get_field=lambda field: "word" if field == "Word" else "")
+    note = {"id": 42, "fields": {"Sentence": "sentence"}}
+    completed = Mock()
+    failed = Mock()
+    sync = Mock()
+    remove_word = Mock()
+    monkeypatch.setattr(anki, "_notify_anki_enhancement_failure", failed)
+    monkeypatch.setattr(anki, "_mark_anki_update_failure", failed)
+    monkeypatch.setattr(anki, "_trigger_incremental_anki_cache_sync", sync)
+    monkeypatch.setattr(anki.gsm_status, "remove_word_being_processed", remove_word)
+    successful_actions = []
+    remaining_busy_responses = 6
+
+    def post(_url, *, json, **_kwargs):
+        nonlocal remaining_busy_responses
+        cleanup.assert_not_called()
+        completed.assert_not_called()
+        remove_word.assert_not_called()
+        action = json["action"]
+        if action == busy_action and remaining_busy_responses:
+            remaining_busy_responses -= 1
+            return _anki_connect_response(error="A collection operation is active.")
+        successful_actions.append(action)
+        result = {"storeMediaFile": "audio.mp3", "guiSelectedNotes": []}.get(action)
+        return _anki_connect_response(result=result)
+
+    anki_connect.post.side_effect = post
+
+    anki.check_and_update_note(
+        last_note,
+        note,
+        tags=["mined"],
+        assets=assets,
+        use_voice=True,
+        assets_ready_callback=completed,
+        processing_word="word",
+    )
+
+    assert successful_actions == ["storeMediaFile", "guiSelectedNotes", "updateNoteFields", "addTags", "removeTags"]
+    assert anki_connect.wait.call_count == 6
+    assert note["fields"]["SentenceAudio"] == "[sound:audio.mp3]"
+    completed.assert_called_once_with(assets)
+    cleanup.assert_called_once_with()
+    remove_word.assert_called_once_with("word")
+    sync.assert_called_once_with([42])
+    failed.assert_not_called()
 
 
 def test_get_last_anki_card_and_get_cards_by_sentence(monkeypatch):

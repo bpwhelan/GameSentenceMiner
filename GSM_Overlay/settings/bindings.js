@@ -554,6 +554,7 @@ function syncGamepadSettingsEnabledUi() {
     "gamepadManualOverlayScanButton",
     "gamepadTranslateButton",
     "gamepadPauseToggleButton",
+    "gamepadQuickActionsButton",
     "gamepadTokenModeToggleButton",
     "gamepadMineButton",
     "gamepadNextEntryButton",
@@ -1071,6 +1072,18 @@ const SETTING_BINDING_DEFINITIONS = [
   createGamepadBindingSetting("gamepadManualOverlayScanButton"),
   createGamepadBindingSetting("gamepadTranslateButton"),
   createGamepadBindingSetting("gamepadPauseToggleButton"),
+  createGamepadBindingSetting("gamepadQuickActionsButton"),
+  createKeyboardBindingSetting("keyboardQuickActionsKey"),
+  {
+    key: "gamepadQuickActions",
+    kind: "custom",
+    selectors: ["#quick-actions-choices"],
+    read: () => window.GSMQuickActions.DEFAULT_ACTIONS,
+    write: (_control, value) => window.GSMQuickActionsSettings.render(value),
+    normalize: value => window.GSMQuickActions.normalizeActions(value),
+    equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+  },
+  createTextBinding("gamepadQuickActionsQuestion", "#gamepadQuickActionsQuestion"),
   createGamepadBindingSetting("gamepadTokenModeToggleButton"),
   createGamepadBindingSetting("gamepadMineButton"),
   createGamepadBindingSetting("gamepadNextEntryButton"),
@@ -1186,6 +1199,8 @@ function registerBindingListener(binding, control) {
   if (!control) return;
 
   addResetButtonToBindingControl(binding, control);
+
+  if (binding.kind === "custom") return;
 
   if (binding.kind === "hotkey") {
     const hotkeyOptions = HOTKEY_BINDING_OPTIONS[binding.key] || {};

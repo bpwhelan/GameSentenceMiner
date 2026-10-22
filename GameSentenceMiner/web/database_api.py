@@ -1531,7 +1531,7 @@ def register_database_api_routes(app):
                     return jsonify({"error": "tadoku_username must be a string value"}), 400
                 tadoku_username = tadoku_username.strip()
                 if len(tadoku_username) > 320:
-                    return jsonify({"error": "Tadoku username is too long"}), 400
+                    return jsonify({"error": "Tadoku email is too long"}), 400
                 settings_to_update["tadoku_username"] = tadoku_username
 
             if tadoku_password is not None:

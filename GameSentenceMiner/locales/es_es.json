@@ -203,6 +203,10 @@
             "label": "Omitir confirmación en líneas sin voz:",
             "tooltip": "Advertencia: omite la confirmación cuando VAD no detecta voz. La ventana de confirmación se creó originalmente para comprobar los resultados de VAD en líneas sin voz detectada. Omitirla puede dejar pasar voz no detectada y crear tarjetas sin audio de voz."
           },
+          "confirmation_audio_step": {
+            "label": "Paso de ampliación del audio:",
+            "tooltip": "Segundos añadidos con cada clic en un botón de ampliación del audio en el diálogo de confirmación."
+          },
           "confirmation_gamepad_enabled": {
             "label": "Controles del mando:",
             "tooltip": "Activa las asignaciones configurables del mando para el diálogo de confirmación de Anki. Los demás controles del mando de GSM se pausan mientras el diálogo está abierto."

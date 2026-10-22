@@ -36,3 +36,12 @@ def test_game_stats_template_loads_search_css_before_html_head():
     assert contents.index("{% set additional_css = ['search.css'] %}") < contents.index(
         "{% include 'components/html-head.html' %}"
     )
+
+
+def test_external_stats_modal_includes_kizuna_import():
+    contents = (TEMPLATES_DIR / "database.html").read_text(encoding="utf-8")
+    assert 'data-tp-tab="kizuna"' in contents
+    assert 'id="tpTabKizuna"' in contents
+    assert 'id="kizunaFileInput"' in contents
+    assert 'onclick="importKizunaData()"' in contents
+    assert "VNDB metadata" in contents

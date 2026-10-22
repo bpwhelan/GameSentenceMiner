@@ -95,6 +95,37 @@ function loadOverlaySettingsPage(platform = "win32") {
 }
 
 describe("overlay settings navigation", () => {
+  it("saves quick-action choices and order, restores profiles, and supports a saved custom question", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const doc = page.dom.window.document;
+      const checkbox = (id: string) => doc.querySelector(`[data-quick-action="${id}"]`) as HTMLInputElement;
+      expect(checkbox('pause-input').checked).toBe(true);
+      expect(checkbox('grammar').checked).toBe(false);
+      checkbox('grammar').click();
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.payload?.key === 'gamepadQuickActions')?.payload).toEqual({
+        key: 'gamepadQuickActions', value: ['pause-input', 'replay-audio', 'furigana', 'translate-menu', 'grammar'],
+      });
+      const up = doc.querySelector('button[aria-label="Move up: Grammar"]') as HTMLButtonElement;
+      up.click();
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.payload?.key === 'gamepadQuickActions')?.payload).toEqual({
+        key: 'gamepadQuickActions', value: ['pause-input', 'replay-audio', 'furigana', 'grammar', 'translate-menu'],
+      });
+      page.listeners.get('settings-updated')?.(null, { gamepadQuickActions: ['context', 'pause-input'] });
+      expect(checkbox('grammar').checked).toBe(false);
+      expect(Array.from(doc.querySelectorAll('[data-quick-action]')).slice(0, 2).map((node: any) => node.dataset.quickAction)).toEqual(['context', 'pause-input']);
+      const question = doc.getElementById('gamepadQuickActionsQuestion') as HTMLInputElement;
+      question.value = 'Explain the omitted subject.';
+      question.dispatchEvent(new page.dom.window.Event('blur', { bubbles: true }));
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.payload?.key === 'gamepadQuickActionsQuestion')?.payload).toEqual({
+        key: 'gamepadQuickActionsQuestion', value: 'Explain the omitted subject.',
+      });
+    } finally { page.dom.window.close(); }
+  });
   it("shows one focused page and remembers the subtab within each category", async () => {
     const page = loadOverlaySettingsPage();
     try {
@@ -912,6 +943,34 @@ describe("overlay settings keyboard binding capture", () => {
       route.dispatchEvent(new page.dom.window.Event('change', { bubbles: true }));
       await nextTick();
       expect(page.sent.findLast(entry => entry.channel === 'setting-changed')?.payload).toEqual({ key: 'vnGuideRoute', value: 'two' });
+    } finally { page.dom.window.close(); }
+  });
+
+  it("shows guide update availability, check progress, and offline failures without losing instructions", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const document = page.dom.window.document;
+      const state = { enabled: true, total: 2, index: 1, text: 'Current instruction', routes: [], lastCheckedAt: 1000 };
+      const render = (extra = {}) => page.listeners.get('vn-guide-state')?.(null, { ...state, ...extra });
+      render();
+      expect(document.getElementById('vn-guide-update-status').textContent).toContain('up to date');
+      document.getElementById('vn-guide-check-updates').click();
+      expect(page.invoked.findLast(entry => entry.channel === 'vn-guide-command')?.payload).toEqual({ action: 'check-updates', value: undefined });
+      render({ checkingUpdates: true });
+      expect(document.getElementById('vn-guide-check-updates').disabled).toBe(true);
+      expect(document.getElementById('vn-guide-refresh').disabled).toBe(true);
+      expect(document.getElementById('vn-guide-next').disabled).toBe(false);
+      expect(document.getElementById('vn-guide-update-status').textContent).toContain('Checking');
+      render({ updateAvailable: true });
+      expect(document.getElementById('vn-guide-update-status').textContent).toContain('update is available');
+      expect(document.getElementById('vn-guide-refresh').textContent).toBe('Update guide from source');
+      document.getElementById('vn-guide-refresh').click();
+      expect(page.invoked.findLast(entry => entry.channel === 'vn-guide-command')?.payload).toEqual({ action: 'refresh', value: undefined });
+      render({ updateError: 'Offline <img src=x>' });
+      expect(document.getElementById('vn-guide-update-status').textContent).toContain('cached guide is still available');
+      expect(document.querySelector('#vn-guide-update-status img')).toBeNull();
+      expect(document.getElementById('vn-guide-current').textContent).toBe('Current instruction');
     } finally { page.dom.window.close(); }
   });
 

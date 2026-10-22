@@ -141,6 +141,38 @@ def test_anki_confirmation_gamepad_support_is_opt_in() -> None:
     assert Anki().confirmation_gamepad_enabled is False
 
 
+def test_confirmation_audio_step_presets_can_be_saved_and_reloaded(monkeypatch) -> None:
+    from GameSentenceMiner.util.config import configuration
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", lambda: "test-version")
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_schedule_runtime_reload", lambda self: None)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
+    window = ConfigWindow()
+    try:
+        combo = window.anki_confirmation_audio_step_combo
+        assert not combo.isEditable()
+        assert [combo.itemData(i) for i in range(combo.count())] == [0.1, 0.25, 0.5, 1, 2, 3, 4, 5]
+        assert combo.parentWidget().layout().labelForField(combo) is not None
+        for step in [0.1, 0.25, 0.5, 1, 2, 3, 4, 5]:
+            combo.setCurrentIndex(combo.findData(step))
+            assert window.save_settings(show_indicator=False)
+            assert configuration.Config.load().get_config().anki.confirmation_audio_step == step
+            window._auto_save_timer.stop()
+            with QSignalBlocker(combo):
+                combo.setCurrentIndex(-1)
+            window.reload_settings(force_refresh=True)
+            assert combo.currentData() == step
+    finally:
+        window._auto_save_timer.stop()
+        window.close()
+        app.processEvents()
+
+
 def test_skip_unvoiced_confirmation_has_red_warning_and_can_be_saved_and_reloaded(monkeypatch) -> None:
     from GameSentenceMiner.ui.config.labels import LabelColor
     from GameSentenceMiner.util.config import configuration

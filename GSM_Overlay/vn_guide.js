@@ -1,4 +1,4 @@
-const { prepareTextLines } = require('./block_detection');
+const { prepareTextLines, detectTextBlocks } = require('./block_detection');
 
 const SITE = 'https://kanjieater.github.io/VN-Guide/';
 const RAW = 'https://raw.githubusercontent.com/kanjieater/VN-Guide/main/';
@@ -62,35 +62,67 @@ function validateRoute(data) {
 }
 
 function normalizeChoice(value) {
+  // Ignore punctuation and symbol variants (including OCR's dash-like glyphs)
+  // only when comparing text. Keep letters such as the Japanese vowel mark ー.
   return String(value || '').normalize('NFKC').trim()
-    .replace(/^(?:[▶▷►●○・]\s*|\d{1,2}[.)．、]\s*)/u, '').replace(/\s/gu, '');
+    .replace(/^(?:[▶▷►●○・]\s*|\d{1,2}[.)．、]\s*)/u, '').replace(/[\p{P}\p{S}\s]/gu, '');
 }
 
 function choiceLines(data) {
   if (!Array.isArray(data) || data.length > 500) return [];
-  return prepareTextLines(data).flatMap(line => {
-    if (typeof line?.text !== 'string' || line.text.length > 100 || /[\r\n]/u.test(line.text) || line.isVertical) return [];
+  const prepared = prepareTextLines(data).filter(line => {
+    const box = line?.bounding_rect;
+    return typeof line?.text === 'string' && box
+      && ['x1', 'x3', 'y1', 'y3'].every(key => typeof box[key] === 'number' && Number.isFinite(box[key]) && box[key] >= 0 && box[key] <= 1)
+      && box.x3 > box.x1 && box.y3 > box.y1;
+  });
+  const blocks = detectTextBlocks(prepared);
+  return prepared.flatMap((line, index) => {
+    if (line.text.length > 100 || /[\r\n]/u.test(line.text) || line.isVertical) return [];
     const box = line.bounding_rect;
-    if (!box || !['x1', 'x3', 'y1', 'y3'].every(key => typeof box[key] === 'number' && Number.isFinite(box[key]) && box[key] >= 0 && box[key] <= 1)) return [];
     const height = box.y3 - box.y1;
-    if (height <= 0 || height > 0.09 || box.x3 <= box.x1) return [];
-    return [{ text: normalizeChoice(line.text), ...box, height, center: (box.x1 + box.x3) / 2 }];
+    if (height > 0.09) return [];
+    const blockId = blocks.lineBlocks.get(index);
+    const boundary = blocks.blockBoundaries.get(blockId);
+    const isolated = boundary?.start === index && boundary?.end === index && blocks.blockMetadata.get(blockId)?.role === 'text';
+    return [{ text: normalizeChoice(line.text), ...box, height, center: (box.x1 + box.x3) / 2, isolated }];
   });
 }
 
-function findChoice(data, expected) {
+function choiceSimilarity(observed, target) {
+  if (!observed || !target) return 0;
+  if (observed === target) return 1;
+  const a = [...observed], b = [...target];
+  const length = Math.max(a.length, b.length);
+  // Short answers and large length differences are too easy to confuse. Limit
+  // longer choices to one or two OCR insertions, deletions, or substitutions.
+  const budget = Math.min(2, Math.max(1, Math.floor(length * 0.12)));
+  if (Math.min(a.length, b.length) < 8 || length > 100 || Math.abs(a.length - b.length) > budget) return 0;
+  let row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 0; i < a.length; i += 1) {
+    const next = [i + 1];
+    for (let j = 0; j < b.length; j += 1) {
+      next.push(Math.min(next[j] + 1, row[j + 1] + 1, row[j] + (a[i] === b[j] ? 0 : 1)));
+    }
+    if (Math.min(...next) > budget) return 0;
+    row = next;
+  }
+  return row[b.length] <= budget ? 1 - row[b.length] / length : 0;
+}
+
+const containsOption = (options, text) => (options || []).some(option => choiceSimilarity(text, option) > 0);
+
+function findChoice(data, expected, { allowFuzzy = true, requireMenu = false } = {}) {
   const target = normalizeChoice(expected);
   if (!target) return null;
   const lines = choiceLines(data);
-  const matches = lines.filter(line => line.text === target);
+  const exact = lines.filter(line => line.text === target);
+  const matches = exact.length ? exact : allowFuzzy ? lines.filter(line => line.isolated && choiceSimilarity(line.text, target) > 0) : [];
   if (matches.length !== 1) return null;
   const match = matches[0];
-  // Deliberately miss lower dialogue-box choices rather than interpreting a
-  // speaker and a short dialogue line as a menu. Manual controls cover these.
-  if (match.y3 > 0.74) return null;
   const short = [...target].length <= 4;
   const peers = lines.filter(line => {
-    if (line === match || !line.text || line.text === target || line.y3 > 0.74) return false;
+    if (line === match || !line.text || line.text === target || isSaveControl(line) || !exact.length && !line.isolated) return false;
     const height = Math.max(line.height, match.height);
     const gap = Math.max(line.y1 - match.y3, match.y1 - line.y3);
     const aligned = short
@@ -99,7 +131,17 @@ function findChoice(data, expected) {
     return aligned && Math.min(line.height, match.height) / height > 0.65
       && gap >= height * (short ? 1.2 : 0.8) && gap <= height * 7;
   });
-  return peers.length ? { text: target, options: [target, ...peers.map(line => line.text)] } : null;
+  const menu = peers.length > 0;
+  if (requireMenu && !menu) return null;
+  if (!menu && (!match.isolated || [...target].length < 8)) return null;
+  const similarity = choiceSimilarity(match.text, target);
+  // Position is a small confidence bonus, never a requirement. Isolation and
+  // text similarity must stand on their own even when there are menu peers.
+  const central = Math.abs(match.center - 0.5) < 0.2 && Math.abs((match.y1 + match.y3) / 2 - 0.5) < 0.25;
+  const confidence = similarity + (menu ? 0.03 : 0) + (central ? 0.02 : 0);
+  if (similarity < 1 && (!match.isolated || confidence < 0.9)) return null;
+  return { text: target, observed: match.text, exact: similarity === 1, menu,
+    options: [...new Set([target, match.text, ...peers.map(line => line.text)])] };
 }
 
 const isSaveControl = line => /セーブ|ロード|上書き|保存先|^(?:(?:quick|auto)?(?:save|load)(?:game|data|slot)?|overwrite)$/iu.test(line.text);
@@ -129,12 +171,25 @@ class GuideTracker {
     return this.steps[next]?.kind === 'choice' ? next : index;
   }
   get rememberedChoice() { return this.detected && !this.armed; }
-  resetDetection() { this.detected = false; this.armed = null; this.blockedOptions = null; this.suspendedPresenceId = null; this.suspendedOptions = null; }
+  resetDetection() {
+    this.detected = false;
+    this.armed = null;
+    this.blockedOptions = null;
+    this.pendingLineId = null;
+    this.suspendedPresenceId = null;
+    this.suspendedLineId = null;
+    this.suspendedOptions = null;
+  }
   suspendDetection() {
     // Retain the hint across a temporary hide, but require new menu evidence
     // before disappearance can advance. Keep a manual advance's duplicate guard.
-    if (this.armed) { this.suspendedPresenceId = this.armed.presenceId; this.suspendedOptions = this.armed.options; }
+    if (this.armed) {
+      this.suspendedPresenceId = this.armed.presenceId;
+      this.suspendedLineId = this.armed.lineId;
+      this.suspendedOptions = this.armed.options;
+    }
     this.armed = null;
+    this.pendingLineId = null;
   }
   findAheadChoice(data, lines) {
     // An option still present in the current menu, or a save confirmation, must
@@ -147,7 +202,7 @@ class GuideTracker {
       const carriesSave = this.steps[index].kind === 'save';
       if (carriesSave) index = this.choiceAfterSave(index);
       if (this.steps[index]?.kind !== 'choice') break;
-      const match = findChoice(data, this.steps[index].text);
+      const match = findChoice(data, this.steps[index].text, { allowFuzzy: false, requireMenu: true });
       if (match) matches.push({ index, match });
       // The save can be shown with its next choice, but never skipped past it.
       if (carriesSave) break;
@@ -169,9 +224,42 @@ class GuideTracker {
   back() { this.jump(this.recoveredFrom ?? Math.max(0, this.startIndex - 1)); }
   observe(message, now = Date.now(), autoAdvance = true) {
     if (!this.current || this.current.kind !== 'choice') return;
-    if (message?.type === 'overlay_clear') { this.resetDetection(); return; }
+    if (message?.type === 'game_text') {
+      if (typeof message.text !== 'string' || message.text.length > 20000) return;
+      const options = message.text.split(/\r?\n/u).map(normalizeChoice).filter(Boolean);
+      if (!options.length) return;
+      if (this.blockedOptions) {
+        if (options.some(text => containsOption(this.blockedOptions, text))) return;
+        this.blockedOptions = null;
+      }
+      const target = normalizeChoice(this.current.text);
+      const matches = options.filter(text => text === target);
+      // Text without coordinates can reveal only the current exact instruction.
+      // It cannot establish a menu, recover missed steps, or arm progression.
+      if (matches.length === 1 && !options.some(text => isSaveControl({ text }))) {
+        if (this.armed?.source !== 'ocr') {
+          this.armed = { text: target, options, source: 'text', since: now, stable: false, saveControls: [] };
+          this.detected = true;
+        }
+      } else if (this.armed?.source === 'text') {
+        this.armed = null;
+        this.detected = false;
+      }
+      return;
+    }
+    if (message?.type === 'overlay_clear') {
+      if (!message.line_id) this.resetDetection();
+      else {
+        // The backend clears boxes before scanning each new text line. Hide the
+        // old hint, but keep its evidence until that scan confirms the menu left.
+        this.pendingLineId = message.line_id;
+        if (this.armed?.source !== 'text') this.detected = false;
+        if (this.armed) this.armed.invalidatedAt ??= now;
+      }
+      return;
+    }
     if (message?.type === 'ocr_text_invalidated') {
-      if (this.armed && (!message.presence_id || message.presence_id === this.armed.presenceId)) {
+      if (this.armed && this.armed.source !== 'text' && (!message.presence_id || message.presence_id === this.armed.presenceId)) {
         this.armed.invalidatedAt = now;
         this.detected = false;
       }
@@ -185,18 +273,29 @@ class GuideTracker {
       message = message.payload;
     }
     if (message?.type !== 'word_coordinates' || message.supplemental || !Array.isArray(message.data) || !message.data.length) return;
-    if (this.blockedOptions) {
-      const lines = choiceLines(message.data);
-      if (message.is_final === true && lines.length && !lines.some(line => this.blockedOptions.includes(line.text))) this.blockedOptions = null;
-      return;
+    if (this.pendingLineId) {
+      const staleLine = message.line_id && message.line_id !== this.pendingLineId;
+      const stalePresence = this.armed?.lineId !== this.pendingLineId
+        && message.presence_id && message.presence_id === this.armed?.presenceId;
+      if (revalidated || staleLine || stalePresence) return;
     }
     const lines = choiceLines(message.data);
+    if (this.blockedOptions) {
+      if (message.is_final === true && lines.length && !lines.some(line => containsOption(this.blockedOptions, line.text))) this.blockedOptions = null;
+      // A distinct menu may be the only scan of the next choice. Once it clears
+      // the old-menu guard, use that same frame to detect the current step.
+      else return;
+    }
     let match = findChoice(message.data, this.current.text);
+    if (match && !match.exact && this.steps.some(step => step.kind === 'choice'
+      && normalizeChoice(step.text) === match.observed)) match = null;
     const previousPresence = this.armed?.presenceId || this.suspendedPresenceId;
+    const previousLine = this.armed?.lineId || this.suspendedLineId;
     if (!match && autoAdvance && message.is_final === true && !revalidated
+      && (!previousLine || previousLine !== message.line_id)
       && (!previousPresence || previousPresence !== message.presence_id)) {
       const ahead = this.findAheadChoice(message.data, lines);
-      if (ahead && !(this.armed?.options || this.suspendedOptions || []).includes(ahead.match.text)) {
+      if (ahead && !containsOption(this.armed?.options || this.suspendedOptions, ahead.match.text)) {
         const from = this.index;
         this.jump(ahead.index);
         this.blockedOptions = null; // This fresh, distinct menu already proves the old one was left.
@@ -208,12 +307,16 @@ class GuideTracker {
     if (match) {
       const previous = this.armed;
       this.armed = {
-        ...match, since: previous?.since ?? now, presenceId: message.presence_id,
-        stable: message.is_final === true || !!previous && now - previous.since >= 200,
+        ...match, source: 'ocr',
+        since: previous?.source === 'ocr' && previous.menu === match.menu ? previous.since : now,
+        presenceId: message.presence_id, lineId: message.line_id,
+        stable: previous?.stable === true || match.menu && (message.is_final === true || previous?.menu && now - previous.since >= 200),
         saveControls: lines.filter(isSaveControl),
       };
       this.detected = true;
+      if (message.is_final === true) this.pendingLineId = null;
       this.suspendedPresenceId = null;
+      this.suspendedLineId = null;
       this.suspendedOptions = null;
       return;
     }
@@ -222,13 +325,15 @@ class GuideTracker {
       if (message.is_final === true && lines.length) {
         const options = this.suspendedOptions;
         this.resetDetection();
-        if (lines.some(line => options?.includes(line.text))) this.suspendedOptions = options;
+        if (lines.some(line => containsOption(options, line.text))) this.suspendedOptions = options;
       }
       return;
     }
-    if (armed.invalidatedAt && now - armed.invalidatedAt > 15000) { this.resetDetection(); return; }
-    if (!lines.length || lines.some(line => armed.options.includes(line.text))) return;
+    if (armed.source === 'text') return;
+    if (armed.invalidatedAt != null && now - armed.invalidatedAt > 15000) { this.resetDetection(); return; }
+    if (!lines.length || lines.some(line => containsOption(armed.options, line.text))) return;
     if (armed.presenceId && armed.presenceId === message.presence_id) return;
+    if (armed.lineId && armed.lineId === message.line_id) return;
     // Saving at the choice is not selecting an answer. New save/load headings
     // disarm progression until the menu returns; persistent game buttons do not.
     if (message.is_final === true && lines.some(line => isSaveControl(line)
@@ -238,7 +343,11 @@ class GuideTracker {
     }
     // A blank fade, OCR retries, and a cursor highlight disappearing are not a
     // selection. Require a fresh final text frame with the entire menu gone.
-    if (message.is_final !== true || !armed.stable || now - armed.since < 900) return;
+    // A different text-event ID is stronger evidence than a minimum dwell time;
+    // fast readers may select a fully scanned choice in well under a second.
+    if (message.is_final === true && !armed.stable) { this.resetDetection(); return; }
+    const freshLine = armed.lineId && message.line_id && armed.lineId !== message.line_id;
+    if (message.is_final !== true || !armed.stable || !freshLine && now - armed.since < 900) return;
     this.resetDetection();
     if (autoAdvance) {
       this.next();

@@ -10,6 +10,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 type JsonResponseBody = Record<string, unknown>;
 
 type HarnessOptions = {
+    kizunaResponse?: {
+        body: JsonResponseBody;
+        status: number;
+    };
     importResponse?: {
         body: JsonResponseBody;
         status: number;
@@ -46,14 +50,20 @@ function buildHtml(): string {
                 <button data-action="closeModal" data-modal="thirdPartyStatsModal">Close</button>
                 <button data-tp-tab="manual"></button>
                 <button data-tp-tab="mokuro"></button>
+                <button data-tp-tab="kizuna"></button>
                 <div id="tpTabManual" class="tab-content"></div>
                 <div id="tpTabMokuro" class="tab-content"></div>
+                <div id="tpTabKizuna" class="tab-content"></div>
             </div>
 
             <input id="tpManualDate">
             <input id="mokuroFileInput" type="file">
             <input id="mokuroClearPrevious" type="checkbox" checked>
             <div id="mokuroImportResult" style="display: none;"></div>
+            <input id="kizunaFileInput" type="file">
+            <input id="kizunaClearPrevious" type="checkbox">
+            <button id="kizunaImportButton">Import Kizuna Data</button>
+            <div id="kizunaImportResult" style="display: none;"></div>
         </body>
         </html>
     `;
@@ -120,6 +130,23 @@ async function bootstrapHarness(options: HarnessOptions = {}): Promise<Harness> 
                 return createJsonResponse(summaryResponse);
             case '/api/import-mokuro':
                 return createJsonResponse(importResponse.body, importResponse.status);
+            case '/api/import-kizuna': {
+                const response = options.kizunaResponse ?? {
+                    status: 200,
+                    body: {
+                        imported_count: 4,
+                        games_count: 3,
+                        skipped_count: 1,
+                        total_characters: 46116,
+                        total_lines: 2164,
+                        total_time_seconds: 11762.5,
+                        metadata_refresh_status: 'queued',
+                        metadata_refresh_message: 'VNDB metadata refresh queued.',
+                        games: ['<img src=x onerror=alert(1)>', '日本語'],
+                    },
+                };
+                return createJsonResponse(response.body, response.status);
+            }
             default:
                 throw new Error(`Unexpected fetch request in test: ${input}`);
         }
@@ -165,6 +192,57 @@ afterEach(() => {
 });
 
 describe('third-party stats importer UI', () => {
+    it('opens the Kizuna import tab', async () => {
+        const harness = await bootstrapHarness();
+        (harness.document.querySelector('[data-tp-tab="kizuna"]') as HTMLButtonElement).click();
+        expect(harness.document.getElementById('tpTabKizuna')?.classList.contains('active')).toBe(true);
+    });
+
+    it('requires a Kizuna CSV file before submitting', async () => {
+        const harness = await bootstrapHarness();
+        await (harness.window as Window & { importKizunaData: () => Promise<void> }).importKizunaData();
+        expect(harness.document.getElementById('kizunaImportResult')?.textContent).toContain('Please select a Kizuna CSV file.');
+        expect(harness.fetchMock.mock.calls.some(([url]) => url === '/api/import-kizuna')).toBe(false);
+    });
+
+    it('imports Kizuna once, displays totals and metadata status, and escapes game names', async () => {
+        const harness = await bootstrapHarness();
+        const input = harness.document.getElementById('kizunaFileInput') as HTMLInputElement;
+        Object.defineProperty(input, 'files', {
+            value: [new harness.window.File(['vndb_id,name,date,duration_seconds,chars,lines'], 'kizuna.csv')],
+        });
+        const importFn = (harness.window as Window & { importKizunaData: () => Promise<void> }).importKizunaData;
+        const pending = importFn();
+        expect((harness.document.getElementById('kizunaImportButton') as HTMLButtonElement).disabled).toBe(true);
+        await importFn();
+        await pending;
+        const calls = harness.fetchMock.mock.calls.filter(([url]) => url === '/api/import-kizuna');
+        expect(calls).toHaveLength(1);
+        const form = calls[0][1].body as FormData;
+        expect((form.get('file') as File).name).toBe('kizuna.csv');
+        expect(form.get('clear_previous')).toBe('false');
+        const result = harness.document.getElementById('kizunaImportResult');
+        expect(result?.textContent).toContain('Sessions imported:4');
+        expect(result?.textContent).toContain('Games:3');
+        expect(result?.textContent).toContain('Total characters:46,116');
+        expect(result?.textContent).toContain('Total lines:2,164');
+        expect(result?.textContent).toContain('Duplicate sessions skipped:1');
+        expect(result?.textContent).toContain('VNDB metadata refresh queued.');
+        expect(result?.querySelector('img')).toBeNull();
+        expect(harness.fetchMock.mock.calls.filter(([url]) => url === '/api/third-party-stats/summary')).toHaveLength(2);
+        expect((harness.document.getElementById('kizunaImportButton') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('shows failed imports and allows trying again', async () => {
+        const harness = await bootstrapHarness({ kizunaResponse: { status: 400, body: { error: 'Row 3: invalid date' } } });
+        const input = harness.document.getElementById('kizunaFileInput') as HTMLInputElement;
+        Object.defineProperty(input, 'files', { value: [new harness.window.File(['bad'], 'kizuna.csv')] });
+        await (harness.window as Window & { importKizunaData: () => Promise<void> }).importKizunaData();
+        expect(harness.document.getElementById('kizunaImportResult')?.textContent).toContain('Row 3: invalid date');
+        expect(harness.document.getElementById('kizunaImportResult')?.className).toContain('error');
+        expect((harness.document.getElementById('kizunaImportButton') as HTMLButtonElement).disabled).toBe(false);
+    });
+
     it('loads the third-party summary on bootstrap using the API count field', async () => {
         const harness = await bootstrapHarness();
 

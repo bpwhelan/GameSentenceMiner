@@ -69,7 +69,7 @@ function loadStartupGamepadSettings(settings: Record<string, unknown>) {
       source.slice(start, end),
       "module.exports = gamepadSettings;"
     ].join("\n"),
-    { module },
+    { module, window: {} },
     { filename: "GSM_Overlay/index.html#startup-gamepad-settings" }
   );
 
@@ -81,6 +81,14 @@ const GamepadHandler = legacyGamepad.GamepadHandler;
 const legacyGamepadContext = legacyGamepad.context;
 
 describe("legacy gamepad startup settings", () => {
+  it("restores remapped quick actions, including generic chords and disabled bindings", () => {
+    expect(loadStartupGamepadSettings({ gamepadQuickActionsButton: 'Button 803 + Button 809' })).toMatchObject({
+      quickActionsButton: 'Button 803 + Button 809',
+    });
+    expect(loadStartupGamepadSettings({ gamepadQuickActionsButton: 'Disabled' })).toMatchObject({
+      quickActionsButton: 'Disabled',
+    });
+  });
   it.each(["RB + X", "Disabled", -1, 0])("restores the translation binding %s", (binding) => {
     expect(loadStartupGamepadSettings({ gamepadTranslateButton: binding })).toMatchObject({
       translateButton: binding,

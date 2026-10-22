@@ -212,7 +212,7 @@
                 <h2 class="card-title">Import External Stats</h2>
             </div>
             <p class="card-description">
-                Import reading stats from other apps (Mokuro, ッツ Reader, etc.) or add manual entries. These are merged into your overall statistics, heatmap, charts, and goals.
+                Import reading stats from other apps (Kizuna, Mokuro, ッツ Reader, etc.) or add manual entries. These are merged into your overall statistics, heatmap, charts, and goals.
             </p>
             <div class="stats-row">
                 <span class="stats-label">Total Entries:</span>
@@ -917,6 +917,7 @@
         <div class="modal-tabs">
             <button class="tab-btn active" data-tp-tab="manual">Manual Entry</button>
             <button class="tab-btn" data-tp-tab="mokuro">Mokuro Import</button>
+            <button class="tab-btn" data-tp-tab="kizuna">Kizuna Import</button>
             <button class="tab-btn" data-tp-tab="api">API</button>
             <button class="tab-btn" data-tp-tab="entries">View Entries</button>
         </div>
@@ -987,6 +988,32 @@
                 </div>
 
                 <div id="mokuroImportResult" class="tp-import-result" style="display: none;"></div>
+            </div>
+
+            <!-- Kizuna Import Tab -->
+            <div id="tpTabKizuna" class="tab-content" style="padding: 20px;">
+                <p class="info-text">
+                    Import a Kizuna CSV export with reading sessions, character counts, line counts, and reading time.
+                    Games are matched using VNDB IDs where available. VNDB metadata refresh starts automatically after import.
+                    Session dates use your local time zone. Sessions already imported are skipped.
+                </p>
+                <div class="form-group">
+                    <label class="form-label" for="kizunaFileInput">Select Kizuna CSV export:</label>
+                    <input type="file" id="kizunaFileInput" class="form-input" accept=".csv,text/csv">
+                </div>
+                <div class="form-group">
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="kizunaClearPrevious" class="checkbox-input">
+                        <label for="kizunaClearPrevious" class="checkbox-label">Replace previous Kizuna imports</label>
+                    </div>
+                    <small style="color: var(--text-tertiary); font-size: 12px; margin-left: 25px; display: block;">
+                        Use this when replacing your full export. Removes previously imported Kizuna sessions before saving this file.
+                    </small>
+                </div>
+                <div style="margin-top: 15px;">
+                    <button class="action-btn primary" id="kizunaImportButton" onclick="importKizunaData()">Import Kizuna Data</button>
+                </div>
+                <div id="kizunaImportResult" class="tp-import-result" role="status" aria-live="polite" style="display: none;"></div>
             </div>
 
             <!-- API Documentation Tab -->

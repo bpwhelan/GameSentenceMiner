@@ -802,6 +802,7 @@ class AnkiField:
 @dataclass_json
 @dataclass
 class Anki:
+    CONFIRMATION_AUDIO_STEPS: ClassVar[tuple[float, ...]] = (0.1, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0)
     _FIELD_DEFAULTS: ClassVar[Dict[str, AnkiField]] = {
         "sentence": AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True),
         "sentence_audio": AnkiField(name="SentenceAudio", enabled=True, overwrite=True, append=False, core=True),
@@ -838,6 +839,7 @@ class Anki:
     auto_accept_timer: int = 10
     confirmation_always_on_top: bool = True
     confirmation_focus_on_show: bool = True
+    confirmation_audio_step: float = 0.25
     confirmation_gamepad_enabled: bool = False
     confirmation_gamepad_focus_up: str = "12"
     confirmation_gamepad_focus_down: str = "13"
@@ -904,6 +906,11 @@ class Anki:
     remove_overlay_tag: bool = False
 
     def __post_init__(self):
+        if (
+            isinstance(self.confirmation_audio_step, bool)
+            or self.confirmation_audio_step not in self.CONFIRMATION_AUDIO_STEPS
+        ):
+            self.confirmation_audio_step = 0.25
         if self.custom_tags is None:
             self.custom_tags = ["GSM"]
         if self.tags_to_check is None:
@@ -1875,7 +1882,7 @@ class StatsConfig:
     regex_out_punctuation: bool = True
     regex_out_repetitions: bool = False
     extra_punctuation_regex: str = ""
-    tadoku_username: str = ""
+    tadoku_username: str = ""  # Tadoku email; retain the legacy key for existing configs.
     tadoku_password: str = ""
     tadoku_session_cookie: str = ""
     tadoku_language_code: str = "jpn"
@@ -2348,6 +2355,7 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "auto_accept_timer")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_audio_step")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_enabled")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_up")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_down")

@@ -15,7 +15,7 @@ function deferred() {
 function loadShutdown() {
     const source = fs.readFileSync(path.resolve('electron-src/main/main.ts'), 'utf8');
     const parsed = ts.createSourceFile('main.ts', source, ts.ScriptTarget.Latest, true);
-    const names = new Set(['closeAllPythonProcesses', 'runQuit', 'quit']);
+    const names = new Set(['closeAllPythonProcesses', 'runQuit', 'quit', 'stopAllChildrenForRelocation']);
     const functions = parsed.statements
         .filter((node) => ts.isFunctionDeclaration(node) && node.name && names.has(node.name.text))
         .map((node) => node.getText(parsed));
@@ -51,7 +51,8 @@ function loadShutdown() {
         stopManagedProcesses: vi.fn(async () => {}),
         stopWindowTransparencyTool: vi.fn(async () => {}),
         stopInputServer: vi.fn(async () => {}),
-        closeOBSFromElectron: vi.fn(async () => {}),
+        stopGameBackgroundHooks: vi.fn(async () => {}),
+        closeOBSFromElectron: vi.fn(async () => ({ status: 'closed' })),
         stopBus: vi.fn(async () => {}),
         require: () => ({ shutdownTextHook: vi.fn() }),
     });
@@ -89,6 +90,35 @@ describe('application shutdown', () => {
         expect(app.quit).toHaveBeenCalledOnce();
     });
 
+    it('cancels relaunch when OBS refuses to close safely', async () => {
+        const { context, app } = loadShutdown();
+        context.closeOBSFromElectron.mockResolvedValue({ status: 'failed', error: 'OBS is still saving' });
+        await context.quit(['.', '--gsm-agent-restarted=test-request']);
+        expect(app.relaunch).not.toHaveBeenCalled();
+        expect(context.agentControl.fail).toHaveBeenCalledOnce();
+        expect(context.stopBus).toHaveBeenCalledOnce();
+    });
+
+    it('stops the backend replay-buffer manager before stopping OBS outputs and closing OBS', async () => {
+        const { context } = loadShutdown();
+        const stopping = deferred();
+        context.pyProc = { killed: false };
+        context.closeGSM.mockReturnValue(stopping.promise);
+        const result = context.quit();
+        await vi.waitFor(() => expect(context.closeGSM).toHaveBeenCalledOnce());
+        expect(context.closeOBSFromElectron).not.toHaveBeenCalled();
+        stopping.resolve();
+        await result;
+        expect(context.closeOBSFromElectron).toHaveBeenCalledOnce();
+    });
+
+    it('does not relocate OBS files while OBS remains running', async () => {
+        const { context } = loadShutdown();
+        context.closeOBSFromElectron.mockResolvedValue({ status: 'failed', error: 'OBS is still saving' });
+        await expect(context.stopAllChildrenForRelocation()).rejects.toThrow('OBS is still saving');
+        expect(context.stopBus).not.toHaveBeenCalled();
+    });
+
     it('defers a direct Electron quit and coalesces requests until child cleanup finishes', async () => {
         const { context, app } = loadShutdown();
         const stopping = deferred();
@@ -124,7 +154,7 @@ describe('application shutdown', () => {
         expect(app.quit).toHaveBeenCalledOnce();
     });
 
-    it('attempts every cleanup even when one process fails to stop', async () => {
+    it('attempts independent cleanup but leaves OBS open if its backend manager cannot stop', async () => {
         const { context, app } = loadShutdown();
         context.pyProc = { killed: false };
         context.closeGSM.mockRejectedValue(new Error('backend stop failed'));
@@ -132,7 +162,7 @@ describe('application shutdown', () => {
 
         expect(context.stopManagedProcesses).toHaveBeenCalledOnce();
         expect(context.stopInputServer).toHaveBeenCalledOnce();
-        expect(context.closeOBSFromElectron).toHaveBeenCalledOnce();
+        expect(context.closeOBSFromElectron).not.toHaveBeenCalled();
         expect(context.stopBus).toHaveBeenCalledOnce();
         expect(app.quit).toHaveBeenCalledOnce();
     });

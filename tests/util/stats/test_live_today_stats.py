@@ -136,6 +136,50 @@ def test_today_retains_totals_after_idle_reset_and_excludes_breaks():
     assert payload["session_active"] is False
 
 
+@pytest.mark.parametrize("gap", [1799, 1800, 1801, 3600])
+def test_today_long_raw_gaps_use_the_sessions_active_time_estimate(daily_stats_database, gap):
+    daily_stats_database.session_gap_seconds = 7200
+    start = local_time(9).timestamp()
+    for index, offset in enumerate((0, 10, 20, 20 + gap)):
+        save_line(str(index), "あ" * 20, start + offset)
+
+    payload = live_stats.build_today_live_stats_payload(live_stats.LiveSessionTracker("Game"), now=start + 20 + gap)
+
+    assert payload["values"]["active_reading_time"] == 45.0
+    assert payload["values"]["raw_reading_time"] == 20 + (gap if gap <= 1800 else 25)
+
+
+@pytest.mark.parametrize("gap", [1800, 1801, 3600])
+def test_today_pending_raw_gap_uses_active_estimate_after_thirty_minutes(daily_stats_database, gap):
+    daily_stats_database.session_gap_seconds = 7200
+    start = local_time(9).timestamp()
+    tracker = live_stats.LiveSessionTracker("Game")
+    for index in range(3):
+        tracker.add_line("あ" * 20, start + index * 10, line_id=str(index))
+
+    payload = live_stats.build_today_live_stats_payload(tracker, now=start + 20 + gap)
+
+    assert payload["session_active"] is True
+    assert payload["values"]["raw_reading_time"] == 20 + (gap if gap <= 1800 else 25)
+    assert payload["raw_time_gap_limit_seconds"] == 1800
+    assert payload["raw_time_pending_active_seconds"] == 25
+
+
+def test_today_long_raw_gap_does_not_credit_an_explicit_pause(daily_stats_database):
+    from GameSentenceMiner.util.database.reading_breaks_table import ReadingBreaksTable
+
+    daily_stats_database.session_gap_seconds = 7200
+    start = local_time(9).timestamp()
+    for index, offset in enumerate((0, 10, 3610, 3620)):
+        save_line(str(index), "あ" * 20, start + offset)
+    ReadingBreaksTable.record(start + 20)
+
+    payload = live_stats.build_today_live_stats_payload(live_stats.LiveSessionTracker("Game"), now=start + 3620)
+
+    assert payload["values"]["active_reading_time"] == 20.0
+    assert payload["values"]["raw_reading_time"] == 20.0
+
+
 def test_today_honors_saved_pause_boundaries_after_tracker_reset():
     from GameSentenceMiner.util.database.reading_breaks_table import ReadingBreaksTable
 

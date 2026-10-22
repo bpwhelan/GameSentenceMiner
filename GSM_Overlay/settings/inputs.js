@@ -86,6 +86,7 @@ const GAMEPAD_BINDING_INPUT_CONFIG = {
   },
   gamepadTranslateButton: { settingKey: "gamepadTranslateButton", label: "Translation Button", fallbackValue: -1 },
   gamepadPauseToggleButton: { settingKey: "gamepadPauseToggleButton", label: "Pause Button", fallbackValue: -1 },
+  gamepadQuickActionsButton: { settingKey: "gamepadQuickActionsButton", label: "Quick Actions Button", fallbackValue: 9 },
   gamepadTokenModeToggleButton: {
     settingKey: "gamepadTokenModeToggleButton",
     label: "Token Mode Toggle Button",
@@ -119,6 +120,7 @@ const GAMEPAD_BINDING_INPUT_CONFIG = {
 };
 
 const KEYBOARD_BINDING_INPUT_CONFIG = {
+  keyboardQuickActionsKey: { settingKey: "keyboardQuickActionsKey", label: "Keyboard Quick Actions Key", fallbackValue: "Tab" },
   keyboardModifierKey: { settingKey: "keyboardModifierKey", label: "Keyboard Modifier Key", fallbackValue: null },
   keyboardToggleKey: { settingKey: "keyboardToggleKey", label: "Keyboard Toggle Key", fallbackValue: null },
   keyboardConfirmKey: { settingKey: "keyboardConfirmKey", label: "Keyboard Confirm Key", fallbackValue: "Enter" },

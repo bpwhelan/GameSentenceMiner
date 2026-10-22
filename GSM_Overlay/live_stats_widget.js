@@ -327,15 +327,23 @@
     return true;
   }
 
-  // Daily raw time starts with accumulated session spans and advances only
-  // during the current session. Session mode keeps its existing wall clock.
+  // Daily raw time advances within the current session, replacing gaps over
+  // the raw-time limit with their active-time estimate.
   function liveFieldValue(key, payloadValue) {
     if (key === "raw_reading_time") {
       const payload = selectedStatsPayload();
       if (payload?.scope === "today" && payload.session_active && Number.isFinite(Number(payload.updated_at))) {
         const expiresAt = Number(payload.session_expires_at);
         const end = Math.min(Date.now() / 1000, Number(payload.period_end), Number.isFinite(expiresAt) ? expiresAt : Infinity);
-        return Number(payloadValue || 0) + Math.max(0, end - Number(payload.updated_at));
+        const elapsed = Math.max(0, end - Number(payload.updated_at));
+        const gapLimit = Number(payload.raw_time_gap_limit_seconds);
+        const activeGap = Number(payload.raw_time_pending_active_seconds);
+        if (Number.isFinite(gapLimit) && Number.isFinite(activeGap) && Number.isFinite(Number(payload.last_line_time))) {
+          const initialGap = Math.max(0, Number(payload.updated_at) - Number(payload.last_line_time));
+          const creditedGap = (gap) => gap > gapLimit ? Math.min(gap, activeGap) : gap;
+          return Number(payloadValue || 0) - creditedGap(initialGap) + creditedGap(initialGap + elapsed);
+        }
+        return Number(payloadValue || 0) + elapsed;
       }
       if (payload?.session_active && Number.isFinite(Number(payload.session_start_time))) {
         return Math.max(0, Date.now() / 1000 - Number(payload.session_start_time));

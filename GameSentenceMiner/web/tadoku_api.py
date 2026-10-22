@@ -97,7 +97,7 @@ def register_tadoku_api_routes(app):
         username = str(getattr(config, "tadoku_username", "") or "").strip()
         password = str(getattr(config, "tadoku_password", "") or "")
         if not username or not password:
-            return jsonify({"error": "Save a Tadoku username and password first"}), 400
+            return jsonify({"error": "Save a Tadoku email and password first"}), 400
 
         try:
             client = TadokuClient(username, password)

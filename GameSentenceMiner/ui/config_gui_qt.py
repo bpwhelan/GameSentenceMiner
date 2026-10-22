@@ -890,6 +890,7 @@ class ConfigWindow(QWidget):
                     remove_overlay_tag=self.remove_overlay_tag_check.isChecked(),
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
+                    confirmation_audio_step=self.anki_confirmation_audio_step_combo.currentData(),
                     confirmation_gamepad_enabled=self.anki_confirmation_gamepad_enabled_check.isChecked(),
                     confirmation_gamepad_focus_up=str(
                         self.anki_confirmation_gamepad_focus_up_combo.currentData() or ""
@@ -1533,6 +1534,9 @@ class ConfigWindow(QWidget):
         self.auto_accept_timer_edit.setValidator(QTGui.QIntValidator())
         self.anki_confirmation_always_on_top_check = QCheckBox()
         self.anki_confirmation_focus_on_show_check = QCheckBox()
+        self.anki_confirmation_audio_step_combo = QComboBox()
+        for seconds in Anki.CONFIRMATION_AUDIO_STEPS:
+            self.anki_confirmation_audio_step_combo.addItem(f"{seconds:g}s", seconds)
         self.anki_confirmation_gamepad_enabled_check = QCheckBox()
         self.anki_confirmation_gamepad_focus_up_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_gamepad_focus_down_combo = self._create_gamepad_hotkey_combo()
@@ -3169,6 +3173,9 @@ class ConfigWindow(QWidget):
         self._sync_auto_accept_timer_controls()
         self.anki_confirmation_always_on_top_check.setChecked(bool(getattr(s.anki, "confirmation_always_on_top", True)))
         self.anki_confirmation_focus_on_show_check.setChecked(bool(getattr(s.anki, "confirmation_focus_on_show", True)))
+        self.anki_confirmation_audio_step_combo.setCurrentIndex(
+            self.anki_confirmation_audio_step_combo.findData(s.anki.confirmation_audio_step)
+        )
         self.anki_confirmation_gamepad_enabled_check.setChecked(
             bool(getattr(s.anki, "confirmation_gamepad_enabled", False))
         )

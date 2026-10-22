@@ -406,6 +406,13 @@ def build_game_profiles() -> Dict[str, GameProfile]:
         ),
         load_game_timestamp_profiles(),
     )
+    from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
+
+    imported_rows = ThirdPartyStatsTable._db.fetchall(
+        f"SELECT game_id, SUM(lines_read), SUM(characters_read), MIN(timestamp), MAX(timestamp) "
+        f"FROM {ThirdPartyStatsTable._table} WHERE game_id IS NOT NULL AND game_id != '' GROUP BY game_id"
+    )
+    result = merge_game_profiles(result, _compute_profiles_from_aggregate_rows(imported_rows))
 
     if not _TESTING:
         _profiles_cache = result

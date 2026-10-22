@@ -6,6 +6,97 @@ from GameSentenceMiner.util.config.configuration import Overlay
 from GameSentenceMiner.web import overlay_handler as overlay_handler_module
 
 
+def test_quick_actions_toggle_intake_and_return_authoritative_state(monkeypatch):
+    import GameSentenceMiner
+
+    paused = [False]
+    sent = []
+
+    def toggle():
+        paused[0] = not paused[0]
+
+    async def send(server_id, payload):
+        sent.append(payload)
+
+    monkeypatch.setattr(
+        GameSentenceMiner,
+        "gametext",
+        SimpleNamespace(is_text_intake_paused=lambda: paused[0], toggle_text_intake_paused=toggle),
+        raising=False,
+    )
+    monkeypatch.setattr(overlay_handler_module, "get_all_lines", list)
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    for action in ["state", "toggle-intake", "state"]:
+        asyncio.run(
+            handler.handle_message(json.dumps({"type": "quick-action-request", "request_id": action, "action": action}))
+        )
+    assert [payload["paused"] for payload in sent] == [False, True, True]
+    assert all(payload["type"] == "quick-action-result" and payload["success"] for payload in sent)
+    assert all(payload["canReplay"] is False for payload in sent)
+
+
+def test_quick_action_replay_uses_latest_line_without_requiring_an_external_player(monkeypatch):
+    from GameSentenceMiner.util.config.configuration import gsm_state
+    from GameSentenceMiner.web import service
+
+    latest = SimpleNamespace(id="latest", text="Latest line")
+    calls = []
+    sent = []
+
+    async def send(server_id, payload):
+        sent.append(payload)
+
+    monkeypatch.setattr(overlay_handler_module, "get_all_lines", lambda: [SimpleNamespace(), latest])
+    monkeypatch.setattr(
+        overlay_handler_module,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(audio_player_path="", video_player_path="")),
+    )
+    monkeypatch.setattr(overlay_handler_module, "save_replay_buffer", lambda: calls.append("replay"), raising=False)
+    monkeypatch.setattr(gsm_state, "line_for_audio", None)
+    monkeypatch.setattr(gsm_state, "previous_line_for_audio", None)
+    monkeypatch.setattr(gsm_state, "previous_line_for_screenshot", None)
+    monkeypatch.setattr(gsm_state, "texthooker_audio_request", {})
+    monkeypatch.setattr(service, "has_cached_texthooker_audio", lambda *args: False)
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    asyncio.run(
+        handler.handle_message(
+            json.dumps({"type": "quick-action-request", "request_id": "audio", "action": "replay-audio"})
+        )
+    )
+    assert gsm_state.line_for_audio is latest
+    assert calls == ["replay"]
+    assert sent[0]["success"] is True
+    assert gsm_state.texthooker_audio_request == {
+        "line_id": "latest",
+        "trim_with_vad": False,
+        "playback_mode": "native",
+    }
+    monkeypatch.setattr(service, "has_cached_texthooker_audio", lambda *args: True)
+    monkeypatch.setattr(service, "handle_texthooker_button", lambda *args: calls.append("cached-playback"))
+    asyncio.run(handler.handle_message(json.dumps({"type": "quick-action-request", "action": "replay-audio"})))
+    assert calls == ["replay", "cached-playback"]
+
+
+def test_quick_action_rejects_unknown_commands_and_empty_replays(monkeypatch):
+    sent = []
+
+    async def send(server_id, payload):
+        sent.append(payload)
+
+    monkeypatch.setattr(overlay_handler_module, "get_all_lines", list)
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    for action in ["exec", "replay-audio"]:
+        asyncio.run(
+            handler.handle_message(json.dumps({"type": "quick-action-request", "request_id": action, "action": action}))
+        )
+    assert len(sent) == 2
+    assert all(payload["success"] is False and payload["error"] for payload in sent)
+
+
 def test_today_stats_request_runs_off_websocket_loop_and_broadcasts_daily_payload(monkeypatch):
     import threading
 
@@ -113,6 +204,55 @@ def _setup_block_translation(monkeypatch, translate):
     monkeypatch.setattr(overlay_handler_module, "translate_overlay_blocks", translate)
     monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
     return sent
+
+
+def test_overlay_custom_question_uses_textfeed_analysis_and_preserves_request_identity(monkeypatch):
+    sent = _setup_block_translation(monkeypatch, lambda *args: None)
+    calls = []
+
+    def analyze(*args):
+        calls.append(args)
+        return "Particle explanation"
+
+    monkeypatch.setattr(overlay_handler_module, "get_sentence_analysis", analyze)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    message = {
+        "type": "translate-request",
+        "request_id": "custom-1",
+        "blocks": [{"id": "0", "text": "猫がいる"}],
+        "mode": "custom",
+        "question": "Why が here?",
+    }
+    asyncio.run(handler.handle_message(json.dumps(message)))
+    assert calls[0][1] == "猫がいる"
+    assert calls[0][-2:] == ("custom", "Why が here?")
+    assert sent == [
+        {
+            "type": "translation-result",
+            "data": {"request_id": "custom-1", "text": "Particle explanation", "mode": "custom"},
+        }
+    ]
+
+
+def test_overlay_custom_question_rejects_missing_or_oversized_questions(monkeypatch):
+    sent = _setup_block_translation(monkeypatch, lambda *args: None)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    for question in ["", " " * 5, "a" * 4001, None]:
+        asyncio.run(
+            handler.handle_message(
+                json.dumps(
+                    {
+                        "type": "translate-request",
+                        "request_id": "invalid-question",
+                        "blocks": [{"id": "0", "text": "猫"}],
+                        "mode": "custom",
+                        "question": question,
+                    }
+                )
+            )
+        )
+    assert len(sent) == 4
+    assert all(payload["type"] == "translation-error" for payload in sent)
 
 
 def test_block_translation_uses_renderer_text_and_echoes_request_id(monkeypatch):

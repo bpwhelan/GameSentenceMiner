@@ -37,6 +37,17 @@ function setup() {
 }
 
 describe("overlay block translation", () => {
+  it("sends custom questions and ignores a response after the controller result is dismissed", () => {
+    const { controller, sent, analyses } = setup();
+    controller.request({ mode: 'custom', question: 'Why this particle?' });
+    expect(sent[0]).toMatchObject({ mode: 'custom', question: 'Why this particle?' });
+    controller.dismissAnalysis();
+    controller.receive({ request_id: sent[0].request_id, text: 'Old answer', mode: 'custom' });
+    expect(analyses).toEqual([]);
+    controller.request({ mode: 'custom', question: 'What is omitted?' });
+    controller.receive({ request_id: sent[1].request_id, text: 'New answer', mode: 'custom' });
+    expect(analyses).toEqual(['New answer']);
+  });
   it("keeps study responses separate and ignores replies for an older task", () => {
     const { controller, sent, analyses, dom } = setup();
     controller.request({ automatic: true });

@@ -9,12 +9,15 @@ from GameSentenceMiner.util.config.configuration import get_stats_config, gsm_st
 from GameSentenceMiner.util.database.db import clean_text_for_stats
 from GameSentenceMiner.util.stats.stats_util import (
     MIN_LINES_FOR_CPH,
+    adaptive_cap_seconds,
     count_cards_from_lines,
     gap_crosses_reading_break,
+    session_median_cps,
     session_reading_seconds,
 )
 
 LIVE_STATS_UPDATE_TYPE = "live_stats_update"
+DAILY_RAW_GAP_LIMIT_SECONDS = 30 * 60
 
 LIVE_STATS_FIELDS = (
     {
@@ -93,10 +96,12 @@ def build_today_live_stats_payload(
     """Restore one game's current stats day, including live revisions.
 
     This queries the database and must run outside the live text/websocket loop.
-    Daily raw time adds session spans, so time between sessions is not counted.
+    Daily raw time adds session spans, falling back to active-time estimates for
+    gaps over 30 minutes. Time between sessions is not counted.
     """
     from GameSentenceMiner.util.database.game_archive import archived_stats_lines
     from GameSentenceMiner.util.database.games_table import GamesTable
+    from GameSentenceMiner.util.database.reading_breaks_table import ReadingBreaksTable
     from GameSentenceMiner.web.stats import calculate_actual_reading_time
     from GameSentenceMiner.web.stats_repository import StatsLineRecord, query_stats_lines
 
@@ -158,6 +163,9 @@ def build_today_live_stats_payload(
     for line in sorted(by_id.values(), key=lambda line: line.timestamp):
         if matches_game(line):
             sorted_lines.append(line)
+            if current_run and line.timestamp - current_run[-1].timestamp > config.session_gap_seconds:
+                reading_runs.append(current_run)
+                current_run = []
             current_run.append(line)
         elif current_run:
             reading_runs.append(current_run)
@@ -165,24 +173,46 @@ def build_today_live_stats_payload(
     if current_run:
         reading_runs.append(current_run)
     total_characters = sum(len(line.line_text or "") for line in sorted_lines)
+    reading_breaks = ReadingBreaksTable.between(period_start, min(period_end, updated_at))
     active_seconds = sum(
-        calculate_actual_reading_time([line.timestamp for line in run], [line.line_text or "" for line in run])
+        calculate_actual_reading_time(
+            [line.timestamp for line in run], [line.line_text or "" for line in run], reading_breaks=reading_breaks
+        )
         for run in reading_runs
-    )
-    raw_seconds = sum(
-        gap
-        for run in reading_runs
-        for previous, current in pairwise(run)
-        if 0 <= (gap := current.timestamp - previous.timestamp) <= config.session_gap_seconds
     )
     last_line_time = tracker.last_line_time if tracker.game_name in game_names else None
+    raw_seconds = 0.0
+    pending_active_seconds = 0.0
+    for run in reading_runs:
+        gaps = [
+            (
+                current.timestamp - previous.timestamp,
+                len(previous.line_text or ""),
+                gap_crosses_reading_break(previous.timestamp, current.timestamp, reading_breaks),
+            )
+            for previous, current in pairwise(run)
+        ]
+        median_cps = session_median_cps((gap, chars) for gap, chars, interrupted in gaps if not interrupted)
+        raw_seconds += sum(
+            gap
+            if gap <= DAILY_RAW_GAP_LIMIT_SECONDS
+            else (0.0 if interrupted else min(gap, adaptive_cap_seconds(chars, median_cps)))
+            for gap, chars, interrupted in gaps
+        )
+        if run[-1].timestamp == last_line_time and not gap_crosses_reading_break(
+            last_line_time, updated_at, reading_breaks
+        ):
+            pending_active_seconds = adaptive_cap_seconds(len(run[-1].line_text or ""), median_cps)
     session_active = (
         last_line_time is not None
         and period_start <= last_line_time <= updated_at
         and updated_at - last_line_time <= config.session_gap_seconds
     )
     if session_active:
-        raw_seconds += updated_at - last_line_time
+        pending_gap = updated_at - last_line_time
+        raw_seconds += (
+            pending_gap if pending_gap <= DAILY_RAW_GAP_LIMIT_SECONDS else min(pending_gap, pending_active_seconds)
+        )
 
     return {
         "type": LIVE_STATS_UPDATE_TYPE,
@@ -198,6 +228,8 @@ def build_today_live_stats_payload(
         "session_start_time": tracker.session_start_time if tracker.game_name in game_names else None,
         "last_line_time": last_line_time,
         "session_expires_at": last_line_time + config.session_gap_seconds if session_active else None,
+        "raw_time_gap_limit_seconds": DAILY_RAW_GAP_LIMIT_SECONDS,
+        "raw_time_pending_active_seconds": pending_active_seconds,
         "fields": get_live_stats_field_options(),
         "values": {
             "chars_per_hour": int(total_characters * 3600 / active_seconds)

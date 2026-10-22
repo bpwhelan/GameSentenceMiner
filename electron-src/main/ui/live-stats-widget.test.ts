@@ -295,6 +295,40 @@ describe('live stats Session/Today scope', () => {
     dom.window.close();
   });
 
+  it('replaces a pending daily gap with active time after thirty minutes without a refresh', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    let clock = now;
+    vi.spyOn(dom.window.Date, 'now').mockImplementation(() => clock);
+    widget.applySettings({ liveStatsScope: 'today' });
+    widget.handleStatsUpdate({
+      ...payload('today', 500, true),
+      session_expires_at: now / 1000 + 7200,
+      raw_time_gap_limit_seconds: 1800,
+      raw_time_pending_active_seconds: 25,
+    });
+
+    clock += 1790000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('31:50');
+    clock += 1000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('2:15');
+
+    widget.handleStatsUpdate({
+      ...payload('today', 500, true),
+      updated_at: clock / 1000,
+      session_expires_at: now / 1000 + 7200,
+      raw_time_gap_limit_seconds: 1800,
+      raw_time_pending_active_seconds: 25,
+      values: { ...payload('today', 500, true).values, raw_reading_time: 135 },
+    });
+    clock += 10000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('2:15');
+    dom.window.close();
+  });
+
   it('clears every daily field at cutover even without a new backend update', () => {
     vi.useFakeTimers();
     const { dom, widget } = loadWidget();

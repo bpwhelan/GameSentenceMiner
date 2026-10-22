@@ -2,6 +2,7 @@
 <html>
 
 <head>
+<link rel="stylesheet" href="quick_actions.css">
 <style>
   /* Hidden container for Jiten Reader to parse text into .jiten-word spans.
      Positioned off-screen but NOT display:none so Jiten's parser can see it. */
@@ -1604,6 +1605,7 @@ background: rgba(202, 12, 12, 0.692);
 
 <script src="block_detection.js"></script>
 <script src="block_translation.js"></script>
+<script src="quick_actions.js"></script>
 <script src="live_stats_widget.js"></script>
 <script src="window_occlusion.js"></script>
 <script>
@@ -3112,6 +3114,10 @@ background: rgba(202, 12, 12, 0.692);
         }
 
         if (data.type === "live_stats_update") {
+          if (typeof data.text_intake_paused === 'boolean') {
+            window.gsmQuickActions?.applyState({ paused: data.text_intake_paused });
+            window.gsmQuickActions?.render();
+          }
           dispatchOverlayPayloadEvent("gsm-live-stats-update", data);
           return;
         }
@@ -4918,6 +4924,8 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadPauseToggleButton !== undefined) {
       gamepadSettings.pauseToggleButton = newsettings.gamepadPauseToggleButton;
     }
+    if (newsettings.gamepadQuickActionsButton !== undefined) gamepadSettings.quickActionsButton = newsettings.gamepadQuickActionsButton;
+    window.gsmQuickActions?.configure({ actions: newsettings.gamepadQuickActions, question: newsettings.gamepadQuickActionsQuestion });
     if (newsettings.gamepadTokenModeToggleButton !== undefined) {
       gamepadSettings.tokenModeToggleButton = newsettings.gamepadTokenModeToggleButton;
     }
@@ -5379,7 +5387,7 @@ background: rgba(202, 12, 12, 0.692);
   let furiganaAutoHidden = false;
   let furiganaAutoHideTimer = null;
   
-  ipcRenderer.on("toggle-furigana-visibility", () => {
+  function toggleFuriganaVisibility() {
     furiganaVisible = !furiganaVisible;
     if (furiganaVisible) {
       furiganaAutoHidden = false;
@@ -5388,7 +5396,9 @@ background: rgba(202, 12, 12, 0.692);
       clearFuriganaAutoHideTimer();
     }
     updateFuriganaVisibilityState();
-  });
+    window.gsmQuickActions?.render();
+  }
+  ipcRenderer.on("toggle-furigana-visibility", toggleFuriganaVisibility);
 
   // Toggle translation visibility on hotkey
   ipcRenderer.on("toggle-translation-visibility", () => {
@@ -5459,13 +5469,44 @@ background: rgba(202, 12, 12, 0.692);
     getRevision: () => overlayRenderGeneration,
     send: payload => ipcRenderer.send('translate-blocks', payload),
     showLegacy: showTranslation,
-    showAnalysis: showAIHelp,
-    onStart: mode => { if (mode !== 'translation') showAIHelp('Explaining…'); },
+    showAnalysis: text => { if (!window.gsmQuickActions?.showResult(text)) showAIHelp(text); },
+    onStart: mode => {
+      if (mode !== 'translation' && !window.gsmQuickActions?.showResult('Explaining…')) showAIHelp('Explaining…');
+    },
     showError: (error, mode) => {
       ipcRenderer.send('translation-request-failed');
-      if (mode && mode !== 'translation') showAIHelp(error);
+      if (mode && mode !== 'translation') {
+        if (!window.gsmQuickActions?.showResult(error)) showAIHelp(error);
+      }
       else showTranslation('Translation failed: ' + error);
     },
+  });
+  window.gsmQuickActions = new window.GSMQuickActions.QuickActions({
+    document,
+    runAction: async action => {
+      const result = await ipcRenderer.invoke('quick-action', action);
+      if (result?.success === false) throw new Error(result.error);
+      return result;
+    },
+    explain: options => { document.getElementById('ai-help-display')?.remove(); blockTranslation.request(options); },
+    translate: async () => {
+      const result = await ipcRenderer.invoke('quick-action', 'translation');
+      if (result?.success === false) throw new Error(result.error);
+    },
+    toggleFurigana: () => {
+      if (!showFurigana) {
+        furiganaVisible = true; furiganaAutoHidden = false;
+        ipcRenderer.send('setting-changed', { key: 'showFurigana', value: true });
+      } else toggleFuriganaVisibility();
+    },
+    getFuriganaVisible: () => showFurigana && furiganaVisible && !furiganaAutoHidden,
+    onOpenChange: open => {
+      if (!open && gamepadHandler) {
+        gamepadHandler.stopNavigationRepeats();
+        if (gamepadHandler.isNavigationActive() && !gamepadHandler.destroyed) gamepadHandler.updateVisuals();
+      }
+    },
+    onDismissAnalysis: () => blockTranslation.dismissAnalysis(),
   });
   ipcRenderer.on('request-block-translation', (event, options) => blockTranslation.request(options));
   document.getElementById('ai-help-toolbar').addEventListener('change', event => {
@@ -5721,6 +5762,7 @@ background: rgba(202, 12, 12, 0.692);
     manualOverlayScanButton: -1, // Disabled
     translateButton: -1, // Disabled
     pauseToggleButton: -1, // Disabled - pauses/resumes the text source while navigating
+    quickActionsButton: 9,
     tokenModeToggleButton: 3, // Y
     mineButton: 0, // A
     nextEntryButton: 7, // RT trigger - navigate to next Yomitan entry
@@ -5766,6 +5808,7 @@ background: rgba(202, 12, 12, 0.692);
     keyboardForwardClickKey: null,
     keyboardManualOverlayScanKey: null,
     keyboardPauseToggleKey: null,
+    keyboardQuickActionsKey: 'Tab',
     keyboardTokenModeToggleKey: null,
     keyboardNextEntryKey: null,
     keyboardPrevEntryKey: null,
@@ -5783,7 +5826,7 @@ background: rgba(202, 12, 12, 0.692);
     'keyboardModifierKey', 'keyboardToggleKey', 'keyboardConfirmKey', 'keyboardCancelKey',
     'keyboardForwardEnterKey', 'keyboardForwardSpaceKey', 'keyboardForwardCtrlKey', 'keyboardForwardEscapeKey',
     'keyboardForwardClickKey',
-    'keyboardManualOverlayScanKey', 'keyboardPauseToggleKey', 'keyboardTokenModeToggleKey',
+    'keyboardManualOverlayScanKey', 'keyboardPauseToggleKey', 'keyboardQuickActionsKey', 'keyboardTokenModeToggleKey',
     'keyboardNextEntryKey', 'keyboardPrevEntryKey',
     'keyboardPrevJitenWordKey', 'keyboardNextJitenWordKey',
     'keyboardNavigateUp', 'keyboardNavigateDown', 'keyboardNavigateLeft', 'keyboardNavigateRight',
@@ -5828,6 +5871,7 @@ background: rgba(202, 12, 12, 0.692);
     // overrides here so new bindings cannot disappear between load and update.
     return {
       ...gamepadSettings,
+      getQuickActions: () => typeof window !== 'undefined' ? window.gsmQuickActions : null,
       dictionaryReader,
       controllerEnabled: getEffectiveControllerEnabled(),
       keyboardEnabled: getEffectiveKeyboardEnabled(),
@@ -6238,6 +6282,11 @@ background: rgba(202, 12, 12, 0.692);
       gamepadSettings.pauseToggleButton = updatedSettings.gamepadPauseToggleButton;
       needsLifecycleSync = true;
     }
+    if (updatedSettings.gamepadQuickActionsButton !== undefined) {
+      gamepadSettings.quickActionsButton = updatedSettings.gamepadQuickActionsButton;
+      needsLifecycleSync = true;
+    }
+    window.gsmQuickActions?.configure({ actions: updatedSettings.gamepadQuickActions, question: updatedSettings.gamepadQuickActionsQuestion });
     if (updatedSettings.gamepadTokenModeToggleButton !== undefined) {
       gamepadSettings.tokenModeToggleButton = updatedSettings.gamepadTokenModeToggleButton;
       needsLifecycleSync = true;

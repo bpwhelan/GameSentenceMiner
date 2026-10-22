@@ -174,6 +174,20 @@ class BackendConnector {
     }
   }
 
+  // Interactive toggles must fail promptly rather than run from the reconnect queue.
+  sendImmediate(data) {
+    if (!this.connected || !this.ws || this.ws.readyState !== this.WebSocket.OPEN) return false;
+    try {
+      this.ws.send(JSON.stringify(data));
+      return true;
+    } catch (error) {
+      console.error('BackendConnector: Failed to send interactive action', error);
+      this.connected = false;
+      this.scheduleReconnect();
+      return false;
+    }
+  }
+
   flushQueue() {
     while (this.queue.length > 0 && this.connected && this.ws.readyState === this.WebSocket.OPEN) {
       const data = this.queue.shift();
