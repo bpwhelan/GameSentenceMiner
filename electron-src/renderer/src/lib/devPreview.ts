@@ -27,7 +27,7 @@ function previewInvokeResult(channel: string): unknown {
     case "settings.getSettings":
       return {
         locale: "en",
-        visibleTabs: ["launcher", "stats", "python", "console"],
+        visibleTabs: ["speech", "launcher", "stats", "python", "console"],
       };
     case "obs.getScenes":
       return [PREVIEW_SCENE];
@@ -114,6 +114,14 @@ export function installDevPreviewBridge(): void {
   let hookEngine = "luna";
   let previewSelectedHook: string | null = null;
   let hookProfile: unknown = null;
+  let speechRunning = false;
+  let speechPreviewSettings = {
+    backend: "embedded",
+    language: "ja",
+    modelPath: "",
+    runtimePath: "",
+    licenseFile: "",
+  };
   const emit = (channel: string, ...args: unknown[]) => {
     for (const listener of listeners.get(channel) ?? []) {
       listener({ sender: null }, ...args);
@@ -137,6 +145,57 @@ export function installDevPreviewBridge(): void {
 
   const bridge: IpcBridge = {
     invoke: async <T>(channel: string, ...args: unknown[]) => {
+      if (channel === "speech-recognition.loadScene")
+        return {
+          success: true,
+          exists: true,
+          scene: PREVIEW_SCENE,
+          settings: speechPreviewSettings,
+        } as T;
+      if (channel === "speech-recognition.saveScene") {
+        speechPreviewSettings = (args[0] as { settings: typeof speechPreviewSettings }).settings;
+        return { success: true } as T;
+      }
+      if (
+        [
+          "speech-recognition.start",
+          "speech-recognition.stop",
+          "speech-recognition.getStatus",
+        ].includes(channel)
+      ) {
+        if (channel === "speech-recognition.start") speechRunning = true;
+        if (channel === "speech-recognition.stop") speechRunning = false;
+        emit("speech-recognition.status", {
+          state: speechRunning ? "running" : "idle",
+          sceneId: PREVIEW_SCENE.id,
+          sceneName: PREVIEW_SCENE.name,
+          backend: speechPreviewSettings.backend,
+          language: speechPreviewSettings.language,
+          error: "",
+          reason: "",
+        });
+        if (channel === "speech-recognition.start") {
+          emit("speech-recognition.log", {
+            level: "info",
+            message: "Speech preview is ready.",
+            timestamp: Date.now(),
+          });
+          emit("speech-recognition.log", {
+            level: "result",
+            message: "[partial] 今日は一緒に",
+            timestamp: Date.now(),
+          });
+          window.setTimeout(() => {
+            if (speechRunning)
+              emit("speech-recognition.log", {
+                level: "result",
+                message: "[final] 今日は一緒に帰ろう。",
+                timestamp: Date.now(),
+              });
+          }, 300);
+        }
+        return { success: true } as T;
+      }
       if (channel === "texthook.getStatus")
         return (
           hookRunning

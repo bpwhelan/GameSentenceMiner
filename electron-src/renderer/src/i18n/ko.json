@@ -1244,5 +1244,84 @@
       "profileSaveFailed": "프로필을 저장할 수 없습니다.",
       "noExe": "활성 캘처의 실행 파일을 찾을 수 없습니다."
     }
+  },
+  "speechRecognition": {
+    "workspace": {
+      "title": "Windows 음성",
+      "brandHint": "음성 인식",
+      "capture": "실시간 대사",
+      "captureHelp": "선택한 OBS 장면의 게임에서 음성 대사를 인식합니다.",
+      "advanced": "고급 설정",
+      "activity": "활동 로그",
+      "navigation": "Windows 음성 보기",
+      "session": "음성 인식 세션",
+      "unsaved": "저장하지 않은 변경 사항",
+      "transcript": "인식된 대사",
+      "clearText": "텍스트 지우기",
+      "interim": "인식 중…",
+      "waiting": "게임 대사를 기다리는 중…",
+      "empty": "음성 인식을 시작하면 여기에 대사가 표시됩니다.",
+      "forwarding": "인식된 대사에는 GSM의 텍스트 처리 규칙이 적용됩니다."
+    },
+    "title": "Windows Speech Recognition",
+    "subtitle": "Run speech recognition for the current OBS scene and send recognized dialogue through GSM's text pipeline.",
+    "experimental": "Experimental · Windows only",
+    "loading": "Loading speech recognition workspace...",
+    "loadFailed": "Could not load speech recognition settings.",
+    "scenesLoadFailed": "Could not load OBS scenes.",
+    "sceneSwitchFailed": "Could not switch the active OBS scene.",
+    "scene": {
+      "title": "Scene",
+      "hint": "Choose the OBS scene whose game audio should be recognized.",
+      "label": "OBS scene",
+      "refresh": "Refresh",
+      "none": "No OBS scenes found",
+      "savedPerScene": "Settings below are saved for {scene} only.",
+      "connectObs": "Connect OBS to select a scene."
+    },
+    "engine": {
+      "title": "Recognition",
+      "hint": "Configure the recognizer used when this scene is started.",
+      "downloadHint": "The embedded backend may download about 358 MB and unpack about 492 MB on first use."
+    },
+    "backend": "Recognition backend",
+    "backendEmbedded": "Embedded speech (recommended)",
+    "backendSapi": "Windows SAPI",
+    "language": "Recognition language",
+    "languageJapanese": "Japanese",
+    "languageEnglish": "English",
+    "advanced": "Advanced runtime overrides",
+    "advancedHint": "Leave these blank to use GSM's downloaded speech bundle and automatic discovery.",
+    "modelPath": "Model path",
+    "runtimePath": "Runtime path",
+    "licenseFile": "Embedded Speech license file",
+    "automatic": "Automatic",
+    "optional": "Optional",
+    "save": "Save",
+    "saving": "Saving...",
+    "savedForScene": "Speech recognition settings saved for {scene}.",
+    "saveFailed": "Could not save speech recognition settings.",
+    "start": "Start Speech Recognition",
+    "stop": "Stop Speech Recognition",
+    "startFailed": "Could not start speech recognition.",
+    "stopFailed": "Could not stop speech recognition.",
+    "status": {
+      "idle": "Idle",
+      "starting": "Starting",
+      "running": "Running",
+      "stopping": "Stopping",
+      "error": "Error"
+    },
+    "console": {
+      "title": "Recognition log",
+      "hint": "Runtime messages and recognized text stay local to this app session.",
+      "clear": "Clear",
+      "empty": "Start speech recognition to see runtime logs and recognized text here."
+    },
+    "footer": {
+      "noScene": "No scene selected",
+      "runningHint": "Recognition stops automatically when the OBS scene changes.",
+      "idleHint": "Settings are scene-specific. Start recognition when you are ready."
+    }
   }
 }
