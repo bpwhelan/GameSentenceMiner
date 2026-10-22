@@ -3162,6 +3162,10 @@ def request(action, **params):
     return {"action": action, "params": params, "version": 6}
 
 
+class _AnkiCollectionBusyError(RuntimeError):
+    """Anki rejected an action while another collection operation was running."""
+
+
 def invoke(
     action,
     retries: int = 0,
@@ -3176,7 +3180,8 @@ def invoke(
 
     Args:
         action: The AnkiConnect action name.
-        retries: Number of retry attempts on failure.
+        retries: Number of retry attempts on other failures. Collection-busy
+            responses are retried until Anki is available or GSM stops.
         timeout: HTTP request timeout in seconds.
         raise_on_error: When True (default), raise on errors to preserve
             existing behaviour.  When False, log a warning and return None.
@@ -3190,7 +3195,10 @@ def invoke(
         logger.debug(f"Hitting Anki. Action: {action}. Data: {json.dumps(payload)}")
 
     attempt = 0
+    error_retries = 0
+    busy_retries = 0
     backoff = 0.5
+    busy_backoff = 0.5
     max_backoff = 5.0
     while True:
         request_start = time.perf_counter()
@@ -3209,6 +3217,8 @@ def invoke(
                 logger.error(f"Unexpected response from Anki: {response}")
                 raise Exception("response is missing required result field")
             if response["error"] is not None:
+                if response["error"] == "A collection operation is active.":
+                    raise _AnkiCollectionBusyError(response["error"])
                 logger.error(f"Anki returned an error: {response['error']}")
                 raise Exception(response["error"])
             result = response["result"]
@@ -3225,8 +3235,12 @@ def invoke(
                 result_type=type(result).__name__,
                 result_count=len(result) if isinstance(result, (list, tuple, dict)) else None,
             )
+            if busy_retries:
+                logger.info(f"Anki collection is available; request completed (action={action}).")
             return result
         except Exception as e:
+            collection_busy = isinstance(e, _AnkiCollectionBusyError)
+            will_retry = not _anki_monitor_stop.is_set() if collection_busy else retries > 0 and error_retries < retries
             log_anki_card_timing(
                 timing_context,
                 "anki_connect.invoke_failed",
@@ -3239,10 +3253,21 @@ def invoke(
                 file_size_bytes=file_size_bytes,
                 error_type=type(e).__name__,
                 error=str(e),
-                will_retry=bool(retries > 0 and attempt < retries),
+                will_retry=will_retry,
             )
-            # If no retries requested, raise or return None
-            if retries <= 0 or attempt >= retries:
+            if collection_busy and will_retry:
+                # Retry only the rejected request, preserving prepared media and
+                # successful earlier actions without spending the other-error budget.
+                busy_retries += 1
+                busy_backoff = min(busy_backoff * 2, max_backoff)
+                log = logger.warning if busy_retries == 1 else logger.debug
+                log(f"Anki collection is busy; retrying in {busy_backoff}s (action={action}).")
+                if not _anki_monitor_stop.wait(busy_backoff):
+                    attempt += 1
+                    continue
+
+            # A shutdown interrupts busy waits, even if ordinary retries remain.
+            if collection_busy or not will_retry:
                 if raise_on_error:
                     logger.error(f"Anki request failed (action={action}): {e}")
                     raise
@@ -3253,7 +3278,10 @@ def invoke(
             # Exponential backoff: 2^attempt seconds, capped at max_backoff
             backoff = min((backoff * 2), max_backoff)
             attempt += 1
-            logger.warning(f"Anki request failed, retrying in {backoff}s (attempt {attempt}/{retries})... Error: {e}")
+            error_retries += 1
+            logger.warning(
+                f"Anki request failed, retrying in {backoff}s (attempt {error_retries}/{retries})... Error: {e}"
+            )
             time.sleep(backoff)
 
 
