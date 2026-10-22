@@ -518,13 +518,17 @@
 .texthook-desk .texthook-hook-filters {
   padding: 15px 3px 0;
 }
-.texthook-desk .texthook-noise-toggle {
+.texthook-desk .texthook-noise-toggle,
+.texthook-desk .th-clipboard-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--gsm-text-muted);
   font-size: 11px;
   cursor: pointer;
+}
+.texthook-desk .th-clipboard-toggle {
+  padding-top: 15px;
 }
 .texthook-desk .texthook-output {
   flex: 1;
@@ -727,14 +731,6 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 26px 24px;
-}
-.texthook-desk .texthook-options-body .form-group > .input-group:first-child {
-  grid-column: 1 / -1;
-}
-.texthook-desk .texthook-options-body .form-group > .input-group:first-child label {
-  display: flex;
-  align-items: center;
-  gap: 9px;
 }
 .texthook-desk .texthook-disclosure {
   border-top: 1px solid var(--gsm-border-subtle);

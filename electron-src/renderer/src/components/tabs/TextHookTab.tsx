@@ -1423,6 +1423,18 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                       </div>
                     )}
                   </div>
+                  <label
+                    className="th-clipboard-toggle"
+                    htmlFor="texthook-copy-to-clipboard"
+                  >
+                    <input
+                      id="texthook-copy-to-clipboard"
+                      type="checkbox"
+                      checked={copyToClipboard}
+                      onChange={(e) => toggleCopyToClipboard(e.target.checked)}
+                    />
+                    {t("texthook.profile.copyToClipboard")}
+                  </label>
                 </section>
               </div>
 
@@ -1495,16 +1507,6 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
             >
               <div className="texthook-options-body">
                 <div className="form-group ocr-form-group">
-                  <div className="input-group">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={copyToClipboard}
-                        onChange={(e) => toggleCopyToClipboard(e.target.checked)}
-                      />{" "}
-                      {t("texthook.profile.copyToClipboard")}
-                    </label>
-                  </div>
                   <div className="input-group">
                     <label htmlFor="texthook-flush-delay-input">
                       {t("texthook.profile.flushDelay")}
