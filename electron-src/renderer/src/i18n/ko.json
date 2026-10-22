@@ -1042,6 +1042,46 @@
       "importFailed": "가져오기 실패.",
       "areaConfigExported": "OCR 영역 설정이 클립보드에 복사되었습니다.",
       "exportFailed": "내보내기 실패."
+    },
+    "desk": {
+      "brandHint": "게임 텍스트 캡처",
+      "workspace": "OCR 작업 공간",
+      "capture": "캡처",
+      "textMatching": "텍스트 비교",
+      "captureAreas": "캡처 영역",
+      "editAreas": "영역 편집",
+      "thisSession": "현재 세션",
+      "engine": "텍스트 인식",
+      "stability": "변화 감지",
+      "adjustRecognition": "인식 설정 변경",
+      "editShortcuts": "단축키 편집",
+      "unbound": "지정된 단축키 없음",
+      "autoMode": "자동 캡처",
+      "manualMode": "수동 캡처",
+      "settingsSaved": "변경 사항이 자동 저장됩니다",
+      "closeConsole": "작업 공간으로 돌아가기",
+      "layoutOverview": "저장된 배치 · 클릭하여 편집",
+      "wholeWindow": "전체 창",
+      "wholeWindowHint": "원하는 텍스트에 맞춰 영역을 지정하세요.",
+      "savedLayout": "영역이 저장되어 있습니다",
+      "savedLayoutHint": "영역 선택기를 열어 배치를 확인하세요.",
+      "areaKinds": {
+        "normal": "텍스트",
+        "secondary": "메뉴",
+        "excluded": "제외",
+        "black-hole": "블랙홀",
+        "exclusive": "전용"
+      },
+      "viewHelp": {
+        "capture": "캡처 배치, 세션 설정 및 일회성 스캔.",
+        "recognition": "텍스트 감지 및 인식 방법을 선택하세요.",
+        "filtering": "캡처 이미지를 보정하고 텍스트 출력 방법을 선택하세요.",
+        "comparison": "새 텍스트, 안정된 텍스트 및 중복 판단을 조정하세요.",
+        "shortcuts": "게임을 떠나지 않고 텍스트를 캡처하세요.",
+        "tools": "OCR 패키지, 진단 및 설정 파일을 관리하세요.",
+        "console": "실시간 OCR 출력 및 진단. 다른 페이지를 사용하는 동안에도 로그가 유지됩니다."
+      },
+      "shortcutHelp": "입력란을 선택하고 키 조합을 누르세요. Escape를 누르면 해제됩니다."
     }
   },
   "texthook": {

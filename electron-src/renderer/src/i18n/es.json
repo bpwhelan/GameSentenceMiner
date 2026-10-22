@@ -1040,6 +1040,46 @@
       "importFailed": "Importación fallida.",
       "areaConfigExported": "Configuración de área OCR copiada al portapapeles.",
       "exportFailed": "Exportación fallida."
+    },
+    "desk": {
+      "brandHint": "Captura de texto del juego",
+      "workspace": "Espacio de OCR",
+      "capture": "Captura",
+      "textMatching": "Comparación de texto",
+      "captureAreas": "Áreas de captura",
+      "editAreas": "Editar áreas",
+      "thisSession": "Esta sesión",
+      "engine": "Reconocimiento de texto",
+      "stability": "Detección de cambios",
+      "adjustRecognition": "Ajustar reconocimiento",
+      "editShortcuts": "Editar atajos",
+      "unbound": "Sin atajo",
+      "autoMode": "Captura automática",
+      "manualMode": "Captura manual",
+      "settingsSaved": "Los cambios se guardan automáticamente",
+      "closeConsole": "Volver al espacio de trabajo",
+      "layoutOverview": "Distribución guardada · pulsa para editar",
+      "wholeWindow": "Ventana completa",
+      "wholeWindowHint": "Dibuja áreas para centrarte en el texto que quieres.",
+      "savedLayout": "Las áreas están guardadas",
+      "savedLayoutHint": "Abre el selector para revisar esta distribución.",
+      "areaKinds": {
+        "normal": "Texto",
+        "secondary": "Menú",
+        "excluded": "Excluida",
+        "black-hole": "Agujero negro",
+        "exclusive": "Exclusiva"
+      },
+      "viewHelp": {
+        "capture": "Áreas de captura, ajustes de sesión y capturas puntuales.",
+        "recognition": "Elige cómo se detecta y reconoce el texto.",
+        "filtering": "Mejora la imagen capturada y elige cómo se entrega el texto.",
+        "comparison": "Ajusta cuándo un diálogo es nuevo, estable o repetido.",
+        "shortcuts": "Captura texto sin salir del juego.",
+        "tools": "Gestiona paquetes de OCR, diagnósticos y archivos de configuración.",
+        "console": "Salida y diagnósticos de OCR en directo. Los registros se conservan al usar otras páginas."
+      },
+      "shortcutHelp": "Selecciona una combinación y pulsa las teclas que quieras usar. Escape la borra."
     }
   },
   "texthook": {

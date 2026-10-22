@@ -1360,6 +1360,46 @@
       "importFailed": "インポートに失敗しました。",
       "areaConfigExported": "OCRエリア設定をクリップボードにコピーしました。",
       "exportFailed": "エクスポートに失敗しました。"
+    },
+    "desk": {
+      "brandHint": "ゲームのテキストを取得",
+      "workspace": "OCR ワークスペース",
+      "capture": "キャプチャ",
+      "textMatching": "テキスト比較",
+      "captureAreas": "キャプチャ範囲",
+      "editAreas": "範囲を編集",
+      "thisSession": "現在のセッション",
+      "engine": "文字認識",
+      "stability": "変化の検出",
+      "adjustRecognition": "認識設定を変更",
+      "editShortcuts": "ショートカットを編集",
+      "unbound": "未割り当て",
+      "autoMode": "自動キャプチャ",
+      "manualMode": "手動キャプチャ",
+      "settingsSaved": "変更は自動で保存されます",
+      "closeConsole": "ワークスペースに戻る",
+      "layoutOverview": "保存済みの配置 · クリックで編集",
+      "wholeWindow": "ウィンドウ全体",
+      "wholeWindowHint": "読み取りたいテキストの範囲を指定してください。",
+      "savedLayout": "範囲は保存されています",
+      "savedLayoutHint": "範囲選択画面で配置を確認できます。",
+      "areaKinds": {
+        "normal": "テキスト",
+        "secondary": "メニュー",
+        "excluded": "除外",
+        "black-hole": "ブラックホール",
+        "exclusive": "専用"
+      },
+      "viewHelp": {
+        "capture": "キャプチャ範囲、セッション設定、単発の読み取り。",
+        "recognition": "テキストの検出方法と認識方法を設定します。",
+        "filtering": "画像を補正し、テキストの出力方法を設定します。",
+        "comparison": "新しいテキスト、安定したテキスト、重複の判定を調整します。",
+        "shortcuts": "ゲームを離れずにテキストを取得できます。",
+        "tools": "OCR パッケージ、診断、設定ファイルを管理します。",
+        "console": "OCR の出力と診断ログ。他のページを使用中もログは保持されます。"
+      },
+      "shortcutHelp": "入力欄を選択してキーの組み合わせを押してください。Escape で解除できます。"
     }
   },
   "sceneSwitcher": {

@@ -1038,6 +1038,46 @@
       "importFailed": "导入失败。",
       "areaConfigExported": "OCR 区域配置已复制到剪贴板。",
       "exportFailed": "导出失败。"
+    },
+    "desk": {
+      "brandHint": "捕获游戏文本",
+      "workspace": "OCR 工作区",
+      "capture": "捕获",
+      "textMatching": "文本匹配",
+      "captureAreas": "捕获区域",
+      "editAreas": "编辑区域",
+      "thisSession": "当前会话",
+      "engine": "文本识别",
+      "stability": "变化检测",
+      "adjustRecognition": "调整识别设置",
+      "editShortcuts": "编辑快捷键",
+      "unbound": "未设置快捷键",
+      "autoMode": "自动捕获",
+      "manualMode": "手动捕获",
+      "settingsSaved": "更改自动保存",
+      "closeConsole": "返回工作区",
+      "layoutOverview": "已保存的布局 · 点击编辑",
+      "wholeWindow": "整个窗口",
+      "wholeWindowHint": "绘制区域以聚焦所需文本。",
+      "savedLayout": "区域已保存",
+      "savedLayoutHint": "打开区域选择器查看此布局。",
+      "areaKinds": {
+        "normal": "文本",
+        "secondary": "菜单",
+        "excluded": "排除",
+        "black-hole": "黑洞",
+        "exclusive": "专用"
+      },
+      "viewHelp": {
+        "capture": "捕获布局、会话设置与单次扫描。",
+        "recognition": "选择文本检测和识别方式。",
+        "filtering": "优化捕获图像并选择文本输出方式。",
+        "comparison": "调整新文本、稳定文本和重复文本的判断。",
+        "shortcuts": "无需离开游戏即可捕获文本。",
+        "tools": "管理 OCR 组件、诊断与配置文件。",
+        "console": "实时 OCR 输出与诊断。使用其他页面时日志仍会保留。"
+      },
+      "shortcutHelp": "选择绑定栏并按下组合键。按 Escape 清除绑定。"
     }
   },
   "texthook": {

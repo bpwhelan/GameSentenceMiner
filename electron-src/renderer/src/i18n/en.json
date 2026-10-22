@@ -1388,6 +1388,46 @@
       "importFailed": "Import failed.",
       "areaConfigExported": "OCR area config copied to clipboard.",
       "exportFailed": "Export failed."
+    },
+    "desk": {
+      "brandHint": "Game text capture",
+      "workspace": "OCR workspace",
+      "capture": "Capture",
+      "textMatching": "Text matching",
+      "captureAreas": "Capture areas",
+      "editAreas": "Edit areas",
+      "thisSession": "This session",
+      "engine": "Text recognition",
+      "stability": "Change detection",
+      "adjustRecognition": "Adjust recognition",
+      "editShortcuts": "Edit shortcuts",
+      "unbound": "No shortcut",
+      "autoMode": "Automatic capture",
+      "manualMode": "Manual capture",
+      "settingsSaved": "Changes save automatically",
+      "closeConsole": "Back to workspace",
+      "layoutOverview": "Saved layout · click to edit",
+      "wholeWindow": "Whole window",
+      "wholeWindowHint": "Draw areas to focus on the text you want.",
+      "savedLayout": "Areas are saved",
+      "savedLayoutHint": "Open the selector to inspect this layout.",
+      "areaKinds": {
+        "normal": "Text",
+        "secondary": "Menu",
+        "excluded": "Excluded",
+        "black-hole": "Black hole",
+        "exclusive": "Exclusive"
+      },
+      "viewHelp": {
+        "capture": "Your capture layout, session settings, and one-time scans.",
+        "recognition": "Choose how text is detected and read.",
+        "filtering": "Clean up the captured image and choose how text is delivered.",
+        "comparison": "Fine-tune when dialogue is new, stable, or repeated.",
+        "shortcuts": "Capture text without leaving your game.",
+        "tools": "Manage OCR packages, diagnostics, and configuration files.",
+        "console": "Live OCR output and diagnostics. Logs are kept while you use other pages."
+      },
+      "shortcutHelp": "Select a binding and press a key combination. Press Escape to clear it."
     }
   },
   "texthook": {

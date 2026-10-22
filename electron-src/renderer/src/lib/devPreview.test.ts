@@ -37,4 +37,21 @@ describe("dev renderer preview", () => {
     ).resolves.toEqual({ isRunning: false, mode: null, source: "preview" });
     expect(window.gsmEnv.platform).toBe("win32");
   });
+
+  it("simulates start, pause, resume, and stop without a native OCR process", async () => {
+    window.history.replaceState(null, "", "/?preview=ocr");
+    installDevPreviewBridge();
+    const statuses: unknown[] = [];
+    window.ipcRenderer.on("ocr-ipc-status", (_event, status) => statuses.push(status));
+    for (const [channel, mode] of [["ocr.start-ocr", "auto"], ["ocr.start-ocr-ss-only", "manual"]]) {
+      window.ipcRenderer.send(channel);
+      await expect(window.ipcRenderer.invoke("ocr.get-running-state")).resolves.toMatchObject({ isRunning: true, mode });
+      for (const paused of [true, false]) {
+        window.ipcRenderer.send("ocr.toggle-pause");
+        expect(statuses[statuses.length - 1]).toMatchObject({ paused, manual: mode === "manual" });
+      }
+      window.ipcRenderer.send("ocr.kill-ocr");
+      await expect(window.ipcRenderer.invoke("ocr.get-running-state")).resolves.toMatchObject({ isRunning: false, mode: null });
+    }
+  });
 });

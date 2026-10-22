@@ -117,7 +117,8 @@ describe("OCRTab", () => {
     const shortcuts = container.querySelector<HTMLElement>("#ocr-view-shortcuts")!;
     const binding = container.querySelector<HTMLInputElement>("#manual-hotkey")!;
     const initialBinding = binding.value;
-    expect(recognition.hidden).toBe(false);
+    expect(container.querySelector<HTMLElement>("#ocr-view-capture")!.hidden).toBe(false);
+    expect(recognition.hidden).toBe(true);
     expect(filtering.hidden).toBe(true);
     expect(comparison.hidden).toBe(true);
     expect(shortcuts.hidden).toBe(true);
@@ -149,7 +150,9 @@ describe("OCRTab", () => {
     expect(shortcuts.hidden).toBe(false);
     expect(container.querySelector("#manual-hotkey")).toBe(binding);
     expect(binding.value).toBe(initialBinding);
-    expect(container.querySelector("#ocr-nav-shortcuts")?.getAttribute("aria-selected")).toBe("true");
+    expect(container.querySelector("#ocr-nav-shortcuts")?.getAttribute("aria-selected")).toBe(
+      "true"
+    );
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>("#ocr-nav-recognition")!.click();
@@ -158,12 +161,12 @@ describe("OCRTab", () => {
     expect(shortcuts.hidden).toBe(true);
 
     await act(async () => {
-      container.querySelector<HTMLButtonElement>("#ocr-nav-recognition")!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "End", bubbles: true })
-      );
+      container
+        .querySelector<HTMLButtonElement>("#ocr-nav-recognition")!
+        .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
     });
-    expect(container.querySelector<HTMLElement>("#ocr-view-tools")!.hidden).toBe(false);
-    expect(document.activeElement?.id).toBe("ocr-nav-tools");
+    expect(container.querySelector<HTMLElement>("#ocr-view-capture")!.hidden).toBe(false);
+    expect(document.activeElement?.id).toBe("ocr-nav-capture");
   });
 
   it.each([
@@ -178,8 +181,10 @@ describe("OCRTab", () => {
       container.querySelector<HTMLButtonElement>("#ocr-nav-" + view)!.click();
     });
 
-    const tab = (index: number) => container.querySelector<HTMLButtonElement>("#" + prefix + "-tab-" + tabs[index])!;
-    const panel = (index: number) => container.querySelector<HTMLElement>("#" + prefix + "-panel-" + tabs[index])!;
+    const tab = (index: number) =>
+      container.querySelector<HTMLButtonElement>("#" + prefix + "-tab-" + tabs[index])!;
+    const panel = (index: number) =>
+      container.querySelector<HTMLElement>("#" + prefix + "-panel-" + tabs[index])!;
     tab(0).focus();
     const navigation = [
       ["ArrowRight", 1],
@@ -205,31 +210,35 @@ describe("OCRTab", () => {
     }
   });
 
-  it("keeps the console always visible while expanding or docking without replacing its terminal surface", async () => {
+  it("opens and closes the console without losing its terminal or the current settings page", async () => {
     await act(async () => {
       root.render(<OCRTab active={false} />);
       await flushAsyncWork();
     });
-    const studio = container.querySelector<HTMLElement>(".ocr-studio")!;
-    const consolePanel = container.querySelector<HTMLElement>("#ocr-console-drawer")!;
+    const consolePanel = container.querySelector<HTMLElement>("#ocr-view-console")!;
     const terminal = container.querySelector("#ocr-console-output");
-    const toggle = container.querySelector<HTMLButtonElement>('button[aria-controls="ocr-console-drawer"]')!;
-    const dockBtn = container.querySelector<HTMLButtonElement>(".studio-console-dock-btn")!;
-    expect(consolePanel.hidden).toBe(false);
+    const toggle = container.querySelector<HTMLButtonElement>("#ocr-console-toggle")!;
+    expect(consolePanel.hidden).toBe(true);
     expect(terminal).not.toBeNull();
 
-    for (const expanded of [true, false, true]) {
-      await act(async () => { toggle.click(); });
-      expect(consolePanel.hidden).toBe(false);
-      expect(consolePanel.classList.contains("studio-console--expanded")).toBe(expanded);
-      expect(toggle.getAttribute("aria-expanded")).toBe(String(expanded));
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#ocr-nav-filtering")!.click();
+    });
+    for (const open of [true, false, true, false]) {
+      await act(async () => {
+        toggle.click();
+      });
+      expect(consolePanel.hidden).toBe(!open);
+      expect(toggle.getAttribute("aria-expanded")).toBe(String(open));
+      expect(container.querySelector<HTMLElement>("#ocr-view-filtering")!.hidden).toBe(open);
       expect(container.querySelector("#ocr-console-output")).toBe(terminal);
     }
-
-    await act(async () => { dockBtn.click(); });
-    expect(studio.classList.contains("ocr-studio--split")).toBe(true);
-    expect(consolePanel.hidden).toBe(false);
-    expect(container.querySelector("#ocr-console-output")).toBe(terminal);
+    await act(async () => { toggle.click(); });
+    await act(async () => {
+      consolePanel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(consolePanel.hidden).toBe(true);
+    expect(document.activeElement?.id).toBe("ocr-nav-filtering");
   });
 
   it("runs quick-capture actions through the existing OCR commands", async () => {
@@ -241,14 +250,53 @@ describe("OCRTab", () => {
       root.render(<OCRTab active />);
       await flushAsyncWork();
     });
-    const buttons = container.querySelectorAll<HTMLButtonElement>(".studio-quick-actions button");
-    const channels = ["ocr.manual-ocr", "ocr.menu-ocr", "ocr.area-select-ocr", "ocr.whole-window-ocr"];
+    const buttons = container.querySelectorAll<HTMLButtonElement>(".desk-quick-actions button");
+    const channels = [
+      "ocr.manual-ocr",
+      "ocr.menu-ocr",
+      "ocr.area-select-ocr",
+      "ocr.whole-window-ocr"
+    ];
     expect(buttons).toHaveLength(channels.length);
     for (let index = 0; index < channels.length; index++) {
       expect(buttons[index].disabled).toBe(false);
-      await act(async () => { buttons[index].click(); });
+      await act(async () => {
+        buttons[index].click();
+      });
       expect(sendMock).toHaveBeenLastCalledWith(channels[index]);
     }
+  });
+
+  it.each([
+    ["Start Auto OCR", "ocr.start-ocr"],
+    ["Start Manual OCR", "ocr.start-ocr-ss-only"]
+  ])("starts the requested session from %s", async (label, channel) => {
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    const start = [...container.querySelectorAll<HTMLButtonElement>(".desk-transport-actions button")]
+      .find((button) => button.textContent === label)!;
+    await act(async () => { start.click(); await flushAsyncWork(); });
+    expect(sendMock).toHaveBeenLastCalledWith(channel);
+    expect(container.querySelector(".desk-transport-actions")?.textContent).toContain("Stop OCR");
+    expect(container.querySelector<HTMLElement>("#ocr-view-capture")!.hidden).toBe(false);
+    expect(container.querySelector<HTMLElement>("#ocr-view-console")!.hidden).toBe(true);
+  });
+
+  it("opens the existing area selector from the saved layout", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getScenes") return [{ id: "scene-1", name: "Example Game" }];
+      if (channel === "obs.getActiveScene") return { id: "scene-1", name: "Example Game" };
+      if (channel === "ocr.getActiveOCRConfig") return { coordinate_system: "percentage", rectangles: [{ coordinates: [0.1, 0.7, 0.8, 0.2] }] };
+      return null;
+    });
+    await act(async () => { root.render(<I18nProvider><OCRTab active /></I18nProvider>); await flushAsyncWork(); });
+    expect(container.querySelectorAll(".desk-map-area")).toHaveLength(1);
+    const map = container.querySelector<HTMLButtonElement>(".desk-map-canvas")!;
+    expect(map.disabled).toBe(false);
+    await act(async () => { map.click(); });
+    expect(sendMock).toHaveBeenLastCalledWith("ocr.run-screen-selector");
   });
 
   it("saves each output-table checkbox to its own capture mode", async () => {

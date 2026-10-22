@@ -28,8 +28,12 @@ function previewInvokeResult(channel: string): unknown {
     case "ocr.getActiveOCRConfig":
       return {
         scene: PREVIEW_SCENE.id,
-        coordinate_system: "screen",
-        rectangles: [{}, {}]
+        coordinate_system: "percentage",
+        window_geometry: { width: 1920, height: 1080 },
+        rectangles: [
+          { coordinates: [0.08, 0.7, 0.84, 0.24], is_excluded: false },
+          { coordinates: [0.68, 0.15, 0.24, 0.4], is_excluded: false, is_secondary: true }
+        ]
       };
     case "ocr.getActiveSceneSettings":
       return { furigana_filter_sensitivity: 35 };
@@ -79,6 +83,17 @@ export function installDevPreviewBridge(): void {
   }
 
   const listeners = new Map<string, Set<IpcListener>>();
+  let previewMode: "auto" | "manual" | null = null;
+  let previewPaused = false;
+  const emit = (channel: string, ...args: unknown[]) => {
+    for (const listener of listeners.get(channel) ?? []) {
+      listener({ sender: null }, ...args);
+    }
+  };
+  const emitStatus = () => emit("ocr-ipc-status", {
+    manual: previewMode === "manual", paused: previewPaused,
+    current_engine: "screenai", scan_rate: 0.5
+  });
   const removeListener = (channel: string, listener: IpcListener) => {
     listeners.get(channel)?.delete(listener);
   };
@@ -89,8 +104,26 @@ export function installDevPreviewBridge(): void {
   };
 
   const bridge: IpcBridge = {
-    invoke: async <T,>(channel: string) => previewInvokeResult(channel) as T,
-    send: () => undefined,
+    invoke: async <T,>(channel: string) => (channel === "ocr.get-running-state"
+      ? { isRunning: previewMode !== null, mode: previewMode, source: "preview" }
+      : previewInvokeResult(channel)) as T,
+    send: (channel) => {
+      if (channel === "ocr.start-ocr" || channel === "ocr.start-ocr-ss-only") {
+        previewMode = channel === "ocr.start-ocr" ? "auto" : "manual";
+        previewPaused = false;
+        emit("ocr-started");
+        emitStatus();
+      } else if (channel === "ocr.kill-ocr") {
+        previewMode = null;
+        previewPaused = false;
+        emit("ocr-stopped");
+      } else if (channel === "ocr.toggle-pause" && previewMode !== null) {
+        previewPaused = !previewPaused;
+        emitStatus();
+      } else if (channel === "ocr.get-status" && previewMode !== null) {
+        emitStatus();
+      }
+    },
     on: (channel, listener) => {
       addListener(channel, listener);
       return () => removeListener(channel, listener);
