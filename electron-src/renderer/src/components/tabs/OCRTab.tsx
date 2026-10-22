@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import "./OCRTab.css";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
@@ -1065,6 +1065,26 @@ const OCR_TOOLS_TABS = [
 ] as const;
 
 type ToolsSubTabId = (typeof OCR_TOOLS_TABS)[number]["id"];
+
+function navigateWorkspaceTabs<T extends string>(
+  event: KeyboardEvent<HTMLButtonElement>,
+  tabs: readonly { id: T }[],
+  index: number,
+  select: (id: T) => void,
+  prefix: string
+) {
+  let next = index;
+  if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+  else if (event.key === "ArrowLeft") next = (index + tabs.length - 1) % tabs.length;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = tabs.length - 1;
+  else return;
+
+  event.preventDefault();
+  const nextTab = tabs[next].id;
+  select(nextTab);
+  document.getElementById(prefix + nextTab)?.focus();
+}
 
 const OCR_OUTPUT_MODES = [
   {
@@ -2304,23 +2324,15 @@ export function OCRTab({ active }: OcrTabProps) {
                       aria-controls={"ocr-view-" + view.id}
                       tabIndex={workspaceView === view.id ? 0 : -1}
                       onClick={() => setWorkspaceView(view.id)}
-                      onKeyDown={(event) => {
-                        let next = index;
-                        if (event.key === "ArrowRight")
-                          next = (index + 1) % OCR_WORKSPACE_VIEWS.length;
-                        else if (event.key === "ArrowLeft")
-                          next =
-                            (index + OCR_WORKSPACE_VIEWS.length - 1) %
-                            OCR_WORKSPACE_VIEWS.length;
-                        else if (event.key === "Home") next = 0;
-                        else if (event.key === "End")
-                          next = OCR_WORKSPACE_VIEWS.length - 1;
-                        else return;
-                        event.preventDefault();
-                        const nextView = OCR_WORKSPACE_VIEWS[next].id;
-                        setWorkspaceView(nextView);
-                        document.getElementById("ocr-nav-" + nextView)?.focus();
-                      }}
+                      onKeyDown={(event) =>
+                        navigateWorkspaceTabs(
+                          event,
+                          OCR_WORKSPACE_VIEWS,
+                          index,
+                          setWorkspaceView,
+                          "ocr-nav-"
+                        )
+                      }
                     >
                       <span>{t(view.labelKey)}</span>
                       {badge ? (
@@ -3073,7 +3085,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         role="tablist"
                         aria-label={t("ocr.comparison.title")}
                       >
-                        {OCR_COMPARISON_TABS.map((subTab) => (
+                        {OCR_COMPARISON_TABS.map((subTab, index) => (
                           <button
                             key={subTab.id}
                             type="button"
@@ -3083,6 +3095,15 @@ export function OCRTab({ active }: OcrTabProps) {
                             aria-controls={"ocr-comp-panel-" + subTab.id}
                             tabIndex={comparisonSubTab === subTab.id ? 0 : -1}
                             onClick={() => setComparisonSubTab(subTab.id)}
+                            onKeyDown={(event) =>
+                              navigateWorkspaceTabs(
+                                event,
+                                OCR_COMPARISON_TABS,
+                                index,
+                                setComparisonSubTab,
+                                "ocr-comp-tab-"
+                              )
+                            }
                           >
                             {t(subTab.labelKey)}
                           </button>
@@ -3405,7 +3426,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       role="tablist"
                       aria-label={t("ocr.debug.title")}
                     >
-                      {OCR_TOOLS_TABS.map((subTab) => (
+                      {OCR_TOOLS_TABS.map((subTab, index) => (
                         <button
                           key={subTab.id}
                           type="button"
@@ -3415,6 +3436,15 @@ export function OCRTab({ active }: OcrTabProps) {
                           aria-controls={"ocr-tools-panel-" + subTab.id}
                           tabIndex={toolsSubTab === subTab.id ? 0 : -1}
                           onClick={() => setToolsSubTab(subTab.id)}
+                          onKeyDown={(event) =>
+                            navigateWorkspaceTabs(
+                              event,
+                              OCR_TOOLS_TABS,
+                              index,
+                              setToolsSubTab,
+                              "ocr-tools-tab-"
+                            )
+                          }
                         >
                           {t(subTab.labelKey)}
                         </button>

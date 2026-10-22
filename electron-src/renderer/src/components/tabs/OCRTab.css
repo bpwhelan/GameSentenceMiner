@@ -258,6 +258,10 @@
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
 }
 
+.ocr-studio.ocr-studio--split.ocr-studio--console-expanded .studio-body {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 1.35fr);
+}
+
 /* ===== Tabbed Workbench ===== */
 .ocr-studio .studio-workbench {
   display: flex;
@@ -267,6 +271,7 @@
   border-radius: 10px;
   background: var(--gsm-surface-1);
   overflow: hidden;
+  container: ocr-workbench / inline-size;
 }
 
 .ocr-studio .studio-navigation-bar {
@@ -791,6 +796,9 @@
   border: 1px solid var(--gsm-border-subtle);
   border-radius: 8px;
   background: var(--gsm-surface-0);
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .ocr-studio .studio-subtablist button {
@@ -800,6 +808,7 @@
   border-radius: 6px;
   color: var(--gsm-text-muted);
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .ocr-studio .studio-subtablist button[aria-selected="true"] {
@@ -1051,6 +1060,7 @@
   border-radius: 10px;
   overflow: hidden;
   background: var(--gsm-surface-1);
+  container: ocr-console / inline-size;
 }
 
 .ocr-studio .studio-console .ocr-card-header-row {
@@ -1252,9 +1262,16 @@
   .ocr-studio .studio-view {
     padding: 14px;
   }
-  .ocr-studio.ocr-studio--split .studio-body {
+  .ocr-studio.ocr-studio--split .studio-body,
+  .ocr-studio.ocr-studio--split.ocr-studio--console-expanded .studio-body {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) clamp(150px, 26vh, 220px);
+  }
+  .ocr-studio.ocr-studio--split.ocr-studio--console-expanded .studio-body {
+    grid-template-rows: minmax(0, 1fr) clamp(230px, 42vh, 360px);
+  }
+  .ocr-studio .studio-console-dock-btn {
+    display: none;
   }
   .ocr-studio .studio-recognition-layout {
     grid-template-columns: minmax(0, 1.35fr) minmax(230px, 1fr);
@@ -1265,7 +1282,10 @@
   }
   .ocr-studio .studio-target {
     gap: 10px;
-    grid-template-columns: minmax(170px, 1fr) 155px auto;
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 0.55fr);
+  }
+  .ocr-studio .studio-target-areas {
+    grid-column: 1 / -1;
   }
   .ocr-studio .ocr-hotkey-columns,
   .ocr-studio .ocr-hotkey-item {
@@ -1273,23 +1293,31 @@
   }
 }
 
-@media (max-width: 780px) {
-  .ocr-studio .studio-target {
-    grid-template-columns: minmax(0, 1fr) minmax(140px, 0.65fr);
+/* Respond to the space left by a docked console, not just the window. */
+@container ocr-workbench (max-width: 760px) {
+  .ocr-studio .ocr-hotkey-card-heading {
+    display: block;
   }
-  .ocr-studio .studio-target-areas {
-    grid-column: 1 / -1;
-    justify-content: flex-end;
-  }
-  .ocr-studio .studio-recognition-layout,
-  .ocr-studio .studio-slider-grid,
-  .ocr-studio .studio-tools-panel {
+  .ocr-studio .studio-recognition-layout {
     grid-template-columns: minmax(0, 1fr);
   }
   .ocr-studio .studio-side {
     padding: 16px 0 0;
     border: 0;
     border-top: 1px solid var(--gsm-border-subtle);
+  }
+}
+
+@container ocr-workbench (min-width: 620px) and (max-width: 760px) {
+  .ocr-studio .studio-quick-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container ocr-workbench (max-width: 620px) {
+  .ocr-studio .studio-slider-grid,
+  .ocr-studio .studio-tools-panel {
+    grid-template-columns: minmax(0, 1fr);
   }
   .ocr-studio .ocr-hotkey-columns {
     display: none;
@@ -1326,6 +1354,40 @@
     grid-column: 1 / -1;
     grid-row: 3;
   }
+}
+
+@container ocr-console (max-width: 420px) {
+  .ocr-studio .studio-console .ocr-card-header-row {
+    flex-wrap: wrap;
+  }
+  .ocr-studio .studio-console-title-group {
+    flex-basis: 100%;
+  }
+  .ocr-studio .ocr-console-actions {
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-height: 760px) {
+  .ocr-studio:not(.ocr-studio--split) .studio-body,
+  .ocr-studio.ocr-studio--split .studio-body {
+    grid-template-rows: minmax(0, 1fr) clamp(100px, 20vh, 145px);
+  }
+  .ocr-studio.ocr-studio--console-expanded .studio-body,
+  .ocr-studio.ocr-studio--split.ocr-studio--console-expanded .studio-body {
+    grid-template-rows: minmax(0, 1fr) clamp(150px, 34vh, 220px);
+  }
+}
+
+@media (min-width: 1051px) and (max-height: 760px) {
+  .ocr-studio.ocr-studio--split .studio-body,
+  .ocr-studio.ocr-studio--split.ocr-studio--console-expanded .studio-body {
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 780px) {
   .ocr-studio .ocr-sticky-footer {
     flex-direction: column;
     align-items: stretch;

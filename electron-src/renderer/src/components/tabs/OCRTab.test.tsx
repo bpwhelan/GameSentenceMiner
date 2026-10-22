@@ -166,6 +166,45 @@ describe("OCRTab", () => {
     expect(document.activeElement?.id).toBe("ocr-nav-tools");
   });
 
+  it.each([
+    { view: "comparison", prefix: "ocr-comp", tabs: ["primary", "truncation", "subset"] },
+    { view: "tools", prefix: "ocr-tools", tabs: ["diagnostics", "packages", "files"] }
+  ])("supports keyboard navigation within the $view sub-tabs", async ({ view, prefix, tabs }) => {
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#ocr-nav-" + view)!.click();
+    });
+
+    const tab = (index: number) => container.querySelector<HTMLButtonElement>("#" + prefix + "-tab-" + tabs[index])!;
+    const panel = (index: number) => container.querySelector<HTMLElement>("#" + prefix + "-panel-" + tabs[index])!;
+    tab(0).focus();
+    const navigation = [
+      ["ArrowRight", 1],
+      ["End", 2],
+      ["ArrowRight", 0],
+      ["ArrowLeft", 2],
+      ["Home", 0]
+    ] as const;
+    for (const [key, expected] of navigation) {
+      await act(async () => {
+        document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      });
+      expect(document.activeElement).toBe(tab(expected));
+      expect(tab(expected).tabIndex).toBe(0);
+      expect(tab(expected).getAttribute("aria-selected")).toBe("true");
+      expect(panel(expected).hidden).toBe(false);
+      for (let index = 0; index < tabs.length; index++) {
+        if (index !== expected) {
+          expect(tab(index).tabIndex).toBe(-1);
+          expect(panel(index).hidden).toBe(true);
+        }
+      }
+    }
+  });
+
   it("keeps the console always visible while expanding or docking without replacing its terminal surface", async () => {
     await act(async () => {
       root.render(<OCRTab active={false} />);
