@@ -486,6 +486,31 @@
     "quit": "종료"
   },
   "settings": {
+    "workspace": {
+      "brandHint": "환경 설정 및 도구",
+      "general": "일반",
+      "generalHelp": "외관, 언어 및 시작 동작을 설정하세요.",
+      "layout": "탭 및 창",
+      "layoutHelp": "사용할 탭과 게임 창 관련 동작을 설정하세요.",
+      "updatesHelp": "데스크톱 앱과 백엔드 업데이트를 한곳에서 관리하세요.",
+      "backupsHelp": "데이터베이스를 자동으로 백업하거나 선택한 데이터를 백업하세요.",
+      "storageHelp": "설정, 데이터베이스 및 다운로드한 도구의 저장 위치를 관리하세요.",
+      "appearance": "외관",
+      "behavior": "시작 및 동작",
+      "moreSettings": "GSM 및 오버레이 설정",
+      "autoSave": "데스크톱 환경 설정은 자동으로 저장됩니다.",
+      "searchPlaceholder": "모든 설정 검색…",
+      "searchResults": "검색 결과",
+      "clearSearch": "검색 지우기",
+      "openSection": "설정 열기",
+      "navigation": "설정 섹션",
+      "selectiveBackup": "선택 백업 및 복원",
+      "statsOverview": "개요",
+      "statsReading": "읽기 통계",
+      "statsGoals": "목표",
+      "statsAnki": "Anki 통계",
+      "statsSearch": "검색"
+    },
     "hub": {
       "findSetting": "설정 찾기",
       "findDescription": "변경하려는 항목을 검색하면 GSM이 올바른 설정 화면을 엽니다.",

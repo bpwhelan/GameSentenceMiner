@@ -1,45 +1,38 @@
-import {
-  useCallback,
-  type ChangeEvent,
-  useEffect,
-  type MouseEvent,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { invokeIpc, onIpc, sendIpc } from "../../lib/ipc";
 import type {
   AppSettings,
   ControlledTab,
   UpdateStatusSnapshot,
-  UpdateTargetStatus
+  UpdateTargetStatus,
 } from "../../types/models";
 import type { SettingsCatalogAction } from "../../types/settings";
 import {
   filterSettingsCatalogEntries,
   performSettingsCatalogAction,
   SETTINGS_CATALOG,
-  SETTINGS_CATALOG_I18N_KEYS
+  SETTINGS_CATALOG_I18N_KEYS,
 } from "./settingsCatalog";
 import { SUPPORTED_LOCALES, useLocale, useTranslation } from "../../i18n";
-import type { SettingsCatalogOwner } from "../../types/settings";
+import { WorkspaceIcon, WorkspaceNavigation } from "../Workspace";
+import "./SettingsTab.css";
+import type { SettingsCatalogEntry, SettingsCatalogOwner } from "../../types/settings";
 import { applyTheme, DEFAULT_THEME, THEME_GROUPS } from "../../lib/theme";
 import {
   SETTINGS_BACKUP_CATEGORY_IDS,
-  type SettingsBackupCategoryId
+  type SettingsBackupCategoryId,
 } from "../../../../shared/settings_backup";
 
 const ACTION_I18N_KEYS: Record<string, string> = {
   "current-tab": "settings.catalog.alreadyOnScreen",
   "open-gsm-settings": "settings.catalog.openGSMSettings",
-  "open-overlay-settings": "settings.catalog.openOverlaySettings"
+  "open-overlay-settings": "settings.catalog.openOverlaySettings",
 };
 
 const LOCATION_I18N_KEYS: Record<SettingsCatalogOwner, string> = {
   electron: "settings.catalog.locationElectron",
   python: "settings.catalog.locationPython",
-  overlay: "settings.catalog.locationOverlay"
+  overlay: "settings.catalog.locationOverlay",
 };
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -62,7 +55,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   databaseBackupRetentionCount: 2,
   singlePort: 7275,
   locale: "en",
-  theme: DEFAULT_THEME
+  theme: DEFAULT_THEME,
 };
 
 const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
@@ -72,7 +65,7 @@ const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
     updateAvailable: false,
     checkedAt: null,
     error: null,
-    checking: false
+    checking: false,
   },
   app: {
     currentVersion: "",
@@ -81,9 +74,9 @@ const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
     checkedAt: null,
     error: null,
     checking: false,
-    channel: "latest"
+    channel: "latest",
   },
-  anyUpdateInProgress: false
+  anyUpdateInProgress: false,
 };
 
 const VISIBLE_TAB_OPTIONS: Array<{ id: ControlledTab; labelKey: string }> = [
@@ -91,16 +84,41 @@ const VISIBLE_TAB_OPTIONS: Array<{ id: ControlledTab; labelKey: string }> = [
   { id: "launcher", labelKey: "settings.visibility.tabGameSettings" },
   { id: "stats", labelKey: "settings.visibility.tabStats" },
   { id: "python", labelKey: "settings.visibility.tabPython" },
-  { id: "console", labelKey: "settings.visibility.tabConsole" }
+  { id: "console", labelKey: "settings.visibility.tabConsole" },
 ];
 
 const STATS_ENDPOINT_OPTIONS = [
-  "overview",
-  "stats",
-  "goals",
-  "anki_stats",
-  "search"
+  { value: "overview", labelKey: "settings.workspace.statsOverview" },
+  { value: "stats", labelKey: "settings.workspace.statsReading" },
+  { value: "goals", labelKey: "settings.workspace.statsGoals" },
+  { value: "anki_stats", labelKey: "settings.workspace.statsAnki" },
+  { value: "search", labelKey: "settings.workspace.statsSearch" },
 ];
+
+type SettingsView = "general" | "layout" | "updates" | "backups" | "storage";
+const SETTINGS_VIEWS = [
+  {
+    id: "general",
+    labelKey: "settings.workspace.general",
+    helpKey: "settings.workspace.generalHelp",
+  },
+  { id: "layout", labelKey: "settings.workspace.layout", helpKey: "settings.workspace.layoutHelp" },
+  { id: "updates", labelKey: "settings.updates.title", helpKey: "settings.workspace.updatesHelp" },
+  { id: "backups", labelKey: "settings.backup.title", helpKey: "settings.workspace.backupsHelp" },
+  {
+    id: "storage",
+    labelKey: "settings.dataFolder.title",
+    helpKey: "settings.workspace.storageHelp",
+  },
+] as const;
+const LOCAL_SETTINGS_TARGETS: Record<string, { view: SettingsView; focusId: string }> = {
+  "desktop-appearance-startup": { view: "general", focusId: "icon-style" },
+  "desktop-tabs-and-stats": { view: "layout", focusId: "settings-view-layout" },
+  "desktop-transparency": { view: "layout", focusId: "window-transparency-hotkey" },
+  "desktop-updates": { view: "updates", focusId: "auto-update-gsm" },
+  "desktop-backups": { view: "backups", focusId: "settings-view-backups" },
+  "desktop-data-folder": { view: "storage", focusId: "settings-view-storage" },
+};
 
 const SETTINGS_QUICK_LINK_IDS = [
   "gsm-key-settings",
@@ -108,7 +126,7 @@ const SETTINGS_QUICK_LINK_IDS = [
   "gsm-audio",
   "gsm-screenshot",
   "overlay-display-hotkeys",
-  "overlay-gamepad"
+  "overlay-gamepad",
 ];
 
 const SETTINGS_BACKUP_PROGRESS_CHANNEL = "settings-backup-progress";
@@ -133,20 +151,13 @@ interface DataRelocateResult {
   error?: string;
 }
 
-type DataRelocateProgressPhase =
-  | "validating"
-  | "copying"
-  | "finalizing"
-  | "done";
+type DataRelocateProgressPhase = "validating" | "copying" | "finalizing" | "done";
 
-const DATA_RELOCATE_PHASE_I18N_KEYS: Record<
-  DataRelocateProgressPhase,
-  string
-> = {
+const DATA_RELOCATE_PHASE_I18N_KEYS: Record<DataRelocateProgressPhase, string> = {
   validating: "settings.dataFolder.progress.validating",
   copying: "settings.dataFolder.progress.copying",
   finalizing: "settings.dataFolder.progress.finalizing",
-  done: "settings.dataFolder.progress.done"
+  done: "settings.dataFolder.progress.done",
 };
 
 type SettingsBackupOperation = "create" | "restore";
@@ -180,7 +191,7 @@ const BACKUP_PROGRESS_PHASE_I18N_KEYS: Record<SettingsBackupProgressPhase, strin
   restoring: "settings.backup.progress.restoring",
   "restarting-python": "settings.backup.progress.restartingPython",
   done: "settings.backup.progress.done",
-  error: "settings.backup.progress.error"
+  error: "settings.backup.progress.error",
 };
 
 interface BackupSelectionNode {
@@ -195,47 +206,47 @@ function getBackupSelectionTree(isWindows: boolean): BackupSelectionNode[] {
     {
       id: "python-settings",
       category: "python-settings",
-      labelKey: "settings.backup.categories.pythonSettings"
+      labelKey: "settings.backup.categories.pythonSettings",
     },
     {
       id: "desktop-settings",
       category: "desktop-settings",
-      labelKey: "settings.backup.categories.desktopSettings"
+      labelKey: "settings.backup.categories.desktopSettings",
     },
     {
       id: "overlay-settings",
       category: "overlay-settings",
-      labelKey: "settings.backup.categories.overlaySettings"
+      labelKey: "settings.backup.categories.overlaySettings",
     },
     {
       id: "scene-config",
       category: "scene-config",
-      labelKey: "settings.backup.categories.sceneConfig"
+      labelKey: "settings.backup.categories.sceneConfig",
     },
     {
       id: "ocr-configs",
       category: "ocr-configs",
-      labelKey: "settings.backup.categories.ocrConfigs"
+      labelKey: "settings.backup.categories.ocrConfigs",
     },
     ...(isWindows
       ? [
           {
             id: "obs-config",
             category: "obs-config" as const,
-            labelKey: "settings.backup.categories.obsConfig"
-          }
+            labelKey: "settings.backup.categories.obsConfig",
+          },
         ]
       : []),
     {
       id: "text-hook-settings",
       category: "text-hook-settings",
-      labelKey: "settings.backup.categories.textHookSettings"
+      labelKey: "settings.backup.categories.textHookSettings",
     },
     {
       id: "window-layouts",
       category: "window-layouts",
-      labelKey: "settings.backup.categories.windowLayouts"
-    }
+      labelKey: "settings.backup.categories.windowLayouts",
+    },
   ];
 
   return [
@@ -246,17 +257,17 @@ function getBackupSelectionTree(isWindows: boolean): BackupSelectionNode[] {
         {
           id: "database",
           category: "database",
-          labelKey: "settings.backup.categories.database"
+          labelKey: "settings.backup.categories.database",
         },
         {
           id: "settings",
           labelKey: "settings.backup.categories.settings",
-          children: settingsChildren
+          children: settingsChildren,
         },
         {
           id: "yomitan",
           category: "yomitan",
-          labelKey: "settings.backup.categories.yomitan"
+          labelKey: "settings.backup.categories.yomitan",
         },
         {
           id: "customizations",
@@ -265,22 +276,22 @@ function getBackupSelectionTree(isWindows: boolean): BackupSelectionNode[] {
             {
               id: "plugins",
               category: "plugins",
-              labelKey: "settings.backup.categories.plugins"
+              labelKey: "settings.backup.categories.plugins",
             },
             {
               id: "agent-scripts",
               category: "agent-scripts",
-              labelKey: "settings.backup.categories.agentScripts"
+              labelKey: "settings.backup.categories.agentScripts",
             },
             {
               id: "user-scripts",
               category: "user-scripts",
-              labelKey: "settings.backup.categories.userScripts"
-            }
-          ]
-        }
-      ]
-    }
+              labelKey: "settings.backup.categories.userScripts",
+            },
+          ],
+        },
+      ],
+    },
   ];
 }
 
@@ -302,7 +313,7 @@ function BackupSelectionTreeNode({
   node,
   selected,
   disabled,
-  onToggle
+  onToggle,
 }: BackupSelectionTreeNodeProps) {
   const t = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -334,7 +345,10 @@ function BackupSelectionTreeNode({
         <span>{t(node.labelKey)}</span>
       </label>
       {node.children?.length ? (
-        <div className="settings-backup-tree-children" role="group">
+        <div
+          className="settings-backup-tree-children"
+          role="group"
+        >
           {node.children.map((child) => (
             <BackupSelectionTreeNode
               key={child.id}
@@ -357,7 +371,7 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
 
   const visibleTabs = Array.isArray(value.visibleTabs)
     ? value.visibleTabs.filter((tab): tab is ControlledTab =>
-        ["launcher", "stats", "python", "console"].includes(tab)
+        ["speech", "launcher", "stats", "python", "console"].includes(tab),
       )
     : DEFAULT_SETTINGS.visibleTabs;
 
@@ -369,8 +383,7 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
       value.windowTransparencyToolHotkey || DEFAULT_SETTINGS.windowTransparencyToolHotkey,
     windowTransparencyTarget:
       value.windowTransparencyTarget || DEFAULT_SETTINGS.windowTransparencyTarget,
-    customPythonPackage:
-      value.customPythonPackage || DEFAULT_SETTINGS.customPythonPackage,
+    customPythonPackage: value.customPythonPackage || DEFAULT_SETTINGS.customPythonPackage,
     statsEndpoint: value.statsEndpoint || DEFAULT_SETTINGS.statsEndpoint,
     databaseBackupDirectory:
       typeof value.databaseBackupDirectory === "string"
@@ -382,18 +395,12 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
         ? Math.max(1, Math.min(1000, Math.trunc(value.databaseBackupRetentionCount)))
         : DEFAULT_SETTINGS.databaseBackupRetentionCount,
     locale: value.locale || DEFAULT_SETTINGS.locale,
-    theme: value.theme || DEFAULT_SETTINGS.theme
+    theme: value.theme || DEFAULT_SETTINGS.theme,
   };
 }
 
 function toggleValue(values: string[], value: string): string[] {
-  return values.includes(value)
-    ? values.filter((entry) => entry !== value)
-    : [...values, value];
-}
-
-function selectedOptionValues(event: ChangeEvent<HTMLSelectElement>): string[] {
-  return Array.from(event.currentTarget.selectedOptions).map((option) => option.value);
+  return values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value];
 }
 
 function formatCheckedAt(value: string | null): string | null {
@@ -415,10 +422,7 @@ function getDisplayCurrentVersion(status: UpdateTargetStatus): string {
     : "Unknown";
 }
 
-function getDisplayLatestVersion(
-  _label: "backend" | "app",
-  status: UpdateTargetStatus
-): string {
+function getDisplayLatestVersion(_label: "backend" | "app", status: UpdateTargetStatus): string {
   if (status.latestVersion && status.latestVersion.trim().length > 0) {
     return status.latestVersion;
   }
@@ -456,10 +460,7 @@ function normalizeDataRelocatePhase(value: unknown): DataRelocateProgressPhase |
     return null;
   }
   const phase = (value as { phase?: unknown }).phase;
-  return phase === "validating" ||
-    phase === "copying" ||
-    phase === "finalizing" ||
-    phase === "done"
+  return phase === "validating" || phase === "copying" || phase === "finalizing" || phase === "done"
     ? phase
     : null;
 }
@@ -471,9 +472,7 @@ function normalizeOptionalCount(value: unknown): number | undefined {
   return Math.floor(value);
 }
 
-function normalizeSettingsBackupProgress(
-  value: unknown
-): SettingsBackupProgressEvent | null {
+function normalizeSettingsBackupProgress(value: unknown): SettingsBackupProgressEvent | null {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -492,7 +491,7 @@ function normalizeSettingsBackupProgress(
     fileName: typeof payload.fileName === "string" ? payload.fileName : undefined,
     completed: normalizeOptionalCount(payload.completed),
     total: normalizeOptionalCount(payload.total),
-    progress: normalizeProgressNumber(payload.progress)
+    progress: normalizeProgressNumber(payload.progress),
   };
 }
 
@@ -500,22 +499,19 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
-  const backupSelectionTree = useMemo(
-    () => getBackupSelectionTree(isWindows),
-    [isWindows]
-  );
+  const backupSelectionTree = useMemo(() => getBackupSelectionTree(isWindows), [isWindows]);
   const [currentLocale, setCurrentLocale] = useLocale();
 
+  const [workspaceView, setWorkspaceView] = useState<SettingsView>("general");
+  const pendingFocusRef = useRef<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [customPackageDraft, setCustomPackageDraft] = useState(
-    DEFAULT_SETTINGS.customPythonPackage
+    DEFAULT_SETTINGS.customPythonPackage,
   );
   const [transparencyTargetDraft, setTransparencyTargetDraft] = useState(
-    DEFAULT_SETTINGS.windowTransparencyTarget
+    DEFAULT_SETTINGS.windowTransparencyTarget,
   );
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatusSnapshot>(
-    DEFAULT_UPDATE_STATUS
-  );
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusSnapshot>(DEFAULT_UPDATE_STATUS);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isApplyingUpdates, setIsApplyingUpdates] = useState(false);
@@ -524,20 +520,18 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const [hubMessage, setHubMessage] = useState<string | null>(null);
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState<"create" | "restore" | null>(null);
-  const [backupProgress, setBackupProgress] =
-    useState<SettingsBackupProgressEvent | null>(null);
+  const [backupProgress, setBackupProgress] = useState<SettingsBackupProgressEvent | null>(null);
   const [selectedBackupCategories, setSelectedBackupCategories] = useState<
     Set<SettingsBackupCategoryId>
   >(() => new Set(getBackupNodeCategories(getBackupSelectionTree(isWindows)[0])));
   const [dataDir, setDataDir] = useState<string | null>(null);
   const [defaultDataDir, setDefaultDataDir] = useState<string | null>(null);
   const [dataPointerPath, setDataPointerPath] = useState<string | null>(null);
-  const [dataRelocationBusy, setDataRelocationBusy] = useState<
-    "change" | "restore" | null
-  >(null);
+  const [dataRelocationBusy, setDataRelocationBusy] = useState<"change" | "restore" | null>(null);
   const [dataRelocationMessage, setDataRelocationMessage] = useState<string | null>(null);
-  const [dataRelocationPhase, setDataRelocationPhase] =
-    useState<DataRelocateProgressPhase | null>(null);
+  const [dataRelocationPhase, setDataRelocationPhase] = useState<DataRelocateProgressPhase | null>(
+    null,
+  );
 
   const isInitializedRef = useRef(false);
 
@@ -555,7 +549,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
         return next;
       });
     },
-    []
+    [],
   );
 
   const persistSettings = useCallback(
@@ -575,19 +569,16 @@ export function SettingsTab({ active }: SettingsTabProps) {
         setTransparencyTargetDraft(normalized.windowTransparencyTarget);
       }
     },
-    []
+    [],
   );
 
   const patchSettings = useCallback(
     (
-      patch:
-        | Partial<AppSettings>
-        | ((current: AppSettings) => Partial<AppSettings>),
-      options?: { iconStyleChanged?: boolean }
+      patch: Partial<AppSettings> | ((current: AppSettings) => Partial<AppSettings>),
+      options?: { iconStyleChanged?: boolean },
     ) => {
       setSettings((current) => {
-        const resolvedPatch =
-          typeof patch === "function" ? patch(current) : patch;
+        const resolvedPatch = typeof patch === "function" ? patch(current) : patch;
         const next = { ...current, ...resolvedPatch };
 
         if (isInitializedRef.current) {
@@ -597,7 +588,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
         return next;
       });
     },
-    [persistSettings]
+    [persistSettings],
   );
 
   useEffect(() => {
@@ -607,9 +598,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
     const load = async () => {
       try {
-        const fetchedSettings = await invokeIpc<Partial<AppSettings>>(
-          "settings.getSettings"
-        );
+        const fetchedSettings = await invokeIpc<Partial<AppSettings>>("settings.getSettings");
         const normalized = normalizeSettings(fetchedSettings);
         setSettings(normalized);
         setCustomPackageDraft(normalized.customPythonPackage);
@@ -633,7 +622,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
     void Promise.all([
       invokeIpc<string>("data.getCurrentDir"),
       invokeIpc<string>("data.getDefaultDir"),
-      invokeIpc<string>("data.getPointerPath")
+      invokeIpc<string>("data.getPointerPath"),
     ])
       .then(([currentDir, originalDir, pointerPath]) => {
         if (typeof currentDir === "string") {
@@ -650,36 +639,26 @@ export function SettingsTab({ active }: SettingsTabProps) {
         console.error("Failed to load GSM data folder:", error);
         setDataRelocationMessage(
           t("settings.dataFolder.loadFailed", {
-            error:
-              error instanceof Error
-                ? error.message
-                : t("settings.dataFolder.unknownError")
-          })
+            error: error instanceof Error ? error.message : t("settings.dataFolder.unknownError"),
+          }),
         );
       });
   }, [active]);
 
-  const loadUpdateStatus = useCallback(
-    async (refresh = false) => {
-      const channel = refresh
-        ? "settings.checkForUpdates"
-        : "settings.getUpdateStatus";
+  const loadUpdateStatus = useCallback(async (refresh = false) => {
+    const channel = refresh ? "settings.checkForUpdates" : "settings.getUpdateStatus";
 
-      try {
-        const nextStatus = await invokeIpc<UpdateStatusSnapshot | null>(channel);
-        if (nextStatus) {
-          setUpdateStatus(nextStatus);
-          setUpdateMessage(null);
-        }
-      } catch (error) {
-        console.error("Failed to load update status:", error);
-        setUpdateMessage(
-          error instanceof Error ? error.message : "Failed to load update status."
-        );
+    try {
+      const nextStatus = await invokeIpc<UpdateStatusSnapshot | null>(channel);
+      if (nextStatus) {
+        setUpdateStatus(nextStatus);
+        setUpdateMessage(null);
       }
-    },
-    []
-  );
+    } catch (error) {
+      console.error("Failed to load update status:", error);
+      setUpdateMessage(error instanceof Error ? error.message : "Failed to load update status.");
+    }
+  }, []);
 
   useEffect(() => {
     if (!active) {
@@ -693,25 +672,18 @@ export function SettingsTab({ active }: SettingsTabProps) {
     await invokeIpc("settings.openGSMSettings");
   };
 
-  const handleCatalogAction = useCallback(
-    async (action: SettingsCatalogAction) => {
-      const result = await performSettingsCatalogAction(action);
-      const maybeResult =
-        result && typeof result === "object"
-          ? (result as { success?: boolean })
-          : null;
+  const handleCatalogAction = useCallback(async (action: SettingsCatalogAction) => {
+    const result = await performSettingsCatalogAction(action);
+    const maybeResult =
+      result && typeof result === "object" ? (result as { success?: boolean }) : null;
 
-      if (action.type === "open-overlay-settings" && maybeResult?.success === false) {
-        setHubMessage(
-          t("settings.hub.overlayNotAvailable")
-        );
-        return;
-      }
+    if (action.type === "open-overlay-settings" && maybeResult?.success === false) {
+      setHubMessage(t("settings.hub.overlayNotAvailable"));
+      return;
+    }
 
-      setHubMessage(null);
-    },
-    []
-  );
+    setHubMessage(null);
+  }, []);
 
   const runWindowTransparencyTool = async () => {
     await invokeIpc("settings.runWindowTransparencyTool");
@@ -719,7 +691,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
   const selectDatabaseBackupDirectory = useCallback(async () => {
     const result = await invokeIpc<{ canceled?: boolean; directory?: string }>(
-      "settings.selectDatabaseBackupDirectory"
+      "settings.selectDatabaseBackupDirectory",
     );
     if (!result?.canceled && typeof result?.directory === "string") {
       patchSettings({ databaseBackupDirectory: result.directory });
@@ -751,17 +723,13 @@ export function SettingsTab({ active }: SettingsTabProps) {
     setIsCheckingUpdates(true);
     setUpdateMessage(null);
     try {
-      const nextStatus = await invokeIpc<UpdateStatusSnapshot | null>(
-        "settings.checkForUpdates"
-      );
+      const nextStatus = await invokeIpc<UpdateStatusSnapshot | null>("settings.checkForUpdates");
       if (nextStatus) {
         setUpdateStatus(nextStatus);
       }
     } catch (error) {
       console.error("Failed to check for updates:", error);
-      setUpdateMessage(
-        error instanceof Error ? error.message : "Failed to check for updates."
-      );
+      setUpdateMessage(error instanceof Error ? error.message : "Failed to check for updates.");
     } finally {
       setIsCheckingUpdates(false);
     }
@@ -771,17 +739,13 @@ export function SettingsTab({ active }: SettingsTabProps) {
     setIsApplyingUpdates(true);
     setUpdateMessage(null);
     try {
-      const nextStatus = await invokeIpc<UpdateStatusSnapshot | null>(
-        "settings.updateNow"
-      );
+      const nextStatus = await invokeIpc<UpdateStatusSnapshot | null>("settings.updateNow");
       if (nextStatus) {
         setUpdateStatus(nextStatus);
       }
     } catch (error) {
       console.error("Failed to apply updates:", error);
-      setUpdateMessage(
-        error instanceof Error ? error.message : "Failed to apply updates."
-      );
+      setUpdateMessage(error instanceof Error ? error.message : "Failed to apply updates.");
     } finally {
       setIsApplyingUpdates(false);
       void loadUpdateStatus(false);
@@ -799,23 +763,18 @@ export function SettingsTab({ active }: SettingsTabProps) {
     setIsLoadingReleaseNotes(true);
     setUpdateMessage(null);
     try {
-      const snapshot = await invokeIpc<unknown>(
-        "settings.showUpdateChangelogPreview",
-        {
-          fromVersion,
-          toVersion,
-          includePrereleases: updateStatus.app.channel === "beta"
-        }
-      );
+      const snapshot = await invokeIpc<unknown>("settings.showUpdateChangelogPreview", {
+        fromVersion,
+        toVersion,
+        includePrereleases: updateStatus.app.channel === "beta",
+      });
       if (!snapshot) {
         setUpdateMessage(t("settings.updates.releaseNotesUnavailable"));
       }
     } catch (error) {
       console.error("Failed to load update release notes:", error);
       setUpdateMessage(
-        error instanceof Error
-          ? error.message
-          : t("settings.updates.releaseNotesUnavailable")
+        error instanceof Error ? error.message : t("settings.updates.releaseNotesUnavailable"),
       );
     } finally {
       setIsLoadingReleaseNotes(false);
@@ -824,7 +783,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
     t,
     updateStatus.app.channel,
     updateStatus.app.currentVersion,
-    updateStatus.app.latestVersion
+    updateStatus.app.latestVersion,
   ]);
 
   useEffect(() => {
@@ -857,19 +816,16 @@ export function SettingsTab({ active }: SettingsTabProps) {
       } else if (!result?.success) {
         setDataRelocationMessage(
           t("settings.dataFolder.failed", {
-            error: result?.error ?? t("settings.dataFolder.unknownError")
-          })
+            error: result?.error ?? t("settings.dataFolder.unknownError"),
+          }),
         );
         setDataRelocationPhase(null);
       }
     } catch (error) {
       setDataRelocationMessage(
         t("settings.dataFolder.failed", {
-          error:
-            error instanceof Error
-              ? error.message
-              : t("settings.dataFolder.unknownError")
-        })
+          error: error instanceof Error ? error.message : t("settings.dataFolder.unknownError"),
+        }),
       );
       setDataRelocationPhase(null);
     } finally {
@@ -889,19 +845,16 @@ export function SettingsTab({ active }: SettingsTabProps) {
       } else if (!result?.success) {
         setDataRelocationMessage(
           t("settings.dataFolder.restoreFailed", {
-            error: result?.error ?? t("settings.dataFolder.unknownError")
-          })
+            error: result?.error ?? t("settings.dataFolder.unknownError"),
+          }),
         );
         setDataRelocationPhase(null);
       }
     } catch (error) {
       setDataRelocationMessage(
         t("settings.dataFolder.restoreFailed", {
-          error:
-            error instanceof Error
-              ? error.message
-              : t("settings.dataFolder.unknownError")
-        })
+          error: error instanceof Error ? error.message : t("settings.dataFolder.unknownError"),
+        }),
       );
       setDataRelocationPhase(null);
     } finally {
@@ -915,10 +868,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
     setBackupProgress(null);
     try {
       const categories = SETTINGS_BACKUP_CATEGORY_IDS.filter((category) =>
-        selectedBackupCategories.has(category)
+        selectedBackupCategories.has(category),
       );
       const result = await invokeIpc<SettingsBackupResult>("settings.createBackup", {
-        categories
+        categories,
       });
       if (result?.canceled) {
         setBackupMessage(t("settings.backup.cancelled"));
@@ -927,14 +880,14 @@ export function SettingsTab({ active }: SettingsTabProps) {
         setBackupMessage(
           t("settings.backup.created", {
             path: result.filePath ?? "",
-            count: String(result.fileCount ?? 0)
-          })
+            count: String(result.fileCount ?? 0),
+          }),
         );
       } else {
         setBackupMessage(
           t("settings.backup.failed", {
-            error: result?.error ?? t("settings.backup.unknownError")
-          })
+            error: result?.error ?? t("settings.backup.unknownError"),
+          }),
         );
       }
     } catch (error) {
@@ -942,12 +895,12 @@ export function SettingsTab({ active }: SettingsTabProps) {
       setBackupProgress({
         operation: "create",
         phase: "error",
-        progress: null
+        progress: null,
       });
       setBackupMessage(
         t("settings.backup.failed", {
-          error: error instanceof Error ? error.message : t("settings.backup.unknownError")
-        })
+          error: error instanceof Error ? error.message : t("settings.backup.unknownError"),
+        }),
       );
     } finally {
       setBackupBusy(null);
@@ -960,10 +913,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
     setBackupProgress(null);
     try {
       const categories = SETTINGS_BACKUP_CATEGORY_IDS.filter((category) =>
-        selectedBackupCategories.has(category)
+        selectedBackupCategories.has(category),
       );
       const result = await invokeIpc<SettingsBackupResult>("settings.restoreBackup", {
-        categories
+        categories,
       });
       if (result?.canceled) {
         setBackupMessage(t("settings.backup.cancelled"));
@@ -972,13 +925,13 @@ export function SettingsTab({ active }: SettingsTabProps) {
         setBackupMessage(
           result.restartRequired
             ? t("settings.backup.restoredRestart")
-            : t("settings.backup.restored")
+            : t("settings.backup.restored"),
         );
       } else {
         setBackupMessage(
           t("settings.backup.failed", {
-            error: result?.error ?? t("settings.backup.unknownError")
-          })
+            error: result?.error ?? t("settings.backup.unknownError"),
+          }),
         );
       }
     } catch (error) {
@@ -986,12 +939,12 @@ export function SettingsTab({ active }: SettingsTabProps) {
       setBackupProgress({
         operation: "restore",
         phase: "error",
-        progress: null
+        progress: null,
       });
       setBackupMessage(
         t("settings.backup.failed", {
-          error: error instanceof Error ? error.message : t("settings.backup.unknownError")
-        })
+          error: error instanceof Error ? error.message : t("settings.backup.unknownError"),
+        }),
       );
     } finally {
       setBackupBusy(null);
@@ -1003,7 +956,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const canPreviewUpdateChangelog = Boolean(
     updateStatus.app.updateAvailable &&
       updateStatus.app.currentVersion?.trim() &&
-      updateStatus.app.latestVersion?.trim()
+      updateStatus.app.latestVersion?.trim(),
   );
   const updateBusy =
     isCheckingUpdates ||
@@ -1017,8 +970,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
         : updateStatus.backend.checkedAt
       : updateStatus.app.checkedAt || updateStatus.backend.checkedAt || null;
   const displayCheckedAt = formatCheckedAt(checkedAt);
-  const combinedUpdateError =
-    updateMessage || updateStatus.backend.error || updateStatus.app.error;
+  const combinedUpdateError = updateMessage || updateStatus.backend.error || updateStatus.app.error;
   const localizedCatalogEntries = useMemo(
     () =>
       SETTINGS_CATALOG.map((entry) => {
@@ -1027,29 +979,23 @@ export function SettingsTab({ active }: SettingsTabProps) {
           ...entry,
           label: t(`settings.catalog.${i18nKey}.label`),
           shortDescription: t(`settings.catalog.${i18nKey}.description`),
-          notes: entry.notes
-            ? t(`settings.catalog.${i18nKey}.notes`)
-            : undefined
+          notes: entry.notes ? t(`settings.catalog.${i18nKey}.notes`) : undefined,
         };
       }),
-    [currentLocale, t]
+    [currentLocale, t],
   );
   const filteredCatalogEntries = useMemo(
-    () =>
-      filterSettingsCatalogEntries(localizedCatalogEntries, settingsSearchQuery),
-    [localizedCatalogEntries, settingsSearchQuery]
+    () => filterSettingsCatalogEntries(localizedCatalogEntries, settingsSearchQuery),
+    [localizedCatalogEntries, settingsSearchQuery],
   );
   const totalCatalogMatches = filteredCatalogEntries.length;
   const hasSearchQuery = settingsSearchQuery.trim().length > 0;
   const quickLinkEntries = useMemo(
     () =>
       SETTINGS_QUICK_LINK_IDS.map((id) =>
-        localizedCatalogEntries.find((entry) => entry.id === id)
-      ).filter(
-        (entry): entry is (typeof localizedCatalogEntries)[number] =>
-          entry !== undefined
-      ),
-    [localizedCatalogEntries]
+        localizedCatalogEntries.find((entry) => entry.id === id),
+      ).filter((entry): entry is (typeof localizedCatalogEntries)[number] => entry !== undefined),
+    [localizedCatalogEntries],
   );
   const backupProgressLabel = backupProgress
     ? t("settings.backup.progressSummary", {
@@ -1057,7 +1003,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
           backupProgress.operation === "create"
             ? t("settings.backup.operationCreate")
             : t("settings.backup.operationRestore"),
-        phase: t(BACKUP_PROGRESS_PHASE_I18N_KEYS[backupProgress.phase])
+        phase: t(BACKUP_PROGRESS_PHASE_I18N_KEYS[backupProgress.phase]),
       })
     : null;
   const backupProgressPercent =
@@ -1068,7 +1014,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
     backupProgress?.total && backupProgress.total > 0
       ? t("settings.backup.progressCount", {
           completed: String(backupProgress.completed ?? 0),
-          total: String(backupProgress.total)
+          total: String(backupProgress.total),
         })
       : null;
   const dataRelocationProgressLabel = dataRelocationPhase
@@ -1078,782 +1024,918 @@ export function SettingsTab({ active }: SettingsTabProps) {
     dataDir !== null && defaultDataDir !== null && dataDir !== defaultDataDir;
   const hasBackupSelection = selectedBackupCategories.size > 0;
 
+  const currentView = SETTINGS_VIEWS.find((view) => view.id === workspaceView)!;
+  const navigateWorkspace = (view: SettingsView) => {
+    setWorkspaceView(view);
+    setSettingsSearchQuery("");
+    setHubMessage(null);
+  };
+  const openCatalogEntry = async (entry: SettingsCatalogEntry) => {
+    const target = LOCAL_SETTINGS_TARGETS[entry.id];
+    if (entry.openAction.type === "current-tab" && target) {
+      pendingFocusRef.current = target.focusId;
+      navigateWorkspace(target.view);
+      return;
+    }
+    await handleCatalogAction(entry.openAction);
+  };
+  useEffect(() => {
+    if (hasSearchQuery || !pendingFocusRef.current) return;
+    document.getElementById(pendingFocusRef.current)?.focus();
+    pendingFocusRef.current = null;
+  }, [hasSearchQuery, workspaceView]);
+
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
-      <div className="modern-tab">
-        <section className="card legacy-card settings-hub-card">
-          <div className="settings-hub-header">
+      <div className="gsm-workspace settings-desk">
+        <aside className="ws-sidebar">
+          <div className="ws-brand">
+            <span className="ws-brand-mark">
+              <WorkspaceIcon name="settings" />
+            </span>
             <div>
-              <h2>{t("settings.hub.findSetting")}</h2>
-              <p className="muted settings-hub-copy">
-                {t("settings.hub.findDescription")}
-              </p>
-            </div>
-            <div className="settings-hub-shortcuts">
-              <button
-                type="button"
-                onClick={() => {
-                  void openGsmSettings();
-                }}
-              >
-                {t("settings.hub.openGSMSettings")}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => {
-                  void handleCatalogAction({
-                    type: "open-overlay-settings",
-                    label: t("settings.hub.openOverlaySettings")
-                  });
-                }}
-              >
-                {t("settings.hub.openOverlaySettings")}
-              </button>
+              <strong>{t("app.tabs.settings")}</strong>
+              <span>{t("settings.workspace.brandHint")}</span>
             </div>
           </div>
-
-          <div className="input-group settings-hub-search">
-            <label htmlFor="settings-hub-search">{t("settings.hub.searchLabel")}</label>
+          <div className="settings-workspace-search">
+            <WorkspaceIcon name="search" />
             <input
               id="settings-hub-search"
-              type="text"
-              placeholder={t("settings.hub.searchPlaceholder")}
+              type="search"
+              aria-label={t("settings.hub.searchLabel")}
+              placeholder={t("settings.workspace.searchPlaceholder")}
               value={settingsSearchQuery}
               onChange={(event) => setSettingsSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setSettingsSearchQuery("");
+              }}
             />
           </div>
-
-          <p className="muted settings-hub-count">
-            {t("settings.hub.searchHint")}
-          </p>
-
-          {hubMessage ? <p className="update-error-text">{hubMessage}</p> : null}
-
-          <div className="settings-hub-quick-links">
-            {quickLinkEntries.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                className="launcher-docs-button secondary settings-hub-quick-link"
-                onClick={() => {
-                  void handleCatalogAction(entry.openAction);
-                }}
-              >
-                {entry.label}
-              </button>
-            ))}
+          <WorkspaceNavigation
+            prefix="settings"
+            items={SETTINGS_VIEWS.map((view) => ({ id: view.id, label: t(view.labelKey) }))}
+            value={hasSearchQuery ? null : workspaceView}
+            onChange={navigateWorkspace}
+            label={t("settings.workspace.navigation")}
+          />
+          <div className="ws-sidebar-footer settings-external-links">
+            <p>{t("settings.workspace.moreSettings")}</p>
+            <button
+              type="button"
+              onClick={() => void openGsmSettings()}
+            >
+              {t("settings.hub.openGSMSettings")}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void handleCatalogAction({
+                  type: "open-overlay-settings",
+                  label: t("settings.hub.openOverlaySettings"),
+                })
+              }
+            >
+              {t("settings.hub.openOverlaySettings")}
+            </button>
+            <span>{t("settings.workspace.autoSave")}</span>
           </div>
-
-          {hasSearchQuery ? (
-            <div className="settings-hub-results">
-              <div className="settings-hub-results-header">
-                <strong>
-                  {totalCatalogMatches === 1 ? t("settings.hub.resultCount", { count: String(totalCatalogMatches) }) : t("settings.hub.resultCountPlural", { count: String(totalCatalogMatches) })}
-                </strong>
+        </aside>
+        <main className="ws-main">
+          <header className="ws-page-header">
+            <div>
+              <span className="ws-eyebrow">{t("app.tabs.settings")}</span>
+              <h1>
+                {t(hasSearchQuery ? "settings.workspace.searchResults" : currentView.labelKey)}
+              </h1>
+              <p>{t(hasSearchQuery ? "settings.hub.findDescription" : currentView.helpKey)}</p>
+              {hubMessage ? (
+                <div
+                  className="ws-notice is-error"
+                  role="alert"
+                >
+                  {hubMessage}
+                </div>
+              ) : null}
+            </div>
+            {hasSearchQuery ? (
+              <div className="ws-header-actions">
+                <button
+                  type="button"
+                  onClick={() => setSettingsSearchQuery("")}
+                >
+                  {t("settings.workspace.clearSearch")}
+                </button>
               </div>
-              {totalCatalogMatches === 0 ? (
-                <p className="muted settings-hub-empty">
-                  {t("settings.hub.noResults")}
-                </p>
-              ) : (
-                <div className="settings-directory-list settings-directory-list--compact">
-                  {filteredCatalogEntries.map((entry) => (
-                    <div key={entry.id} className="settings-directory-item">
-                      <div className="settings-directory-copy">
-                        <div className="settings-directory-title-row">
-                          <strong>{entry.label}</strong>
-                          <span
-                            className={`settings-owner-pill settings-owner-pill--${entry.owner}`}
-                          >
-                            {t(LOCATION_I18N_KEYS[entry.owner])}
-                          </span>
-                        </div>
-                        <p className="muted settings-directory-description">
-                          {entry.shortDescription}
-                        </p>
-                        {entry.notes ? (
-                          <p className="settings-directory-note">{entry.notes}</p>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        className={
-                          entry.openAction.type === "current-tab" ? "secondary" : ""
+            ) : null}
+          </header>
+          <div className="ws-pages">
+            <section
+              id="settings-view-general"
+              className="ws-view"
+              role="tabpanel"
+              aria-labelledby="settings-nav-general"
+              hidden={hasSearchQuery || workspaceView !== "general"}
+              tabIndex={0}
+            >
+              <div className="settings-form-width">
+                <section className="ws-section">
+                  <h2>{t("settings.workspace.appearance")}</h2>
+                  <div className="settings-appearance-grid">
+                    <div className="input-group">
+                      <label htmlFor="icon-style">{t("settings.desktop.iconStyle")}</label>
+                      <select
+                        id="icon-style"
+                        value={settings.iconStyle}
+                        onChange={(event) =>
+                          patchSettings(
+                            {
+                              iconStyle: event.target.value,
+                            },
+                            { iconStyleChanged: true },
+                          )
                         }
-                        disabled={entry.openAction.type === "current-tab"}
+                      >
+                        <option value="gsm">{t("settings.desktop.iconDefault")}</option>
+                        <option value="gsm_cute">{t("settings.desktop.iconAnimeGirl")}</option>
+                        <option value="gsm_jacked">{t("settings.desktop.iconJacked")}</option>
+                        <option value="gsm_cursed">{t("settings.desktop.iconCursed")}</option>
+                        <option value="gsm_cute[tray]">
+                          {t("settings.desktop.iconAnimeGirlTray")}
+                        </option>
+                        <option value="gsm_jacked[tray]">
+                          {t("settings.desktop.iconJackedTray")}
+                        </option>
+                        <option value="gsm_cursed[tray]">
+                          {t("settings.desktop.iconCursedTray")}
+                        </option>
+                        <option value="random">{t("settings.desktop.iconRandom")}</option>
+                        <option value="random[tray]">{t("settings.desktop.iconRandomTray")}</option>
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label htmlFor="locale-select">{t("settings.desktop.language")}</label>
+                      <select
+                        id="locale-select"
+                        value={currentLocale}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          setCurrentLocale(next);
+                          patchSettings({ locale: next });
+                        }}
+                      >
+                        {SUPPORTED_LOCALES.map((loc) => (
+                          <option
+                            key={loc.code}
+                            value={loc.code}
+                          >
+                            {loc.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label htmlFor="theme-select">{t("settings.desktop.theme")}</label>
+                      <select
+                        id="theme-select"
+                        value={settings.theme}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          applyTheme(next);
+                          patchSettings({ theme: next });
+                        }}
+                      >
+                        {THEME_GROUPS.map((group) => (
+                          <optgroup
+                            key={group.category}
+                            label={t(group.labelKey)}
+                          >
+                            {group.themes.map((theme) => (
+                              <option
+                                key={theme.id}
+                                value={theme.id}
+                              >
+                                {theme.labelKey ? t(theme.labelKey) : theme.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </section>
+                <section className="ws-section">
+                  <h2>{t("settings.workspace.behavior")}</h2>
+                  <div className="settings-toggle-list">
+                    <div className="input-group">
+                      <label htmlFor="start-console-minimized">
+                        {t("settings.desktop.startMinimized")}
+                      </label>
+                      <input
+                        id="start-console-minimized"
+                        type="checkbox"
+                        checked={settings.startConsoleMinimized}
+                        onChange={(event) =>
+                          patchSettings({ startConsoleMinimized: event.target.checked })
+                        }
+                      />
+                    </div>
+
+                    {isWindows ? (
+                      <div className="input-group">
+                        <label htmlFor="run-transparency-startup">
+                          {t("settings.desktop.runTransparencyOnStartup")}
+                        </label>
+                        <input
+                          id="run-transparency-startup"
+                          type="checkbox"
+                          checked={settings.runWindowTransparencyToolOnStartup}
+                          onChange={(event) =>
+                            patchSettings({
+                              runWindowTransparencyToolOnStartup: event.target.checked,
+                            })
+                          }
+                        />
+                      </div>
+                    ) : null}
+
+                    {isWindows ? (
+                      <div className="input-group">
+                        <label htmlFor="run-overlay-startup">
+                          {t("settings.desktop.runOverlayOnStartup")}
+                        </label>
+                        <input
+                          id="run-overlay-startup"
+                          type="checkbox"
+                          checked={settings.runOverlayOnStartup}
+                          onChange={(event) =>
+                            patchSettings({
+                              runOverlayOnStartup: event.target.checked,
+                              ...(event.target.checked ? { runOverlayWithActiveGame: false } : {}),
+                            })
+                          }
+                        />
+                      </div>
+                    ) : null}
+
+                    <div className="input-group">
+                      <label htmlFor="quit-on-window-close">
+                        {t("settings.desktop.quitOnWindowClose")}
+                      </label>
+                      <input
+                        id="quit-on-window-close"
+                        type="checkbox"
+                        checked={settings.quitOnWindowClose}
+                        onChange={(event) =>
+                          patchSettings({ quitOnWindowClose: event.target.checked })
+                        }
+                      />
+                    </div>
+
+                    <div className="input-group">
+                      <label htmlFor="text-capture-wizard-enabled">
+                        {t("settings.desktop.textCaptureWizard")}
+                      </label>
+                      <input
+                        id="text-capture-wizard-enabled"
+                        type="checkbox"
+                        checked={settings.textCaptureWizardEnabled}
+                        onChange={(event) =>
+                          patchSettings({ textCaptureWizardEnabled: event.target.checked })
+                        }
+                      />
+                    </div>
+                  </div>
+                </section>
+                <section className="ws-section">
+                  <h2>{t("settings.workspace.moreSettings")}</h2>
+                  <div className="settings-hub-quick-links">
+                    {quickLinkEntries.map((entry) => (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        className="launcher-docs-button secondary settings-hub-quick-link"
                         onClick={() => {
                           void handleCatalogAction(entry.openAction);
                         }}
                       >
-                        {t(ACTION_I18N_KEYS[entry.openAction.type])}
+                        <span>{entry.label}</span>
+                        <WorkspaceIcon name="arrow" />
                       </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : null}
-        </section>
-
-        <div className="legacy-grid settings-grid">
-          <section className="card legacy-card">
-            <h2>{t("settings.desktop.title")}</h2>
-            <div className="form-group">
-              <div className="input-group">
-                <label htmlFor="icon-style">{t("settings.desktop.iconStyle")}</label>
-                <select
-                  id="icon-style"
-                  value={settings.iconStyle}
-                  onChange={(event) =>
-                    patchSettings(
-                      {
-                        iconStyle: event.target.value
-                      },
-                      { iconStyleChanged: true }
-                    )
-                  }
-                >
-                  <option value="gsm">{t("settings.desktop.iconDefault")}</option>
-                  <option value="gsm_cute">{t("settings.desktop.iconAnimeGirl")}</option>
-                  <option value="gsm_jacked">{t("settings.desktop.iconJacked")}</option>
-                  <option value="gsm_cursed">{t("settings.desktop.iconCursed")}</option>
-                  <option value="gsm_cute[tray]">{t("settings.desktop.iconAnimeGirlTray")}</option>
-                  <option value="gsm_jacked[tray]">{t("settings.desktop.iconJackedTray")}</option>
-                  <option value="gsm_cursed[tray]">{t("settings.desktop.iconCursedTray")}</option>
-                  <option value="random">{t("settings.desktop.iconRandom")}</option>
-                  <option value="random[tray]">{t("settings.desktop.iconRandomTray")}</option>
-                </select>
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="locale-select">{t("settings.desktop.language")}</label>
-                <select
-                  id="locale-select"
-                  value={currentLocale}
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setCurrentLocale(next);
-                    patchSettings({ locale: next });
-                  }}
-                >
-                  {SUPPORTED_LOCALES.map((loc) => (
-                    <option key={loc.code} value={loc.code}>
-                      {loc.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="theme-select">{t("settings.desktop.theme")}</label>
-                <select
-                  id="theme-select"
-                  value={settings.theme}
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    applyTheme(next);
-                    patchSettings({ theme: next });
-                  }}
-                >
-                  {THEME_GROUPS.map((group) => (
-                    <optgroup key={group.category} label={t(group.labelKey)}>
-                      {group.themes.map((theme) => (
-                        <option key={theme.id} value={theme.id}>
-                          {theme.labelKey ? t(theme.labelKey) : theme.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="start-console-minimized">{t("settings.desktop.startMinimized")}</label>
-                <input
-                  id="start-console-minimized"
-                  type="checkbox"
-                  checked={settings.startConsoleMinimized}
-                  onChange={(event) =>
-                    patchSettings({ startConsoleMinimized: event.target.checked })
-                  }
-                />
-              </div>
-
-              {isWindows ? (
-                <div className="input-group">
-                  <label htmlFor="run-transparency-startup">
-                    {t("settings.desktop.runTransparencyOnStartup")}
-                  </label>
-                  <input
-                    id="run-transparency-startup"
-                    type="checkbox"
-                    checked={settings.runWindowTransparencyToolOnStartup}
-                    onChange={(event) =>
-                      patchSettings({
-                        runWindowTransparencyToolOnStartup: event.target.checked
-                      })
-                    }
-                  />
-                </div>
-              ) : null}
-
-              {isWindows ? (
-                <div className="input-group">
-                  <label htmlFor="run-overlay-startup">{t("settings.desktop.runOverlayOnStartup")}</label>
-                  <input
-                    id="run-overlay-startup"
-                    type="checkbox"
-                    checked={settings.runOverlayOnStartup}
-                    onChange={(event) =>
-                      patchSettings({
-                        runOverlayOnStartup: event.target.checked,
-                        ...(event.target.checked ? { runOverlayWithActiveGame: false } : {})
-                      })
-                    }
-                  />
-                </div>
-              ) : null}
-
-              <div className="input-group">
-                <label htmlFor="quit-on-window-close">
-                  {t("settings.desktop.quitOnWindowClose")}
-                </label>
-                <input
-                  id="quit-on-window-close"
-                  type="checkbox"
-                  checked={settings.quitOnWindowClose}
-                  onChange={(event) =>
-                    patchSettings({ quitOnWindowClose: event.target.checked })
-                  }
-                />
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="text-capture-wizard-enabled">
-                  {t("settings.desktop.textCaptureWizard")}
-                </label>
-                <input
-                  id="text-capture-wizard-enabled"
-                  type="checkbox"
-                  checked={settings.textCaptureWizardEnabled}
-                  onChange={(event) =>
-                    patchSettings({ textCaptureWizardEnabled: event.target.checked })
-                  }
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="card legacy-card">
-            <h2>{t("settings.visibility.title")}</h2>
-            <div className="form-group">
-              <div className="input-group settings-multi-select-group">
-                <label htmlFor="visible-tabs-selector">{t("settings.visibility.visibleTabs")}</label>
-                <select
-                  id="visible-tabs-selector"
-                  className="settings-multi-select"
-                  multiple
-                  value={settings.visibleTabs}
-                  onChange={(event) => {
-                    patchSettings({
-                      visibleTabs: selectedOptionValues(event) as ControlledTab[]
-                    });
-                  }}
-                  onMouseDown={(event: MouseEvent<HTMLSelectElement>) => {
-                    event.preventDefault();
-                    const option = event.target as HTMLOptionElement;
-                    if (option.tagName !== "OPTION") {
-                      return;
-                    }
-                    patchSettings((current) => ({
-                      visibleTabs: toggleValue(
-                        current.visibleTabs,
-                        option.value
-                      ) as ControlledTab[]
-                    }));
-                  }}
-                >
-                  {VISIBLE_TAB_OPTIONS.filter((tab) => tab.id !== "speech" || isWindows).map((tab) => (
-                    <option key={tab.id} value={tab.id}>
-                      {t(tab.labelKey)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <div className="input-group">
-                <label htmlFor="stats-target">{t("settings.visibility.statsTarget")}</label>
-                <select
-                  id="stats-target"
-                  value={settings.statsEndpoint}
-                  onChange={(event) =>
-                    patchSettings({ statsEndpoint: event.target.value })
-                  }
-                >
-                  {STATS_ENDPOINT_OPTIONS.map((endpoint) => (
-                    <option key={endpoint} value={endpoint}>
-                      {endpoint}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </section>
-
-          {isWindows ? (
-            <section className="card legacy-card">
-              <h2>{t("settings.transparency.title")}</h2>
-              <div className="form-group">
-                <div className="input-group">
-                  <label htmlFor="window-transparency-hotkey">{t("settings.transparency.toolHotkey")}</label>
-                  <input
-                    id="window-transparency-hotkey"
-                    type="text"
-                    value={settings.windowTransparencyToolHotkey}
-                    onKeyDown={updateHotkey}
-                    readOnly
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="window-transparency-target">{t("settings.transparency.windowTarget")}</label>
-                  <input
-                    id="window-transparency-target"
-                    type="text"
-                    placeholder={t("settings.transparency.windowTargetPlaceholder")}
-                    value={transparencyTargetDraft}
-                    onChange={(event) =>
-                      setTransparencyTargetDraft(event.target.value)
-                    }
-                    onBlur={() =>
-                      patchSettings({
-                        windowTransparencyTarget: transparencyTargetDraft.trim()
-                      })
-                    }
-                  />
-                </div>
-
-                <div className="input-group">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void runWindowTransparencyTool();
-                    }}
-                  >
-                    {t("settings.transparency.runTool")}
-                  </button>
-                </div>
+                    ))}
+                  </div>
+                </section>
               </div>
             </section>
-          ) : null}
-
-          <section className="card legacy-card">
-            <h2>{t("settings.updates.title")}</h2>
-            <div className="form-group">
-              <div className="input-group">
-                <label htmlFor="auto-update-gsm">{t("settings.updates.autoUpdate")}</label>
-                <input
-                  id="auto-update-gsm"
-                  type="checkbox"
-                  checked={settings.autoUpdateGSMApp}
-                  onChange={(event) =>
-                    patchSettings({ autoUpdateGSMApp: event.target.checked })
-                  }
-                />
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="pull-pre-releases" data-tip={t("settings.updates.betaTooltip")}>
-                  {t("settings.updates.betaUpdates")}
-                </label>
-                <input
-                  id="pull-pre-releases"
-                  type="checkbox"
-                  checked={settings.pullPreReleases}
-                  onChange={(event) =>
-                    patchSettings({ pullPreReleases: event.target.checked })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="settings-update-panel">
-              <p className="muted">
-                {t("settings.updates.description")}
-              </p>
-
-              <div className="update-version-list">
-                <div className="update-version-row">
-                  <div>
-                    <strong>{t("settings.updates.backend")}</strong>
-                    <div className="update-version-meta">
-                      {t("settings.updates.current", { version: getDisplayCurrentVersion(updateStatus.backend) })}
-                    </div>
-                    <div className="update-version-meta">
-                      {t("settings.updates.latest", { version: getDisplayLatestVersion("backend", updateStatus.backend) })}
-                    </div>
-                  </div>
-                  <div className="update-version-state">
-                    {updateStatus.backend.updateAvailable &&
-                    updateStatus.backend.latestVersion ? (
-                      <div className="update-version-delta">
-                        <span className="update-version-current">
-                          {getDisplayCurrentVersion(updateStatus.backend)}
-                        </span>
-                        <span className="update-version-arrow">→</span>
-                        <span className="update-version-next">
-                          {getDisplayLatestVersion("backend", updateStatus.backend)}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="update-version-stable">
-                        {t("settings.updates.upToDate")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="update-version-row">
-                  <div>
-                    <strong>{t("settings.updates.electronApp")}</strong>
-                    <div className="update-version-meta">
-                      {t("settings.updates.current", { version: getDisplayCurrentVersion(updateStatus.app) })}
-                    </div>
-                    <div className="update-version-meta">
-                      {t("settings.updates.latest", { version: getDisplayLatestVersion("app", updateStatus.app) })}
-                    </div>
-                  </div>
-                  <div className="update-version-state">
-                    {updateStatus.app.updateAvailable &&
-                    updateStatus.app.latestVersion ? (
-                      <div className="update-version-delta">
-                        <span className="update-version-current">
-                          {getDisplayCurrentVersion(updateStatus.app)}
-                        </span>
-                        <span className="update-version-arrow">→</span>
-                        <span className="update-version-next">
-                          {getDisplayLatestVersion("app", updateStatus.app)}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="update-version-stable">{t("settings.updates.upToDate")}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {displayCheckedAt ? (
-                <p className="update-version-meta">{t("settings.updates.lastChecked", { time: displayCheckedAt ?? "" })}</p>
-              ) : null}
-
-              {combinedUpdateError ? (
-                <p className="update-error-text">{combinedUpdateError}</p>
-              ) : null}
-
-              <div className="input-group wrap settings-update-actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    void checkForUpdates();
-                  }}
-                  disabled={updateBusy}
-                >
-                  {isCheckingUpdates ? t("settings.updates.checking") : t("settings.updates.checkForUpdates")}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    void showUpdateChangelogPreview();
-                  }}
-                  disabled={!canPreviewUpdateChangelog || updateBusy}
-                >
-                  {isLoadingReleaseNotes
-                    ? t("settings.updates.loadingReleaseNotes")
-                    : t("settings.updates.viewReleaseNotes")}
-                </button>
-                <button
-                  type="button"
-                  className={
-                    hasPendingUpdates
-                      ? "update-action-button update-action-button--available"
-                      : "update-action-button secondary"
-                  }
-                  onClick={() => {
-                    void updateNow();
-                  }}
-                  disabled={!hasPendingUpdates || updateBusy}
-                >
-                  {isApplyingUpdates || updateStatus.anyUpdateInProgress
-                    ? t("settings.updates.updating")
-                    : t("settings.updates.updateNow")}
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="card legacy-card">
-            <h2>{t("settings.backup.title")}</h2>
-            <div className="settings-update-panel">
-              <div className="settings-automatic-backup">
-                <h3>{t("settings.backup.automatic.title")}</h3>
-                <p className="muted">{t("settings.backup.automatic.description")}</p>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={settings.databaseBackupEnabled}
-                    onChange={(event) =>
-                      patchSettings({ databaseBackupEnabled: event.currentTarget.checked })
-                    }
-                  />
-                  <span>{t("settings.backup.automatic.enabled")}</span>
-                </label>
-                <label className="field-label" htmlFor="database-backup-count">
-                  {t("settings.backup.automatic.retentionCount")}
-                </label>
-                <input
-                  id="database-backup-count"
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={settings.databaseBackupRetentionCount}
-                  disabled={!settings.databaseBackupEnabled}
-                  onChange={(event) => {
-                    const value = Number(event.currentTarget.value);
-                    if (Number.isFinite(value)) {
-                      patchSettings({
-                        databaseBackupRetentionCount: Math.max(
-                          1,
-                          Math.min(1000, Math.trunc(value))
-                        )
-                      });
-                    }
-                  }}
-                />
-                <div className="settings-backup-directory">
-                  <div>
-                    <span className="field-label">
-                      {t("settings.backup.automatic.directory")}
-                    </span>
-                    <p className="update-version-meta">
-                      {settings.databaseBackupDirectory ||
-                        t("settings.backup.automatic.defaultDirectory")}
-                    </p>
-                  </div>
-                  <div className="input-group wrap">
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={!settings.databaseBackupEnabled}
-                      onClick={() => void selectDatabaseBackupDirectory()}
+            <section
+              id="settings-view-layout"
+              className="ws-view"
+              role="tabpanel"
+              aria-labelledby="settings-nav-layout"
+              hidden={hasSearchQuery || workspaceView !== "layout"}
+              tabIndex={0}
+            >
+              <div className="settings-form-width">
+                <section className="ws-section settings-content-section">
+                  <h2>{t("settings.visibility.title")}</h2>
+                  <div className="form-group">
+                    <fieldset
+                      className="settings-tab-options"
+                      id="visible-tabs-selector"
                     >
-                      {t("settings.backup.automatic.chooseDirectory")}
-                    </button>
-                    {settings.databaseBackupDirectory ? (
+                      <legend>{t("settings.visibility.visibleTabs")}</legend>
+                      {VISIBLE_TAB_OPTIONS.filter((tab) => tab.id !== "speech" || isWindows).map(
+                        (tab) => (
+                          <label
+                            key={tab.id}
+                            className="ws-check-row"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={settings.visibleTabs.includes(tab.id)}
+                              onChange={() =>
+                                patchSettings((current) => ({
+                                  visibleTabs: toggleValue(
+                                    current.visibleTabs,
+                                    tab.id,
+                                  ) as ControlledTab[],
+                                }))
+                              }
+                            />
+                            <span>{t(tab.labelKey)}</span>
+                          </label>
+                        ),
+                      )}
+                    </fieldset>
+                  </div>
+
+                  <div className="form-group">
+                    <div className="input-group">
+                      <label htmlFor="stats-target">{t("settings.visibility.statsTarget")}</label>
+                      <select
+                        id="stats-target"
+                        value={settings.statsEndpoint}
+                        onChange={(event) => patchSettings({ statsEndpoint: event.target.value })}
+                      >
+                        {STATS_ENDPOINT_OPTIONS.map((endpoint) => (
+                          <option
+                            key={endpoint.value}
+                            value={endpoint.value}
+                          >
+                            {t(endpoint.labelKey)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </section>
+                {isWindows ? (
+                  <section className="ws-section settings-content-section">
+                    <h2>{t("settings.transparency.title")}</h2>
+                    <div className="form-group">
+                      <div className="input-group">
+                        <label htmlFor="window-transparency-hotkey">
+                          {t("settings.transparency.toolHotkey")}
+                        </label>
+                        <input
+                          id="window-transparency-hotkey"
+                          type="text"
+                          value={settings.windowTransparencyToolHotkey}
+                          onKeyDown={updateHotkey}
+                          readOnly
+                        />
+                      </div>
+
+                      <div className="input-group">
+                        <label htmlFor="window-transparency-target">
+                          {t("settings.transparency.windowTarget")}
+                        </label>
+                        <input
+                          id="window-transparency-target"
+                          type="text"
+                          placeholder={t("settings.transparency.windowTargetPlaceholder")}
+                          value={transparencyTargetDraft}
+                          onChange={(event) => setTransparencyTargetDraft(event.target.value)}
+                          onBlur={() =>
+                            patchSettings({
+                              windowTransparencyTarget: transparencyTargetDraft.trim(),
+                            })
+                          }
+                        />
+                      </div>
+
+                      <div className="input-group">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void runWindowTransparencyTool();
+                          }}
+                        >
+                          {t("settings.transparency.runTool")}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            </section>
+            <section
+              id="settings-view-updates"
+              className="ws-view"
+              role="tabpanel"
+              aria-labelledby="settings-nav-updates"
+              hidden={hasSearchQuery || workspaceView !== "updates"}
+              tabIndex={0}
+            >
+              <div className="settings-form-width">
+                {" "}
+                <section className="ws-section settings-content-section">
+                  <div className="form-group">
+                    <div className="input-group">
+                      <label htmlFor="auto-update-gsm">{t("settings.updates.autoUpdate")}</label>
+                      <input
+                        id="auto-update-gsm"
+                        type="checkbox"
+                        checked={settings.autoUpdateGSMApp}
+                        onChange={(event) =>
+                          patchSettings({ autoUpdateGSMApp: event.target.checked })
+                        }
+                      />
+                    </div>
+
+                    <div className="input-group">
+                      <label
+                        htmlFor="pull-pre-releases"
+                        data-tip={t("settings.updates.betaTooltip")}
+                      >
+                        {t("settings.updates.betaUpdates")}
+                      </label>
+                      <input
+                        id="pull-pre-releases"
+                        type="checkbox"
+                        checked={settings.pullPreReleases}
+                        onChange={(event) =>
+                          patchSettings({ pullPreReleases: event.target.checked })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="settings-update-panel">
+                    <p className="muted">{t("settings.updates.description")}</p>
+
+                    <div className="update-version-list">
+                      <div className="update-version-row">
+                        <div>
+                          <strong>{t("settings.updates.backend")}</strong>
+                          <div className="update-version-meta">
+                            {t("settings.updates.current", {
+                              version: getDisplayCurrentVersion(updateStatus.backend),
+                            })}
+                          </div>
+                          <div className="update-version-meta">
+                            {t("settings.updates.latest", {
+                              version: getDisplayLatestVersion("backend", updateStatus.backend),
+                            })}
+                          </div>
+                        </div>
+                        <div className="update-version-state">
+                          {updateStatus.backend.updateAvailable &&
+                          updateStatus.backend.latestVersion ? (
+                            <div className="update-version-delta">
+                              <span className="update-version-current">
+                                {getDisplayCurrentVersion(updateStatus.backend)}
+                              </span>
+                              <span className="update-version-arrow">→</span>
+                              <span className="update-version-next">
+                                {getDisplayLatestVersion("backend", updateStatus.backend)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="update-version-stable">
+                              {t("settings.updates.upToDate")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="update-version-row">
+                        <div>
+                          <strong>{t("settings.updates.electronApp")}</strong>
+                          <div className="update-version-meta">
+                            {t("settings.updates.current", {
+                              version: getDisplayCurrentVersion(updateStatus.app),
+                            })}
+                          </div>
+                          <div className="update-version-meta">
+                            {t("settings.updates.latest", {
+                              version: getDisplayLatestVersion("app", updateStatus.app),
+                            })}
+                          </div>
+                        </div>
+                        <div className="update-version-state">
+                          {updateStatus.app.updateAvailable && updateStatus.app.latestVersion ? (
+                            <div className="update-version-delta">
+                              <span className="update-version-current">
+                                {getDisplayCurrentVersion(updateStatus.app)}
+                              </span>
+                              <span className="update-version-arrow">→</span>
+                              <span className="update-version-next">
+                                {getDisplayLatestVersion("app", updateStatus.app)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="update-version-stable">
+                              {t("settings.updates.upToDate")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {displayCheckedAt ? (
+                      <p className="update-version-meta">
+                        {t("settings.updates.lastChecked", { time: displayCheckedAt ?? "" })}
+                      </p>
+                    ) : null}
+
+                    {combinedUpdateError ? (
+                      <p className="update-error-text">{combinedUpdateError}</p>
+                    ) : null}
+
+                    <div className="input-group wrap settings-update-actions">
                       <button
                         type="button"
                         className="secondary"
-                        disabled={!settings.databaseBackupEnabled}
-                        onClick={() => patchSettings({ databaseBackupDirectory: "" })}
+                        onClick={() => {
+                          void checkForUpdates();
+                        }}
+                        disabled={updateBusy}
                       >
-                        {t("settings.backup.automatic.useDefaultDirectory")}
+                        {isCheckingUpdates
+                          ? t("settings.updates.checking")
+                          : t("settings.updates.checkForUpdates")}
                       </button>
-                    ) : null}
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => {
+                          void showUpdateChangelogPreview();
+                        }}
+                        disabled={!canPreviewUpdateChangelog || updateBusy}
+                      >
+                        {isLoadingReleaseNotes
+                          ? t("settings.updates.loadingReleaseNotes")
+                          : t("settings.updates.viewReleaseNotes")}
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          hasPendingUpdates
+                            ? "update-action-button update-action-button--available"
+                            : "update-action-button secondary"
+                        }
+                        onClick={() => {
+                          void updateNow();
+                        }}
+                        disabled={!hasPendingUpdates || updateBusy}
+                      >
+                        {isApplyingUpdates || updateStatus.anyUpdateInProgress
+                          ? t("settings.updates.updating")
+                          : t("settings.updates.updateNow")}
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <p className="muted">{t("settings.backup.automatic.restartHint")}</p>
+                </section>
               </div>
-              <p className="muted">{t("settings.backup.description")}</p>
-              <p className="settings-backup-selection-hint">
-                {t("settings.backup.selectionHint")}
-              </p>
-              <div className="settings-backup-tree" role="tree">
-                {backupSelectionTree.map((node) => (
-                  <BackupSelectionTreeNode
-                    key={node.id}
-                    node={node}
-                    selected={selectedBackupCategories}
-                    disabled={backupBusy !== null}
-                    onToggle={toggleBackupCategories}
-                  />
-                ))}
-              </div>
-              {!hasBackupSelection ? (
-                <p className="settings-backup-selection-error" role="alert">
-                  {t("settings.backup.selectAtLeastOne")}
-                </p>
-              ) : null}
-              <div className="input-group wrap settings-update-actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    void createSettingsBackup();
-                  }}
-                  disabled={backupBusy !== null || !hasBackupSelection}
-                >
-                  {backupBusy === "create"
-                    ? t("settings.backup.creating")
-                    : t("settings.backup.create")}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    void restoreSettingsBackup();
-                  }}
-                  disabled={backupBusy !== null || !hasBackupSelection}
-                >
-                  {backupBusy === "restore"
-                    ? t("settings.backup.restoring")
-                    : t("settings.backup.restore")}
-                </button>
-              </div>
-              {backupProgress && backupProgressLabel ? (
-                <div className="settings-backup-progress">
-                  <div className="settings-backup-progress-top">
-                    <strong>{backupProgressLabel}</strong>
-                    {backupProgressPercent !== null ? (
-                      <span>
-                        {t("settings.backup.progressPercent", {
-                          percent: String(backupProgressPercent)
-                        })}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div
-                    className={`settings-backup-progress-bar ${
-                      backupProgressPercent === null ? "is-running" : ""
-                    }`}
-                    role="progressbar"
-                    aria-label={backupProgressLabel}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={backupProgressPercent ?? undefined}
-                  >
-                    <div
-                      className={`settings-backup-progress-fill ${
-                        backupProgressPercent === null ? "is-indeterminate" : ""
-                      }`}
-                      style={{
-                        width:
-                          backupProgressPercent === null
-                            ? "36%"
-                            : `${backupProgressPercent}%`
+            </section>
+            <section
+              id="settings-view-backups"
+              className="ws-view"
+              role="tabpanel"
+              aria-labelledby="settings-nav-backups"
+              hidden={hasSearchQuery || workspaceView !== "backups"}
+              tabIndex={0}
+            >
+              <section className="ws-section settings-content-section">
+                <div className="settings-update-panel settings-backup-layout">
+                  <div className="settings-automatic-backup">
+                    <h3>{t("settings.backup.automatic.title")}</h3>
+                    <p className="muted">{t("settings.backup.automatic.description")}</p>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={settings.databaseBackupEnabled}
+                        onChange={(event) =>
+                          patchSettings({ databaseBackupEnabled: event.currentTarget.checked })
+                        }
+                      />
+                      <span>{t("settings.backup.automatic.enabled")}</span>
+                    </label>
+                    <label
+                      className="field-label"
+                      htmlFor="database-backup-count"
+                    >
+                      {t("settings.backup.automatic.retentionCount")}
+                    </label>
+                    <input
+                      id="database-backup-count"
+                      type="number"
+                      min={1}
+                      max={1000}
+                      value={settings.databaseBackupRetentionCount}
+                      disabled={!settings.databaseBackupEnabled}
+                      onChange={(event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (Number.isFinite(value)) {
+                          patchSettings({
+                            databaseBackupRetentionCount: Math.max(
+                              1,
+                              Math.min(1000, Math.trunc(value)),
+                            ),
+                          });
+                        }
                       }}
                     />
+                    <div className="settings-backup-directory">
+                      <div>
+                        <span className="field-label">
+                          {t("settings.backup.automatic.directory")}
+                        </span>
+                        <p className="update-version-meta">
+                          {settings.databaseBackupDirectory ||
+                            t("settings.backup.automatic.defaultDirectory")}
+                        </p>
+                      </div>
+                      <div className="input-group wrap">
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={!settings.databaseBackupEnabled}
+                          onClick={() => void selectDatabaseBackupDirectory()}
+                        >
+                          {t("settings.backup.automatic.chooseDirectory")}
+                        </button>
+                        {settings.databaseBackupDirectory ? (
+                          <button
+                            type="button"
+                            className="secondary"
+                            disabled={!settings.databaseBackupEnabled}
+                            onClick={() => patchSettings({ databaseBackupDirectory: "" })}
+                          >
+                            {t("settings.backup.automatic.useDefaultDirectory")}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <p className="muted">{t("settings.backup.automatic.restartHint")}</p>
                   </div>
-                  {backupProgress.fileName ? (
-                    <p className="settings-backup-progress-file">
-                      {t("settings.backup.progressFile", {
-                        file: backupProgress.fileName
+                  <div className="settings-manual-backup">
+                    <h3>{t("settings.workspace.selectiveBackup")}</h3>
+                    <p className="muted">{t("settings.backup.description")}</p>
+                    <p className="settings-backup-selection-hint">
+                      {t("settings.backup.selectionHint")}
+                    </p>
+                    <div
+                      className="settings-backup-tree"
+                      role="tree"
+                    >
+                      {backupSelectionTree.map((node) => (
+                        <BackupSelectionTreeNode
+                          key={node.id}
+                          node={node}
+                          selected={selectedBackupCategories}
+                          disabled={backupBusy !== null}
+                          onToggle={toggleBackupCategories}
+                        />
+                      ))}
+                    </div>
+                    {!hasBackupSelection ? (
+                      <p
+                        className="settings-backup-selection-error"
+                        role="alert"
+                      >
+                        {t("settings.backup.selectAtLeastOne")}
+                      </p>
+                    ) : null}
+                    <div className="input-group wrap settings-update-actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => {
+                          void createSettingsBackup();
+                        }}
+                        disabled={backupBusy !== null || !hasBackupSelection}
+                      >
+                        {backupBusy === "create"
+                          ? t("settings.backup.creating")
+                          : t("settings.backup.create")}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => {
+                          void restoreSettingsBackup();
+                        }}
+                        disabled={backupBusy !== null || !hasBackupSelection}
+                      >
+                        {backupBusy === "restore"
+                          ? t("settings.backup.restoring")
+                          : t("settings.backup.restore")}
+                      </button>
+                    </div>
+                    {backupProgress && backupProgressLabel ? (
+                      <div className="settings-backup-progress">
+                        <div className="settings-backup-progress-top">
+                          <strong>{backupProgressLabel}</strong>
+                          {backupProgressPercent !== null ? (
+                            <span>
+                              {t("settings.backup.progressPercent", {
+                                percent: String(backupProgressPercent),
+                              })}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div
+                          className={`settings-backup-progress-bar ${
+                            backupProgressPercent === null ? "is-running" : ""
+                          }`}
+                          role="progressbar"
+                          aria-label={backupProgressLabel}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={backupProgressPercent ?? undefined}
+                        >
+                          <div
+                            className={`settings-backup-progress-fill ${
+                              backupProgressPercent === null ? "is-indeterminate" : ""
+                            }`}
+                            style={{
+                              width:
+                                backupProgressPercent === null
+                                  ? "36%"
+                                  : `${backupProgressPercent}%`,
+                            }}
+                          />
+                        </div>
+                        {backupProgress.fileName ? (
+                          <p className="settings-backup-progress-file">
+                            {t("settings.backup.progressFile", {
+                              file: backupProgress.fileName,
+                            })}
+                          </p>
+                        ) : null}
+                        {backupProgressCount ? (
+                          <p className="settings-backup-progress-count">{backupProgressCount}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {backupMessage ? <p className="update-version-meta">{backupMessage}</p> : null}
+                  </div>
+                </div>
+              </section>
+            </section>
+            <section
+              id="settings-view-storage"
+              className="ws-view"
+              role="tabpanel"
+              aria-labelledby="settings-nav-storage"
+              hidden={hasSearchQuery || workspaceView !== "storage"}
+              tabIndex={0}
+            >
+              <div className="settings-form-width">
+                {" "}
+                <section className="ws-section settings-content-section">
+                  <div className="settings-update-panel settings-data-folder">
+                    <p className="muted">{t("settings.dataFolder.intro")}</p>
+                    <p className="update-version-meta">
+                      {t("settings.dataFolder.current", {
+                        path: dataDir ?? t("settings.dataFolder.loading"),
                       })}
                     </p>
-                  ) : null}
-                  {backupProgressCount ? (
-                    <p className="settings-backup-progress-count">
-                      {backupProgressCount}
+                    <p className="update-version-meta">
+                      {t("settings.dataFolder.database", {
+                        path: dataDir
+                          ? `${dataDir.replace(/[\\/]+$/, "")}${isWindows ? "\\" : "/"}gsm.db`
+                          : t("settings.dataFolder.loading"),
+                      })}
                     </p>
-                  ) : null}
+                    <p className="muted">{t("settings.dataFolder.description")}</p>
+                    <details className="settings-data-folder-location">
+                      <summary>{t("settings.dataFolder.locationFile")}</summary>
+                      <p className="update-version-meta">
+                        {dataPointerPath ?? t("settings.dataFolder.loading")}
+                      </p>
+                      <p className="muted">{t("settings.dataFolder.locationHint")}</p>
+                    </details>
+                    {usingCustomDataDir ? (
+                      <>
+                        <p className="update-version-meta">
+                          {t("settings.dataFolder.original", {
+                            path: defaultDataDir,
+                          })}
+                        </p>
+                        <p className="muted">{t("settings.dataFolder.restoreHint")}</p>
+                      </>
+                    ) : null}
+                    <div className="input-group wrap settings-update-actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => {
+                          void relocateDataFolder();
+                        }}
+                        disabled={dataRelocationBusy !== null}
+                      >
+                        {dataRelocationBusy === "change"
+                          ? t("settings.dataFolder.changing")
+                          : t("settings.dataFolder.change")}
+                      </button>
+                      {usingCustomDataDir ? (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => {
+                            void restoreDefaultDataFolder();
+                          }}
+                          disabled={dataRelocationBusy !== null}
+                        >
+                          {dataRelocationBusy === "restore"
+                            ? t("settings.dataFolder.restoring")
+                            : t("settings.dataFolder.restore")}
+                        </button>
+                      ) : null}
+                    </div>
+                    {dataRelocationProgressLabel ? (
+                      <p className="update-version-meta">{dataRelocationProgressLabel}</p>
+                    ) : null}
+                    {dataRelocationMessage ? (
+                      <p className="update-version-meta">{dataRelocationMessage}</p>
+                    ) : null}
+                  </div>
+                </section>
+              </div>
+            </section>
+            <section
+              className="ws-view"
+              hidden={!hasSearchQuery}
+              role="region"
+              aria-label={t("settings.workspace.searchResults")}
+            >
+              <div className="settings-hub-results">
+                <div className="settings-hub-results-header">
+                  <strong>
+                    {totalCatalogMatches === 1
+                      ? t("settings.hub.resultCount", { count: String(totalCatalogMatches) })
+                      : t("settings.hub.resultCountPlural", { count: String(totalCatalogMatches) })}
+                  </strong>
                 </div>
-              ) : null}
-              {backupMessage ? (
-                <p className="update-version-meta">{backupMessage}</p>
-              ) : null}
-            </div>
-          </section>
-
-          <section className="card legacy-card">
-            <h2>{t("settings.dataFolder.title")}</h2>
-            <div className="settings-update-panel settings-data-folder">
-              <p className="muted">{t("settings.dataFolder.intro")}</p>
-              <p className="update-version-meta">
-                {t("settings.dataFolder.current", {
-                  path: dataDir ?? t("settings.dataFolder.loading")
-                })}
-              </p>
-              <p className="update-version-meta">
-                {t("settings.dataFolder.database", {
-                  path: dataDir
-                    ? `${dataDir.replace(/[\\/]+$/, "")}${isWindows ? "\\" : "/"}gsm.db`
-                    : t("settings.dataFolder.loading")
-                })}
-              </p>
-              <p className="muted">{t("settings.dataFolder.description")}</p>
-              <details className="settings-data-folder-location">
-                <summary>{t("settings.dataFolder.locationFile")}</summary>
-                <p className="update-version-meta">{dataPointerPath ?? t("settings.dataFolder.loading")}</p>
-                <p className="muted">{t("settings.dataFolder.locationHint")}</p>
-              </details>
-              {usingCustomDataDir ? (
-                <>
-                  <p className="update-version-meta">
-                    {t("settings.dataFolder.original", {
-                      path: defaultDataDir
-                    })}
-                  </p>
-                  <p className="muted">{t("settings.dataFolder.restoreHint")}</p>
-                </>
-              ) : null}
-              <div className="input-group wrap settings-update-actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    void relocateDataFolder();
-                  }}
-                  disabled={dataRelocationBusy !== null}
-                >
-                  {dataRelocationBusy === "change"
-                    ? t("settings.dataFolder.changing")
-                    : t("settings.dataFolder.change")}
-                </button>
-                {usingCustomDataDir ? (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => {
-                      void restoreDefaultDataFolder();
-                    }}
-                    disabled={dataRelocationBusy !== null}
-                  >
-                    {dataRelocationBusy === "restore"
-                      ? t("settings.dataFolder.restoring")
-                      : t("settings.dataFolder.restore")}
-                  </button>
-                ) : null}
+                {totalCatalogMatches === 0 ? (
+                  <p className="muted settings-hub-empty">{t("settings.hub.noResults")}</p>
+                ) : (
+                  <div className="settings-directory-list settings-directory-list--compact">
+                    {filteredCatalogEntries.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="settings-directory-item"
+                      >
+                        <div className="settings-directory-copy">
+                          <div className="settings-directory-title-row">
+                            <strong>{entry.label}</strong>
+                            <span
+                              className={`settings-owner-pill settings-owner-pill--${entry.owner}`}
+                            >
+                              {t(LOCATION_I18N_KEYS[entry.owner])}
+                            </span>
+                          </div>
+                          <p className="muted settings-directory-description">
+                            {entry.shortDescription}
+                          </p>
+                          {entry.notes ? (
+                            <p className="settings-directory-note">{entry.notes}</p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className={entry.openAction.type === "current-tab" ? "secondary" : ""}
+                          onClick={() => {
+                            void openCatalogEntry(entry);
+                          }}
+                        >
+                          {t(
+                            entry.openAction.type === "current-tab"
+                              ? "settings.workspace.openSection"
+                              : ACTION_I18N_KEYS[entry.openAction.type],
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              {dataRelocationProgressLabel ? (
-                <p className="update-version-meta">{dataRelocationProgressLabel}</p>
-              ) : null}
-              {dataRelocationMessage ? (
-                <p className="update-version-meta">{dataRelocationMessage}</p>
-              ) : null}
-            </div>
-          </section>
-
-          {/* <section className="card legacy-card">
-            <h2>Debug Settings</h2>
-            <div className="form-group">
-              <div className="input-group">
-                <label htmlFor="custom-python-package">Custom Python Package:</label>
-                <input
-                  id="custom-python-package"
-                  type="text"
-                  value={customPackageDraft}
-                  onChange={(event) => setCustomPackageDraft(event.target.value)}
-                  onBlur={() =>
-                    patchSettings({ customPythonPackage: customPackageDraft.trim() })
-                  }
-                />
-              </div>
-            </div>
-          </section> */}
-        </div>
+            </section>
+          </div>
+        </main>
       </div>
     </div>
   );

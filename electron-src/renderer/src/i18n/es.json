@@ -488,6 +488,31 @@
     "quit": "Salir"
   },
   "settings": {
+    "workspace": {
+      "brandHint": "Preferencias y herramientas",
+      "general": "General",
+      "generalHelp": "Elige la apariencia, el idioma y el comportamiento al iniciar.",
+      "layout": "Pestañas y ventanas",
+      "layoutHelp": "Elige las pestañas que usas y las opciones de las ventanas del juego.",
+      "updatesHelp": "Administra las actualizaciones de la aplicación y del backend.",
+      "backupsHelp": "Crea copias automáticas de la base de datos o respalda datos seleccionados.",
+      "storageHelp": "Administra dónde se guardan los ajustes, la base de datos y las herramientas.",
+      "appearance": "Apariencia",
+      "behavior": "Inicio y comportamiento",
+      "moreSettings": "Ajustes de GSM y del overlay",
+      "autoSave": "Las preferencias de escritorio se guardan automáticamente.",
+      "searchPlaceholder": "Buscar en todos los ajustes…",
+      "searchResults": "Resultados de búsqueda",
+      "clearSearch": "Borrar búsqueda",
+      "openSection": "Abrir sección",
+      "navigation": "Secciones de ajustes",
+      "selectiveBackup": "Copia y restauración selectivas",
+      "statsOverview": "Resumen",
+      "statsReading": "Estadísticas de lectura",
+      "statsGoals": "Objetivos",
+      "statsAnki": "Estadísticas de Anki",
+      "statsSearch": "Buscar"
+    },
     "hub": {
       "findSetting": "Buscar ajuste",
       "findDescription": "Busca lo que quieres cambiar y GSM abrirá la pantalla de ajustes correcta.",

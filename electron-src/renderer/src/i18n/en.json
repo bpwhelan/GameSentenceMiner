@@ -560,6 +560,31 @@
     }
   },
   "settings": {
+    "workspace": {
+      "brandHint": "Preferences & tools",
+      "general": "General",
+      "generalHelp": "Choose your appearance, language, and startup behavior.",
+      "layout": "Tabs & windows",
+      "layoutHelp": "Choose the tabs you use and how GSM works with game windows.",
+      "updatesHelp": "Manage desktop and backend updates in one place.",
+      "backupsHelp": "Keep automatic database copies or create a backup of selected data.",
+      "storageHelp": "Manage where GSM keeps your settings, database, and downloaded tools.",
+      "appearance": "Appearance",
+      "behavior": "Startup & behavior",
+      "moreSettings": "GSM & overlay settings",
+      "autoSave": "Desktop preferences save automatically.",
+      "searchPlaceholder": "Search all settings…",
+      "searchResults": "Search results",
+      "clearSearch": "Clear search",
+      "openSection": "Open section",
+      "navigation": "Settings sections",
+      "selectiveBackup": "Selective backup & restore",
+      "statsOverview": "Overview",
+      "statsReading": "Reading statistics",
+      "statsGoals": "Goals",
+      "statsAnki": "Anki statistics",
+      "statsSearch": "Search"
+    },
     "hub": {
       "findSetting": "Find a Setting",
       "findDescription": "Search for what you want to change and GSM will open the right settings screen for you.",

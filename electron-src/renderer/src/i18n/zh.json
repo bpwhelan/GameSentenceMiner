@@ -486,6 +486,31 @@
     "quit": "退出"
   },
   "settings": {
+    "workspace": {
+      "brandHint": "偏好设置与工具",
+      "general": "常规",
+      "generalHelp": "选择外观、语言和启动行为。",
+      "layout": "标签页与窗口",
+      "layoutHelp": "选择常用标签页并设置游戏窗口相关功能。",
+      "updatesHelp": "在此管理桌面应用和后端的更新。",
+      "backupsHelp": "自动备份数据库，或备份所选数据。",
+      "storageHelp": "管理设置、数据库和下载工具的存储位置。",
+      "appearance": "外观",
+      "behavior": "启动与行为",
+      "moreSettings": "GSM 与悬浮窗设置",
+      "autoSave": "桌面偏好设置会自动保存。",
+      "searchPlaceholder": "搜索所有设置…",
+      "searchResults": "搜索结果",
+      "clearSearch": "清除搜索",
+      "openSection": "打开设置",
+      "navigation": "设置分类",
+      "selectiveBackup": "选择性备份与恢复",
+      "statsOverview": "概览",
+      "statsReading": "阅读统计",
+      "statsGoals": "目标",
+      "statsAnki": "Anki 统计",
+      "statsSearch": "搜索"
+    },
     "hub": {
       "findSetting": "查找设置",
       "findDescription": "搜索你想更改的内容，GSM 将打开正确的设置页面。",

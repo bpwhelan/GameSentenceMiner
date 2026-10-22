@@ -554,6 +554,31 @@
     }
   },
   "settings": {
+    "workspace": {
+      "brandHint": "設定とツール",
+      "general": "一般",
+      "generalHelp": "外観、言語、起動時の動作を設定します。",
+      "layout": "タブとウィンドウ",
+      "layoutHelp": "表示するタブやゲームウィンドウとの連携を設定します。",
+      "updatesHelp": "デスクトップアプリとバックエンドの更新を管理します。",
+      "backupsHelp": "データベースの自動バックアップや選択したデータのバックアップを作成します。",
+      "storageHelp": "設定、データベース、ダウンロード済みツールの保存先を管理します。",
+      "appearance": "外観",
+      "behavior": "起動と動作",
+      "moreSettings": "GSMとオーバーレイの設定",
+      "autoSave": "デスクトップ設定は自動保存されます。",
+      "searchPlaceholder": "すべての設定を検索…",
+      "searchResults": "検索結果",
+      "clearSearch": "検索をクリア",
+      "openSection": "設定を開く",
+      "navigation": "設定のセクション",
+      "selectiveBackup": "選択した項目のバックアップと復元",
+      "statsOverview": "概要",
+      "statsReading": "読書統計",
+      "statsGoals": "目標",
+      "statsAnki": "Anki統計",
+      "statsSearch": "検索"
+    },
     "hub": {
       "findSetting": "設定を探す",
       "findDescription": "変更したい内容を検索すると、GSMが適切な設定画面を開きます。",
