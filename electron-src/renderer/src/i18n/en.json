@@ -1717,6 +1717,23 @@
     "cancel": "Cancel"
   },
   "speechRecognition": {
+    "workspace": {
+      "title": "Windows Voice",
+      "brandHint": "Speech recognition",
+      "capture": "Live transcript",
+      "captureHelp": "Capture spoken dialogue from the game in your selected OBS scene.",
+      "advanced": "Advanced",
+      "activity": "Activity log",
+      "navigation": "Windows Voice views",
+      "session": "Speech recognition session",
+      "unsaved": "Unsaved changes",
+      "transcript": "Recognized dialogue",
+      "clearText": "Clear text",
+      "interim": "Listening…",
+      "waiting": "Waiting for dialogue from the game…",
+      "empty": "Start speech recognition to see dialogue here.",
+      "forwarding": "Recognized dialogue follows your GSM text processing rules."
+    },
     "title": "Windows Speech Recognition",
     "subtitle": "Run speech recognition for the current OBS scene and send recognized dialogue through GSM's text pipeline.",
     "experimental": "Experimental · Windows only",

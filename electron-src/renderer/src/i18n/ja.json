@@ -1481,6 +1481,23 @@
     "cancel": "キャンセル"
   },
   "speechRecognition": {
+    "workspace": {
+      "title": "Windows音声",
+      "brandHint": "音声認識",
+      "capture": "ライブ文字起こし",
+      "captureHelp": "選択したOBSシーンのゲームから音声のセリフを取得します。",
+      "advanced": "詳細設定",
+      "activity": "動作ログ",
+      "navigation": "Windows音声のビュー",
+      "session": "音声認識セッション",
+      "unsaved": "未保存の変更",
+      "transcript": "認識されたセリフ",
+      "clearText": "テキストを消去",
+      "interim": "認識中…",
+      "waiting": "ゲームの音声を待っています…",
+      "empty": "音声認識を開始すると、ここにセリフが表示されます。",
+      "forwarding": "認識されたセリフにはGSMのテキスト処理ルールが適用されます。"
+    },
     "title": "Windows音声認識",
     "subtitle": "現在のOBSシーンで音声認識を実行し、認識した台詞をGSMのテキスト処理へ送ります。",
     "experimental": "試験的機能・Windows専用",
