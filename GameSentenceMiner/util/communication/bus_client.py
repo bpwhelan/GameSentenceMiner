@@ -74,6 +74,7 @@ class BusClient:
 
         self._subscribers: Dict[str, List[EventHandler]] = {}
         self._request_handlers: Dict[str, RequestHandler] = {}
+        self._concurrent_request_topics: set[str] = set()
         self._pending: Dict[str, "asyncio.Future[Any]"] = {}
         self._handler_tasks: set = set()  # strong refs so fire-and-forget handler tasks aren't GC'd
 
@@ -139,8 +140,13 @@ class BusClient:
 
         return unsubscribe
 
-    def handle(self, topic: str, handler: RequestHandler) -> None:
+    def handle(self, topic: str, handler: RequestHandler, *, concurrent: bool = False) -> None:
+        """Opt slow, independent requests out of ordered transport dispatch."""
         self._request_handlers[topic] = handler
+        if concurrent:
+            self._concurrent_request_topics.add(topic)
+        else:
+            self._concurrent_request_topics.discard(topic)
 
     # -- sending ------------------------------------------------------------
 
@@ -252,7 +258,12 @@ class BusClient:
             return
 
         if kind == "request":
-            await self._dispatch_request(msg)
+            if msg.get("topic") in self._concurrent_request_topics:
+                task = asyncio.create_task(self._dispatch_request(msg))
+                self._handler_tasks.add(task)
+                task.add_done_callback(self._handler_tasks.discard)
+            else:
+                await self._dispatch_request(msg)
             return
 
         if kind in ("event", "command"):

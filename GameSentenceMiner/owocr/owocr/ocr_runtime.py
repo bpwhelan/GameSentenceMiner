@@ -512,6 +512,8 @@ def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second
         "capture": {
             "original_size": _size_dict(capture_original_w, capture_original_h),
             "scaled_size": _size_dict(capture_scaled_w, capture_scaled_h),
+            "scene_name": meta.get("scene_name"),
+            "source_name": meta.get("source_name"),
         },
         "processing": {
             "processed_size": _size_dict(processed_w, processed_h),
@@ -3175,8 +3177,10 @@ class OBSScreenshotThread(threading.Thread):
                     time.sleep(self.inactive_source_retry_interval)
                     continue
 
+                capture_scene_name = self.current_scene
+                capture_source_name = self.current_source_name
                 img = obs.get_screenshot_PIL(
-                    source_name=self.current_source_name,
+                    source_name=capture_source_name,
                     width=self.width,
                     height=self.height,
                     img_format="jpg",
@@ -3204,6 +3208,8 @@ class OBSScreenshotThread(threading.Thread):
                         primary_rectangles.append(list(rect.coordinates))
                 frame_metadata = {
                     "capture_source": "obs",
+                    "scene_name": capture_scene_name,
+                    "source_name": capture_source_name,
                     "capture_original_size": self.get_capture_original_size(capture_width, capture_height),
                     "capture_scaled_size": _size_dict(capture_width, capture_height),
                     "ocr_area_crop_offset": CompositeLayout.from_metadata(crop_offset).to_metadata(),

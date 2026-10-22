@@ -1042,6 +1042,19 @@
       "exportFailed": "Exportación fallida."
     },
     "desk": {
+      "preview": {
+        "live": "Vista previa en directo",
+        "paused": "Vista previa pausada",
+        "loading": "Cargando vista previa del juego…",
+        "unavailable": "Vista previa no disponible · áreas guardadas",
+        "stale": "Vista previa no disponible · último fotograma",
+        "textBoxes": "Cuadros de texto",
+        "pause": "Pausar vista previa",
+        "resume": "Reanudar vista previa",
+        "detected": "{count} cuadros de texto · último escaneo",
+        "waiting": "Esperando un escaneo de OCR",
+        "startHint": "Inicia OCR para ver los cuadros de texto"
+      },
       "brandHint": "Captura de texto del juego",
       "workspace": "Espacio de OCR",
       "capture": "Captura",

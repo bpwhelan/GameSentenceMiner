@@ -1390,6 +1390,19 @@
       "exportFailed": "Export failed."
     },
     "desk": {
+      "preview": {
+        "live": "Live preview",
+        "paused": "Preview paused",
+        "loading": "Loading game preview…",
+        "unavailable": "Preview unavailable · showing saved areas",
+        "stale": "Preview unavailable · last frame",
+        "textBoxes": "Text boxes",
+        "pause": "Pause preview",
+        "resume": "Resume preview",
+        "detected": "{count} text boxes · latest scan",
+        "waiting": "Waiting for an OCR scan",
+        "startHint": "Start OCR to see text boxes"
+      },
       "brandHint": "Game text capture",
       "workspace": "OCR workspace",
       "capture": "Capture",

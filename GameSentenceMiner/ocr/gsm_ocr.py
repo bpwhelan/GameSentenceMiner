@@ -42,6 +42,7 @@ from GameSentenceMiner.ocr.debug_logging import (
 )
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.composite_layout import CompositeLayout
+from GameSentenceMiner.ocr.preview import preview_geometry
 from GameSentenceMiner.ocr.gsm_ocr_config import (
     OCRConfig,
     has_config_changed,
@@ -3420,9 +3421,31 @@ def _save_ocr2_optimization_debug_images(pre_crop_image, cropped_image) -> dict[
     return {name: str(path) for name, path in paths.items()}
 
 
+def _update_capture_preview(response_dict):
+    if not preview_geometry.enabled:
+        return
+    # Use the identity attached when the image was captured. The active game may
+    # have changed while an engine was processing a queued frame.
+    if not isinstance(response_dict, dict):
+        return
+    pipeline = response_dict.get("pipeline")
+    capture = pipeline.get("capture") if isinstance(pipeline, dict) else None
+    if not isinstance(capture, dict):
+        return
+    scene_name = capture.get("scene_name")
+    source_name = capture.get("source_name")
+    if scene_name and source_name:
+        try:
+            preview_geometry.update(response_dict, scene_name=scene_name, source_name=source_name)
+        except (TypeError, ValueError, AttributeError, KeyError, OverflowError) as error:
+            logger.debug(f"Could not update OCR preview geometry: {error}")
+
+
 async def send_result(text, time, response_dict=None, source=TextSource.OCR):
     if shutdown_requested:
         return
+    if source != TextSource.SCREEN_CROPPER:
+        _update_capture_preview(response_dict)
     if text:
         # Skip expensive overlay coordinate math when no overlay client is
         # connected. The overlay is Windows-only and most users don't enable it.
@@ -3906,6 +3929,8 @@ def ocr_result_callback(
 
     active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
 
+    if not came_from_ss:
+        _update_capture_preview(response_dict)
     ctrl.handle_ocr_result(
         text,
         orig_text,

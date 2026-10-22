@@ -160,6 +160,9 @@ def start_ipc_listener() -> Optional[threading.Thread]:
         _stopping = False
     if _use_bus():
         client = bus_client.start_bus()
+        from GameSentenceMiner.ocr.preview import PREVIEW_GEOMETRY_TOPIC, handle_geometry_preview
+
+        client.handle(PREVIEW_GEOMETRY_TOPIC, handle_geometry_preview)
         client.subscribe(OCR_COMMAND_TOPIC, _on_bus_command)
         logger.info("OCR IPC listener started (message bus)")
         return None

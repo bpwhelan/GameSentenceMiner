@@ -24,7 +24,7 @@ vi.mock('../main.js', () => ({
     sendOcrStatus,
 }));
 vi.mock('./obs.js', () => ({ getCurrentScene: async () => ({ name: '$1 [GSM]' }) }));
-vi.mock('../runtime/bus_client.js', () => ({}));
+vi.mock('../runtime/bus_client.js', () => ({ bus: { isConnected: () => false } }));
 vi.mock('../runtime/process_supervisor.js', () => ({ getProcessManager: () => manager }));
 vi.mock('../services/python_ops.js', () => ({}));
 

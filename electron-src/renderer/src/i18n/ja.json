@@ -1362,6 +1362,19 @@
       "exportFailed": "エクスポートに失敗しました。"
     },
     "desk": {
+      "preview": {
+        "live": "ライブプレビュー",
+        "paused": "プレビューを一時停止中",
+        "loading": "ゲームのプレビューを読み込み中…",
+        "unavailable": "プレビューを取得できません · 保存済みの範囲を表示",
+        "stale": "プレビューを取得できません · 最後の画像を表示",
+        "textBoxes": "テキスト枠",
+        "pause": "プレビューを停止",
+        "resume": "プレビューを再開",
+        "detected": "テキスト枠 {count} 個 · 最新の読み取り",
+        "waiting": "OCR の読み取りを待機中",
+        "startHint": "OCR を開始するとテキスト枠が表示されます"
+      },
       "brandHint": "ゲームのテキストを取得",
       "workspace": "OCR ワークスペース",
       "capture": "キャプチャ",

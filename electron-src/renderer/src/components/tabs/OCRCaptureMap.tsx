@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { useTranslation } from "../../i18n";
+import type { ObsScene } from "../../types/models";
+import { useOCRPreview } from "./useOCRPreview";
 
 export interface CaptureMapConfig {
   coordinate_system?: string;
@@ -66,23 +69,40 @@ export function buildCaptureMap(config: CaptureMapConfig | null) {
 export function OCRCaptureMap({
   config,
   disabled,
-  onEdit
+  onEdit,
+  active,
+  scene,
+  ocrRunning
 }: {
   config: CaptureMapConfig | null;
   disabled: boolean;
   onEdit: () => void;
+  active: boolean;
+  scene: ObsScene | null;
+  ocrRunning: boolean;
 }) {
   const t = useTranslation();
+  const [paused, setPaused] = useState(false);
+  const [showBoxes, setShowBoxes] = useState(true);
+  const { frame, unavailable } = useOCRPreview({
+    active,
+    paused,
+    sceneId: scene?.id ?? "",
+    sceneName: scene?.name ?? "",
+    includeBoxes: showBoxes && ocrRunning
+  });
   const { areas, available } = buildCaptureMap(config);
+  const detectedBoxes = showBoxes && ocrRunning ? (frame?.boxes ?? []) : [];
   const hasAreas = Boolean(config?.rectangles?.length);
   const geometry = config?.window_geometry;
-  const aspectRatio =
-    geometry?.width &&
-    geometry?.height &&
-    Number.isFinite(geometry.width) &&
-    Number.isFinite(geometry.height) &&
-    geometry.width > 0 &&
-    geometry.height > 0
+  const aspectRatio = frame
+    ? frame.width / frame.height
+    : geometry?.width &&
+        geometry?.height &&
+        Number.isFinite(geometry.width) &&
+        Number.isFinite(geometry.height) &&
+        geometry.width > 0 &&
+        geometry.height > 0
       ? geometry.width / geometry.height
       : 16 / 9;
 
@@ -90,7 +110,7 @@ export function OCRCaptureMap({
     <div className="desk-map">
       <button
         type="button"
-        className="desk-map-canvas"
+        className={"desk-map-canvas" + (frame ? " desk-map-canvas--preview" : "")}
         onClick={onEdit}
         disabled={disabled}
         aria-label={t("ocr.sceneAndAreas.selectAreas")}
@@ -99,7 +119,7 @@ export function OCRCaptureMap({
           className="desk-map-crosshair"
           aria-hidden="true"
         />
-        {available ? (
+        {available || frame ? (
           <svg
             className="desk-map-source"
             viewBox={`0 0 1000 ${1000 / aspectRatio}`}
@@ -113,7 +133,16 @@ export function OCRCaptureMap({
               height={1000 / aspectRatio - 2}
               rx="5"
             />
-            {areas.map((area) => (
+            {frame ? (
+              <image
+                href={frame.imageData}
+                x="0"
+                y="0"
+                width="1000"
+                height={1000 / aspectRatio}
+              />
+            ) : null}
+            {(available ? areas : []).map((area) => (
               <g
                 key={area.number}
                 className={"desk-map-area desk-map-area--" + area.kind}
@@ -132,6 +161,17 @@ export function OCRCaptureMap({
                   {area.number}
                 </text>
               </g>
+            ))}
+            {detectedBoxes.map((box, index) => (
+              <polygon
+                key={index}
+                className="desk-preview-box"
+                points={box.points
+                  .map(([x, y]) => `${x * 1000},${(y * 1000) / aspectRatio}`)
+                  .join(" ")}
+              >
+                {box.text ? <title>{box.text}</title> : null}
+              </polygon>
             ))}
           </svg>
         ) : (
@@ -155,8 +195,57 @@ export function OCRCaptureMap({
           </svg>
         </span>
       </button>
+      <div className="desk-preview-controls">
+        <span
+          className={"desk-preview-state" + (frame && !paused && !unavailable ? " is-live" : "")}
+        >
+          <i aria-hidden="true" />
+          {t(
+            !scene
+              ? "ocr.footer.noSceneSelected"
+              : unavailable
+                ? frame
+                  ? "ocr.desk.preview.stale"
+                  : "ocr.desk.preview.unavailable"
+                : paused
+                  ? "ocr.desk.preview.paused"
+                  : frame
+                    ? "ocr.desk.preview.live"
+                    : "ocr.desk.preview.loading"
+          )}
+        </span>
+        <div>
+          <label className="desk-preview-box-toggle">
+            <input
+              type="checkbox"
+              checked={showBoxes}
+              onChange={(event) => setShowBoxes(event.target.checked)}
+            />
+            <span>{t("ocr.desk.preview.textBoxes")}</span>
+          </label>
+          <button
+            type="button"
+            className="desk-preview-pause"
+            disabled={!scene || disabled}
+            aria-pressed={paused}
+            onClick={() => setPaused((current) => !current)}
+          >
+            {t(paused ? "ocr.desk.preview.resume" : "ocr.desk.preview.pause")}
+          </button>
+        </div>
+      </div>
       <div className="desk-map-caption">
-        <span>{t("ocr.desk.layoutOverview")}</span>
+        <span>
+          {frame
+            ? !showBoxes
+              ? frame.sourceName
+              : !ocrRunning
+                ? t("ocr.desk.preview.startHint")
+                : detectedBoxes.length
+                  ? t("ocr.desk.preview.detected", { count: detectedBoxes.length })
+                  : t("ocr.desk.preview.waiting")
+            : t("ocr.desk.layoutOverview")}
+        </span>
         {available ? (
           <div className="desk-map-legend">
             {AREA_KINDS.filter((kind) => areas.some((area) => area.kind === kind)).map((kind) => (

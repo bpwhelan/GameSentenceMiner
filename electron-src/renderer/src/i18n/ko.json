@@ -1044,6 +1044,19 @@
       "exportFailed": "내보내기 실패."
     },
     "desk": {
+      "preview": {
+        "live": "실시간 미리보기",
+        "paused": "미리보기 일시 정지됨",
+        "loading": "게임 미리보기 불러오는 중…",
+        "unavailable": "미리보기 불가 · 저장된 영역 표시 중",
+        "stale": "미리보기 불가 · 마지막 프레임",
+        "textBoxes": "텍스트 상자",
+        "pause": "미리보기 일시 정지",
+        "resume": "미리보기 재개",
+        "detected": "텍스트 상자 {count}개 · 최근 스캔",
+        "waiting": "OCR 스캔 대기 중",
+        "startHint": "OCR을 시작하면 텍스트 상자가 표시됩니다"
+      },
       "brandHint": "게임 텍스트 캡처",
       "workspace": "OCR 작업 공간",
       "capture": "캡처",

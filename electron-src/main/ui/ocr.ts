@@ -31,6 +31,7 @@ import {
     sendOcrStatus,
 } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
+import { createOcrPreviewService } from './ocr-preview.js';
 import { bus } from '../runtime/bus_client.js';
 import { getProcessManager } from '../runtime/process_supervisor.js';
 import {
@@ -782,6 +783,8 @@ function writeOCRReplacements(replacements: Record<string, string>) {
 }
 
 export function registerOCRUtilsIPC() {
+    const getPreview = createOcrPreviewService(bus);
+    ipcMain.handle('ocr.get-preview', (_event, request) => getPreview(request));
     ipcMain.handle('ocr-replacements.load', async () => {
         try {
             return readOCRReplacements();

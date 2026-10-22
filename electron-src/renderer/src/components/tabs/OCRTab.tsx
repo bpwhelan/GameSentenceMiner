@@ -1612,6 +1612,7 @@ export function OCRTab({ active }: OcrTabProps) {
           nextSelectedSceneId = activeSceneResponse.id;
         }
 
+        if (nextSelectedSceneId !== selectedSceneId) setActiveSceneAreaConfig(null);
         setScenes(nextScenes);
         setSelectedSceneId(nextSelectedSceneId);
         await refreshActiveSceneInfo();
@@ -1992,6 +1993,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
   const switchScene = useCallback(
     async (sceneId: string) => {
+      setActiveSceneAreaConfig(null);
       setSelectedSceneId(sceneId);
       try {
         await invokeIpc("obs.switchScene.id", sceneId);
@@ -2421,6 +2423,9 @@ export function OCRTab({ active }: OcrTabProps) {
                     config={activeSceneAreaConfig}
                     disabled={loadingScenes || scenes.length === 0}
                     onEdit={runScreenSelector}
+                    active={active && workspaceView === "capture"}
+                    scene={selectedScene}
+                    ocrRunning={runningState.isRunning}
                   />
                   <div className="desk-area-tools">
                     <button

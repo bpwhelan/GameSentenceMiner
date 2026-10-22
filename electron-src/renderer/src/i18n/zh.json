@@ -1040,6 +1040,19 @@
       "exportFailed": "导出失败。"
     },
     "desk": {
+      "preview": {
+        "live": "实时预览",
+        "paused": "预览已暂停",
+        "loading": "正在加载游戏预览…",
+        "unavailable": "预览不可用 · 显示已保存的区域",
+        "stale": "预览不可用 · 显示最后一帧",
+        "textBoxes": "文本框",
+        "pause": "暂停预览",
+        "resume": "恢复预览",
+        "detected": "{count} 个文本框 · 最近一次扫描",
+        "waiting": "等待 OCR 扫描",
+        "startHint": "启动 OCR 以显示文本框"
+      },
       "brandHint": "捕获游戏文本",
       "workspace": "OCR 工作区",
       "capture": "捕获",

@@ -272,6 +272,9 @@ def start_ipc_listener_in_thread(
     _get_command_actor()
     if _use_bus():
         client = bus_client.start_bus(runtime=runtime)
+        from GameSentenceMiner.ocr.preview import PREVIEW_FRAME_TOPIC, handle_capture_preview
+
+        client.handle(PREVIEW_FRAME_TOPIC, handle_capture_preview, concurrent=True)
         client.subscribe(BACKEND_COMMAND_TOPIC, _on_backend_command)
         client.subscribe(OCR_EVENT_TOPIC, _on_ocr_event)
         client.handle(TEXT_INGRESS_TOPIC, _on_text_ingress_request)
