@@ -1096,6 +1096,23 @@
     }
   },
   "texthook": {
+    "workspace": {
+      "title": "Captura de texto",
+      "brandHint": "Texto directo del juego",
+      "currentGame": "Juego actual",
+      "navigation": "Vistas de captura de texto",
+      "live": "Texto en vivo",
+      "liveHelp": "Elige un hook y comprueba que su salida coincida con el diálogo del juego.",
+      "engine": "Motor y script",
+      "output": "Salida y tiempos",
+      "outputHelp": "Ajusta la entrega de texto, el tiempo de revisión y la longitud máxima.",
+      "tools": "Herramientas",
+      "toolsHelp": "Consulta la ayuda y administra los motores instalados.",
+      "noHookSelected": "Ningún hook seleccionado",
+      "logHelp": "Mensajes del motor de captura de esta sesión.",
+      "closeLog": "Volver al espacio de trabajo",
+      "clearLog": "Limpiar registro"
+    },
     "credits": {
       "text": "Herramientas de text hook",
       "agent": "Agent",

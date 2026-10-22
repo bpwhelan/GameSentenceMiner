@@ -1521,6 +1521,23 @@
     "previewFailed": "プレビューを生成できませんでした"
   },
   "texthook": {
+    "workspace": {
+      "title": "テキストフック",
+      "brandHint": "ゲームから直接取得",
+      "currentGame": "現在のゲーム",
+      "navigation": "テキストフックのビュー",
+      "live": "ライブテキスト",
+      "liveHelp": "フックを選び、出力がゲームのセリフと一致するか確認します。",
+      "engine": "エンジンとスクリプト",
+      "output": "出力とタイミング",
+      "outputHelp": "テキストの出力方法、修正の待機時間、最大文字数を調整します。",
+      "tools": "ツール",
+      "toolsHelp": "テキストフックの説明とインストール済みエンジンの管理。",
+      "noHookSelected": "フック未選択",
+      "logHelp": "このセッションのフックエンジンからのメッセージ。",
+      "closeLog": "ワークスペースに戻る",
+      "clearLog": "ログを消去"
+    },
     "updates": {
       "title": "LunaHook と Textractor",
       "description": "新しいビルドをバックグラウンドでダウンロードし、テキストフックの停止中に適用します。両方のエンジンをまとめて更新します。",

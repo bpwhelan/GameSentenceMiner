@@ -1444,6 +1444,23 @@
     }
   },
   "texthook": {
+    "workspace": {
+      "title": "Text hook",
+      "brandHint": "Direct game text",
+      "currentGame": "Current game",
+      "navigation": "Text hook views",
+      "live": "Live text",
+      "liveHelp": "Choose a hook and check that its output matches the dialogue in your game.",
+      "engine": "Engine & script",
+      "output": "Output & timing",
+      "outputHelp": "Fine-tune text delivery, revision timing, and the maximum text length.",
+      "tools": "Tools",
+      "toolsHelp": "Learn about text hooking and manage installed engines.",
+      "noHookSelected": "No hook selected",
+      "logHelp": "Messages from the hook engine for this session.",
+      "closeLog": "Back to workspace",
+      "clearLog": "Clear log"
+    },
     "updates": {
       "title": "LunaHook & Textractor",
       "description": "New builds download in the background and are applied when no text hook is running. Both engines are updated together.",

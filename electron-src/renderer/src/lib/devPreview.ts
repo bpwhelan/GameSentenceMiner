@@ -2,6 +2,16 @@ import type { IpcBridge, IpcEventLike } from "../types/global";
 
 const DEV_PREVIEW_PARAMETER = "preview";
 const PREVIEW_SCENE = { id: "agent-preview", name: "Agent Preview" };
+const PREVIEW_HOOKS = [
+  {
+    id: "12",
+    function: "Dialogue",
+    preview: "今日は一緒に帰ろう。",
+    samples: ["今日は一緒に帰ろう。"],
+  },
+  { id: "26", function: "Character name", preview: "葵", samples: ["葵"] },
+  { id: "31", function: "File access", preview: "C:\\Game\\data\\scenario.bin", samples: [] },
+];
 
 type IpcListener = (event: IpcEventLike, ...args: unknown[]) => void;
 
@@ -17,7 +27,7 @@ function previewInvokeResult(channel: string): unknown {
     case "settings.getSettings":
       return {
         locale: "en",
-        visibleTabs: ["launcher", "stats", "python", "console"]
+        visibleTabs: ["launcher", "stats", "python", "console"],
       };
     case "obs.getScenes":
       return [PREVIEW_SCENE];
@@ -32,8 +42,8 @@ function previewInvokeResult(channel: string): unknown {
         window_geometry: { width: 1920, height: 1080 },
         rectangles: [
           { coordinates: [0.08, 0.7, 0.84, 0.24], is_excluded: false },
-          { coordinates: [0.68, 0.15, 0.24, 0.4], is_excluded: false, is_secondary: true }
-        ]
+          { coordinates: [0.68, 0.15, 0.24, 0.4], is_excluded: false, is_secondary: true },
+        ],
       };
     case "ocr.getActiveSceneSettings":
       return { furigana_filter_sensitivity: 35 };
@@ -50,12 +60,27 @@ function previewInvokeResult(channel: string): unknown {
         wholeWindowOcrHotkey: "Ctrl+Shift+W",
         globalPauseHotkey: "Shift+A",
         manualOcrDelayMs: 200,
-        scanRate_basic: 0.5
+        scanRate_basic: 0.5,
       };
-    case "texthook.getHooks":
-      return { hooks: [], selectedHookId: null };
+    case "texthook.getActiveCapture":
+      return {
+        sceneName: PREVIEW_SCENE.name,
+        sceneId: PREVIEW_SCENE.id,
+        exeName: "game.exe",
+        pid: 1234,
+        arch: "x64",
+      };
+    case "texthook.getSettings":
+      return { maxBufferSize: 3000, targetLanguage: "ja" };
+    case "texthook.getEngineStatus":
+    case "texthook.checkEngineUpdates":
+      return { installed: true, version: "Preview", automatic: true, phase: "idle" };
     case "texthook.builtInHookTargets":
       return [];
+    case "settings.listAgentScripts":
+      return { status: "success", scripts: ["C:\\GSM\\scripts\\PC - Agent Preview.js"] };
+    case "settings.resolveAgentScriptForScene":
+      return { status: "success", path: "C:\\GSM\\scripts\\PC - Agent Preview.js" };
     case "getOverlayStatus":
       return { isRunning: false };
     case "python.getPythonInfo":
@@ -63,7 +88,7 @@ function previewInvokeResult(channel: string): unknown {
         success: true,
         pythonVersion: "Preview",
         pythonPath: "Preview",
-        pipVersion: "Preview"
+        pipVersion: "Preview",
       };
     case "data.getCurrentDir":
     case "data.getDefaultDir":
@@ -85,15 +110,22 @@ export function installDevPreviewBridge(): void {
   const listeners = new Map<string, Set<IpcListener>>();
   let previewMode: "auto" | "manual" | null = null;
   let previewPaused = false;
+  let hookRunning = false;
+  let hookEngine = "luna";
+  let previewSelectedHook: string | null = null;
+  let hookProfile: unknown = null;
   const emit = (channel: string, ...args: unknown[]) => {
     for (const listener of listeners.get(channel) ?? []) {
       listener({ sender: null }, ...args);
     }
   };
-  const emitStatus = () => emit("ocr-ipc-status", {
-    manual: previewMode === "manual", paused: previewPaused,
-    current_engine: "screenai", scan_rate: 0.5
-  });
+  const emitStatus = () =>
+    emit("ocr-ipc-status", {
+      manual: previewMode === "manual",
+      paused: previewPaused,
+      current_engine: "screenai",
+      scan_rate: 0.5,
+    });
   const removeListener = (channel: string, listener: IpcListener) => {
     listeners.get(channel)?.delete(listener);
   };
@@ -104,9 +136,68 @@ export function installDevPreviewBridge(): void {
   };
 
   const bridge: IpcBridge = {
-    invoke: async <T,>(channel: string) => (channel === "ocr.get-running-state"
-      ? { isRunning: previewMode !== null, mode: previewMode, source: "preview" }
-      : previewInvokeResult(channel)) as T,
+    invoke: async <T>(channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus")
+        return (
+          hookRunning
+            ? {
+                running: true,
+                engine: hookEngine,
+                arch: "x64",
+                pid: 1234,
+                exeName: "game.exe",
+                selectedHookId: previewSelectedHook,
+                hookCount: PREVIEW_HOOKS.length,
+                flushDelayMs: 100,
+              }
+            : { running: false }
+        ) as T;
+      if (channel === "texthook.listHooks")
+        return {
+          hooks: hookRunning ? PREVIEW_HOOKS : [],
+          selectedHookId: previewSelectedHook,
+        } as T;
+      if (channel === "texthook.getProfile") return hookProfile as T;
+      if (channel === "texthook.start") {
+        hookRunning = true;
+        hookEngine = (args[0] as { engine: string }).engine;
+        emit("texthook.log", { message: "Preview capture attached to game.exe.", level: "info" });
+        return { success: true, pid: 1234, exeName: "game.exe" } as T;
+      }
+      if (channel === "texthook.stop") {
+        hookRunning = false;
+        previewSelectedHook = null;
+        return { success: true } as T;
+      }
+      if (channel === "texthook.selectHook") {
+        previewSelectedHook = String(args[0]);
+        const hookId = previewSelectedHook;
+        // The component clears the previous hook's text when selection completes.
+        window.setTimeout(
+          () =>
+            emit("texthook.text", {
+              hookId,
+              text: PREVIEW_HOOKS.find((hook) => hook.id === hookId)?.preview ?? "",
+              ts: Date.now(),
+            }),
+          100,
+        );
+        return { success: true } as T;
+      }
+      if (channel === "texthook.saveProfile") {
+        hookProfile = args[0];
+        return { success: true, profile: hookProfile } as T;
+      }
+      if (channel === "texthook.deleteProfile") {
+        hookProfile = null;
+        return { success: true } as T;
+      }
+      return (
+        channel === "ocr.get-running-state"
+          ? { isRunning: previewMode !== null, mode: previewMode, source: "preview" }
+          : previewInvokeResult(channel)
+      ) as T;
+    },
     send: (channel) => {
       if (channel === "ocr.start-ocr" || channel === "ocr.start-ocr-ss-only") {
         previewMode = channel === "ocr.start-ocr" ? "auto" : "manual";
@@ -136,19 +227,19 @@ export function installDevPreviewBridge(): void {
       addListener(channel, wrapped);
     },
     removeListener,
-    removeAllListeners: (channel) => listeners.delete(channel)
+    removeAllListeners: (channel) => listeners.delete(channel),
   };
 
   Object.defineProperty(window, "ipcRenderer", {
     configurable: true,
-    value: bridge
+    value: bridge,
   });
   Object.defineProperty(window, "clipboard", {
     configurable: true,
-    value: { readText: () => "", writeText: () => undefined }
+    value: { readText: () => "", writeText: () => undefined },
   });
   Object.defineProperty(window, "gsmEnv", {
     configurable: true,
-    value: { platform: "win32" }
+    value: { platform: "win32" },
   });
 }

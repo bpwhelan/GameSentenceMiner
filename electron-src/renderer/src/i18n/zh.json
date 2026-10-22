@@ -1094,6 +1094,23 @@
     }
   },
   "texthook": {
+    "workspace": {
+      "title": "文本钩子",
+      "brandHint": "直接提取游戏文本",
+      "currentGame": "当前游戏",
+      "navigation": "文本钩子视图",
+      "live": "实时文本",
+      "liveHelp": "选择钩子，检查输出是否与游戏中的对话一致。",
+      "engine": "引擎与脚本",
+      "output": "输出与时序",
+      "outputHelp": "调整文本输出、修订等待时间和文本长度上限。",
+      "tools": "工具",
+      "toolsHelp": "了解文本钩子并管理已安装的引擎。",
+      "noHookSelected": "未选择钩子",
+      "logHelp": "本次会话中钩子引擎的消息。",
+      "closeLog": "返回工作区",
+      "clearLog": "清空日志"
+    },
     "credits": {
       "text": "文本挂接工具",
       "agent": "Agent",

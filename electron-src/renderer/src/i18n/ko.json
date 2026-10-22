@@ -1098,6 +1098,23 @@
     }
   },
   "texthook": {
+    "workspace": {
+      "title": "텍스트 후킹",
+      "brandHint": "게임에서 직접 추출",
+      "currentGame": "현재 게임",
+      "navigation": "텍스트 후킹 보기",
+      "live": "실시간 텍스트",
+      "liveHelp": "후크를 선택하고 출력이 게임의 대사와 일치하는지 확인하세요.",
+      "engine": "엔진 및 스크립트",
+      "output": "출력 및 타이밍",
+      "outputHelp": "텍스트 전달 방식, 수정 대기 시간 및 최대 텍스트 길이를 조정하세요.",
+      "tools": "도구",
+      "toolsHelp": "텍스트 후킹에 대해 알아보고 설치된 엔진을 관리하세요.",
+      "noHookSelected": "선택한 후크 없음",
+      "logHelp": "이 세션의 후킹 엔진 메시지입니다.",
+      "closeLog": "작업 공간으로 돌아가기",
+      "clearLog": "로그 지우기"
+    },
     "credits": {
       "text": "텍스트 후킹 도구",
       "agent": "Agent",
