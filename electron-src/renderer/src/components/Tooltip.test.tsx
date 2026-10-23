@@ -19,6 +19,7 @@ describe("shared tooltips", () => {
         <TooltipLayer />
         <div data-tip="Outer help">
           <button data-tip="Button help"><span>Action</span></button>
+          <button data-tip="Full game name" data-tip-if-truncated="span"><span>Game name</span></button>
           <input id="disabled" type="checkbox" disabled data-tip="Why this is disabled" />
         </div>
         <label htmlFor="field" data-tip="Field help">Field</label>
@@ -51,6 +52,36 @@ describe("shared tooltips", () => {
   it("shows explanations when hovering disabled controls", async () => {
     await hover(container.querySelector("#disabled")!);
     expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Why this is disabled");
+  });
+
+  it("only shows game-name tooltips when the label overflows, including multiline clipping and keyboard focus", async () => {
+    const button = container.querySelector<HTMLButtonElement>("[data-tip-if-truncated]")!;
+    const label = button.querySelector("span")!;
+    const dimensions = { clientWidth: 120, scrollWidth: 120, clientHeight: 36, scrollHeight: 36 };
+    for (const key of Object.keys(dimensions) as (keyof typeof dimensions)[]) {
+      Object.defineProperty(label, key, { configurable: true, get: () => dimensions[key] });
+    }
+
+    await hover(label);
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    await act(async () => button.focus());
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+
+    dimensions.scrollHeight = 54;
+    await hover(label);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Full game name");
+
+    await act(async () => button.blur());
+    await act(async () => label.dispatchEvent(new MouseEvent("pointerout", { bubbles: true })));
+    dimensions.scrollHeight = 36;
+    dimensions.scrollWidth = 150;
+    await act(async () => button.focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Full game name");
+
+    await act(async () => button.blur());
+    dimensions.scrollWidth = 120;
+    await hover(label);
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 
   it("supports keyboard focus through associated labels and restores existing descriptions on Escape", async () => {

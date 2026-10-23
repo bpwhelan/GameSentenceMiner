@@ -269,10 +269,9 @@
   border-top: 1px solid var(--gsm-border-subtle);
   border-bottom: 1px solid var(--gsm-border-subtle);
 }
-.settings-desk .settings-data-folder-location summary {
+.settings-desk .settings-data-folder-location h2 {
   font-size: 12px;
   color: var(--gsm-text-secondary);
-  cursor: pointer;
 }
 .settings-desk .settings-data-folder-location p {
   margin-top: 12px;

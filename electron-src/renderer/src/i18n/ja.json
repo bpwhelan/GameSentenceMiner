@@ -29,6 +29,30 @@
     }
   },
   "home": {
+    "workspace": {
+      "library": "ゲーム一覧",
+      "savedGames": "保存済みのゲーム",
+      "searchGames": "ゲームを検索",
+      "noMatchingGames": "一致するゲームがありません。",
+      "noGames": "まだゲームが追加されていません。",
+      "emptyGameHint": "最初のゲームを追加してキャプチャを設定し、マイニングを始めましょう。",
+      "addingGame": "キャプチャを設定中…",
+      "addGameError": "キャプチャを設定できませんでした。OBSの接続を確認して、もう一度お試しください。",
+      "chooseGame": "ゲームを選択",
+      "chooseGameHint": "保存済みのゲームを選ぶか、新しいキャプチャを追加してください。",
+      "gameContext": "ゲームキャプチャ",
+      "gameOptions": "ゲームの設定",
+      "gameActions": "{name}の操作",
+      "gameActionError": "ゲームを更新できませんでした。もう一度お試しください。",
+      "backToGame": "ゲームに戻る",
+      "textFeed": "テキストフィード",
+      "textFeedHint": "取得したテキストを読んで、テキストフィードから例文を収集できます。",
+      "firstGameHint": "ゲームを起動し、下の一覧からウィンドウを選んでキャプチャを設定してください。",
+      "addGame": "ゲームを追加",
+      "addGameHint": "別のウィンドウ、画面、キャプチャカードを追加します。",
+      "overlayHint": "プレイしながら単語を調べて例文を収集できます。",
+      "connections": "接続状況"
+    },
     "status": {
       "title": "ステータス",
       "gsm": "GSM",
@@ -141,7 +165,7 @@
     },
     "support": {
       "text": "GSMを支援する",
-      "githubSponsors": "GitHub Sponsors",
+      "githubSponsors": "GitHub Sponsors（推奨）",
       "kofi": "Ko-fi",
       "githubStar": "GitHubでスターを付ける（無料）"
     },
@@ -1695,6 +1719,13 @@
       "automatic": "自動更新する",
       "automaticOn": "自動更新オン",
       "automaticOff": "自動更新オフ",
+      "versionChoice": "エンジンパッケージのバージョン",
+      "installSelected": "選択したバージョンをインストール",
+      "updateLatest": "最新版に更新",
+      "recommended": "推奨",
+      "latest": "最新",
+      "pinHint": "両エンジンをまとめて更新・ダウングレードできます。バージョンを選んでインストールすると自動更新はオフになり、再度変更するか自動更新を有効にするまで選択が維持されます。",
+      "buildVersions": "LunaHook {luna} · Textractor {textractor}",
       "verificationHint": "すべてのファイルを検証してからパッケージを切り替えます。以前のパッケージは保持されます。",
       "repair": "修復／再インストール",
       "updateNow": "今すぐ更新",
@@ -1841,6 +1872,9 @@
     },
     "status": {
       "attached": "アタッチ中",
+      "starting": "起動中",
+      "waitingForText": "テキスト待機中",
+      "receiving": "テキスト受信中",
       "ready": "準備完了",
       "noTarget": "対象なし"
     },

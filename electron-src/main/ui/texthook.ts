@@ -2329,7 +2329,11 @@ export function registerTextHookIPC(): void {
     });
 
     ipcMain.handle('texthook.getEngineStatus', () => getEngineUpdates().getState());
-    ipcMain.handle('texthook.checkEngineUpdates', () => getEngineUpdates().check());
+    ipcMain.handle('texthook.checkEngineUpdates', () => getEngineUpdates().check(false));
+    ipcMain.handle('texthook.installEngineVersion', (_event, version: unknown) => {
+        if (typeof version !== 'string') throw new Error('Invalid engine package version.');
+        return getEngineUpdates().downloadVersion(version);
+    });
     ipcMain.handle('texthook.downloadEngines', () => getEngineUpdates().download());
     ipcMain.handle('texthook.setAutomaticEngineUpdates', (_event, enabled: unknown) => {
         if (typeof enabled !== 'boolean') throw new Error('Expected an automatic updates preference.');

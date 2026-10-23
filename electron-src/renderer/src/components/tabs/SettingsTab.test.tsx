@@ -141,6 +141,9 @@ describe("SettingsTab data folder controls", () => {
     });
     expect(container.querySelector<HTMLElement>("#settings-view-storage")!.hidden).toBe(false);
     expect(document.activeElement?.id).toBe("settings-nav-storage");
+    const location = container.querySelector<HTMLElement>(".settings-data-folder-location")!;
+    expect(location.closest("details, [hidden]")).toBeNull();
+    expect(location.textContent).toContain("C:\\Users\\Tester\\.config\\GameSentenceMiner\\data_dir.json");
     await act(async () => {
       container.querySelector<HTMLButtonElement>("#settings-nav-storage")!.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Home", bubbles: true })

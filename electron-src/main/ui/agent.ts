@@ -4,6 +4,7 @@ import { BrowserWindow } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { getBaseDir } from '../data_dir.js';
 import { sanitizeTextHookText, setRuntimeTextHookMaxBufferSize } from './text_hook_sanitize.js';
 import type { StartHookResult, TextHookArchitecture, TextHookStartSource } from './texthook.js';
@@ -45,6 +46,8 @@ interface AgentTextPayload {
 }
 
 interface AgentHookSession {
+    id: string;
+    phase: 'starting' | 'waiting' | 'receiving';
     fridaSession: Session;
     script: Script;
     pid: number;
@@ -65,7 +68,18 @@ interface AgentHookSession {
     uiFileName: string | null;
     uiWindow: BrowserWindow | null;
     stopping: boolean;
+    initialization: AgentScriptInitialization | null;
+    cancelStartup?: () => void;
     wineConnection?: WineProcessConnection;
+}
+
+interface AgentScriptInitialization {
+    active: boolean;
+    error: string | null;
+    monoNotReady: boolean;
+    missingMonoHook: boolean;
+    hasMonoHook: boolean;
+    finish: () => void;
 }
 
 let agentSession: AgentHookSession | null = null;
@@ -84,6 +98,8 @@ export function configureAgentHookCallbacks(callbacks: AgentHookCallbacks): void
 const DEFAULT_AGENT_LOADER = path.resolve(process.cwd(), '.agent_scripts', 'libLoader.js');
 const STORAGE_DIR = path.join(BASE_DIR, 'texthook', 'agent-storage');
 const UI_DIR = path.join(BASE_DIR, 'texthook', 'agent-ui');
+const UNITY_STARTUP_TIMEOUT_MS = 20_000;
+const UNITY_STARTUP_RETRY_MS = 500;
 
 const FRIDA_COMPAT_SHIM = `
 (function () {
@@ -276,7 +292,9 @@ function saveLocalStorage(current: AgentHookSession): void {
 
 function readAgentSource(loaderPath: string): string {
     const source = fs.readFileSync(loaderPath, 'utf8');
-    return `${FRIDA_COMPAT_SHIM}\n${source}`;
+    // Frida resolves load() even when top-level JavaScript throws. This marker
+    // is reached only after the loader and the game script have returned.
+    return `${FRIDA_COMPAT_SHIM}\n${source}\n;send({ cmd: '__gsm_agent_initialized' });\n`;
 }
 
 function resolveScriptPath(scriptPath: string): string | null {
@@ -455,6 +473,7 @@ function sendAgentText(payload: AgentTextPayload): void {
         hookId: payload.hookId,
         text: payload.text,
         ts: Date.now(),
+        sessionId: agentSession?.id,
     });
 }
 
@@ -480,6 +499,10 @@ function queueAgentText(text: string): void {
     if (!agentSession || !text.trim()) return;
     const sanitizedText = sanitizeTextHookText(text);
     if (!sanitizedText) return;
+    if (agentSession.phase !== 'receiving') {
+        agentSession.phase = 'receiving';
+        emitStatus();
+    }
     const payload: AgentTextPayload = {
         text: sanitizedText.text,
         hookId: agentSession.hook.id,
@@ -500,6 +523,10 @@ function handleAgentPayload(current: AgentHookSession, payload: any, data: Buffe
     const cmd = typeof payload.cmd === 'string' ? payload.cmd : '';
     const args = Array.isArray(payload.args) ? payload.args : [];
     try {
+        if (cmd === '__gsm_agent_initialized') {
+            current.initialization?.finish();
+            return;
+        }
         if (cmd === 'copy') {
             const text = typeof payload.text === 'string' ? payload.text : '';
             queueAgentText(text);
@@ -586,11 +613,92 @@ function handleAgentMessage(current: AgentHookSession, message: Message, data: B
     }
     const detail = message.stack || message.description;
     emitLog(detail, 'error');
+    if (current.initialization) {
+        current.initialization.error ??= detail;
+        current.initialization.finish();
+    } else {
+        emitToRenderer('texthook.agentError', { error: detail, sessionId: current.id });
+    }
 }
 
-function handleAgentLog(level: LogLevel, text: string): void {
+function handleAgentLog(current: AgentHookSession, level: LogLevel, text: string): void {
     const normalized = String(level).toLowerCase();
+    const initialization = current.initialization;
+    if (initialization) {
+        if (/Mono not found!/i.test(text)) initialization.monoNotReady = true;
+        if (/^(?:Hook not found!|setHook\.SkipNullAddress:)/.test(text.trim())) initialization.missingMonoHook = true;
+        if (/^Attach: /.test(text.trim())) initialization.hasMonoHook = true;
+    }
     emitLog(`[Agent] ${text}`, normalized === 'error' ? 'error' : normalized === 'warning' ? 'warn' : 'info');
+}
+
+async function initializeAgentScript(current: AgentHookSession, source: string): Promise<void> {
+    const deadline = Date.now() + UNITY_STARTUP_TIMEOUT_MS;
+    while (!current.stopping && agentSession === current) {
+        const script = current.script;
+        const initialization: AgentScriptInitialization = {
+            active: true, error: null, monoNotReady: false, missingMonoHook: false,
+            hasMonoHook: false, finish: () => {},
+        };
+        const initialized = new Promise<void>((resolve) => { initialization.finish = resolve; });
+        current.initialization = initialization;
+        let timeout: NodeJS.Timeout | undefined;
+        current.cancelStartup = initialization.finish;
+        const isCurrent = () => initialization.active && agentSession === current && !current.stopping && current.script === script;
+        script.logHandler = (level, text) => { if (isCurrent()) handleAgentLog(current, level, text); };
+        script.message.connect((message, data) => { if (isCurrent()) handleAgentMessage(current, message, data); });
+        try {
+            await script.load();
+            // Some valid game scripts perform expensive synchronous scans.
+            // Bound message delivery after load(), not the scan itself.
+            timeout = setTimeout(() => {
+                initialization.error ??= 'Timed out waiting for the Agent script to initialize.';
+                initialization.finish();
+            }, 5000);
+            await initialized;
+        } catch (error) {
+            initialization.error ??= (error as Error).message;
+        } finally {
+            if (timeout) clearTimeout(timeout);
+            current.cancelStartup = undefined;
+            current.initialization = null;
+        }
+        if (current.stopping || agentSession !== current) break;
+        // Optional missing methods must not invalidate scripts that installed
+        // other Mono hooks. Retry when none of the requested hooks exist yet.
+        const missingHooks = initialization.missingMonoHook && !initialization.hasMonoHook;
+        const error = initialization.error ?? (missingHooks ? 'Unity game hooks are not ready yet.' : null);
+        if (!error) return;
+        initialization.active = false;
+        // Mono can already be mapped into the process while its runtime domain
+        // is still initializing. These errors include the helper's stack frame.
+        const retryable = current.phase !== 'receiving' && (
+            initialization.monoNotReady || missingHooks || /\blibMono\.js:\d+/i.test(error) ||
+            /(?:setHook.*undefined|undefined.*setHook)/i.test(error)
+        );
+        if (!retryable) throw new Error(error);
+        if (Date.now() >= deadline) {
+            throw new Error(`Unity hooks did not become ready within 20 seconds. Load the game to its menu or dialogue, then attach again. Last error: ${error}`);
+        }
+        emitLog('Unity is still starting; retrying Agent hook initialization.', 'info');
+        await script.unload();
+        if (current.stopping || agentSession !== current) break;
+        await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, Math.min(UNITY_STARTUP_RETRY_MS, Math.max(0, deadline - Date.now())));
+            current.cancelStartup = () => { clearTimeout(timer); resolve(); };
+        });
+        current.cancelStartup = undefined;
+        if (current.stopping || agentSession !== current) break;
+        const nextScript = await current.fridaSession.createScript(source, {
+            name: `GSM Agent: ${path.basename(current.scriptPath)}`, runtime: ScriptRuntime.QJS,
+        });
+        if (current.stopping || agentSession !== current) {
+            await nextScript.unload();
+            break;
+        }
+        current.script = nextScript;
+    }
+    throw new Error('Agent startup was cancelled.');
 }
 
 async function isPidAlive(pid: number): Promise<boolean> {
@@ -623,6 +731,7 @@ async function teardownAgentSession(): Promise<void> {
     const current = agentSession;
     if (!current || current.stopping) return;
     current.stopping = true;
+    current.cancelStartup?.();
     flushAgentText();
     if (current.pidWatcher) {
         clearInterval(current.pidWatcher);
@@ -670,16 +779,21 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
         return { success: false, error: 'Agent loader missing. Expected libLoader.js next to the script.' };
     }
     setRuntimeTextHookMaxBufferSize(options.maxBufferSize);
+    let current: AgentHookSession | null = null;
+    let attachedSession: Session | null = null;
     try {
         const fridaSession = options.wineConnection
             ? await options.wineConnection.device.attach(options.wineConnection.windowsPid)
             : await frida.attach(options.pid);
+        attachedSession = fridaSession;
         const source = readAgentSource(loaderPath);
         const script = await fridaSession.createScript(source, {
             name: `GSM Agent: ${path.basename(scriptPath)}`,
             runtime: ScriptRuntime.QJS,
         });
-        const current: AgentHookSession = {
+        current = {
+            id: randomUUID(),
+            phase: 'starting',
             fridaSession,
             script,
             pid: options.pid,
@@ -704,22 +818,26 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
             uiFileName: null,
             uiWindow: null,
             stopping: false,
+            initialization: null,
             wineConnection: options.wineConnection,
         };
         agentSession = current;
-        script.logHandler = handleAgentLog;
-        script.message.connect((message, data) => handleAgentMessage(current, message, data));
+        const activeSession = current;
         fridaSession.detached.connect((reason, crash) => {
+            if (agentSession !== activeSession || activeSession.stopping) return;
             const crashSummary = crash ? ` crash=${crash.summary}` : '';
             emitLog(`Agent Frida session detached: ${reason}${crashSummary}`, reason === 'application-requested' ? 'info' : 'warn');
             void teardownAgentSession();
         });
-        await script.load();
+        emitStatus();
+        emitHooks();
+        await initializeAgentScript(current, source);
+        if (current.phase === 'starting') current.phase = 'waiting';
         current.pidWatcher = setInterval(() => {
             void (async () => {
-                if (!agentSession || agentSession !== current) return;
-                if (!(await isPidAlive(current.pid))) {
-                    emitLog(`Target PID ${current.pid} (${current.exeName}) is no longer running.`);
+                if (!agentSession || agentSession !== activeSession) return;
+                if (!(await isPidAlive(activeSession.pid))) {
+                    emitLog(`Target PID ${activeSession.pid} (${activeSession.exeName}) is no longer running.`);
                     void stopAgentHookSession();
                 }
             })();
@@ -733,10 +851,15 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
         return { success: true, pid: options.pid, exeName: options.exeName, arch: options.arch };
     } catch (err) {
         const error = err as Error;
-        emitLog(`Agent attach failed: ${error.message}`, 'error');
-        if (agentSession) {
+        const cancelled = current?.stopping || (current !== null && agentSession !== current);
+        if (!cancelled) {
+            emitLog(`Agent attach failed: ${error.message}`, 'error');
+            emitToRenderer('texthook.agentError', { error: error.message, sessionId: current?.id });
+        }
+        if (current && agentSession === current) {
             await teardownAgentSession();
         } else {
+            if (!current) await attachedSession?.detach().catch(() => undefined);
             await options.wineConnection?.close();
         }
         return { success: false, error: error.message };
@@ -752,7 +875,7 @@ export function isAgentHookRunning(): boolean {
 }
 
 export function listAgentHooks(): { hooks: AgentHookEntry[]; selectedHookId: string | null } {
-    if (!agentSession) return { hooks: [], selectedHookId: null };
+    if (!agentSession || agentSession.phase === 'starting') return { hooks: [], selectedHookId: null };
     return {
         hooks: [agentSession.hook],
         selectedHookId: agentSession.hook.id,
@@ -763,13 +886,15 @@ export function getAgentHookRuntimeStatus() {
     if (!agentSession) return null;
     return {
         running: true as const,
+        sessionId: agentSession.id,
+        agentPhase: agentSession.phase,
         engine: 'agent' as const,
         arch: agentSession.arch,
         pid: agentSession.pid,
         exeName: agentSession.exeName,
         source: agentSession.source,
-        selectedHookId: agentSession.hook.id,
-        hookCount: 1,
+        selectedHookId: agentSession.phase === 'starting' ? null : agentSession.hook.id,
+        hookCount: agentSession.phase === 'starting' ? 0 : 1,
         flushDelayMs: agentSession.flushDelayMs,
         copyToClipboard: agentSession.copyToClipboard,
         agentScriptPath: agentSession.scriptPath,

@@ -213,7 +213,7 @@
 }
 .gsm-workspace .ws-page-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
   padding: 30px 36px 24px;
@@ -227,19 +227,12 @@
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
-.gsm-workspace .ws-page-header p {
-  margin-top: 9px;
-  max-width: 650px;
-  color: var(--gsm-text-muted);
-  font-size: 12px;
-}
 .gsm-workspace .ws-header-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
-  padding-top: 20px;
   flex: 0 0 auto;
 }
 .gsm-workspace .ws-header-actions button {
@@ -334,9 +327,6 @@
   }
   .gsm-workspace .ws-page-header h1 {
     font-size: 24px;
-  }
-  .gsm-workspace .ws-header-actions {
-    padding-top: 0;
   }
   .gsm-workspace .ws-view {
     padding: 8px 24px 24px;

@@ -68,7 +68,7 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
-.texthook-desk :is(button, input, select, summary):focus-visible {
+.texthook-desk :is(button, input, select):focus-visible {
   outline: 2px solid var(--gsm-accent);
   outline-offset: 3px;
 }
@@ -306,28 +306,12 @@
 .texthook-desk .th-page-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 24px;
   padding: 30px 36px 24px;
 }
-.texthook-desk .th-eyebrow {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--gsm-text-muted);
-  font-size: 10px;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  overflow-wrap: anywhere;
-}
-.texthook-desk .th-page-header p {
-  margin-top: 9px;
-  max-width: 630px;
-  color: var(--gsm-text-muted);
-  font-size: 12px;
-}
 .texthook-desk button.th-log-toggle {
   flex: 0 0 auto;
-  margin-top: 20px;
   border-color: transparent;
   color: var(--gsm-text-muted);
   font-size: 12px;
@@ -369,8 +353,8 @@
   align-self: end;
   border: 0;
 }
-.texthook-desk .th-live-setup .texthook-manual-hook > summary {
-  padding: 10px 0;
+.texthook-desk .th-live-setup .texthook-manual-hook > h2 {
+  padding: 0;
   font-size: 11px;
   color: var(--gsm-text-muted);
 }
@@ -732,25 +716,26 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 26px 24px;
 }
-.texthook-desk .texthook-disclosure {
+.texthook-desk .texthook-section {
+  padding-top: 24px;
   border-top: 1px solid var(--gsm-border-subtle);
   color: var(--gsm-text-secondary);
   font-size: 12px;
 }
-.texthook-desk .texthook-disclosure:first-child {
+.texthook-desk .texthook-section:first-child {
+  padding-top: 0;
   border-top: 0;
 }
-.texthook-desk .texthook-disclosure > summary {
-  padding: 22px 0;
-  cursor: pointer;
+.texthook-desk .texthook-section > h2 {
+  margin-bottom: 18px;
   font-size: 14px;
   font-weight: 600;
   color: var(--gsm-text-primary);
 }
-.texthook-desk .texthook-disclosure-body {
+.texthook-desk .texthook-section-body {
   padding-bottom: 24px;
 }
-.texthook-desk .texthook-disclosure-body p {
+.texthook-desk .texthook-section-body p {
   margin: 0 0 14px;
   line-height: 1.8;
 }
@@ -772,6 +757,15 @@
   align-items: center;
   gap: 9px;
   margin-bottom: 16px;
+}
+.texthook-desk .texthook-maintenance-version {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+  margin: 16px 0;
+}
+.texthook-desk .texthook-maintenance-version select {
+  width: 100%;
 }
 .texthook-desk .texthook-maintenance-error,
 .texthook-desk .texthook-maintenance-feedback--error {
@@ -883,7 +877,6 @@
   .texthook-desk button.th-log-toggle {
     width: 32px;
     padding: 6px;
-    margin-top: 20px;
   }
   .texthook-desk .th-log-toggle span {
     position: absolute;

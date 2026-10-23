@@ -29,6 +29,30 @@
     }
   },
   "home": {
+    "workspace": {
+      "library": "Your games",
+      "savedGames": "Saved games",
+      "searchGames": "Search games",
+      "noMatchingGames": "No matching games.",
+      "noGames": "No games added yet.",
+      "emptyGameHint": "Add your first game to set up capture and start mining.",
+      "addingGame": "Setting up capture…",
+      "addGameError": "Could not set up capture. Check that OBS is connected and try again.",
+      "chooseGame": "Choose a game",
+      "chooseGameHint": "Select a saved game, or add a new capture.",
+      "gameContext": "Game capture",
+      "gameOptions": "Game options",
+      "gameActions": "Actions for {name}",
+      "gameActionError": "Could not update this game. Please try again.",
+      "backToGame": "Back to game",
+      "textFeed": "Text feed",
+      "textFeedHint": "Read captured text and mine sentences in the Text Feed.",
+      "firstGameHint": "Open your game, then select its window below to set up capture.",
+      "addGame": "Add a game",
+      "addGameHint": "Capture another window, display, or capture card.",
+      "overlayHint": "Look up words and mine sentences as you play.",
+      "connections": "Connections"
+    },
     "status": {
       "title": "Status",
       "gsm": "GSM",
@@ -147,7 +171,7 @@
     },
     "support": {
       "text": "Support GSM",
-      "githubSponsors": "GitHub Sponsors",
+      "githubSponsors": "GitHub Sponsors (Preferred)",
       "kofi": "Ko-fi",
       "githubStar": "Star on GitHub (Free)"
     },
@@ -1587,6 +1611,13 @@
       "automatic": "Update automatically",
       "automaticOn": "Automatic updates on",
       "automaticOff": "Automatic updates off",
+      "versionChoice": "Engine package version",
+      "installSelected": "Install selected version",
+      "updateLatest": "Update to latest",
+      "recommended": "Recommended",
+      "latest": "Latest",
+      "pinHint": "You can upgrade or downgrade both engines together. Automatic updates turn off when you install a selected version, keeping your choice until you change it or enable automatic updates again.",
+      "buildVersions": "LunaHook {luna} · Textractor {textractor}",
       "verificationHint": "Every file is verified before GSM switches packages. The previous package is kept.",
       "repair": "Repair / reinstall",
       "updateNow": "Update now",
@@ -1733,6 +1764,9 @@
     },
     "status": {
       "attached": "Attached",
+      "starting": "Starting",
+      "waitingForText": "Waiting for text",
+      "receiving": "Receiving text",
       "ready": "Ready",
       "noTarget": "No Target"
     },

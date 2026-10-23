@@ -1,4 +1,4 @@
-// Stage a reviewable R2 payload from the fork's two GSM LunaHook CI artifacts.
+// Stage a package for the v2 catalog from the fork's two GSM LunaHook CI artifacts.
 // This command does not install files, modify the checkout, or publish anything.
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';

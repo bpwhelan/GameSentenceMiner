@@ -2371,7 +2371,6 @@ export function OCRTab({ active }: OcrTabProps) {
         <div className="desk-workspace">
           <header className="desk-page-header">
             <div>
-              <span className="desk-eyebrow">{t("ocr.desk.workspace")}</span>
               <h1>
                 {workspaceView === "capture"
                   ? sceneSummary
@@ -2379,7 +2378,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     ? t("ocr.console.title")
                     : t(OCR_WORKSPACE_VIEWS.find((view) => view.id === workspaceView)!.labelKey)}
               </h1>
-              <p>{t("ocr.desk.viewHelp." + workspaceView)}</p>
             </div>
             <button
               type="button"

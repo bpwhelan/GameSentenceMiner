@@ -1,4 +1,4 @@
-// Generate the two public objects: texthook.zip and texthook_manifest.json.
+// Generate one local package and its metadata. Publish through the v2 catalog builder.
 import { createHash } from 'node:crypto';
 import { createWriteStream, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

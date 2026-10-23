@@ -71,17 +71,14 @@ const SPEECH_VIEWS = [
   {
     id: "capture",
     labelKey: "speechRecognition.workspace.capture",
-    helpKey: "speechRecognition.workspace.captureHelp",
   },
   {
     id: "advanced",
     labelKey: "speechRecognition.workspace.advanced",
-    helpKey: "speechRecognition.advancedHint",
   },
   {
     id: "activity",
     labelKey: "speechRecognition.workspace.activity",
-    helpKey: "speechRecognition.console.hint",
   },
 ] as const;
 
@@ -473,11 +470,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
         <main className="ws-main">
           <header className="ws-page-header">
             <div>
-              <span className="ws-eyebrow">
-                {selectedScene?.name || t("speechRecognition.footer.noScene")}
-              </span>
               <h1>{t(currentView.labelKey)}</h1>
-              <p>{t(currentView.helpKey)}</p>
               {notice ? (
                 <div
                   className={"ws-notice " + (notice.type === "error" ? "is-error" : "")}

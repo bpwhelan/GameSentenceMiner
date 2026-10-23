@@ -1,5 +1,29 @@
 {
   "home": {
+    "workspace": {
+      "library": "내 게임",
+      "savedGames": "저장된 게임",
+      "searchGames": "게임 검색",
+      "noMatchingGames": "일치하는 게임이 없습니다.",
+      "noGames": "아직 추가한 게임이 없습니다.",
+      "emptyGameHint": "첫 게임을 추가해 캡처를 설정하고 문장 수집을 시작하세요.",
+      "addingGame": "캡처 설정 중…",
+      "addGameError": "캡처를 설정하지 못했습니다. OBS 연결을 확인하고 다시 시도하세요.",
+      "chooseGame": "게임 선택",
+      "chooseGameHint": "저장된 게임을 선택하거나 새 캡처를 추가하세요.",
+      "gameContext": "게임 캡처",
+      "gameOptions": "게임 옵션",
+      "gameActions": "{name} 작업",
+      "gameActionError": "게임을 업데이트하지 못했습니다. 다시 시도하세요.",
+      "backToGame": "게임으로 돌아가기",
+      "textFeed": "텍스트 피드",
+      "textFeedHint": "텍스트 피드에서 캡처된 텍스트를 읽고 문장을 수집하세요.",
+      "firstGameHint": "게임을 실행한 다음 아래에서 게임 창을 선택해 캡처를 설정하세요.",
+      "addGame": "게임 추가",
+      "addGameHint": "다른 창, 화면 또는 캡처 카드를 캡처하세요.",
+      "overlayHint": "플레이하면서 단어를 찾고 문장을 수집하세요.",
+      "connections": "연결 상태"
+    },
     "status": {
       "title": "상태",
       "gsm": "GSM",
@@ -104,7 +128,7 @@
     },
     "support": {
       "text": "GSM 후원",
-      "githubSponsors": "GitHub Sponsors",
+      "githubSponsors": "GitHub Sponsors (권장)",
       "kofi": "Ko-fi",
       "githubStar": "GitHub에서 별 누르기 (무료)"
     },
@@ -1201,6 +1225,15 @@
     }
   },
   "texthook": {
+    "updates": {
+      "versionChoice": "엔진 패키지 버전",
+      "installSelected": "선택한 버전 설치",
+      "updateLatest": "최신 버전으로 업데이트",
+      "recommended": "권장",
+      "latest": "최신",
+      "pinHint": "두 엔진을 함께 업데이트하거나 이전 버전으로 되돌릴 수 있습니다. 버전을 선택해 설치하면 자동 업데이트가 꺼지고, 직접 변경하거나 자동 업데이트를 다시 켤 때까지 선택이 유지됩니다.",
+      "buildVersions": "LunaHook {luna} · Textractor {textractor}"
+    },
     "workspace": {
       "title": "텍스트 후킹",
       "brandHint": "게임에서 직접 추출",
@@ -1297,6 +1330,9 @@
     },
     "status": {
       "attached": "연결됨",
+      "starting": "시작 중",
+      "waitingForText": "텍스트 대기 중",
+      "receiving": "텍스트 수신 중",
       "ready": "준비 완료",
       "noTarget": "대상 없음"
     },

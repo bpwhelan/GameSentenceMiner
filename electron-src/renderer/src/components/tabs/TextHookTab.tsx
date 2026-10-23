@@ -57,6 +57,8 @@ interface RuntimeStatusRunning {
   agentScriptPath?: string;
   agentHasUi?: boolean;
   agentDetached?: boolean;
+  sessionId?: string;
+  agentPhase?: "starting" | "waiting" | "receiving";
 }
 
 interface RuntimeStatusStopped {
@@ -113,6 +115,11 @@ const DEFAULT_FLUSH_DELAY_MS = 100;
 const MAX_FLUSH_DELAY_MS = 5000;
 const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = 3000;
 const MAX_TEXT_HOOK_MAX_BUFFER_SIZE = 100_000;
+const AGENT_PHASE_LABEL_KEYS = {
+  starting: "texthook.status.starting",
+  waiting: "texthook.status.waitingForText",
+  receiving: "texthook.status.receiving",
+} as const;
 const MAX_JAPANESE_QUOTE_PAIRS = 10;
 // Set to true when the large-payload test button is needed during development.
 const SHOW_DEV_LARGE_PAYLOAD_TEST = false;
@@ -180,9 +187,9 @@ function createDevJapanesePayload(length: number): string {
 type HookWorkspaceView = "live" | "output" | "tools";
 
 const HOOK_WORKSPACE_VIEWS = [
-  { id: "live", labelKey: "texthook.workspace.live", helpKey: "texthook.workspace.liveHelp" },
-  { id: "output", labelKey: "texthook.workspace.output", helpKey: "texthook.workspace.outputHelp" },
-  { id: "tools", labelKey: "texthook.workspace.tools", helpKey: "texthook.workspace.toolsHelp" },
+  { id: "live", labelKey: "texthook.workspace.live" },
+  { id: "output", labelKey: "texthook.workspace.output" },
+  { id: "tools", labelKey: "texthook.workspace.tools" },
 ] as const;
 
 function HookWorkspaceIcon({ name }: { name: string }) {
@@ -244,10 +251,16 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null);
   const [copyToClipboard, setCopyToClipboard] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [engineActionNotice, setEngineActionNotice] = useState<NoticeState | null>(null);
   const [engineStatus, setEngineStatus] = useState<EngineUpdateState | null>(null);
+  const [selectedEngineVersion, setSelectedEngineVersion] = useState("");
+  const engineVersions = engineStatus?.availableVersions ?? [];
+  const engineVersionChoice = selectedEngineVersion ||
+    (engineVersions.some(({ version }) => version === engineStatus?.version)
+      ? engineStatus?.version : engineStatus?.remoteVersion) || "";
+  const selectedEnginePackage = engineVersions.find(({ version }) => version === engineVersionChoice);
   const [checkingEngines, setCheckingEngines] = useState(false);
   const [engineCheckFailed, setEngineCheckFailed] = useState(false);
   const [updatingEngines, setUpdatingEngines] = useState(false);
@@ -258,6 +271,10 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   const textScrollRef = useRef<HTMLDivElement | null>(null);
   const logScrollRef = useRef<HTMLDivElement | null>(null);
   const statusRunningRef = useRef(false);
+  const statusRequestRef = useRef(0);
+  const activeSessionKeyRef = useRef<string | null>(null);
+  const activeAgentSessionIdRef = useRef<string | null>(null);
+  const startCancelledRef = useRef(false);
   const flushDelayInputFocusedRef = useRef(false);
   const maxBufferSizeInputFocusedRef = useRef(false);
   const lastAppliedProfileKeyRef = useRef<string | null>(null);
@@ -316,15 +333,15 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     }
   }, []);
 
-  const downloadEngines = useCallback(async () => {
+  const downloadEngines = useCallback(async (version?: string) => {
     if (busy || preparingCapture || updatingEnginesRef.current) return;
     updatingEnginesRef.current = true;
     setUpdatingEngines(true);
     setEngineActionNotice(null);
     try {
-      const result = await invokeIpc<{ success: boolean; deferred?: boolean; error?: string }>(
-        "texthook.downloadEngines",
-      );
+      const result = version
+        ? await invokeIpc<{ success: boolean; deferred?: boolean; error?: string }>("texthook.installEngineVersion", version)
+        : await invokeIpc<{ success: boolean; deferred?: boolean; error?: string }>("texthook.downloadEngines");
       if (!result?.success) {
         setEngineActionNotice({
           message: result?.error ?? t("texthook.updates.downloadFailed"),
@@ -360,10 +377,16 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     [t],
   );
 
-  const refreshStatus = useCallback(async () => {
-    const next = await invokeIpc<RuntimeStatus>("texthook.getStatus");
+  const applyRuntimeStatus = useCallback((next: RuntimeStatus) => {
+    statusRunningRef.current = next.running;
     setStatus(next);
     if (next.running) {
+      const sessionKey = next.sessionId ?? JSON.stringify([next.engine, next.pid, next.agentScriptPath]);
+      if (activeSessionKeyRef.current !== sessionKey) {
+        setTextLines([]);
+      }
+      activeSessionKeyRef.current = sessionKey;
+      activeAgentSessionIdRef.current = next.sessionId ?? null;
       setSelectedHookId(next.selectedHookId);
       setEngine(next.engine);
       syncFlushDelayState(next.flushDelayMs);
@@ -374,8 +397,17 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
       if (next.engine === "agent") {
         setAgentDetached(next.agentDetached !== false);
       }
+    } else {
+      activeSessionKeyRef.current = null;
+      activeAgentSessionIdRef.current = null;
     }
   }, [syncFlushDelayState]);
+
+  const refreshStatus = useCallback(async () => {
+    const request = ++statusRequestRef.current;
+    const next = await invokeIpc<RuntimeStatus>("texthook.getStatus");
+    if (request === statusRequestRef.current) applyRuntimeStatus(next);
+  }, [applyRuntimeStatus]);
 
   const refreshHooks = useCallback(async () => {
     const data = await invokeIpc<{ hooks: HookEntry[]; selectedHookId: string | null }>(
@@ -465,8 +497,14 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
 
   // IPC subscriptions.
   useEffect(() => {
-    const offStatus = onIpc("texthook.status", () => {
-      void refreshStatus();
+    const offStatus = onIpc("texthook.status", (_e, payload: any) => {
+      if (payload && typeof payload.running === "boolean" &&
+          (!payload.running || (typeof payload.engine === "string" && typeof payload.pid === "number"))) {
+        // Apply session boundaries before any following text events. A status
+        // request already in flight must not replace this newer snapshot.
+        ++statusRequestRef.current;
+        applyRuntimeStatus(payload as RuntimeStatus);
+      } else void refreshStatus();
     });
     const offHooks = onIpc("texthook.hooks", (_e, payload: any) => {
       if (payload && Array.isArray(payload.hooks)) {
@@ -478,6 +516,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     });
     const offText = onIpc("texthook.text", (_e, payload: any) => {
       if (!payload || typeof payload.text !== "string") return;
+      if (typeof payload.sessionId === "string" && payload.sessionId !== activeAgentSessionIdRef.current) return;
       const text = sanitizeTextHookText(payload.text, maxBufferSize);
       if (text === null) return;
       setTextLines((current) => {
@@ -512,6 +551,12 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
         return next;
       });
     });
+    const offAgentError = onIpc("texthook.agentError", (_e, payload: any) => {
+      if (!payload || typeof payload.error !== "string") return;
+      if (payload.sessionId && activeAgentSessionIdRef.current && payload.sessionId !== activeAgentSessionIdRef.current) return;
+      showNotice(payload.error, "error");
+      setConsoleOpen(true);
+    });
     const offDownloadStarted = onIpc("texthook.engineDownloadStarted", () => {
       setPreparingCapture(true);
     });
@@ -531,11 +576,12 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
       offHooks();
       offText();
       offLog();
+      offAgentError();
       offDownloadStarted();
       offDownloadComplete();
       offEngineUpdate();
     };
-  }, [maxBufferSize, refreshStatus, refreshEngineStatus]);
+  }, [maxBufferSize, applyRuntimeStatus, refreshStatus, refreshEngineStatus, showNotice]);
 
   // Periodic capture refresh while tab is active.
   useEffect(() => {
@@ -548,6 +594,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   }, [active, refreshActiveCapture, refreshTextHookSettings]);
 
   const startSession = useCallback(async () => {
+    startCancelledRef.current = false;
     setBusy(true);
     try {
       const result = await invokeIpc<{
@@ -564,6 +611,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
         agentScriptPath: engine === "agent" ? agentScriptPath.trim() : undefined,
         agentDetached: engine === "agent" ? agentDetached : undefined,
       });
+      if (startCancelledRef.current) return;
       if (!result.success) {
         showNotice(result.error ?? t("texthook.errors.startFailed"), "error");
       } else {
@@ -574,7 +622,6 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
           }),
           "success",
         );
-        setTextLines([]);
         setWorkspaceView("live");
         setConsoleOpen(false);
       }
@@ -597,6 +644,8 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   ]);
 
   const stopSession = useCallback(async () => {
+    startCancelledRef.current = true;
+    setStopping(true);
     setBusy(true);
     try {
       const result = await invokeIpc<{ success: boolean; error?: string }>("texthook.stop");
@@ -606,6 +655,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
       await refreshStatus();
       await refreshHooks();
     } finally {
+      setStopping(false);
       setBusy(false);
     }
   }, [refreshHooks, refreshStatus, showNotice, t]);
@@ -883,6 +933,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   );
   const startDisabled =
     busy ||
+    stopping ||
     preparingCapture ||
     engineStatus?.phase === "installing" ||
     (engineStatus?.installed === false &&
@@ -890,7 +941,9 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     !capture?.exeName ||
     (engine === "agent" && agentScriptPath.trim().length === 0);
   const statusBadgeText = status.running
-    ? t("texthook.status.attached")
+    ? t(status.engine === "agent" && status.agentPhase
+        ? AGENT_PHASE_LABEL_KEYS[status.agentPhase]
+        : "texthook.status.attached")
     : capture?.exeName
       ? t("texthook.status.ready")
       : t("texthook.status.noTarget");
@@ -900,6 +953,8 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   const engineUpdateInProgress =
     updatingEngines ||
     ["downloading", "verifying", "waiting", "installing"].includes(engineStatus?.phase ?? "");
+  const engineVersionChangeBlocked =
+    updatingEngines || ["downloading", "verifying", "installing"].includes(engineStatus?.phase ?? "");
   const engineUpdateLabel =
     checkingEngines || engineStatus?.phase === "checking"
       ? t("texthook.updates.checking")
@@ -1068,7 +1123,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                   <button
                     type="button"
                     className="danger"
-                    disabled={busy}
+                    disabled={stopping || (busy && !(status.engine === "agent" && status.agentPhase === "starting"))}
                     onClick={() => void stopSession()}
                   >
                     <HookWorkspaceIcon name="stop" />
@@ -1110,9 +1165,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
         <main className="th-main">
           <header className="th-page-header">
             <div>
-              <span className="th-eyebrow">{sceneDisplay}</span>
               <h1>{t(consoleOpen ? "texthook.log.title" : currentView.labelKey)}</h1>
-              <p>{t(consoleOpen ? "texthook.workspace.logHelp" : currentView.helpKey)}</p>
             </div>
             <button
               id="texthook-log-toggle"
@@ -1259,8 +1312,8 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                 </div>
 
                 {rankHooks ? (
-                  <details className="texthook-disclosure texthook-manual-hook">
-                    <summary>{t("texthook.steps.manualHookLabel")}</summary>
+                  <section className="texthook-section texthook-manual-hook" aria-labelledby="texthook-manual-title">
+                    <h2 id="texthook-manual-title">{t("texthook.steps.manualHookLabel")}</h2>
                     <div className="texthook-manual-body">
                       <div className="input-group">
                         <label
@@ -1287,7 +1340,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                         </button>
                       </div>
                     </div>
-                  </details>
+                  </section>
                 ) : null}
               </div>
 
@@ -1603,12 +1656,144 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
               tabIndex={0}
             >
               <div className="th-tools-content">
-                <details
-                  className="texthook-disclosure texthook-help"
+                <section
+                  className="texthook-section texthook-engine-maintenance"
+                  aria-labelledby="texthook-engine-updates-title"
+                >
+                  <div className="texthook-section-body texthook-maintenance-body">
+                    <div className="th-section-heading">
+                      <h2 id="texthook-engine-updates-title">{t("texthook.updates.title")}</h2>
+                      <span
+                        role="status"
+                        aria-live="polite"
+                      >
+                        {engineUpdateLabel}
+                      </span>
+                    </div>
+                    <p>{t("texthook.updates.description")}</p>
+                    <label className="texthook-maintenance-toggle">
+                      <input
+                        type="checkbox"
+                        checked={engineStatus?.automatic ?? true}
+                        disabled={!engineStatus || engineStatus.phase === "installing"}
+                        onChange={(event) => void setAutomaticEngineUpdates(event.target.checked)}
+                      />
+                      {t("texthook.updates.automatic")}
+                    </label>
+                    <p>{t("texthook.updates.verificationHint")}</p>
+                    {engineStatus?.installed ? (
+                      <p>
+                        {t("texthook.updates.installed", {
+                          version: engineStatus.version ?? t("texthook.updates.unknownVersion"),
+                        })}
+                      </p>
+                    ) : null}
+                    {engineStatus?.remoteVersion ? (
+                      <p>
+                        {t("texthook.updates.available", { version: engineStatus.remoteVersion })}
+                      </p>
+                    ) : null}
+                    {engineVersions.length ? (
+                      <>
+                        <label className="texthook-maintenance-version">
+                          <span>{t("texthook.updates.versionChoice")}</span>
+                          <select
+                            value={engineVersionChoice}
+                            disabled={engineVersionChangeBlocked || preparingCapture}
+                            onChange={(event) => setSelectedEngineVersion(event.target.value)}
+                          >
+                            {engineVersions.map(({ version }, index) => (
+                              <option key={version} value={version}>
+                                {version}
+                                {version === engineStatus?.remoteVersion ? ` · ${t("texthook.updates.recommended")}` : ""}
+                                {index === 0 ? ` · ${t("texthook.updates.latest")}` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {selectedEnginePackage?.engineVersions ? (
+                          <p>{t("texthook.updates.buildVersions", selectedEnginePackage.engineVersions)}</p>
+                        ) : null}
+                        {selectedEnginePackage?.notes ? <p>{selectedEnginePackage.notes}</p> : null}
+                        <p>{t("texthook.updates.pinHint")}</p>
+                      </>
+                    ) : null}
+                    {engineStatus?.progress ? (
+                      <p>
+                        {t("texthook.updates.progress", {
+                          current: String(engineStatus.progress.fileIndex + 1),
+                          total: String(engineStatus.progress.totalFiles),
+                          file: engineStatus.progress.file,
+                        })}
+                      </p>
+                    ) : null}
+                    {engineStatus?.error ? (
+                      <p className="texthook-maintenance-error">{engineStatus.error}</p>
+                    ) : null}
+                    {engineActionNotice ? (
+                      <p
+                        className={
+                          "texthook-maintenance-feedback texthook-maintenance-feedback--" +
+                          engineActionNotice.type
+                        }
+                        role="status"
+                      >
+                        {engineActionNotice.message}
+                      </p>
+                    ) : null}
+                    <div className="link-row">
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={
+                          checkingEngines ||
+                          engineStatus?.phase === "checking" ||
+                          engineUpdateInProgress ||
+                          preparingCapture
+                        }
+                        onClick={() => void refreshEngineStatus(true)}
+                      >
+                        {t("texthook.updates.check")}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={
+                          busy || (engineVersions.length ? engineVersionChangeBlocked : engineUpdateInProgress) || preparingCapture || !engineStatus
+                        }
+                        onClick={() => void downloadEngines(engineVersions.length ? engineVersionChoice : undefined)}
+                      >
+                        {t(
+                          engineVersions.length
+                            ? engineVersionChoice === engineStatus?.version
+                              ? "texthook.updates.repair"
+                              : "texthook.updates.installSelected"
+                            : !engineStatus?.installed
+                            ? "texthook.updates.install"
+                            : engineStatus.updateAvailable
+                              ? "texthook.updates.updateNow"
+                              : "texthook.updates.repair",
+                        )}
+                      </button>
+                      {engineVersions.length ? (
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={busy || engineVersionChangeBlocked || preparingCapture || engineVersions[0].version === engineStatus?.version}
+                          onClick={() => void downloadEngines(engineVersions[0].version)}
+                        >
+                          {t("texthook.updates.updateLatest")}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+                <section
+                  className="texthook-section texthook-help"
                   aria-labelledby="texthook-notice-title"
                 >
-                  <summary id="texthook-notice-title">{t("texthook.notice.title")}</summary>
-                  <div className="texthook-disclosure-body texthook-notice-card">
+                  <h2 id="texthook-notice-title">{t("texthook.notice.title")}</h2>
+                  <div className="texthook-section-body texthook-notice-card">
                     <p>{t("texthook.notice.description")}</p>
                     <p>{t("texthook.notice.engineGuide")}</p>
                     <p>
@@ -1623,105 +1808,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                       {t("texthook.notice.processingSuffix")}
                     </p>
                   </div>
-                </details>
-
-                <details
-                  className="texthook-disclosure texthook-engine-maintenance"
-                  open={maintenanceOpen}
-                  onToggle={(event) => setMaintenanceOpen(event.currentTarget.open)}
-                >
-                  <summary>{t("texthook.layout.troubleshooting")}</summary>
-                  {maintenanceOpen ? (
-                    <div className="texthook-disclosure-body texthook-maintenance-body">
-                      <div className="th-section-heading">
-                        <h3>{t("texthook.updates.title")}</h3>
-                        <span
-                          role="status"
-                          aria-live="polite"
-                        >
-                          {engineUpdateLabel}
-                        </span>
-                      </div>
-                      <p>{t("texthook.updates.description")}</p>
-                      <label className="texthook-maintenance-toggle">
-                        <input
-                          type="checkbox"
-                          checked={engineStatus?.automatic ?? true}
-                          disabled={!engineStatus || engineStatus.phase === "installing"}
-                          onChange={(event) => void setAutomaticEngineUpdates(event.target.checked)}
-                        />
-                        {t("texthook.updates.automatic")}
-                      </label>
-                      <p>{t("texthook.updates.verificationHint")}</p>
-                      {engineStatus?.installed ? (
-                        <p>
-                          {t("texthook.updates.installed", {
-                            version: engineStatus.version ?? t("texthook.updates.unknownVersion"),
-                          })}
-                        </p>
-                      ) : null}
-                      {engineStatus?.remoteVersion ? (
-                        <p>
-                          {t("texthook.updates.available", { version: engineStatus.remoteVersion })}
-                        </p>
-                      ) : null}
-                      {engineStatus?.progress ? (
-                        <p>
-                          {t("texthook.updates.progress", {
-                            current: String(engineStatus.progress.fileIndex + 1),
-                            total: String(engineStatus.progress.totalFiles),
-                            file: engineStatus.progress.file,
-                          })}
-                        </p>
-                      ) : null}
-                      {engineStatus?.error ? (
-                        <p className="texthook-maintenance-error">{engineStatus.error}</p>
-                      ) : null}
-                      {engineActionNotice ? (
-                        <p
-                          className={
-                            "texthook-maintenance-feedback texthook-maintenance-feedback--" +
-                            engineActionNotice.type
-                          }
-                          role="status"
-                        >
-                          {engineActionNotice.message}
-                        </p>
-                      ) : null}
-                      <div className="link-row">
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={
-                            checkingEngines ||
-                            engineStatus?.phase === "checking" ||
-                            engineUpdateInProgress ||
-                            preparingCapture
-                          }
-                          onClick={() => void refreshEngineStatus(true)}
-                        >
-                          {t("texthook.updates.check")}
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={
-                            busy || engineUpdateInProgress || preparingCapture || !engineStatus
-                          }
-                          onClick={() => void downloadEngines()}
-                        >
-                          {t(
-                            !engineStatus?.installed
-                              ? "texthook.updates.install"
-                              : engineStatus.updateAvailable
-                                ? "texthook.updates.updateNow"
-                                : "texthook.updates.repair",
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </details>
+                </section>
                 <footer className="home-support texthook-credits">
                   <span
                     className="texthook-credits__mark"

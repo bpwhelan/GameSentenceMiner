@@ -1,8 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import {
-  getChromeStoreBoolean,
-  setChromeStoreBoolean
-} from "../../lib/chrome_store";
+import { useCallback, useEffect, useState } from "react";
 import { invokeIpc, onIpc } from "../../lib/ipc";
 import { DOCS_URLS } from "../../../../shared/docs";
 import type {
@@ -103,7 +99,6 @@ const DEFAULT_SHARED_SETTINGS: SharedGameSettings = {
   ignoreActiveSceneForOcr: false
 };
 
-const TOOL_PATHS_LEGACY_EXPANDED_KEY = "launcher.toolPathsLegacyExpanded";
 const TOOL_DOWNLOAD_PROGRESS_CHANNEL = "settings-tool-download-progress";
 
 const TOOLTIPS = {
@@ -313,15 +308,6 @@ function formatDownloadSummary(
   return `${toolLabel}: Downloading...`;
 }
 
-function LegacyLauncherDetails({ initialOpen, children }: { initialOpen: boolean; children: ReactNode }) {
-  const [open, setOpen] = useState(initialOpen);
-  return (
-    <details className="launcher-legacy-details" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-      {children}
-    </details>
-  );
-}
-
 export function GameAutomationTab({ active }: GameAutomationTabProps) {
   const t = useTranslation();
   const [workspaceView, setWorkspaceView] = useState<"scene" | "shared">("scene");
@@ -344,19 +330,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
   const [downloadUiByTool, setDownloadUiByTool] = useState<
     Partial<Record<DownloadableTool, DownloadUiState>>
   >({});
-  const [isToolPathsLegacyExpanded, setIsToolPathsLegacyExpanded] =
-    useState<boolean>(() =>
-      getChromeStoreBoolean(TOOL_PATHS_LEGACY_EXPANDED_KEY, false)
-    );
-
-  const toggleToolPathsLegacyExpanded = useCallback(() => {
-    setIsToolPathsLegacyExpanded((current) => {
-      const next = !current;
-      setChromeStoreBoolean(TOOL_PATHS_LEGACY_EXPANDED_KEY, next);
-      return next;
-    });
-  }, []);
-
   const getToolLabel = useCallback((tool: DownloadableTool): string => {
     if (tool === "agent") {
       return "Agent";
@@ -1019,11 +992,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
         <main className="ws-main">
           <header className="ws-page-header">
             <div>
-              <span className="ws-eyebrow">{workspaceView === "scene"
-                ? configuredScene?.name ?? t("launcher.scene.notSelected")
-                : t("launcher.workspace.allScenes")}</span>
               <h1>{t(workspaceView === "scene" ? "launcher.workspace.sceneTitle" : "launcher.workspace.sharedTitle")}</h1>
-              <p>{t(workspaceView === "scene" ? "launcher.workspace.sceneDescription" : "launcher.workspace.sharedDescription")}</p>
             </div>
             <span className="ws-state automation-autosave"><WorkspaceIcon name="check" />{t("launcher.workspace.autosave")}</span>
           </header>
@@ -1095,15 +1064,15 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   </section>
                   <SceneSwitcherSettings key={`switcher-${configuredScene.id}`} scene={configuredScene} />
 
-                  <LegacyLauncherDetails
-                    key={`launcher-${configuredScene.id}`}
-                    initialOpen={sceneProfile.textHookMode !== "none"}
+                  <section
+                    className="ws-section launcher-legacy-settings"
+                    aria-labelledby="launcher-legacy-title"
                   >
-                    <summary className="launcher-legacy-summary" data-tip={t(TOOLTIPS.textHookMode)}>
+                    <h2 id="launcher-legacy-title" className="launcher-legacy-heading" data-tip={t(TOOLTIPS.textHookMode)}>
                       <span>{t("launcher.scene.textHookLauncher")}</span>
                       <span className="launcher-legacy-badge">{t("launcher.legacyBadge")}</span>
-                    </summary>
-                    <div className="form-group launcher-legacy-details-body">
+                    </h2>
+                    <div className="form-group launcher-legacy-settings-body">
                       <p className="muted" data-tip={t(TOOLTIPS.textHookMode)}>
                         {t("launcher.scene.textHookLegacyHint")}
                       </p>
@@ -1243,7 +1212,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                         </div>
                       ) : null}
                     </div>
-                  </LegacyLauncherDetails>
+                  </section>
                 </>
               ) : (
                 <p className="muted" data-tip={t(TOOLTIPS.noScene)}>
@@ -1306,30 +1275,8 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
               <h2 className="launcher-card-title" data-tip={t(TOOLTIPS.toolPathsLegacy)}>
                 {t("launcher.toolPaths.title")}
               </h2>
-              <button
-                type="button"
-                className="launcher-card-toggle"
-                data-tip={
-                  isToolPathsLegacyExpanded
-                    ? t("launcher.toolPaths.collapse")
-                    : t("launcher.toolPaths.expand")
-                }
-                aria-label={
-                  isToolPathsLegacyExpanded
-                    ? t("launcher.toolPaths.collapse")
-                    : t("launcher.toolPaths.expand")
-                }
-                aria-expanded={isToolPathsLegacyExpanded}
-                aria-controls="tool-paths-legacy-panel"
-                onClick={toggleToolPathsLegacyExpanded}
-              >
-                <span aria-hidden="true">
-                  {isToolPathsLegacyExpanded ? "▲" : "▼"}
-                </span>
-              </button>
             </div>
-            {isToolPathsLegacyExpanded ? (
-              <div id="tool-paths-legacy-panel" className="form-group">
+            <div id="tool-paths-legacy-panel" className="form-group">
                 <section
                   className="launcher-texthook-nudge"
                   aria-label={t("launcher.nudge.title")}
@@ -1584,7 +1531,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                 />
               </div> */}
               </div>
-            ) : null}
           </section>
 
           </section>

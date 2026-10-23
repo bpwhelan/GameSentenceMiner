@@ -1,8 +1,16 @@
+export interface EnginePackageVersion {
+    version: string;
+    notes?: string;
+    engineVersions?: { luna: string; textractor: string };
+}
+
 export interface EngineStatus {
     installed: boolean;
     version: string | null;
     updateAvailable: boolean;
     remoteVersion: string | null;
+    /** Newest first. remoteVersion remains the recommended automatic target. */
+    availableVersions?: EnginePackageVersion[];
 }
 
 export interface EngineDownloadProgress {

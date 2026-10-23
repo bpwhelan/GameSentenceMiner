@@ -11,7 +11,6 @@
 .text-processing-desk .text-processing-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
-  padding-top: 20px;
   max-width: 300px;
 }
 .text-processing-desk .text-processing-body {
@@ -199,8 +198,5 @@
     flex-wrap: wrap;
     padding: 24px;
     gap: 14px;
-  }
-  .text-processing-desk .text-processing-actions {
-    padding-top: 0;
   }
 }

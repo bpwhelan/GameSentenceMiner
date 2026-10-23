@@ -26,6 +26,11 @@ function findTooltipTarget(target: EventTarget | null): TooltipTarget | null {
     ? Array.from(target.labels ?? []).find((label) => label.dataset.tip)
     : null);
   if (!source?.dataset.tip?.trim()) return null;
+  const truncatedSelector = source.dataset.tipIfTruncated;
+  if (truncatedSelector) {
+    const label = source.querySelector<HTMLElement>(truncatedSelector);
+    if (!label || (label.scrollWidth <= label.clientWidth && label.scrollHeight <= label.clientHeight)) return null;
+  }
   return { source, anchor: isControl ? target : source };
 }
 

@@ -39,7 +39,6 @@
   margin: 2px 0 14px;
 }
 .automation-desk .automation-autosave {
-  padding-top: 24px;
   white-space: nowrap;
 }
 .automation-desk .automation-autosave svg {
@@ -150,14 +149,18 @@
   grid-column: 1 / -1;
   font-size: 11px;
 }
-.automation-desk .launcher-legacy-details {
+.automation-desk .launcher-legacy-settings {
   margin: 0;
   padding: 16px 0;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
-.automation-desk .launcher-legacy-summary {
+.automation-desk .launcher-legacy-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
   width: fit-content;
   color: var(--gsm-text-muted);
   font-size: 12px;
@@ -168,13 +171,13 @@
   border-color: var(--gsm-border-subtle);
   font-size: 10px;
 }
-.automation-desk .launcher-legacy-details-body {
+.automation-desk .launcher-legacy-settings-body {
   padding: 18px 0 0;
 }
-.automation-desk .launcher-legacy-details .launcher-mode-grid {
+.automation-desk .launcher-legacy-settings .launcher-mode-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
-.automation-desk .launcher-legacy-details .launcher-mode-item {
+.automation-desk .launcher-legacy-settings .launcher-mode-item {
   align-items: center;
   padding: 12px;
   font-size: 12px;
@@ -206,12 +209,6 @@
   color: var(--gsm-text-muted);
   font-size: 12px;
   font-weight: 500;
-}
-.automation-desk .launcher-card-toggle {
-  width: 26px;
-  min-height: 26px;
-  padding: 0;
-  font-size: 9px;
 }
 .automation-desk #tool-paths-legacy-panel .input-group {
   flex-direction: row;

@@ -299,29 +299,16 @@
 }
 .ocr-desk .desk-page-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
   padding: 30px 36px 24px;
 }
-.ocr-desk .desk-eyebrow {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--gsm-text-muted);
-  font-size: 10px;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
 .ocr-desk .desk-page-header h1 {
   overflow-wrap: anywhere;
 }
-.ocr-desk .desk-page-header p {
-  margin-top: 9px;
-  max-width: 630px;
-}
 .ocr-desk .desk-guide {
   flex: 0 0 auto;
-  margin-top: 23px;
   border-color: transparent;
   color: var(--gsm-text-muted);
   font-size: 12px;
@@ -1353,7 +1340,6 @@
   .ocr-desk .desk-guide {
     padding: 4px;
     font-size: 0;
-    margin-top: 22px;
   }
   .ocr-desk .desk-guide svg {
     width: 18px;

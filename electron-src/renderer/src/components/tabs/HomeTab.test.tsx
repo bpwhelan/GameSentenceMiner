@@ -51,6 +51,18 @@ async function advanceTimers(ms: number) {
   });
 }
 
+async function openAddGameDialog(container: HTMLElement) {
+  const trigger = container.querySelector<HTMLButtonElement>(".home-add-game")!;
+  await act(async () => { trigger.focus(); trigger.click(); await flushAsyncWork(); });
+  return container.querySelector<HTMLElement>("#home-new-capture")!;
+}
+
+async function openGameMenu(container: HTMLElement, sceneId: string) {
+  const trigger = container.querySelector<HTMLButtonElement>(`[data-game-menu-id="${sceneId}"]`)!;
+  await act(async () => { trigger.focus(); trigger.click(); await flushAsyncWork(); });
+  return document.querySelector<HTMLElement>("#home-game-menu")!;
+}
+
 describe("HomeTab", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -151,6 +163,7 @@ describe("HomeTab", () => {
       await flushAsyncWork();
     });
 
+    await openAddGameDialog(container);
     const windowSelect = container.querySelector("#home-window-select");
     expect(windowSelect).toBeInstanceOf(HTMLSelectElement);
 
@@ -180,39 +193,26 @@ describe("HomeTab", () => {
     expect((overrideInputAfterRefresh as HTMLInputElement).value).toBe("My Custom Scene");
   });
 
-  it("renders overlay as a dedicated card between setup capture and utilities", async () => {
+  it("keeps the overlay, utilities, and connection controls available on Home", async () => {
     await act(async () => {
       root.render(<HomeTab active />);
       await flushAsyncWork();
     });
 
-    const setupCard = container.querySelector(".home-setup-card");
     const overlayCard = container.querySelector(".home-overlay-card");
     const utilities = container.querySelector(".home-quick-actions");
     const statusCard = container.querySelector(".home-status-card");
 
-    expect(setupCard).not.toBeNull();
+    expect(container.querySelector("#home-new-capture")).toBeNull();
+    expect(container.querySelector("#home-empty-game-heading")?.textContent).toBe("No games added yet.");
     expect(overlayCard).not.toBeNull();
     expect(utilities).not.toBeNull();
     expect(statusCard).not.toBeNull();
 
-    expect(
-      setupCard!.compareDocumentPosition(overlayCard!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      overlayCard!.compareDocumentPosition(utilities!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      utilities!.compareDocumentPosition(statusCard!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-
     expect(overlayCard?.textContent).toContain("Overlay");
     expect(overlayCard?.textContent).toContain("Run Overlay");
     expect(overlayCard?.textContent).toContain("Run on startup");
-    expect(utilities?.textContent).toContain("Utilities");
+    expect(utilities?.textContent).toContain("Text feed");
     expect(utilities?.textContent).not.toContain("Run Overlay");
 
     const guideButton = container.querySelector(".home-overlay-guide-btn");
@@ -227,6 +227,319 @@ describe("HomeTab", () => {
       "open-external-link",
       "https://docs.gamesentenceminer.com/docs/features/overlay",
     );
+  });
+
+  it("keeps sidebar statuses visible and updates them without a disclosure", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let status = okStatus;
+    invokeMock.mockImplementation(async (channel: string) => channel === "get_gsm_status" ? status : fallback(channel));
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+    const statuses = container.querySelector<HTMLElement>(".home-library .home-status-card")!;
+    expect(statuses.querySelector("[aria-expanded]")).toBeNull();
+    expect(statuses.querySelector(".home-status-grid")?.closest("[hidden]")).toBeNull();
+    expect(statuses.querySelector(".home-last-line")).toBeNull();
+    const obs = Array.from(statuses.querySelectorAll("button")).find(button => button.textContent?.includes("OBS"))!;
+    expect(obs.textContent).toContain("Connected");
+
+    status = { ...okStatus, obs_connected: false };
+    await advanceTimers(STATUS_POLL_MS);
+    expect(obs.textContent).toContain("Disconnected");
+    await act(async () => obs.click());
+    expect(invokeMock).toHaveBeenCalledWith("openOBS");
+  });
+
+  it("filters a library of 50 games without changing the capture and scrolls the selected game into view", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    const scenes = Array.from({ length: 50 }, (_, index) => ({ id: `game-${index}`, name: `Game ${String(index + 1).padStart(2, "0")}` }));
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getScenes") return scenes;
+      if (channel === "obs.getActiveScene") return scenes[49];
+      return fallback(channel);
+    });
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      await act(async () => {
+        root.render(<HomeTab active />);
+        await flushAsyncWork();
+      });
+      expect(container.querySelectorAll(".home-game-button")).toHaveLength(50);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+      const search = container.querySelector<HTMLInputElement>(".home-library-search input")!;
+      await act(async () => setElementValue(search, " gAmE 4 ", "input"));
+      expect(container.querySelectorAll(".home-game-button")).toHaveLength(10);
+      expect(container.querySelector("#home-current-game-heading")?.textContent).toBe("Game 50");
+      expect(invokeMock).not.toHaveBeenCalledWith("obs.switchScene.id", expect.anything());
+      await act(async () => setElementValue(search, "missing", "input"));
+      expect(container.querySelector(".home-library-empty")?.textContent).toBe("No matching games.");
+      await act(async () => setElementValue(search, "", "input"));
+      expect(container.querySelectorAll(".home-game-button")).toHaveLength(50);
+      expect(container.querySelector('[aria-current="true"]')?.textContent).toBe("Game 50");
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  it("opens a game dialog, contains keyboard focus, and retains edits across closing and polling", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    const scene = { id: "saved-game", name: "Saved Game" };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getScenes") return [scene];
+      if (channel === "obs.getActiveScene") return scene;
+      return fallback(channel);
+    });
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+
+    const toggle = container.querySelector<HTMLButtonElement>(".home-add-game")!;
+    expect(toggle).toBeInstanceOf(HTMLButtonElement);
+    expect(toggle.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(container.querySelector("#home-new-capture")).toBeNull();
+
+    const setup = await openAddGameDialog(container);
+    expect(setup.getAttribute("role")).toBe("dialog");
+    expect(setup.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(container.querySelector("#home-window-select"));
+    expect(container.querySelector<HTMLElement>(".home-current-game")?.hidden).toBe(false);
+    expect(container.querySelector('[aria-current="true"]')?.textContent).toBe("Saved Game");
+    await act(async () => {
+      setElementValue(container.querySelector<HTMLSelectElement>("#home-window-select")!, "window-1", "change");
+    });
+    await act(async () => {
+      setElementValue(container.querySelector<HTMLInputElement>("#home-scene-name-override")!, "My Capture", "input");
+    });
+    const controls = Array.from(setup.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled), input:not(:disabled)'));
+    await act(async () => {
+      controls[0].focus();
+      controls[0].dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }));
+    });
+    expect(document.activeElement).toBe(controls[controls.length - 1]);
+    await act(async () => controls[controls.length - 1].dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true })));
+    expect(document.activeElement).toBe(controls[0]);
+    await act(async () => setup.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(container.querySelector("#home-new-capture")).toBeNull();
+    expect(document.activeElement).toBe(toggle);
+    await advanceTimers(3000);
+    const reopened = await openAddGameDialog(container);
+    expect(container.querySelector<HTMLInputElement>("#home-scene-name-override")?.value).toBe("My Capture");
+    await act(async () => reopened.click());
+    expect(container.querySelector("#home-new-capture")).toBeNull();
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("switches games from the library and returns from add-game setup to that game's tools", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    const scenes = [{ id: "first", name: "First Game" }, { id: "second", name: "Second Game" }];
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getScenes") return scenes;
+      if (channel === "obs.getActiveScene") return scenes[0];
+      return fallback(channel);
+    });
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+    const addGame = container.querySelector<HTMLButtonElement>(".home-library [aria-controls='home-new-capture']")!;
+    expect(addGame?.textContent).toContain("Add a game");
+    await act(async () => addGame.click());
+    expect(container.querySelector("#home-new-capture")?.getAttribute("role")).toBe("dialog");
+    await act(async () => container.querySelector<HTMLElement>("#home-new-capture")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-scene-id="second"]')!.click());
+    expect(invokeMock).toHaveBeenCalledWith("obs.switchScene.id", "second");
+    expect(container.querySelector("#home-new-capture")).toBeNull();
+    expect(container.querySelector("#home-current-game-heading")?.textContent).toBe("Second Game");
+  });
+
+  it("returns to the add-game prompt after the last saved game is removed", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let scenes = [{ id: "only-game", name: "Only Game" }];
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getScenes") return scenes;
+      if (channel === "obs.getActiveScene") return scenes[0] ?? null;
+      if (channel === "obs.removeScene") { scenes = []; return null; }
+      return fallback(channel);
+    });
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+    const menu = await openGameMenu(container, "only-game");
+    await act(async () => {
+      menu.querySelector<HTMLButtonElement>(".home-game-menu__remove")!.click();
+      await flushAsyncWork();
+    });
+    expect(invokeMock).toHaveBeenCalledWith("obs.removeScene", "only-game");
+    expect(container.querySelector("#home-new-capture")).toBeNull();
+    expect(container.querySelector(".home-empty-game button")?.textContent).toBe("Add a game");
+    expect(container.querySelector<HTMLElement>(".home-current-game")?.hidden).toBe(true);
+    expect(container.querySelector(".home-library-empty")?.textContent).toBe("No games added yet.");
+    await act(async () => container.querySelector<HTMLButtonElement>(".home-empty-game button")!.click());
+    expect(container.querySelector("#home-new-capture")?.getAttribute("role")).toBe("dialog");
+  });
+
+  it("keeps creation errors in the dialog, blocks duplicate submissions, and closes after a successful retry", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let createdScene: { id: string; name: string } | null = null;
+    let attempt = 0;
+    let finishCreate: () => void = () => {};
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "settings.getSettings") return { textCaptureWizardEnabled: false };
+      if (channel === "obs.getScenes") return createdScene ? [createdScene] : [];
+      if (channel === "obs.getActiveScene") return createdScene;
+      if (channel === "obs.getWindows") return [{
+        title: "Example Game", value: "example-window", targetKind: "window",
+        captureValues: { window_capture: "Example Game:Game:game.exe" },
+      }];
+      if (channel === "obs.createScene") {
+        attempt += 1;
+        return new Promise((resolve, reject) => {
+          finishCreate = () => {
+            if (attempt === 1) reject(new Error("OBS unavailable"));
+            else { createdScene = { id: "created", name: "My Game" }; resolve(null); }
+          };
+        });
+      }
+      return fallback(channel);
+    });
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    const dialog = await openAddGameDialog(container);
+    await act(async () => setElementValue(dialog.querySelector<HTMLSelectElement>("select")!, "example-window", "change"));
+    await act(async () => setElementValue(dialog.querySelector<HTMLInputElement>("#home-scene-name-override")!, "My Game", "input"));
+    const submit = dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    await act(async () => submit.click());
+    expect(submit.disabled).toBe(true);
+    await act(async () => {
+      dialog.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(attempt).toBe(1);
+    expect(container.contains(dialog)).toBe(true);
+    await act(async () => { finishCreate(); await flushAsyncWork(); });
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("Could not set up capture");
+    expect(dialog.querySelector<HTMLInputElement>("#home-scene-name-override")?.value).toBe("My Game");
+    expect(submit.disabled).toBe(false);
+    await act(async () => submit.click());
+    await act(async () => { finishCreate(); await flushAsyncWork(); });
+    expect(attempt).toBe(2);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector("#home-current-game-heading")?.textContent).toBe("My Game");
+    expect(container.querySelector('[aria-current="true"]')?.textContent).toBe("My Game");
+  });
+
+  it("opens another game's menu without changing capture, supports keyboard navigation, and targets rename and capture type correctly", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    const scenes = [{ id: "current", name: "Current Game" }, { id: "other", name: "Other Game" }];
+    invokeMock.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === "obs.getScenes") return scenes;
+      if (channel === "obs.getActiveScene") return scenes[0];
+      if (channel === "obs.getSceneCaptureMode") return payload === "other" ? "game_capture" : "window_capture";
+      if (channel === "obs.switchSceneCaptureMode") return "window_capture";
+      return fallback(channel);
+    });
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    let menu = await openGameMenu(container, "other");
+    expect(container.querySelector("#home-current-game-heading")?.textContent).toBe("Current Game");
+    expect(invokeMock).not.toHaveBeenCalledWith("obs.switchScene.id", expect.anything());
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+    expect(document.activeElement).toBe(items[0]);
+    await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    expect(document.activeElement).toBe(items[items.length - 1]);
+    await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(document.activeElement).toBe(items[0]);
+    await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(document.querySelector("#home-game-menu")).toBeNull();
+    expect(document.activeElement).toBe(container.querySelector('[data-game-menu-id="other"]'));
+
+    menu = await openGameMenu(container, "other");
+    await act(async () => Array.from(menu.querySelectorAll("button")).find(button => button.textContent === "Rename")!.click());
+    const rename = container.querySelector<HTMLInputElement>(".home-modal input")!;
+    expect(rename.value).toBe("Other Game");
+    await act(async () => setElementValue(rename, "Renamed Game", "input"));
+    await act(async () => {
+      Array.from(container.querySelectorAll<HTMLButtonElement>(".home-modal button")).find(button => button.textContent === "Rename")!.click();
+      await flushAsyncWork();
+    });
+    expect(invokeMock).toHaveBeenCalledWith("obs.renameScene", { sceneUuid: "other", newSceneName: "Renamed Game" });
+
+    menu = await openGameMenu(container, "other");
+    await act(async () => {
+      Array.from(menu.querySelectorAll("button")).find(button => button.textContent === "Switch to Window Capture")!.click();
+      await flushAsyncWork();
+    });
+    expect(invokeMock).toHaveBeenCalledWith("obs.switchSceneCaptureMode", { sceneUuid: "other", targetMode: "window_capture" });
+    expect(container.querySelector("#home-current-game-heading")?.textContent).toBe("Current Game");
+    expect(invokeMock).not.toHaveBeenCalledWith("obs.switchScene.id", expect.anything());
+  });
+
+  it("removes an unselected game from its own menu and preserves the current game", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let scenes = [{ id: "current", name: "Current Game" }, { id: "other", name: "Other Game" }];
+    invokeMock.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === "obs.getScenes") return scenes;
+      if (channel === "obs.getActiveScene") return scenes[0];
+      if (channel === "obs.removeScene") { scenes = scenes.filter(scene => scene.id !== payload); return null; }
+      return fallback(channel);
+    });
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    const menu = await openGameMenu(container, "other");
+    await act(async () => { menu.querySelector<HTMLButtonElement>(".home-game-menu__remove")!.click(); await flushAsyncWork(); });
+    expect(invokeMock).toHaveBeenCalledWith("obs.removeScene", "other");
+    expect(container.querySelectorAll(".home-game-button")).toHaveLength(1);
+    expect(container.querySelector('[aria-current="true"]')?.textContent).toBe("Current Game");
+    expect(document.querySelector("#home-game-menu")).toBeNull();
+  });
+
+  it("allows retrying a failed menu action and dismisses the menu when the library scrolls", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    const scene = { id: "game", name: "Game" };
+    let fail = true;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getScenes") return [scene];
+      if (channel === "obs.getActiveScene") return scene;
+      if (channel === "obs.getSceneCaptureMode") return "window_capture";
+      if (channel === "obs.switchSceneCaptureMode") { if (fail) throw new Error("OBS unavailable"); return "game_capture"; }
+      return fallback(channel);
+    });
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    let menu = await openGameMenu(container, "game");
+    const switchButton = Array.from(menu.querySelectorAll("button")).find(button => button.textContent === "Switch to Game Capture")!;
+    await act(async () => { switchButton.click(); await flushAsyncWork(); });
+    expect(menu.querySelector('[role="alert"]')?.textContent).toContain("Could not update this game");
+    expect(switchButton.disabled).toBe(false);
+    fail = false;
+    await act(async () => { switchButton.click(); await flushAsyncWork(); });
+    expect(document.querySelector("#home-game-menu")).toBeNull();
+    menu = await openGameMenu(container, "game");
+    expect(menu).not.toBeNull();
+    await act(async () => container.querySelector(".home-game-list")!.dispatchEvent(new Event("scroll")));
+    expect(document.querySelector("#home-game-menu")).toBeNull();
+  });
+
+  it("does not close a newly opened menu when an earlier game's action finishes", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    const scenes = [{ id: "first", name: "First Game" }, { id: "second", name: "Second Game" }];
+    let finishSwitch: (mode: string) => void = () => {};
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getScenes") return scenes;
+      if (channel === "obs.getActiveScene") return scenes[0];
+      if (channel === "obs.getSceneCaptureMode") return "window_capture";
+      if (channel === "obs.switchSceneCaptureMode") return new Promise(resolve => { finishSwitch = resolve; });
+      return fallback(channel);
+    });
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    const firstMenu = await openGameMenu(container, "first");
+    await act(async () => Array.from(firstMenu.querySelectorAll("button")).find(button => button.textContent === "Switch to Game Capture")!.click());
+    await act(async () => firstMenu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    const nextMenu = await openGameMenu(container, "second");
+    await act(async () => { finishSwitch("game_capture"); await flushAsyncWork(); });
+    expect(document.querySelector("#home-game-menu")).toBe(nextMenu);
+    expect(nextMenu.contains(document.activeElement)).toBe(true);
   });
 
   it("switches between mutually exclusive overlay modes and restores both after a failed save", async () => {
@@ -365,6 +678,7 @@ describe("HomeTab", () => {
     });
 
     expect(container.textContent).toContain("Install AnkiBeacon");
+    expect(container.querySelector('[role="dialog"]')?.contains(document.activeElement)).toBe(true);
 
     const ankiWebLink = Array.from(container.querySelectorAll("a")).find(
       (link) => link.textContent === "AnkiWeb",
@@ -424,7 +738,7 @@ describe("HomeTab", () => {
     expect(closeButton).toBeInstanceOf(HTMLButtonElement);
 
     await act(async () => {
-      (closeButton as HTMLButtonElement).click();
+      closeButton!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       await flushAsyncWork();
     });
 
@@ -528,6 +842,7 @@ describe("HomeTab", () => {
       await flushAsyncWork();
     });
 
+    await openAddGameDialog(container);
     const select = container.querySelector<HTMLSelectElement>("#home-window-select")!;
     const monitorGroup = select.querySelector('optgroup[label="Monitor Capture"]');
     expect(monitorGroup?.textContent).toContain(monitor.title);
@@ -591,6 +906,7 @@ describe("HomeTab", () => {
       await flushAsyncWork();
     });
 
+    await openAddGameDialog(container);
     const windowSelect = container.querySelector("#home-window-select");
     expect(windowSelect).toBeInstanceOf(HTMLSelectElement);
 
@@ -647,7 +963,8 @@ describe("HomeTab", () => {
       await flushAsyncWork();
     });
 
-    const switchButton = Array.from(container.querySelectorAll("button")).find(
+    const menu = await openGameMenu(container, scene.id);
+    const switchButton = Array.from(menu.querySelectorAll("button")).find(
       (button) => button.textContent === "Switch to Game Capture",
     );
     expect(switchButton).toBeInstanceOf(HTMLButtonElement);
@@ -701,7 +1018,8 @@ describe("HomeTab", () => {
       await flushAsyncWork();
     });
 
-    const wizardButton = Array.from(container.querySelectorAll("button")).find(
+    const menu = await openGameMenu(container, scene.id);
+    const wizardButton = Array.from(menu.querySelectorAll("button")).find(
       (button) => button.textContent === "Run Capture Wizard",
     );
     expect(wizardButton).toBeInstanceOf(HTMLButtonElement);

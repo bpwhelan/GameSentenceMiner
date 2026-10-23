@@ -1,5 +1,29 @@
 {
   "home": {
+    "workspace": {
+      "library": "Tus juegos",
+      "savedGames": "Juegos guardados",
+      "searchGames": "Buscar juegos",
+      "noMatchingGames": "No hay juegos coincidentes.",
+      "noGames": "Aún no se han añadido juegos.",
+      "emptyGameHint": "Añade tu primer juego para configurar la captura y empezar a recopilar frases.",
+      "addingGame": "Configurando la captura…",
+      "addGameError": "No se pudo configurar la captura. Comprueba que OBS esté conectado e inténtalo de nuevo.",
+      "chooseGame": "Elige un juego",
+      "chooseGameHint": "Selecciona un juego guardado o añade una nueva captura.",
+      "gameContext": "Captura del juego",
+      "gameOptions": "Opciones del juego",
+      "gameActions": "Acciones para {name}",
+      "gameActionError": "No se pudo actualizar este juego. Inténtalo de nuevo.",
+      "backToGame": "Volver al juego",
+      "textFeed": "Texto capturado",
+      "textFeedHint": "Lee el texto capturado y recopila frases en el Text Feed.",
+      "firstGameHint": "Abre el juego y selecciona su ventana abajo para configurar la captura.",
+      "addGame": "Añadir un juego",
+      "addGameHint": "Captura otra ventana, pantalla o tarjeta de captura.",
+      "overlayHint": "Busca palabras y recopila frases mientras juegas.",
+      "connections": "Conexiones"
+    },
     "status": {
       "title": "Estado",
       "gsm": "GSM",
@@ -104,7 +128,7 @@
     },
     "support": {
       "text": "Apoyar GSM",
-      "githubSponsors": "GitHub Sponsors",
+      "githubSponsors": "GitHub Sponsors (Preferido)",
       "kofi": "Ko-fi",
       "githubStar": "Estrella en GitHub (Gratis)"
     },
@@ -1197,6 +1221,15 @@
     }
   },
   "texthook": {
+    "updates": {
+      "versionChoice": "Versión del paquete de motores",
+      "installSelected": "Instalar la versión seleccionada",
+      "updateLatest": "Actualizar a la última versión",
+      "recommended": "Recomendada",
+      "latest": "Última",
+      "pinHint": "Puedes actualizar ambos motores o volver a una versión anterior. Instalar una versión seleccionada desactiva las actualizaciones automáticas y conserva tu elección hasta que la cambies o vuelvas a activarlas.",
+      "buildVersions": "LunaHook {luna} · Textractor {textractor}"
+    },
     "workspace": {
       "title": "Captura de texto",
       "brandHint": "Texto directo del juego",
@@ -1293,6 +1326,9 @@
     },
     "status": {
       "attached": "Adjuntado",
+      "starting": "Iniciando",
+      "waitingForText": "Esperando texto",
+      "receiving": "Recibiendo texto",
       "ready": "Listo",
       "noTarget": "Sin objetivo"
     },

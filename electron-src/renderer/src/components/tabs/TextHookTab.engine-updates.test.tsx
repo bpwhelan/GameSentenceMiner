@@ -24,11 +24,12 @@ describe("TextHookTab background engine updates", () => {
   const render = async () => {
     await act(async () => { root.render(<TextHookTab active />); });
   };
-  const maintenance = () => container.querySelector<HTMLDetailsElement>(".texthook-engine-maintenance")!;
-  const expandMaintenance = async () => {
+  const maintenance = () => container.querySelector<HTMLElement>(".texthook-engine-maintenance")!;
+  const support = () => container.querySelector<HTMLElement>("#texthook-view-tools")!;
+  const live = () => container.querySelector<HTMLElement>("#texthook-view-live")!;
+  const openSupport = async () => {
     await act(async () => {
-      maintenance().open = true;
-      maintenance().dispatchEvent(new Event("toggle"));
+      container.querySelector<HTMLButtonElement>("#texthook-nav-tools")!.click();
     });
   };
 
@@ -45,6 +46,7 @@ describe("TextHookTab background engine updates", () => {
       if (channel === "texthook.getEngineStatus" || channel === "texthook.checkEngineUpdates") return engineStatus;
       if (channel === "texthook.setAutomaticEngineUpdates") return { ...engineStatus, automatic: args[0] };
       if (channel === "texthook.downloadEngines") return { success: true };
+      if (channel === "texthook.installEngineVersion") return { success: true };
       if (channel === "texthook.listHooks") return { hooks: [], selectedHookId: null };
       if (channel === "texthook.getActiveCapture") return { sceneName: "Game", sceneId: "game", exeName: "game.exe" };
       if (channel === "texthook.getSettings") return { maxBufferSize: 3000 };
@@ -72,16 +74,16 @@ describe("TextHookTab background engine updates", () => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
-  it("keeps maintenance completely collapsed below the engine log", async () => {
+  it("shows update controls immediately on the Support tab without starting an update", async () => {
     await render();
-    expect(maintenance().open).toBe(false);
-    expect(maintenance().textContent).toBe("Troubleshooting");
+    expect(support().hidden).toBe(true);
+    await openSupport();
+    expect(support().hidden).toBe(false);
+    expect(maintenance().closest("details, [hidden]")).toBeNull();
+    expect(maintenance().textContent).toContain("Installed package: 1.0.0");
+    expect(button("Check now").closest("[hidden]")).toBeNull();
+    expect(button("Repair / reinstall").closest("[hidden]")).toBeNull();
     expect(container.querySelector(".texthook-update-bar")).toBeNull();
-    expect(container.querySelector("#texthook-engine-updates-title")).toBeNull();
-    const log = container.querySelector(".texthook-log")!;
-    expect(log.compareDocumentPosition(maintenance()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(container.textContent).not.toContain("Installed package");
-    expect(container.textContent).not.toContain("Check now");
     expect(invoke).not.toHaveBeenCalledWith("texthook.checkEngineUpdates");
     expect(invoke).not.toHaveBeenCalledWith("texthook.downloadEngines");
   });
@@ -89,7 +91,7 @@ describe("TextHookTab background engine updates", () => {
   it.each(["checking", "downloading", "verifying", "waiting", "installing", "error", "idle"] as const)(
     "keeps the %s phase quiet during normal use", async (phase) => {
       await render();
-      const before = container.textContent;
+      const before = live().textContent;
       await act(async () => {
         listeners.get("texthook.engineUpdateState")?.({}, {
           ...engineStatus, phase, remoteVersion: "2.0.0", updateAvailable: true,
@@ -97,8 +99,8 @@ describe("TextHookTab background engine updates", () => {
           progress: { file: "LunaHook64.dll", fileIndex: 1, totalFiles: 10, bytesDownloaded: 50, bytesTotal: 100 },
         });
       });
-      expect(maintenance().open).toBe(false);
-      expect(container.textContent).toBe(before);
+      expect(support().hidden).toBe(true);
+      expect(live().textContent).toBe(before);
       expect(container.querySelector(".ocr-toast")).toBeNull();
     }
   );
@@ -106,7 +108,7 @@ describe("TextHookTab background engine updates", () => {
   it("keeps a missing installation quiet and available for automatic preparation on first use", async () => {
     engineStatus = { ...engineStatus, installed: false, version: null, remoteVersion: "2.0.0" };
     await render();
-    expect(maintenance().textContent).toBe("Troubleshooting");
+    expect(support().hidden).toBe(true);
     expect(button("Search for hooks").disabled).toBe(false);
   });
 
@@ -115,11 +117,11 @@ describe("TextHookTab background engine updates", () => {
     for (const phase of ["downloading", "verifying", "waiting", "installing", "idle"] as const) {
       await act(async () => { listeners.get("texthook.engineUpdateState")?.({}, { ...engineStatus, phase }); });
       expect(button("Search for hooks").disabled).toBe(phase === "installing");
-      expect(maintenance().open).toBe(false);
+      expect(support().hidden).toBe(true);
     }
   });
 
-  it("never stops a running hook or opens maintenance for a queued update", async () => {
+  it("never stops a running hook or switches to Support for a queued update", async () => {
     runtime = { running: true, engine: "luna" };
     await render();
     await act(async () => {
@@ -127,7 +129,7 @@ describe("TextHookTab background engine updates", () => {
     });
     expect(button("Stop").disabled).toBe(false);
     expect(invoke).not.toHaveBeenCalledWith("texthook.stop");
-    expect(maintenance().open).toBe(false);
+    expect(support().hidden).toBe(true);
   });
 
   it("uses a generic preparation message on first use without filenames or update UI", async () => {
@@ -146,11 +148,11 @@ describe("TextHookTab background engine updates", () => {
     expect(container.querySelector(".ocr-toast")).toBeNull();
   });
 
-  it("only offers updater controls after troubleshooting is deliberately expanded", async () => {
+  it("checks and installs updates directly from Support", async () => {
     await render();
-    await expandMaintenance();
+    await openSupport();
     expect(container.textContent).toContain("Installed package: 1.0.0");
-    expect(button("Check now").closest("details")).toBe(maintenance());
+    expect(maintenance().contains(button("Check now"))).toBe(true);
     engineStatus = { ...engineStatus, remoteVersion: "2.0.0", updateAvailable: true };
     await act(async () => { button("Check now").click(); });
     expect(invoke).toHaveBeenCalledWith("texthook.checkEngineUpdates");
@@ -160,7 +162,26 @@ describe("TextHookTab background engine updates", () => {
     expect(container.querySelector(".ocr-toast")).toBeNull();
   });
 
-  it.each([false, true])("keeps a manual repair failure inside troubleshooting (rejection: %s)", async (reject) => {
+  it("lets users choose an older package or install the latest without enabling automatic updates", async () => {
+    engineStatus = { ...engineStatus, version: "1.0.4", remoteVersion: "1.0.3", availableVersions: [
+      { version: "1.0.4" }, { version: "1.0.3" },
+    ] };
+    await render();
+    await openSupport();
+    const select = maintenance().querySelector<HTMLSelectElement>("select")!;
+    expect(select.value).toBe("1.0.4");
+    await act(async () => { select.value = "1.0.3"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => { button("Install selected version").click(); });
+    expect(invoke).toHaveBeenCalledWith("texthook.installEngineVersion", "1.0.3");
+    expect(maintenance().textContent).toContain("Automatic updates turn off when you install a selected version");
+    expect(invoke).not.toHaveBeenCalledWith("texthook.setAutomaticEngineUpdates", true);
+    engineStatus = { ...engineStatus, version: "1.0.3", automatic: false };
+    await act(async () => { listeners.get("texthook.engineUpdateState")?.({}, engineStatus); });
+    await act(async () => { button("Update to latest").click(); });
+    expect(invoke).toHaveBeenCalledWith("texthook.installEngineVersion", "1.0.4");
+  });
+
+  it.each([false, true])("keeps a manual repair failure inside Support (rejection: %s)", async (reject) => {
     const original = invoke.getMockImplementation()!;
     invoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
       if (channel === "texthook.downloadEngines") {
@@ -170,17 +191,16 @@ describe("TextHookTab background engine updates", () => {
       return original(channel, ...args);
     });
     await render();
-    await expandMaintenance();
+    await openSupport();
     await act(async () => { button("Repair / reinstall").click(); });
     expect(maintenance().textContent).toContain("Connection lost");
     expect(button("Repair / reinstall").disabled).toBe(false);
     expect(container.querySelector(".ocr-toast")).toBeNull();
   });
 
-  it("allows the automatic update preference to be changed only within troubleshooting", async () => {
+  it("allows the automatic update preference to be changed directly from Support", async () => {
     await render();
-    expect(maintenance().querySelector("input")).toBeNull();
-    await expandMaintenance();
+    await openSupport();
     const toggle = maintenance().querySelector<HTMLInputElement>("input[type=checkbox]")!;
     expect(toggle.checked).toBe(true);
     await act(async () => { toggle.click(); });
@@ -188,31 +208,34 @@ describe("TextHookTab background engine updates", () => {
     expect(toggle.checked).toBe(false);
   });
 
-  it("keeps status request failures silent and lets troubleshooting retry them", async () => {
+  it("keeps status request failures silent during capture and lets Support retry them", async () => {
     const original = invoke.getMockImplementation()!;
     invoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
       if (channel === "texthook.getEngineStatus") throw new Error("IPC unavailable");
       return original(channel, ...args);
     });
     await render();
-    expect(maintenance().textContent).toBe("Troubleshooting");
+    expect(support().hidden).toBe(true);
     expect(container.querySelector(".ocr-toast")).toBeNull();
-    await expandMaintenance();
+    await openSupport();
     expect(maintenance().textContent).toContain("Could not check for engine updates. Try again.");
     await act(async () => { button("Check now").click(); });
     expect(maintenance().textContent).toContain("Up to date");
   });
 
-  it("hides maintenance again when closed and leaves it closed during later updates", async () => {
+  it("keeps Support available across tab changes and displays the latest update state", async () => {
     await render();
-    await expandMaintenance();
+    await openSupport();
+    const checkButton = button("Check now");
     await act(async () => {
-      maintenance().open = false;
-      maintenance().dispatchEvent(new Event("toggle"));
+      container.querySelector<HTMLButtonElement>("#texthook-nav-live")!.click();
       listeners.get("texthook.engineUpdateState")?.({}, { ...engineStatus, phase: "error", error: "Connection lost" });
     });
-    expect(maintenance().textContent).toBe("Troubleshooting");
-    expect(maintenance().open).toBe(false);
+    expect(support().hidden).toBe(true);
+    await openSupport();
+    expect(button("Check now")).toBe(checkButton);
+    expect(checkButton.closest("details, [hidden]")).toBeNull();
+    expect(maintenance().textContent).toContain("Connection lost");
     expect(container.querySelector(".ocr-toast")).toBeNull();
   });
 });

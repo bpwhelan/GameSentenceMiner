@@ -23,18 +23,58 @@ export function getDevPreviewTab(): string | null {
 }
 
 function previewInvokeResult(channel: string): unknown {
+  const params = new URLSearchParams(window.location.search);
+  const homePreview = getDevPreviewTab() === "home";
+  const emptyHome = homePreview && params.get("homeState") === "empty";
+  const offlineHome = homePreview && params.get("homeState") === "offline";
+  const libraryHome = homePreview && params.get("homeState") === "library";
+  const homeScenes = libraryHome
+    ? Array.from({ length: 50 }, (_, index) => ({
+        id: `preview-game-${index}`,
+        name: `Saved Game ${String(index + 1).padStart(2, "0")}${index % 6 === 0 ? " — A Longer Game Title" : ""}`,
+      }))
+    : [PREVIEW_SCENE];
   switch (channel) {
     case "settings.getSettings":
       return {
-        locale: "en",
+        locale: params.get("locale") ?? "en",
+        theme: params.get("theme") ?? "gsm-dark",
         visibleTabs: ["speech", "launcher", "stats", "python", "console"],
+        runOverlayWithActiveGame: homePreview,
       };
     case "obs.getScenes":
-      return [PREVIEW_SCENE];
+      return emptyHome ? [] : homePreview ? homeScenes : [PREVIEW_SCENE];
     case "obs.getActiveScene":
-      return PREVIEW_SCENE;
+      return emptyHome ? null : libraryHome ? homeScenes[39] : PREVIEW_SCENE;
     case "obs.getWindows":
-      return [];
+      return homePreview
+        ? [{
+            title: "Game Window",
+            value: "preview-game",
+            targetKind: "window",
+            captureValues: {
+              window_capture: "Game Window:Game:game.exe",
+              game_capture: "Game Window:Game:game.exe",
+            },
+          }]
+        : [];
+    case "settings.listGSMProfiles":
+      return homePreview
+        ? { profiles: ["Default", "Japanese"], profileScenes: { Japanese: [PREVIEW_SCENE.name] } }
+        : null;
+    case "obs.getSceneCaptureMode":
+      return homePreview && !emptyHome ? "window_capture" : null;
+    case "get_gsm_status":
+      return homePreview ? {
+        ready: !offlineHome,
+        status: offlineHome ? "Not running" : "Running",
+        obs_connected: !offlineHome,
+        anki_connected: !offlineHome,
+        anki_beacon_connected: !offlineHome && params.get("homeState") !== "beacon",
+        clipboard_enabled: false,
+        websockets_connected: offlineHome ? {} : { "ws://127.0.0.1:6677": "GSM OCR" },
+        last_line_received: offlineHome ? undefined : new Date(Date.now() - 12000).toISOString(),
+      } : null;
     case "scene-switcher.getState":
       return { collectionEnabled: false, migrationReady: true, rule: null };
     case "ocr.getActiveOCRConfig":
@@ -97,7 +137,6 @@ function previewInvokeResult(channel: string): unknown {
       return "C:\\GSM\\Preview";
     case "install-session.getActive":
     case "changelog.getPendingDesktopUpdate":
-    case "get_gsm_status":
       return null;
     default:
       return null;

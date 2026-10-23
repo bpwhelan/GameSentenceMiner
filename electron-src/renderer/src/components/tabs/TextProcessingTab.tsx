@@ -333,9 +333,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
       <div className="gsm-workspace text-processing-desk">
         <header className="ws-page-header text-processing-header">
           <div>
-            <span className="ws-eyebrow">{t("textProcessing.workspace.eyebrow")}</span>
             <h1>{t("textProcessing.title")}</h1>
-            <p>{t("textProcessing.workspace.description")}</p>
           </div>
           {notice && (
             <div className="text-processing-actions">

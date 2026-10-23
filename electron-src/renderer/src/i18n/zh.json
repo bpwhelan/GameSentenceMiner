@@ -1,5 +1,29 @@
 {
   "home": {
+    "workspace": {
+      "library": "我的游戏",
+      "savedGames": "已保存的游戏",
+      "searchGames": "搜索游戏",
+      "noMatchingGames": "没有匹配的游戏。",
+      "noGames": "尚未添加游戏。",
+      "emptyGameHint": "添加第一个游戏，设置捕获并开始收集例句。",
+      "addingGame": "正在设置捕获…",
+      "addGameError": "无法设置捕获。请检查 OBS 是否已连接，然后重试。",
+      "chooseGame": "选择游戏",
+      "chooseGameHint": "选择已保存的游戏，或添加新的捕获。",
+      "gameContext": "游戏捕获",
+      "gameOptions": "游戏选项",
+      "gameActions": "{name}的操作",
+      "gameActionError": "无法更新此游戏。请重试。",
+      "backToGame": "返回游戏",
+      "textFeed": "文本流",
+      "textFeedHint": "在文本流中阅读捕获的文本并收集例句。",
+      "firstGameHint": "启动游戏，然后在下方选择游戏窗口来设置捕获。",
+      "addGame": "添加游戏",
+      "addGameHint": "捕获其他窗口、显示器或采集卡。",
+      "overlayHint": "在游玩时查词并收集例句。",
+      "connections": "连接状态"
+    },
     "status": {
       "title": "状态",
       "gsm": "GSM",
@@ -104,7 +128,7 @@
     },
     "support": {
       "text": "支持 GSM",
-      "githubSponsors": "GitHub Sponsors",
+      "githubSponsors": "GitHub Sponsors（首选）",
       "kofi": "Ko-fi",
       "githubStar": "在 GitHub 上加星（免费）"
     },
@@ -1197,6 +1221,15 @@
     }
   },
   "texthook": {
+    "updates": {
+      "versionChoice": "引擎包版本",
+      "installSelected": "安装所选版本",
+      "updateLatest": "更新到最新版",
+      "recommended": "推荐",
+      "latest": "最新",
+      "pinHint": "可以同时升级或降级两个引擎。安装所选版本后会关闭自动更新，并保持该版本，直到您更改选择或重新启用自动更新。",
+      "buildVersions": "LunaHook {luna} · Textractor {textractor}"
+    },
     "workspace": {
       "title": "文本钩子",
       "brandHint": "直接提取游戏文本",
@@ -1293,6 +1326,9 @@
     },
     "status": {
       "attached": "已附加",
+      "starting": "正在启动",
+      "waitingForText": "等待文本",
+      "receiving": "正在接收文本",
       "ready": "就绪",
       "noTarget": "无目标"
     },

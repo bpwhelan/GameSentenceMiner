@@ -100,15 +100,13 @@ const SETTINGS_VIEWS = [
   {
     id: "general",
     labelKey: "settings.workspace.general",
-    helpKey: "settings.workspace.generalHelp",
   },
-  { id: "layout", labelKey: "settings.workspace.layout", helpKey: "settings.workspace.layoutHelp" },
-  { id: "updates", labelKey: "settings.updates.title", helpKey: "settings.workspace.updatesHelp" },
-  { id: "backups", labelKey: "settings.backup.title", helpKey: "settings.workspace.backupsHelp" },
+  { id: "layout", labelKey: "settings.workspace.layout" },
+  { id: "updates", labelKey: "settings.updates.title" },
+  { id: "backups", labelKey: "settings.backup.title" },
   {
     id: "storage",
     labelKey: "settings.dataFolder.title",
-    helpKey: "settings.workspace.storageHelp",
   },
 ] as const;
 const LOCAL_SETTINGS_TARGETS: Record<string, { view: SettingsView; focusId: string }> = {
@@ -1104,11 +1102,9 @@ export function SettingsTab({ active }: SettingsTabProps) {
         <main className="ws-main">
           <header className="ws-page-header">
             <div>
-              <span className="ws-eyebrow">{t("app.tabs.settings")}</span>
               <h1>
                 {t(hasSearchQuery ? "settings.workspace.searchResults" : currentView.labelKey)}
               </h1>
-              <p>{t(hasSearchQuery ? "settings.hub.findDescription" : currentView.helpKey)}</p>
               {hubMessage ? (
                 <div
                   className="ws-notice is-error"
@@ -1821,13 +1817,13 @@ export function SettingsTab({ active }: SettingsTabProps) {
                       })}
                     </p>
                     <p className="muted">{t("settings.dataFolder.description")}</p>
-                    <details className="settings-data-folder-location">
-                      <summary>{t("settings.dataFolder.locationFile")}</summary>
+                    <section className="settings-data-folder-location" aria-labelledby="settings-data-folder-location-title">
+                      <h2 id="settings-data-folder-location-title">{t("settings.dataFolder.locationFile")}</h2>
                       <p className="update-version-meta">
                         {dataPointerPath ?? t("settings.dataFolder.loading")}
                       </p>
                       <p className="muted">{t("settings.dataFolder.locationHint")}</p>
-                    </details>
+                    </section>
                     {usingCustomDataDir ? (
                       <>
                         <p className="update-version-meta">

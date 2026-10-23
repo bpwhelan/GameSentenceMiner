@@ -10,7 +10,7 @@ interface UpdateResult {
 interface Dependencies<Package> {
     localStatus(): EngineStatus;
     remoteStatus(): Promise<EngineStatus>;
-    prepare(progress: (value: EngineDownloadProgress) => void, verifying: () => void): Promise<Package>;
+    prepare(progress: (value: EngineDownloadProgress) => void, verifying: () => void, version?: string): Promise<Package>;
     activate(prepared: Package): Promise<void>;
     discard(prepared: Package): Promise<void>;
     version(prepared: Package): string;
@@ -24,6 +24,7 @@ interface Dependencies<Package> {
 export class TextHookUpdateManager<Package> {
     private phase: EngineUpdateState['phase'] = 'idle';
     private remoteVersion: string | null = null;
+    private availableVersions: EngineStatus['availableVersions'];
     private error: string | null = null;
     private progress: EngineDownloadProgress | null = null;
     private pending: Package | null = null;
@@ -40,6 +41,7 @@ export class TextHookUpdateManager<Package> {
         return {
             ...local,
             remoteVersion: this.remoteVersion,
+            availableVersions: this.availableVersions,
             updateAvailable: local.installed && !!local.version && !!this.remoteVersion
                 && !!semver.valid(local.version) && !!semver.valid(this.remoteVersion)
                 && semver.gt(this.remoteVersion, local.version),
@@ -78,26 +80,27 @@ export class TextHookUpdateManager<Package> {
         else this.notifyIdle();
     }
 
-    check(): Promise<EngineUpdateState> {
+    check(applyAutomatic = true): Promise<EngineUpdateState> {
         if (this.operation || this.pending || this.disposed) return Promise.resolve(this.getState());
         if (this.checking) return this.checking;
-        this.checking = this.checkInternal().finally(() => { this.checking = null; });
+        this.checking = this.checkInternal(applyAutomatic).finally(() => { this.checking = null; });
         return this.checking;
     }
 
-    private async checkInternal(): Promise<EngineUpdateState> {
+    private async checkInternal(applyAutomatic: boolean): Promise<EngineUpdateState> {
         this.phase = 'checking';
         this.error = null;
         this.emit();
         try {
             const status = await this.deps.remoteStatus();
             this.remoteVersion = status.remoteVersion;
+            if (status.availableVersions) this.availableVersions = status.availableVersions;
             // A manual request may have begun while the network check was pending.
             if (this.operation || this.pending || this.disposed) return this.getState();
             this.phase = status.remoteVersion ? 'idle' : 'error';
             this.error = status.remoteVersion ? null : 'Could not check for engine updates.';
             this.emit();
-            if (status.installed && status.updateAvailable && this.getState().updateAvailable && this.deps.automaticEnabled()) {
+            if (applyAutomatic && status.installed && status.updateAvailable && this.getState().updateAvailable && this.deps.automaticEnabled()) {
                 void this.download(true);
             }
         } catch (error) {
@@ -114,7 +117,23 @@ export class TextHookUpdateManager<Package> {
         return this.operation;
     }
 
-    private async prepare(automatic: boolean): Promise<UpdateResult> {
+    /** A deliberate selection can replace a queued update and may move backwards. */
+    downloadVersion(version: string): Promise<UpdateResult> {
+        if (!semver.valid(version)) return Promise.resolve({ success: false, error: 'Invalid engine package version.' });
+        if (this.disposed) return Promise.resolve({ success: false, error: 'GSM is shutting down.' });
+        if (this.operation) return Promise.resolve({ success: false, error: 'An engine update is already in progress.' });
+        this.operation = (async () => {
+            if (this.pending) {
+                const previous = this.pending;
+                this.pending = null;
+                await this.deps.discard(previous);
+            }
+            return this.prepare(false, version);
+        })().catch((error) => this.fail(error)).finally(() => { this.operation = null; });
+        return this.operation;
+    }
+
+    private async prepare(automatic: boolean, selectedVersion?: string): Promise<UpdateResult> {
         this.phase = 'downloading';
         this.error = null;
         this.progress = null;
@@ -129,8 +148,12 @@ export class TextHookUpdateManager<Package> {
                 this.phase = 'verifying';
                 this.progress = null;
                 this.emit();
-            });
-            this.remoteVersion = this.deps.version(this.pending);
+            }, selectedVersion);
+            // Keep an explicit choice pinned across app restarts, including a
+            // downgrade waiting for an active hook to stop. Failed downloads do
+            // not change the user's preference.
+            if (selectedVersion !== undefined) this.deps.setAutomatic(false);
+            else if (!this.remoteVersion) this.remoteVersion = this.deps.version(this.pending);
             return await this.applyPending();
         } catch (error) {
             return this.fail(error);

@@ -10,6 +10,10 @@ const nodeFetchMock = vi.fn();
 let baseDir: string;
 let zipBytes: Buffer;
 const primaryBase = 'https://r2.gamesentenceminer.com/texthook/zip';
+const catalogUrl = `${primaryBase}/texthook_manifest_v2.json`;
+const catalog = () => ({ schemaVersion: 2, recommendedVersion: manifest.version, releases: [
+    { ...manifest, archive: { ...manifest.archive, path: `versions/${manifest.version}/texthook.zip` } },
+] });
 const fileContents = (file: string) => `R2 fixture: ${file}`;
 const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
 const runtimeFiles = [
@@ -42,8 +46,10 @@ async function makeZip(entries = runtimeFiles.map(file => [file, fileContents(fi
 }
 
 function respond(url: string): Response {
+    if (url === catalogUrl) return Response.json(catalog());
     if (url === `${primaryBase}/texthook_manifest.json`) return Response.json(manifest);
     if (url === `${primaryBase}/texthook.zip`) return new Response(new Uint8Array(zipBytes), { headers: { 'content-length': String(zipBytes.length) } });
+    if (url === `${primaryBase}/versions/${manifest.version}/texthook.zip`) return new Response(new Uint8Array(zipBytes), { headers: { 'content-length': String(zipBytes.length) } });
     throw new Error(`Unexpected URL: ${url}`);
 }
 
@@ -84,6 +90,47 @@ afterEach(() => {
 });
 
 describe('texthook ZIP downloads', () => {
+    it('lists catalog versions but only offers the recommended release automatically', async () => {
+        installLocal('1.0.3');
+        fetchMock.mockResolvedValue(Response.json({ schemaVersion: 2, recommendedVersion: '1.0.3', releases: [
+            { ...manifest, version: '1.0.4', archive: { ...manifest.archive, path: 'versions/1.0.4/texthook.zip' } },
+            { ...manifest, version: '1.0.3', archive: { ...manifest.archive, path: 'versions/1.0.3/texthook.zip' } },
+        ] }));
+        const { getEngineStatus } = await import('./texthook_downloader.js');
+        expect(await getEngineStatus()).toMatchObject({ remoteVersion: '1.0.3', updateAvailable: false,
+            availableVersions: [{ version: '1.0.4' }, { version: '1.0.3' }] });
+    });
+
+    it('permits an explicitly selected downgrade through preparation and activation', async () => {
+        installLocal('2.0.0');
+        const { prepareTexthookUpdate, activateTexthookUpdate, getLocalEngineStatus } = await import('./texthook_downloader.js');
+        const prepared = await prepareTexthookUpdate(undefined, undefined, manifest.version);
+        await activateTexthookUpdate(prepared);
+        expect(getLocalEngineStatus().version).toBe(manifest.version);
+        expect(fetchMock.mock.calls.some(([url]) => url === `${primaryBase}/versions/${manifest.version}/texthook.zip`)).toBe(true);
+    });
+
+    it('rejects a selected version missing from the catalog without changing the installation', async () => {
+        installLocal('2.0.0');
+        const { prepareTexthookUpdate, getLocalEngineStatus } = await import('./texthook_downloader.js');
+        await expect(prepareTexthookUpdate(undefined, undefined, '0.0.1')).rejects.toThrow(/not available/);
+        expect(getLocalEngineStatus().version).toBe('2.0.0');
+        expect(fetchMock.mock.calls.every(([url]) => url.endsWith('.json'))).toBe(true);
+    });
+
+    it.each(['duplicate', 'missing recommended', 'unsafe archive', 'unsupported schema'])(
+        'rejects a %s catalog without downloading binaries', async kind => {
+            const value = catalog();
+            if (kind === 'duplicate') value.releases.push(value.releases[0]);
+            if (kind === 'missing recommended') value.recommendedVersion = '99.0.0';
+            if (kind === 'unsafe archive') value.releases[0].archive.path = '../texthook.zip';
+            if (kind === 'unsupported schema') value.schemaVersion = 3;
+            fetchMock.mockImplementation(async () => Response.json(value));
+            const { prepareTexthookUpdate } = await import('./texthook_downloader.js');
+            await expect(prepareTexthookUpdate()).rejects.toThrow(/catalog|archive/);
+            expect(fetchMock.mock.calls.every(([url]) => url === catalogUrl)).toBe(true);
+        },
+    );
     it('downloads only the manifest and ZIP using Electron, verifies and installs every file', async () => {
         const { downloadTexthookEngines, isTexthookInstalled, getTexthookRuntimeDir } = await import('./texthook_downloader.js');
         const progress = vi.fn();
@@ -91,9 +138,10 @@ describe('texthook ZIP downloads', () => {
         expect(isTexthookInstalled()).toBe(true);
         expect(nodeFetchMock).not.toHaveBeenCalled();
         expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-            `${primaryBase}/texthook_manifest.json`, `${primaryBase}/texthook.zip`,
+            catalogUrl, `${primaryBase}/versions/${manifest.version}/texthook.zip`,
         ]);
-        expect(progress).toHaveBeenLastCalledWith({ file: 'texthook.zip', fileIndex: 0, totalFiles: 1, bytesDownloaded: zipBytes.length, bytesTotal: zipBytes.length });
+        expect(progress).toHaveBeenLastCalledWith({ file: `versions/${manifest.version}/texthook.zip`, fileIndex: 0, totalFiles: 1, bytesDownloaded: zipBytes.length, bytesTotal: zipBytes.length });
+        // The on-disk pointer stays readable by desktop versions predating v2.
         expect(JSON.parse(fs.readFileSync(path.join(baseDir, 'texthook/texthook_manifest.json'), 'utf8'))).toMatchObject(manifest);
         expect(fetchMock.mock.calls.every(([, init]) => init.signal instanceof AbortSignal)).toBe(true);
         for (const entry of manifest.files) expect(await readInstalledFile(entry.path)).toBe(fileContents(entry.path));
@@ -132,7 +180,7 @@ describe('texthook ZIP downloads', () => {
         { path: '../escaped.zip', sha256: 'a'.repeat(64) },
         { path: 'texthook.zip', sha256: 'invalid' },
     ])('rejects missing or unsafe archive metadata without fetching binaries', async (archive) => {
-        fetchMock.mockImplementation(async () => Response.json({ ...manifest, archive }));
+        fetchMock.mockImplementation(async () => Response.json({ ...catalog(), releases: [{ ...manifest, archive }] }));
         const { downloadTexthookEngines } = await import('./texthook_downloader.js');
         await expect(downloadTexthookEngines()).rejects.toThrow(/archive/i);
         expect(fetchMock.mock.calls.every(([url]) => url.endsWith('.json'))).toBe(true);
@@ -145,6 +193,27 @@ describe('texthook ZIP downloads', () => {
         expect((await getEngineStatus()).updateAvailable).toBe(false);
         await expect(downloadTexthookEngines()).rejects.toThrow(/downgrade/i);
         expect(fetchMock.mock.calls.every(([url]) => url.endsWith('.json'))).toBe(true);
+    });
+
+    it('repairs an incomplete newer installation using its own catalog version', async () => {
+        installLocal('2.0.0');
+        fs.unlinkSync(path.join(baseDir, 'texthook', runtimeFiles[2]));
+        fetchMock.mockImplementation(async (url: string) => url === catalogUrl
+            ? Response.json({ ...catalog(), releases: [...catalog().releases, {
+                ...manifest, version: '2.0.0', archive: { ...manifest.archive, path: 'versions/2.0.0/texthook.zip' },
+            }] })
+            : url.endsWith('/versions/2.0.0/texthook.zip') ? new Response(new Uint8Array(zipBytes)) : respond(url));
+        const { downloadTexthookEngines, getLocalEngineStatus } = await import('./texthook_downloader.js');
+        await downloadTexthookEngines();
+        expect(getLocalEngineStatus()).toMatchObject({ installed: true, version: '2.0.0' });
+    });
+
+    it('still refuses an automatic downgrade if the installation changes while a download is staged', async () => {
+        installLocal();
+        const { prepareTexthookUpdate, activateTexthookUpdate } = await import('./texthook_downloader.js');
+        const prepared = await prepareTexthookUpdate();
+        installLocal('2.0.0');
+        await expect(activateTexthookUpdate(prepared)).rejects.toThrow(/downgrade/);
     });
 
     it('retries a transient manifest failure', async () => {
@@ -187,14 +256,14 @@ describe('texthook ZIP downloads', () => {
         await downloadTexthookEngines();
         expect(isTexthookInstalled()).toBe(true);
         expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-            `${primaryBase}/texthook_manifest.json`, `${primaryBase}/texthook.zip`,
+            catalogUrl, `${primaryBase}/versions/${manifest.version}/texthook.zip`,
         ]);
     });
 
     it('reports a blocked ZIP URL without falling back to loose DLL or EXE downloads', async () => {
         fetchMock.mockImplementation(async (url: string) => url.endsWith('.zip') ? new Response('Forbidden', { status: 403 }) : respond(url));
         const { downloadTexthookEngines } = await import('./texthook_downloader.js');
-        await expect(downloadTexthookEngines()).rejects.toThrow(/texthook\/zip\/texthook.zip.*HTTP 403/);
+        await expect(downloadTexthookEngines()).rejects.toThrow(/versions\/1.0.2\/texthook.zip.*HTTP 403/);
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(fs.existsSync(path.join(baseDir, 'texthook/texthook_manifest.json'))).toBe(false);
     });
@@ -223,7 +292,7 @@ describe('texthook ZIP downloads', () => {
     });
 
     it('rejects unsafe manifest paths before writing outside the download directory', async () => {
-        fetchMock.mockImplementation(async () => Response.json({ ...manifest, files: [{ path: '../escaped.dll', sha256: hash('bad') }] }));
+        fetchMock.mockImplementation(async () => Response.json({ ...catalog(), releases: [{ ...manifest, files: [{ path: '../escaped.dll', sha256: hash('bad') }] }] }));
         const { downloadTexthookEngines } = await import('./texthook_downloader.js');
         await expect(downloadTexthookEngines()).rejects.toThrow(/unsafe path/);
         expect(fs.existsSync(path.join(baseDir, 'escaped.dll'))).toBe(false);
@@ -275,10 +344,10 @@ describe('texthook ZIP downloads', () => {
 
     it('never lets a remote manifest write over profiles or the package pointer', async () => {
         installLocal();
-        fetchMock.mockImplementation(async () => Response.json({
+        fetchMock.mockImplementation(async () => Response.json({ ...catalog(), releases: [{
             ...manifest, version: '3.0.0',
             files: [...manifest.files, { path: 'profiles.json', sha256: hash('overwrite') }],
-        }));
+        }] }));
         const { downloadTexthookEngines } = await import('./texthook_downloader.js');
         await expect(downloadTexthookEngines()).rejects.toThrow(/unsafe path/);
         expect(fetchMock.mock.calls.every(([url]) => url.endsWith('.json'))).toBe(true);
