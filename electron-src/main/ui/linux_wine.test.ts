@@ -193,6 +193,40 @@ describe('resolveWineLaunch', () => {
         expect(ctx.env.PROTON_VERB).toBe('run');
     });
 
+    it('replaces pressure-vessel container paths with host values or drops them', () => {
+        const procRoot = makeProcRoot();
+        writeProcEntry(procRoot, 930, {
+            cmdline: ['game.exe'],
+            comm: 'game.exe',
+            environ: {
+                WINEPREFIX: '/games/prefix/pfx/',
+                DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/pressure-vessel/bus',
+                XAUTHORITY: '/run/pressure-vessel/Xauthority',
+                XDG_DATA_DIRS: '/usr/lib/pressure-vessel/overrides/share:/usr/share:/run/host/user-share',
+                LD_LIBRARY_PATH: '/opt/proton/files/lib:/run/host/usr/lib',
+                PRESSURE_VESSEL_RUNTIME: 'steamrt4_platform_4.0',
+                DISPLAY: ':0',
+            },
+        });
+        const hostEnv = {
+            DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus',
+            XAUTHORITY: '/run/user/1000/.mutter-Xwaylandauth.ABC',
+            XDG_DATA_DIRS: '/usr/local/share:/usr/share',
+            LD_LIBRARY_PATH: '/tmp/.mount_gsm/usr/lib',
+        };
+
+        const ctx = resolveWineLaunch('game.exe', procRoot, 1, undefined, hostEnv);
+
+        expect(ctx.env.DBUS_SESSION_BUS_ADDRESS).toBe('unix:path=/run/user/1000/bus');
+        expect(ctx.env.XAUTHORITY).toBe('/run/user/1000/.mutter-Xwaylandauth.ABC');
+        expect(ctx.env.XDG_DATA_DIRS).toBe('/usr/local/share:/usr/share');
+        // Never borrow GSM's own library path (an AppImage mount); just drop it.
+        expect(ctx.env.LD_LIBRARY_PATH).toBeUndefined();
+        expect(ctx.env.PRESSURE_VESSEL_RUNTIME).toBeUndefined();
+        expect(ctx.env.DISPLAY).toBe(':0');
+        expect(ctx.env.WINEPREFIX).toBe('/games/prefix/pfx/');
+    });
+
     it('does not misclassify a regular Proton launch as UMU from shared environment variables', () => {
         const procRoot = makeProcRoot();
         writeProcEntry(procRoot, 920, {
