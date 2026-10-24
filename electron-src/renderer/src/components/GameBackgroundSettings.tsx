@@ -48,10 +48,11 @@ export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; a
         finally { savingRef.current = false; setSaving(false); }
     };
     const reason = state?.reason;
-    return <details className="game-background-settings">
-        <summary>{t('gameBackground.title')}</summary>
+    return <section className="game-background-settings" aria-label={t('gameBackground.title')}>
+        <h2>{t('gameBackground.title')}</h2>
         <fieldset disabled={!ready || saving} aria-label={t('gameBackground.title')}>
         <p className="game-background-help">{t('gameBackground.help')}</p>
+        <div className="game-background-options">
         <label className="game-background-option">
             <input type="checkbox" checked={ready && state?.options.enabled === true}
                 onChange={event => void save({ enabled: event.target.checked })} />
@@ -67,6 +68,7 @@ export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; a
                 onChange={event => void save({ blockGamepad: event.target.checked })} />
             <span>{t('gameBackground.blockGamepad')}</span>
         </label>
+        </div>
         <p role="status" className="game-background-help">
             {reason ? t(`gameBackground.reason.${reason}`) :
                 t(`gameBackground.status.${matches ? state.phase : 'waiting'}`)}
@@ -85,5 +87,5 @@ export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; a
         </button>}
         <p className="game-background-help">{t('gameBackground.limitations')}</p>
         </fieldset>
-    </details>;
+    </section>;
 }

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "../../i18n";
 import { OCRTab } from "./OCRTab";
+import type { IpcEventLike } from "../../types/global";
 
 const invokeMock = vi.fn();
 const sendMock = vi.fn();
@@ -265,6 +266,41 @@ describe("OCRTab", () => {
       });
       expect(sendMock).toHaveBeenLastCalledWith(channels[index]);
     }
+  });
+
+  it("keeps captured text across workspace navigation and receives results while the tab is inactive", async () => {
+    const listeners = new Map<string, Set<(event: IpcEventLike, ...args: unknown[]) => void>>();
+    window.ipcRenderer.on = (channel, listener) => {
+      const callbacks = listeners.get(channel) ?? new Set();
+      callbacks.add(listener);
+      listeners.set(channel, callbacks);
+      return () => { callbacks.delete(listener); };
+    };
+    const capture = (text: string) => {
+      for (const callback of listeners.get("ocr-ipc-message") ?? []) {
+        callback({ sender: null }, { event: "ocr_result", data: { text } });
+      }
+    };
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      capture("First capture");
+      container.querySelector<HTMLButtonElement>("#ocr-nav-recognition")!.click();
+    });
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      capture("Captured in the background");
+    });
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active /></I18nProvider>);
+      container.querySelector<HTMLButtonElement>("#ocr-nav-capture")!.click();
+      await flushAsyncWork();
+    });
+    expect(container.querySelector<HTMLElement>("#ocr-view-capture")!.hidden).toBe(false);
+    expect([...container.querySelectorAll(".desk-text-content")].map((entry) => entry.textContent))
+      .toEqual(["Captured in the background", "First capture"]);
   });
 
   it.each([

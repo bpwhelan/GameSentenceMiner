@@ -117,8 +117,6 @@ const TOOLTIPS = {
   launchTextractorMinimized: "launcher.tooltips.launchTextractorMinimized",
   launchLunaTranslatorMinimized: "launcher.tooltips.launchLunaTranslatorMinimized",
   activeScene: "launcher.tooltips.activeScene",
-  configureScene: "launcher.tooltips.configureScene",
-  refreshScenes: "launcher.tooltips.refreshScenes",
   textHookMode: "launcher.tooltips.textHookMode",
   textHookNone: "launcher.tooltips.textHookNone",
   textHookAgent: "launcher.tooltips.textHookAgent",
@@ -127,11 +125,7 @@ const TOOLTIPS = {
   launchDelay: "launcher.tooltips.launchDelay",
   agentScript: "launcher.tooltips.agentScript",
   launchOverlay: "launcher.tooltips.launchOverlay",
-  browseScript: "launcher.tooltips.browseScript",
   searchScript: "launcher.tooltips.searchScript",
-  downloadAgent: "launcher.tooltips.downloadAgent",
-  downloadTextractor: "launcher.tooltips.downloadTextractor",
-  downloadLuna: "launcher.tooltips.downloadLuna",
   ocrMode: "launcher.tooltips.ocrMode",
   ocrNone: "launcher.tooltips.ocrNone",
   ocrAuto: "launcher.tooltips.ocrAuto",
@@ -953,11 +947,11 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
           </div>
           <div className="automation-scene-picker">
             <div className="automation-scene-heading">
-              <label htmlFor="launcher-scene-selector" data-tip={t(TOOLTIPS.configureScene)}>
+              <label htmlFor="launcher-scene-selector">
                 {t("launcher.scene.configureScene")}
               </label>
               <button type="button" aria-label={t("launcher.scene.refresh")}
-                data-tip={t(TOOLTIPS.refreshScenes)} onClick={() => void loadObsScenes()}>
+                onClick={() => void loadObsScenes()}>
                 <WorkspaceIcon name="updates" />
               </button>
             </div>
@@ -1189,7 +1183,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                             <button
                               type="button"
                               className="secondary"
-                              data-tip={t(TOOLTIPS.searchScript)}
                               onClick={() => {
                                 void openSceneAgentScriptSearchDialog();
                               }}
@@ -1198,7 +1191,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                             </button>
                             <button
                               type="button"
-                              data-tip={t(TOOLTIPS.browseScript)}
                               onClick={() => {
                                 void pickSceneAgentScript();
                               }}
@@ -1309,7 +1301,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    data-tip={t(TOOLTIPS.agentPath)}
                     onClick={() => void pickPath("settings.selectAgentPath", "agentPath")}
                   >
                     {t("launcher.shared.browse")}
@@ -1317,7 +1308,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   <button
                     type="button"
                     className="secondary launcher-download-button"
-                    data-tip={t(TOOLTIPS.downloadAgent)}
                     disabled={downloadingTool !== null}
                     style={getDownloadButtonStyle("agent")}
                     onClick={() => {
@@ -1349,7 +1339,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    data-tip={t(TOOLTIPS.agentScriptsPath)}
                     onClick={() =>
                       void pickPath("settings.selectAgentScriptsPath", "agentScriptsPath")
                     }
@@ -1379,7 +1368,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    data-tip={t(TOOLTIPS.textractor64)}
                     onClick={() =>
                       void pickPath("settings.selectTextractorPath64", "textractorPath64")
                     }
@@ -1389,7 +1377,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   <button
                     type="button"
                     className="secondary launcher-download-button"
-                    data-tip={t(TOOLTIPS.downloadTextractor)}
                     disabled={downloadingTool !== null}
                     style={getDownloadButtonStyle("textractor")}
                     onClick={() => {
@@ -1421,7 +1408,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    data-tip={t(TOOLTIPS.textractor32)}
                     onClick={() =>
                       void pickPath("settings.selectTextractorPath32", "textractorPath32")
                     }
@@ -1451,7 +1437,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   />
                   <button
                     type="button"
-                    data-tip={t(TOOLTIPS.lunaPath)}
                     onClick={() =>
                       void pickPath("settings.selectLunaTranslatorPath", "lunaTranslatorPath")
                     }
@@ -1461,7 +1446,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    data-tip={t(TOOLTIPS.downloadLuna)}
                     disabled={downloadingTool !== null}
                     onClick={() => {
                       void openToolReleasesPage("luna");
@@ -1552,7 +1536,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
           }
           titleTooltip={t(TOOLTIPS.candidatePicker)}
           closeLabel={t("launcher.scriptPicker.close")}
-          closeTitle={t("launcher.scriptPicker.closeTooltip")}
           searchPlaceholder={t("launcher.scriptPicker.searchPlaceholder")}
           noResultsLabel={t("launcher.scriptPicker.noResults")}
           onClose={() => setCandidateDialog(null)}

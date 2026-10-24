@@ -529,6 +529,9 @@
   padding: 0;
 }
 .texthook-desk .texthook-output-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   padding: 18px 0;
   border-bottom: 1px solid var(--gsm-border-subtle);
   color: var(--gsm-text-secondary);
@@ -545,10 +548,24 @@
   font-size: 18px;
 }
 .texthook-desk .texthook-output-pre {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: inherit;
+}
+.texthook-desk .texthook-output-copy {
+  flex: 0 0 auto;
+  width: 24px;
+  min-height: 24px;
+  padding: 4px;
+  border: 0;
+  color: var(--gsm-text-muted);
+}
+.texthook-desk .texthook-output-copy svg {
+  width: 14px;
+  height: 14px;
 }
 .texthook-desk .texthook-empty {
   display: flex;

@@ -1,4 +1,7 @@
 {
+  "gameBackground": {
+    "title": "게임 후크 (실험적)"
+  },
   "home": {
     "workspace": {
       "library": "내 게임",
@@ -1055,6 +1058,38 @@
       "advancedRecognition": "OCR 실행 방식을 제어하는 엔진, 스캔, 캡처 설정입니다.",
       "comparison": "텍스트가 새 텍스트인지, 안정적인지, 이전 줄의 일부인지 결정하는 중복 제거 및 변경 감지 임계값입니다."
     },
+    "activity": {
+      "title": "캡처한 텍스트",
+      "recent": "최신순 · 최대 {count}개 캡처",
+      "clear": "캡처한 텍스트 지우기",
+      "clearButton": "지우기",
+      "copy": "캡처한 텍스트 복사",
+      "empty": "캡처한 텍스트가 여기에 표시됩니다",
+      "emptyHint": "OCR을 시작하거나 캡처 단축키를 사용해 인식한 텍스트를 확인하세요.",
+      "states": {
+        "starting": "OCR 시작 중…",
+        "stopped": "중지됨",
+        "paused": "일시 중지됨",
+        "manual": "캡처 대기 중",
+        "watching": "텍스트 감지 중"
+      },
+      "events": {
+        "captured": "텍스트를 캡처했습니다",
+        "noText": "텍스트가 감지되지 않았습니다",
+        "unchanged": "화면 변경 대기 중",
+        "menu": "메뉴 텍스트를 건너뛰었습니다",
+        "ignored": "무시 영역의 텍스트를 건너뛰었습니다",
+        "duplicate": "중복 텍스트를 건너뛰었습니다",
+        "error": "OCR 확인이 필요합니다 · 자세한 내용은 콘솔을 확인하세요"
+      },
+      "sources": {
+        "auto": "자동 캡처",
+        "manual": "수동 캡처",
+        "menu": "메뉴 캡처",
+        "area": "선택한 영역",
+        "capture": "캡처"
+      }
+    },
     "runtime": {
       "failedLoadAutostart": "OCR 자동 시작 설정을 불러오지 못했습니다.",
       "failedSaveAutostart": "OCR 자동 시작 설정을 저장하지 못했습니다.",
@@ -1320,6 +1355,7 @@
     },
     "output": {
       "title": "선택된 훅 출력",
+      "copyLine": "줄 복사",
       "checkHint": "이 텍스트가 게임의 텍스트와 일치하는지 확인하세요.",
       "waiting": "선택된 훅의 텍스트를 기다린니다…",
       "selectHook": "목록에서 훅을 선택해 텍스트를 미리보세요."

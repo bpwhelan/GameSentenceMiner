@@ -90,4 +90,4 @@ def test_overlay_study_uses_renderer_blocks_and_returns_separate_output(monkeypa
     assert sent == [
         {"type": "translation-result", "data": {"request_id": "study", "text": "Explanation", "mode": "grammar"}}
     ]
-    analysis.assert_called_once_with([], "例文", None, "Game", "grammar")
+    analysis.assert_called_once_with([], "例文", None, "Game", "grammar", "")

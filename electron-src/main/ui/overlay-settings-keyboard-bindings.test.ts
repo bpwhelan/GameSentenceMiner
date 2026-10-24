@@ -130,22 +130,26 @@ describe("overlay settings navigation", () => {
       });
     } finally { page.dom.window.close(); }
   });
-  it("shows one focused page and remembers the subtab within each category", async () => {
+  it("shows the selected category and activates its section shortcuts", async () => {
     const page = loadOverlaySettingsPage();
     try {
       await page.ready;
       const doc = page.dom.window.document;
       const category = (id: string) => doc.querySelector(`[data-settings-tab="${id}"]`);
       const subtab = (id: string) => doc.querySelector(`[data-settings-page="${id}"]`);
-      const visiblePages = () => Array.from(doc.querySelectorAll("[data-page]")).filter((el: any) => !el.hidden);
+      const visiblePages = () => Array.from(doc.querySelectorAll("[data-page]")).filter((el: any) => !el.closest("[hidden]"));
       expect(visiblePages().every((el: any) => el.dataset.page === "overview-start")).toBe(true);
       category("reading").click();
-      expect(subtab("reading-indicators").getAttribute("aria-selected")).toBe("true");
-      subtab("reading-appearance").click();
-      expect(visiblePages().every((el: any) => el.dataset.page === "reading-appearance")).toBe(true);
+      expect(subtab("reading-readings").getAttribute("aria-selected")).toBe("true");
+      expect([...new Set(visiblePages().map((el: any) => el.dataset.page))]).toEqual([
+        "reading-readings", "reading-jiten", "reading-indicators",
+      ]);
+      subtab("reading-jiten").click();
+      expect(subtab("reading-jiten").getAttribute("aria-selected")).toBe("true");
       category("capture").click();
+      expect(visiblePages().every((el: any) => el.dataset.page.startsWith("capture-"))).toBe(true);
       category("reading").click();
-      expect(subtab("reading-appearance").getAttribute("aria-selected")).toBe("true");
+      expect(subtab("reading-readings").getAttribute("aria-selected")).toBe("true");
       expect(page.sent.filter(entry => entry.channel === "setting-changed")).toEqual([]);
     } finally { page.dom.window.close(); }
   });
@@ -178,12 +182,12 @@ describe("overlay settings navigation", () => {
       first.focus();
       first.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
       expect(doc.activeElement.dataset.settingsTab).toBe("reading");
-      const subtab = doc.querySelector('[data-settings-page="reading-indicators"]');
+      const subtab = doc.querySelector('[data-settings-page="reading-readings"]');
       subtab.focus();
       subtab.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true }));
-      expect(doc.activeElement.dataset.settingsPage).toBe("reading-jiten");
-      doc.activeElement.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }));
       expect(doc.activeElement.dataset.settingsPage).toBe("reading-indicators");
+      doc.activeElement.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+      expect(doc.activeElement.dataset.settingsPage).toBe("reading-readings");
     } finally { page.dom.window.close(); }
   });
 
@@ -193,16 +197,17 @@ describe("overlay settings navigation", () => {
       await page.ready;
       const doc = page.dom.window.document;
       const input = doc.getElementById("settingsSearchInput");
+      const control = doc.getElementById("periodic_ratio");
+      const previouslyOpen = control.closest("details").open;
       input.value = "Periodic Scan Ratio";
       input.dispatchEvent(new page.dom.window.Event("input", { bubbles: true }));
-      const control = doc.getElementById("periodic_ratio");
       expect(control.closest("[data-page]").hidden).toBe(false);
       expect(control.closest("details").open).toBe(true);
       expect(doc.getElementById("settingsSearchCount").textContent).toContain("1 match");
       doc.querySelector('[data-settings-tab="gamepad"]').click();
       expect(input.value).toBe("");
       expect(doc.body.classList.contains("search-active")).toBe(false);
-      expect(control.closest("details").open).toBe(false);
+      expect(control.closest("details").open).toBe(previouslyOpen);
       expect(doc.querySelector('[data-settings-page="gamepad-setup"]').getAttribute("aria-selected")).toBe("true");
     } finally { page.dom.window.close(); }
   });
@@ -377,16 +382,17 @@ describe("overlay settings home dashboard", () => {
       expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({ key: "showHotkey", value: "Alt+Shift+J" });
       doc.querySelector('[data-home-action="selectOcrAreaButton"]').click();
       expect(page.sent.filter(entry => entry.channel === "overlay-select-ocr-area")).toHaveLength(1);
-      doc.getElementById("home-openDictionarySettings").click();
+      const homeDictionaryButton = doc.querySelector('[data-home-action="openDictionarySettings"]');
+      homeDictionaryButton.click();
       doc.getElementById("openYomitanSettings").click();
       expect(page.sent.filter(entry => entry.channel === "open-yomitan-settings")).toHaveLength(2);
       page.listeners.get("dictionary-reader-switching")?.(null, true);
       await nextTick();
-      expect(doc.getElementById("home-openDictionarySettings").disabled).toBe(true);
+      expect(homeDictionaryButton.disabled).toBe(true);
       expect(doc.getElementById("openYomitanSettings").disabled).toBe(true);
       page.listeners.get("dictionary-reader-switching")?.(null, false);
       await nextTick();
-      expect(doc.getElementById("home-openDictionarySettings").disabled).toBe(false);
+      expect(homeDictionaryButton.disabled).toBe(false);
     } finally { page.dom.window.close(); }
   });
 
@@ -397,7 +403,7 @@ describe("overlay settings home dashboard", () => {
       const doc = page.dom.window.document;
       const actions = () => doc.querySelectorAll("button[data-dictionary-settings-label], button [data-dictionary-settings-label]");
       const expectReader = (name: string) => {
-        expect(Array.from(actions()).map((el: any) => el.textContent.trim())).toEqual(Array(4).fill(`${name} Settings`));
+        expect(Array.from(actions()).map((el: any) => el.textContent.trim())).toEqual(Array(3).fill(`${name} Settings`));
         expect(doc.querySelector('[data-dictionary-settings-label=" Hotkey"]').textContent).toBe(`${name} Settings Hotkey`);
       };
       expectReader("Yomitan");
@@ -419,7 +425,7 @@ describe("overlay settings home dashboard", () => {
       expect(doc.getElementById("dictionaryReaderSelection").value).toBe("hachidori");
       expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({ key: "dictionaryReaderSelection", value: "hachidori" });
       for (const label of actions()) label.closest("button").click();
-      expect(page.sent.filter(entry => entry.channel === "open-yomitan-settings")).toHaveLength(4);
+      expect(page.sent.filter(entry => entry.channel === "open-yomitan-settings")).toHaveLength(3);
     } finally { page.dom.window.close(); }
   });
 

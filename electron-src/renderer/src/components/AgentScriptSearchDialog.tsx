@@ -16,7 +16,6 @@ interface AgentScriptSearchDialogProps {
   title: AgentScriptSearchTitle;
   titleTooltip?: string;
   closeLabel: string;
-  closeTitle?: string;
   searchPlaceholder: string;
   noResultsLabel: string;
   onClose: () => void;
@@ -33,7 +32,6 @@ export function AgentScriptSearchDialog({
   title,
   titleTooltip,
   closeLabel,
-  closeTitle,
   searchPlaceholder,
   noResultsLabel,
   onClose,
@@ -56,7 +54,7 @@ export function AgentScriptSearchDialog({
     <div className="launcher-config-modal agent-script-search-dialog" role="dialog" aria-modal="true">
       <div className="launcher-config-modal-header">
         <strong data-tip={titleTooltip}>{renderedTitle}</strong>
-        <button type="button" className="secondary" data-tip={closeTitle} onClick={onClose}>
+        <button type="button" className="secondary" onClick={onClose}>
           {closeLabel}
         </button>
       </div>

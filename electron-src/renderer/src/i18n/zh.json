@@ -1,4 +1,7 @@
 {
+  "gameBackground": {
+    "title": "游戏钩子（实验性）"
+  },
   "home": {
     "workspace": {
       "library": "我的游戏",
@@ -1051,6 +1054,38 @@
       "advancedRecognition": "控制 OCR 运行方式的引擎、扫描和捕获设置。",
       "comparison": "用于判断文本是新文本、稳定文本，还是上一行子集的去重和变化检测阈值。"
     },
+    "activity": {
+      "title": "捕获的文本",
+      "recent": "最新在前 · 最多 {count} 次捕获",
+      "clear": "清空捕获的文本",
+      "clearButton": "清空",
+      "copy": "复制捕获的文本",
+      "empty": "捕获的文本将显示在这里",
+      "emptyHint": "启动 OCR 或使用捕获快捷键，查看识别到的文本。",
+      "states": {
+        "starting": "正在启动 OCR…",
+        "stopped": "已停止",
+        "paused": "已暂停",
+        "manual": "等待捕获",
+        "watching": "正在监测文本"
+      },
+      "events": {
+        "captured": "已捕获文本",
+        "noText": "未检测到文本",
+        "unchanged": "等待画面变化",
+        "menu": "已跳过菜单文本",
+        "ignored": "已跳过忽略区域中的文本",
+        "duplicate": "已跳过重复文本",
+        "error": "OCR 需要处理 · 请查看控制台了解详情"
+      },
+      "sources": {
+        "auto": "自动捕获",
+        "manual": "手动捕获",
+        "menu": "菜单捕获",
+        "area": "选定区域",
+        "capture": "捕获"
+      }
+    },
     "runtime": {
       "failedLoadAutostart": "无法加载 OCR 自动启动设置。",
       "failedSaveAutostart": "无法保存 OCR 自动启动设置。",
@@ -1316,6 +1351,7 @@
     },
     "output": {
       "title": "所选挂接输出",
+      "copyLine": "复制此行",
       "checkHint": "确认这里的文本与游戏中的文本一致。",
       "waiting": "等待所选挂接输出文本…",
       "selectHook": "从列表中选择一个挂接以预览其文本。"

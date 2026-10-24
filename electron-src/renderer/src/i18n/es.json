@@ -1,4 +1,7 @@
 {
+  "gameBackground": {
+    "title": "Hook del juego (experimental)"
+  },
   "home": {
     "workspace": {
       "library": "Tus juegos",
@@ -1051,6 +1054,38 @@
       "advancedRecognition": "Ajustes de motor, escaneo y captura que controlan cómo se ejecuta OCR.",
       "comparison": "Umbrales de deduplicación y detección de cambios que deciden cuándo el texto es nuevo, estable o un subconjunto de una línea anterior."
     },
+    "activity": {
+      "title": "Texto capturado",
+      "recent": "Más reciente primero · hasta {count} capturas",
+      "clear": "Borrar el texto capturado",
+      "clearButton": "Borrar",
+      "copy": "Copiar el texto capturado",
+      "empty": "El texto capturado aparecerá aquí",
+      "emptyHint": "Inicia el OCR o usa un atajo de captura para ver el texto reconocido.",
+      "states": {
+        "starting": "Iniciando OCR…",
+        "stopped": "Detenido",
+        "paused": "En pausa",
+        "manual": "Esperando una captura",
+        "watching": "Buscando texto"
+      },
+      "events": {
+        "captured": "Texto capturado",
+        "noText": "No se detectó texto",
+        "unchanged": "Esperando cambios en la pantalla",
+        "menu": "Texto de menú omitido",
+        "ignored": "Texto en un área ignorada omitido",
+        "duplicate": "Texto repetido omitido",
+        "error": "El OCR necesita atención · consulta la consola para más detalles"
+      },
+      "sources": {
+        "auto": "Captura automática",
+        "manual": "Captura manual",
+        "menu": "Captura de menú",
+        "area": "Área seleccionada",
+        "capture": "Captura"
+      }
+    },
     "runtime": {
       "failedLoadAutostart": "No se pudo cargar la configuración de inicio automático de OCR.",
       "failedSaveAutostart": "No se pudo guardar la configuración de inicio automático de OCR.",
@@ -1316,6 +1351,7 @@
     },
     "output": {
       "title": "Salida del hook seleccionado",
+      "copyLine": "Copiar línea",
       "checkHint": "Comprueba que coincida con el texto del juego.",
       "waiting": "Esperando texto del hook seleccionado…",
       "selectHook": "Selecciona un hook de la lista para ver su texto."

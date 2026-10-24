@@ -2,6 +2,11 @@ import type { IpcBridge, IpcEventLike } from "../types/global";
 
 const DEV_PREVIEW_PARAMETER = "preview";
 const PREVIEW_SCENE = { id: "agent-preview", name: "Agent Preview" };
+const PREVIEW_OCR_TEXT = [
+  "「大丈夫。きっと、うまくいくよ。」",
+  "窓の向こうで、雨が静かに降っている。\nもう少しだけ、ここで待っていよう。",
+  "「明日、またここで会おう。」"
+];
 const PREVIEW_HOOKS = [
   {
     id: "12",
@@ -76,7 +81,7 @@ function previewInvokeResult(channel: string): unknown {
         last_line_received: offlineHome ? undefined : new Date(Date.now() - 12000).toISOString(),
       } : null;
     case "scene-switcher.getState":
-      return { collectionEnabled: false, migrationReady: true, rule: null };
+      return { migrationReady: true, rule: null };
     case "ocr.getActiveOCRConfig":
       return {
         scene: PREVIEW_SCENE.id,
@@ -151,6 +156,7 @@ export function installDevPreviewBridge(): void {
   const listeners = new Map<string, Set<IpcListener>>();
   let previewMode: "auto" | "manual" | null = null;
   let previewPaused = false;
+  let previewCaptureIndex = 0;
   let hookRunning = false;
   let hookEngine = "luna";
   let previewSelectedHook: string | null = null;
@@ -175,6 +181,16 @@ export function installDevPreviewBridge(): void {
       current_engine: "screenai",
       scan_rate: 0.5,
     });
+  const emitOcrCapture = (source: string) => {
+    emit("ocr-ipc-message", {
+      event: "ocr_result",
+      data: {
+        text: PREVIEW_OCR_TEXT[previewCaptureIndex++ % PREVIEW_OCR_TEXT.length],
+        source,
+        time: new Date().toISOString()
+      }
+    });
+  };
   const removeListener = (channel: string, listener: IpcListener) => {
     listeners.get(channel)?.delete(listener);
   };
@@ -304,6 +320,7 @@ export function installDevPreviewBridge(): void {
         previewPaused = false;
         emit("ocr-started");
         emitStatus();
+        if (previewMode === "auto") emitOcrCapture("ocr");
       } else if (channel === "ocr.kill-ocr") {
         previewMode = null;
         previewPaused = false;
@@ -313,6 +330,14 @@ export function installDevPreviewBridge(): void {
         emitStatus();
       } else if (channel === "ocr.get-status" && previewMode !== null) {
         emitStatus();
+      } else if (
+        previewMode !== null &&
+        ["ocr.manual-ocr", "ocr.menu-ocr", "ocr.area-select-ocr", "ocr.whole-window-ocr"].includes(channel)
+      ) {
+        emitOcrCapture(
+          channel === "ocr.menu-ocr" ? "secondary"
+            : channel === "ocr.area-select-ocr" ? "screen_cropper" : "ocr_manual"
+        );
       }
     },
     on: (channel, listener) => {

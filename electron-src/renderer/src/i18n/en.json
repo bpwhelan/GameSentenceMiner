@@ -1,6 +1,6 @@
 {
   "gameBackground": {
-    "title": "Game background behavior (experimental)",
+    "title": "Game hook (experimental)",
     "help": "A small Windows hook for the game captured by this scene. Settings are remembered for this executable.",
     "enabled": "Automatically apply to this game",
     "keepRendering": "Keep rendering when unfocused",
@@ -1417,6 +1417,38 @@
       "advancedRecognition": "Engine, scan, and capture settings that control how OCR runs.",
       "comparison": "Dedupe and change-detection thresholds that decide when text is new, stable, or a subset of a previous line."
     },
+    "activity": {
+      "title": "Captured text",
+      "recent": "Newest first · up to {count} captures",
+      "clear": "Clear captured text",
+      "clearButton": "Clear",
+      "copy": "Copy captured text",
+      "empty": "Your captured text appears here",
+      "emptyHint": "Start OCR or use a capture shortcut to see what it reads.",
+      "states": {
+        "starting": "Starting OCR…",
+        "stopped": "Stopped",
+        "paused": "Paused",
+        "manual": "Waiting for a capture",
+        "watching": "Watching for text"
+      },
+      "events": {
+        "captured": "Text captured",
+        "noText": "No text detected",
+        "unchanged": "Waiting for screen changes",
+        "menu": "Menu text skipped",
+        "ignored": "Text in an ignored area skipped",
+        "duplicate": "Repeated text skipped",
+        "error": "OCR needs attention · see the console for details"
+      },
+      "sources": {
+        "auto": "Automatic capture",
+        "manual": "Manual capture",
+        "menu": "Menu capture",
+        "area": "Selected area",
+        "capture": "Capture"
+      }
+    },
     "runtime": {
       "failedLoadAutostart": "Failed to load OCR autostart settings.",
       "failedSaveAutostart": "Failed to save OCR autostart settings.",
@@ -1754,6 +1786,7 @@
     },
     "output": {
       "title": "Selected Hook Output",
+      "copyLine": "Copy line",
       "checkHint": "Check that this matches the text in your game.",
       "waiting": "Waiting for text from the selected hook…",
       "selectHook": "Select a hook from the list to preview its text."

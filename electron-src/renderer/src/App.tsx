@@ -601,7 +601,6 @@ function ConsolePanel({
         <button
           className="console-action-button"
           onClick={() => void openLogsFolder()}
-          data-tip={t("app.console.openLogsFolderTooltip")}
         >
           {t("app.console.openLogsFolder")}
         </button>

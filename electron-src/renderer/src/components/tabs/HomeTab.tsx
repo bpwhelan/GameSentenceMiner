@@ -1018,11 +1018,6 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
               type="button"
               className="home-overlay-primary-btn"
               onClick={overlayRunning ? openOverlaySettings : runOverlay}
-              data-tip={
-                overlayRunning
-                  ? t("home.actions.overlaySettingsTooltip")
-                  : t("home.actions.overlayTooltip")
-              }
             >
               <WorkspaceIcon name={overlayRunning ? "settings" : "play"} />
               {overlayRunning ? t("home.actions.overlaySettings") : t("home.actions.overlay")}
@@ -1031,7 +1026,6 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
               type="button"
               className="home-quick-btn home-overlay-guide-btn"
               onClick={() => openExternal(OVERLAY_DOCS_URL)}
-              data-tip={t("home.actions.overlayWiki")}
             >
               {t("home.overlay.guide")}
             </button>
@@ -1151,7 +1145,6 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
               className="home-icon-btn"
               disabled={!canEnumerateWindows || sceneCreating}
               onClick={() => void loadWindows()}
-              data-tip={t("home.obs.refreshWindows")}
               aria-label={t("home.obs.refreshWindows")}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
@@ -1285,7 +1278,6 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
               className="home-icon-btn"
               onClick={() => void refreshAll()}
               aria-label={t("home.obs.refreshScenes")}
-              data-tip={t("home.obs.refreshScenes")}
             >
               <WorkspaceIcon name="updates" />
             </button>
@@ -1471,81 +1463,42 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
               )}
             </section>
 
-            <div className="home-tools">
-              {overlaySection}
-              <section className="home-quick-actions" aria-labelledby="home-text-feed-heading">
-                <div className="home-section-heading">
-                  <h2 id="home-text-feed-heading"><WorkspaceIcon name="activity" />{t("home.workspace.textFeed")}</h2>
-                </div>
-                <p className="home-section-hint">{t("home.workspace.textFeedHint")}</p>
-                <div className="home-tool-actions">
-                  <button type="button" className="home-feed-button" onClick={openTexthooker} data-tip={t("home.actions.texthookerTooltip")}>
-                    {t("home.actions.texthooker")}
-                    <WorkspaceIcon name="arrow" />
-                  </button>
-                </div>
-                <button type="button" className="home-settings-link" onClick={openGSMSettings} data-tip={t("home.actions.gsmSettingsTooltip")}>
-                  <WorkspaceIcon name="settings" />
-                  {t("home.actions.gsmSettings")}
-                  <WorkspaceIcon name="arrow" />
-                </button>
-              </section>
-            </div>
-
-            <section className="home-game-details" hidden={isHelperScene} aria-labelledby="home-game-options-heading">
-              <div className="home-section-heading">
-                <h2 id="home-game-options-heading"><WorkspaceIcon name="settings" />{t("home.workspace.gameOptions")}</h2>
-              </div>
+            <div className="home-game-details" hidden={isHelperScene || !selectedScene}>
               <div className="home-section-body">
-                {/* Game executable — Linux Wine/Proton hook target (read-only on Windows) */}
-                {selectedScene && !isHelperScene && (
+                {/* Windows resolves the executable from the captured game automatically. */}
+                {!isWindows && selectedScene && !isHelperScene && (
                   <div className="home-row">
                     <label className="home-row__label" htmlFor="home-game-exe">
                       {t("home.obs.gameExeLabel")}
                     </label>
                     <div className="home-row__controls">
-                      {isWindows ? (
-                        <input
-                          id="home-game-exe"
-                          className="home-input"
-                          type="text"
-                          value={windowsDetectedExe}
-                          readOnly
-                          disabled
-                          data-tip={t("home.obs.gameExeWindowsTooltip")}
-                          autoComplete="off"
-                        />
-                      ) : (
-                        <>
-                          <input
-                            id="home-game-exe"
-                            className="home-input"
-                            type="text"
-                            value={gameExePath}
-                            placeholder={t("home.obs.gameExePlaceholder")}
-                            autoComplete="off"
-                            onChange={(e) => setGameExePath(e.target.value)}
-                            onBlur={(e) => void persistGameExePath(e.target.value.trim())}
-                          />
-                          <button
-                            type="button"
-                            className="home-text-btn"
-                            onClick={() => void handleBrowseGameExe()}
-                          >
-                            {t("home.obs.gameExeBrowse")}
-                          </button>
-                          <button
-                            type="button"
-                            className="home-text-btn"
-                            disabled={gameExeDetecting}
-                            onClick={() => void handleAutoDetectGameExe()}
-                          >
-                            {gameExeDetecting
-                              ? t("home.obs.gameExeDetecting")
-                              : t("home.obs.gameExeAutoDetect")}
-                          </button>
-                        </>
-                      )}
+                      <input
+                        id="home-game-exe"
+                        className="home-input"
+                        type="text"
+                        value={gameExePath}
+                        placeholder={t("home.obs.gameExePlaceholder")}
+                        autoComplete="off"
+                        onChange={(e) => setGameExePath(e.target.value)}
+                        onBlur={(e) => void persistGameExePath(e.target.value.trim())}
+                      />
+                      <button
+                        type="button"
+                        className="home-text-btn"
+                        onClick={() => void handleBrowseGameExe()}
+                      >
+                        {t("home.obs.gameExeBrowse")}
+                      </button>
+                      <button
+                        type="button"
+                        className="home-text-btn"
+                        disabled={gameExeDetecting}
+                        onClick={() => void handleAutoDetectGameExe()}
+                      >
+                        {gameExeDetecting
+                          ? t("home.obs.gameExeDetecting")
+                          : t("home.obs.gameExeAutoDetect")}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1554,7 +1507,28 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                   <GameBackgroundSettings sceneId={selectedScene.id} active={active} />
                 )}
               </div>
-            </section>
+            </div>
+
+            <div className="home-tools">
+              {overlaySection}
+              <section className="home-quick-actions" aria-labelledby="home-text-feed-heading">
+                <div className="home-section-heading">
+                  <h2 id="home-text-feed-heading"><WorkspaceIcon name="activity" />{t("home.workspace.textFeed")}</h2>
+                </div>
+                <p className="home-section-hint">{t("home.workspace.textFeedHint")}</p>
+                <div className="home-tool-actions">
+                  <button type="button" className="home-feed-button" onClick={openTexthooker}>
+                    {t("home.actions.texthooker")}
+                    <WorkspaceIcon name="arrow" />
+                  </button>
+                </div>
+                <button type="button" className="home-settings-link" onClick={openGSMSettings}>
+                  <WorkspaceIcon name="settings" />
+                  {t("home.actions.gsmSettings")}
+                  <WorkspaceIcon name="arrow" />
+                </button>
+              </section>
+            </div>
           </div>
 
         </div>

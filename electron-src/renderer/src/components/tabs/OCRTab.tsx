@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import "./OCRTab.css";
 import { OCRCaptureMap, type CaptureMapConfig } from "./OCRCaptureMap";
+import { OCRTextFeed } from "./OCRTextFeed";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { DOCS_URLS } from "../../../../shared/docs";
@@ -8,7 +9,7 @@ import { getBasicMainOcr, getDefaultStabilityOcr, type OcrPlatform } from "../..
 import { invokeIpc, onIpc, platformFromEnv, sendIpc } from "../../lib/ipc";
 import type { ObsScene, SceneLaunchProfile, SceneOcrMode } from "../../types/models";
 import { useTranslation } from "../../i18n";
-import { Tooltip, tooltipProps } from "../Tooltip";
+import { tooltipProps } from "../Tooltip";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "../../lib/theme";
 
 type ProcessPriority =
@@ -981,19 +982,12 @@ function splitComparisonFields() {
 const COMPARISON_LAYOUT = splitComparisonFields();
 
 const OCR_TOOLTIP_KEYS = {
-  scene: "ocr.tooltips.scene",
-  refreshScenes: "ocr.tooltips.refreshScenes",
-  selectAreas: "ocr.tooltips.selectAreas",
-  importAreas: "ocr.tooltips.importAreas",
-  exportAreas: "ocr.tooltips.exportAreas",
-  docs: "ocr.tooltips.docs",
   advancedMode: "ocr.tooltips.advancedMode",
   basicScanRate: "ocr.tooltips.basicScanRate",
   advancedScanRate: "ocr.tooltips.advancedScanRate",
   language: "ocr.tooltips.language",
   baseScale: "ocr.tooltips.baseScale",
   furiganaFilter: "ocr.tooltips.furiganaFilter",
-  furiganaPreview: "ocr.tooltips.furiganaPreview",
   sendToClipboard: "ocr.tooltips.sendToClipboard",
   sendToClipboardAuto: "ocr.tooltips.sendToClipboardAuto",
   sendToClipboardMenu: "ocr.tooltips.sendToClipboardMenu",
@@ -1024,17 +1018,6 @@ const OCR_TOOLTIP_KEYS = {
   advancedDebugLogging: "ocr.tooltips.advancedDebugLogging",
   installDependency: "ocr.tooltips.installDependency",
   uninstallDependency: "ocr.tooltips.uninstallDependency",
-  replacements: "ocr.tooltips.replacements",
-  openConfigFile: "ocr.tooltips.openConfigFile",
-  openConfigFolder: "ocr.tooltips.openConfigFolder",
-  openGlobalConfig: "ocr.tooltips.openGlobalConfig",
-  openTempFolder: "ocr.tooltips.openTempFolder",
-  clearConsole: "ocr.tooltips.clearConsole",
-  startAuto: "ocr.tooltips.startAuto",
-  startManual: "ocr.tooltips.startManual",
-  stop: "ocr.tooltips.stop",
-  pause: "ocr.tooltips.pause",
-  resume: "ocr.tooltips.resume",
   advancedRecognition: "ocr.tooltips.advancedRecognition",
   comparison: "ocr.tooltips.comparison"
 } as const;
@@ -2222,9 +2205,7 @@ export function OCRTab({ active }: OcrTabProps) {
           <div className="desk-game">
             <div className="desk-target-game">
               <div className="input-group ocr-scene-row">
-                <Tooltip text={ocrTooltips.scene}>
-                  <label htmlFor="ocr-scene-select">{t("ocr.sceneAndAreas.sceneLabel")}</label>
-                </Tooltip>
+                <label htmlFor="ocr-scene-select">{t("ocr.sceneAndAreas.sceneLabel")}</label>
                 <select
                   id="ocr-scene-select"
                   className="ocr-scene-select"
@@ -2248,21 +2229,16 @@ export function OCRTab({ active }: OcrTabProps) {
                     ))
                   )}
                 </select>
-                <Tooltip
-                  text={ocrTooltips.refreshScenes}
-                  align="center"
+                <button
+                  type="button"
+                  className="secondary ocr-icon-btn"
+                  onClick={() => {
+                    void refreshScenesAndConfig();
+                  }}
+                  aria-label={t("ocr.sceneAndAreas.reloadScenes")}
                 >
-                  <button
-                    type="button"
-                    className="secondary ocr-icon-btn"
-                    onClick={() => {
-                      void refreshScenesAndConfig();
-                    }}
-                    aria-label={t("ocr.sceneAndAreas.reloadScenes")}
-                  >
-                    ↻
-                  </button>
-                </Tooltip>
+                  ↻
+                </button>
               </div>
             </div>
           </div>
@@ -2319,7 +2295,6 @@ export function OCRTab({ active }: OcrTabProps) {
                   <button
                     type="button"
                     className="danger"
-                    data-tip={ocrTooltips.stop}
                     onClick={() => void stopOcr()}
                   >
                     {t("ocr.footer.stopOcr")}
@@ -2327,7 +2302,6 @@ export function OCRTab({ active }: OcrTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    data-tip={paused ? ocrTooltips.resume : ocrTooltips.pause}
                     onClick={togglePause}
                   >
                     {paused ? t("ocr.footer.resumeOcr") : t("ocr.footer.pauseOcr")}
@@ -2337,13 +2311,6 @@ export function OCRTab({ active }: OcrTabProps) {
                 <>
                   <button
                     type="button"
-                    data-tip={
-                      hasConfiguredAreas
-                        ? ocrTooltips.startAuto
-                        : t("ocr.footer.areasRecommended", {
-                            mode: t("ocr.footer.modeAuto")
-                          })
-                    }
                     onClick={() => void startOcr(false)}
                   >
                     {t("ocr.footer.startAutoOcr")}
@@ -2351,13 +2318,6 @@ export function OCRTab({ active }: OcrTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    data-tip={
-                      hasConfiguredAreas
-                        ? ocrTooltips.startManual
-                        : t("ocr.footer.areasRecommended", {
-                            mode: t("ocr.footer.modeManual")
-                          })
-                    }
                     onClick={() => void startOcr(true)}
                   >
                     {t("ocr.footer.startManualOcr")}
@@ -2382,7 +2342,6 @@ export function OCRTab({ active }: OcrTabProps) {
             <button
               type="button"
               className="desk-guide"
-              {...tooltipProps(ocrTooltips.docs)}
               onClick={() => void openOcrDocs()}
             >
               <WorkspaceIcon name="help" />
@@ -2411,7 +2370,6 @@ export function OCRTab({ active }: OcrTabProps) {
                       className="desk-primary"
                       disabled={loadingScenes || scenes.length === 0}
                       onClick={runScreenSelector}
-                      {...tooltipProps(ocrTooltips.selectAreas)}
                     >
                       <WorkspaceIcon name="edit" />
                       {t("ocr.desk.openAreaSelector")}
@@ -2430,7 +2388,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       disabled={loadingScenes || scenes.length === 0}
-                      {...tooltipProps(ocrTooltips.importAreas)}
                       onClick={() => void importAreaConfig()}
                     >
                       <WorkspaceIcon name="import" />
@@ -2439,7 +2396,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       disabled={loadingScenes || scenes.length === 0}
-                      {...tooltipProps(ocrTooltips.exportAreas)}
                       onClick={() => void exportAreaConfig()}
                     >
                       <WorkspaceIcon name="export" />
@@ -2448,7 +2404,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       disabled={!runningState.isRunning}
-                      {...tooltipProps(ocrTooltips.addAreaHotkey)}
                       onClick={triggerAddOcrArea}
                     >
                       <WorkspaceIcon name="add" />
@@ -2456,8 +2411,25 @@ export function OCRTab({ active }: OcrTabProps) {
                     </button>
                   </div>
                 </section>
-                <aside className="desk-session-settings">
-                  <h2>{t("ocr.desk.thisSession")}</h2>
+                <OCRTextFeed
+                  running={runningState.isRunning}
+                  paused={paused}
+                  manual={runningState.mode === "manual"}
+                />
+              </div>
+              <aside className="desk-session-settings">
+                <div className="desk-session-summary">
+                  <div className="desk-session-heading">
+                    <h2>{t("ocr.desk.thisSession")}</h2>
+                    <button
+                      type="button"
+                      className="desk-text-button"
+                      onClick={() => openWorkspace("recognition")}
+                    >
+                      {t("ocr.desk.adjustRecognition")}
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  </div>
                   <dl>
                     <div>
                       <dt>{t("ocr.desk.engine")}</dt>
@@ -2478,39 +2450,31 @@ export function OCRTab({ active }: OcrTabProps) {
                       <dd>{scanSummary}</dd>
                     </div>
                   </dl>
-                  <button
-                    type="button"
-                    className="desk-text-button"
-                    onClick={() => openWorkspace("recognition")}
+                </div>
+                <div className="desk-autostart">
+                  <div
+                    className="input-group tooltip-trigger tooltip-trigger--start"
+                    {...tooltipProps(autostartTooltip)}
                   >
-                    {t("ocr.desk.adjustRecognition")}
-                    <span aria-hidden="true">→</span>
-                  </button>
-                  <div className="desk-autostart">
-                    <div
-                      className="input-group tooltip-trigger tooltip-trigger--start"
-                      {...tooltipProps(autostartTooltip)}
+                    <label htmlFor="ocr-autostart-mode">{t("ocr.sceneAndAreas.autostart")}</label>
+                    <select
+                      id="ocr-autostart-mode"
+                      aria-description={autostartTooltip}
+                      value={selectedAutostartMode ?? "none"}
+                      disabled={
+                        loadingScenes || selectedAutostartMode === null || savingAutostart
+                      }
+                      onChange={(event) => {
+                        void saveAutostart(event.target.value as SceneOcrMode);
+                      }}
                     >
-                      <label htmlFor="ocr-autostart-mode">{t("ocr.sceneAndAreas.autostart")}</label>
-                      <select
-                        id="ocr-autostart-mode"
-                        aria-description={autostartTooltip}
-                        value={selectedAutostartMode ?? "none"}
-                        disabled={
-                          loadingScenes || selectedAutostartMode === null || savingAutostart
-                        }
-                        onChange={(event) => {
-                          void saveAutostart(event.target.value as SceneOcrMode);
-                        }}
-                      >
-                        <option value="none">{t("launcher.scene.ocrNone")}</option>
-                        <option value="auto">{t("launcher.scene.ocrAuto")}</option>
-                        <option value="manual">{t("launcher.scene.ocrManual")}</option>
-                      </select>
-                    </div>
+                      <option value="none">{t("launcher.scene.ocrNone")}</option>
+                      <option value="auto">{t("launcher.scene.ocrAuto")}</option>
+                      <option value="manual">{t("launcher.scene.ocrManual")}</option>
+                    </select>
                   </div>
-                </aside>
-              </div>
+                </div>
+              </aside>
               {!loadingScenes && scenes.length === 0 ? (
                 <p className="desk-empty-hint">{t("ocr.sceneAndAreas.noScenesHint")}</p>
               ) : null}
@@ -2545,7 +2509,6 @@ export function OCRTab({ active }: OcrTabProps) {
                         type="button"
                         disabled={!runningState.isRunning}
                         aria-label={t(action.labelKey)}
-                        {...tooltipProps(action.tooltip)}
                         onClick={action.trigger}
                       >
                         <WorkspaceIcon name={action.id} />
@@ -2857,7 +2820,6 @@ export function OCRTab({ active }: OcrTabProps) {
                         <button
                           type="button"
                           className="secondary"
-                          {...tooltipProps(ocrTooltips.furiganaPreview)}
                           onClick={async () => {
                             const next = await invokeIpc<number>("run-furigana-window");
                             setConfig((current) => ({
@@ -3451,7 +3413,6 @@ export function OCRTab({ active }: OcrTabProps) {
                             aria-labelledby={
                               action.id + "-run-label " + action.id + "-action-label"
                             }
-                            data-tip={t("ocr.hotkeys.runActionTitle")}
                             onClick={action.trigger}
                           >
                             <span id={action.id + "-run-label"}>{t("ocr.hotkeys.runAction")}</span>
@@ -3662,7 +3623,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
-                      {...tooltipProps(ocrTooltips.replacements)}
                       onClick={openOcrReplacementsPage}
                     >
                       {t("ocr.debug.ocrErrorFixes")}
@@ -3670,7 +3630,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
-                      {...tooltipProps(ocrTooltips.openConfigFile)}
                       onClick={() => void invokeIpc("ocr.open-config-json")}
                     >
                       {t("ocr.debug.configFile")}
@@ -3678,7 +3637,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
-                      {...tooltipProps(ocrTooltips.openConfigFolder)}
                       onClick={() => void invokeIpc("ocr.open-config-folder")}
                     >
                       {t("ocr.debug.configFolder")}
@@ -3686,7 +3644,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
-                      {...tooltipProps(ocrTooltips.openGlobalConfig)}
                       onClick={() => void invokeIpc("ocr.open-global-owocr-config")}
                     >
                       {t("ocr.debug.globalConfig")}
@@ -3694,7 +3651,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
-                      {...tooltipProps(ocrTooltips.openTempFolder)}
                       onClick={() => void invokeIpc("ocr.open-temp-folder")}
                     >
                       {t("ocr.debug.tempFolder")}
@@ -3732,7 +3688,6 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div>
                   <button
                     type="button"
-                    {...tooltipProps(ocrTooltips.clearConsole)}
                     onClick={clearTerminal}
                   >
                     {t("ocr.console.clear")}

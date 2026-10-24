@@ -574,9 +574,10 @@
 }
 
 .home-desk .home-game-details {
-  margin-top: 32px;
-  padding-top: 22px;
-  border-top: 1px solid var(--gsm-border-subtle);
+  margin-top: 24px;
+}
+.home-desk .home-game-details > .home-section-body {
+  padding-top: 0;
 }
 .home-desk .home-text-btn {
   min-height: 30px;
@@ -612,11 +613,23 @@
   background: transparent;
   font-size: 11px;
 }
-.home-desk .game-background-settings > summary {
-  width: fit-content;
-  color: var(--gsm-text-muted);
+.home-desk .game-background-settings > h2 {
+  margin-bottom: 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.home-desk .game-background-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  margin: 16px 0;
+}
+.home-desk .game-background-option {
+  margin: 0;
+  font-size: 12px;
+}
+.home-desk .game-background-help {
   font-size: 11px;
-  font-weight: 400;
 }
 
 .home-desk .home-status-card {

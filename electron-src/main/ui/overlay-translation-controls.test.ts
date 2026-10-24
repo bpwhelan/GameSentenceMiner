@@ -83,7 +83,7 @@ describe("overlay translation controls", () => {
 
 it("applies a translation binding edit to the running gamepad configuration", () => {
   const source = fs.readFileSync(path.resolve("GSM_Overlay/index.html"), "utf8");
-  const context = vm.createContext({});
+  const context = vm.createContext({ window: {} });
   vm.runInContext([
     between(source, "  const GAMEPAD_NAVIGATION_OPTIONS = [", "  // Keyboard setting keys"),
     "const KEYBOARD_SETTING_KEYS = []; const showFurigana = false;",
