@@ -25,7 +25,6 @@ describe("SceneSwitcherSettings", () => {
           hookStatus: "running",
           obsConnected: true,
           collectionName: "Games",
-          collectionEnabled: false,
           migrationReady: true,
           rule: null,
           foreground: null
@@ -90,5 +89,52 @@ describe("SceneSwitcherSettings", () => {
       (container.querySelector("#scene-switcher-pattern-scene-1") as HTMLInputElement).value
     ).toBe(".*Game Title.*");
     expect(container.textContent).toContain("Loaded the current OBS capture source.");
+  });
+
+  it("enables a GSM rule without a separate collection switch", async () => {
+    let enabled = false;
+    invokeMock.mockImplementation(async (channel: string, payload?: { enabled: boolean }) => {
+      if (channel === "scene-switcher.getState") {
+        return {
+          supported: true,
+          hookStatus: "running",
+          obsConnected: true,
+          collectionName: "Games",
+          migrationReady: true,
+          rule: { titlePattern: ".*Game Title.*", enabled },
+          foreground: null
+        };
+      }
+      if (channel === "scene-switcher.saveRule") {
+        enabled = payload?.enabled === true;
+        return { success: true };
+      }
+      throw new Error(`Unexpected channel: ${channel}`);
+    });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <SceneSwitcherSettings scene={{ id: "scene-1", name: "Game" }} />
+        </I18nProvider>
+      );
+    });
+
+    const toggle = container.querySelector("#scene-switcher-rule-scene-1") as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+
+    await act(async () => {
+      toggle.click();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("scene-switcher.saveRule", {
+      sceneUuid: "scene-1",
+      sceneName: "Game",
+      titlePattern: ".*Game Title.*",
+      enabled: true
+    });
+    expect(enabled).toBe(true);
+    expect(toggle.checked).toBe(true);
+    expect(container.textContent).not.toContain("Failed to save");
   });
 });

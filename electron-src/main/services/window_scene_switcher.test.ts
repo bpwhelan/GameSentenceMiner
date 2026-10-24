@@ -47,7 +47,7 @@ describe("window scene switcher migration", () => {
     await fs.rm(directory, { recursive: true, force: true });
   });
 
-  it("imports once, disables only OBS's built-in checker, and retains legacy rules", async () => {
+  it.each([true, false])("imports once and retains rules with legacy OBS active=%s", async (active) => {
     const collectionPath = path.join(directory, "portable-name.json");
     await fs.writeFile(
       collectionPath,
@@ -55,7 +55,7 @@ describe("window scene switcher migration", () => {
         name: "My Collection",
         modules: {
           "auto-scene-switcher": {
-            active: true,
+            active,
             switches: [
               { scene: "Game", window_title: ".*Game A.*" },
               { scene: "Game", window_title: ".*Game B.*" },
@@ -98,7 +98,6 @@ describe("window scene switcher migration", () => {
       expect.objectContaining({
         collectionName: "My Collection",
         collectionFileName: "portable-name.json",
-        enabled: true,
         legacySwitcherDisabled: true,
         rules: [
           expect.objectContaining({
@@ -116,6 +115,7 @@ describe("window scene switcher migration", () => {
         ],
       }),
     ]);
+    expect(config.collections[0]).not.toHaveProperty("enabled");
 
     const persisted = JSON.parse(await fs.readFile(collectionPath, "utf-8"));
     expect(persisted.modules["auto-scene-switcher"]).toEqual({
@@ -182,7 +182,6 @@ describe("window scene switcher startup synchronization", () => {
         {
           collectionName: "Games",
           collectionFileName: "Games.json",
-          enabled: true,
           migrationVersion: 1,
           legacySwitcherDisabled: true,
           rules: [
@@ -457,7 +456,6 @@ describe("window scene switcher continuous reconciliation", () => {
         {
           collectionName: "Games",
           collectionFileName: "Games.json",
-          enabled: true,
           migrationVersion: 1,
           legacySwitcherDisabled: true,
           rules: [
@@ -478,6 +476,62 @@ describe("window scene switcher continuous reconciliation", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  it.each([
+    { legacyCollectionEnabled: false, ruleEnabled: true },
+    { legacyCollectionEnabled: undefined, ruleEnabled: true },
+    { legacyCollectionEnabled: false, ruleEnabled: false },
+    { legacyCollectionEnabled: true, ruleEnabled: false },
+  ])(
+    "uses GSM rule enabled=$ruleEnabled with legacy collection enabled=$legacyCollectionEnabled",
+    async ({ legacyCollectionEnabled, ruleEnabled }) => {
+      Object.assign(config.collections[0], { enabled: legacyCollectionEnabled });
+      Object.assign(config.collections[0].rules[0], {
+        sceneName: "Akai Ito",
+        titlePattern: ".*AKAIITO_HD_REMASTER.*",
+        executableName: "AKAIITO_HD_REMASTER.exe",
+        enabled: ruleEnabled,
+        source: "gsm-generated",
+      });
+      const service = await loadService();
+      let currentScene = { id: "scene-other", name: "Other" };
+      const switchScene = vi.fn(async (sceneUuid: string) => {
+        currentScene = { id: sceneUuid, name: "Akai Ito" };
+      });
+
+      try {
+        service.configureWindowSceneSwitcherRuntime({
+          isOBSConnected: () => true,
+          getCurrentCollectionName: async () => "Games",
+          getScenes: async () => [
+            { id: "scene-other", name: "Other" },
+            { id: "scene-game", name: "Akai Ito" },
+          ],
+          getCurrentScene: async () => currentScene,
+          switchScene,
+          suggestRule: async () => null,
+          restoreForegroundWindow: () => {},
+          requestForegroundSnapshot: () => {
+            service.handleForegroundWindowSnapshot({
+              hwnd: "10365346",
+              pid: 999_999,
+              title: "AKAIITO_HD_REMASTER",
+              executableName: "AKAIITO_HD_REMASTER.exe",
+              capturedAt: Date.now(),
+              sequence: 1,
+            });
+          },
+        });
+        await vi.advanceTimersByTimeAsync(200);
+
+        expect(switchScene).toHaveBeenCalledTimes(ruleEnabled ? 1 : 0);
+        expect(currentScene.id).toBe(ruleEnabled ? "scene-game" : "scene-other");
+        expect(config.collections[0]).not.toHaveProperty("enabled");
+      } finally {
+        service.shutdownWindowSceneSwitcher();
+      }
+    }
+  );
 
   it("recovers when both the foreground hook event and OBS scene event are missed", async () => {
     const service = await loadService();

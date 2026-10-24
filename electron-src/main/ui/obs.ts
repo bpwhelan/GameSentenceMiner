@@ -25,6 +25,7 @@ import extract from '../services/zip_extract.js';
 import { installSessionManager } from '../services/install_session_state.js';
 import { syncProcessPausingTargetForScene } from '../services/process_pausing_target.js';
 import { closeWindowsOBSGracefully } from '../runtime/windows_obs_shutdown.js';
+import { showWindowsOBSWindow } from '../runtime/windows_obs_window.js';
 import { createObsSettingsSnapshot } from '../services/obs_settings_snapshot.js';
 import type {
     InstallProgressKind,
@@ -2794,6 +2795,20 @@ export async function registerOBSIPC() {
         });
         if (result.status === 'missing' || result.status === 'failed') {
             sendStartOBS();
+        } else if (
+            isWindows() && result.pid &&
+            (result.status === 'launched' || result.status === 'already-running')
+        ) {
+            try {
+                await showWindowsOBSWindow(result.pid, execFileAsync);
+            } catch (error) {
+                logObsError('Failed to show the OBS window:', error);
+                return {
+                    status: 'failed',
+                    pid: result.pid,
+                    error: error instanceof Error ? error.message : String(error),
+                };
+            }
         }
         return result;
     });

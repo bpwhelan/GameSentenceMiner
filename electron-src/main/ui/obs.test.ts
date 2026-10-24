@@ -220,6 +220,8 @@ describe('launchOBSFromElectron', () => {
         rmSyncMock.mockReset();
         mkdirSyncMock.mockReset();
         execMock.mockReset();
+        execFileAsyncMock.mockReset();
+        execFileAsyncMock.mockResolvedValue({ stdout: '', stderr: '' });
         spawnMock.mockReset();
         obsCallMock.mockReset();
         obsConnectMock.mockReset();
@@ -439,6 +441,88 @@ describe('launchOBSFromElectron', () => {
             pid: 4242,
         });
         expect(spawnMock).toHaveBeenCalledOnce();
+        expect(execFileAsyncMock).toHaveBeenCalledWith(
+            expect.stringMatching(/WindowsPowerShell\\v1\.0\\powershell\.exe$/i),
+            expect.arrayContaining(['-EncodedCommand']),
+            { windowsHide: true, timeout: 15_000 },
+        );
+    });
+
+    it('restores the existing managed OBS window from the tray when opened from Home', async () => {
+        const obsPidPath = 'C:\\test-gsm\\obs_pid.txt';
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === obsPidPath);
+        readFileSyncMock.mockImplementation((targetPath: string) =>
+            targetPath === obsPidPath ? '4242' : '{}'
+        );
+        execFileAsyncMock.mockResolvedValue({ stdout: '"obs64.exe","4242"', stderr: '' });
+        vi.spyOn(process, 'kill').mockImplementation(() => true);
+        const { registerOBSIPC } = await loadObsModule();
+
+        await registerOBSIPC();
+        const openOBSHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'openOBS')?.[1];
+        await expect(openOBSHandler({})).resolves.toEqual({ status: 'already-running', pid: 4242 });
+
+        expect(spawnMock).not.toHaveBeenCalled();
+        const [executable, args, options] = execFileAsyncMock.mock.calls.at(-1)!;
+        expect(executable).toMatch(/WindowsPowerShell\\v1\.0\\powershell\.exe$/i);
+        const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+        expect(script).toContain('Get-Process -Id 4242');
+        expect(script).toContain('EnumWindows');
+        expect(script).toContain('GetWindowThreadProcessId');
+        expect(script).toContain('TrayIconMessageWindowClass');
+        expect(script).toContain('SendMessageTimeout');
+        expect(script).toContain('ActivateTrayIcon(trayWindow)');
+        expect(script).toContain('0x8065');
+        expect(script).toContain('0x0400');
+        expect(script).not.toContain('IsIconic(window) ? 9 : 5');
+        expect(script).toContain('SetForegroundWindow');
+        expect(options).toEqual({ windowsHide: true, timeout: 15_000 });
+    });
+
+    it('does not launch another OBS when restoring its window fails', async () => {
+        const obsPidPath = 'C:\\test-gsm\\obs_pid.txt';
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === obsPidPath);
+        readFileSyncMock.mockImplementation((targetPath: string) =>
+            targetPath === obsPidPath ? '4242' : '{}'
+        );
+        execFileAsyncMock.mockImplementation(async (executable: string) => {
+            if (executable === 'tasklist') return { stdout: '"obs64.exe","4242"', stderr: '' };
+            throw new Error('OBS window is unavailable');
+        });
+        vi.spyOn(process, 'kill').mockImplementation(() => true);
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const { registerOBSIPC } = await loadObsModule();
+
+        await registerOBSIPC();
+        const openOBSHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'openOBS')?.[1];
+        await expect(openOBSHandler({})).resolves.toMatchObject({
+            status: 'failed',
+            pid: 4242,
+            error: expect.stringContaining('OBS window is unavailable'),
+        });
+        expect(spawnMock).not.toHaveBeenCalled();
+        expect(sendStartOBSMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps automatic startup from restoring the OBS window', async () => {
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === DEFAULT_OBS_PATH);
+        const { launchOBSFromElectron } = await loadObsModule();
+
+        await expect(launchOBSFromElectron({ reason: 'startup' })).resolves.toEqual({
+            status: 'launched', pid: 4242,
+        });
+        expect(execFileAsyncMock).not.toHaveBeenCalled();
+    });
+
+    it('preserves manual OBS launch on other platforms', async () => {
+        isWindowsMock.mockReturnValue(false);
+        isLinuxMock.mockReturnValue(true);
+        const { registerOBSIPC } = await loadObsModule();
+
+        await registerOBSIPC();
+        const openOBSHandler = ipcHandleMock.mock.calls.find(([channel]) => channel === 'openOBS')?.[1];
+        await expect(openOBSHandler({})).resolves.toEqual({ status: 'launched', pid: 4242 });
+        expect(execFileAsyncMock).not.toHaveBeenCalled();
     });
 
     it('uses managed spawn fallback for obs.launch instead of exec', async () => {
@@ -944,13 +1028,13 @@ describe('renameOBSScene', () => {
                     collections: [
                         expect.objectContaining({
                             collectionName: 'Collection 1',
-                            enabled: true,
                             rules: [
                                 expect.objectContaining({
                                     sceneUuid: 'scene-my-game',
                                     sceneName: 'My Scene',
                                     titlePattern: '.*Game Window.*',
                                     executableName: 'game.exe',
+                                    enabled: true,
                                     source: 'gsm-generated',
                                 }),
                             ],

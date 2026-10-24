@@ -75,9 +75,6 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
         setMessage(result.error ?? t("sceneSwitcher.status.saveFailed"));
         return false;
       }
-      if (enabled && !state?.collectionEnabled) {
-        await invokeIpc("scene-switcher.setCollectionEnabled", true);
-      }
       dirtyRef.current = false;
       setMessage("");
       await load();
@@ -88,7 +85,7 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
     } finally {
       setSaving(false);
     }
-  }, [hasValidPattern, load, saving, scene.id, scene.name, state?.collectionEnabled, t, titlePattern]);
+  }, [hasValidPattern, load, saving, scene.id, scene.name, t, titlePattern]);
 
   const savePattern = useCallback(async () => {
     if (!dirtyRef.current || patternError) return;
@@ -153,7 +150,6 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
       <button
         type="button"
         className="secondary scene-switcher-settings__source-button"
-        data-tip={t("sceneSwitcher.useCaptureSource")}
         disabled={saving || loadingCaptureSource}
         onClick={() => void useCaptureSource()}
       >

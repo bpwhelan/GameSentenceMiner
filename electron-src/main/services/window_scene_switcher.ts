@@ -151,7 +151,6 @@ function normalizeConfig(value: unknown): WindowSceneSwitcherConfig {
               return [{
                   collectionName,
                   collectionFileName,
-                  enabled: collection.enabled === true,
                   migrationVersion: Number.isFinite(collection.migrationVersion)
                       ? Number(collection.migrationVersion)
                       : 0,
@@ -308,7 +307,6 @@ export async function migrateLegacyWindowSceneSwitcherCollections(
                 state = {
                     collectionName,
                     collectionFileName: fileName,
-                    enabled: autoSwitcher?.active === true,
                     migrationVersion: WINDOW_SCENE_SWITCHER_MIGRATION_VERSION,
                     legacySwitcherDisabled: autoSwitcher?.active !== true,
                     rules: importLegacyRules(data),
@@ -318,7 +316,6 @@ export async function migrateLegacyWindowSceneSwitcherCollections(
                 state.collectionFileName = fileName;
                 if (state.migrationVersion < WINDOW_SCENE_SWITCHER_MIGRATION_VERSION) {
                     state.rules = importLegacyRules(data);
-                    state.enabled = data.modules?.[AUTO_SCENE_SWITCHER_MODULE_NAME]?.active === true;
                     state.migrationVersion = WINDOW_SCENE_SWITCHER_MIGRATION_VERSION;
                 }
             }
@@ -371,7 +368,6 @@ export function upsertGeneratedWindowSceneRule(
         collection = {
             collectionName,
             collectionFileName: path.basename(collectionFileName) || `${collectionName}.json`,
-            enabled: true,
             migrationVersion: WINDOW_SCENE_SWITCHER_MIGRATION_VERSION,
             legacySwitcherDisabled: true,
             rules: [],
@@ -627,13 +623,6 @@ async function evaluateForeground(generation: number): Promise<void> {
         logDiagnostic(
             `disabled:no-collection:${activeCollectionName}`,
             `No Scene Switcher configuration exists for OBS collection ${JSON.stringify(activeCollectionName || 'unknown')}.`
-        );
-        return;
-    }
-    if (!collection.enabled) {
-        logDiagnostic(
-            `disabled:collection:${collection.collectionName}`,
-            `Scene switching is disabled for OBS collection "${collection.collectionName}".`
         );
         return;
     }
@@ -1084,7 +1073,6 @@ async function getState(sceneUuid = ''): Promise<WindowSceneSwitcherState> {
         hookError: hookError || undefined,
         obsConnected,
         collectionName: activeCollectionName,
-        collectionEnabled: collection?.enabled === true,
         migrationReady: collection?.legacySwitcherDisabled === true,
         rule:
             collection?.rules.find((candidate) => candidate.sceneUuid === sceneUuid) ?? null,
@@ -1106,7 +1094,6 @@ function saveManualRule(payload: SaveWindowSceneSwitcherRulePayload): WindowScen
         collection = {
             collectionName: activeCollectionName,
             collectionFileName: `${activeCollectionName.replace(/\s+/g, '_')}.json`,
-            enabled: true,
             migrationVersion: WINDOW_SCENE_SWITCHER_MIGRATION_VERSION,
             legacySwitcherDisabled: true,
             rules: [],
@@ -1156,18 +1143,6 @@ export function registerWindowSceneSwitcherIPC(): void {
     });
     ipcMain.handle('scene-switcher.removeRule', async (_event, sceneUuid?: string) => {
         removeWindowSceneSwitcherRule(String(sceneUuid ?? ''));
-        return { success: true };
-    });
-    ipcMain.handle('scene-switcher.setCollectionEnabled', async (_event, enabled?: boolean) => {
-        const config = readConfig();
-        const collection = findCollection(config, activeCollectionName);
-        if (!collection) {
-            return { success: false };
-        }
-        collection.enabled = enabled === true;
-        writeConfig(config);
-        scheduleEvaluation();
-        notifyStateChanged();
         return { success: true };
     });
     ipcMain.handle('scene-switcher.suggestRule', async (_event, sceneUuid?: string) => {

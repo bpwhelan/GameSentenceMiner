@@ -18,7 +18,6 @@ export interface WindowSceneSwitcherRule {
 export interface WindowSceneSwitcherCollection {
     collectionName: string;
     collectionFileName: string;
-    enabled: boolean;
     migrationVersion: number;
     legacySwitcherDisabled: boolean;
     rules: WindowSceneSwitcherRule[];
@@ -68,7 +67,6 @@ export interface WindowSceneSwitcherState {
     hookError?: string;
     obsConnected: boolean;
     collectionName: string;
-    collectionEnabled: boolean;
     migrationReady: boolean;
     rule: WindowSceneSwitcherRule | null;
     foreground: ForegroundWindowSnapshot | null;
