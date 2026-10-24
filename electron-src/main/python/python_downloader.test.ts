@@ -58,7 +58,7 @@ const fsMock = {
 };
 
 vi.mock('fs', () => fsMock);
-vi.mock('extract-zip', () => ({
+vi.mock('../services/zip_extract.js', () => ({
     default: async (...args: unknown[]) => mockExtractZip(...args),
 }));
 vi.mock('tar', () => ({
@@ -170,7 +170,7 @@ describe('getOrInstallPython', () => {
             }
 
             if (command === UV_PATH && args[0] === '--version') {
-                return { stdout: 'uv 0.12.4', stderr: '' };
+                return { stdout: 'uv 0.13.4', stderr: '' };
             }
 
             if (command === UV_PATH && args[0] === 'python' && args[1] === 'install') {
@@ -252,14 +252,14 @@ describe('getOrInstallPython', () => {
         existingPaths.add(VENV_DIR);
         existingPaths.add(path.dirname(PYTHON_PATH));
         existingPaths.add(PYTHON_PATH);
-        fileContents.set(path.join(VENV_DIR, '.gsm_venv_generation'), '1:3.13.2\n');
+        fileContents.set(path.join(VENV_DIR, '.gsm_venv_generation'), '2:3.13.2\n');
 
         const { getOrInstallPython } = await import('./python_downloader.js');
 
         await expect(getOrInstallPython()).resolves.toBe(PYTHON_PATH);
 
         expect(fsMock.rmSync).toHaveBeenCalledWith(VENV_DIR, { recursive: true, force: true });
-        expect(fileContents.get(path.join(VENV_DIR, '.gsm_venv_generation'))).toBe('2:3.13.2\n');
+        expect(fileContents.get(path.join(VENV_DIR, '.gsm_venv_generation'))).toBe('3:3.13.2\n');
     });
 
     it('adopts an unstamped but working externally-provisioned venv instead of rebuilding it', async () => {
@@ -275,7 +275,7 @@ describe('getOrInstallPython', () => {
 
         expect(fsMock.rmSync).not.toHaveBeenCalledWith(VENV_DIR, { recursive: true, force: true });
         expect(mockExecFileAsync).toHaveBeenCalledWith(PYTHON_PATH, ['--version']);
-        expect(fileContents.get(path.join(VENV_DIR, '.gsm_venv_generation'))).toBe('2:3.13.2\n');
+        expect(fileContents.get(path.join(VENV_DIR, '.gsm_venv_generation'))).toBe('3:3.13.2\n');
     });
 
     it('rebuilds an unstamped venv that fails Python verification', async () => {
@@ -298,7 +298,7 @@ describe('getOrInstallPython', () => {
         await expect(getOrInstallPython()).resolves.toBe(PYTHON_PATH);
 
         expect(fsMock.rmSync).toHaveBeenCalledWith(VENV_DIR, { recursive: true, force: true });
-        expect(fileContents.get(path.join(VENV_DIR, '.gsm_venv_generation'))).toBe('2:3.13.2\n');
+        expect(fileContents.get(path.join(VENV_DIR, '.gsm_venv_generation'))).toBe('3:3.13.2\n');
     });
 
     it('reinstalls a cached uv binary when its version does not match the runtime lock tool', async () => {
@@ -307,7 +307,7 @@ describe('getOrInstallPython', () => {
             if (command === UV_PATH && args[0] === '--version') {
                 uvVersionCheckCount += 1;
                 return {
-                    stdout: uvVersionCheckCount === 1 ? 'uv 0.11.33' : 'uv 0.12.4',
+                    stdout: uvVersionCheckCount === 1 ? 'uv 0.11.33' : 'uv 0.13.4',
                     stderr: '',
                 };
             }
@@ -334,7 +334,7 @@ describe('getOrInstallPython', () => {
 
         mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
             if (command === UV_PATH && args[0] === '--version') {
-                return { stdout: 'uv 0.12.4', stderr: '' };
+                return { stdout: 'uv 0.13.4', stderr: '' };
             }
 
             if (command === PYTHON_PATH && args[0] === '--version') {
@@ -400,7 +400,7 @@ describe('getOrInstallPython', () => {
         let venvAttemptCount = 0;
         mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
             if (command === UV_PATH && args[0] === '--version') {
-                return { stdout: 'uv 0.12.4', stderr: '' };
+                return { stdout: 'uv 0.13.4', stderr: '' };
             }
 
             if (command === PYTHON_PATH && args[0] === '--version') {

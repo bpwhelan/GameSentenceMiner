@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import extract from 'extract-zip';
+import extract from '../electron-src/main/services/zip_extract.ts';
 import { prepareLunaHookUpdate } from './prepare-lunahook-update.mjs';
 
 function fixture(t) {

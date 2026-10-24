@@ -94,11 +94,11 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            cibw_build: cp310-win_amd64
+            cibw_build: cp311-win_amd64
           - os: ubuntu-latest
-            cibw_build: cp310-manylinux_x86_64
+            cibw_build: cp311-manylinux_x86_64
           - os: macos-15
-            cibw_build: cp310-macosx_arm64
+            cibw_build: cp311-macosx_arm64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository

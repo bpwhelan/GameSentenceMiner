@@ -1,5 +1,5 @@
 import axios from 'axios';
-import extract from 'extract-zip';
+import extract from './services/zip_extract.js';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

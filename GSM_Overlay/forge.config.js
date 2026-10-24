@@ -52,6 +52,13 @@ function ignorePackagerFile(filePath) {
     return false;
   }
 
+  // npm can link the parent project into this nested package. Packaging that
+  // development link would copy the entire checkout and recurse into builds.
+  if (relativePath === 'node_modules/gamesentenceminer'
+      || relativePath.startsWith('node_modules/gamesentenceminer/')) {
+    return true;
+  }
+
   const topLevelEntry = relativePath.split('/')[0];
   return ignoredPackagerEntries.has(topLevelEntry) || ignoredPackagerFiles.has(relativePath);
 }

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import extract from 'extract-zip';
+import extract from '../electron-src/main/services/zip_extract.ts';
 import { generateTexthookManifest } from './generate-texthook-manifest.mjs';
 
 test('generates exactly one reproducible ZIP and one UTF-8 manifest containing only runtime files', async t => {

@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-  "setuptools>=61.0",  # PEP 621 support in setuptools
+  "setuptools>=84.1.0",
   "setuptools-rust>=1.12",
   "wheel"
 ]
@@ -11,7 +11,7 @@ name = "GameSentenceMiner"
 version = "2026.10.0"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
-requires-python = ">=3.10, <3.14"
+requires-python = ">=3.11, <3.14"
 license = { file = "LICENSE" }
 authors = [
   { name = "Beangate", email = "bpwhelan95@gmail.com"}
@@ -23,7 +23,7 @@ classifiers = [
   "Operating System :: OS Independent"
 ]
 dependencies = [
-  "cryptography>=46.0.6,<47",
+  "cryptography>=50.0.0,<51",
   "requests>=2.34.2,<2.35.0",
   "watchdog~=6.0.0",
   "soundfile>=0.14.0,<0.15.0",
@@ -54,7 +54,7 @@ dependencies = [
   "pystray~=0.19.5",
   "pygetwindow==0.0.9; sys_platform == 'win32'",
   "pywin32==312; sys_platform == 'win32'",
-  "pillow>=12.3.0,<12.4",
+  "pillow>=13.0.0,<14",
   "openai>=2.45.0,<2.46",
   "flask-compress~=1.15",
   "meikiocr~=0.3.4",
@@ -85,10 +85,10 @@ dependencies = [
   "waitress==3.0.2",
   "flasgger~=0.9.7",
   "pynput~=1.8.2 ; sys_platform == 'win32'",
-  "uv==0.12.4",
+  "uv==0.13.4",
   "pip>=26.1.2,<27.0",
   "ollama~=0.6.2",
-  "aiohttp==3.14.1",
+  "aiohttp==3.14.4",
   "fpng-py-fix~=0.0.3 ; sys_platform == 'win32'",
   "onnxruntime>=1.24.3,<1.25.0",
   "google-genai~=1.70.0",
@@ -125,8 +125,11 @@ dev = [
 [project.scripts]
 gamesentenceminer = "GameSentenceMiner.gsm:main"
 
-[tool.setuptools]
-packages = { find = { include = ["GameSentenceMiner*"] } }
+[tool.setuptools.packages.find]
+include = ["GameSentenceMiner*"]
+# Avoid traversing JavaScript junctions and generated Rust/build trees while
+# discovering Python namespaces (in particular with pnpm's linked packages).
+exclude = ["node_modules*", "GSM_Overlay*", "texthooker*", "native*", "temp*", "build*", "dist*"]
 
 [tool.setuptools.package-data]
 "GameSentenceMiner.web" = ["**/*"]
@@ -145,10 +148,27 @@ debug = false
 pypresence = { url = "https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip" }
 
 [tool.uv]
-required-version = "==0.12.4"
+required-version = "==0.13.4"
+# Security floors for indirect dependencies without making them runtime imports.
+constraint-dependencies = [
+  "anyio>=4.14.2",
+  "brotli>=1.2.1",
+  "brotlicffi>=1.2.1.0",
+  "certifi>=2026.10.19",
+  "filelock>=4.2.1",
+  "fsspec>=2026.6.0",
+  "idna>=3.15",
+  "mistune>=3.3.0",
+  "multidict>=6.9.1",
+  "pyasn1>=0.6.4",
+  "setuptools>=84.1.0",
+  "urllib3>=2.8.0",
+  "virtualenv>=21.14.9",
+  "werkzeug>=3.1.9",
+]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 120
 force-exclude = true
 extend-exclude = [

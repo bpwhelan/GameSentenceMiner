@@ -29,7 +29,7 @@ app.whenReady().then(async () => {
     ensureExtensionCopy: (_name, source) => source,
   });
   const main = fs.readFileSync(path.join(overlay, 'main.js'), 'utf8');
-  vm.runInContext(between(main, 'const EXTENSION_READY_TIMEOUT_MS', '// hoshidicts keeps dictionaries'), context);
+  vm.runInContext(between(main, 'const EXTENSION_READY_TIMEOUT_MS', 'async function createHachidoriEngineWindow('), context);
   vm.runInContext(`async function startYomitan() {
     let yomitanExt;
     ${between(main, "    const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan')", '  } else if (dictionaryReader === DICTIONARY_READER_HACHIDORI)')}

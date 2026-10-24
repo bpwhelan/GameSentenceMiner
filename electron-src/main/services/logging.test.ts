@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { WebContents } from 'electron';
-import extract from 'extract-zip';
+import extract from './zip_extract.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron-log/main.js', async () => ({ default: (await import('electron-log/node.js')).default }));

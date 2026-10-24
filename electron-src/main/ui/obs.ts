@@ -21,7 +21,7 @@ import { homedir } from 'node:os';
 import { inflateSync } from 'node:zlib';
 import { sendStartOBS } from '../main.js';
 import axios from 'axios';
-import extract from 'extract-zip';
+import extract from '../services/zip_extract.js';
 import { installSessionManager } from '../services/install_session_state.js';
 import { syncProcessPausingTargetForScene } from '../services/process_pausing_target.js';
 import { closeWindowsOBSGracefully } from '../runtime/windows_obs_shutdown.js';

@@ -19,7 +19,7 @@ import {
 
 export { isBackendVersionCompatible } from './backend_version.js';
 
-const PINNED_UV_VERSION = '0.12.4';
+const PINNED_UV_VERSION = '0.13.4';
 
 // ---------------------------------------------------------------------------
 // General helpers

@@ -15,7 +15,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { net } from 'electron';
 import semver from 'semver';
-import extract from 'extract-zip';
+import extract from '../services/zip_extract.js';
 import { BASE_DIR } from '../util.js';
 import type { EngineStatus, EngineDownloadProgress } from '../../shared/texthook_updates.js';
 export type { EngineStatus, EngineDownloadProgress } from '../../shared/texthook_updates.js';

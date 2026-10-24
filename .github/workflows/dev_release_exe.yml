@@ -176,7 +176,7 @@ jobs:
 
       - name: Build prerelease backend wheel
         env:
-          CIBW_BUILD: cp310-*
+          CIBW_BUILD: cp311-*
           CIBW_ARCHS_WINDOWS: AMD64
         run: python -m cibuildwheel --output-dir electron-src/assets/python
 
@@ -449,7 +449,7 @@ jobs:
 
       - name: Build prerelease backend wheel
         env:
-          CIBW_BUILD: cp310-manylinux_x86_64
+          CIBW_BUILD: cp311-manylinux_x86_64
           CIBW_ARCHS_LINUX: x86_64
           # This wheel is bundled with the matching app build. auditwheel scans the
           # legacy cross-platform MeCab payload and tries to resolve libmecab.so.1.
@@ -551,7 +551,7 @@ jobs:
 
       - name: Build prerelease backend wheel
         env:
-          CIBW_BUILD: cp310-macosx_arm64
+          CIBW_BUILD: cp311-macosx_arm64
           CIBW_ARCHS_MACOS: arm64
           # delocate otherwise follows obsolete dependencies embedded in the
           # legacy MeCab binaries that are carried for other platforms.

@@ -118,11 +118,11 @@ describe('setup command diagnostics', () => {
 
     it('retains output from buffered uv bootstrap commands', async () => {
         mockExecFileAsync.mockResolvedValueOnce({ stdout: 'Version: 0.1.0\n', stderr: '' });
-        mockExecFileAsync.mockResolvedValueOnce({ stdout: 'Installed uv==0.12.4', stderr: 'Retrying package download' });
+        mockExecFileAsync.mockResolvedValueOnce({ stdout: 'Installed uv==0.13.4', stderr: 'Retrying package download' });
         const { checkAndInstallUV } = await import('./python_ops.js');
         await checkAndInstallUV('python');
         const diagnostics = mockRecordProcessOutput.mock.calls.flat().join('\n');
-        expect(diagnostics).toContain('Installed uv==0.12.4');
+        expect(diagnostics).toContain('Installed uv==0.13.4');
         expect(diagnostics).toContain('Retrying package download');
     });
 
@@ -187,7 +187,7 @@ describe('checkAndInstallUV', () => {
 
     it('keeps the exact lock-compatible uv version', async () => {
         mockExecFileAsync.mockResolvedValueOnce({
-            stdout: 'Name: uv\nVersion: 0.12.4\n',
+            stdout: 'Name: uv\nVersion: 0.13.4\n',
             stderr: '',
         });
 
@@ -217,7 +217,7 @@ describe('checkAndInstallUV', () => {
                     'pip',
                     'install',
                     '--no-warn-script-location',
-                    'uv==0.12.4',
+                    'uv==0.13.4',
                 ]
             );
         }

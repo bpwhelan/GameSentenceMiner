@@ -42,11 +42,11 @@ describe('prerelease build contract', () => {
             'utf8'
         );
 
-        expect(workflow).toContain('CIBW_BUILD: cp310-manylinux_x86_64');
+        expect(workflow).toContain('CIBW_BUILD: cp311-manylinux_x86_64');
         expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_LINUX: ""');
-        expect(workflow).toContain('CIBW_BUILD: cp310-macosx_arm64');
+        expect(workflow).toContain('CIBW_BUILD: cp311-macosx_arm64');
         expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""');
-        expect(workflow.match(/CIBW_BUILD: cp310-\*/g)).toHaveLength(1);
+        expect(workflow.match(/CIBW_BUILD: cp311-\*/g)).toHaveLength(1);
     });
 
     it('builds one stable PyPI wheel per platform and repairs Linux without following MeCab', () => {
@@ -58,11 +58,11 @@ describe('prerelease build contract', () => {
         expect(workflow).toContain(
             'CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair --exclude libmecab.so.1 -w {dest_dir} {wheel}"'
         );
-        expect(workflow).toContain('cibw_build: cp310-win_amd64');
-        expect(workflow).toContain('cibw_build: cp310-manylinux_x86_64');
-        expect(workflow).toContain('cibw_build: cp310-macosx_arm64');
+        expect(workflow).toContain('cibw_build: cp311-win_amd64');
+        expect(workflow).toContain('cibw_build: cp311-manylinux_x86_64');
+        expect(workflow).toContain('cibw_build: cp311-macosx_arm64');
         expect(workflow).toContain('CIBW_BUILD: ${{ matrix.cibw_build }}');
-        expect(workflow).not.toContain('CIBW_BUILD: cp310-*');
+        expect(workflow).not.toContain('CIBW_BUILD: cp311-*');
         expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""');
         expect(workflow).not.toContain('CIBW_TEST_COMMAND:');
         expect(workflow).toContain('node scripts/smoke-test-wheel.mjs wheelhouse');

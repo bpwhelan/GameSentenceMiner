@@ -15,7 +15,7 @@ vi.mock('axios', () => ({
     },
 }));
 
-vi.mock('extract-zip', () => ({
+vi.mock('./services/zip_extract.js', () => ({
     default: mocks.extractZip,
 }));
 

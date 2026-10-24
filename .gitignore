@@ -128,6 +128,7 @@ GSM_Overlay/gamepad_legacy.js
 /GSM_Overlay/input_server/target
 /GSM_Overlay/input_server/bin/linux/
 /GSM_Overlay/input_server/bin/darwin/
+/GSM_Overlay/input_server/bin/win32/
 scripts/enter_key_probe.py
 scripts/ocr_metrics_benchmark.py
 electron-src/assets/prerelease.json

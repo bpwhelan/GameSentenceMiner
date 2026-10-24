@@ -1,5 +1,5 @@
 import archiver from 'archiver';
-import extract from 'extract-zip';
+import extract from '../services/zip_extract.js';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';

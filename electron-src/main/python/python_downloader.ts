@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as tar from 'tar';
-import extract from 'extract-zip';
+import extract from '../services/zip_extract.js';
 import { spawn } from 'child_process';
 import {
     BASE_DIR,
@@ -20,7 +20,7 @@ import type { InstallProgressKind, InstallStageId } from '../../shared/install_s
 // --- Constants ---
 
 const PYTHON_VERSION = '3.13.2';
-const UV_VERSION = '0.12.4';
+const UV_VERSION = '0.13.4';
 const VENV_DIR = path.join(BASE_DIR, 'python_venv');
 const UV_DIR = path.join(BASE_DIR, 'uv');
 
@@ -29,7 +29,7 @@ const UV_DIR = path.join(BASE_DIR, 'uv');
 // python_ops.syncLockedEnvironment), which means dropped deps linger in the venv.
 // Flipping this forces a one-time full venv rebuild so orphans are dropped. The
 // last-applied value is stamped inside the venv; a mismatch triggers the rebuild.
-const VENV_GENERATION = 2;
+const VENV_GENERATION = 3;
 const VENV_GENERATION_FILE = path.join(VENV_DIR, '.gsm_venv_generation');
 const VENV_CREATION_ATTEMPTS = 4;
 const VENV_CREATION_RETRY_DELAY_MS = 1_500;
@@ -523,7 +523,7 @@ async function extractArchive(archivePath: string, extractPath: string): Promise
 
     try {
         if (archivePath.endsWith('.zip')) {
-            // Extract zip file using extract-zip (works reliably on all platforms)
+            // Extract the ZIP with the shared path and link validation
             await extract(archivePath, { dir: path.resolve(extractPath) });
         } else {
             // Extract tar.gz file

@@ -1,1 +1,2 @@
 recursive-include native/gsm-native Cargo.toml Cargo.lock *.rs
+prune native/gsm-native/target

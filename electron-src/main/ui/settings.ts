@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import axios from 'axios';
-import extract from 'extract-zip';
+import extract from '../services/zip_extract.js';
 import semver from 'semver';
 import {
     getAutoUpdateGSMApp,
