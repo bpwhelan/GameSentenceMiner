@@ -21,7 +21,7 @@ interface TextProcessingConfig {
   processor_order: string[];
   remove_repeated_chars: boolean;
   remove_repeated_chars_config: { repeat_count: number; keep_non_repeated: boolean };
-  remove_repeated_lines: boolean;
+  remove_repeated_lines_v2: boolean;
   remove_repeated_lines_config: { repeat_count: number };
   remove_control_chars: boolean;
   remove_non_japanese: boolean;
@@ -80,7 +80,7 @@ function getDefaultConfig(): TextProcessingConfig {
     processor_order: PROCESSOR_META.map((p) => p.id),
     remove_repeated_chars: false,
     remove_repeated_chars_config: { repeat_count: 1, keep_non_repeated: true },
-    remove_repeated_lines: false,
+    remove_repeated_lines_v2: true,
     remove_repeated_lines_config: { repeat_count: 1 },
     remove_control_chars: false,
     remove_non_japanese: false,
@@ -134,6 +134,7 @@ function normalizeConfig(rawConfig: Partial<TextProcessingConfig> | null | undef
 
 function isProcessorEnabled(config: TextProcessingConfig, id: string): boolean {
   if (id === "string_replacement") return config.string_replacement.enabled;
+  if (id === "remove_repeated_lines") return config.remove_repeated_lines_v2;
   return (config as any)[id] ?? false;
 }
 
@@ -141,6 +142,8 @@ function setProcessorEnabled(config: TextProcessingConfig, id: string, enabled: 
   const next = { ...config };
   if (id === "string_replacement") {
     next.string_replacement = { ...next.string_replacement, enabled };
+  } else if (id === "remove_repeated_lines") {
+    next.remove_repeated_lines_v2 = enabled;
   } else {
     (next as any)[id] = enabled;
   }

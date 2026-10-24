@@ -746,7 +746,7 @@ class TextProcessing:
     )
     remove_repeated_chars: bool = False
     remove_repeated_chars_config: RemoveRepeatCharsConfig = field(default_factory=RemoveRepeatCharsConfig)
-    remove_repeated_lines: bool = False
+    remove_repeated_lines_v2: bool = True  # Give existing profiles the new default once; later opt-outs stay saved.
     remove_repeated_lines_config: RemoveRepeatLinesConfig = field(default_factory=RemoveRepeatLinesConfig)
     remove_control_chars: bool = False
     remove_non_japanese: bool = False
@@ -760,6 +760,15 @@ class TextProcessing:
     extract_lines_config: ExtractLinesConfig = field(default_factory=ExtractLinesConfig)
     unicode_normalize: bool = False
     unicode_normalize_config: UnicodeNormalizeConfig = field(default_factory=UnicodeNormalizeConfig)
+
+    @property
+    def remove_repeated_lines(self) -> bool:
+        """Keep the portable settings sync key compatible with the versioned preference."""
+        return self.remove_repeated_lines_v2
+
+    @remove_repeated_lines.setter
+    def remove_repeated_lines(self, enabled: bool) -> None:
+        self.remove_repeated_lines_v2 = enabled
 
 
 @dataclass_json

@@ -18,6 +18,21 @@ def test_allowlist_excludes_credentials_machine_paths_and_ports():
     assert export_portable_settings(config, []) == {}
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_repeated_line_sync_uses_the_versioned_preference_with_the_existing_sync_key(enabled):
+    config = ProfileConfig()
+    config.text_processing.remove_repeated_lines_v2 = enabled
+    key = "text_processing.remove_repeated_lines"
+
+    assert export_portable_settings(config, ["text_processing"])[key] is enabled
+
+    apply_portable_settings(config, {key: not enabled}, ["text_processing"])
+
+    assert config.text_processing.remove_repeated_lines_v2 is not enabled
+    restored = ProfileConfig.from_dict(config.to_dict())
+    assert restored.text_processing.remove_repeated_lines_v2 is not enabled
+
+
 def test_settings_are_validated_before_any_mutation():
     config = ProfileConfig()
     original = config.general.target_language

@@ -25,7 +25,7 @@ interface TextProcessingConfig {
     processor_order: string[];
     remove_repeated_chars: boolean;
     remove_repeated_chars_config: { repeat_count: number; keep_non_repeated: boolean };
-    remove_repeated_lines: boolean;
+    remove_repeated_lines_v2: boolean;
     remove_repeated_lines_config: { repeat_count: number };
     remove_control_chars: boolean;
     remove_non_japanese: boolean;
@@ -230,7 +230,7 @@ function getDefaultTextProcessing(): TextProcessingConfig {
         ],
         remove_repeated_chars: false,
         remove_repeated_chars_config: { repeat_count: 1, keep_non_repeated: true },
-        remove_repeated_lines: false,
+        remove_repeated_lines_v2: true,
         remove_repeated_lines_config: { repeat_count: 1 },
         remove_control_chars: false,
         remove_non_japanese: false,

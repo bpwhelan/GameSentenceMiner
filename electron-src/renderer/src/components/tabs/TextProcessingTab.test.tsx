@@ -72,6 +72,30 @@ describe("TextProcessingTab workspace", () => {
     return invoke.mock.calls.filter(([channel]) => channel === "textprocess.save");
   }
 
+  it("enables repeated-line removal for a legacy config and keeps a later opt-out saved", async () => {
+    const implementation = invoke.getMockImplementation()!;
+    invoke.mockImplementation((channel: string, payload: any) => {
+      if (channel === "textprocess.load") return Promise.resolve({ remove_repeated_lines: false });
+      return implementation(channel, payload);
+    });
+    await render();
+    const toggle = container.querySelectorAll<HTMLInputElement>(".processor-toggle input")[2];
+    expect(toggle.checked).toBe(true);
+
+    await act(async () => toggle.click());
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    const savedConfig = saveCalls().slice(-1)[0][1];
+    expect(savedConfig.remove_repeated_lines_v2).toBe(false);
+
+    await render(false);
+    invoke.mockImplementation((channel: string, payload: any) => {
+      if (channel === "textprocess.load") return Promise.resolve(savedConfig);
+      return implementation(channel, payload);
+    });
+    await render();
+    expect(container.querySelectorAll<HTMLInputElement>(".processor-toggle input")[2].checked).toBe(false);
+  });
+
   it("shows every processor, replacement rules, and both preview fields without switching views", async () => {
     await render();
     expect(container.querySelectorAll('[role="list"] > [role="listitem"]')).toHaveLength(13);

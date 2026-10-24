@@ -42,6 +42,35 @@ def test_apply_text_processing_passthrough_for_empty_and_none_config():
     assert apply_text_processing("abc", None) == "abc"
 
 
+def test_repeated_lines_are_removed_by_default_in_processing_and_preview():
+    text = "これは同じ文章です。これは同じ文章です。"
+
+    assert apply_text_processing(text, TextProcessing()) == "これは同じ文章です。"
+    assert preview_text_processing_request({"text": text, "config": {}}) == {"result": "これは同じ文章です。"}
+
+
+@pytest.mark.parametrize("text", ["いい", "ええ", "あああ", "www"])
+def test_default_line_removal_preserves_single_character_repetitions(text):
+    assert apply_text_processing(text, TextProcessing()) == text
+    assert preview_text_processing_request({"text": text, "config": {}}) == {"result": text}
+
+
+@pytest.mark.parametrize("legacy_enabled", [False, True])
+def test_legacy_repeated_lines_setting_picks_up_the_new_default(legacy_enabled):
+    config = TextProcessing.from_dict({"remove_repeated_lines": legacy_enabled})
+
+    assert config.remove_repeated_lines_v2 is True
+
+
+def test_repeated_lines_can_stay_disabled_after_the_default_change():
+    config = TextProcessing.from_dict({"remove_repeated_lines": False, "remove_repeated_lines_v2": False})
+    text = "同じ文章。同じ文章。"
+
+    assert apply_text_processing(text, config) == text
+    assert preview_text_processing_request({"text": text, "config": config.to_dict()}) == {"result": text}
+    assert TextProcessing.from_dict(config.to_dict()).remove_repeated_lines_v2 is False
+
+
 def test_remove_newlines_keeps_japanese_words_joined_across_ocr_rows():
     config = TextProcessing(remove_newlines=True)
     source = "わしら全員には固有の――【プロダクトＩＤ】が設定されと\nる。できればそれで。"

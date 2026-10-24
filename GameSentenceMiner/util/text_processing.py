@@ -56,11 +56,15 @@ def _run_processor(text: str, processor_id: str, config: TextProcessing) -> str:
                 config.remove_repeated_chars_config.keep_non_repeated,
             )
     elif processor_id == "remove_repeated_lines":
-        if config.remove_repeated_lines:
-            return remove_repeated_lines(
+        if config.remove_repeated_lines_v2:
+            result = remove_repeated_lines(
                 text,
                 config.remove_repeated_lines_config.repeat_count,
             )
+            # Single-character runs (e.g. 「いい」) belong to the separate character filter.
+            if config.remove_repeated_lines_config.repeat_count < 2 and len(result) == 1:
+                return text
+            return result
     elif processor_id == "remove_control_chars":
         if config.remove_control_chars:
             return remove_control_chars(text)
