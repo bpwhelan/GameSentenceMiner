@@ -245,6 +245,7 @@ def test_exe_names_match_normalizes_paths_case_and_extension():
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only window monitor")
 def test_capture_card_output_announces_showable_background_state(monkeypatch):
     monitor = _wwm.WindowsWindowStateMonitor.__new__(_wwm.WindowsWindowStateMonitor)
+    monitor.target_hwnd = None
     monitor.hidden_due_to_no_output = False
     monitor.last_state = "unknown"
     monitor.last_game_name = "Capture Card"
@@ -272,6 +273,7 @@ def test_capture_card_output_announces_showable_background_state(monkeypatch):
             "data": "background",
             "game": "Capture Card",
             "magpie_info": None,
+            "target_hwnd": None,
             "is_fullscreen": False,
             "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,

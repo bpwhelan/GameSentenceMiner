@@ -48,6 +48,7 @@ class OverlayRequestHandler:
         self._block_translation_lock = asyncio.Lock()
         self._latest_block_request = None
         self._today_stats_lock = asyncio.Lock()
+        self._focus_restore_tasks = {}
 
     async def handle_message(self, message_str: str):
         """
@@ -72,6 +73,14 @@ class OverlayRequestHandler:
                 await self.handle_manual_overlay_scan_request(message)
             elif message_type == "manual-mode-background-request":
                 await self.handle_manual_mode_background_request(message)
+            elif message_type == "magpie-state-request":
+                monitor = get_overlay_processor().window_monitor
+                if monitor:
+                    monitor.request_refresh()
+            elif message_type == "restore-focus-cancel":
+                task = self._focus_restore_tasks.get(message.get("request_id"))
+                if task:
+                    task.get_loop().call_soon_threadsafe(task.cancel)
             elif message_type == "restore-focus-request":
                 await self.handle_restore_focus_request(message)
             elif message_type == "send-key-request":
@@ -348,6 +357,12 @@ class OverlayRequestHandler:
         Handle a focus restoration request from the overlay.
         Attempts to restore focus to the target game window.
         """
+        request_id = message.get("request_id") if isinstance(message, dict) else None
+        activated = False
+        monitor = None
+        task = asyncio.current_task()
+        if request_id:
+            self._focus_restore_tasks[request_id] = task
         try:
             delay_ms = 0
             if isinstance(message, dict):
@@ -373,6 +388,10 @@ class OverlayRequestHandler:
                 except Exception as e:
                     logger.debug(f"find_target_hwnd during focus restore failed: {e}")
 
+            expected_target = message.get("expected_target_hwnd") if isinstance(message, dict) else None
+            if expected_target is not None and expected_target != monitor.target_hwnd:
+                logger.debug("Discarding focus restoration for a previous Magpie source window.")
+                return
             activated = await monitor.activate_target_window()
             if not activated:
                 logger.warning(
@@ -382,6 +401,16 @@ class OverlayRequestHandler:
 
         except Exception as e:
             logger.exception(f"Failed to restore focus to target window: {e}")
+        finally:
+            if request_id and self._focus_restore_tasks.get(request_id) is task:
+                del self._focus_restore_tasks[request_id]
+            if monitor:
+                monitor.request_refresh()
+            if request_id:
+                await websocket_manager.send(
+                    ID_OVERLAY,
+                    {"type": "restore-focus-result", "request_id": request_id, "success": bool(activated)},
+                )
 
     # Curated keys the overlay is allowed to forward to the target game window.
     ALLOWED_FORWARD_KEYS = {"enter", "return", "space", "ctrl", "control", "escape", "esc", "tab"}

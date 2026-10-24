@@ -223,52 +223,8 @@
     };
   }
 
-  function normalizeMagpieRect(rawInfo, keys) {
-    const left = Number(rawInfo?.[keys.left]);
-    const top = Number(rawInfo?.[keys.top]);
-    const right = Number(rawInfo?.[keys.right]);
-    const bottom = Number(rawInfo?.[keys.bottom]);
-    if (![left, top, right, bottom].every(Number.isFinite) || right <= left || bottom <= top) {
-      return null;
-    }
-    return {
-      left,
-      top,
-      right,
-      bottom,
-      width: right - left,
-      height: bottom - top,
-    };
-  }
-
   function normalizeMagpieInfo(rawInfo) {
-    if (!rawInfo || typeof rawInfo !== "object") {
-      return null;
-    }
-
-    if (window.GSMMagpie && typeof window.GSMMagpie.normalizeMagpieInfo === "function") {
-      const normalizedInfo = window.GSMMagpie.normalizeMagpieInfo(rawInfo);
-      if (normalizedInfo?.sourceRect && normalizedInfo?.destinationRect) {
-        return normalizedInfo;
-      }
-    }
-
-    const sourceRect = normalizeMagpieRect(rawInfo, {
-      left: "sourceWindowLeftEdgePosition",
-      top: "sourceWindowTopEdgePosition",
-      right: "sourceWindowRightEdgePosition",
-      bottom: "sourceWindowBottomEdgePosition",
-    });
-    const destinationRect = normalizeMagpieRect(rawInfo, {
-      left: "magpieWindowLeftEdgePosition",
-      top: "magpieWindowTopEdgePosition",
-      right: "magpieWindowRightEdgePosition",
-      bottom: "magpieWindowBottomEdgePosition",
-    });
-    if (!sourceRect || !destinationRect) {
-      return null;
-    }
-    return { sourceRect, destinationRect };
+    return window.GSMMagpie?.normalizeMagpieInfo(rawInfo) || null;
   }
 
   function formatInteger(value) {
@@ -697,7 +653,7 @@
       return rect;
     }
 
-    const { sourceRect, destinationRect } = state.magpieInfo;
+    const { sourceRect } = state.magpieInfo;
     const overlapsSource = (
       rect.right > sourceRect.left &&
       rect.left < sourceRect.right &&
@@ -708,20 +664,7 @@
       return rect;
     }
 
-    const mapX = (value) => destinationRect.left + ((value - sourceRect.left) / sourceRect.width) * destinationRect.width;
-    const mapY = (value) => destinationRect.top + ((value - sourceRect.top) / sourceRect.height) * destinationRect.height;
-    const left = mapX(rect.left);
-    const top = mapY(rect.top);
-    const right = mapX(rect.right);
-    const bottom = mapY(rect.bottom);
-    return {
-      left,
-      top,
-      right,
-      bottom,
-      width: right - left,
-      height: bottom - top,
-    };
+    return window.GSMMagpie.mapRectToMagpie(rect, state.magpieInfo);
   }
 
   function updatePosition() {

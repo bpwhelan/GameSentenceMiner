@@ -48,7 +48,7 @@ test('regrouping identical lexical text invalidates the renderer reuse signature
   t.after(() => window.close());
   const html = readRenderer();
   window.eval(`
-    ${between(html, '  const CJK_LEXICAL_REGEX =', '  function requestMagpieMouseRelease(')}
+    ${between(html, '  const CJK_LEXICAL_REGEX =', '  function requestOverlayMouseRelease(')}
     ${between(html, '  function isOverlayLineVertical(', '  function prepareGamepadForOverlayTextRender(')}
     ${between(html, '  function shouldPreserveLexicalWordBoxes(', '  function getViewportRectFromPercentBounds(')}
     window.signatureFor = getOverlayTextRenderSignature;

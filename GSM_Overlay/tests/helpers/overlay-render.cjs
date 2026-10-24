@@ -24,8 +24,14 @@ function rendererFixtureSource(html, blockSource) {
     ${blockSource}
     const { detectTextBlocks, getMedianValue, insertBlockSeparatorAfter, createRecentBlockHistory, prepareTextLines } = window.GSMBlockDetection;
     let recentBlockHistory = createRecentBlockHistory();
-    ${between(html, '  const CJK_LEXICAL_REGEX =', '  function requestMagpieMouseRelease(')}
-    const magpieController = null, display = null;
+    ${between(html, '  const CJK_LEXICAL_REGEX =', html.includes('  function requestOverlayMouseRelease(') ? '  function requestOverlayMouseRelease(' : '  function requestMagpieMouseRelease(')}
+    (() => {
+      const module = { exports: {} };
+      ${fs.readFileSync(path.join(overlayRoot, 'magpie.js'), 'utf8')}
+      window.GSMMagpie = module.exports;
+    })();
+    const display = null;
+    const magpieController = { mapPercent: (x, y) => window.GSMMagpie.mapPercentToMagpie(x, y, currentMagpieInfo, display) };
     const mainBox = document.createElement('div');
     let offsetX = 0, offsetY = 0, lastOverlayTextRenderSignature = null;
     let isMagpieActive = false, currentMagpieInfo = null;

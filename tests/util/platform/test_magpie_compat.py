@@ -50,6 +50,28 @@ def test_missing_source_property_cannot_match_a_target(magpie_native):
     assert magpie_compat.get_magpie_info(42) is None
 
 
+def test_scaling_snapshot_includes_session_identity_and_mode(magpie_native):
+    magpie_native.props[b"Magpie.Windowed"] = 1
+    info = magpie_compat.get_magpie_info()
+    assert info["scaling_hwnd"] == magpie_native.hwnd
+    assert info["source_hwnd"] == magpie_native.props[b"Magpie.SrcHWND"]
+    assert info["windowed"] is True
+
+
+def test_source_changed_during_property_read_is_discarded(magpie_native):
+    reads = []
+
+    def read(_hwnd, name):
+        if name == b"Magpie.SrcHWND":
+            reads.append(name)
+            if len(reads) > 1:
+                return 7
+        return magpie_native.props.get(name, 0)
+
+    magpie_native.GetPropA = read
+    assert magpie_compat.get_magpie_info(0x234567890) is None
+
+
 def test_pointer_sized_negative_coordinates_are_read_as_signed_longs(magpie_native):
     for key in (b"Magpie.SrcLeft", b"Magpie.SrcRight", b"Magpie.DestLeft", b"Magpie.DestRight"):
         magpie_native.props[key] = ctypes.c_void_p(magpie_native.props[key] - 2560).value or 0

@@ -6,6 +6,89 @@ from GameSentenceMiner.util.config.configuration import Overlay
 from GameSentenceMiner.web import overlay_handler as overlay_handler_module
 
 
+def test_magpie_notification_wakes_the_existing_monitor(monkeypatch):
+    calls = []
+    monitor = SimpleNamespace(request_refresh=lambda: calls.append("refresh"))
+    monkeypatch.setattr(
+        overlay_handler_module, "get_overlay_processor", lambda: SimpleNamespace(window_monitor=monitor)
+    )
+    asyncio.run(overlay_handler_module.OverlayRequestHandler().handle_message('{"type":"magpie-state-request"}'))
+    assert calls == ["refresh"]
+
+
+def test_focus_acknowledgement_reports_completion_and_rejects_a_previous_target(monkeypatch):
+    sent, activated, refreshed = [], [], []
+
+    async def activate():
+        activated.append(True)
+        return True
+
+    async def send(_id, payload):
+        sent.append(payload)
+
+    monitor = SimpleNamespace(
+        target_hwnd=42, activate_target_window=activate, request_refresh=lambda: refreshed.append(True)
+    )
+    monkeypatch.setattr(
+        overlay_handler_module, "get_overlay_processor", lambda: SimpleNamespace(window_monitor=monitor)
+    )
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    for expected in [42, 7]:
+        asyncio.run(
+            handler.handle_restore_focus_request({"request_id": str(expected), "expected_target_hwnd": expected})
+        )
+    assert len(activated) == 1
+    assert len(refreshed) == 2
+    assert sent == [
+        {"type": "restore-focus-result", "request_id": "42", "success": True},
+        {"type": "restore-focus-result", "request_id": "7", "success": False},
+    ]
+
+
+def test_missing_monitor_returns_a_failed_focus_acknowledgement(monkeypatch):
+    sent = []
+
+    async def send(_id, payload):
+        sent.append(payload)
+
+    monkeypatch.setattr(overlay_handler_module, "get_overlay_processor", lambda: SimpleNamespace(window_monitor=None))
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    asyncio.run(overlay_handler_module.OverlayRequestHandler().handle_restore_focus_request({"request_id": "gone"}))
+    assert sent == [{"type": "restore-focus-result", "request_id": "gone", "success": False}]
+
+
+def test_new_overlay_interaction_cancels_backend_focus_retries(monkeypatch):
+    async def scenario():
+        started = asyncio.Event()
+        focused = []
+
+        async def activate():
+            started.set()
+            await asyncio.sleep(1)
+            focused.append(True)
+            return True
+
+        async def send(*_):
+            pass
+
+        monitor = SimpleNamespace(target_hwnd=42, activate_target_window=activate, request_refresh=lambda: None)
+        monkeypatch.setattr(
+            overlay_handler_module, "get_overlay_processor", lambda: SimpleNamespace(window_monitor=monitor)
+        )
+        monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+        handler = overlay_handler_module.OverlayRequestHandler()
+        task = asyncio.create_task(handler.handle_restore_focus_request({"request_id": "cancel-me"}))
+        await started.wait()
+        await handler.handle_message('{"type":"restore-focus-cancel","request_id":"cancel-me"}')
+        result = await asyncio.gather(task, return_exceptions=True)
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert focused == []
+        assert handler._focus_restore_tasks == {}
+
+    asyncio.run(scenario())
+
+
 def test_quick_actions_toggle_intake_and_return_authoritative_state(monkeypatch):
     import GameSentenceMiner
 

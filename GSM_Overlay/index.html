@@ -261,16 +261,23 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   body.force-visible .text-box,
-  body:hover .text-box {
+  body:not(.magpie-active):hover .text-box {
     background: rgba(15, 15, 15, 0.856);
     color: white;
     transition: opacity 0.3s ease;
   }
 
-  .text-box:hover {
+  body:not(.magpie-active) .text-box:hover {
     background: rgba(15, 15, 15, 0.856);
     color: white;
     transition: opacity 0.3s ease;
+  }
+
+  /* Magpie's native hit test skips fully transparent pixels. One alpha unit
+     makes the hovered lookup surface detectable without repainting the OCR
+     text over the game. Enable this only after a projected pointer hit. */
+  body.magpie-pointer-hover .text-box {
+    background: rgba(0, 0, 0, 0.004) !important;
   }
 
   body.manual-interaction-suppressed .text-box,
@@ -988,40 +995,20 @@ background: rgba(202, 12, 12, 0.692);
   let hideOnYomitanClose = false;
   // let currentX = 0;
   // let currentY = 0;
-  let magpieReleaseInterval = null;
   let magpieController = null;
   let manualModeActivatedOnce = false;
   let shouldShowReadyIndicator = true;
 
-  // ── Magpie coordinate architecture ──────────────────────────────────
-  // Magpie is an external window upscaler.  When active, the game's
-  // source window occupies a small region while Magpie renders scaled
-  // output across the full screen.
-  //
-  // The Python backend always sends coordinates as source-window-relative
-  // monitor percentages (no Magpie mapping).  This frontend handles two
-  // coordinate spaces:
-  //
-  //   • Text rendering  → mapPercentToMagpie() maps source % to Magpie
-  //                        destination %, so characters appear on the
-  //                        upscaled image.
-  //   • Interactive area → stays at the original source-window position
-  //                        (with padding) so mouse events forward to the
-  //                        game correctly.
-  //
-  // updateMagpieCompatibility() manages a periodic mouse-release timer
-  // that ensures click-through keeps working when Magpie intercepts
-  // mouse events.
-  // ────────────────────────────────────────────────────────────────────
+  // Backend coordinates stay in source space. A shared physical-pixel
+  // transform projects text; native cursor samples hit-test that rendered text.
   let currentMagpieInfo = null;
   let isMagpieActive = false;
   const CJK_LEXICAL_REGEX = /[\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Han}\p{Script_Extensions=Hangul}]/u;
   const LATIN_NUMERIC_REGEX = /[A-Za-z0-9]/;
 
-  function requestMagpieMouseRelease(reason = 'magpie-compat') {
+  function requestOverlayMouseRelease(reason = 'magpie-compat') {
     ipcRenderer.send('set-ignore-mouse-events', true, {
       forward: true,
-      forceMagpieRelease: true,
       reason,
     });
   }
@@ -1037,7 +1024,7 @@ background: rgba(202, 12, 12, 0.692);
     }
 
     if (isMagpieActive) {
-      requestMagpieMouseRelease(reason);
+      requestOverlayMouseRelease(reason);
     } else {
       ipcRenderer.send('set-ignore-mouse-events', true, { forward: true, reason });
     }
@@ -1103,55 +1090,9 @@ background: rgba(202, 12, 12, 0.692);
    * @returns {{x: number, y: number}}
    */
   function mapPercentToMagpie(pX, pY) {
-    if (magpieController) {
-      return magpieController.mapPercent(pX, pY, display);
-    }
-
-    if (!isMagpieActive || !currentMagpieInfo) {
-      return { x: pX, y: pY };
-    }
-    const srcL = currentMagpieInfo.sourceWindowLeftEdgePosition;
-    const srcT = currentMagpieInfo.sourceWindowTopEdgePosition;
-    const srcR = currentMagpieInfo.sourceWindowRightEdgePosition;
-    const srcB = currentMagpieInfo.sourceWindowBottomEdgePosition;
-    const dstL = currentMagpieInfo.magpieWindowLeftEdgePosition;
-    const dstT = currentMagpieInfo.magpieWindowTopEdgePosition;
-    const dstR = currentMagpieInfo.magpieWindowRightEdgePosition;
-    const dstB = currentMagpieInfo.magpieWindowBottomEdgePosition;
-    const srcW = srcR - srcL;
-    const srcH = srcB - srcT;
-    const dstW = dstR - dstL;
-    const dstH = dstB - dstT;
-    if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
-      return { x: pX, y: pY };
-    }
-    const physicalDisplaySize = (
-      display &&
-      display.physicalSize &&
-      Number(display.physicalSize.width) > 0 &&
-      Number(display.physicalSize.height) > 0
-    )
-      ? display.physicalSize
-      : {
-          width: (window.screen.width || window.innerWidth) * (window.devicePixelRatio || 1),
-          height: (window.screen.height || window.innerHeight) * (window.devicePixelRatio || 1),
-        };
-    const monW = physicalDisplaySize.width;
-    const monH = physicalDisplaySize.height;
-    const displayX = Number(display?.physicalBounds?.x);
-    const displayY = Number(display?.physicalBounds?.y);
-    const originX = Number.isFinite(displayX) ? displayX : 0;
-    const originY = Number.isFinite(displayY) ? displayY : 0;
-    const absX = originX + (pX / 100) * monW;
-    const absY = originY + (pY / 100) * monH;
-    const mappedX = dstL + ((absX - srcL) / srcW) * dstW;
-    const mappedY = dstT + ((absY - srcT) / srcH) * dstH;
-    return {
-      x: ((mappedX - originX) / monW) * 100,
-      y: ((mappedY - originY) / monH) * 100,
-    };
+    return magpieController.mapPercent(pX, pY, display);
   }
-  
+
   // Track multiple Yomitan popups for nested lookups
   let yomitanPopupCount = 0;
   let yomitanPopupIds = new Set(); // Track unique popup IDs to prevent double-counting
@@ -1461,7 +1402,7 @@ background: rgba(202, 12, 12, 0.692);
       console.log('Resetting stale Yomitan state - triggering cleanup');
       ipcRenderer.send('yomitan-event', false);
       if (isMagpieActive && !manualHotkeyPressed) {
-        requestMagpieMouseRelease('stale-yomitan-reset');
+        requestOverlayMouseRelease('stale-yomitan-reset');
       }
       
       if (hideOnYomitanClose) {
@@ -1528,7 +1469,7 @@ background: rgba(202, 12, 12, 0.692);
 
       ipcRenderer.send('yomitan-event', false);
       if (isMagpieActive && !manualHotkeyPressed) {
-        requestMagpieMouseRelease('dictionary-popup-hidden');
+        requestOverlayMouseRelease('dictionary-popup-hidden');
       }
 
       if (hideOnYomitanClose) {
@@ -1660,7 +1601,6 @@ background: rgba(202, 12, 12, 0.692);
     const MagpieUtils = require("./magpie.js");
     window.GSMMagpie = MagpieUtils;
     magpieController = MagpieUtils.createMagpieRendererController({
-      requestMouseRelease: requestMagpieMouseRelease,
       restoreMouseIgnore(reason) {
         ipcRenderer.send('set-ignore-mouse-events', true, { forward: true, reason });
       },
@@ -1672,8 +1612,19 @@ background: rgba(202, 12, 12, 0.692);
       },
     });
   } catch (e) {
-    console.warn("Could not require magpie.js:", e);
+    throw new Error("Magpie coordinate module failed to load", { cause: e });
   }
+
+  const { hitTestMagpiePointer } = require('./magpie_hit_test');
+  ipcRenderer.on('magpie-pointer', (_event, sample) => {
+    const hit = sample.signature === magpieController.getState().signature
+      && hitTestMagpiePointer(sample, display, window, document);
+    // Make the lookup surface detectable before acquiring input so Magpie's
+    // native hit test can relinquish cursor capture at the visible position.
+    document.body.classList.toggle('magpie-pointer-hover', hit);
+    ipcRenderer.send('magpie-pointer-hit', { sequence: sample.sequence, hit });
+  });
+  ipcRenderer.on('magpie-pointer-reset', () => document.body.classList.remove('magpie-pointer-hover'));
 
   const dragBar = document.getElementById("draggable");
   const textEl = document.getElementById("text");
@@ -2587,21 +2538,12 @@ background: rgba(202, 12, 12, 0.692);
       const result = magpieController.applyInfo(rawInfo, reason);
       currentMagpieInfo = result.state.info;
       isMagpieActive = result.state.active;
+      document.body.classList.toggle('magpie-active', isMagpieActive);
+      if (!isMagpieActive) document.body.classList.remove('magpie-pointer-hover');
       return result;
     }
 
-    const oldMagpieActive = isMagpieActive;
-    currentMagpieInfo = rawInfo;
-    isMagpieActive = currentMagpieInfo !== null && currentMagpieInfo !== undefined;
-    return {
-      activeChanged: oldMagpieActive !== isMagpieActive,
-      signatureChanged: oldMagpieActive !== isMagpieActive,
-      state: {
-        active: isMagpieActive,
-        info: currentMagpieInfo,
-        signature: null,
-      },
-    };
+    throw new Error("Magpie coordinate controller is unavailable");
   }
 
   function clampNumber(value, fallback, min, max) {
@@ -3171,9 +3113,7 @@ background: rgba(202, 12, 12, 0.692);
               console.log("Magpie state changed:", result.state.signature || "inactive");
             }
 
-            if (!magpieController && (result.activeChanged || result.signatureChanged)) {
-              updateMagpieCompatibility(isMagpieActive);
-            }
+
           }
           
           ipcRenderer.send("window-state-changed", {
@@ -3181,6 +3121,7 @@ background: rgba(202, 12, 12, 0.692);
             game: data.game,
             magpieActive: isMagpieActive,
             magpieInfo: currentMagpieInfo,
+            targetHwnd: data.target_hwnd || null,
             isFullscreen: data.is_fullscreen || false,
             isExclusiveFullscreen: data.is_exclusive_fullscreen || false,
             cursorHidden: data.cursor_hidden || false,
@@ -3422,8 +3363,6 @@ background: rgba(202, 12, 12, 0.692);
             
             const rect = line.bounding_rect;
             let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
-            // Track original (source-window) bounds separately for interactive area
-            let origMinx = Infinity, origMiny = Infinity, origMaxx = -Infinity, origMaxy = -Infinity;
             let bigInteractiveArea = document.createElement("div");
             bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
 
@@ -3438,12 +3377,6 @@ background: rgba(202, 12, 12, 0.692);
               const origY1 = rect.y1 * 100;
               const origX3 = rect.x3 * 100;
               const origY3 = rect.y3 * 100;
-
-              // Track original bounds for interactive area (always source position)
-              origMinx = Math.min(origMinx, origX1);
-              origMiny = Math.min(origMiny, origY1);
-              origMaxx = Math.max(origMaxx, origX3);
-              origMaxy = Math.max(origMaxy, origY3);
 
               // Map to Magpie-scaled position for rendering (identity when Magpie inactive)
               const tl = mapPercentToMagpie(origX1, origY1);
@@ -3503,20 +3436,9 @@ background: rgba(202, 12, 12, 0.692);
               });
             }
 
-            // When Magpie is active, position the interactive area at the
-            // original (source-window) location so mouse events forward to
-            // the game correctly.  Text boxes are rendered at the scaled
-            // Magpie destination and handle Yomitan interaction directly.
-            if (isMagpieActive && currentMagpieInfo) {
-              const iaPad = 2.0; // percentage points of padding each side
-              bigInteractiveArea.style.position = 'absolute';
-              bigInteractiveArea.style.left   = `${origMinx - iaPad}%`;
-              bigInteractiveArea.style.top    = `${origMiny - iaPad}%`;
-              bigInteractiveArea.style.width  = `${(origMaxx - origMinx) + iaPad * 2}%`;
-              bigInteractiveArea.style.height = `${(origMaxy - origMiny) + iaPad * 2}%`;
-            }
-
-            document.body.appendChild(bigInteractiveArea);
+            // Magpie input uses the actual rendered boxes, without hidden
+            // source-plane padding or catch-all click targets.
+            if (!isMagpieActive) document.body.appendChild(bigInteractiveArea);
           }
 
           // Attach every character before measuring any of them. These boxes
@@ -5010,27 +4932,6 @@ background: rgba(202, 12, 12, 0.692);
     updateImmediateRecycledIndicator();
     applyManualInactivePresentation('settings-load');
 
-    if (magpieController) {
-      magpieController.syncCompatibility('settings-load');
-    } else {
-      if (magpieReleaseInterval) {
-        clearInterval(magpieReleaseInterval);
-      }
-
-      // Initialize magpie interval based on current websocket state (isMagpieActive)
-      // This will be updated dynamically when window_state messages arrive
-      if (isMagpieActive) {
-        if (!yomitanShowing && !manualHotkeyPressed) {
-          requestMagpieMouseRelease('settings-load');
-        }
-        magpieReleaseInterval = setInterval(() => {
-          if (!yomitanShowing && !manualHotkeyPressed) {
-            requestMagpieMouseRelease('settings-load-interval');
-          }
-        }, 1000);
-      }
-    }
-    
     // Initialize gamepad handler now that settings are loaded
     void initGamepad();
     scheduleGsmCharacterDictionaryEnsure('startup');
@@ -5208,37 +5109,6 @@ background: rgba(202, 12, 12, 0.692);
       }
     });
   });
-
-  function updateMagpieCompatibility(newValue) {
-    // Manages the periodic mouse-release timer when Magpie is active.
-    // Magpie intercepts mouse events, so we periodically release mouse
-    // control back to it when the user isn't interacting with Yomitan.
-    console.log("Magpie compatibility behavior update - Active:", newValue);
-
-    if (magpieController) {
-      magpieController.syncCompatibility('magpie-compatibility');
-      const state = magpieController.getState();
-      currentMagpieInfo = state.info;
-      isMagpieActive = state.active;
-      return;
-    }
-
-    if (magpieReleaseInterval) {
-      clearInterval(magpieReleaseInterval);
-      magpieReleaseInterval = null;
-    }
-
-    if (newValue) {
-      if (!yomitanShowing && !manualHotkeyPressed) {
-        requestMagpieMouseRelease('magpie-compat-start');
-      }
-      magpieReleaseInterval = setInterval(() => {
-        if (!yomitanShowing && !manualHotkeyPressed) {
-          requestMagpieMouseRelease('magpie-compat-interval');
-        }
-      }, 1000);
-    }
-  }
 
   function updateManualMode(newValue) {
     manualMode = newValue;

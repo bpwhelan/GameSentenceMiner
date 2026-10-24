@@ -1422,6 +1422,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 "data": "minimized",
                 "game": self.last_target_info.get("title", self.last_game_name),
                 "magpie_info": None,
+                "target_hwnd": self.target_hwnd,
                 "is_fullscreen": False,
                 "is_exclusive_fullscreen": False,
                 "recommend_manual_mode": False,
@@ -1455,6 +1456,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "data": "background",
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": self.magpie_info,
+            "target_hwnd": self.target_hwnd,
             "is_fullscreen": False,
             "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
@@ -1487,6 +1489,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "data": "closed",
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": None,
+            "target_hwnd": self.target_hwnd,
             "is_fullscreen": False,
             "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
@@ -1523,6 +1526,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "data": restored_state,
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": self.magpie_info,
+            "target_hwnd": self.target_hwnd,
             "is_fullscreen": restored_fullscreen,
             "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
@@ -1728,6 +1732,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             or window_moved_or_resized
             or cursor_hidden_changed
             or self.occlusion_rects != previous_occlusion_rects
+            or getattr(self, "_refresh_generation", 0)
+            != (getattr(self, "last_window_state_payload", None) or {}).get("refresh_generation", 0)
         ):
             logger.debug(
                 f"Window state changed: {self.last_state} -> {current_state} "
@@ -1744,8 +1750,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             payload = {
                 "type": "window_state",
                 "data": current_state,
+                "refresh_generation": getattr(self, "_refresh_generation", 0),
                 "game": game_name_ref,
                 "magpie_info": self.magpie_info,
+                "target_hwnd": self.target_hwnd,
                 "is_fullscreen": is_fullscreen,
                 "is_exclusive_fullscreen": is_exclusive_fullscreen,
                 "cursor_hidden": cursor_hidden,

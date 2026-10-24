@@ -168,7 +168,12 @@ async def _window_monitor_loop(window_monitor: WindowStateMonitor | None):
                     if manager is not None:
                         manager.request_tick()
             publish_active_game_state(window_monitor)
-            await asyncio.sleep(min(1.0, window_monitor.poll_interval) if overlay_connected and window_monitor else 1.0)
+            interval = min(1.0, window_monitor.poll_interval) if overlay_connected and window_monitor else 1.0
+            wait_for_refresh = getattr(window_monitor, "wait_for_refresh", None)
+            if wait_for_refresh:
+                await wait_for_refresh(interval)
+            else:
+                await asyncio.sleep(interval)
         except Exception as e:
             logger.debug(f"Window monitor error: {e}")
             await asyncio.sleep(1)
@@ -298,8 +303,8 @@ class OverlayProcessor:
     This backend always emits coordinates as *source-window-relative monitor
     percentages* — the frontend (GSM_Overlay/index.html) handles the mapping
     from source space to Magpie-destination space for rendering via
-    ``mapPercentToMagpie()``.  Interactive (click-through) areas remain at the
-    original source position so mouse events forward correctly to the game.
+    ``mapPercentToMagpie()``. Native cursor samples are projected through the
+    same transform and hit-tested against the actual rendered text in Chromium.
     """
 
     ENABLE_DETAILED_TIMING = False  # Set to True to enable detailed timing traces in logger.info

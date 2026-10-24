@@ -70,6 +70,9 @@ function normalizeMagpieInfo(rawInfo) {
   }
 
   return {
+    source_hwnd: toFiniteNumber(rawInfo.source_hwnd),
+    scaling_hwnd: toFiniteNumber(rawInfo.scaling_hwnd),
+    windowed: rawInfo.windowed === true,
     magpieWindowTopEdgePosition: destinationRect.top,
     magpieWindowBottomEdgePosition: destinationRect.bottom,
     magpieWindowLeftEdgePosition: destinationRect.left,
@@ -82,7 +85,7 @@ function normalizeMagpieInfo(rawInfo) {
     destinationRect,
     scaleX: destinationRect.width / sourceRect.width,
     scaleY: destinationRect.height / sourceRect.height,
-    signature: buildMagpieSignature(sourceRect, destinationRect),
+    signature: [rawInfo.source_hwnd || 0, rawInfo.scaling_hwnd || 0, buildMagpieSignature(sourceRect, destinationRect)].join(":"),
   };
 }
 
@@ -131,69 +134,62 @@ function mapPercentToMagpie(pX, pY, magpieState, displayInfo) {
     return { x: pX, y: pY };
   }
 
-  const { sourceRect, destinationRect } = state.info;
   // Backend percentages are monitor-relative; Magpie's rectangles are physical
   // desktop coordinates. Include the origin on both sides of the transform.
   const originX = toFiniteNumber(displayInfo?.physicalBounds?.x) ?? 0;
   const originY = toFiniteNumber(displayInfo?.physicalBounds?.y) ?? 0;
   const absoluteX = originX + (pX / 100) * displaySize.width;
   const absoluteY = originY + (pY / 100) * displaySize.height;
-  const mappedX = destinationRect.left + ((absoluteX - sourceRect.left) / sourceRect.width) * destinationRect.width;
-  const mappedY = destinationRect.top + ((absoluteY - sourceRect.top) / sourceRect.height) * destinationRect.height;
+  const mapped = mapPointToMagpie({ x: absoluteX, y: absoluteY }, state.info);
 
   return {
-    x: ((mappedX - originX) / displaySize.width) * 100,
-    y: ((mappedY - originY) / displaySize.height) * 100,
+    x: ((mapped.x - originX) / displaySize.width) * 100,
+    y: ((mapped.y - originY) / displaySize.height) * 100,
+  };
+}
+
+// All transforms operate in physical desktop pixels, including negative monitor
+// origins. Percentages/CSS pixels are converted only at the renderer boundary.
+function mapPointToMagpie(point, rawInfo) {
+  const info = normalizeMagpieInfo(rawInfo);
+  if (!info) return { ...point };
+  const { sourceRect: src, destinationRect: dst } = info;
+  return {
+    x: dst.left + (point.x - src.left) * info.scaleX,
+    y: dst.top + (point.y - src.top) * info.scaleY,
+  };
+}
+
+function mapRectToMagpie(rect, rawInfo) {
+  if (!rect) return rect;
+  const tl = mapPointToMagpie({ x: rect.left, y: rect.top }, rawInfo);
+  const br = mapPointToMagpie({ x: rect.right, y: rect.bottom }, rawInfo);
+  return { left: tl.x, top: tl.y, right: br.x, bottom: br.y, width: br.x - tl.x, height: br.y - tl.y };
+}
+
+function mapCursorToMagpie(point, rawInfo) {
+  const info = normalizeMagpieInfo(rawInfo);
+  if (!info) return { ...point };
+  const { sourceRect: src, destinationRect: dst } = info;
+  // CursorManager maps first/last pixel centers, unlike rectangle edges. Ignore
+  // border-exit samples: Magpie itself handles warping across letterboxing and
+  // gaps between monitors, for which it has additional renderer geometry.
+  if (point.x < src.left || point.x >= src.right || point.y < src.top || point.y >= src.bottom) return null;
+  return {
+    x: dst.left + Math.round((point.x - src.left) / Math.max(1, src.width - 1) * (dst.width - 1)),
+    y: dst.top + Math.round((point.y - src.top) / Math.max(1, src.height - 1) * (dst.height - 1)),
   };
 }
 
 function createMagpieRendererController(options = {}) {
   const {
-    requestMouseRelease = () => {},
     restoreMouseIgnore = () => {},
     isYomitanShowing = () => false,
     isManualHotkeyPressed = () => false,
-    setIntervalFn = setInterval,
-    clearIntervalFn = clearInterval,
-    compatibilityIntervalMs = 1000,
     logger = console,
   } = options;
 
   let state = createMagpieState(null);
-  let releaseInterval = null;
-
-  function clearCompatibilityInterval() {
-    if (releaseInterval) {
-      clearIntervalFn(releaseInterval);
-      releaseInterval = null;
-    }
-  }
-
-  function canReleaseMouse() {
-    return state.active && !isYomitanShowing() && !isManualHotkeyPressed();
-  }
-
-  function triggerMouseRelease(reason) {
-    if (!canReleaseMouse()) {
-      return false;
-    }
-
-    requestMouseRelease(reason);
-    return true;
-  }
-
-  function syncCompatibility(reason = "magpie-sync") {
-    clearCompatibilityInterval();
-
-    if (!state.active) {
-      return;
-    }
-
-    triggerMouseRelease(reason);
-    releaseInterval = setIntervalFn(() => {
-      triggerMouseRelease(reason);
-    }, compatibilityIntervalMs);
-  }
 
   function applyInfo(rawInfo, reason = "magpie-update") {
     const nextState = createMagpieState(rawInfo);
@@ -205,7 +201,6 @@ function createMagpieRendererController(options = {}) {
       logger.log(
         `[Magpie] Renderer state -> active=${state.active} signature=${state.signature || "inactive"} (${reason})`
       );
-      syncCompatibility(reason);
     }
 
     return {
@@ -216,25 +211,15 @@ function createMagpieRendererController(options = {}) {
   }
 
   function restorePassThrough(reason = "overlay-pass-through") {
-    if (state.active) {
-      triggerMouseRelease(reason);
-      return;
-    }
-
-    restoreMouseIgnore(reason);
+    if (!isYomitanShowing() && !isManualHotkeyPressed()) restoreMouseIgnore(reason);
   }
 
   function getState() {
     return state;
   }
 
-  function dispose() {
-    clearCompatibilityInterval();
-  }
-
   return {
     applyInfo,
-    dispose,
     getState,
     isActive() {
       return state.active;
@@ -246,7 +231,6 @@ function createMagpieRendererController(options = {}) {
       return mapPercentToMagpie(pX, pY, state, displayInfo);
     },
     restorePassThrough,
-    syncCompatibility,
   };
 }
 
@@ -254,6 +238,9 @@ const exported = {
   createMagpieRendererController,
   createMagpieState,
   mapPercentToMagpie,
+  mapPointToMagpie,
+  mapRectToMagpie,
+  mapCursorToMagpie,
   normalizeMagpieInfo,
 };
 

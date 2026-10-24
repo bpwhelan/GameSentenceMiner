@@ -78,7 +78,7 @@ describe("magpie", () => {
     expect(bottomRight.y).toBeCloseTo(100, 6);
   });
 
-  describe.each(["module", "renderer fallback"])("%s monitor mapping", (implementation) => {
+  describe.each(["module", "renderer delegation"])("%s monitor mapping", (implementation) => {
     it.each([
       { x: 2560, y: 164, width: 1920, height: 1080 },
       { x: -1920, y: -1080, width: 1920, height: 1080 },
@@ -103,7 +103,7 @@ describe("magpie", () => {
       const map = implementation === "module"
         ? (px: number, py: number) => mapPercentToMagpie(px, py, createMagpieState(info), display)
         : runInNewContext(`${fallbackMapping}; mapPercentToMagpie`, {
-          magpieController: null, isMagpieActive: true, currentMagpieInfo: info, display,
+          magpieController: { mapPercent: (x: number, y: number) => mapPercentToMagpie(x, y, info, display) }, display,
         });
       const topLeft = map(320 / width * 100, 180 / height * 100);
       const bottomRight = map(1600 / width * 100, 900 / height * 100);
@@ -114,56 +114,30 @@ describe("magpie", () => {
     });
   });
 
-  it("keeps the mouse-release cadence when unchanged geometry arrives repeatedly", () => {
-    const requestMouseRelease = vi.fn();
-    const controller = createMagpieRendererController({ requestMouseRelease, logger: { log() {} } });
+  it("geometry updates never schedule periodic mouse releases", () => {
+    const restoreMouseIgnore = vi.fn();
+    const controller = createMagpieRendererController({ restoreMouseIgnore, logger: { log() {} } });
     controller.applyInfo(ACTIVE_MAGPIE_INFO);
-    for (let i = 0; i < 4; i += 1) {
-      vi.advanceTimersByTime(200);
-      controller.applyInfo({ ...ACTIVE_MAGPIE_INFO });
-    }
-    expect(requestMouseRelease).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(200);
-    expect(requestMouseRelease).toHaveBeenCalledTimes(2);
-    controller.dispose();
+    controller.applyInfo({ ...ACTIVE_MAGPIE_INFO });
+    vi.advanceTimersByTime(10000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(restoreMouseIgnore).not.toHaveBeenCalled();
+    expect(controller.isActive()).toBe(true);
+    controller.applyInfo(null);
+    expect(controller.isActive()).toBe(false);
   });
 
-  it("starts and stops Magpie compatibility releases from normalized state", () => {
-    const releaseReasons: string[] = [];
-    const passThroughReasons: string[] = [];
+  it("only an explicit release returns input, respecting active lookup ownership", () => {
+    let lookup = true;
+    const restoreMouseIgnore = vi.fn();
     const controller = createMagpieRendererController({
-      requestMouseRelease(reason: string) {
-        releaseReasons.push(reason);
-      },
-      restoreMouseIgnore(reason: string) {
-        passThroughReasons.push(reason);
-      },
-      isYomitanShowing() {
-        return false;
-      },
-      isManualHotkeyPressed() {
-        return false;
-      },
-      setIntervalFn: setInterval,
-      clearIntervalFn: clearInterval,
-      logger: { log() {}, warn() {}, error() {} },
+      restoreMouseIgnore, isYomitanShowing: () => lookup, logger: { log() {} },
     });
-
-    controller.applyInfo(ACTIVE_MAGPIE_INFO, "window-state");
-
-    expect(controller.getState().active).toBe(true);
-    expect(releaseReasons).toHaveLength(1);
-
-    vi.advanceTimersByTime(1000);
-    expect(releaseReasons).toHaveLength(2);
-
-    controller.applyInfo(null, "window-state");
-    expect(controller.getState().active).toBe(false);
-
-    vi.advanceTimersByTime(2000);
-    expect(releaseReasons).toHaveLength(2);
-
-    controller.restorePassThrough("manual-mode");
-    expect(passThroughReasons).toEqual(["manual-mode"]);
+    controller.applyInfo(ACTIVE_MAGPIE_INFO);
+    controller.restorePassThrough("popup-open");
+    expect(restoreMouseIgnore).not.toHaveBeenCalled();
+    lookup = false;
+    controller.restorePassThrough("popup-close");
+    expect(restoreMouseIgnore).toHaveBeenCalledExactlyOnceWith("popup-close");
   });
 });

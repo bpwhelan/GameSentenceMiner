@@ -50,6 +50,12 @@ app.whenReady().then(async () => {
         for (const frame of [options, { ...options, offsetX: 1.734, offsetY: -0.83 }, { ...options, supplemental: true }]) {
           const outputs = [];
           for (const window of windows) outputs.push(await run(window, payload, frame));
+          if (frame.magpie) {
+            // The rewrite deliberately removes invisible source-plane hit areas.
+            // Compare all painted text/geometry, and assert those areas are gone.
+            assert.equal(await windows[1].webContents.executeJavaScript("document.querySelectorAll('.big-interactive-area').length"), 0);
+            for (const output of outputs) output.html = output.html.replace(/<div class="big-interactive-area[^>]*><\/div>/g, '');
+          }
           try {
             assert.deepEqual(outputs[1], outputs[0]);
           } catch {

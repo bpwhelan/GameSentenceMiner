@@ -38,16 +38,17 @@ function setup(t) {
     backend: { connected: true, send: data => effects.push(data.type) },
     gamepadNavigationActive: false, gamepadKeyboardToggleSuppressedUntil: 0,
     overlayFocusRequestVersion: 0,
+    pendingMagpieFocusRestore: null, magpieSession: null,
     manualHotkeyPressed: false, manualModeToggleState: false, isOverlayVisible: false,
     yomitanShown: false, yomitanForegroundActive: false, resizeMode: false,
     currentMagpieState: { active: false },
     isManualMode: () => false, isWindows: () => true, isMac: () => false, isLinux: () => false,
     setTrackedGameWindowState: state => { context.trackedGameWindowState = state; return state; },
     resetOverlayInteractionStateForHiddenGameWindow: () => { context.gamepadNavigationActive = false; },
-    releaseAllOverlayPauseRequests() {}, clearMagpieYomitanCloseVisibilityGuard() {},
+    releaseAllOverlayPauseRequests() {},
     cancelManualBackgroundShowWait() {}, cancelManualBackgroundRelease() {},
     revealAutomaticOverlayForSignal() {}, shouldKeepOverlayVisibleWhenManualInactive: () => false,
-    shouldDeferObscuredStateAfterYomitanClose: () => false,
+    shouldDeferObscuredStateForMagpieFocus: () => false,
     requestOverlayScanForActivation: () => effects.push('scan'),
     requestOverlayPauseForSource: () => effects.push('pause'),
     OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION: 'gamepad',
@@ -63,12 +64,21 @@ function setup(t) {
     'reassertOverlayTopmostWithoutFocus', 'aggressivelyShowOverlayAndReturnFocus',
     'requestManualOverlayScan', 'requestManualModeBackground', 'restoreAutomaticOverlayPassThrough',
     'showInactiveAndRestoreFocus', 'focusOverlayForYomitanLookup',
+    'cancelPendingMagpieFocusRestore',
   ];
   loadFunctions(context, names);
   vm.runInContext(between(source, 'const GAMEPAD_FOCUS_RETRY_DELAYS_MS', 'let gamepadToggleRequestSeq'), context);
   vm.runInContext(between(source, '  ipcMain.on("show",', '  ipcMain.on("yomitan-event"'), context);
   return { context, effects, messages, ipcMain };
 }
+
+test('capture loss cancels an outstanding Magpie focus request', t => {
+  const { context, effects } = setup(t);
+  context.pendingMagpieFocusRestore = { requestId: 'pending-focus', timer: setTimeout(() => {}, 3000) };
+  context.invalidateOverlayCapture('test');
+  assert.equal(context.pendingMagpieFocusRestore, null);
+  assert.ok(effects.includes('restore-focus-cancel'));
+});
 
 function setupTextfeed(t) {
   const fixture = setup(t);

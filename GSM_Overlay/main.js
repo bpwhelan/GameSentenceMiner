@@ -16,6 +16,8 @@ const bg = require('./background');
 const BackendConnector = require('./backend_connector');
 const { configureYomitan, createSetupHandler } = require('./anki_setup');
 const { createMagpieState } = require('./magpie');
+const { createMagpieNative } = require('./magpie_native');
+const { createMagpieSession } = require('./magpie_session');
 const { JitenParseCache, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
 const { installJitenSessionBroker, JitenFrameRequests } = require('./jiten_session');
 const { LocalVocabulary, VocabularyConnection } = require('./local_vocabulary');
@@ -1920,7 +1922,7 @@ function hasValidOverlayCapture() {
   // consistent with window-state-changed while the backend still confirms capture.
   // Also preserve an already-open lookup through the Magpie focus handoff.
   return trackedGameWindowState === "obscured" &&
-    (isTexthookerMode || customPageController?.isVisible() || yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
+    (isTexthookerMode || customPageController?.isVisible() || yomitanShown || shouldDeferObscuredStateForMagpieFocus());
 }
 
 function canUseOverlayCapture() {
@@ -1939,7 +1941,7 @@ function invalidateOverlayCapture(reason = "capture-unavailable") {
   overlayCaptureExpiryTimer = null;
   cancelManualBackgroundShowWait();
   cancelManualBackgroundRelease();
-  clearMagpieYomitanCloseVisibilityGuard();
+  cancelPendingMagpieFocusRestore();
   resetOverlayInteractionStateForHiddenGameWindow(reason);
   releaseAllOverlayPauseRequests();
   resizeMode = false;
@@ -2331,17 +2333,15 @@ let websocketStates = {
 
 let lastWebsocketData = null;
 let currentMagpieState = createMagpieState(null);
+let magpieSession = null;
+let magpieSourceFocused = false;
 let translationRequested = false; // Track if translation has been requested for current text
 let yomitanRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
-let gamepadReleaseRecoveryVersion = 0; // Cancels stale Magpie recovery after navigation is re-entered
 let lastFocusRestoreRequestAt = 0;
 let suppressBackendFocusRestoreUntil = 0;
 let lastOverlayTopmostReassertAt = 0;
 let pendingOverlayTopmostReassertTimer = null;
-let lastYomitanEventAt = 0;
 let yomitanForegroundActive = false;
-let magpieYomitanCloseVisibilityGuardActive = false;
-let magpieYomitanCloseVisibilityGuardTimer = null;
 let trackedGameWindowState = "unknown";
 let trackedGameWindowStateUpdatedAt = 0;
 let overlayCaptureAvailable = false;
@@ -2408,9 +2408,6 @@ const manualHotkeyController = createManualHotkeyController({
 
 const FOCUS_RESTORE_THROTTLE_MS = 150;
 const OVERLAY_TOPMOST_REASSERT_THROTTLE_MS = 1500;
-const OVERLAY_MAGPIE_TEXT_REASSERT_MIN_INTERVAL_MS = 10000;
-const YOMITAN_STATE_STALE_TIMEOUT_MS = 12000;
-const MAGPIE_YOMITAN_CLOSE_VISIBILITY_GRACE_MS = 500;
 const FIND_IN_PAGE_COMMAND_CHANNEL = 'gsm-find-in-page:command';
 const FIND_IN_PAGE_RESULT_CHANNEL = 'gsm-find-in-page:result';
 const FIND_IN_PAGE_SHORTCUT_CHANNEL = 'gsm-find-in-page:shortcut';
@@ -2614,6 +2611,11 @@ function handleOverlayWebSocketControlMessage(type, data) {
 
   if (!message || typeof message !== "object") {
     return false;
+  }
+
+  if (message.type === 'restore-focus-result') {
+    handleMagpieFocusResult(message);
+    return true;
   }
 
   if (message.type === 'quick-action-result') return quickActionsBridge.receive(message);
@@ -4158,59 +4160,63 @@ function shouldHideOverlayWindowForManualInactive() {
     !shouldKeepOverlayVisibleWhenManualInactive();
 }
 
-function isYomitanStateLikelyStale() {
-  if (!yomitanShown) {
-    return false;
-  }
-
-  const ageMs = Date.now() - lastYomitanEventAt;
-  return ageMs >= YOMITAN_STATE_STALE_TIMEOUT_MS;
+function shouldDeferObscuredStateForMagpieFocus() {
+  return currentMagpieState.active && pendingMagpieFocusRestore?.version === overlayFocusRequestVersion;
 }
 
-function clearMagpieYomitanCloseVisibilityGuard() {
-  magpieYomitanCloseVisibilityGuardActive = false;
-  if (magpieYomitanCloseVisibilityGuardTimer) {
-    clearTimeout(magpieYomitanCloseVisibilityGuardTimer);
-    magpieYomitanCloseVisibilityGuardTimer = null;
-  }
+function requestMagpieStateRefresh() {
+  if (backend?.connected) backend.send({ type: 'magpie-state-request' });
 }
 
-function beginMagpieYomitanCloseVisibilityGuard() {
-  clearMagpieYomitanCloseVisibilityGuard();
-  if (!currentMagpieState.active || !userSettings.focusOverlayOnYomitanLookup) {
-    return;
-  }
-
-  magpieYomitanCloseVisibilityGuardActive = true;
-  magpieYomitanCloseVisibilityGuardTimer = setTimeout(() => {
-    magpieYomitanCloseVisibilityGuardTimer = null;
-    magpieYomitanCloseVisibilityGuardActive = false;
-
-    // If the game really remained obscured after focus had time to settle, apply
-    // the deferred state now. Usually focus restoration changes it back to active.
-    if (
-      !mainWindow ||
-      mainWindow.isDestroyed() ||
-      yomitanShown ||
-      trackedGameWindowState !== "obscured"
-    ) {
-      return;
-    }
-
-    console.log("[Yomitan] Magpie close grace expired while game remained obscured; hiding overlay");
-    resetOverlayInteractionStateForHiddenGameWindow("window-state:obscured-after-yomitan-close");
-    if (!resizeMode && !mainWindow.isMinimized()) {
-      mainWindow.hide();
-    }
-  }, MAGPIE_YOMITAN_CLOSE_VISIBILITY_GRACE_MS);
+function canTrackMagpiePointer() {
+  return canUseOverlayCapture() && !isTexthookerMode && !customPageController?.isVisible()
+    && !isManualMode() && !manualHotkeyPressed && !manualModeToggleState
+    && !gamepadNavigationActive && !resizeMode && !yomitanShown && !yomitanForegroundActive;
 }
 
-function shouldDeferObscuredStateAfterYomitanClose() {
-  return (
-    magpieYomitanCloseVisibilityGuardActive &&
-    currentMagpieState.active &&
-    userSettings.focusOverlayOnYomitanLookup
-  );
+function attachMagpieSession() {
+  magpieSession?.dispose();
+  magpieSession = null;
+  try {
+    const native = createMagpieNative();
+    if (!native) return;
+    magpieSession = createMagpieSession({
+      native, window: mainWindow, canTrackPointer: canTrackMagpiePointer,
+      requestRefresh: requestMagpieStateRefresh,
+      onScaling({ kind, info, sourceFocused }) {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        const previous = currentMagpieState;
+        currentMagpieState = createMagpieState(info);
+        magpieSourceFocused = !!info && sourceFocused;
+        if (magpieSourceFocused && kind === 'foreground') {
+          setTrackedGameWindowState('active', 'magpie-foreground');
+          publishOverlayCaptureAvailability();
+        }
+        if (pendingMagpieFocusRestore && pendingMagpieFocusRestore.sourceHwnd !== info?.source_hwnd) cancelPendingMagpieFocusRestore();
+        if (previous.active && !info) {
+          mainWindow.webContents.send('magpie-pointer-reset');
+          mainWindow.setAlwaysOnTop(true, 'screen-saver');
+        }
+        if (!info || !canUseOverlayCapture() || isTexthookerMode || customPageController?.isVisible()) return;
+        const ownsFocus = manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive || resizeMode || yomitanShown;
+        if (sourceFocused && (kind === 'foreground' || (kind === 'sync' && previous.signature !== currentMagpieState.signature))) {
+          if (!isManualMode() || shouldKeepOverlayVisibleWhenManualInactive() || ownsFocus) {
+            // Magpie broadcasts after updating its own z-order. Raising once here
+            // is the ordering prescribed by its reference MagpieWatcher.
+            if (!mainWindow.isMinimized()) mainWindow.showInactive();
+            mainWindow.setAlwaysOnTop(true, 'screen-saver');
+            mainWindow.moveTop();
+          }
+        } else if (kind === 'background' && !sourceFocused && !ownsFocus && !pendingMagpieFocusRestore) {
+          mainWindow.setAlwaysOnTop(false);
+        }
+      },
+      onPointer: sample => mainWindow.webContents.send('magpie-pointer', sample),
+      setIgnoreMouseEvents: ignore => mainWindow.setIgnoreMouseEvents(ignore, { forward: true }),
+    });
+  } catch (error) {
+    console.warn('[Magpie] Native integration unavailable:', error);
+  }
 }
 
 function requestBackendFocusRestore(source, options = {}) {
@@ -4234,7 +4240,9 @@ function requestBackendFocusRestore(source, options = {}) {
   lastFocusRestoreRequestAt = now;
   console.log(`Requesting focus restore from backend - ${source}`);
   backend.send({
-    type: 'restore-focus-request'
+    type: 'restore-focus-request',
+    ...(options.requestId ? { request_id: options.requestId } : {}),
+    ...(options.expectedTargetHwnd ? { expected_target_hwnd: options.expectedTargetHwnd } : {}),
   });
   return true;
 }
@@ -4245,34 +4253,54 @@ function suppressBackendFocusRestoreForProfileSwitch(reason = "unknown") {
   console.log(`[FocusRestore] Suppressing backend restore during profile switch (${reason})`);
 }
 
+function cancelPendingMagpieFocusRestore() {
+  const pending = pendingMagpieFocusRestore;
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingMagpieFocusRestore = null;
+  if (backend?.connected) backend.send({ type: 'restore-focus-cancel', request_id: pending.requestId });
+}
+
+function requestMagpieFocusRestore(options = {}) {
+  const version = overlayFocusRequestVersion;
+  if (pendingMagpieFocusRestore?.version === version) return true;
+  cancelPendingMagpieFocusRestore();
+  const requestId = `magpie-focus-${Date.now()}-${++magpieFocusRequestSequence}`;
+  const sourceHwnd = currentMagpieState.info?.source_hwnd;
+  if (!requestBackendFocusRestore('magpie-direct', { ...options, force: true, requestId, expectedTargetHwnd: sourceHwnd })) return false;
+  const pending = { version, requestId, sourceHwnd, fallback: options.fallback === true, timer: null };
+  pendingMagpieFocusRestore = pending;
+  // An RPC expiry cancels work; it never guesses which window should gain focus.
+  pending.timer = setTimeout(() => {
+    if (pendingMagpieFocusRestore !== pending) return;
+    cancelPendingMagpieFocusRestore();
+    requestMagpieStateRefresh();
+    console.warn('[Magpie] Focus restoration acknowledgement timed out');
+  }, 3000);
+  return true;
+}
+
 function blurAndRestoreFocus(options = {}) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (isWindows() && currentMagpieState.active && mainWindow.isFocused()) {
-      const version = overlayFocusRequestVersion;
-      if (pendingMagpieFocusRestore?.version === version) return;
-      // blur() lets Windows activate an arbitrary window before the backend can
-      // select the game. Keep Magpie's tool window foreground until that direct
-      // handoff has had a chance to complete, avoiding an intermediate focus hop.
-      if (requestBackendFocusRestore("magpie-direct", options)) {
-        if (pendingMagpieFocusRestore) clearTimeout(pendingMagpieFocusRestore.timer);
-        const pending = { version, timer: null };
-        pendingMagpieFocusRestore = pending;
-        pending.timer = setTimeout(() => {
-          if (pendingMagpieFocusRestore !== pending) return;
-          pendingMagpieFocusRestore = null;
-          if (version !== overlayFocusRequestVersion) return;
-          if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused()) return;
-          if (shouldPreserveOverlayFocusForYomitan() || yomitanShown || resizeMode) return;
-          if (Date.now() < suppressBackendFocusRestoreUntil) return;
-          mainWindow.blur();
-          requestBackendFocusRestore("magpie-blur-fallback", { ...options, force: true });
-        }, 250);
-        return;
-      }
-    }
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (isWindows() && currentMagpieState.active && mainWindow.isFocused() && requestMagpieFocusRestore(options)) return;
+  mainWindow.blur();
+  requestBackendFocusRestore('blur', options);
+}
+
+function handleMagpieFocusResult(message) {
+  const pending = pendingMagpieFocusRestore;
+  if (!pending || message.request_id !== pending.requestId) return;
+  clearTimeout(pending.timer);
+  pendingMagpieFocusRestore = null;
+  if (pending.version !== overlayFocusRequestVersion) return;
+  if (pending.sourceHwnd !== currentMagpieState.info?.source_hwnd) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!message.success && !pending.fallback && mainWindow.isFocused() && !shouldPreserveOverlayFocusForYomitan()
+    && !yomitanShown && !resizeMode && Date.now() >= suppressBackendFocusRestoreUntil) {
     mainWindow.blur();
-    requestBackendFocusRestore("blur", options);
+    requestMagpieFocusRestore({ fallback: true });
   }
+  requestMagpieStateRefresh();
 }
 
 function hideAndRestoreFocus(options = {}) {
@@ -4298,6 +4326,7 @@ function showInactiveAndRestoreFocus(options = {}) {
 
 let overlayFocusRequestVersion = 0;
 let pendingMagpieFocusRestore = null;
+let magpieFocusRequestSequence = 0;
 
 function releaseOverlayFocusAfterTopmostRecovery(delayMs = 120) {
   const version = overlayFocusRequestVersion;
@@ -4495,6 +4524,7 @@ function aggressivelyFocusOverlayForGamepadNavigation() {
   if (!canUseOverlayCapture()) return;
   if (!mainWindow || mainWindow.isDestroyed()) return;
   overlayFocusRequestVersion += 1;
+  cancelPendingMagpieFocusRestore();
 
   const lastFocusDelay = GAMEPAD_FOCUS_RETRY_DELAYS_MS[GAMEPAD_FOCUS_RETRY_DELAYS_MS.length - 1] || 0;
   gamepadKeyboardToggleSuppressedUntil = Math.max(
@@ -4615,7 +4645,6 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
     if (!wasActive) {
       requestOverlayScanForActivation("controller-navigation");
     }
-    gamepadReleaseRecoveryVersion += 1;
     if (isManualMode()) {
       showOverlayUsingManualFlow(`Gamepad ${triggerSource} Activate`, OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
     } else {
@@ -4645,36 +4674,11 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
     blurAndRestoreFocus({ force: true });
   }
 
-  scheduleGamepadReleaseRecovery();
-}
-
-function scheduleGamepadReleaseRecovery() {
-  if (!currentMagpieState.active || isManualMode()) return;
-
-  const version = ++gamepadReleaseRecoveryVersion;
-  // Hiding a controller-owned window can briefly make the Magpie source look
-  // obscured while Windows settles foreground and Z-order. That transient state
-  // hides GSM, and no later state change is guaranteed to show it again. Reassert
-  // the automatic overlay without taking focus back from the game.
-  for (const delay of [120, 400]) {
-    setTimeout(() => {
-      if (version !== gamepadReleaseRecoveryVersion) return;
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (!currentMagpieState.active || isManualMode()) return;
-      if (gamepadNavigationActive || yomitanShown || resizeMode) return;
-
-      restoreAutomaticOverlayPassThrough("gamepad-release-recovery");
-      requestOverlayTopmostReassert("gamepad-release-recovery", {
-        force: true,
-        forceShow: true,
-        moveToTop: true,
-        refreshWorkspace: true,
-      });
-    }, delay);
-  }
+  if (currentMagpieState.active) requestMagpieStateRefresh();
 }
 
 function scheduleYomitanCloseRecovery() {
+  if (currentMagpieState.active) return;
   const version = ++yomitanRecoveryVersion;
   const recoveryDelays = [120];
 
@@ -4719,7 +4723,7 @@ function requestYomitanOverlayTopmostReassert(source) {
     force: true,
     moveToTop: true,
     refreshWorkspace: true,
-    releaseFocusAfter: !shouldPreserveOverlayFocusForYomitan(),
+    releaseFocusAfter: !currentMagpieState.active && !shouldPreserveOverlayFocusForYomitan(),
   });
 }
 
@@ -5497,6 +5501,7 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   // Invalidate a previous exit's delayed focus release before accepting entry.
   overlayFocusRequestVersion += 1;
+  cancelPendingMagpieFocusRestore();
 
   console.log(`[OverlayActivation] Attempting SHOW (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
 
@@ -5833,7 +5838,6 @@ function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-h
   manualModeToggleState = false;
   gamepadNavigationActive = false;
   gamepadKeyboardToggleSuppressedUntil = 0;
-  gamepadReleaseRecoveryVersion += 1;
   clearGamepadManualPause(reason);
   yomitanForegroundActive = false;
 
@@ -5881,12 +5885,8 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
   if (shouldKeepOverlayVisibleWhenManualInactive()) {
     showOverlayWithoutFocusForManualVisibleMode(`auto-pass-through:${reason}`);
   } else if (currentMagpieState.active) {
-    requestOverlayTopmostReassert(`auto-pass-through:${reason}`, {
-      force: true,
-      moveToTop: true,
-      refreshWorkspace: true,
-      releaseFocusAfter: true,
-    });
+    mainWindow.showInactive();
+    magpieSession?.invalidatePointer();
   } else {
     mainWindow.show();
   }
@@ -6277,6 +6277,7 @@ function registerCustomPageHotkey() {
         focusWindow: forceForegroundWindow,
         onShow: () => {
           overlayFocusRequestVersion += 1;
+          cancelPendingMagpieFocusRestore();
           cancelManualBackgroundRelease();
           resetOverlayInteractionStateForHiddenGameWindow('custom-page-show');
           clearManualActivationState('custom-page-show');
@@ -7830,6 +7831,7 @@ async function startOverlayAppImpl() {
   mainWindow.on('closed', () => recordOverlayDiagnostic('window-closed'));
   mainWindow.on('hide', () => recordOverlayDiagnostic('window-hidden'));
   mainWindow.on('unresponsive', () => recordOverlayDiagnostic('window-unresponsive'));
+  attachMagpieSession();
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const child = new BrowserWindow({
@@ -7928,20 +7930,16 @@ async function startOverlayAppImpl() {
     // }
   });
 
+  ipcMain.on('magpie-pointer-hit', (event, reply) => {
+    if (event.sender === mainWindow?.webContents) magpieSession?.handleHit(reply);
+  });
+
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
     if (!ignore && !canUseOverlayCapture()) return;
-    // console.log("set-ignore-mouse-events", ignore, options, resizeMode, yomitanShown);
-    const forceMagpieRelease = !!(options && options.forceMagpieRelease);
-    // A periodic renderer request can arrive after a new interaction starts.
-    // Main-process state owns that interaction and must win over the old request.
-    if (forceMagpieRelease && ignore && (
-      manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive || resizeMode
-    )) return;
-    if (forceMagpieRelease && ignore && isYomitanStateLikelyStale()) {
-      console.warn(`[MagpieCompat] Clearing stale Yomitan state before mouse release (age=${Date.now() - lastYomitanEventAt}ms)`);
-      yomitanShown = false;
-      yomitanRecoveryVersion += 1;
-    }
+    // Automatic Magpie input is decided from physical cursor samples and
+    // rendered hit tests. Ordinary DOM hover events use the hardware cursor,
+    // which may still be in source coordinates during Magpie capture.
+    if (magpieSession?.ownsPointer()) return;
 
     if (
       !ignore &&
@@ -7995,6 +7993,11 @@ async function startOverlayAppImpl() {
 
   ipcMain.on("resize-mode", (event, state) => {
     resizeMode = !!state && canUseOverlayCapture();
+    magpieSession?.invalidatePointer();
+    if (resizeMode) {
+      overlayFocusRequestVersion += 1;
+      cancelPendingMagpieFocusRestore();
+    }
   })
 
 
@@ -8005,10 +8008,11 @@ async function startOverlayAppImpl() {
 
     // Invalidate pending close-recovery attempts whenever popup state flips.
     yomitanRecoveryVersion += 1;
-    lastYomitanEventAt = Date.now();
     yomitanShown = state;
+    magpieSession?.invalidatePointer();
     if (state) {
-      clearMagpieYomitanCloseVisibilityGuard();
+      overlayFocusRequestVersion += 1;
+      cancelPendingMagpieFocusRestore();
       if (userSettings.focusOverlayOnYomitanLookup) {
         focusOverlayForYomitanLookup();
       } else {
@@ -8019,7 +8023,6 @@ async function startOverlayAppImpl() {
         requestYomitanOverlayTopmostReassert("yomitan-open");
       }
     } else {
-      beginMagpieYomitanCloseVisibilityGuard();
       if (yomitanForegroundActive || userSettings.focusOverlayOnYomitanLookup) {
         restoreOverlayAfterYomitanLookup();
         return;
@@ -8253,23 +8256,20 @@ async function startOverlayAppImpl() {
     });
   });
 
-  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, isExclusiveFullscreen, cursorHidden, recommendManualMode, obsOutputActive }) => {
+  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, targetHwnd, isFullscreen, isExclusiveFullscreen, cursorHidden, recommendManualMode, obsOutputActive }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
-    const normalizedWindowState = setTrackedGameWindowState(state, "window-state-changed");
-    publishOverlayCaptureAvailability();
-    if (isTexthookerMode || customPageController?.isVisible()) return;
-
-    currentMagpieState = magpieInfo !== undefined
+    let normalizedWindowState = normalizeTrackedGameWindowState(state);
+    if (magpieSession) magpieSession.updateTarget(targetHwnd);
+    else currentMagpieState = magpieInfo !== undefined
       ? createMagpieState(magpieInfo)
       : (magpieActive ? currentMagpieState : createMagpieState(null));
-
-    if (
-      magpieYomitanCloseVisibilityGuardActive &&
-      ["active", "background", "minimized", "closed"].includes(normalizedWindowState)
-    ) {
-      clearMagpieYomitanCloseVisibilityGuard();
-    }
+    // A backend snapshot can predate the native focus handoff. The matching
+    // visible source is now foreground, so an older obscured state cannot hide it.
+    if (normalizedWindowState === 'obscured' && currentMagpieState.active && magpieSourceFocused) normalizedWindowState = 'active';
+    setTrackedGameWindowState(normalizedWindowState, 'window-state-changed');
+    publishOverlayCaptureAvailability();
+    if (isTexthookerMode || customPageController?.isVisible()) return;
 
     console.log(
       `Window state changed to: ${normalizedWindowState} for game: ${game}, ` +
@@ -8334,13 +8334,6 @@ async function startOverlayAppImpl() {
             refreshWorkspace: true,
             releaseFocusAfter: true,
           });
-        } else if (currentMagpieState.active) {
-          requestOverlayTopmostReassert("window-state-active-magpie", {
-            force: true,
-            moveToTop: true,
-            refreshWorkspace: true,
-            releaseFocusAfter: true,
-          });
         }
         break;
 
@@ -8355,8 +8348,8 @@ async function startOverlayAppImpl() {
 
       case "obscured":
         console.log("[WindowState] Obscured - Game completely covered by other windows");
-        if (shouldDeferObscuredStateAfterYomitanClose()) {
-          console.log("[WindowState] Deferring transient Magpie obscured state after focused Yomitan close");
+        if (shouldDeferObscuredStateForMagpieFocus()) {
+          console.log("[WindowState] Deferring Magpie obscured state until focus restoration completes");
           break;
         }
         resetOverlayInteractionStateForHiddenGameWindow("window-state:obscured");
@@ -8975,25 +8968,6 @@ async function startOverlayAppImpl() {
         mainWindow?.webContents.send('request-block-translation', { automatic: true });
       }
     }
-
-    // Magpie can steal z-order, but delayed topmost bumps after routine line
-    // updates are visibly disruptive. Keep line-based recovery rare and
-    // immediate; stronger recovery still runs for state changes, minimized
-    // windows, and Yomitan close.
-    if (currentMagpieState.active && !isManualMode()) {
-      requestOverlayTopmostReassert("text-received-magpie", {
-        throttleMs: OVERLAY_MAGPIE_TEXT_REASSERT_MIN_INTERVAL_MS,
-        scheduleTrailing: false,
-        moveToTop: true,
-        releaseFocusAfter: true,
-        shouldRun: () => (
-          currentMagpieState.active &&
-          !isManualMode() &&
-          !isTexthookerMode &&
-          isTrackedGameWindowVisibleForManualHotkey()
-        ),
-      });
-    }
   });
 
   // ==================== Gamepad IPC Handlers ====================
@@ -9305,7 +9279,13 @@ async function stopOverlayApp() {
 
       runOverlayCleanupStep('IPC registrations', () => removeOverlayIpcRegistrations());
       runOverlayCleanupStep('Electron event listeners', () => removeOverlayEmitterListeners());
-      runOverlayCleanupStep('Magpie Yomitan close guard', () => clearMagpieYomitanCloseVisibilityGuard());
+      runOverlayCleanupStep('Magpie session', () => {
+        magpieSession?.dispose();
+        magpieSession = null;
+        cancelPendingMagpieFocusRestore();
+        currentMagpieState = createMagpieState(null);
+        magpieSourceFocused = false;
+      });
       runOverlayCleanupStep('timers', () => clearOverlayTimers());
       findInPageStateByWebContentsId.clear();
       runOverlayCleanupStep('settings save', () => saveSettings());

@@ -50,7 +50,7 @@ function setup(t, settings = {}) {
     webContents: { focus() {}, send: (...args) => rendererMessages.push(args) },
   };
   const context = vm.createContext({
-    console: { log() {} }, Date, setTimeout, clearTimeout, ipcMain, mainWindow,
+    console: { log() {}, warn() {} }, Date, setTimeout, clearTimeout, ipcMain, mainWindow,
     userSettings: {
       manualMode: true, manualModeType: 'toggle',
       manualModeInactiveBehavior: 'disable-interaction',
@@ -67,17 +67,17 @@ function setup(t, settings = {}) {
     OVERLAY_TOPMOST_REASSERT_THROTTLE_MS: 1500,
     lastFocusRestoreRequestAt: 0, suppressBackendFocusRestoreUntil: 0,
     overlayFocusRequestVersion: 0,
-    pendingMagpieFocusRestore: null,
+    pendingMagpieFocusRestore: null, magpieFocusRequestSequence: 0, magpieSession: null, magpieSourceFocused: false,
     lastOverlayTopmostReassertAt: 0, pendingOverlayTopmostReassertTimer: null,
     manualHotkeyPressed: false, manualModeToggleState: false,
-    gamepadNavigationActive: false, gamepadReleaseRecoveryVersion: 0,
+    gamepadNavigationActive: false,
     overlayCaptureAvailable: true, trackedGameWindowState: 'active', isTexthookerMode: false,
     customPageController: null, vnGuideController: null, vnGuideHud: null,
-    trackedGameWindowStateUpdatedAt: 0, magpieYomitanCloseVisibilityGuardActive: false,
+    trackedGameWindowStateUpdatedAt: 0,
     isOverlayVisible: false, resizeMode: false, yomitanShown: false,
-    yomitanForegroundActive: false, yomitanRecoveryVersion: 0, lastYomitanEventAt: 0,
+    yomitanForegroundActive: false, yomitanRecoveryVersion: 0,
     currentMagpieState: { active: false },
-    backend: { connected: true, send: message => restores.push(message.type) },
+    backend: { connected: true, send: message => { if (message.type === 'restore-focus-request') restores.push(message.type); } },
     isWindows: () => true, isLinux: () => false, isMac: () => false,
     normalizeManualModeType: value => value,
     createManualHotkeyController, MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS: 650,
@@ -87,8 +87,7 @@ function setup(t, settings = {}) {
     sendOverlayPauseRequest: (action, source) => { pauseRequests.push([action, source]); return true; },
     requestOverlayScanForActivation() {}, clearGamepadManualPause() {},
     requestManualModeBackground() {}, getManualModeBackgroundMode: () => 'off',
-    resetActivityTimer() {}, clearMagpieYomitanCloseVisibilityGuard() {},
-    beginMagpieYomitanCloseVisibilityGuard() {},
+    resetActivityTimer() {},
     normalizeTrackedGameWindowState: value => value,
     createMagpieState: () => ({ active: false }),
     revealAutomaticOverlayForSignal() {},
@@ -112,7 +111,7 @@ function setup(t, settings = {}) {
     'releaseOverlayFocusAfterTopmostRecovery', 'reassertOverlayTopmostWithoutFocus',
     'requestOverlayTopmostReassert', 'showOverlayWithoutFocusForManualVisibleMode',
     'aggressivelyShowOverlayAndReturnFocus', 'setGamepadNavigationModeActive',
-    'restoreAutomaticOverlayPassThrough', 'scheduleGamepadReleaseRecovery',
+    'restoreAutomaticOverlayPassThrough', 'requestMagpieStateRefresh', 'shouldDeferObscuredStateForMagpieFocus', 'handleMagpieFocusResult', 'cancelPendingMagpieFocusRestore', 'requestMagpieFocusRestore',
     'showOverlayUsingManualFlow', 'hideOverlayUsingManualFlow', 'clearManualActivationState',
     'shouldReassertOverlayAroundYomitan', 'shouldPreserveOverlayFocusForYomitan',
     'requestYomitanOverlayTopmostReassert',
@@ -343,22 +342,30 @@ for (const exitMode of ['automatic-gamepad', 'manual-gamepad', 'manual-hotkey'])
   });
 }
 
-test('Magpie focus release falls back once if the targeted handoff leaves the overlay focused', t => {
+test('Magpie waits for the backend result before falling back', t => {
   const { activate, deactivate, context, state, restores } = setup(t, { manualMode: false });
   context.currentMagpieState = { active: true };
   activate();
   t.mock.timers.tick(1000);
   deactivate();
-  t.mock.timers.tick(120);
-  t.mock.timers.tick(120);
+  t.mock.timers.tick(1000);
   assert.equal(state.focused, true);
-  assert.deepEqual(restores, ['restore-focus-request'], 'topmost recovery must share the pending handoff');
-  t.mock.timers.tick(10);
-  assert.equal(state.focused, false);
+  assert.equal(state.blurCalls, 0);
+  assert.deepEqual(restores, ['restore-focus-request']);
+  context.handleMagpieFocusResult({ request_id: context.pendingMagpieFocusRestore.requestId, success: false });
   assert.equal(state.blurCalls, 1);
   assert.deepEqual(restores, ['restore-focus-request', 'restore-focus-request']);
-  t.mock.timers.tick(1000);
-  assert.equal(state.blurCalls, 1);
+});
+
+test('a stale obscured snapshot cannot hide the verified foreground Magpie source', t => {
+  const { context, state, send } = setup(t, { manualMode: false });
+  context.magpieSession = { updateTarget() {
+    context.currentMagpieState = { active: true };
+    context.magpieSourceFocused = true;
+  } };
+  send('window-state-changed', { state: 'obscured', targetHwnd: 42 });
+  assert.equal(context.trackedGameWindowState, 'active');
+  assert.equal(state.visible, true);
 });
 
 test('Magpie handoff fallback cannot blur a new manual activation', t => {
@@ -367,7 +374,9 @@ test('Magpie handoff fallback cannot blur a new manual activation', t => {
   activate();
   deactivate();
   t.mock.timers.tick(40);
+  const requestId = context.pendingMagpieFocusRestore.requestId;
   pressManualHotkey();
+  context.handleMagpieFocusResult({ request_id: requestId, success: false });
   t.mock.timers.tick(1000);
   assert.equal(state.focused, true);
   assert.equal(state.blurCalls, 0);

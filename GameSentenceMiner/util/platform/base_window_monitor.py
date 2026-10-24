@@ -51,9 +51,6 @@ from GameSentenceMiner.util.platform.monitor_selection import (
 from GameSentenceMiner.util.platform.windows_dpi import per_monitor_v2_dpi_context
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
-if is_windows():
-    from GameSentenceMiner.util.platform.magpie_compat import get_magpie_info
-
 # Conditionally import screenshot library (used for monitor detection)
 try:
     import mss
@@ -1794,6 +1791,28 @@ class BaseWindowStateMonitor:
         self.poll_interval: float = 0.3
         self.last_obs_dimensions_time: float = 0.0
         self.window_stable_count: int = 0
+        self._refresh_requested = asyncio.Event()
+        self._refresh_generation = 0
+        self._refresh_loop = getattr(overlay_processor, "processing_loop", None)
+
+    def request_refresh(self) -> None:
+        """Wake the OCR monitor safely from the separate websocket thread."""
+        if self._refresh_loop is not None and not self._refresh_loop.is_closed():
+            self._refresh_loop.call_soon_threadsafe(self._signal_refresh)
+        else:
+            self._signal_refresh()
+
+    def _signal_refresh(self) -> None:
+        self._refresh_generation += 1
+        self._refresh_requested.set()
+
+    async def wait_for_refresh(self, timeout: float) -> None:
+        self._refresh_loop = asyncio.get_running_loop()
+        try:
+            await asyncio.wait_for(self._refresh_requested.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            pass
+        self._refresh_requested.clear()
 
     async def check_and_send(self) -> None:
         """Check window state and broadcast changes. No-op on non-Windows platforms."""

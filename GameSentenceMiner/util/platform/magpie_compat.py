@@ -15,12 +15,6 @@ if user32 is not None:
     user32.GetPropA.restype = wintypes.HANDLE
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
     user32.IsWindowVisible.restype = wintypes.BOOL
-    user32.SetPropA.argtypes = [wintypes.HWND, wintypes.LPCSTR, wintypes.HANDLE]
-    user32.SetPropA.restype = wintypes.BOOL
-    user32.RemovePropA.argtypes = [wintypes.HWND, wintypes.LPCSTR]
-    user32.RemovePropA.restype = wintypes.HANDLE
-    user32.RegisterWindowMessageA.argtypes = [wintypes.LPCSTR]
-    user32.RegisterWindowMessageA.restype = wintypes.UINT
 
 MAGPIE_WINDOW_CLASS = "Window_Magpie_967EB565-6F73-4E94-AE53-00CC42592A22"
 # Scaling surfaces from Magpie's src/Shared/CommonSharedConstants.h. Its main
@@ -110,61 +104,21 @@ def get_magpie_info(expected_source_hwnd=None):
     }
     # Match Magpie's documented (LONG)(INT_PTR)GetProp conversion, including
     # monitors to the left of or above the primary display.
-    return normalize_magpie_info({key: ctypes.c_int32(value).value for key, value in info.items()})
-
-
-def mark_window(hwnd_int):
-    """Marks a window as a Magpie tool window."""
-    if not IS_WINDOWS or user32 is None:
-        return 0
-    # The value 1 is passed as a HANDLE/pointer-sized integer.
-    return user32.SetPropA(hwnd_int, b"Magpie.ToolWindow", 1)
-
-
-def unmark_window(hwnd_int):
-    """Unmarks a window as a Magpie tool window."""
-    if not IS_WINDOWS or user32 is None:
-        return 0
-    return user32.RemovePropA(hwnd_int, b"Magpie.ToolWindow")
-
-
-def register_message(message_name):
-    """Registers a window message and returns its ID."""
-    if not IS_WINDOWS or user32 is None:
-        return 0
-    return user32.RegisterWindowMessageA(message_name.encode("utf-8"))
-
-
-def main():
-    """Main function to handle command-line arguments."""
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "No command provided."}))
-        return
-
-    command = sys.argv[1]
-    output = None
-
-    if command == "is_scaling":
-        output = {"is_scaling": bool(get_magpie_info())}
-    elif command == "get_info":
-        output = get_magpie_info()
-    elif command == "mark_window":
-        hwnd = int(sys.argv[2])
-        success = mark_window(hwnd)
-        output = {"success": bool(success)}
-    elif command == "unmark_window":
-        hwnd = int(sys.argv[2])
-        unmark_window(hwnd)  # RemoveProp returns the old value, not a success bool
-        output = {"success": True}
-    elif command == "register_message":
-        message_id = register_message("MagpieScalingChanged")
-        output = {"message_id": message_id}
-    else:
-        output = {"error": "Unknown command"}
-
-    # Print the result as a JSON string to stdout
-    print(json.dumps(output))
+    normalized = normalize_magpie_info({key: ctypes.c_int32(value).value for key, value in info.items()})
+    if normalized is None:
+        return None
+    source = get_prop(hwnd, "Magpie.SrcHWND")
+    if not source or not user32.IsWindowVisible(hwnd):
+        return None
+    if expected_source_hwnd is not None and source != int(expected_source_hwnd):
+        return None
+    return {
+        **normalized,
+        "source_hwnd": source,
+        "scaling_hwnd": hwnd,
+        "windowed": bool(get_prop(hwnd, "Magpie.Windowed")),
+    }
 
 
 if __name__ == "__main__":
-    main()
+    print(json.dumps(get_magpie_info()))
