@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createMagpieNative, handleValue } = require('../magpie_native');
-const { hitTestMagpiePointer } = require('../magpie_hit_test');
+const { magpiePointerToViewport } = require('../magpie_hit_test');
 const { rendererFixtureSource, readRenderer, line, overlayRoot } = require('./helpers/overlay-render.cjs');
 
 app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-magpie-test-')));
@@ -16,7 +16,10 @@ app.whenReady().then(async () => {
   await win.loadURL('about:blank');
   await win.webContents.executeJavaScript(rendererFixtureSource(readRenderer(), fs.readFileSync(path.join(overlayRoot, 'block_detection.js'), 'utf8')));
   const hits = await win.webContents.executeJavaScript(`(() => {
-    const hitTest = ${hitTestMagpiePointer.toString()};
+    const magpiePointerToViewport = ${magpiePointerToViewport.toString()};
+    const module = {exports: {}};
+    ${fs.readFileSync(path.join(overlayRoot, 'text_hover.js'), 'utf8')}
+    const hover = module.exports.createTextHoverController({window, document, onIgnore() {}});
     const display = { physicalBounds: { x: -1920, y: 164 }, physicalSize: { width: 1920, height: 1080 } };
     renderFixture(${JSON.stringify({ data: [line('日本語', 0.2, 0.4, 0.3, 0.1)] })});
     document.body.classList.add('magpie-active');
@@ -24,20 +27,22 @@ app.whenReady().then(async () => {
     const rect = box.getBoundingClientRect();
     const point = { x: (rect.left + rect.width / 2) / innerWidth * 1920 - 1920,
       y: (rect.top + rect.height / 2) / innerHeight * 1080 + 164 };
-    const hit = hitTest(point, display, window, document);
+    let moves = 0;
+    box.addEventListener('pointermove', () => moves++);
     const before = getComputedStyle(box).color;
-    document.body.classList.toggle('magpie-pointer-hover', hit);
+    const hit = hover.project(magpiePointerToViewport(point, display, window));
     const after = getComputedStyle(box).color;
     const surface = getComputedStyle(box).backgroundColor;
     box.style.visibility = 'hidden';
-    const hiddenHit = hitTest(point, display, window, document);
-    return { hit, hiddenHit, before, after, surface };
+    const hiddenHit = hover.project(magpiePointerToViewport(point, display, window));
+    return { hit, hiddenHit, before, after, surface, moves };
   })()`);
-  assert.equal(hits.hit, true);
+  assert.equal(hits.hit, false, 'hovered text must pass clicks to the game');
+  assert.equal(hits.moves, 1, 'hover still reaches the dictionary scanner');
   assert.equal(hits.hiddenHit, false);
   assert.equal(hits.before, 'rgba(255, 255, 255, 0)');
   assert.equal(hits.after, hits.before, 'OCR text remains transparent over the game');
-  assert.equal(hits.surface, 'rgba(0, 0, 0, 0.004)');
+  assert.match(hits.surface, /, 0\)$/);
 
   if (process.platform === 'win32') {
     const native = createMagpieNative();

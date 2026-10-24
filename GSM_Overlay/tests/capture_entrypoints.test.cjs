@@ -59,6 +59,7 @@ function setup(t) {
   });
   const names = [
     'hasValidOverlayCapture', 'canUseOverlayCapture', 'publishOverlayCaptureAvailability',
+    'canTrackMagpiePointer', 'canUseTextHoverClickThrough',
     'invalidateOverlayCapture', 'updateOverlayCaptureStatus', 'publishOverlaySocketState',
     'showOverlayUsingManualFlow', 'setGamepadNavigationModeActive',
     'reassertOverlayTopmostWithoutFocus', 'aggressivelyShowOverlayAndReturnFocus',

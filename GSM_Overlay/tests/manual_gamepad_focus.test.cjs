@@ -102,6 +102,7 @@ function setup(t, settings = {}) {
   });
   const functions = [
     'hasValidOverlayCapture', 'canUseOverlayCapture', 'publishOverlayCaptureAvailability',
+    'canTrackMagpiePointer', 'canUseTextHoverClickThrough',
     'setTrackedGameWindowState',
     'requestOverlayPauseForSource', 'requestOverlayResumeForSource',
     'isManualMode', 'normalizeManualModeInactiveBehavior',
@@ -129,6 +130,7 @@ function setup(t, settings = {}) {
     between(source, 'const GAMEPAD_FOCUS_RETRY_DELAYS_MS', 'let gamepadToggleRequestSeq'),
     between(source, '  ipcMain.on("gamepad-navigation-state"', '  // Curated keys'),
     between(source, '  ipcMain.on("yomitan-event"', "  ipcMain.on('release-mouse'"),
+    between(source, "  ipcMain.on('magpie-pointer-hit'", '  ipcMain.on("hide",'),
     between(source, '  ipcMain.on("window-state-changed"', '  ipcMain.on("open-settings"'),
     between(source, "  texthookerWindow.on('closed'", "  texthookerWindow.on('show'"),
   ].join('\n'), context);
@@ -287,6 +289,43 @@ test('controller activation keeps focus through both activation messages and loo
   }
   assert.deepEqual(restores, [], 'activation must not request game focus restoration');
   assert.equal(rendererMessages.filter(([channel]) => channel === 'show-overlay-hotkey').length, 1);
+});
+
+test('automatic dictionary lookup keeps text click-through and permits only current renderer hover controls', t => {
+  const { context, state, send, rendererMessages } = setup(t, { manualMode: false });
+  state.ignoreMouseEvents = true;
+  state.focused = false;
+  send('yomitan-event', true);
+  assert.equal(state.ignoreMouseEvents, true, 'opening a popup must not capture the whole overlay');
+  assert.equal(state.focused, false);
+  assert.ok(rendererMessages.some(([channel]) => channel === 'text-hover-refresh'));
+  send('set-ignore-mouse-events', false);
+  assert.equal(state.ignoreMouseEvents, true, 'legacy text enter cannot acquire mouse input');
+  send('text-hover-ignore', false);
+  assert.equal(state.ignoreMouseEvents, true, 'messages from another sender cannot acquire input');
+  const hover = ignore => context.ipcMain.emit('text-hover-ignore', {sender: context.mainWindow.webContents}, ignore);
+  hover(false);
+  assert.equal(state.ignoreMouseEvents, false, 'popup and control regions remain interactive');
+  hover(true);
+  assert.equal(state.ignoreMouseEvents, true, 'returning to text releases input while the popup stays open');
+  state.visible = false;
+  hover(false);
+  assert.equal(state.ignoreMouseEvents, true, 'a queued result cannot acquire input after hiding');
+  state.visible = true;
+  context.magpieSession = { ownsPointer: () => true };
+  hover(false);
+  assert.equal(state.ignoreMouseEvents, true, 'native Magpie sequence owns projected hit results');
+});
+
+test('automatic hover replies never override explicit manual, controller, resize or dictionary focus', t => {
+  const { context, state } = setup(t, { manualMode: false });
+  for (const owner of ['manualHotkeyPressed', 'manualModeToggleState', 'gamepadNavigationActive', 'resizeMode', 'yomitanForegroundActive']) {
+    context[owner] = true;
+    state.ignoreMouseEvents = false;
+    context.ipcMain.emit('text-hover-ignore', {sender: context.mainWindow.webContents}, true);
+    assert.equal(state.ignoreMouseEvents, false, owner);
+    context[owner] = false;
+  }
 });
 
 test('controller activation honors focus-on-activate without a separate gamepad focus request', t => {

@@ -2,7 +2,8 @@
 
 This implementation was checked against Magpie **v0.12.1**, the version installed
 when this rewrite began. It does not modify Magpie, inject into the game, change
-cursor clipping, or synthesize mouse input.
+cursor clipping, or synthesize OS mouse input. Projected DOM hover events feed
+the dictionary scanner; button presses remain real input delivered by the OS.
 
 ## Evidence and contracts
 
@@ -62,20 +63,38 @@ mouse release. At most one renderer hit test is in flight; a stalled reply can
 expire without changing input ownership. During a windowed drag, the same timer
 refreshes native geometry until Magpie broadcasts the end of movement.
 
-Captured cursor coordinates are projected to the displayed image. Chromium
-then hit-tests the actual laid-out elements, respecting font fitting, offsets,
-visibility, and the occlusion mask. Monitor origins and physical/CSS dimensions
-are applied at this boundary. There are no padded source-coordinate hit boxes.
+In automatic mode, **game text remains click-through even while hovered or while
+a dictionary popup is open**. Real popup surfaces and toolbar controls still
+accept input. Explicit manual/controller/resize interaction and the optional
+focus-on-lookup setting retain their existing ownership. Text selection and
+click-triggered lookup therefore belong to those explicit interaction modes.
 
-On a hit, the renderer gives the lookup surface one alpha unit so Magpie's native
-hit test can detect it, keeping OCR text transparent over the game. Enabling input
-allows Magpie itself to hand off the cursor. A change in capture style skips one
-sample because Magpie updates the style before moving the cursor. Samples outside
-the source rectangle are not projected across letterbox/monitor gaps.
+For ordinary windows, Electron's
+[`setIgnoreMouseEvents(true, {forward: true})`](https://www.electronjs.org/docs/latest/api/base-window#winsetignoremouseeventsignore-options)
+passes real clicks through while forwarding mouse movement to Chromium. Its
+forwarded movement is available on Windows and macOS; Linux retains its existing
+input behavior.
 
-Mouse capture changes only in response to a current hit result. Main-process
-ownership guards preserve dictionaries, manual activation, controller navigation,
-resizing, and custom pages. Late pointer replies cannot override these owners.
+Magpie's captured cursor is still in source coordinates. The existing sampler
+projects it into the displayed image and includes held buttons and modifiers.
+`text_hover.js` hit-tests actual laid-out elements, respecting font fitting,
+offsets, visibility, clipping and the occlusion mask. It feeds projected pointer
+and mouse movement to the dictionary scanner without acquiring native input over
+game text. Raw source-coordinate hover is suppressed during that projection.
+Stationary samples are deduplicated so they cannot continually reset Yomitan's
+scan delay; modifier-only changes still reach the scanner. No mouse-button or
+click events are synthesized, and the previous one-alpha text surface is gone.
+
+Only a hit on a popup/control requests native input, allowing Magpie itself to
+hand off the cursor. A capture-style transition skips one sample because Magpie
+updates the style before moving the cursor. Samples outside the source rectangle
+are not projected across letterbox/monitor gaps. Monitor origins and physical/CSS
+dimensions are applied once at this boundary.
+
+Mouse ownership changes only after a current hit result. A held button preserves
+its current recipient, including a press begun while Chromium was answering.
+Main-process guards protect manual activation, controller navigation, focused
+dictionary interaction, resizing, and custom pages from late pointer replies.
 Relative-input/3D games still use GSM's existing manual interaction path; this
 bridge does not alter a game's cursor lock.
 
@@ -131,6 +150,7 @@ Run from the repository root:
 ```powershell
 node --test GSM_Overlay/tests/*.test.cjs
 node GSM_Overlay/tests/run-magpie-native-electron.cjs
+node GSM_Overlay/tests/run-yomitan-startup-electron-smoke.cjs
 node GSM_Overlay/tests/run-overlay-render-electron.cjs 5ab505c3
 npx vitest run --config vitest.config.ts electron-src/main/magpie.test.ts electron-src/main/ui/live-stats-widget.test.ts --maxWorkers=1
 .venv/Scripts/python.exe -m pytest tests/util/platform tests/util/overlay tests/web/test_overlay_handler.py -q
@@ -138,6 +158,10 @@ npx vitest run --config vitest.config.ts electron-src/main/magpie.test.ts electr
 
 The native smoke test uses an invisible, non-focusable fixture and sends its test
 message only to that fixture. It does not broadcast to or change the user's game.
+The Yomitan smoke test loads the bundled reader and a small dictionary in a
+temporary profile. It checks ordinary and projected hover against the actual
+frontend, verifies popup hit regions and native click-through, and checks that
+hover creates no click events or desktop focus changes.
 The renderer comparison checks all painted text and bounds against the baseline;
 the intentionally removed invisible hit areas are excluded and asserted absent.
 

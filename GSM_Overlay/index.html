@@ -273,13 +273,6 @@ background: rgba(202, 12, 12, 0.692);
     transition: opacity 0.3s ease;
   }
 
-  /* Magpie's native hit test skips fully transparent pixels. One alpha unit
-     makes the hovered lookup surface detectable without repainting the OCR
-     text over the game. Enable this only after a projected pointer hit. */
-  body.magpie-pointer-hover .text-box {
-    background: rgba(0, 0, 0, 0.004) !important;
-  }
-
   body.manual-interaction-suppressed .text-box,
   body.manual-interaction-suppressed .big-interactive-area,
   body.manual-interaction-suppressed .text-block-container {
@@ -1615,16 +1608,25 @@ background: rgba(202, 12, 12, 0.692);
     throw new Error("Magpie coordinate module failed to load", { cause: e });
   }
 
-  const { hitTestMagpiePointer } = require('./magpie_hit_test');
+  const { magpiePointerToViewport } = require('./magpie_hit_test');
+  const { createTextHoverController } = require('./text_hover');
+  const textHover = createTextHoverController({ window, document,
+    onIgnore: ignore => ipcRenderer.send('text-hover-ignore', ignore) });
+  ipcRenderer.on('text-hover-refresh', () => textHover.refresh());
   ipcRenderer.on('magpie-pointer', (_event, sample) => {
-    const hit = sample.signature === magpieController.getState().signature
-      && hitTestMagpiePointer(sample, display, window, document);
-    // Make the lookup surface detectable before acquiring input so Magpie's
-    // native hit test can relinquish cursor capture at the visible position.
-    document.body.classList.toggle('magpie-pointer-hover', hit);
+    if (sample.signature !== magpieController.getState().signature) {
+      ipcRenderer.send('magpie-pointer-hit', { sequence: sample.sequence, hit: false });
+      return;
+    }
+    const point = magpiePointerToViewport(sample, display, window);
+    const hit = textHover.project(point || { ...sample, x: -1, y: -1 });
+    // Only real controls take mouse input. Dictionary scanning over game text
+    // receives projected hover events while the actual click goes to the game.
     ipcRenderer.send('magpie-pointer-hit', { sequence: sample.sequence, hit });
   });
-  ipcRenderer.on('magpie-pointer-reset', () => document.body.classList.remove('magpie-pointer-hover'));
+  ipcRenderer.on('magpie-pointer-reset', () => {
+    textHover.reset();
+  });
 
   const dragBar = document.getElementById("draggable");
   const textEl = document.getElementById("text");
@@ -2539,7 +2541,6 @@ background: rgba(202, 12, 12, 0.692);
       currentMagpieInfo = result.state.info;
       isMagpieActive = result.state.active;
       document.body.classList.toggle('magpie-active', isMagpieActive);
-      if (!isMagpieActive) document.body.classList.remove('magpie-pointer-hover');
       return result;
     }
 
@@ -4388,6 +4389,7 @@ background: rgba(202, 12, 12, 0.692);
 
 
   function setMouseEventHandlers() {
+    textHover.refresh();
     const interactiveElements = document.querySelectorAll('.interactive');
     const halfInteractiveElements = document.querySelectorAll('.half-interactive');
     const textBoxElements = document.querySelectorAll('.text-box');
@@ -5187,6 +5189,7 @@ background: rgba(202, 12, 12, 0.692);
   })
 
   ipcRenderer.on('show-overlay-hotkey', (event, isActive, options) => {
+    textHover.reset();
     manualHotkeyPressed = isActive;
     if (manualHotkeyPressed) {
       manualModeActivatedOnce = true;
@@ -5809,6 +5812,7 @@ background: rgba(202, 12, 12, 0.692);
       },
       
       onModeChange: (data) => {
+        textHover.reset();
         console.log('[Gamepad] Navigation mode:', data.active ? 'ACTIVE' : 'INACTIVE');
         updateGamepadStatusIndicator();
         ipcRenderer.send('gamepad-navigation-state', { active: !!data.active });

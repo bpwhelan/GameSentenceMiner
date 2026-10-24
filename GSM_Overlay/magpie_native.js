@@ -18,6 +18,7 @@ function createMagpieNative() {
     foreground: lib.func('uintptr_t __stdcall GetForegroundWindow()'),
     style: lib.func('long __stdcall GetWindowLongW(uintptr_t hwnd, int index)'),
     cursor: lib.func('int __stdcall GetPhysicalCursorPos(void *point)'),
+    key: lib.func('short __stdcall GetAsyncKeyState(int key)'),
     message: lib.func('uint32 __stdcall RegisterWindowMessageW(str16 name)'),
     filter: lib.func('int __stdcall ChangeWindowMessageFilterEx(uintptr_t hwnd, uint32 message, uint32 action, void *change)'),
   };
@@ -58,7 +59,10 @@ function createMagpieNative() {
       if (!f.cursor(point)) return null;
       // CursorManager sets WS_EX_TRANSPARENT while passing input to the source
       // and clears it when relinquishing capture to an overlapping window.
-      return { x: point.readInt32LE(0), y: point.readInt32LE(4), captured: !!(f.style(hwnd, -20) & 0x20) };
+      const down = key => !!(f.key(key) & 0x8000);
+      return { x: point.readInt32LE(0), y: point.readInt32LE(4), captured: !!(f.style(hwnd, -20) & 0x20),
+        buttons: (down(1) ? 1 : 0) | (down(2) ? 2 : 0) | (down(4) ? 4 : 0) | (down(5) ? 8 : 0) | (down(6) ? 16 : 0),
+        shiftKey: down(0x10), ctrlKey: down(0x11), altKey: down(0x12), metaKey: down(0x5b) || down(0x5c) };
     },
   };
 }

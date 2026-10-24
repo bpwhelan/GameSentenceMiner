@@ -16,7 +16,7 @@ async function run() {
     Backend.prototype._onApiGetEnvironmentInfo = () => { throw new Error('stale Yomitan worker fixture'); };
   `);
   fs.writeFileSync(path.join(extension, 'sw.js'), `import './stale-worker-fixture.js'; import './js/background/background-main.js';`);
-  for (const phase of ['seed', 'upgrade', 'lookup']) {
+  for (const phase of ['seed', 'upgrade', 'lookup', 'hover']) {
     await new Promise((resolve, reject) => {
       const child = spawn(require('electron'), [path.join(__dirname, 'yomitan-startup-electron-smoke.cjs'), root, phase], {
         env, windowsHide: true, stdio: 'inherit',

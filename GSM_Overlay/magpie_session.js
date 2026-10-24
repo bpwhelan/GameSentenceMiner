@@ -4,11 +4,13 @@ const { normalizeMagpieInfo, mapCursorToMagpie } = require('./magpie');
 // topmost retries. The short timer samples input (and geometry only during a
 // windowed drag); capture changes only after a current renderer hit test.
 function createMagpieSession({ native, window: win, canTrackPointer, onScaling, onPointer,
-  setIgnoreMouseEvents, requestRefresh, setIntervalFn = setInterval, clearIntervalFn = clearInterval }) {
+  setIgnoreMouseEvents, requestRefresh, onPointerReset = () => {}, setIntervalFn = setInterval, clearIntervalFn = clearInterval }) {
   let target = null, info = null, timer = null, dragging = false, disposed = false;
   let sequence = 0, pendingSequence = null, pendingAt = 0, lastCaptured = null, ignoring = null;
+  let pointerActive = false;
 
   function invalidatePointer() {
+    if (pointerActive) { pointerActive = false; onPointerReset(); }
     pendingSequence = null;
     lastCaptured = null;
     ignoring = null;
@@ -63,7 +65,8 @@ function createMagpieSession({ native, window: win, canTrackPointer, onScaling, 
     const point = cursor.captured ? mapCursorToMagpie(cursor, info) : cursor;
     pendingSequence = ++sequence;
     pendingAt = Date.now();
-    onPointer({ sequence, x: point?.x ?? -Infinity, y: point?.y ?? -Infinity, signature: info.signature });
+    pointerActive = true;
+    onPointer({ ...cursor, sequence, x: point?.x ?? -Infinity, y: point?.y ?? -Infinity, signature: info.signature });
   }
 
   const unwatch = native.watch(win, notify);
@@ -80,7 +83,15 @@ function createMagpieSession({ native, window: win, canTrackPointer, onScaling, 
       if (!info || !reply || reply.sequence !== pendingSequence) return;
       pendingSequence = null;
       const next = reply.hit !== true;
-      if (next !== ignoring) { ignoring = next; setIgnoreMouseEvents(next); }
+      if (next !== ignoring) {
+        // A press may have started while Chromium was answering the hit test.
+        // Keep its current native recipient until all buttons are released.
+        const cursor = native.cursor(info);
+        if (!cursor) { refresh('sync'); return; }
+        if (cursor.buttons) return;
+        ignoring = next;
+        setIgnoreMouseEvents(next);
+      }
     },
     ownsPointer() { return !disposed && !!info && !win.isDestroyed() && win.isVisible() && canTrackPointer(); },
     invalidatePointer,

@@ -4171,7 +4171,11 @@ function requestMagpieStateRefresh() {
 function canTrackMagpiePointer() {
   return canUseOverlayCapture() && !isTexthookerMode && !customPageController?.isVisible()
     && !isManualMode() && !manualHotkeyPressed && !manualModeToggleState
-    && !gamepadNavigationActive && !resizeMode && !yomitanShown && !yomitanForegroundActive;
+    && !gamepadNavigationActive && !resizeMode && !yomitanForegroundActive;
+}
+
+function canUseTextHoverClickThrough() {
+  return (isWindows() || isMac()) && canTrackMagpiePointer();
 }
 
 function attachMagpieSession() {
@@ -4212,6 +4216,9 @@ function attachMagpieSession() {
         }
       },
       onPointer: sample => mainWindow.webContents.send('magpie-pointer', sample),
+      onPointerReset: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('magpie-pointer-reset');
+      },
       setIgnoreMouseEvents: ignore => mainWindow.setIgnoreMouseEvents(ignore, { forward: true }),
     });
   } catch (error) {
@@ -4494,6 +4501,7 @@ function restoreOverlayAfterYomitanLookup() {
   if (isWindows() || isMac()) {
     mainWindow.setIgnoreMouseEvents(true, { forward: true });
   }
+  if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
 
   if (shouldHideOverlayWindowForManualInactive()) {
     hideAndRestoreFocus();
@@ -5890,6 +5898,7 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
   } else {
     mainWindow.show();
   }
+  if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
 }
 
 function revealAutomaticOverlayForSignal(source, options = {}) {
@@ -7934,12 +7943,25 @@ async function startOverlayAppImpl() {
     if (event.sender === mainWindow?.webContents) magpieSession?.handleHit(reply);
   });
 
+  ipcMain.on('text-hover-ignore', (event, ignore) => {
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+    if (event.sender !== mainWindow?.webContents || typeof ignore !== 'boolean') return;
+    if (!canUseTextHoverClickThrough() || magpieSession?.ownsPointer()) return;
+    mainWindow.setIgnoreMouseEvents(ignore, { forward: true });
+  });
+
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
     if (!ignore && !canUseOverlayCapture()) return;
     // Automatic Magpie input is decided from physical cursor samples and
     // rendered hit tests. Ordinary DOM hover events use the hardware cursor,
     // which may still be in source coordinates during Magpie capture.
     if (magpieSession?.ownsPointer()) return;
+    // In automatic mode the hover router distinguishes game text from popup
+    // controls. Legacy per-element handlers must not capture the whole window.
+    if (canUseTextHoverClickThrough()) {
+      mainWindow.webContents.send('text-hover-refresh');
+      return;
+    }
 
     if (
       !ignore &&
@@ -7998,6 +8020,7 @@ async function startOverlayAppImpl() {
       overlayFocusRequestVersion += 1;
       cancelPendingMagpieFocusRestore();
     }
+    if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
   })
 
 
@@ -8017,7 +8040,9 @@ async function startOverlayAppImpl() {
         focusOverlayForYomitanLookup();
       } else {
         yomitanForegroundActive = false;
-        if (isWindows() || isMac()) {
+        if (canUseTextHoverClickThrough()) {
+          mainWindow.webContents.send('text-hover-refresh');
+        } else if (isWindows() || isMac()) {
           mainWindow.setIgnoreMouseEvents(false, { forward: true });
         }
         requestYomitanOverlayTopmostReassert("yomitan-open");
@@ -8045,6 +8070,8 @@ async function startOverlayAppImpl() {
         requestYomitanOverlayTopmostReassert("yomitan-close-gamepad-active");
         return;
       }
+
+      if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
 
       if (!isWindows() && !isMac()) {
         hideAndRestoreFocus();
@@ -8087,6 +8114,7 @@ async function startOverlayAppImpl() {
   // Update tray menu when window visibility changes
   mainWindow.on('show', () => {
     updateTrayMenu();
+    if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
   });
 
   mainWindow.on('hide', () => {

@@ -83,6 +83,19 @@ test('queued pointer replies cannot release a dictionary, manual, or controller 
   assert.deepEqual(f.ignores, []);
 });
 
+test('a button pressed during a renderer hit test keeps its native recipient until release', () => {
+  const f = setup();
+  f.session.updateTarget(42);
+  f.tick();
+  f.setCursor({ x: 1280, y: 736, captured: true, buttons: 1 });
+  f.session.handleHit({ sequence: f.samples.at(-1).sequence, hit: true });
+  assert.deepEqual(f.ignores, []);
+  f.setCursor({ x: 1280, y: 736, captured: true, buttons: 0 });
+  f.tick();
+  f.session.handleHit({ sequence: f.samples.at(-1).sequence, hit: true });
+  assert.deepEqual(f.ignores, [false]);
+});
+
 test('focus loss keeps geometry; end and unrelated scaling cannot raise this overlay', () => {
   const f = setup();
   f.session.updateTarget(42);

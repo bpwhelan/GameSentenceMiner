@@ -1,5 +1,5 @@
 // Real Yomitan startup in a disposable profile, without selecting another reader.
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, ipcMain } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -37,7 +37,16 @@ app.whenReady().then(async () => {
   }`, context);
   const page = path.join(root, 'GSM_Overlay', 'index.html');
   fs.mkdirSync(path.dirname(page), { recursive: true });
-  fs.writeFileSync(page, '<!doctype html><meta charset="utf-8"><div id="word" style="font:32px sans-serif;margin:80px">食べる</div>');
+  const hoverBootstrap = phase === 'hover' ? `<script>
+    const {createTextHoverController} = require(${JSON.stringify(path.join(overlay, 'text_hover.js'))});
+    window.hoverFixture = createTextHoverController({window, document,
+      onIgnore: ignore => require('electron').ipcRenderer.send('fixture-hover-ignore', ignore)});
+    window.syntheticClicks = 0; window.rawMoves = 0;
+    window.addEventListener('click', () => window.syntheticClicks++);
+    window.addEventListener('pointermove', event => { if (event.isTrusted) window.rawMoves++; });
+  </script>` : '';
+  // Like index.html, install hover routing before Yomitan's document_idle script.
+  fs.writeFileSync(page, '<!doctype html><meta charset="utf-8"><div id="word" class="text-box interactive" style="font:32px sans-serif;margin:80px">食べる</div>' + hoverBootstrap);
   const extension = await context.startYomitan();
   assert.ok(extension);
   if (phase === 'seed') {
@@ -102,6 +111,10 @@ app.whenReady().then(async () => {
     const r = document.querySelector('#word').getBoundingClientRect();
     return {x: Math.round(r.x + 12), y: Math.round(r.y + 16)};
   })()`);
+  if (phase === 'hover') {
+    win.setIgnoreMouseEvents(true, { forward: true });
+    ipcMain.on('fixture-hover-ignore', (_event, ignore) => win.setIgnoreMouseEvents(ignore, { forward: true }));
+  }
   win.webContents.sendInputEvent({type: 'mouseMove', ...point});
   await win.webContents.executeJavaScript(`(async () => {
     for (let i = 0; i < 100; i++) {
@@ -120,6 +133,56 @@ app.whenReady().then(async () => {
     return false;
   })()`);
   assert.equal(definition, true, 'the popup must render the actual dictionary definition');
+  if (phase === 'hover') {
+    // A real dictionary lookup succeeded using ordinary Chromium hover while
+    // the window retained its native pass-through style. Now exercise Magpie's
+    // projected stream against that same unmodified Yomitan frontend.
+    const lib = process.platform === 'win32' ? require('koffi').load('user32.dll') : null;
+    const style = lib?.func('long __stdcall GetWindowLongW(uintptr_t, int)');
+    const foreground = lib?.func('uintptr_t __stdcall GetForegroundWindow()');
+    const hwnd = win.getNativeWindowHandle();
+    const handle = hwnd.length === 8 ? hwnd.readBigUInt64LE() : BigInt(hwnd.readUInt32LE());
+    const previousForeground = foreground?.();
+    if (style) assert.ok(style(handle, -20) & 0x20, 'text hover must retain native click-through');
+    await win.webContents.executeJavaScript(`(async () => {
+      await gsmYomitanBridge.closePopups();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      window.popupShown = false;
+      hoverFixture.reset();
+      const sample = {...${JSON.stringify(point)}, buttons: 0, captured: true};
+      if (hoverFixture.project(sample)) throw new Error('Projected game text captured clicks');
+      // Repeated stationary samples must not restart the dictionary scan delay.
+      for (let i = 0; i < 100; i++) {
+        hoverFixture.project(sample);
+        if (window.popupShown) return;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      throw new Error('Projected hover did not open the real Yomitan popup');
+    })()`);
+    await win.webContents.executeJavaScript('window.rawMoves = 0;');
+    win.webContents.sendInputEvent({type: 'mouseMove', x: 1, y: 1});
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(await win.webContents.executeJavaScript('window.rawMoves'), 0,
+      'raw source coordinates must not reach the scanner after projected hover starts');
+    const hitResults = await win.webContents.executeJavaScript(`(() => {
+      let popupPoint = null;
+      for (let y = 5; y < innerHeight && !popupPoint; y += 10) {
+        for (let x = 5; x < innerWidth; x += 10) {
+          if (document.elementFromPoint(x, y)?.closest('iframe.yomitan-popup, yomitan-popup-tag-name')) {
+            popupPoint = {x, y, captured: false}; break;
+          }
+        }
+      }
+      if (!popupPoint) throw new Error('No visible dictionary surface found');
+      return {popup: hoverFixture.project(popupPoint),
+        text: hoverFixture.project({...${JSON.stringify(point)}, captured: false}), clicks: syntheticClicks};
+    })()`);
+    assert.deepEqual(hitResults, { popup: true, text: false, clicks: 0 });
+    if (foreground) assert.equal(foreground(), previousForeground, 'hover must not activate the overlay');
+    assert.equal(win.isFocused(), false);
+    console.log('PASS: real Yomitan normal/projected hover, text click-through, popup hit regions, no synthetic clicks or focus changes');
+    win.destroy(); clearTimeout(timeout); app.exit(0); return;
+  }
   for (const name of ['dictionary_navigation.js', 'gamepad.js', 'jiten_highlight.js']) {
     await win.webContents.executeJavaScript(fs.readFileSync(path.join(overlay, name), 'utf8') + '\nvoid 0;');
   }
