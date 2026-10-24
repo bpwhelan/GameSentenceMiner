@@ -33,6 +33,10 @@ EVENT_OBJECT_DESTROY = 0x8001
 EVENT_OBJECT_SHOW = 0x8002
 EVENT_OBJECT_HIDE = 0x8003
 EVENT_OBJECT_REORDER = 0x8004
+SWP_NOACTIVATE = 0x0010
+SWP_NOOWNERZORDER = 0x0200
+SWP_ASYNCWINDOWPOS = 0x4000
+GW_OWNER = 4
 EVENT_OBJECT_LOCATIONCHANGE = 0x800B
 WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
@@ -256,6 +260,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # Win32 event hook state
         # True whenever the desktop Z-order may have changed; gates _is_window_obscured.
         self._zorder_dirty: bool = True
+        self._magpie_source_repair = None
         self.occlusion_rects: List[Tuple[int, int, int, int]] = []
         self.last_window_state_payload: Optional[dict] = None
         self._target_destroyed: bool = False
@@ -814,6 +819,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_window_state_payload = None
         self._zorder_dirty = True
         self.hidden_due_to_no_output = False
+        self._magpie_source_repair = None
         if self.overlay_processor:
             self.overlay_processor.obs_width = None
             self.overlay_processor.obs_height = None
@@ -862,11 +868,20 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         Uses padding to account for taskbar and other UI elements that might
         prevent a window from being 100% covered but still effectively obscure the game.
         """
-        # Retain rectangles already fetched by this walk for partial coverage.
-        # Keep full desktop coordinates (also valid for Magpie-rendered text).
+        # Coverage belongs to the displayed image, not the capture/input source.
+        # Occluders stay in physical desktop coordinates; projecting a source
+        # occluder through Magpie would mask a different place on the screen.
         self.occlusion_rects = []
         try:
-            target_rect = get_window_rect_physical(hwnd)
+            source_hwnd = hwnd
+            info = self.magpie_info
+            if info and info.get("source_hwnd") == hwnd and info.get("scaling_hwnd"):
+                hwnd = info["scaling_hwnd"]
+                target_rect = tuple(
+                    info[f"magpieWindow{edge}EdgePosition"] for edge in ("Left", "Top", "Right", "Bottom")
+                )
+            else:
+                target_rect = get_window_rect_physical(hwnd)
             if not target_rect:
                 return False
 
@@ -890,7 +905,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             current_hwnd = user32.GetWindow(hwnd, GW_HWNDPREV)
 
             while current_hwnd:
-                if self._is_overlay_window(current_hwnd):
+                if current_hwnd == source_hwnd or self._is_overlay_window(current_hwnd):
                     current_hwnd = user32.GetWindow(current_hwnd, GW_HWNDPREV)
                     continue
 
@@ -914,6 +929,83 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         except Exception as e:
             self.occlusion_rects = []
             logger.debug(f"Error checking window occlusion: {e}")
+            return False
+
+    def _repair_magpie_source_zorder(self) -> bool:
+        """Repair an interposed app while the source still owns keyboard focus.
+
+        Magpie v0.12.1 performs this same HWND_TOP/SWP_NOACTIVATE operation on
+        focus changes. A later non-activating reorder can separate its topmost
+        image from the source again. Never activate a background game, change
+        topmost styles, or retry an unchanged obstruction indefinitely.
+        """
+        previous = getattr(self, "_magpie_source_repair", None)
+        self._magpie_source_repair = None
+        info = self.magpie_info
+        source = self.target_hwnd
+        if not info or info.get("source_hwnd") != source or not info.get("scaling_hwnd"):
+            return False
+        scaling = info["scaling_hwnd"]
+        try:
+            if (
+                user32.GetForegroundWindow() != source
+                or not user32.IsWindowVisible(source)
+                or user32.IsIconic(source)
+                or not user32.IsWindowVisible(scaling)
+                or user32.IsIconic(scaling)
+            ):
+                return False
+            source_rect = get_window_rect_physical(source)
+            if not source_rect:
+                return False
+            left, top, right, bottom = source_rect
+            if right <= left or bottom <= top:
+                return False
+            blockers = []
+            seen = {source}
+            hwnd = user32.GetWindow(source, GW_HWNDPREV)
+            while hwnd and hwnd != scaling:
+                # GetWindow walks can encounter a changing desktop. A broken
+                # chain is not evidence that Magpie sits above the obstruction.
+                if hwnd in seen or len(seen) >= 256:
+                    return False
+                seen.add(hwnd)
+                if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd) and not self._is_overlay_window(hwnd):
+                    rect = get_window_rect_physical(hwnd)
+                    if rect and rect[0] < right and rect[2] > left and rect[1] < bottom and rect[3] > top:
+                        # Respect intentional topmost apps and the game's own dialogs.
+                        if (
+                            user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST
+                            or user32.GetWindow(hwnd, GW_OWNER) == source
+                        ):
+                            return False
+                        blockers.append(hwnd)
+                hwnd = user32.GetWindow(hwnd, GW_HWNDPREV)
+            if hwnd != scaling or not blockers:
+                return False
+            signature = (source, scaling, tuple(blockers))
+            if signature == previous:
+                self._magpie_source_repair = signature
+                return False
+            # The z-order walk isn't atomic. Recheck the session, focus and source
+            # geometry immediately before requesting a non-activating reorder.
+            if (
+                get_magpie_info(source) != info
+                or user32.GetForegroundWindow() != source
+                or get_window_rect_physical(source) != source_rect
+            ):
+                return False
+            self._magpie_source_repair = signature
+            # HWND_TOP preserves the source's existing topmost status. Inserting
+            # directly after the topmost scaling HWND could make the game topmost.
+            flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS
+            requested = bool(user32.SetWindowPos(source, HWND_TOP, 0, 0, 0, 0, flags))
+            if requested:
+                self._zorder_dirty = True
+                logger.debug("Requested Magpie source z-order repair without activation")
+            return requested
+        except Exception as e:
+            logger.debug(f"Could not repair Magpie source z-order: {e}")
             return False
 
     def _is_fullscreen_window(self, hwnd) -> bool:
@@ -1652,6 +1744,11 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_known_target_hwnd = self.target_hwnd
         self.hidden_due_to_no_output = False
 
+        # Read the current session before choosing which window's coverage and
+        # fullscreen geometry to measure. Start/stop/move also invalidate cached
+        # coverage even if no WinEvent reached the monitor.
+        self.update_magpie_info()
+        magpie_changed = self.magpie_info != self.last_magpie_info
         current_state = "unknown"
         current_rect = None
         is_fullscreen = False
@@ -1668,9 +1765,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         else:
             foreground_hwnd = user32.GetForegroundWindow()
             current_rect = get_window_rect_physical(self.target_hwnd)
-            if self._zorder_dirty or current_rect != self.last_window_rect:
+            if self._zorder_dirty or current_rect != self.last_window_rect or magpie_changed:
                 # Consume before walking so a concurrent WinEvent isn't lost.
                 self._zorder_dirty = False
+                self._repair_magpie_source_zorder()
                 is_obscured = self._is_window_obscured(self.target_hwnd)
             else:
                 is_obscured = self.last_state == "obscured"
@@ -1679,7 +1777,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             else:
                 current_state = "obscured" if is_obscured else "background"
 
-            is_fullscreen = self._is_fullscreen_window(self.target_hwnd)
+            presentation_hwnd = (self.magpie_info or {}).get("scaling_hwnd") or self.target_hwnd
+            is_fullscreen = self._is_fullscreen_window(presentation_hwnd)
 
         self._sync_minimized_audio_mute(current_state)
         if current_state == "active" and self.last_state != "active":
@@ -1706,16 +1805,17 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 # stays still. Keep checking after the initial settling period.
                 self._sync_capture_monitor_to_window(current_rect)
 
-        self.update_magpie_info()
-        magpie_changed = self.magpie_info != self.last_magpie_info
-
         game_name_ref = self.last_target_info.get("title", self.last_game_name)
 
         fullscreen_changed = is_fullscreen != self.last_is_fullscreen
 
-        raw_exclusive_fullscreen = current_state == "active" and self._is_exclusive_fullscreen(
-            self.target_hwnd,
-            is_fullscreen_window=is_fullscreen,
+        raw_exclusive_fullscreen = (
+            not self.magpie_info
+            and current_state == "active"
+            and self._is_exclusive_fullscreen(
+                self.target_hwnd,
+                is_fullscreen_window=is_fullscreen,
+            )
         )
         is_exclusive_fullscreen = self._update_exclusive_fullscreen_state(raw_exclusive_fullscreen, now)
         exclusive_fullscreen_changed = is_exclusive_fullscreen != self.last_is_exclusive_fullscreen

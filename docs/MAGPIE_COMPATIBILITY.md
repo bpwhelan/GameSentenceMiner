@@ -93,6 +93,37 @@ focus fallback, the 500 ms obscured-state grace period, the controller release
 retries, periodic text-triggered topmost recovery, and the unused undocumented
 `Magpie.ToolWindow` property setter.
 
+## Visibility and source-window order
+
+The Windows monitor reads Magpie's session **before** checking visibility. With
+scaling active, it starts the coverage walk above the scaling HWND and measures
+`Magpie.Dest*`, the displayed image rectangle. Windows between the source and
+Magpie cannot hide GSM or mask its text. Windows above Magpie mask their actual
+desktop positions, without projecting those rectangles through the source
+transform. Letterbox borders do not count as uncovered game content. Starting,
+stopping, or moving scaling invalidates cached coverage even without a WinEvent.
+
+Fullscreen size follows the scaling window, including its letterbox surface;
+it does not imply Direct3D exclusive fullscreen. Capture/OCR coordinates,
+keyboard focus, and `target_window_rect` still describe the original game.
+
+When the game **already owns foreground focus**, a window can nevertheless slip
+between it and Magpie's topmost image. The monitor detects overlapping windows
+in that gap and requests one non-activating `HWND_TOP` reorder of the source.
+This follows the operation in Magpie v0.12.1's
+[`ScalingWindow::_UpdateFocusState`](https://github.com/Blinue/Magpie/blob/v0.12.1/src/Magpie.Core/ScalingWindow.cpp).
+It rechecks the matching session, focus, and geometry before acting, preserves
+size/position/topmost status, and uses `SWP_ASYNCWINDOWPOS` to avoid waiting on
+another app's input queue. See
+[`SetWindowPos`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos)
+for the flag and ownership behavior.
+
+The repair respects topmost apps and the game's owned dialogs. It does not run
+when another app owns focus, and it does not retry an unchanged obstruction.
+There is no new polling loop or focus-stealing fallback. A native regression test
+reproduces the gap with off-screen fixture windows and verifies that the source
+returns below Magpie, GSM stays above Magpie, and real desktop focus is unchanged.
+
 ## Validation and rollback
 
 Run from the repository root:
