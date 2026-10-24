@@ -1,11 +1,40 @@
 import ctypes
 import json
 import sys
+from ctypes import wintypes
 
 IS_WINDOWS = sys.platform == "win32"
 user32 = ctypes.windll.user32 if IS_WINDOWS else None
 
+if user32 is not None:
+    # HWND and window property values are pointer-sized, even though RECT
+    # coordinates stored in the properties are signed 32-bit LONGs.
+    user32.FindWindowA.argtypes = [wintypes.LPCSTR, wintypes.LPCSTR]
+    user32.FindWindowA.restype = wintypes.HWND
+    user32.GetPropA.argtypes = [wintypes.HWND, wintypes.LPCSTR]
+    user32.GetPropA.restype = wintypes.HANDLE
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.SetPropA.argtypes = [wintypes.HWND, wintypes.LPCSTR, wintypes.HANDLE]
+    user32.SetPropA.restype = wintypes.BOOL
+    user32.RemovePropA.argtypes = [wintypes.HWND, wintypes.LPCSTR]
+    user32.RemovePropA.restype = wintypes.HANDLE
+    user32.RegisterWindowMessageA.argtypes = [wintypes.LPCSTR]
+    user32.RegisterWindowMessageA.restype = wintypes.UINT
+
 MAGPIE_WINDOW_CLASS = "Window_Magpie_967EB565-6F73-4E94-AE53-00CC42592A22"
+# Scaling surfaces from Magpie's src/Shared/CommonSharedConstants.h. Its main
+# settings window and toast windows are ordinary occluders, not game overlays.
+MAGPIE_OVERLAY_WINDOW_CLASSES = frozenset(
+    {
+        MAGPIE_WINDOW_CLASS,
+        "Window_Magpie_C322D752-C866-4630-91F5-32CB242A8930",
+        "Magpie_Renderer",
+        "Magpie_ScalingBorderHelper",
+        "Magpie_TouchHelper",
+        "Magpie_TouchHelperHole",
+    }
+)
 MAGPIE_PROPERTY_NAMES = (
     "magpieWindowTopEdgePosition",
     "magpieWindowBottomEdgePosition",
@@ -23,14 +52,14 @@ def get_magpie_window_handle():
     if not IS_WINDOWS or user32 is None:
         return 0
     # We need to pass byte strings to these WinAPI functions
-    return user32.FindWindowA(MAGPIE_WINDOW_CLASS.encode("utf-8"), None)
+    return int(user32.FindWindowA(MAGPIE_WINDOW_CLASS.encode("utf-8"), None) or 0)
 
 
 def get_prop(hwnd, prop_name):
     """Gets a numeric property from a window handle."""
     if not IS_WINDOWS or user32 is None:
         return 0
-    return user32.GetPropA(hwnd, prop_name.encode("utf-8"))
+    return int(user32.GetPropA(hwnd, prop_name.encode("utf-8")) or 0)
 
 
 def normalize_magpie_info(info):
@@ -57,10 +86,16 @@ def normalize_magpie_info(info):
     return normalized
 
 
-def get_magpie_info():
-    """Gathers all scaling information from the Magpie window."""
+def get_magpie_info(expected_source_hwnd=None):
+    """Read visible scaling geometry, optionally restricted to one source window."""
+    if expected_source_hwnd is not None and not expected_source_hwnd:
+        return None
     hwnd = get_magpie_window_handle()
-    if not hwnd:
+    # Magpie only guarantees initialized properties on a visible scaling window.
+    # See its docs/Interact with Magpie programally.md.
+    if not hwnd or not user32.IsWindowVisible(hwnd):
+        return None
+    if expected_source_hwnd is not None and get_prop(hwnd, "Magpie.SrcHWND") != int(expected_source_hwnd):
         return None
 
     info = {
@@ -73,7 +108,9 @@ def get_magpie_info():
         "sourceWindowRightEdgePosition": get_prop(hwnd, "Magpie.SrcRight"),
         "sourceWindowBottomEdgePosition": get_prop(hwnd, "Magpie.SrcBottom"),
     }
-    return normalize_magpie_info(info)
+    # Match Magpie's documented (LONG)(INT_PTR)GetProp conversion, including
+    # monitors to the left of or above the primary display.
+    return normalize_magpie_info({key: ctypes.c_int32(value).value for key, value in info.items()})
 
 
 def mark_window(hwnd_int):

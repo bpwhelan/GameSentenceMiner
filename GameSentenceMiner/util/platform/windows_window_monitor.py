@@ -16,7 +16,7 @@ from .base_window_monitor import (
     _exe_names_match,
 )
 
-from GameSentenceMiner.util.platform.magpie_compat import get_magpie_info
+from GameSentenceMiner.util.platform.magpie_compat import MAGPIE_OVERLAY_WINDOW_CLASSES, get_magpie_info
 from GameSentenceMiner.util.platform.windows_audio import set_process_mute
 
 try:
@@ -712,7 +712,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
             window_class = self._get_window_class(hwnd)
 
-            if "Magpie" in window_class:
+            if window_class in MAGPIE_OVERLAY_WINDOW_CLASSES:
                 return True
 
             if "Qt5" in window_class and "QWindowIcon" in window_class:
@@ -725,9 +725,6 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 return True
 
             title = self._get_window_title(hwnd)
-            if "Magpie" in title:
-                return True
-
             if "GSM Overlay" in title or "gsm_overlay" in title.lower():
                 return True
 
@@ -1106,7 +1103,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         if not is_windows():
             return
         try:
-            self.magpie_info = get_magpie_info()
+            self.magpie_info = get_magpie_info(self.target_hwnd) if self.target_hwnd else None
         except Exception as e:
             logger.debug(f"Error getting Magpie info: {e}")
             self.magpie_info = None
@@ -2055,7 +2052,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             # Topmost toggles/Alt taps can disturb that ordering or scaling; let
             # activate_target_window retry the direct handoff instead. Query live
             # geometry too, since the monitor may not have observed scaling yet.
-            if self.magpie_info or get_magpie_info():
+            if self.magpie_info or get_magpie_info(hwnd):
                 logger.debug(f"Magpie focus handoff deferred without raising the game (attempt {attempt_number})")
                 return False
 

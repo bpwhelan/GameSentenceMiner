@@ -120,7 +120,7 @@ def test_set_foreground_aggressive_uses_topmost_and_alt_fallbacks(monkeypatch):
     monkeypatch.setattr(_wwm, "user32", fake_user32)
     monkeypatch.setattr(_wwm, "kernel32", _FakeKernel32())
     monkeypatch.setattr(_wwm.time, "sleep", lambda _seconds: None)
-    monkeypatch.setattr(_wwm, "get_magpie_info", lambda: None)
+    monkeypatch.setattr(_wwm, "get_magpie_info", lambda *_: None)
 
     monitor = window_state_monitor.WindowStateMonitor()
 
@@ -140,7 +140,7 @@ def foreground_monitor(monkeypatch):
     monkeypatch.setattr(_wwm, "kernel32", _FakeKernel32())
     monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: 222)
     monkeypatch.setattr(_wwm, "_is_tracked_suspended_pid", lambda pid: False)
-    monkeypatch.setattr(_wwm, "get_magpie_info", lambda: None)
+    monkeypatch.setattr(_wwm, "get_magpie_info", lambda *_: None)
     monkeypatch.setattr(_wwm.time, "sleep", lambda _seconds: None)
     return window_state_monitor.WindowStateMonitor(), fake_user32
 
@@ -197,7 +197,7 @@ def test_magpie_restore_never_toggles_topmost_or_injects_alt_when_focus_is_denie
     if cached:
         monitor.magpie_info = {"active": True}
     else:
-        monkeypatch.setattr(_wwm, "get_magpie_info", lambda: {"active": True})
+        monkeypatch.setattr(_wwm, "get_magpie_info", lambda *_: {"active": True})
 
     assert monitor._set_foreground_aggressive(20) is False
     assert native.foreground_hwnd == 10
@@ -211,6 +211,43 @@ def test_magpie_restore_never_toggles_topmost_or_injects_alt_when_focus_is_denie
     detached = [(a, b) for a, b, attach in native.attach_calls if not attach]
     assert attached
     assert detached == list(reversed(attached))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_scaling_another_window_does_not_disable_target_focus_recovery(foreground_monitor, monkeypatch):
+    monitor, native = foreground_monitor
+    native.succeed_after = 5
+    queried_targets = []
+
+    def scaling_info(target=None):
+        queried_targets.append(target)
+        return None if target == 20 else {"active": True}
+
+    monkeypatch.setattr(_wwm, "get_magpie_info", scaling_info)
+
+    assert monitor._set_foreground_aggressive(20) is True
+    assert queried_targets == [20]
+    assert native.foreground_hwnd == 20
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+@pytest.mark.parametrize("target", [None, 0, 20, 30])
+def test_window_monitor_only_publishes_magpie_geometry_for_its_target(foreground_monitor, monkeypatch, target):
+    monitor, _ = foreground_monitor
+    monitor.target_hwnd = target
+    monitor.magpie_info = {"stale": True}
+    geometry = {"sourceWindowLeftEdgePosition": 320}
+    queried_targets = []
+
+    def scaling_info(hwnd=None):
+        queried_targets.append(hwnd)
+        return geometry if hwnd in (None, 20) else None
+
+    monkeypatch.setattr(_wwm, "get_magpie_info", scaling_info)
+    monitor.update_magpie_info()
+
+    assert monitor.magpie_info == (geometry if target == 20 else None)
+    assert queried_targets == ([target] if target else [])
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")

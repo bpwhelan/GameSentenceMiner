@@ -1138,13 +1138,17 @@ background: rgba(202, 12, 12, 0.692);
         };
     const monW = physicalDisplaySize.width;
     const monH = physicalDisplaySize.height;
-    const absX = (pX / 100) * monW;
-    const absY = (pY / 100) * monH;
+    const displayX = Number(display?.physicalBounds?.x);
+    const displayY = Number(display?.physicalBounds?.y);
+    const originX = Number.isFinite(displayX) ? displayX : 0;
+    const originY = Number.isFinite(displayY) ? displayY : 0;
+    const absX = originX + (pX / 100) * monW;
+    const absY = originY + (pY / 100) * monH;
     const mappedX = dstL + ((absX - srcL) / srcW) * dstW;
     const mappedY = dstT + ((absY - srcT) / srcH) * dstH;
     return {
-      x: (mappedX / monW) * 100,
-      y: (mappedY / monH) * 100,
+      x: ((mappedX - originX) / monW) * 100,
+      y: ((mappedY - originY) / monH) * 100,
     };
   }
   

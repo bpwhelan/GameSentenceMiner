@@ -7932,6 +7932,11 @@ async function startOverlayAppImpl() {
     if (!ignore && !canUseOverlayCapture()) return;
     // console.log("set-ignore-mouse-events", ignore, options, resizeMode, yomitanShown);
     const forceMagpieRelease = !!(options && options.forceMagpieRelease);
+    // A periodic renderer request can arrive after a new interaction starts.
+    // Main-process state owns that interaction and must win over the old request.
+    if (forceMagpieRelease && ignore && (
+      manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive || resizeMode
+    )) return;
     if (forceMagpieRelease && ignore && isYomitanStateLikelyStale()) {
       console.warn(`[MagpieCompat] Clearing stale Yomitan state before mouse release (age=${Date.now() - lastYomitanEventAt}ms)`);
       yomitanShown = false;
@@ -7954,7 +7959,7 @@ async function startOverlayAppImpl() {
       return;
     }
 
-    if (!resizeMode && (!yomitanShown || (forceMagpieRelease && ignore))) {
+    if (!resizeMode && !yomitanShown) {
       // if ignore is false a button or element on the Overlay was clicked and we do not want to click-through
       if (!isWindows() && !isMac()) {
         // On Linux, forwarding mouse click-through is currently unsupported

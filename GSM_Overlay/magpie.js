@@ -132,14 +132,18 @@ function mapPercentToMagpie(pX, pY, magpieState, displayInfo) {
   }
 
   const { sourceRect, destinationRect } = state.info;
-  const absoluteX = (pX / 100) * displaySize.width;
-  const absoluteY = (pY / 100) * displaySize.height;
+  // Backend percentages are monitor-relative; Magpie's rectangles are physical
+  // desktop coordinates. Include the origin on both sides of the transform.
+  const originX = toFiniteNumber(displayInfo?.physicalBounds?.x) ?? 0;
+  const originY = toFiniteNumber(displayInfo?.physicalBounds?.y) ?? 0;
+  const absoluteX = originX + (pX / 100) * displaySize.width;
+  const absoluteY = originY + (pY / 100) * displaySize.height;
   const mappedX = destinationRect.left + ((absoluteX - sourceRect.left) / sourceRect.width) * destinationRect.width;
   const mappedY = destinationRect.top + ((absoluteY - sourceRect.top) / sourceRect.height) * destinationRect.height;
 
   return {
-    x: (mappedX / displaySize.width) * 100,
-    y: (mappedY / displaySize.height) * 100,
+    x: ((mappedX - originX) / displaySize.width) * 100,
+    y: ((mappedY - originY) / displaySize.height) * 100,
   };
 }
 
@@ -201,9 +205,9 @@ function createMagpieRendererController(options = {}) {
       logger.log(
         `[Magpie] Renderer state -> active=${state.active} signature=${state.signature || "inactive"} (${reason})`
       );
+      syncCompatibility(reason);
     }
 
-    syncCompatibility(reason);
     return {
       activeChanged,
       signatureChanged,

@@ -112,6 +112,42 @@ def test_discord_overlay_becomes_covering_when_it_accepts_input(styled_desktop):
     assert monitor.occlusion_rects == [(0, 0, 1000, 800)]
 
 
+@pytest.mark.parametrize(
+    "window_class,title",
+    [
+        ("MozillaWindowClass", "Magpie - GitHub - Mozilla Firefox"),
+        ("CabinetWClass", "Magpie-v0.12.1-x64 - File Explorer"),
+        ("Magpie_Main", "Magpie"),
+    ],
+)
+def test_magpie_settings_and_named_documents_still_cover_the_game(styled_desktop, monkeypatch, window_class, title):
+    monitor, _, rects, styles, titles = styled_desktop
+    styles[20] = 0
+    rects[20] = (0, 0, 1000, 800)
+    titles[20] = title
+    monkeypatch.setattr(monitor, "_get_window_class", lambda _: window_class)
+    assert not monitor._is_overlay_window(20)
+    assert monitor._is_window_obscured(10)
+
+
+@pytest.mark.parametrize(
+    "window_class",
+    [
+        "Window_Magpie_967EB565-6F73-4E94-AE53-00CC42592A22",
+        "Window_Magpie_C322D752-C866-4630-91F5-32CB242A8930",
+        "Magpie_Renderer",
+        "Magpie_ScalingBorderHelper",
+        "Magpie_TouchHelper",
+        "Magpie_TouchHelperHole",
+    ],
+)
+def test_magpie_scaling_surfaces_do_not_obscure_the_game(styled_desktop, monkeypatch, window_class):
+    monitor, _, _, styles, _ = styled_desktop
+    styles[20] = 0
+    monkeypatch.setattr(monitor, "_get_window_class", lambda _: window_class)
+    assert monitor._is_overlay_window(20)
+
+
 @pytest.mark.parametrize("focused", [False, True])
 def test_coverage_updates_publish_without_rescanning_unchanged_desktop(desktop, monkeypatch, focused):
     monitor, api, rects = desktop
