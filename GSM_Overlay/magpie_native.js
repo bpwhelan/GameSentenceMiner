@@ -16,6 +16,10 @@ function createMagpieNative() {
     visible: lib.func('int __stdcall IsWindowVisible(uintptr_t hwnd)'),
     prop: lib.func('uintptr_t __stdcall GetPropW(uintptr_t hwnd, str16 name)'),
     foreground: lib.func('uintptr_t __stdcall GetForegroundWindow()'),
+    desktop: lib.func('uintptr_t __stdcall GetDesktopWindow()'),
+    previous: lib.func('uintptr_t __stdcall GetWindow(uintptr_t hwnd, uint32 command)'),
+    hook: lib.func('uintptr_t __stdcall SetWinEventHook(uint32 min, uint32 max, uintptr_t module, void *callback, uint32 process, uint32 thread, uint32 flags)'),
+    unhook: lib.func('int __stdcall UnhookWinEvent(uintptr_t hook)'),
     style: lib.func('long __stdcall GetWindowLongW(uintptr_t hwnd, int index)'),
     cursor: lib.func('int __stdcall GetPhysicalCursorPos(void *point)'),
     key: lib.func('short __stdcall GetAsyncKeyState(int key)'),
@@ -45,12 +49,54 @@ function createMagpieNative() {
 
   return {
     read,
-    watch(win, callback) {
+    isAbove(above, win) {
+      const own = Number(handleValue(win.getNativeWindowHandle()));
+      if (!above || Number(above) === own || !f.visible(above) || !f.visible(own)) return false;
+      const seen = new Set([own]);
+      let hwnd = Number(f.previous(own, 3)); // GW_HWNDPREV
+      while (hwnd && !seen.has(hwnd) && seen.size < 256) {
+        if (hwnd === Number(above)) return true;
+        seen.add(hwnd);
+        hwnd = Number(f.previous(hwnd, 3));
+      }
+      return false;
+    },
+    watch(win, callback, onReorder) {
       const hwnd = handleValue(win.getNativeWindowHandle());
       // Permit just this registered message when GSM has higher integrity.
       if (!f.filter(hwnd, message, 1, null)) console.warn('[Magpie] Could not allow scaling notifications through UIPI');
       win.hookWindowMessage(message, (wParam, lParam) => callback(Number(handleValue(wParam)), Number(handleValue(lParam))));
-      return () => { if (!win.isDestroyed()) win.unhookWindowMessage(message); };
+      let stopped = false, pending = null, hook = 0, proc = null;
+      if (onReorder) {
+        // Cross-thread activation can restack the scaler *after* its broadcast.
+        // Observe desktop child order, not control/DOM accessibility changes.
+        // Electron's main thread supplies the required Windows message loop.
+        const desktop = Number(f.desktop());
+        const type = koffi.proto('__stdcall', null, 'void', ['uintptr_t', 'uint32', 'uintptr_t', 'long', 'long', 'uint32', 'uint32']);
+        proc = koffi.register((_hook, _event, changed, object, child) => {
+          if (stopped || Number(changed) !== desktop || object !== -4 || child !== 0 || pending !== null) return;
+          // WinEvent callbacks can reenter. Coalesce a burst and do window work
+          // after returning to JS, never from inside the native callback.
+          pending = setImmediate(() => {
+            pending = null;
+            if (!stopped && !win.isDestroyed()) onReorder();
+          });
+        }, koffi.pointer(type));
+        hook = f.hook(0x8004, 0x8004, 0, proc, 0, 0, 0); // EVENT_OBJECT_REORDER, WINEVENT_OUTOFCONTEXT
+        if (!hook) {
+          koffi.unregister(proc);
+          proc = null;
+          console.warn('[Magpie] Could not observe desktop window ordering');
+        }
+      }
+      return () => {
+        if (stopped) return;
+        stopped = true;
+        if (pending !== null) clearImmediate(pending);
+        if (!win.isDestroyed()) win.unhookWindowMessage(message);
+        // Keep a disabled callback alive if Windows unexpectedly cannot unhook.
+        if (proc && f.unhook(hook)) koffi.unregister(proc);
+      };
     },
     cursor(info) {
       const hwnd = info.scaling_hwnd;

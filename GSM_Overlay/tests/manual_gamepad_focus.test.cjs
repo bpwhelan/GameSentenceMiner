@@ -103,6 +103,7 @@ function setup(t, settings = {}) {
   const functions = [
     'hasValidOverlayCapture', 'canUseOverlayCapture', 'publishOverlayCaptureAvailability',
     'canTrackMagpiePointer', 'canUseTextHoverClickThrough',
+    'attachMagpieSession',
     'setTrackedGameWindowState',
     'requestOverlayPauseForSource', 'requestOverlayResumeForSource',
     'isManualMode', 'normalizeManualModeInactiveBehavior',
@@ -115,7 +116,7 @@ function setup(t, settings = {}) {
     'restoreAutomaticOverlayPassThrough', 'requestMagpieStateRefresh', 'shouldDeferObscuredStateForMagpieFocus', 'handleMagpieFocusResult', 'cancelPendingMagpieFocusRestore', 'requestMagpieFocusRestore',
     'showOverlayUsingManualFlow', 'hideOverlayUsingManualFlow', 'clearManualActivationState',
     'shouldReassertOverlayAroundYomitan', 'shouldPreserveOverlayFocusForYomitan',
-    'requestYomitanOverlayTopmostReassert',
+    'requestYomitanOverlayTopmostReassert', 'scheduleYomitanCloseRecovery',
     'registerTexthookerHotkey', 'deactivateTexthookerMode',
   ].map(name => {
     const match = source.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}`, 'm'));
@@ -405,6 +406,79 @@ test('a stale obscured snapshot cannot hide the verified foreground Magpie sourc
   send('window-state-changed', { state: 'obscured', targetHwnd: 42 });
   assert.equal(context.trackedGameWindowState, 'active');
   assert.equal(state.visible, true);
+});
+
+function attachNativeMagpieFixture(f) {
+  let notify, reorder;
+  const info = {
+    source_hwnd: 42, scaling_hwnd: 99, windowed: false, source_focused: true,
+    sourceWindowLeftEdgePosition: 320, sourceWindowTopEdgePosition: 196,
+    sourceWindowRightEdgePosition: 2240, sourceWindowBottomEdgePosition: 1276,
+    magpieWindowLeftEdgePosition: 0, magpieWindowTopEdgePosition: 0,
+    magpieWindowRightEdgePosition: 2560, magpieWindowBottomEdgePosition: 1440,
+  };
+  const order = { covered: false, raises: 0 };
+  f.context.createMagpieState = require('../magpie').createMagpieState;
+  f.context.createMagpieNative = () => ({
+    watch(_win, onMessage, onOrder) { notify = onMessage; reorder = onOrder; return () => {}; },
+    read: target => target === info.source_hwnd ? info : null,
+    isAbove: () => order.covered,
+  });
+  f.context.createMagpieSession = options => require('../magpie_session').createMagpieSession({
+    ...options, setIntervalFn: () => 1, clearIntervalFn() {},
+  });
+  f.context.mainWindow.moveTop = () => { order.covered = false; order.raises++; };
+  f.context.attachMagpieSession();
+  f.context.magpieSession.updateTarget(42);
+  return { info, order, notify: (...args) => notify(...args), reorder: () => reorder?.() };
+}
+
+for (const interaction of ['dictionary', 'controller']) {
+  for (const ackFirst of [false, true]) {
+    test(`overlay survives a late Magpie reorder after ${interaction} exit (ACK first: ${ackFirst})`, t => {
+      const f = setup(t, { manualMode: false });
+      const native = attachNativeMagpieFixture(f);
+      if (interaction === 'dictionary') f.send('yomitan-event', true);
+      else f.activate();
+      f.state.focused = true;
+      native.info.source_focused = false;
+      native.notify(0, 1);
+      if (interaction === 'dictionary') f.send('yomitan-event', false);
+      else f.deactivate();
+      const requestId = f.context.pendingMagpieFocusRestore.requestId;
+      const acknowledge = () => f.context.handleMagpieFocusResult({ request_id: requestId, success: true });
+      f.state.focused = false;
+      native.info.source_focused = true;
+      if (ackFirst) acknowledge();
+      native.notify(1, 99);
+      if (!ackFirst) acknowledge();
+      const raises = native.order.raises;
+      native.order.covered = true;
+      native.reorder();
+      assert.equal(native.order.covered, false, 'the scaler cannot strand the visible overlay underneath it');
+      assert.equal(native.order.raises, raises + 1);
+      native.reorder();
+      assert.equal(native.order.raises, raises + 1, 'an already-correct order requires no further work');
+      assert.equal(f.state.visible, true);
+      assert.equal(f.state.focused, false);
+      assert.equal(f.state.blurCalls, 0);
+      assert.deepEqual(f.restores, ['restore-focus-request']);
+      f.context.magpieSession.dispose();
+    });
+  }
+}
+
+test('Magpie ordering recovery respects a hidden manual overlay and unavailable capture', t => {
+  const f = setup(t, { manualMode: true, manualModeInactiveBehavior: 'hide-overlay' });
+  const native = attachNativeMagpieFixture(f);
+  native.order.covered = true;
+  native.reorder();
+  assert.equal(native.order.raises, 0);
+  f.context.userSettings.manualMode = false;
+  f.context.overlayCaptureAvailable = false;
+  native.reorder();
+  assert.equal(native.order.raises, 0);
+  f.context.magpieSession.dispose();
 });
 
 test('Magpie handoff fallback cannot blur a new manual activation', t => {

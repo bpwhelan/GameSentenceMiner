@@ -4203,10 +4203,10 @@ function attachMagpieSession() {
         }
         if (!info || !canUseOverlayCapture() || isTexthookerMode || customPageController?.isVisible()) return;
         const ownsFocus = manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive || resizeMode || yomitanShown;
-        if (sourceFocused && (kind === 'foreground' || (kind === 'sync' && previous.signature !== currentMagpieState.signature))) {
+        if (sourceFocused && (kind === 'foreground' || kind === 'reorder' || (kind === 'sync' && previous.signature !== currentMagpieState.signature))) {
           if (!isManualMode() || shouldKeepOverlayVisibleWhenManualInactive() || ownsFocus) {
-            // Magpie broadcasts after updating its own z-order. Raising once here
-            // is the ordering prescribed by its reference MagpieWatcher.
+            // Follow Magpie's broadcast, or an observed late reorder that put
+            // its scaler above us. Neither path changes foreground focus.
             if (!mainWindow.isMinimized()) mainWindow.showInactive();
             mainWindow.setAlwaysOnTop(true, 'screen-saver');
             mainWindow.moveTop();

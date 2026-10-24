@@ -39,9 +39,25 @@ selected game before using any properties. It decodes property coordinates as
 signed 32-bit values and keeps window handles pointer-sized.
 
 `magpie_session.js` owns the native session. A foreground broadcast raises GSM
-once without activation, after Magpie has finished its own z-order work. A
-background notification preserves geometry and lowers GSM unless an explicit
-overlay interaction owns focus. Ordinary text arrival never reasserts topmost.
+without activation, following Magpie's z-order work. A background notification
+preserves geometry and lowers GSM unless an explicit overlay interaction owns
+focus. Ordinary text arrival never reasserts topmost.
+
+Cross-thread activation can still finish restacking windows **after** that
+broadcast. This was reproduced when leaving controller navigation: the game
+regained foreground focus, GSM rose above the scaler, then the scaler rose above
+GSM again while GSM remained visible. An out-of-context
+[`EVENT_OBJECT_REORDER` listener](https://learn.microsoft.com/en-us/windows/win32/winauto/event-constants)
+observes desktop child order on Electron's message loop. It ignores accessibility
+changes inside other windows and coalesces each burst outside the native callback
+to avoid [WinEvent reentrancy](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwineventhook).
+The session revalidates the selected source and scaling window, requires the
+game to still own foreground focus, and checks the actual native order. Only a
+scaler above a visible, eligible GSM overlay causes a non-activating raise.
+Our resulting reorder event does nothing once that order is correct. Hidden
+manual overlays and other foreground apps are respected; there is no periodic
+topmost retry or extra focus handoff. Disposal cancels queued work and unhooks
+the native listener.
 
 Notifications wake the existing Python monitor through its owning event loop;
 they do not run a second concurrent monitor. The normal polling path remains a

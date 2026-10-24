@@ -1,8 +1,8 @@
 const { normalizeMagpieInfo, mapCursorToMagpie } = require('./magpie');
 
-// Owns the native Magpie session. There are no periodic mouse releases or
-// topmost retries. The short timer samples input (and geometry only during a
-// windowed drag); capture changes only after a current renderer hit test.
+// Owns the native Magpie session. Window ordering responds to native events,
+// never periodic topmost retries. The short timer samples input (and geometry
+// only during a windowed drag); capture changes only after a current renderer hit test.
 function createMagpieSession({ native, window: win, canTrackPointer, onScaling, onPointer,
   setIgnoreMouseEvents, requestRefresh, onPointerReset = () => {}, setIntervalFn = setInterval, clearIntervalFn = clearInterval }) {
   let target = null, info = null, timer = null, dragging = false, disposed = false;
@@ -69,7 +69,16 @@ function createMagpieSession({ native, window: win, canTrackPointer, onScaling, 
     onPointer({ ...cursor, sequence, x: point?.x ?? -Infinity, y: point?.y ?? -Infinity, signature: info.signature });
   }
 
-  const unwatch = native.watch(win, notify);
+  function reorder() {
+    if (disposed || !info || win.isDestroyed() || !win.isVisible()) return;
+    const next = native.read(target);
+    if (!next?.source_focused || !native.isAbove(next.scaling_hwnd, win)) return;
+    // A queued activation can finish after Magpie's foreground broadcast and
+    // cover us again. Only repair verified coverage while this game owns focus.
+    update(next, 'reorder');
+  }
+
+  const unwatch = native.watch(win, notify, reorder);
   return {
     updateTarget(hwnd) {
       if (disposed) return;

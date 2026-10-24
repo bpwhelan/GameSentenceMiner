@@ -12,13 +12,14 @@ const info = {
 };
 
 function setup() {
-  let notification, tick, blocked = false, visible = true;
+  let notification, reorder, tick, blocked = false, visible = true, covered = false;
   let snapshot = info;
   let cursor = { x: 1280, y: 736, captured: true };
   const events = [], samples = [], ignores = [], refreshes = [];
   const native = {
-    watch(_win, callback) { notification = callback; return () => { notification = null; }; },
+    watch(_win, callback, onReorder) { notification = callback; reorder = onReorder; return () => { notification = reorder = null; }; },
     read(expected) { return snapshot?.source_hwnd === expected ? snapshot : null; },
+    isAbove() { return covered; },
     cursor() { return cursor; },
   };
   const session = createMagpieSession({
@@ -30,6 +31,7 @@ function setup() {
   });
   return { session, events, samples, ignores, refreshes,
     notify: (...args) => notification(...args), tick: () => tick?.(),
+    reorder: () => reorder?.(), setCovered: v => { covered = v; },
     setCursor: v => { cursor = v; }, setSnapshot: v => { snapshot = v; },
     setBlocked: v => { blocked = v; }, setVisible: v => { visible = v; },
     hasTimer: () => !!tick,
@@ -47,6 +49,40 @@ test('starts mid-session, scopes native state to the selected game, and disposes
   assert.equal(f.events.at(-1).info, null);
   assert.equal(f.hasTimer(), false);
   f.session.dispose();
+});
+
+test('a late native reorder after the foreground broadcast repairs a covered overlay', () => {
+  const f = setup();
+  f.setSnapshot({ ...info, source_focused: true });
+  f.session.updateTarget(42);
+  f.notify(1, 99);
+  const before = f.events.length;
+  f.setCovered(true); // A queued activation restacks Magpie after its broadcast.
+  f.reorder();
+  assert.equal(f.events.length, before + 1);
+  assert.equal(f.events.at(-1).kind, 'reorder');
+  assert.equal(f.events.at(-1).sourceFocused, true);
+  f.setCovered(false); // Raising GSM generates another native reorder.
+  f.reorder();
+  assert.equal(f.events.length, before + 1, 'our own correction must not cause a raise loop');
+});
+
+test('reorder recovery revalidates focus, visibility and the selected scaling session', () => {
+  for (const reason of ['background', 'hidden', 'different-source', 'stopped', 'disposed']) {
+    const f = setup();
+    f.setSnapshot({ ...info, source_focused: true });
+    f.session.updateTarget(42);
+    f.setCovered(true);
+    if (reason === 'background') f.setSnapshot({ ...info, source_focused: false });
+    if (reason === 'hidden') f.setVisible(false);
+    if (reason === 'different-source') f.setSnapshot({ ...info, source_hwnd: 7, source_focused: true });
+    if (reason === 'stopped') f.setSnapshot(null);
+    if (reason === 'disposed') f.session.dispose();
+    const before = f.events.length;
+    f.reorder();
+    assert.equal(f.events.length, before, reason);
+    f.session.dispose();
+  }
 });
 
 test('projects the captured cursor into the visible image and only changes mouse ownership on a hit result', () => {

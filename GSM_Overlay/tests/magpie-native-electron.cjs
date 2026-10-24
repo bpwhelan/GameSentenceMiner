@@ -70,6 +70,51 @@ app.whenReady().then(async () => {
     remove(hwnd, 'Magpie.SrcHWND');
     assert.equal(native.cursor(info), null);
     console.log('Native Windows broadcast, 64-bit message parameters, cursor coordinates, and capture style: passed.');
+
+    const foreground = lib.func('uintptr_t __stdcall GetForegroundWindow()');
+    const beforeFocus = foreground();
+    const scaler = new BrowserWindow({ show: false, focusable: false, skipTaskbar: true,
+      frame: false, width: 100, height: 100, opacity: 0 });
+    await scaler.loadURL('about:blank');
+    scaler.setIgnoreMouseEvents(true);
+    scaler.showInactive();
+    scaler.setAlwaysOnTop(true);
+    const scalerHwnd = Number(handleValue(scaler.getNativeWindowHandle()));
+    win.setAlwaysOnTop(true);
+    win.moveTop();
+    assert.equal(native.isAbove(scalerHwnd, win), false);
+    assert.equal(native.isAbove(Number(hwnd), scaler), true);
+    assert.equal(native.isAbove(Number(hwnd), win), false);
+    let repairs = 0;
+    const stopOrderWatch = native.watch(win, () => {}, () => {
+      if (!native.isAbove(scalerHwnd, win)) return;
+      // The production repair changes only our own window, without activation.
+      win.showInactive();
+      win.setAlwaysOnTop(true, 'screen-saver');
+      win.moveTop();
+      repairs++;
+    });
+    for (let cycle = 0; cycle < 3; cycle++) {
+      scaler.moveTop(); // A late native reorder, after the earlier overlay raise.
+      assert.equal(native.isAbove(scalerHwnd, win), true);
+      const end = Date.now() + 2000;
+      while (repairs <= cycle && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 10));
+      assert.equal(repairs, cycle + 1, 'desktop reorder must reach the Electron listener');
+      assert.equal(native.isAbove(scalerHwnd, win), false, 'the overlay must end above the scaler');
+      assert.equal(foreground(), beforeFocus, 'repair must not flicker foreground focus');
+    }
+    await new Promise(resolve => setTimeout(resolve, 80));
+    assert.equal(repairs, 3, 'our own raises must not form a feedback loop');
+    stopOrderWatch();
+    stopOrderWatch(); // Cleanup is safe during overlapping window/session teardown.
+    scaler.moveTop();
+    await new Promise(resolve => setTimeout(resolve, 80));
+    assert.equal(repairs, 3, 'a stopped listener must never raise the overlay');
+    assert.equal(native.isAbove(scalerHwnd, win), true);
+    scaler.hide();
+    assert.equal(native.isAbove(scalerHwnd, win), false, 'a hidden scaler is not coverage');
+    scaler.destroy();
+    console.log('Native desktop reorder recovery, stable foreground focus, and listener cleanup: passed.');
   }
   console.log('Chromium hit testing, mixed DPI, hidden text, and projected hover painting: passed.');
   win.destroy();
