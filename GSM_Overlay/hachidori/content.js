@@ -218,7 +218,7 @@
   // the window the same way, or the host would stop reporting it mid-hold.
   // Child popups that wait for it are in a popup, which holds the claim already.
   function syncHostAttention() {
-    queueMicrotask(() => gsmBridge?.refresh()); // GSM hook
+    gsmBridge?.scheduleRefresh(); // GSM hook
     const wanted = Boolean(rootLevel.popup && !rootLevel.popup.hidden) || selectionDragActive
       || hostAttentionHold > 0 || pendingCandidateLookup?.candidate?.exactSelection === true
       || (activationPressed && options.lookupMode !== "hover" && activationButton() !== null);
@@ -1536,7 +1536,7 @@
   }
 
   function positionPopup(fromLevel = rootLevel, resetToolbar = false) {
-    queueMicrotask(() => gsmBridge?.refresh()); // GSM hook
+    gsmBridge?.scheduleRefresh(); // GSM hook
     if (fromLevel.retired || fromLevel.popup?.inert || !rootLevel.popup || rootLevel.popup.hidden || !rootLevel.activeCandidate) {
       return;
     }
@@ -1915,7 +1915,7 @@
   }
 
   function bindResultActions(rendered, level) {
-    queueMicrotask(() => gsmBridge?.refresh()); // GSM hook
+    gsmBridge?.scheduleRefresh(); // GSM hook
     const token = level.lookupToken, request = level.currentViewRequest;
     // Keybinds index these like the view's entries; Show more grows the same
     // arrays and rebinds only the newly revealed controls. The count element

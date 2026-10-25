@@ -195,13 +195,17 @@
             "label": "Habilitado:",
             "tooltip": "Habilitar o deshabilitar la integración con Anki."
           },
-          "update_anki": {
-            "label": "Actualizar Anki:",
-            "tooltip": "Actualizar automáticamente Anki con nuevos datos."
-          },
           "show_update_confirmation_dialog": {
             "label": "Mostrar Diálogo de Confirmación de Actualización:",
             "tooltip": "Mostrar un diálogo de confirmación antes de actualizar tarjetas de Anki."
+          },
+          "skip_confirmation_for_unvoiced": {
+            "label": "Omitir confirmación en líneas sin voz:",
+            "tooltip": "Advertencia: omite la confirmación cuando VAD no detecta voz. La ventana de confirmación se creó originalmente para comprobar los resultados de VAD en líneas sin voz detectada. Omitirla puede dejar pasar voz no detectada y crear tarjetas sin audio de voz."
+          },
+          "confirmation_audio_step": {
+            "label": "Paso de ampliación del audio:",
+            "tooltip": "Segundos añadidos con cada clic en un botón de ampliación del audio en el diálogo de confirmación."
           },
           "confirmation_gamepad_enabled": {
             "label": "Controles del mando:",
@@ -409,8 +413,8 @@
         "features": {
           "title": "Características",
           "notify_on_update": {
-            "label": "Notificar al Actualizar Tarjeta de Anki:",
-            "tooltip": "Notificar al usuario cuando GSM actualiza una tarjeta de Anki."
+            "label": "Notificar al crear o actualizar una tarjeta de Anki:",
+            "tooltip": "Notificar cuando GSM cree o actualice una tarjeta de Anki."
           },
           "open_anki_edit": {
             "label": "Abrir Nota de Anki en Vista de Edición:",
@@ -435,6 +439,31 @@
           "generate_longplay": {
             "label": "Generar Longplay:",
             "tooltip": "Generar un video longplay combinando todas las repeticiones."
+          },
+          "notifications_title": "Notificaciones de escritorio",
+          "notify_on_audio_generated": {
+            "label": "Notificar al generar audio:",
+            "tooltip": "Notificar cuando GSM termine de generar o recortar audio."
+          },
+          "notify_on_screenshot_saved": {
+            "label": "Notificar al guardar una captura:",
+            "tooltip": "Notificar cuando GSM guarde una captura en el disco."
+          },
+          "notify_on_anki_enhancement_failed": {
+            "label": "Notificar si falla la mejora de una tarjeta:",
+            "tooltip": "Notificar cuando GSM no pueda terminar de mejorar una tarjeta de Anki, incluido el audio ausente o fallido."
+          },
+          "notify_on_errors": {
+            "label": "Notificar sobre errores de GSM:",
+            "tooltip": "Notificar cuando GSM encuentre un error que requiera atención."
+          },
+          "notify_on_obs_warning": {
+            "label": "Notificar si la repetición de OBS no está disponible:",
+            "tooltip": "Notificar cuando GSM no pueda usar la memoria de repetición de OBS."
+          },
+          "notify_on_text_intake_state": {
+            "label": "Notificar al pausar o reanudar la entrada de texto:",
+            "tooltip": "Notificar cuando se pause o reanude el procesamiento del texto entrante."
           }
         },
         "screenshot": {
@@ -579,7 +608,7 @@
           },
           "pause_text_intake": {
             "label": "Atajo para Pausar la Entrada de Texto de GSM:",
-            "tooltip": "Pausa o reanuda temporalmente la entrada de texto por portapapeles y websocket de GSM. Mientras esté en pausa, GSM omite su propio registro de estadísticas/historial y no activa el overlay. Déjalo vacío para desactivar este atajo; no tiene atajo predeterminado."
+            "tooltip": "Pausa o reanuda temporalmente la recopilación de estadísticas de GSM. El texto recibido durante la pausa no actualiza las estadísticas en vivo, la actividad de Discord ni la base de datos. Si el reenvío de texto está activado, la creación de tarjetas y el overlay siguen funcionando. Déjalo vacío para desactivar este atajo; no tiene atajo predeterminado."
           },
           "mute_target_window": {
             "label": "Atajo para Silenciar/Activar el Sonido de la Ventana Objetivo:",
@@ -591,7 +620,7 @@
           },
           "relay_outputs_when_paused": {
             "checkbox": "Reenviar a Text Feed/clientes de salida durante la pausa",
-            "tooltip": "Si está activado, el texto pausado aún se envía a la página Text Feed y a los clientes websocket de salida después del procesamiento de texto, pero GSM sigue omitiendo sus propias estadísticas/historial y el overlay. Desáctivalo para un no-op completo que descarte todo el texto entrante."
+            "tooltip": "Si está activado, la creación de tarjetas, el overlay, Text Feed y los clientes WebSocket de salida siguen funcionando durante la pausa de estadísticas. El texto entrante se conserva en memoria para crear tarjetas, pero no actualiza las estadísticas en vivo, la actividad de Discord ni la base de datos. Desactívalo para descartar todo el texto entrante."
           }
         },
         "obs": {
@@ -717,7 +746,15 @@
           },
           "mute_game_on_minimize": {
             "label": "Silenciar Juego al Minimizar:",
-            "tooltip": "En Windows, silencia el juego capturado solo mientras su ventana está minimizada. No se silencia al estar en segundo plano o sin foco."
+            "tooltip": "En Windows, silencia el juego capturado mientras su ventana está minimizada. El silencio cuando el juego queda cubierto se controla con el ajuste de abajo."
+          },
+          "mute_game_on_background": {
+            "label": "Silenciar Juego al Quedar Cubierto:",
+            "tooltip": "En Windows, silencia el juego capturado cuando su ventana permanece completamente cubierta por otras ventanas durante el tiempo indicado abajo. Permanece silenciado hasta que vuelvas a darle el foco, aunque su ventana vuelva a verse. El silencio al minimizar se configura por separado."
+          },
+          "mute_game_on_background_delay_seconds": {
+            "label": "Retardo de Silencio en Segundo Plano (segundos):",
+            "tooltip": "Tiempo que la ventana del juego debe permanecer completamente cubierta antes de silenciarlo (0–300 segundos). Usa 0 para silenciar inmediatamente. Volver a darle el foco o descubrir la ventana antes de que termine el retardo cancela la cuenta atrás. No retrasa el silencio al minimizar."
           },
           "localhost_bind_address": {
             "label": "Dirección de Enlace de Localhost:",

@@ -82,13 +82,22 @@ describe('text hook engine update integration', () => {
         expect(handler('texthook.getEngineStatus')()).toMatchObject({ phase: 'idle' });
     });
 
-    it('checks manually through the same automatic update service and broadcasts its state', async () => {
+    it('checks manually without starting an automatic download', async () => {
         await handler('texthook.checkEngineUpdates')();
         await Promise.resolve();
         await Promise.resolve();
         expect(mocks.remote).toHaveBeenCalledOnce();
-        expect(mocks.prepare).toHaveBeenCalledOnce();
-        expect(mocks.send).toHaveBeenCalledWith('texthook.engineUpdateState', expect.objectContaining({ phase: 'installing' }));
+        expect(mocks.prepare).not.toHaveBeenCalled();
+        expect(mocks.send).toHaveBeenCalledWith('texthook.engineUpdateState', expect.objectContaining({ phase: 'idle' }));
+    });
+
+    it('routes explicit version selections through the managed idle boundary and pins the choice', async () => {
+        mocks.runtime.mockReturnValue({ running: true, engine: 'agent' });
+        expect(await handler('texthook.installEngineVersion')({}, '0.9.0')).toEqual({ success: true, deferred: true });
+        expect(mocks.prepare).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), '0.9.0');
+        expect(mocks.setAutomatic).toHaveBeenCalledWith(false);
+        expect(mocks.activate).not.toHaveBeenCalled();
+        expect(() => handler('texthook.installEngineVersion')({}, {})).toThrow(/version/);
     });
 
     it('persists the automatic update preference and validates the IPC input', () => {

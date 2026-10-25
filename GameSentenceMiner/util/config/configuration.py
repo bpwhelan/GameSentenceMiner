@@ -802,6 +802,7 @@ class AnkiField:
 @dataclass_json
 @dataclass
 class Anki:
+    CONFIRMATION_AUDIO_STEPS: ClassVar[tuple[float, ...]] = (0.1, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0)
     _FIELD_DEFAULTS: ClassVar[Dict[str, AnkiField]] = {
         "sentence": AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True),
         "sentence_audio": AnkiField(name="SentenceAudio", enabled=True, overwrite=True, append=False, core=True),
@@ -833,11 +834,12 @@ class Anki:
     }
 
     enabled: bool = True
-    update_anki: bool = True
     show_update_confirmation_dialog_v2: bool = True
+    skip_confirmation_for_unvoiced: bool = False
     auto_accept_timer: int = 10
     confirmation_always_on_top: bool = True
     confirmation_focus_on_show: bool = True
+    confirmation_audio_step: float = 0.25
     confirmation_gamepad_enabled: bool = False
     confirmation_gamepad_focus_up: str = "12"
     confirmation_gamepad_focus_down: str = "13"
@@ -904,6 +906,11 @@ class Anki:
     remove_overlay_tag: bool = False
 
     def __post_init__(self):
+        if (
+            isinstance(self.confirmation_audio_step, bool)
+            or self.confirmation_audio_step not in self.CONFIRMATION_AUDIO_STEPS
+        ):
+            self.confirmation_audio_step = 0.25
         if self.custom_tags is None:
             self.custom_tags = ["GSM"]
         if self.tags_to_check is None:
@@ -1018,6 +1025,12 @@ for _legacy_key, _attr_name in Anki._LEGACY_FIELD_MAP.items():
 class Features:
     full_auto: bool = True
     notify_on_update: bool = True
+    notify_on_audio_generated: bool = True
+    notify_on_screenshot_saved: bool = True
+    notify_on_anki_enhancement_failed: bool = True
+    notify_on_errors: bool = True
+    notify_on_obs_warning: bool = True
+    notify_on_text_intake_state: bool = True
     open_anki_edit: bool = False
     open_anki_in_browser: bool = False
     browser_query: str = ""
@@ -1315,6 +1328,8 @@ class Advanced:
     screenshot_capture_backend_v2: str = SCREENSHOT_CAPTURE_BACKEND_AUTO
     wgc_capture_fps: int = DEFAULT_MAIN_WGC_CAPTURE_FPS
     mute_game_on_minimize: bool = False
+    mute_game_on_background: bool = False
+    mute_game_on_background_delay_seconds: int = 5
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
     cloud_sync_protocol: str = "relay-v2"
@@ -1345,6 +1360,12 @@ class Advanced:
             self.wgc_capture_fps,
             DEFAULT_MAIN_WGC_CAPTURE_FPS,
         )
+        try:
+            self.mute_game_on_background_delay_seconds = max(
+                0, min(300, int(self.mute_game_on_background_delay_seconds))
+            )
+        except (TypeError, ValueError, OverflowError):
+            self.mute_game_on_background_delay_seconds = 5
         self.cloud_sync_api_url = str(self.cloud_sync_api_url or "").strip().rstrip("/")
         self.cloud_sync_email = str(self.cloud_sync_email or "").strip()
         self.cloud_sync_api_token = str(self.cloud_sync_api_token or "").strip()
@@ -1765,6 +1786,22 @@ class ProfileConfig:
 
         self.features.full_auto = config_data["features"].get("do_vosk_postprocessing", self.features.full_auto)
         self.features.notify_on_update = config_data["features"].get("notify_on_update", self.features.notify_on_update)
+        self.features.notify_on_audio_generated = config_data["features"].get(
+            "notify_on_audio_generated", self.features.notify_on_update
+        )
+        self.features.notify_on_screenshot_saved = config_data["features"].get(
+            "notify_on_screenshot_saved", self.features.notify_on_screenshot_saved
+        )
+        self.features.notify_on_anki_enhancement_failed = config_data["features"].get(
+            "notify_on_anki_enhancement_failed", self.features.notify_on_anki_enhancement_failed
+        )
+        self.features.notify_on_errors = config_data["features"].get("notify_on_errors", self.features.notify_on_errors)
+        self.features.notify_on_obs_warning = config_data["features"].get(
+            "notify_on_obs_warning", self.features.notify_on_obs_warning
+        )
+        self.features.notify_on_text_intake_state = config_data["features"].get(
+            "notify_on_text_intake_state", self.features.notify_on_text_intake_state
+        )
         self.features.open_anki_edit = config_data["features"].get("open_anki_edit", self.features.open_anki_edit)
 
         self.screenshot.width = config_data["screenshot"].get("width", self.screenshot.width)
@@ -1845,7 +1882,7 @@ class StatsConfig:
     regex_out_punctuation: bool = True
     regex_out_repetitions: bool = False
     extra_punctuation_regex: str = ""
-    tadoku_username: str = ""
+    tadoku_username: str = ""  # Tadoku email; retain the legacy key for existing configs.
     tadoku_password: str = ""
     tadoku_session_cookie: str = ""
     tadoku_language_code: str = "jpn"
@@ -1913,6 +1950,11 @@ class Config:
         anki_data = profile_data.get("anki")
         if not isinstance(anki_data, dict):
             return
+
+        if "update_anki" in anki_data:
+            # Preserve either old switch being off when consolidating Anki integration.
+            legacy_updates_enabled = anki_data.pop("update_anki")
+            anki_data["enabled"] = bool(anki_data.get("enabled", True) and legacy_updates_enabled)
 
         field_specs = {
             "sentence": {
@@ -2309,9 +2351,11 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "polling_rate")
             self.sync_shared_field(config.anki, profile.anki, "autoplay_audio")
             self.sync_shared_field(config.anki, profile.anki, "show_update_confirmation_dialog_v2")
+            self.sync_shared_field(config.anki, profile.anki, "skip_confirmation_for_unvoiced")
             self.sync_shared_field(config.anki, profile.anki, "auto_accept_timer")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_audio_step")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_enabled")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_up")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_down")
@@ -2628,11 +2672,12 @@ def load_config():
                         config_file = json.load(file)
                     config_file = _remove_legacy_hotkeys(config_file)
                     config_file = _remove_deprecated_config_settings(config_file)
+                    Config._migrate_anki_profile_data(config_file)
 
                     config = ProfileConfig.from_dict(config_file)
                     new_config = Config(configs={DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG)
 
-                    config.save()
+                    new_config.save()
                     return new_config
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing config.json, saving backup and returning new config: {e}")

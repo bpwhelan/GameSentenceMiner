@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import "./OCRTab.css";
+import { OCRCaptureMap, type CaptureMapConfig } from "./OCRCaptureMap";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { DOCS_URLS } from "../../../../shared/docs";
-import { getDefaultStabilityOcr, type OcrPlatform } from "../../../../shared/ocr_defaults";
+import { getBasicMainOcr, getDefaultStabilityOcr, type OcrPlatform } from "../../../../shared/ocr_defaults";
 import { invokeIpc, onIpc, platformFromEnv, sendIpc } from "../../lib/ipc";
 import type { ObsScene, SceneLaunchProfile, SceneOcrMode } from "../../types/models";
 import { useTranslation } from "../../i18n";
@@ -36,6 +38,7 @@ type ComparisonFieldKey =
   | "subset_longest_block_divisor";
 
 interface OcrStoredConfig {
+  useOnlineOcr?: boolean;
   ocr1?: string;
   ocr2?: string;
   ocr1_advanced?: string;
@@ -86,6 +89,7 @@ interface OcrStoredConfig {
 }
 
 interface OcrUiConfig {
+  useOnlineOcr: boolean;
   advancedMode: boolean;
   basicScanRate: number;
   advancedScanRate: number;
@@ -130,11 +134,9 @@ interface OcrUiConfig {
   comparison: Record<ComparisonFieldKey, number>;
 }
 
-interface OcrSceneAreaConfig {
+interface OcrSceneAreaConfig extends CaptureMapConfig {
   scene?: string;
   window?: string;
-  coordinate_system?: string;
-  rectangles?: unknown[];
 }
 
 interface OcrSceneSettings {
@@ -509,7 +511,16 @@ const COMPARISON_DEFAULTS: Record<ComparisonFieldKey, number> = {
 
 const COMPARISON_PRIMARY_KEYS: ComparisonFieldKey[] = [
   "duplicate_similarity_threshold",
-  "change_detection_threshold"
+  "change_detection_threshold",
+  "evolving_prefix_similarity_threshold"
+];
+
+const COMPARISON_TRUNCATION_KEYS: ComparisonFieldKey[] = [
+  "truncation_compare_threshold_min",
+  "truncation_strict_threshold_min",
+  "truncation_similarity_margin",
+  "truncation_min_length",
+  "truncation_min_ratio_percent"
 ];
 
 const ENGINE_LABELS = new Map<string, string>([
@@ -715,6 +726,7 @@ function normalizeOcrConfig(
 
   return {
     advancedMode: Boolean(value?.advancedMode),
+    useOnlineOcr: value?.useOnlineOcr === true,
     basicScanRate: numericValue(value?.scanRate_basic, scanRate),
     advancedScanRate: numericValue(value?.scanRate_advanced, scanRate),
     mainOcr:
@@ -722,7 +734,7 @@ function normalizeOcrConfig(
         ? value.ocr2_advanced
         : typeof value?.ocr2 === "string"
           ? value.ocr2
-          : "glens",
+          : getBasicMainOcr(),
     stabilityOcr:
       typeof value?.ocr1_advanced === "string"
         ? value.ocr1_advanced
@@ -829,6 +841,7 @@ function buildPersistedConfig(
   const defaultStability = getDefaultStabilityOcr(platform);
   const next: OcrStoredConfig = {
     ...baseConfig,
+    useOnlineOcr: config.useOnlineOcr,
     twoPassOCR: config.twoPassOCR,
     optimize_second_scan: config.optimizeSecondScan,
     text_appears_instantly: config.textAppearsInstantly,
@@ -887,7 +900,7 @@ function buildPersistedConfig(
     next.ocr2 = config.mainOcr;
   } else {
     next.ocr1 = defaultStability;
-    next.ocr2 = "glens";
+    next.ocr2 = getBasicMainOcr(config.useOnlineOcr);
   }
 
   for (const field of COMPARISON_FIELDS) {
@@ -949,15 +962,19 @@ function splitComparisonFields() {
   const primary = COMPARISON_FIELDS.filter((field) =>
     COMPARISON_PRIMARY_KEYS.includes(field.key)
   );
-  const expert = COMPARISON_FIELDS.filter(
-    (field) => !COMPARISON_PRIMARY_KEYS.includes(field.key)
+  const truncation = COMPARISON_FIELDS.filter((field) =>
+    COMPARISON_TRUNCATION_KEYS.includes(field.key)
   );
-  const midpoint = Math.ceil(expert.length / 2);
+  const subset = COMPARISON_FIELDS.filter(
+    (field) =>
+      !COMPARISON_PRIMARY_KEYS.includes(field.key) &&
+      !COMPARISON_TRUNCATION_KEYS.includes(field.key)
+  );
 
   return {
     primary,
-    expertLeft: expert.slice(0, midpoint),
-    expertRight: expert.slice(midpoint)
+    truncation,
+    subset
   };
 }
 
@@ -1022,6 +1039,121 @@ const OCR_TOOLTIP_KEYS = {
   comparison: "ocr.tooltips.comparison"
 } as const;
 
+const OCR_WORKSPACE_VIEWS = [
+  { id: "capture", labelKey: "ocr.desk.capture" },
+  { id: "recognition", labelKey: "ocr.workspace.recognition" },
+  { id: "filtering", labelKey: "ocr.workspace.filtering" },
+  { id: "comparison", labelKey: "ocr.desk.textMatching" },
+  { id: "shortcuts", labelKey: "ocr.workspace.shortcuts" },
+  { id: "tools", labelKey: "ocr.workspace.tools" }
+] as const;
+
+type WorkspaceViewId = (typeof OCR_WORKSPACE_VIEWS)[number]["id"];
+
+const OCR_COMPARISON_TABS = [
+  { id: "primary", labelKey: "ocr.workspace.comparisonPrimary" },
+  { id: "truncation", labelKey: "ocr.workspace.comparisonTruncation" },
+  { id: "subset", labelKey: "ocr.workspace.comparisonSubset" }
+] as const;
+
+type ComparisonSubTabId = (typeof OCR_COMPARISON_TABS)[number]["id"];
+
+const OCR_TOOLS_TABS = [
+  { id: "diagnostics", labelKey: "ocr.workspace.toolsDiagnostics" },
+  { id: "packages", labelKey: "ocr.workspace.toolsPackages" },
+  { id: "files", labelKey: "ocr.workspace.toolsFiles" }
+] as const;
+
+type ToolsSubTabId = (typeof OCR_TOOLS_TABS)[number]["id"];
+
+function navigateWorkspaceTabs<T extends string>(
+  event: KeyboardEvent<HTMLButtonElement>,
+  tabs: readonly { id: T }[],
+  index: number,
+  select: (id: T) => void,
+  prefix: string
+) {
+  let next = index;
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % tabs.length;
+  else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index + tabs.length - 1) % tabs.length;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = tabs.length - 1;
+  else return;
+
+  event.preventDefault();
+  const nextTab = tabs[next].id;
+  select(nextTab);
+  document.getElementById(prefix + nextTab)?.focus();
+}
+
+const OCR_OUTPUT_MODES = [
+  {
+    id: "auto",
+    labelKey: "ocr.settings.auto",
+    clipboardKey: "sendToClipboardAuto",
+    newlineKey: "keepNewlineAuto"
+  },
+  {
+    id: "menu",
+    labelKey: "ocr.settings.menu",
+    clipboardKey: "sendToClipboardMenu",
+    newlineKey: "keepNewlineMenu"
+  },
+  {
+    id: "area-select",
+    labelKey: "ocr.settings.areaSelect",
+    clipboardKey: "sendToClipboardAreaSelect",
+    newlineKey: "keepNewlineAreaSelect"
+  }
+] as const;
+
+const DEPENDENCY_INSTALL_LABEL_KEYS: Record<string, string> = {
+  "pip install fpng-py": "ocr.dependencies.install.fasterPng",
+  "pip install owocr[gvision]": "ocr.dependencies.install.googleVision",
+  "pip install owocr[azure]": "ocr.dependencies.install.azure",
+  "pip install owocr[ocrspace]": "ocr.dependencies.install.ocrspace"
+};
+const DEPENDENCY_REMOVE_LABEL_KEYS: Record<string, string> = {
+  owocr: "ocr.dependencies.remove.owocr",
+  protobuf: "ocr.dependencies.remove.protobuf",
+  oneocr: "ocr.dependencies.remove.oneocr",
+  "fpng-py": "ocr.dependencies.remove.fasterPng",
+  "transformers sentencepiece": "ocr.dependencies.remove.transformers",
+  "google-cloud-vision": "ocr.dependencies.remove.googleVision",
+  "azure-ai-vision-imageanalysis": "ocr.dependencies.remove.azure",
+  ocrspace: "ocr.dependencies.remove.ocrspace"
+};
+
+function WorkspaceIcon({ name }: { name: string }) {
+  const paths: Record<string, string> = {
+    capture: "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 12h8m-4-4v8",
+    recognition: "M4 7h16M4 17h16M8 4v6m8 4v6",
+    filtering: "M4 4h16v16H4zM4 15l5-5 4 4 3-3 4 4M15 8h.01",
+    comparison: "M4 6h11m3 0h2M4 12h5m3 0h8M4 18h11m3 0h2",
+    shortcuts:
+      "M3 6h18v12H3zM6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h4M7 15h10",
+    tools: "m14 7 3 3-9 10H4v-4L14 7zm0 0a6 6 0 0 1 7-4l-4 4 3 3 3-3a6 6 0 0 1-7 7",
+    console: "m5 6 5 6-5 6m8 0h7",
+    help: "M9 9a3 3 0 1 1 4 3c-1 .5-1 1-1 2m0 3h.01M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20",
+    edit: "m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z",
+    import: "M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5",
+    export: "M12 15V3m-4 4 4-4 4 4M4 16v5h16v-5",
+    add: "M12 5v14M5 12h14",
+    manual: "M4 6h16v12H4zM8 10h8m-8 4h5",
+    menu: "M4 5h16v14H4zM8 9h8m-8 3h8m-8 3h5",
+    area: "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 8h8v8H8z",
+    "whole-window": "M3 4h18v16H3zM3 8h18"
+  };
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d={paths[name] ?? paths.capture} />
+    </svg>
+  );
+}
+
 export function OCRTab({ active }: OcrTabProps) {
   const t = useTranslation();
   const ocrTooltips = useMemo(() => {
@@ -1056,7 +1188,25 @@ export function OCRTab({ active }: OcrTabProps) {
   const [runtimeMessage, setRuntimeMessage] = useState("Idle");
   const [runtimeEngine, setRuntimeEngine] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const [debugExpanded, setDebugExpanded] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceViewId | "console">("capture");
+  const lastWorkspaceView = useRef<WorkspaceViewId>("capture");
+  useEffect(() => {
+    if (workspaceView !== "console") lastWorkspaceView.current = workspaceView;
+    else if (active) document.getElementById("ocr-view-console")?.focus();
+  }, [active, workspaceView]);
+  const openWorkspace = (view: WorkspaceViewId) => {
+    setWorkspaceView(view);
+    document.getElementById("ocr-nav-" + view)?.focus();
+  };
+  const toggleConsole = () => {
+    if (workspaceView === "console") openWorkspace(lastWorkspaceView.current);
+    else {
+      setWorkspaceView("console");
+      document.getElementById("ocr-console-toggle")?.focus();
+    }
+  };
+  const [comparisonSubTab, setComparisonSubTab] = useState<ComparisonSubTabId>("primary");
+  const [toolsSubTab, setToolsSubTab] = useState<ToolsSubTabId>("diagnostics");
   const [installDependency, setInstallDependency] = useState(
     DEPENDENCY_INSTALL_OPTIONS[0]?.value ?? ""
   );
@@ -1174,12 +1324,12 @@ export function OCRTab({ active }: OcrTabProps) {
   const effectiveScanRate = config.advancedMode
     ? config.advancedScanRate
     : config.basicScanRate;
-  const effectiveMainEngine = config.advancedMode ? config.mainOcr : "glens";
+  const effectiveMainEngine = config.advancedMode ? config.mainOcr : getBasicMainOcr(config.useOnlineOcr);
   const effectiveStabilityEngine = config.advancedMode
     ? config.stabilityOcr
     : getDefaultStabilityOcr(platform);
   const engineFlowLabel =
-    config.advancedMode && !config.twoPassOCR
+    (config.advancedMode && !config.twoPassOCR) || effectiveMainEngine === effectiveStabilityEngine
       ? getEngineLabel(effectiveMainEngine)
       : `${getEngineLabel(effectiveStabilityEngine)} -> ${getEngineLabel(
           effectiveMainEngine
@@ -1201,21 +1351,13 @@ export function OCRTab({ active }: OcrTabProps) {
       ? t("ocr.footer.ready")
       : t("ocr.footer.areasRecommendedLabel");
 
-  const footerSummary = runningState.isRunning
-    ? runtimeMessage
-    : hasConfiguredAreas
-      ? (configuredAreaCount === 1
-          ? t("ocr.sceneAndAreas.areaCount", { count: String(configuredAreaCount) })
-          : t("ocr.sceneAndAreas.areaCountPlural", { count: String(configuredAreaCount) }))
-      : t("ocr.footer.noAreasForScene", { scene: selectedScene?.name ?? t("ocr.footer.noSceneSelected") });
-
   const sceneSummary = selectedScene?.name ?? t("ocr.footer.noSceneSelected");
   const scanSummary = config.advancedMode
     ? `${effectiveScanRate.toFixed(1)}s`
     : t(basicSpeedLabelKey(config.basicScanRate));
-  const pipelineSummary = config.twoPassOCR
-    ? `${getEngineLabel(effectiveStabilityEngine)} at ${effectiveScanRate.toFixed(1)}s -> ${getEngineLabel(effectiveMainEngine)}`
-    : `${getEngineLabel(effectiveMainEngine)} at ${effectiveScanRate.toFixed(1)}s`;
+  const footerSummaryWhenIdle = configuredAreaCount === 1
+    ? t("ocr.sceneAndAreas.areaCount", { count: configuredAreaCount })
+    : t("ocr.sceneAndAreas.areaCountPlural", { count: configuredAreaCount });
 
   useEffect(() => {
     configRef.current = config;
@@ -1247,7 +1389,9 @@ export function OCRTab({ active }: OcrTabProps) {
     }
 
     resizeTimerRef.current = setTimeout(() => {
-      fitAddonRef.current?.fit();
+      if (terminalElementRef.current?.clientWidth && terminalElementRef.current?.clientHeight) {
+        fitAddonRef.current?.fit();
+      }
     }, 80);
   }, []);
 
@@ -1330,7 +1474,7 @@ export function OCRTab({ active }: OcrTabProps) {
     if (active) {
       fitTerminal();
     }
-  }, [active, fitTerminal]);
+  }, [active, workspaceView, fitTerminal]);
 
   const appendTerminalLine = useCallback(
     (message: string, options?: { dedupeKey?: string }) => {
@@ -1468,6 +1612,7 @@ export function OCRTab({ active }: OcrTabProps) {
           nextSelectedSceneId = activeSceneResponse.id;
         }
 
+        if (nextSelectedSceneId !== selectedSceneId) setActiveSceneAreaConfig(null);
         setScenes(nextScenes);
         setSelectedSceneId(nextSelectedSceneId);
         await refreshActiveSceneInfo();
@@ -1831,8 +1976,24 @@ export function OCRTab({ active }: OcrTabProps) {
     []
   );
 
+  const customizedComparisonCount = useMemo(
+    () =>
+      COMPARISON_FIELDS.filter(
+        (field) => config.comparison[field.key] !== COMPARISON_DEFAULTS[field.key]
+      ).length,
+    [config.comparison]
+  );
+
+  const resetComparisonDefaults = useCallback(() => {
+    setConfig((current) => ({
+      ...current,
+      comparison: { ...COMPARISON_DEFAULTS }
+    }));
+  }, []);
+
   const switchScene = useCallback(
     async (sceneId: string) => {
+      setActiveSceneAreaConfig(null);
       setSelectedSceneId(sceneId);
       try {
         await invokeIpc("obs.switchScene.id", sceneId);
@@ -2031,10 +2192,13 @@ export function OCRTab({ active }: OcrTabProps) {
     (action) => config[action.gamepadKey]
   ).length;
 
+  const usesTwoPassFlow =
+    (!config.advancedMode || config.twoPassOCR) &&
+    effectiveMainEngine !== effectiveStabilityEngine;
+
   return (
-    <div className={`tab-panel ${active ? "active" : ""}`}>
-      <div className="modern-tab ocr-workspace">
-        {/* Toast notification */}
+    <div className={"tab-panel " + (active ? "active" : "")}>
+      <div className="ocr-desk">
         {notice ? (
           <div
             className={`ocr-toast ocr-toast--${notice.type}`}
@@ -2045,469 +2209,521 @@ export function OCRTab({ active }: OcrTabProps) {
           </div>
         ) : null}
 
-        <div className="ocr-dashboard">
-          {/* ── LEFT COLUMN: Setup + Settings ── */}
-          <div className="ocr-col ocr-col--settings">
-            {/* Scene & Areas */}
-            <section className="card legacy-card ocr-card">
-              <div className="ocr-card-header-row">
-                <h2>{t("ocr.sceneAndAreas.title")}</h2>
-                <span
-                  className={`ocr-area-badge ${hasConfiguredAreas ? "ocr-area-badge--ok" : "ocr-area-badge--empty"}`}
+        <aside className="desk-sidebar">
+          <div className="desk-brand">
+            <span className="desk-brand-mark">
+              <WorkspaceIcon name="capture" />
+            </span>
+            <div>
+              <strong>{t("app.tabs.ocr")}</strong>
+              <span>{t("ocr.desk.brandHint")}</span>
+            </div>
+          </div>
+          <div className="desk-game">
+            <div className="desk-target-game">
+              <div className="input-group ocr-scene-row">
+                <Tooltip text={ocrTooltips.scene}>
+                  <label htmlFor="ocr-scene-select">{t("ocr.sceneAndAreas.sceneLabel")}</label>
+                </Tooltip>
+                <select
+                  id="ocr-scene-select"
+                  className="ocr-scene-select"
+                  value={selectedSceneId}
+                  onChange={(event) => {
+                    void switchScene(event.target.value);
+                  }}
                 >
-                  {configuredAreaCount === 1
-                    ? t("ocr.sceneAndAreas.areaCount", { count: String(configuredAreaCount) })
-                    : t("ocr.sceneAndAreas.areaCountPlural", { count: String(configuredAreaCount) })}
-                </span>
-              </div>
-              <div className="form-group ocr-form-group">
-                <div className="input-group ocr-scene-row">
-                  <Tooltip text={ocrTooltips.scene}>
-                    <label htmlFor="ocr-scene-select">{t("ocr.sceneAndAreas.sceneLabel")}</label>
-                  </Tooltip>
-                  <select
-                    id="ocr-scene-select"
-                    className="ocr-scene-select"
-                    value={selectedSceneId}
-                    onChange={(event) => {
-                      void switchScene(event.target.value);
-                    }}
-                  >
-                    {loadingScenes ? (
-                      <option value="">{t("ocr.sceneAndAreas.loading")}</option>
-                    ) : scenes.length === 0 ? (
-                      <option value="">{t("ocr.sceneAndAreas.noScenes")}</option>
-                    ) : (
-                      scenes.map((scene) => (
-                        <option key={scene.id} value={scene.id}>
-                          {scene.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                  <Tooltip text={ocrTooltips.refreshScenes} align="center">
-                    <button
-                      type="button"
-                      className="secondary ocr-icon-btn"
-                      onClick={() => {
-                        void refreshScenesAndConfig();
-                      }}
-                      aria-label={t("ocr.sceneAndAreas.reloadScenes")}
-                    >
-                      ↻
-                    </button>
-                  </Tooltip>
-                </div>
-                {!loadingScenes && scenes.length === 0 ? (
-                  <div className="ocr-empty-state">
-                    {t("ocr.sceneAndAreas.noScenesHint")}
-                  </div>
-                ) : null}
-                <div
-                  className="input-group tooltip-trigger tooltip-trigger--start"
-                  {...tooltipProps(autostartTooltip)}
+                  {loadingScenes ? (
+                    <option value="">{t("ocr.sceneAndAreas.loading")}</option>
+                  ) : scenes.length === 0 ? (
+                    <option value="">{t("ocr.sceneAndAreas.noScenes")}</option>
+                  ) : (
+                    scenes.map((scene) => (
+                      <option
+                        key={scene.id}
+                        value={scene.id}
+                      >
+                        {scene.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <Tooltip
+                  text={ocrTooltips.refreshScenes}
+                  align="center"
                 >
-                  <label htmlFor="ocr-autostart-mode">
-                    {t("ocr.sceneAndAreas.autostart")}
-                  </label>
-                  <select
-                    id="ocr-autostart-mode"
-                    aria-description={autostartTooltip}
-                    value={selectedAutostartMode ?? "none"}
-                    disabled={loadingScenes || selectedAutostartMode === null || savingAutostart}
-                    onChange={(event) => {
-                      void saveAutostart(event.target.value as SceneOcrMode);
-                    }}
-                  >
-                    <option value="none">
-                      {t("launcher.scene.ocrNone")}
-                    </option>
-                    <option value="auto">
-                      {t("launcher.scene.ocrAuto")}
-                    </option>
-                    <option value="manual">
-                      {t("launcher.scene.ocrManual")}
-                    </option>
-                  </select>
-                </div>
-                <div className="link-row">
                   <button
                     type="button"
-                    {...tooltipProps(ocrTooltips.selectAreas)}
-                    disabled={loadingScenes || scenes.length === 0}
-                    onClick={runScreenSelector}
+                    className="secondary ocr-icon-btn"
+                    onClick={() => {
+                      void refreshScenesAndConfig();
+                    }}
+                    aria-label={t("ocr.sceneAndAreas.reloadScenes")}
                   >
-                    {t("ocr.sceneAndAreas.selectAreas")}
+                    ↻
                   </button>
-                  <Tooltip text={ocrTooltips.importAreas} align="center">
-                    <button
-                      type="button"
-                      className="secondary ocr-icon-btn"
-                      disabled={loadingScenes || scenes.length === 0}
-                      onClick={() => void importAreaConfig()}
-                      aria-label={t("ocr.sceneAndAreas.importAreas")}
-                    >
-                      📋
-                    </button>
-                  </Tooltip>
-                  <Tooltip text={ocrTooltips.exportAreas} align="center">
-                    <button
-                      type="button"
-                      className="secondary ocr-icon-btn"
-                      disabled={loadingScenes || scenes.length === 0}
-                      onClick={() => void exportAreaConfig()}
-                      aria-label={t("ocr.sceneAndAreas.exportAreas")}
-                    >
-                      📤
-                    </button>
-                  </Tooltip>
-                  <Tooltip text={ocrTooltips.docs} align="center">
-                    <button
-                      type="button"
-                      className="secondary ocr-icon-btn"
-                      onClick={() => void openOcrDocs()}
-                      aria-label={t("ocr.sceneAndAreas.ocrGuide")}
-                    >
-                      📖
-                    </button>
-                  </Tooltip>
-                </div>
+                </Tooltip>
               </div>
+            </div>
+          </div>
+          <nav
+            className="desk-navigation"
+            role="tablist"
+            aria-orientation="vertical"
+            aria-label={t("ocr.workspace.navigation")}
+          >
+            {OCR_WORKSPACE_VIEWS.map((view, index) => (
+              <button
+                key={view.id}
+                type="button"
+                role="tab"
+                id={"ocr-nav-" + view.id}
+                aria-selected={workspaceView === view.id}
+                aria-controls={"ocr-view-" + view.id}
+                tabIndex={
+                  workspaceView === view.id ||
+                  (workspaceView === "console" && lastWorkspaceView.current === view.id)
+                    ? 0
+                    : -1
+                }
+                onClick={() => setWorkspaceView(view.id)}
+                onKeyDown={(event) =>
+                  navigateWorkspaceTabs(
+                    event,
+                    OCR_WORKSPACE_VIEWS,
+                    index,
+                    setWorkspaceView,
+                    "ocr-nav-"
+                  )
+                }
+              >
+                <WorkspaceIcon name={view.id} />
+                <span>{t(view.labelKey)}</span>
+              </button>
+            ))}
+          </nav>
+          <div className={"desk-transport desk-transport--" + footerTone}>
+            <div className="desk-transport-status">
+              <i aria-hidden="true" />
+              {footerStatusLabel}
+            </div>
+            <strong>{runtimeEngine || getEngineLabel(effectiveMainEngine)}</strong>
+            <span>
+              {runningState.isRunning
+                ? t(runningState.mode === "manual" ? "ocr.desk.manualMode" : "ocr.desk.autoMode")
+                : scanSummary}
+            </span>
+            <div className="desk-transport-actions">
+              {runningState.isRunning ? (
+                <>
+                  <button
+                    type="button"
+                    className="danger"
+                    data-tip={ocrTooltips.stop}
+                    onClick={() => void stopOcr()}
+                  >
+                    {t("ocr.footer.stopOcr")}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    data-tip={paused ? ocrTooltips.resume : ocrTooltips.pause}
+                    onClick={togglePause}
+                  >
+                    {paused ? t("ocr.footer.resumeOcr") : t("ocr.footer.pauseOcr")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    data-tip={
+                      hasConfiguredAreas
+                        ? ocrTooltips.startAuto
+                        : t("ocr.footer.areasRecommended", {
+                            mode: t("ocr.footer.modeAuto")
+                          })
+                    }
+                    onClick={() => void startOcr(false)}
+                  >
+                    {t("ocr.footer.startAutoOcr")}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    data-tip={
+                      hasConfiguredAreas
+                        ? ocrTooltips.startManual
+                        : t("ocr.footer.areasRecommended", {
+                            mode: t("ocr.footer.modeManual")
+                          })
+                    }
+                    onClick={() => void startOcr(true)}
+                  >
+                    {t("ocr.footer.startManualOcr")}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <div className="desk-workspace">
+          <header className="desk-page-header">
+            <div>
+              <h1>
+                {workspaceView === "capture"
+                  ? sceneSummary
+                  : workspaceView === "console"
+                    ? t("ocr.console.title")
+                    : t(OCR_WORKSPACE_VIEWS.find((view) => view.id === workspaceView)!.labelKey)}
+              </h1>
+            </div>
+            <button
+              type="button"
+              className="desk-guide"
+              {...tooltipProps(ocrTooltips.docs)}
+              onClick={() => void openOcrDocs()}
+            >
+              <WorkspaceIcon name="help" />
+              {t("ocr.sceneAndAreas.ocrGuide")}
+            </button>
+          </header>
+
+          <div className="desk-pages">
+            <section
+              id="ocr-view-capture"
+              role="tabpanel"
+              aria-labelledby="ocr-nav-capture"
+              hidden={workspaceView !== "capture"}
+              className="desk-view desk-capture-view"
+              tabIndex={0}
+            >
+              <div className="desk-capture-grid">
+                <section className="desk-capture-layout">
+                  <div className="desk-section-heading">
+                    <div>
+                      <h2>{t("ocr.desk.captureAreas")}</h2>
+                      <span className="desk-muted">{footerSummaryWhenIdle}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="desk-primary"
+                      disabled={loadingScenes || scenes.length === 0}
+                      onClick={runScreenSelector}
+                      {...tooltipProps(ocrTooltips.selectAreas)}
+                    >
+                      <WorkspaceIcon name="edit" />
+                      {t("ocr.desk.openAreaSelector")}
+                    </button>
+                  </div>
+                  <OCRCaptureMap
+                    key={selectedScene ? JSON.stringify([selectedScene.id, selectedScene.name]) : "no-scene"}
+                    config={activeSceneAreaConfig}
+                    disabled={loadingScenes || scenes.length === 0}
+                    onSaved={setActiveSceneAreaConfig}
+                    active={active && workspaceView === "capture"}
+                    scene={selectedScene}
+                    ocrRunning={runningState.isRunning}
+                  />
+                  <div className="desk-area-tools">
+                    <button
+                      type="button"
+                      disabled={loadingScenes || scenes.length === 0}
+                      {...tooltipProps(ocrTooltips.importAreas)}
+                      onClick={() => void importAreaConfig()}
+                    >
+                      <WorkspaceIcon name="import" />
+                      {t("ocr.sceneAndAreas.importAreas")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loadingScenes || scenes.length === 0}
+                      {...tooltipProps(ocrTooltips.exportAreas)}
+                      onClick={() => void exportAreaConfig()}
+                    >
+                      <WorkspaceIcon name="export" />
+                      {t("ocr.sceneAndAreas.exportAreas")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!runningState.isRunning}
+                      {...tooltipProps(ocrTooltips.addAreaHotkey)}
+                      onClick={triggerAddOcrArea}
+                    >
+                      <WorkspaceIcon name="add" />
+                      {t("ocr.hotkeys.addArea")}
+                    </button>
+                  </div>
+                </section>
+                <aside className="desk-session-settings">
+                  <h2>{t("ocr.desk.thisSession")}</h2>
+                  <dl>
+                    <div>
+                      <dt>{t("ocr.desk.engine")}</dt>
+                      <dd>{getEngineLabel(effectiveMainEngine)}</dd>
+                    </div>
+                    {usesTwoPassFlow ? (
+                      <div>
+                        <dt>{t("ocr.desk.stability")}</dt>
+                        <dd>{getEngineLabel(effectiveStabilityEngine)}</dd>
+                      </div>
+                    ) : null}
+                    <div>
+                      <dt>{t("ocr.settings.language")}</dt>
+                      <dd>{t("ocr.languages." + config.language)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t("ocr.settings.scanSpeed")}</dt>
+                      <dd>{scanSummary}</dd>
+                    </div>
+                  </dl>
+                  <button
+                    type="button"
+                    className="desk-text-button"
+                    onClick={() => openWorkspace("recognition")}
+                  >
+                    {t("ocr.desk.adjustRecognition")}
+                    <span aria-hidden="true">→</span>
+                  </button>
+                  <div className="desk-autostart">
+                    <div
+                      className="input-group tooltip-trigger tooltip-trigger--start"
+                      {...tooltipProps(autostartTooltip)}
+                    >
+                      <label htmlFor="ocr-autostart-mode">{t("ocr.sceneAndAreas.autostart")}</label>
+                      <select
+                        id="ocr-autostart-mode"
+                        aria-description={autostartTooltip}
+                        value={selectedAutostartMode ?? "none"}
+                        disabled={
+                          loadingScenes || selectedAutostartMode === null || savingAutostart
+                        }
+                        onChange={(event) => {
+                          void saveAutostart(event.target.value as SceneOcrMode);
+                        }}
+                      >
+                        <option value="none">{t("launcher.scene.ocrNone")}</option>
+                        <option value="auto">{t("launcher.scene.ocrAuto")}</option>
+                        <option value="manual">{t("launcher.scene.ocrManual")}</option>
+                      </select>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+              {!loadingScenes && scenes.length === 0 ? (
+                <p className="desk-empty-hint">{t("ocr.sceneAndAreas.noScenesHint")}</p>
+              ) : null}
+
+              <section className="desk-quick-capture">
+                <div className="desk-section-heading">
+                  <div>
+                    <h2>{t("ocr.workspace.quickCapture")}</h2>
+                    <p>
+                      {t(
+                        runningState.isRunning
+                          ? "ocr.workspace.quickCaptureHint"
+                          : "ocr.workspace.startToCapture"
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="desk-text-button"
+                    onClick={() => openWorkspace("shortcuts")}
+                  >
+                    {t("ocr.desk.editShortcuts")}
+                    <span aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <div className="desk-quick-actions">
+                  {hotkeyActions
+                    .filter((action) => action.trigger && action.id !== "add-area")
+                    .map((action) => (
+                      <button
+                        key={action.id}
+                        type="button"
+                        disabled={!runningState.isRunning}
+                        aria-label={t(action.labelKey)}
+                        {...tooltipProps(action.tooltip)}
+                        onClick={action.trigger}
+                      >
+                        <WorkspaceIcon name={action.id} />
+                        <span>{t(action.labelKey)}</span>
+                        <kbd>{config[action.hotkeyKey] || t("ocr.desk.unbound")}</kbd>
+                      </button>
+                    ))}
+                </div>
+              </section>
             </section>
 
-            {/* OCR Settings */}
-            <section className="card legacy-card ocr-card ocr-card--grow">
-              <div className="ocr-card-header-row">
-                <h2>{t("ocr.settings.title")}</h2>
+            <section
+              id="ocr-view-recognition"
+              role="tabpanel"
+              aria-labelledby="ocr-nav-recognition"
+              hidden={workspaceView !== "recognition"}
+              className="desk-view"
+              tabIndex={0}
+            >
+              <div className="desk-recognition-top">
+                <div>
+                  <h2>{t("ocr.workspace.scanSettings")}</h2>
+                  <p>{engineFlowLabel}</p>
+                </div>
                 <label
-                  className="ocr-inline-toggle"
+                  className="desk-advanced-toggle"
                   htmlFor="ocr-advanced-toggle"
                   {...tooltipProps(ocrTooltips.advancedMode)}
                 >
-                  <span>{t("ocr.settings.advanced")}</span>
                   <input
                     id="ocr-advanced-toggle"
                     type="checkbox"
                     checked={config.advancedMode}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        advancedMode: event.target.checked
-                      }));
-                    }}
+                    onChange={(event) =>
+                      setConfig((current) => ({ ...current, advancedMode: event.target.checked }))
+                    }
                   />
+                  <span>{t("ocr.settings.advanced")}</span>
                 </label>
               </div>
-
-              <div className="form-group ocr-form-group">
-                {config.advancedMode ? (
+              <div className="desk-recognition-form">
+                <div className="desk-field-grid">
+                  {config.advancedMode ? (
+                    <div className="input-group">
+                      <label
+                        htmlFor="ocr-advanced-scan-rate"
+                        {...tooltipProps(ocrTooltips.advancedScanRate)}
+                      >
+                        {t("ocr.settings.scanRate")}
+                      </label>
+                      <input
+                        id="ocr-advanced-scan-rate"
+                        type="number"
+                        min={0.1}
+                        max={10}
+                        step={0.1}
+                        value={config.advancedScanRate}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            advancedScanRate: numericValue(event.target.value, 0.5)
+                          }));
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="input-group">
+                      <label
+                        htmlFor="ocr-basic-speed"
+                        {...tooltipProps(ocrTooltips.basicScanRate)}
+                      >
+                        {t("ocr.settings.scanSpeed")}
+                      </label>
+                      <select
+                        id="ocr-basic-speed"
+                        value={String(config.basicScanRate)}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            basicScanRate: numericValue(event.target.value, 0.5)
+                          }));
+                        }}
+                      >
+                        {BASIC_SCAN_RATE_OPTIONS.map((option) => (
+                          <option
+                            key={option.value}
+                            value={option.value}
+                          >
+                            {t(option.labelKey)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div className="input-group">
                     <label
-                      htmlFor="ocr-advanced-scan-rate"
-                      {...tooltipProps(ocrTooltips.advancedScanRate)}
+                      htmlFor="ocr-language"
+                      {...tooltipProps(ocrTooltips.language)}
                     >
-                      {t("ocr.settings.scanRate")}
-                    </label>
-                    <input
-                      id="ocr-advanced-scan-rate"
-                      type="number"
-                      min={0.1}
-                      max={10}
-                      step={0.1}
-                      value={config.advancedScanRate}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          advancedScanRate: numericValue(event.target.value, 0.5)
-                        }));
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <div className="input-group">
-                    <label
-                      htmlFor="ocr-basic-speed"
-                      {...tooltipProps(ocrTooltips.basicScanRate)}
-                    >
-                      {t("ocr.settings.scanSpeed")}
+                      {t("ocr.settings.language")}
                     </label>
                     <select
-                      id="ocr-basic-speed"
-                      value={String(config.basicScanRate)}
+                      id="ocr-language"
+                      value={config.language}
                       onChange={(event) => {
                         setConfig((current) => ({
                           ...current,
-                          basicScanRate: numericValue(event.target.value, 0.5)
+                          language: event.target.value
                         }));
                       }}
                     >
-                      {BASIC_SCAN_RATE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {t(option.labelKey)}
+                      {LANGUAGE_OPTIONS.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {t("ocr.languages." + option.value)}
                         </option>
                       ))}
                     </select>
                   </div>
+                </div>
+
+                {!config.advancedMode && (
+                  <div className="ocr-linebreak-row ocr-online-scans">
+                    <label
+                      htmlFor="ocr-online-scans"
+                      className="ocr-instant-toggle"
+                    >
+                      <input
+                        id="ocr-online-scans"
+                        type="checkbox"
+                        checked={config.useOnlineOcr}
+                        aria-describedby="ocr-online-scans-help"
+                        onChange={(event) =>
+                          setConfig((current) => ({
+                            ...current,
+                            useOnlineOcr: event.target.checked
+                          }))
+                        }
+                      />
+                      <span className="ocr-linebreak-label">{t("ocr.settings.onlineScans")}</span>
+                    </label>
+                    <small id="ocr-online-scans-help">{t("ocr.settings.onlineScansHelp")}</small>
+                  </div>
                 )}
 
-                <div className="input-group">
-                  <label htmlFor="ocr-language" {...tooltipProps(ocrTooltips.language)}>
-                    {t("ocr.settings.language")}
-                  </label>
-                  <select
-                    id="ocr-language"
-                    value={config.language}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        language: event.target.value
-                      }));
-                    }}
-                  >
-                    {LANGUAGE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="ocr-linebreak-row ocr-linebreak-row--warning">
-                  <label
-                    className="ocr-instant-toggle"
-                    htmlFor="ocr-text-appears-instantly"
-                    {...tooltipProps(ocrTooltips.textAppearsInstantly)}
-                  >
-                    <input
-                      id="ocr-text-appears-instantly"
-                      type="checkbox"
-                      checked={config.textAppearsInstantly}
-                      disabled={config.advancedMode && !config.twoPassOCR}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          textAppearsInstantly: event.target.checked
-                        }));
-                      }}
-                    />
-                    <span className="ocr-instant-copy">
-                      <span className="ocr-linebreak-label ocr-instant-label">
-                        <span>{t("ocr.settings.textAppearsInstantly")}</span>
-                        <span className="ocr-instant-qualifier">
-                          (
-                          <span className="ocr-warning-icon" aria-hidden="true">
-                            ⚠
-                          </span>
-                          <span>{t("ocr.settings.textAppearsInstantlyQualifier")}</span>
-                          )
-                        </span>
-                      </span>
-                    </span>
-                  </label>
-                </div>
-
-                <div className="ocr-slider-field">
-                  <div className="ocr-slider-header">
-                    <label
-                      htmlFor="ocr-base-scale"
-                      {...tooltipProps(ocrTooltips.baseScale)}
-                    >
-                      {t("ocr.settings.scanImageQuality")}
-                    </label>
-                    <span>{Math.round(config.baseScale * 100)}%</span>
-                  </div>
-                  <input
-                    id="ocr-base-scale"
-                    type="range"
-                    min={0.5}
-                    max={1}
-                    step={0.05}
-                    value={config.baseScale}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        baseScale: numericValue(event.target.value, 0.75)
-                      }));
-                    }}
-                  />
-                </div>
-
-                <div className="ocr-slider-field">
-                  <div className="ocr-slider-header">
-                    <label
-                      htmlFor="ocr-furigana-filter"
-                      {...tooltipProps(ocrTooltips.furiganaFilter)}
-                    >
-                      {t("ocr.settings.furiganaFilter")}
-                    </label>
-                    <span>{config.furiganaFilterSensitivity}</span>
-                  </div>
-                  <div className="ocr-slider-row">
-                    <input
-                      id="ocr-furigana-filter"
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={config.furiganaFilterSensitivity}
-                      onChange={(event) => {
-                        const next = integerValue(event.target.value, 0);
-                        setConfig((current) => ({
-                          ...current,
-                          furiganaFilterSensitivity: next
-                        }));
-                        sendIpc("update-furigana-character", "龍", next);
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="secondary"
-                      {...tooltipProps(ocrTooltips.furiganaPreview)}
-                      onClick={async () => {
-                        const next = await invokeIpc<number>("run-furigana-window");
-                        setConfig((current) => ({
-                          ...current,
-                          furiganaFilterSensitivity: integerValue(next, 0)
-                        }));
-                      }}
-                    >
-                      {t("ocr.settings.preview")}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="ocr-linebreak-row">
-                  <Tooltip text={ocrTooltips.sendToClipboard}>
-                    <span className="ocr-linebreak-label">{t("ocr.settings.copyToClipboard")}</span>
-                  </Tooltip>
-                  <label className="checkbox-item" htmlFor="send-to-clipboard-auto">
-                    <input
-                      id="send-to-clipboard-auto"
-                      type="checkbox"
-                      checked={config.sendToClipboardAuto}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          sendToClipboardAuto: event.target.checked
-                        }));
-                      }}
-                    />
-                    <span
-                      className="ocr-lb-auto"
-                      {...tooltipProps(ocrTooltips.sendToClipboardAuto)}
-                    >
-                      {t("ocr.settings.auto")}
-                    </span>
-                  </label>
-                  <label className="checkbox-item" htmlFor="send-to-clipboard-menu">
-                    <input
-                      id="send-to-clipboard-menu"
-                      type="checkbox"
-                      checked={config.sendToClipboardMenu}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          sendToClipboardMenu: event.target.checked
-                        }));
-                      }}
-                    />
-                    <span
-                      className="ocr-lb-menu"
-                      {...tooltipProps(ocrTooltips.sendToClipboardMenu)}
-                    >
-                      {t("ocr.settings.menu")}
-                    </span>
-                  </label>
-                  <label
-                    className="checkbox-item"
-                    htmlFor="send-to-clipboard-area-select"
-                  >
-                    <input
-                      id="send-to-clipboard-area-select"
-                      type="checkbox"
-                      checked={config.sendToClipboardAreaSelect}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          sendToClipboardAreaSelect: event.target.checked
-                        }));
-                      }}
-                    />
-                    <span
-                      className="ocr-lb-area"
-                      {...tooltipProps(ocrTooltips.sendToClipboardAreaSelect)}
-                    >
-                      {t("ocr.settings.areaSelect")}
-                    </span>
-                  </label>
-                </div>
-
-
-                <div className="ocr-linebreak-row">
-                  <Tooltip text={ocrTooltips.keepNewline}>
-                    <span className="ocr-linebreak-label">{t("ocr.settings.lineBreaks")}</span>
-                  </Tooltip>
-                  <label className="checkbox-item" htmlFor="keep-newline-auto">
-                    <input
-                      id="keep-newline-auto"
-                      type="checkbox"
-                      checked={config.keepNewlineAuto}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          keepNewlineAuto: event.target.checked
-                        }));
-                      }}
-                    />
-                    <span className="ocr-lb-auto" {...tooltipProps(ocrTooltips.keepNewlineAuto)}>{t("ocr.settings.auto")}</span>
-                  </label>
-                  <label className="checkbox-item" htmlFor="keep-newline-menu">
-                    <input
-                      id="keep-newline-menu"
-                      type="checkbox"
-                      checked={config.keepNewlineMenu}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          keepNewlineMenu: event.target.checked
-                        }));
-                      }}
-                    />
-                    <span className="ocr-lb-menu" {...tooltipProps(ocrTooltips.keepNewlineMenu)}>{t("ocr.settings.menu")}</span>
-                  </label>
-                  <label className="checkbox-item" htmlFor="keep-newline-area-select">
-                    <input
-                      id="keep-newline-area-select"
-                      type="checkbox"
-                      checked={config.keepNewlineAreaSelect}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          keepNewlineAreaSelect: event.target.checked
-                        }));
-                      }}
-                    />
-                    <span className="ocr-lb-area" {...tooltipProps(ocrTooltips.keepNewlineAreaSelect)}>
-                      {t("ocr.settings.areaSelect")}
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Advanced-only sections */}
-              {config.advancedMode ? (
-                <>
+                {config.advancedMode ? (
                   <div className="ocr-pipeline-section">
-                    <h3 className="ocr-pipeline-heading" {...tooltipProps(ocrTooltips.advancedRecognition)}>
+                    <h3
+                      className="ocr-pipeline-heading"
+                      {...tooltipProps(ocrTooltips.advancedRecognition)}
+                    >
                       {t("ocr.pipeline.title")}
                     </h3>
-                    <div className="ocr-pipeline-summary">
-                      <strong>{config.twoPassOCR ? t("ocr.pipeline.twoPassFlow") : t("ocr.pipeline.singlePassFlow")}</strong>
-                      <span>{pipelineSummary}</span>
-                    </div>
                     <div className="ocr-pipeline-grid">
+                      <div className="input-group ocr-pipeline-control ocr-pipeline-control--toggle">
+                        <label
+                          htmlFor="ocr-two-pass"
+                          {...tooltipProps(ocrTooltips.twoPassOCR)}
+                        >
+                          {t("ocr.pipeline.twoPassOcr")}
+                        </label>
+                        <input
+                          id="ocr-two-pass"
+                          type="checkbox"
+                          checked={config.twoPassOCR}
+                          onChange={(event) => {
+                            setConfig((current) => ({
+                              ...current,
+                              twoPassOCR: event.target.checked
+                            }));
+                          }}
+                        />
+                      </div>
+
                       {config.twoPassOCR ? (
-                        <div className="input-group ocr-pipeline-control">
+                        <div className="input-group ocr-pipeline-control ocr-engine-control">
                           <label
                             htmlFor="ocr-stability-engine"
                             {...tooltipProps(ocrTooltips.stabilityOcr)}
@@ -2525,16 +2741,22 @@ export function OCRTab({ active }: OcrTabProps) {
                             }}
                           >
                             {STABILITY_OCR_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
+                              <option
+                                key={option.value}
+                                value={option.value}
+                              >
+                                {t("ocr.engines." + option.value)}
                               </option>
                             ))}
                           </select>
                         </div>
                       ) : null}
 
-                      <div className="input-group ocr-pipeline-control">
-                        <label htmlFor="ocr-main-engine" {...tooltipProps(ocrTooltips.mainOcr)}>
+                      <div className="input-group ocr-pipeline-control ocr-engine-control">
+                        <label
+                          htmlFor="ocr-main-engine"
+                          {...tooltipProps(ocrTooltips.mainOcr)}
+                        >
                           {t("ocr.pipeline.mainOcr")}
                         </label>
                         <select
@@ -2548,28 +2770,14 @@ export function OCRTab({ active }: OcrTabProps) {
                           }}
                         >
                           {MAIN_OCR_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
+                            <option
+                              key={option.value}
+                              value={option.value}
+                            >
+                              {t("ocr.engines." + option.value)}
                             </option>
                           ))}
                         </select>
-                      </div>
-
-                      <div className="input-group ocr-pipeline-control ocr-pipeline-control--toggle">
-                        <label htmlFor="ocr-two-pass" {...tooltipProps(ocrTooltips.twoPassOCR)}>
-                          {t("ocr.pipeline.twoPassOcr")}
-                        </label>
-                        <input
-                          id="ocr-two-pass"
-                          type="checkbox"
-                          checked={config.twoPassOCR}
-                          onChange={(event) => {
-                            setConfig((current) => ({
-                              ...current,
-                              twoPassOCR: event.target.checked
-                            }));
-                          }}
-                        />
                       </div>
 
                       {config.twoPassOCR ? (
@@ -2615,629 +2823,958 @@ export function OCRTab({ active }: OcrTabProps) {
                       </div>
                     </div>
                   </div>
+                ) : null}
 
-                  <details className="ocr-details-card">
-                    <summary {...tooltipProps(ocrTooltips.comparison)}>
-                      {t("ocr.comparison.title")}
-                    </summary>
-                    <div className="ocr-comparison-primary-grid ocr-details-body">
-                      {COMPARISON_LAYOUT.primary.map((field) => (
-                        <div key={field.key} className="ocr-comparison-field">
-                          <label
-                            htmlFor={`comparison-${field.key}`}
-                            {...tooltipProps(t(field.titleKey))}
-                          >
-                            {t(field.labelKey)}
-                          </label>
-                          <input
-                            id={`comparison-${field.key}`}
-                            type="number"
-                            min={field.min}
-                            max={field.max}
-                            step={field.step}
-                            value={config.comparison[field.key]}
-                            onChange={(event) => {
-                              setComparisonValue(
-                                field.key,
-                                numericValue(
-                                  event.target.value,
-                                  COMPARISON_DEFAULTS[field.key]
-                                )
-                              );
-                            }}
-                          />
-                        </div>
-                      ))}
+                <div className="desk-recognition-tuning">
+                  <div className="desk-field-grid">
+                    <div className="ocr-slider-field">
+                      <div className="ocr-slider-header">
+                        <label
+                          htmlFor="ocr-furigana-filter"
+                          {...tooltipProps(ocrTooltips.furiganaFilter)}
+                        >
+                          {t("ocr.settings.furiganaFilter")}
+                        </label>
+                        <span>{config.furiganaFilterSensitivity}</span>
+                      </div>
+                      <div className="ocr-slider-row">
+                        <input
+                          id="ocr-furigana-filter"
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={config.furiganaFilterSensitivity}
+                          onChange={(event) => {
+                            const next = integerValue(event.target.value, 0);
+                            setConfig((current) => ({
+                              ...current,
+                              furiganaFilterSensitivity: next
+                            }));
+                            sendIpc("update-furigana-character", "龍", next);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="secondary"
+                          {...tooltipProps(ocrTooltips.furiganaPreview)}
+                          onClick={async () => {
+                            const next = await invokeIpc<number>("run-furigana-window");
+                            setConfig((current) => ({
+                              ...current,
+                              furiganaFilterSensitivity: integerValue(next, 0)
+                            }));
+                          }}
+                        >
+                          {t("ocr.settings.preview")}
+                        </button>
+                      </div>
                     </div>
 
-                    <details className="ocr-details-card ocr-details-card--nested">
-                      <summary>{t("ocr.comparison.expertTitle")}</summary>
-                      <div className="ocr-comparison-expert-grid ocr-details-body">
-                        <div className="ocr-comparison-column">
-                          {COMPARISON_LAYOUT.expertLeft.map((field) => (
-                            <div key={field.key} className="ocr-comparison-field">
-                              <label
-                                htmlFor={`comparison-${field.key}`}
-                                {...tooltipProps(t(field.titleKey))}
-                              >
-                                {t(field.labelKey)}
-                              </label>
-                              <input
-                                id={`comparison-${field.key}`}
-                                type="number"
-                                min={field.min}
-                                max={field.max}
-                                step={field.step}
-                                value={config.comparison[field.key]}
-                                onChange={(event) => {
-                                  setComparisonValue(
-                                    field.key,
-                                    numericValue(
-                                      event.target.value,
-                                      COMPARISON_DEFAULTS[field.key]
-                                    )
-                                  );
-                                }}
-                              />
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="ocr-comparison-column">
-                          {COMPARISON_LAYOUT.expertRight.map((field) => (
-                            <div key={field.key} className="ocr-comparison-field">
-                              <label
-                                htmlFor={`comparison-${field.key}`}
-                                {...tooltipProps(t(field.titleKey))}
-                              >
-                                {t(field.labelKey)}
-                              </label>
-                              <input
-                                id={`comparison-${field.key}`}
-                                type="number"
-                                min={field.min}
-                                max={field.max}
-                                step={field.step}
-                                value={config.comparison[field.key]}
-                                onChange={(event) => {
-                                  setComparisonValue(
-                                    field.key,
-                                    numericValue(
-                                      event.target.value,
-                                      COMPARISON_DEFAULTS[field.key]
-                                    )
-                                  );
-                                }}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </details>
-                  </details>
-                </>
-              ) : null}
-            </section>
-          </div>
-
-          {/* ── RIGHT COLUMN: Hotkeys + Console + Debug ── */}
-          <div className="ocr-col ocr-col--monitor">
-            {/* Hotkeys */}
-            <section className="card legacy-card ocr-card ocr-card--hotkeys">
-              <div className="ocr-card-header-row ocr-hotkey-card-header">
-                <div className="ocr-hotkey-card-heading">
-                  <h2>{t("ocr.hotkeys.title")}</h2>
-                  <p className="muted">{t("ocr.hotkeys.description")}</p>
+                    <div className="input-group">
+                      <label
+                        htmlFor="default-furigana-sensitivity"
+                        {...tooltipProps(ocrTooltips.defaultSceneFurigana)}
+                      >
+                        {t("ocr.debug.defaultFuriganaSensitivity")}
+                      </label>
+                      <input
+                        id="default-furigana-sensitivity"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={config.defaultSceneFuriganaFilterSensitivity}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            defaultSceneFuriganaFilterSensitivity: integerValue(
+                              event.target.value,
+                              0
+                            )
+                          }));
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="ocr-linebreak-row ocr-linebreak-row--warning">
+                    <label
+                      className="ocr-instant-toggle"
+                      htmlFor="ocr-text-appears-instantly"
+                      {...tooltipProps(ocrTooltips.textAppearsInstantly)}
+                    >
+                      <input
+                        id="ocr-text-appears-instantly"
+                        type="checkbox"
+                        checked={config.textAppearsInstantly}
+                        disabled={config.advancedMode && !config.twoPassOCR}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            textAppearsInstantly: event.target.checked
+                          }));
+                        }}
+                      />
+                      <span className="ocr-instant-copy">
+                        <span className="ocr-linebreak-label ocr-instant-label">
+                          <span>{t("ocr.settings.textAppearsInstantly")}</span>
+                          <span className="ocr-instant-qualifier">
+                            (
+                            <span
+                              className="ocr-warning-icon"
+                              aria-hidden="true"
+                            >
+                              ⚠
+                            </span>
+                            <span>{t("ocr.settings.textAppearsInstantlyQualifier")}</span>)
+                          </span>
+                        </span>
+                      </span>
+                    </label>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  className="secondary ocr-gamepad-toggle"
-                  aria-expanded={config.gamepadHotkeysEnabled}
-                  aria-controls="ocr-gamepad-bindings"
-                  onClick={() => {
-                    setConfig((current) => ({
-                      ...current,
-                      gamepadHotkeysEnabled: !current.gamepadHotkeysEnabled
-                    }));
-                  }}
-                >
-                  {t(
-                    config.gamepadHotkeysEnabled
-                      ? "ocr.hotkeys.disableGamepad"
-                      : "ocr.hotkeys.enableGamepad",
-                    { count: configuredGamepadHotkeyCount }
-                  )}
-                </button>
               </div>
-              <div
-                id="ocr-gamepad-bindings"
-                className={`form-group ocr-form-group ocr-hotkey-grid${
-                  config.gamepadHotkeysEnabled
-                    ? " ocr-hotkey-grid--gamepad-visible"
-                    : ""
-                }`}
-              >
-                <div className="ocr-hotkey-columns" aria-hidden="true">
-                  <span>{t("ocr.hotkeys.action")}</span>
-                  <span>{t("ocr.hotkeys.keyboard")}</span>
-                  {config.gamepadHotkeysEnabled ? (
-                    <span>{t("ocr.hotkeys.gamepad")}</span>
-                  ) : null}
-                  <span />
-                </div>
-                {hotkeyActions.map((action) => {
-                  const actionLabel = t(action.labelKey);
-                  const hotkeyInputId = `${action.id}-hotkey`;
-                  const gamepadInputId = `${action.id}-gamepad-hotkey`;
+            </section>
 
-                  return (
-                    <div className="ocr-hotkey-item" key={action.id}>
-                      <div className="ocr-hotkey-item-header">
-                        <h3 {...tooltipProps(action.tooltip)}>{actionLabel}</h3>
+            <section
+              id="ocr-view-filtering"
+              role="tabpanel"
+              aria-labelledby="ocr-nav-filtering"
+              hidden={workspaceView !== "filtering"}
+              className="desk-view"
+              tabIndex={0}
+            >
+              <div className="desk-recognition-layout">
+                <div className="desk-capture-settings">
+                  <div className="desk-section-heading">
+                    <div>
+                      <h2>{t("ocr.workspace.imageSettings")}</h2>
+                    </div>
+                  </div>
+
+                  <div className="desk-slider-grid">
+                    <div className="ocr-slider-field">
+                      <div className="ocr-slider-header">
+                        <label
+                          htmlFor="ocr-base-scale"
+                          {...tooltipProps(ocrTooltips.baseScale)}
+                        >
+                          {t("ocr.settings.scanImageQuality")}
+                        </label>
+                        <span>{Math.round(config.baseScale * 100)}%</span>
                       </div>
-                      <div className="ocr-hotkey-bindings">
-                        <label className="ocr-hotkey-binding" htmlFor={hotkeyInputId}>
-                          <span>{t("ocr.hotkeys.keyboard")}</span>
-                          <input
-                            id={hotkeyInputId}
-                            type="text"
-                            readOnly
-                            value={config[action.hotkeyKey]}
-                            onKeyDown={(event) => {
-                              const next = captureHotkey(event);
+                      <input
+                        id="ocr-base-scale"
+                        type="range"
+                        min={0.5}
+                        max={1}
+                        step={0.05}
+                        value={config.baseScale}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            baseScale: numericValue(event.target.value, 0.75)
+                          }));
+                        }}
+                      />
+                      <div className="desk-scale-presets">
+                        {[0.5, 0.75, 1].map((scale) => (
+                          <button
+                            key={scale}
+                            type="button"
+                            className={
+                              "desk-preset-chip" +
+                              (Math.abs(config.baseScale - scale) < 0.01 ? " is-active" : "")
+                            }
+                            onClick={() =>
                               setConfig((current) => ({
                                 ...current,
-                                [action.hotkeyKey]: next
+                                baseScale: scale
+                              }))
+                            }
+                          >
+                            {Math.round(scale * 100)}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="desk-field-grid desk-preprocess-grid">
+                    <div className="input-group">
+                      <label
+                        htmlFor="obs-preprocess"
+                        {...tooltipProps(ocrTooltips.obsCapturePreprocess)}
+                      >
+                        {t("ocr.debug.obsCapturePreprocess")}
+                      </label>
+                      <select
+                        id="obs-preprocess"
+                        value={config.obsCapturePreprocess}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            obsCapturePreprocess: event.target.value
+                          }));
+                        }}
+                      >
+                        {PREPROCESS_OPTIONS.map((option) => (
+                          <option
+                            key={option.value}
+                            value={option.value}
+                          >
+                            {t("ocr.preprocess." + option.value)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="desk-toggle-row-group">
+                    <div className="desk-compact-boxes-row">
+                      <label
+                        className="ocr-instant-toggle"
+                        htmlFor="compact-boxes"
+                        {...tooltipProps(ocrTooltips.compactBoxes)}
+                      >
+                        <input
+                          id="compact-boxes"
+                          type="checkbox"
+                          checked={config.compactBoxes}
+                          onChange={(event) => {
+                            setConfig((current) => ({
+                              ...current,
+                              compactBoxes: event.target.checked
+                            }));
+                          }}
+                        />
+                        <span className="ocr-linebreak-label">{t("ocr.debug.compactBoxes")}</span>
+                      </label>
+
+                      {config.compactBoxes && (
+                        <div className="desk-compact-gap-field">
+                          <label
+                            htmlFor="compact-boxes-gap"
+                            {...tooltipProps(ocrTooltips.compactBoxesGap)}
+                          >
+                            {t("ocr.debug.compactBoxesGap")}
+                          </label>
+                          <input
+                            id="compact-boxes-gap"
+                            type="number"
+                            min={0}
+                            max={512}
+                            step={1}
+                            value={config.compactBoxesGap}
+                            onChange={(event) => {
+                              setConfig((current) => ({
+                                ...current,
+                                compactBoxesGap: integerValue(event.target.value, 12)
                               }));
                             }}
                           />
-                        </label>
-                        {config.gamepadHotkeysEnabled ? (
-                          <label
-                            className="ocr-hotkey-binding"
-                            htmlFor={gamepadInputId}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <aside className="desk-side">
+                  <section className="desk-output">
+                    <h2>{t("ocr.workspace.textOutput")}</h2>
+                    <table
+                      className="desk-output-table"
+                      aria-label={t("ocr.workspace.textOutput")}
+                    >
+                      <thead>
+                        <tr>
+                          <th scope="col">{t("ocr.hotkeys.action")}</th>
+                          <th
+                            scope="col"
+                            {...tooltipProps(ocrTooltips.sendToClipboard)}
                           >
-                            <span>{t("ocr.hotkeys.gamepad")}</span>
-                            <select
-                              id={gamepadInputId}
-                              className="ocr-gamepad-hotkey"
-                              value={config[action.gamepadKey]}
-                              aria-label={t("ocr.hotkeys.gamepadBindingAria", {
-                                action: actionLabel
-                              })}
-                              data-tip={t("ocr.hotkeys.gamepadBindingTitle")}
-                              onChange={(event) => {
-                                setConfig((current) => ({
-                                  ...current,
-                                  [action.gamepadKey]: event.target.value
-                                }));
-                              }}
+                            {t("ocr.workspace.copyText")}
+                          </th>
+                          <th
+                            scope="col"
+                            {...tooltipProps(ocrTooltips.keepNewline)}
+                          >
+                            {t("ocr.workspace.lineBreaks")}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {OCR_OUTPUT_MODES.map((mode) => (
+                          <tr key={mode.id}>
+                            <th scope="row">{t(mode.labelKey)}</th>
+                            <td>
+                              <input
+                                id={"send-to-clipboard-" + mode.id}
+                                type="checkbox"
+                                aria-label={t("ocr.workspace.copyMode", {
+                                  mode: t(mode.labelKey)
+                                })}
+                                {...tooltipProps(ocrTooltips[mode.clipboardKey])}
+                                checked={config[mode.clipboardKey]}
+                                onChange={(event) =>
+                                  setConfig((current) => ({
+                                    ...current,
+                                    [mode.clipboardKey]: event.target.checked
+                                  }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <input
+                                id={"keep-newline-" + mode.id}
+                                type="checkbox"
+                                aria-label={t("ocr.workspace.lineBreaksMode", {
+                                  mode: t(mode.labelKey)
+                                })}
+                                {...tooltipProps(ocrTooltips[mode.newlineKey])}
+                                checked={config[mode.newlineKey]}
+                                onChange={(event) =>
+                                  setConfig((current) => ({
+                                    ...current,
+                                    [mode.newlineKey]: event.target.checked
+                                  }))
+                                }
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+                </aside>
+              </div>
+            </section>
+
+            <section
+              id="ocr-view-comparison"
+              role="tabpanel"
+              aria-labelledby="ocr-nav-comparison"
+              hidden={workspaceView !== "comparison"}
+              className="desk-view"
+              tabIndex={0}
+            >
+              <section className="desk-comparison">
+                <div className="ocr-card-header-row desk-subtab-header">
+                  <div className="desk-subtab-controls">
+                    <div
+                      className="desk-subtablist"
+                      role="tablist"
+                      aria-label={t("ocr.comparison.title")}
+                    >
+                      {OCR_COMPARISON_TABS.map((subTab, index) => (
+                        <button
+                          key={subTab.id}
+                          type="button"
+                          role="tab"
+                          id={"ocr-comp-tab-" + subTab.id}
+                          aria-selected={comparisonSubTab === subTab.id}
+                          aria-controls={"ocr-comp-panel-" + subTab.id}
+                          tabIndex={comparisonSubTab === subTab.id ? 0 : -1}
+                          onClick={() => setComparisonSubTab(subTab.id)}
+                          onKeyDown={(event) =>
+                            navigateWorkspaceTabs(
+                              event,
+                              OCR_COMPARISON_TABS,
+                              index,
+                              setComparisonSubTab,
+                              "ocr-comp-tab-"
+                            )
+                          }
+                        >
+                          {t(subTab.labelKey)}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary desk-reset-btn"
+                      disabled={customizedComparisonCount === 0}
+                      onClick={resetComparisonDefaults}
+                    >
+                      {t("ocr.workspace.resetDefaults")}
+                    </button>
+                  </div>
+                </div>
+
+                {(
+                  [
+                    ["primary", COMPARISON_LAYOUT.primary],
+                    ["truncation", COMPARISON_LAYOUT.truncation],
+                    ["subset", COMPARISON_LAYOUT.subset]
+                  ] as const
+                ).map(([groupKey, fields]) => (
+                  <div
+                    key={groupKey}
+                    id={"ocr-comp-panel-" + groupKey}
+                    role="tabpanel"
+                    aria-labelledby={"ocr-comp-tab-" + groupKey}
+                    hidden={comparisonSubTab !== groupKey}
+                    className="desk-comparison-grid"
+                  >
+                    {fields.map((field) => {
+                      const currentValue = config.comparison[field.key];
+                      const isModified = currentValue !== COMPARISON_DEFAULTS[field.key];
+
+                      return (
+                        <div
+                          key={field.key}
+                          className={"ocr-comparison-field" + (isModified ? " is-modified" : "")}
+                        >
+                          <div className="ocr-comparison-field-top">
+                            <label
+                              htmlFor={`comparison-${field.key}`}
+                              {...tooltipProps(t(field.titleKey))}
                             >
-                              {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {t(option.labelKey)}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        ) : null}
-                      </div>
-                      {action.id === "manual" ? (
-                        <div className="ocr-manual-delay-settings">
+                              {t(field.labelKey)}
+                            </label>
+                            <input
+                              id={`comparison-${field.key}`}
+                              type="number"
+                              min={field.min}
+                              max={field.max}
+                              step={field.step}
+                              value={currentValue}
+                              onChange={(event) => {
+                                setComparisonValue(
+                                  field.key,
+                                  numericValue(event.target.value, COMPARISON_DEFAULTS[field.key])
+                                );
+                              }}
+                            />
+                          </div>
+                          {field.max <= 100 ? (
+                            <input
+                              type="range"
+                              aria-hidden="true"
+                              tabIndex={-1}
+                              min={field.min}
+                              max={field.max}
+                              step={field.step}
+                              value={currentValue}
+                              onChange={(event) => {
+                                setComparisonValue(
+                                  field.key,
+                                  numericValue(event.target.value, COMPARISON_DEFAULTS[field.key])
+                                );
+                              }}
+                            />
+                          ) : null}
+                          <small className="ocr-comparison-hint">{t(field.titleKey)}</small>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </section>
+            </section>
+
+            <section
+              id="ocr-view-shortcuts"
+              role="tabpanel"
+              aria-labelledby="ocr-nav-shortcuts"
+              hidden={workspaceView !== "shortcuts"}
+              className="desk-view"
+              tabIndex={0}
+            >
+              <section className="desk-shortcuts">
+                <div className="ocr-card-header-row ocr-hotkey-card-header">
+                  <p className="desk-shortcut-help">{t("ocr.desk.shortcutHelp")}</p>
+                  <button
+                    type="button"
+                    className="secondary ocr-gamepad-toggle"
+                    aria-expanded={config.gamepadHotkeysEnabled}
+                    aria-controls="ocr-gamepad-bindings"
+                    onClick={() => {
+                      setConfig((current) => ({
+                        ...current,
+                        gamepadHotkeysEnabled: !current.gamepadHotkeysEnabled
+                      }));
+                    }}
+                  >
+                    {t(
+                      config.gamepadHotkeysEnabled
+                        ? "ocr.hotkeys.disableGamepad"
+                        : "ocr.hotkeys.enableGamepad",
+                      { count: configuredGamepadHotkeyCount }
+                    )}
+                  </button>
+                </div>
+                <div
+                  id="ocr-gamepad-bindings"
+                  className={`form-group ocr-form-group ocr-hotkey-grid${
+                    config.gamepadHotkeysEnabled ? " ocr-hotkey-grid--gamepad-visible" : ""
+                  }`}
+                >
+                  <div
+                    className="ocr-hotkey-columns"
+                    aria-hidden="true"
+                  >
+                    <span>{t("ocr.hotkeys.action")}</span>
+                    <span>{t("ocr.hotkeys.keyboard")}</span>
+                    {config.gamepadHotkeysEnabled ? <span>{t("ocr.hotkeys.gamepad")}</span> : null}
+                    <span />
+                  </div>
+                  {hotkeyActions.map((action) => {
+                    const actionLabel = t(action.labelKey);
+                    const hotkeyInputId = `${action.id}-hotkey`;
+                    const gamepadInputId = `${action.id}-gamepad-hotkey`;
+
+                    return (
+                      <div
+                        className="ocr-hotkey-item"
+                        key={action.id}
+                      >
+                        <div className="ocr-hotkey-item-header">
+                          <h3
+                            id={action.id + "-action-label"}
+                            {...tooltipProps(action.tooltip)}
+                          >
+                            {actionLabel}
+                          </h3>
+                        </div>
+                        <div className="ocr-hotkey-bindings">
                           <label
                             className="ocr-hotkey-binding"
-                            htmlFor="manual-ocr-delay-ms"
-                            {...tooltipProps(t("ocr.tooltips.manualDelay"))}
+                            htmlFor={hotkeyInputId}
                           >
-                            <span>{t("ocr.hotkeys.manualDelay")}</span>
+                            <span id={action.id + "-keyboard-label"}>
+                              {t("ocr.hotkeys.keyboard")}
+                            </span>
                             <input
-                              id="manual-ocr-delay-ms"
-                              type="number"
-                              min="0"
-                              step="50"
-                              value={config.manualOcrDelayMs}
-                              onChange={(event) => {
+                              id={hotkeyInputId}
+                              type="text"
+                              readOnly
+                              placeholder={t("ocr.desk.unbound")}
+                              aria-labelledby={
+                                action.id + "-action-label " + action.id + "-keyboard-label"
+                              }
+                              value={config[action.hotkeyKey]}
+                              onKeyDown={(event) => {
+                                const next = captureHotkey(event);
                                 setConfig((current) => ({
                                   ...current,
-                                  manualOcrDelayMs: Math.max(
-                                    0,
-                                    integerValue(event.target.value, 0)
-                                  )
+                                  [action.hotkeyKey]: next
                                 }));
                               }}
                             />
                           </label>
                           {config.gamepadHotkeysEnabled ? (
                             <label
-                              className="checkbox-label ocr-manual-delay-gamepad-only"
-                              htmlFor="manual-ocr-delay-gamepad-only"
-                              {...tooltipProps(
-                                t("ocr.tooltips.manualDelayGamepadOnly")
-                              )}
+                              className="ocr-hotkey-binding"
+                              htmlFor={gamepadInputId}
                             >
-                              <input
-                                id="manual-ocr-delay-gamepad-only"
-                                type="checkbox"
-                                checked={config.manualOcrDelayGamepadOnly}
+                              <span>{t("ocr.hotkeys.gamepad")}</span>
+                              <select
+                                id={gamepadInputId}
+                                className="ocr-gamepad-hotkey"
+                                value={config[action.gamepadKey]}
+                                aria-label={t("ocr.hotkeys.gamepadBindingAria", {
+                                  action: actionLabel
+                                })}
+                                data-tip={t("ocr.hotkeys.gamepadBindingTitle")}
                                 onChange={(event) => {
                                   setConfig((current) => ({
                                     ...current,
-                                    manualOcrDelayGamepadOnly:
-                                      event.target.checked
+                                    [action.gamepadKey]: event.target.value
                                   }));
                                 }}
-                              />
-                              <span>
-                                {t("ocr.hotkeys.manualDelayGamepadOnly")}
-                              </span>
+                              >
+                                {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
+                                  <option
+                                    key={option.value}
+                                    value={option.value}
+                                  >
+                                    {t(option.labelKey)}
+                                  </option>
+                                ))}
+                              </select>
                             </label>
                           ) : null}
                         </div>
-                      ) : null}
-                      {action.trigger ? (
-                        <button
-                          type="button"
-                          className="secondary ocr-hotkey-run"
-                          disabled={!runningState.isRunning}
-                          data-tip={t("ocr.hotkeys.runActionTitle")}
-                          onClick={action.trigger}
-                        >
-                          {t("ocr.hotkeys.runAction")}
-                        </button>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
+                        {action.id === "manual" ? (
+                          <div className="ocr-manual-delay-settings">
+                            <label
+                              className="ocr-hotkey-binding"
+                              htmlFor="manual-ocr-delay-ms"
+                              {...tooltipProps(t("ocr.tooltips.manualDelay"))}
+                            >
+                              <span>{t("ocr.hotkeys.manualDelay")}</span>
+                              <input
+                                id="manual-ocr-delay-ms"
+                                type="number"
+                                min="0"
+                                step="50"
+                                value={config.manualOcrDelayMs}
+                                onChange={(event) => {
+                                  setConfig((current) => ({
+                                    ...current,
+                                    manualOcrDelayMs: Math.max(
+                                      0,
+                                      integerValue(event.target.value, 0)
+                                    )
+                                  }));
+                                }}
+                              />
+                            </label>
+                            {config.gamepadHotkeysEnabled ? (
+                              <label
+                                className="checkbox-label ocr-manual-delay-gamepad-only"
+                                htmlFor="manual-ocr-delay-gamepad-only"
+                                {...tooltipProps(t("ocr.tooltips.manualDelayGamepadOnly"))}
+                              >
+                                <input
+                                  id="manual-ocr-delay-gamepad-only"
+                                  type="checkbox"
+                                  checked={config.manualOcrDelayGamepadOnly}
+                                  onChange={(event) => {
+                                    setConfig((current) => ({
+                                      ...current,
+                                      manualOcrDelayGamepadOnly: event.target.checked
+                                    }));
+                                  }}
+                                />
+                                <span>{t("ocr.hotkeys.manualDelayGamepadOnly")}</span>
+                              </label>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {action.trigger ? (
+                          <button
+                            type="button"
+                            className="secondary ocr-hotkey-run"
+                            disabled={!runningState.isRunning}
+                            aria-labelledby={
+                              action.id + "-run-label " + action.id + "-action-label"
+                            }
+                            data-tip={t("ocr.hotkeys.runActionTitle")}
+                            onClick={action.trigger}
+                          >
+                            <span id={action.id + "-run-label"}>{t("ocr.hotkeys.runAction")}</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             </section>
 
-            {/* Console - always visible */}
-            <section className="card legacy-card ocr-card ocr-card--console">
-              <div className="ocr-card-header-row">
-                <h2>{t("ocr.console.title")}</h2>
-                <div className="ocr-console-actions">
-                  <span className={`ocr-console-status ocr-console-status--${runningState.isRunning ? (paused ? "paused" : "active") : "idle"}`}>
-                    {runningState.isRunning ? (paused ? t("ocr.console.paused") : t("ocr.console.active")) : t("ocr.console.idle")}
-                  </span>
+            <section
+              id="ocr-view-tools"
+              role="tabpanel"
+              aria-labelledby="ocr-nav-tools"
+              hidden={workspaceView !== "tools"}
+              className="desk-view"
+              tabIndex={0}
+            >
+              <section className="desk-tools">
+                <div className="ocr-card-header-row desk-subtab-header">
+                  <div
+                    className="desk-subtablist"
+                    role="tablist"
+                    aria-label={t("ocr.debug.title")}
+                  >
+                    {OCR_TOOLS_TABS.map((subTab, index) => (
+                      <button
+                        key={subTab.id}
+                        type="button"
+                        role="tab"
+                        id={"ocr-tools-tab-" + subTab.id}
+                        aria-selected={toolsSubTab === subTab.id}
+                        aria-controls={"ocr-tools-panel-" + subTab.id}
+                        tabIndex={toolsSubTab === subTab.id ? 0 : -1}
+                        onClick={() => setToolsSubTab(subTab.id)}
+                        onKeyDown={(event) =>
+                          navigateWorkspaceTabs(
+                            event,
+                            OCR_TOOLS_TABS,
+                            index,
+                            setToolsSubTab,
+                            "ocr-tools-tab-"
+                          )
+                        }
+                      >
+                        {t(subTab.labelKey)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div
+                  id="ocr-tools-panel-diagnostics"
+                  role="tabpanel"
+                  aria-labelledby="ocr-tools-tab-diagnostics"
+                  hidden={toolsSubTab !== "diagnostics"}
+                  className="form-group ocr-form-group ocr-details-body desk-tools-panel"
+                >
+                  <div className="input-group">
+                    <label
+                      htmlFor="process-priority"
+                      {...tooltipProps(ocrTooltips.processPriority)}
+                    >
+                      {t("ocr.debug.processPriority")}
+                    </label>
+                    <select
+                      id="process-priority"
+                      value={config.processPriority}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          processPriority: normalizeProcessPriority(event.target.value)
+                        }));
+                      }}
+                    >
+                      {PROCESS_PRIORITY_OPTIONS.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {t("ocr.priorities." + option.value)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="desk-tools-toggles">
+                    <div className="input-group">
+                      <label
+                        htmlFor="advanced-debug-logging"
+                        {...tooltipProps(ocrTooltips.advancedDebugLogging)}
+                      >
+                        {t("ocr.debug.advancedDebugLogging")}
+                      </label>
+                      <input
+                        id="advanced-debug-logging"
+                        type="checkbox"
+                        checked={config.advancedDebugLogging}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            advancedDebugLogging: event.target.checked
+                          }));
+                        }}
+                      />
+                    </div>
+
+                    <div className="input-group">
+                      <label
+                        htmlFor="ignore-ocr-run-1"
+                        {...tooltipProps(ocrTooltips.ignoreRun1Logs)}
+                      >
+                        {t("ocr.debug.ignoreRun1Logs")}
+                      </label>
+                      <input
+                        id="ignore-ocr-run-1"
+                        type="checkbox"
+                        checked={config.ignoreOcrRun1Text}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            ignoreOcrRun1Text: event.target.checked
+                          }));
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  id="ocr-tools-panel-packages"
+                  role="tabpanel"
+                  aria-labelledby="ocr-tools-tab-packages"
+                  hidden={toolsSubTab !== "packages"}
+                  className="form-group ocr-form-group ocr-details-body desk-tools-panel"
+                >
+                  <div className="input-group wrap">
+                    <label
+                      htmlFor="dep-install"
+                      {...tooltipProps(ocrTooltips.installDependency)}
+                    >
+                      {t("ocr.debug.installDependency")}
+                    </label>
+                    <select
+                      id="dep-install"
+                      value={installDependency}
+                      onChange={(event) => setInstallDependency(event.target.value)}
+                    >
+                      {DEPENDENCY_INSTALL_OPTIONS.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {t(DEPENDENCY_INSTALL_LABEL_KEYS[option.value])}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={installSelectedDependency}
+                    >
+                      {t("ocr.debug.installBtn")}
+                    </button>
+                  </div>
+
+                  <div className="input-group wrap">
+                    <label
+                      htmlFor="dep-remove"
+                      {...tooltipProps(ocrTooltips.uninstallDependency)}
+                    >
+                      {t("ocr.debug.removeDependency")}
+                    </label>
+                    <select
+                      id="dep-remove"
+                      value={removeDependency}
+                      onChange={(event) => setRemoveDependency(event.target.value)}
+                    >
+                      {DEPENDENCY_REMOVE_OPTIONS.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {t(DEPENDENCY_REMOVE_LABEL_KEYS[option.value])}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={uninstallSelectedDependency}
+                    >
+                      {t("ocr.debug.uninstallBtn")}
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  id="ocr-tools-panel-files"
+                  role="tabpanel"
+                  aria-labelledby="ocr-tools-tab-files"
+                  hidden={toolsSubTab !== "files"}
+                  className="form-group ocr-form-group ocr-details-body desk-tools-panel"
+                >
+                  <div className="link-row desk-files-grid">
+                    <button
+                      type="button"
+                      className="secondary"
+                      {...tooltipProps(ocrTooltips.replacements)}
+                      onClick={openOcrReplacementsPage}
+                    >
+                      {t("ocr.debug.ocrErrorFixes")}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      {...tooltipProps(ocrTooltips.openConfigFile)}
+                      onClick={() => void invokeIpc("ocr.open-config-json")}
+                    >
+                      {t("ocr.debug.configFile")}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      {...tooltipProps(ocrTooltips.openConfigFolder)}
+                      onClick={() => void invokeIpc("ocr.open-config-folder")}
+                    >
+                      {t("ocr.debug.configFolder")}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      {...tooltipProps(ocrTooltips.openGlobalConfig)}
+                      onClick={() => void invokeIpc("ocr.open-global-owocr-config")}
+                    >
+                      {t("ocr.debug.globalConfig")}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      {...tooltipProps(ocrTooltips.openTempFolder)}
+                      onClick={() => void invokeIpc("ocr.open-temp-folder")}
+                    >
+                      {t("ocr.debug.tempFolder")}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </section>
+
+            <section
+              id="ocr-view-console"
+              role="tabpanel"
+              aria-labelledby="ocr-console-toggle"
+              hidden={workspaceView !== "console"}
+              className="desk-console-view"
+              tabIndex={-1}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  toggleConsole();
+                }
+              }}
+            >
+              <div className="desk-console-toolbar">
+                <span className={"desk-console-state desk-console-state--" + footerTone}>
+                  <i aria-hidden="true" />
+                  {t(
+                    runningState.isRunning
+                      ? paused
+                        ? "ocr.console.paused"
+                        : "ocr.console.active"
+                      : "ocr.console.idle"
+                  )}
+                </span>
+                <div>
                   <button
                     type="button"
-                    className="secondary"
                     {...tooltipProps(ocrTooltips.clearConsole)}
                     onClick={clearTerminal}
                   >
                     {t("ocr.console.clear")}
                   </button>
+                  <button
+                    type="button"
+                    onClick={toggleConsole}
+                  >
+                    {t("ocr.desk.closeConsole")}
+                    <span aria-hidden="true">×</span>
+                  </button>
                 </div>
               </div>
-              <div ref={terminalElementRef} className="ocr-terminal-surface" />
+              <div
+                id="ocr-console-output"
+                ref={terminalElementRef}
+                className="ocr-terminal-surface"
+              />
             </section>
-
-            {/* Extra & Debug - collapsible */}
-            <details className="card legacy-card ocr-card ocr-details-card ocr-details-card--debug">
-              <summary>{t("ocr.debug.title")}</summary>
-              <div className="form-group ocr-form-group ocr-details-body">
-                <div className="input-group">
-                  <label
-                    htmlFor="advanced-debug-logging"
-                    {...tooltipProps(ocrTooltips.advancedDebugLogging)}
-                  >
-                    {t("ocr.debug.advancedDebugLogging")}
-                  </label>
-                  <input
-                    id="advanced-debug-logging"
-                    type="checkbox"
-                    checked={config.advancedDebugLogging}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        advancedDebugLogging: event.target.checked
-                      }));
-                    }}
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label
-                    htmlFor="ignore-ocr-run-1"
-                    {...tooltipProps(ocrTooltips.ignoreRun1Logs)}
-                  >
-                    {t("ocr.debug.ignoreRun1Logs")}
-                  </label>
-                  <input
-                    id="ignore-ocr-run-1"
-                    type="checkbox"
-                    checked={config.ignoreOcrRun1Text}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        ignoreOcrRun1Text: event.target.checked
-                      }));
-                    }}
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label
-                    htmlFor="process-priority"
-                    {...tooltipProps(ocrTooltips.processPriority)}
-                  >
-                    {t("ocr.debug.processPriority")}
-                  </label>
-                  <select
-                    id="process-priority"
-                    value={config.processPriority}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        processPriority: normalizeProcessPriority(event.target.value)
-                      }));
-                    }}
-                  >
-                    {PROCESS_PRIORITY_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="input-group">
-                  <label
-                    htmlFor="default-furigana-sensitivity"
-                    {...tooltipProps(ocrTooltips.defaultSceneFurigana)}
-                  >
-                    {t("ocr.debug.defaultFuriganaSensitivity")}
-                  </label>
-                  <input
-                    id="default-furigana-sensitivity"
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={config.defaultSceneFuriganaFilterSensitivity}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        defaultSceneFuriganaFilterSensitivity: integerValue(
-                          event.target.value,
-                          0
-                        )
-                      }));
-                    }}
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label
-                    htmlFor="obs-preprocess"
-                    {...tooltipProps(ocrTooltips.obsCapturePreprocess)}
-                  >
-                    {t("ocr.debug.obsCapturePreprocess")}
-                  </label>
-                  <select
-                    id="obs-preprocess"
-                    value={config.obsCapturePreprocess}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        obsCapturePreprocess: event.target.value
-                      }));
-                    }}
-                  >
-                    {PREPROCESS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="input-group">
-                  <label
-                    htmlFor="compact-boxes"
-                    {...tooltipProps(ocrTooltips.compactBoxes)}
-                  >
-                    {t("ocr.debug.compactBoxes")}
-                  </label>
-                  <input
-                    id="compact-boxes"
-                    type="checkbox"
-                    checked={config.compactBoxes}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        compactBoxes: event.target.checked
-                      }));
-                    }}
-                  />
-                </div>
-
-                {config.compactBoxes && (
-                  <div className="input-group">
-                    <label
-                      htmlFor="compact-boxes-gap"
-                      {...tooltipProps(ocrTooltips.compactBoxesGap)}
-                    >
-                      {t("ocr.debug.compactBoxesGap")}
-                    </label>
-                    <input
-                      id="compact-boxes-gap"
-                      type="number"
-                      min={0}
-                      max={512}
-                      step={1}
-                      value={config.compactBoxesGap}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          compactBoxesGap: integerValue(event.target.value, 12)
-                        }));
-                      }}
-                    />
-                  </div>
-                )}
-
-                <div className="input-group wrap">
-                  <label htmlFor="dep-install" {...tooltipProps(ocrTooltips.installDependency)}>
-                    {t("ocr.debug.installDependency")}
-                  </label>
-                  <select
-                    id="dep-install"
-                    value={installDependency}
-                    onChange={(event) => setInstallDependency(event.target.value)}
-                  >
-                    {DEPENDENCY_INSTALL_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={installSelectedDependency}
-                  >
-                    {t("ocr.debug.installBtn")}
-                  </button>
-                </div>
-
-                <div className="input-group wrap">
-                  <label
-                    htmlFor="dep-remove"
-                    {...tooltipProps(ocrTooltips.uninstallDependency)}
-                  >
-                    {t("ocr.debug.removeDependency")}
-                  </label>
-                  <select
-                    id="dep-remove"
-                    value={removeDependency}
-                    onChange={(event) => setRemoveDependency(event.target.value)}
-                  >
-                    {DEPENDENCY_REMOVE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={uninstallSelectedDependency}
-                  >
-                    {t("ocr.debug.uninstallBtn")}
-                  </button>
-                </div>
-
-                <div className="link-row">
-                  <button
-                    type="button"
-                    className="secondary"
-                    {...tooltipProps(ocrTooltips.replacements)}
-                    onClick={openOcrReplacementsPage}
-                  >
-                    {t("ocr.debug.ocrErrorFixes")}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    {...tooltipProps(ocrTooltips.openConfigFile)}
-                    onClick={() => void invokeIpc("ocr.open-config-json")}
-                  >
-                    {t("ocr.debug.configFile")}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    {...tooltipProps(ocrTooltips.openConfigFolder)}
-                    onClick={() => void invokeIpc("ocr.open-config-folder")}
-                  >
-                    {t("ocr.debug.configFolder")}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    {...tooltipProps(ocrTooltips.openGlobalConfig)}
-                    onClick={() => void invokeIpc("ocr.open-global-owocr-config")}
-                  >
-                    {t("ocr.debug.globalConfig")}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    {...tooltipProps(ocrTooltips.openTempFolder)}
-                    onClick={() => void invokeIpc("ocr.open-temp-folder")}
-                  >
-                    {t("ocr.debug.tempFolder")}
-                  </button>
-                </div>
-              </div>
-            </details>
           </div>
-        </div>
 
-        {/* ── Sticky Footer ── */}
-        <div className={`ocr-sticky-footer ocr-sticky-footer--${footerTone}`}>
-          <div className="ocr-sticky-footer-status">
-            <span className={`ocr-runtime-badge ocr-runtime-badge--${footerTone}`}>
-              {footerStatusLabel}
-            </span>
-            <div className="ocr-sticky-footer-copy">
-              <strong>{runningState.isRunning ? runtimeEngine || t("ocr.footer.ocrRuntime") : sceneSummary}</strong>
-              <p className="muted">{footerSummary}</p>
+          <footer className="desk-statusbar">
+            <div
+              className={"desk-runtime desk-runtime--" + footerTone}
+              role="status"
+            >
+              <i aria-hidden="true" />
+              <span>{runningState.isRunning ? runtimeMessage : t("ocr.desk.settingsSaved")}</span>
             </div>
-          </div>
-          <div className="ocr-sticky-footer-actions">
-            {runningState.isRunning ? (
-              <>
-                <button
-                  type="button"
-                  className="danger"
-                  data-tip={ocrTooltips.stop}
-                  onClick={() => void stopOcr()}
-                >
-                  {t("ocr.footer.stopOcr")}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  data-tip={paused ? ocrTooltips.resume : ocrTooltips.pause}
-                  onClick={togglePause}
-                >
-                  {paused ? t("ocr.footer.resumeOcr") : t("ocr.footer.pauseOcr")}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  data-tip={
-                    hasConfiguredAreas
-                      ? ocrTooltips.startAuto
-                      : t("ocr.footer.areasRecommended", {
-                          mode: t("ocr.footer.modeAuto")
-                        })
-                  }
-                  onClick={() => void startOcr(false)}
-                >
-                  {t("ocr.footer.startAutoOcr")}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  data-tip={
-                    hasConfiguredAreas
-                      ? ocrTooltips.startManual
-                      : t("ocr.footer.areasRecommended", {
-                          mode: t("ocr.footer.modeManual")
-                        })
-                  }
-                  onClick={() => void startOcr(true)}
-                >
-                  {t("ocr.footer.startManualOcr")}
-                </button>
-              </>
-            )}
-          </div>
+            <button
+              id="ocr-console-toggle"
+              type="button"
+              className={workspaceView === "console" ? "is-active" : ""}
+              aria-expanded={workspaceView === "console"}
+              aria-controls="ocr-view-console"
+              onClick={toggleConsole}
+            >
+              <WorkspaceIcon name="console" />
+              {t("ocr.console.title")}
+              <span aria-hidden="true">{workspaceView === "console" ? "−" : "+"}</span>
+            </button>
+          </footer>
         </div>
       </div>
     </div>

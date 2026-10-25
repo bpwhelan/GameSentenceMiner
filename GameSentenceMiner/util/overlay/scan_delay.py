@@ -65,7 +65,7 @@ class OverlayScanTiming:
 class AdaptiveOverlayScanDelay:
     """Small, bounded adjustments across lines; no extra captures or OCR calls."""
 
-    INCREASE_STEP = 0.005
+    INCREASE_STEP = 0.05
     INCREASE_WINDOW_SIZE = 5
     LATE_REVEALS_BEFORE_INCREASE = 3
     DECREASE_STEP = 0.005

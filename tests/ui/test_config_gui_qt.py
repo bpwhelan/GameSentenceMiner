@@ -141,6 +141,72 @@ def test_anki_confirmation_gamepad_support_is_opt_in() -> None:
     assert Anki().confirmation_gamepad_enabled is False
 
 
+def test_confirmation_audio_step_presets_can_be_saved_and_reloaded(monkeypatch) -> None:
+    from GameSentenceMiner.util.config import configuration
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", lambda: "test-version")
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_schedule_runtime_reload", lambda self: None)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
+    window = ConfigWindow()
+    try:
+        combo = window.anki_confirmation_audio_step_combo
+        assert not combo.isEditable()
+        assert [combo.itemData(i) for i in range(combo.count())] == [0.1, 0.25, 0.5, 1, 2, 3, 4, 5]
+        assert combo.parentWidget().layout().labelForField(combo) is not None
+        for step in [0.1, 0.25, 0.5, 1, 2, 3, 4, 5]:
+            combo.setCurrentIndex(combo.findData(step))
+            assert window.save_settings(show_indicator=False)
+            assert configuration.Config.load().get_config().anki.confirmation_audio_step == step
+            window._auto_save_timer.stop()
+            with QSignalBlocker(combo):
+                combo.setCurrentIndex(-1)
+            window.reload_settings(force_refresh=True)
+            assert combo.currentData() == step
+    finally:
+        window._auto_save_timer.stop()
+        window.close()
+        app.processEvents()
+
+
+def test_skip_unvoiced_confirmation_has_red_warning_and_can_be_saved_and_reloaded(monkeypatch) -> None:
+    from GameSentenceMiner.ui.config.labels import LabelColor
+    from GameSentenceMiner.util.config import configuration
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", lambda: "test-version")
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_schedule_runtime_reload", lambda self: None)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
+    window = ConfigWindow()
+    try:
+        checkbox = window.anki_skip_confirmation_for_unvoiced_check
+        label = checkbox.parentWidget().layout().labelForField(checkbox)
+        assert LabelColor.WARNING.get_qt_color() in label.styleSheet()
+        assert "VAD" in label.toolTip()
+        assert checkbox.toolTip() == label.toolTip()
+        for enabled in (True, False):
+            checkbox.setChecked(enabled)
+            assert window.save_settings(show_indicator=False)
+            assert configuration.Config.load().get_config().anki.skip_confirmation_for_unvoiced is enabled
+            window._auto_save_timer.stop()
+            with QSignalBlocker(checkbox):
+                checkbox.setChecked(not enabled)
+            window.reload_settings(force_refresh=True)
+            assert checkbox.isChecked() is enabled
+    finally:
+        window._auto_save_timer.stop()
+        window.close()
+        app.processEvents()
+
+
 def test_anki_confirmation_game_pause_can_be_saved_and_reloaded(monkeypatch) -> None:
     from GameSentenceMiner.util.config import configuration
 
@@ -632,7 +698,17 @@ def test_features_tab_collects_optional_feature_controls(monkeypatch) -> None:
             ),
         }
         if sys.platform == "win32":
-            promoted_controls["general"] += (window.mute_game_on_minimize_check,)
+            promoted_controls["general"] += (
+                window.mute_game_on_minimize_check,
+                window.mute_game_on_background_check,
+                window.mute_game_on_background_delay_seconds_spin,
+            )
+            convenience_layout = window.mute_game_on_minimize_check.parentWidget().layout()
+            minimize_row, _ = convenience_layout.getWidgetPosition(window.mute_game_on_minimize_check)
+            background_row, _ = convenience_layout.getWidgetPosition(window.mute_game_on_background_check)
+            assert background_row == minimize_row + 1
+            delay_row, _ = convenience_layout.getWidgetPosition(window.mute_game_on_background_delay_seconds_spin)
+            assert delay_row == background_row + 1
         for subtab_key, controls in promoted_controls.items():
             pane = feature_tabs.widget(window._settings_subtab_indices["features"][subtab_key])
             assert all(pane.isAncestorOf(control) for control in controls)
@@ -640,6 +716,51 @@ def test_features_tab_collects_optional_feature_controls(monkeypatch) -> None:
         assert "advanced" not in window._settings_subtab_widgets
         assert "discord" in window._settings_subtab_indices["general"]
     finally:
+        window.close()
+        app.processEvents()
+
+
+def test_window_audio_settings_can_be_saved_and_reloaded_independently(monkeypatch) -> None:
+    from GameSentenceMiner.util.config import configuration
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", lambda: "test-version")
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_schedule_runtime_reload", lambda self: None)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
+
+    window = ConfigWindow()
+    try:
+        for mute_minimized, mute_background, delay_seconds in (
+            (False, True, 10),
+            (True, False, 0),
+            (True, True, 5),
+            (False, False, 300),
+        ):
+            window.mute_game_on_minimize_check.setChecked(mute_minimized)
+            window.mute_game_on_background_check.setChecked(mute_background)
+            window.mute_game_on_background_delay_seconds_spin.setValue(delay_seconds)
+            assert window.save_settings(show_indicator=False)
+            saved = configuration.Config.load().get_config().advanced
+            assert saved.mute_game_on_minimize is mute_minimized
+            assert saved.mute_game_on_background is mute_background
+            assert saved.mute_game_on_background_delay_seconds == delay_seconds
+            window._auto_save_timer.stop()
+
+            for checkbox in (window.mute_game_on_minimize_check, window.mute_game_on_background_check):
+                with QSignalBlocker(checkbox):
+                    checkbox.setChecked(not checkbox.isChecked())
+            with QSignalBlocker(window.mute_game_on_background_delay_seconds_spin):
+                window.mute_game_on_background_delay_seconds_spin.setValue(42)
+            window.reload_settings(force_refresh=True)
+            assert window.mute_game_on_minimize_check.isChecked() is mute_minimized
+            assert window.mute_game_on_background_check.isChecked() is mute_background
+            assert window.mute_game_on_background_delay_seconds_spin.value() == delay_seconds
+    finally:
+        window._auto_save_timer.stop()
         window.close()
         app.processEvents()
 

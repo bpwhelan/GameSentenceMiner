@@ -44,38 +44,6 @@ from GameSentenceMiner.ocr.two_pass_ocr import (
 )
 from GameSentenceMiner.util.text_log import TextSource
 
-# The same-engine bypass path is intentionally disabled in production for now.
-# Keep known same-engine-dependent regression tests defined, but skip them
-# until the bypass path is re-enabled/fixed.
-_ENABLE_SAME_ENGINE_BYPASS_TESTS = False
-_DISABLED_WHEN_SAME_ENGINE_BYPASS_OFF = {
-    "TestTwoPassSameEngine::",
-    "TestRapidSequences::test_alternating_text_empty",
-    "TestRapidSequences::test_mixed_language_sequence",
-    "TestRapidSequences::test_immediate_speaker_change_no_empty_between_both_sent",
-    "TestRapidSequences::test_whitespace_raw_text_frame_still_counts_as_disappearance",
-    "TestAdvancedEdgeCases::test_punctuation_only_text",
-    "TestAdvancedEdgeCases::test_text_with_none_in_orig_list",
-    "TestAdvancedEdgeCases::test_image_is_none",
-    "TestAdvancedEdgeCases::test_time_is_none",
-    "TestAdvancedEdgeCases::test_similarity_boundary_19_pct",
-    "TestAdvancedEdgeCases::test_very_rapid_complete_changes",
-    "TestAdvancedEdgeCases::test_empty_orig_text_evolving_text_uses_text_field",
-    "TestStateInspection::test_last_sent_result_updated",
-    "TestCoverageGaps::test_evolving_text_blocks_trigger_despite_moderate_diff",
-    "TestControllerCallbacks::test_controller_with_no_callbacks",
-}
-
-
-@pytest.fixture(autouse=True)
-def _skip_same_engine_bypass_dependent_tests(request):
-    if _ENABLE_SAME_ENGINE_BYPASS_TESTS:
-        return
-    nodeid = request.node.nodeid
-    if any(token in nodeid for token in _DISABLED_WHEN_SAME_ENGINE_BYPASS_OFF):
-        pytest.skip("same-engine bypass is intentionally disabled")
-
-
 # ---------------------------------------------------------------------------
 # Synthetic multi-language dataset
 # ---------------------------------------------------------------------------

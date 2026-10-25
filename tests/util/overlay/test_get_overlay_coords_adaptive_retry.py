@@ -391,7 +391,7 @@ def learn_initial_delay(scan, *, early_text="", reference="expected sentence"):
             reference=reference,
         )
         assert len(scan.reads) == old_count + 2
-    assert scan.processor._initial_scan_delay.delay == pytest.approx(0.005)
+    assert scan.processor._initial_scan_delay.delay == pytest.approx(0.05)
 
 
 @pytest.mark.parametrize("adaptive", [False, True])
@@ -416,29 +416,31 @@ def test_initial_scan_delay_learns_from_existing_retries_without_a_toggle(scan_w
 
     started_at = scan.clock.now
     scan.run(lambda _at, _index: "expected sentence", reference="expected sentence", source=source)
-    assert scan.reads[-1] - started_at == pytest.approx(0.005)
+    assert scan.reads[-1] - started_at == pytest.approx(0.05)
     assert len(scan.reads) == 9
     assert scan.payloads[-1]["is_final"] is True
 
 
-def test_initial_scan_delay_converges_near_render_time_using_fewer_existing_scans(scan_workflow):
+def test_initial_scan_delay_reaches_useful_delay_within_six_late_lines(scan_workflow):
     scan = scan_workflow
     reference = "expected sentence"
     first_captures = []
     scan_counts = []
-    for _ in range(70):
+    for _ in range(20):
         started_at = scan.clock.now
         old_count = len(scan.reads)
         scan.run(
-            lambda at, _index, start=started_at: "話者" if at - start < 0.055 else reference,
+            lambda at, _index, start=started_at: "話者" if at - start < 0.055 - 1e-9 else reference,
             reference=reference,
             ocr_duration=0.15,
         )
         first_captures.append(scan.reads[old_count] - started_at)
         scan_counts.append(len(scan.reads) - old_count)
 
-    assert first_captures[0] == 0
-    assert all(0.05 <= delay <= 0.065 for delay in first_captures[-10:])
+    assert first_captures[:3] == [0, 0, 0]
+    assert first_captures[3] == pytest.approx(0.05)
+    assert first_captures[6] == pytest.approx(0.1)
+    assert all(0.055 - 1e-9 <= delay <= 0.1 + 1e-9 for delay in first_captures[-10:])
     assert sum(scan_counts[-10:]) <= 13
     assert max(scan_counts) <= 2
 
@@ -452,7 +454,7 @@ def test_initial_scan_delay_learns_from_blank_or_speaker_before_full_dialogue(sc
     scan.run(lambda _at, _index: reference, reference=reference)
 
     assert len(scan.reads) == 7
-    assert scan.reads[-1] - started_at == pytest.approx(0.005)
+    assert scan.reads[-1] - started_at == pytest.approx(0.05)
 
 
 @pytest.mark.parametrize("reference", [None, "expected sentence"])
@@ -490,12 +492,13 @@ def test_initial_scan_delay_is_cancellable_before_capturing(scan_workflow, monke
     assert len(scan.reads) == 6
 
 
-def test_initial_scan_delay_counts_time_already_spent_preparing_the_scan(scan_workflow, monkeypatch):
+@pytest.mark.parametrize("preparation_time", [0.03, 0.05, 0.1])
+def test_initial_scan_delay_counts_time_already_spent_preparing_the_scan(scan_workflow, monkeypatch, preparation_time):
     scan = scan_workflow
     learn_initial_delay(scan)
 
     def prepare(_text):
-        scan.clock.now += 0.05
+        scan.clock.now += preparation_time
         return False
 
     monkeypatch.setattr(scan.processor, "_is_sentence_recycled", prepare)
@@ -503,8 +506,12 @@ def test_initial_scan_delay_counts_time_already_spent_preparing_the_scan(scan_wo
     old_sleeps = len(scan.sleeps)
     scan.run(lambda _at, _index: "expected sentence", reference="expected sentence")
 
-    assert scan.reads[-1] - started_at == pytest.approx(0.05)
-    assert len(scan.sleeps) == old_sleeps
+    assert scan.reads[-1] - started_at == pytest.approx(max(0.05, preparation_time))
+    remaining_sleeps = scan.sleeps[old_sleeps:]
+    if preparation_time < 0.05:
+        assert remaining_sleeps == pytest.approx([0.05 - preparation_time])
+    else:
+        assert sum(remaining_sleeps) == pytest.approx(0, abs=1e-9)
 
 
 def test_cancelled_unconfirmed_line_does_not_teach_an_initial_delay(scan_workflow, monkeypatch):
@@ -575,7 +582,7 @@ def test_projected_live_hook_lines_learn_delay_and_log_each_outcome(scan_workflo
     line = project("もう一つの台詞だ。", "line-5")
     scan.run(lambda _at, _index: line.text, line=line, ocr_duration=0.15)
 
-    assert scan.reads[-1] - started_at == pytest.approx(0.005)
+    assert scan.reads[-1] - started_at == pytest.approx(0.05)
     assert len(scan.reads) == 8
     completed = [message for message in summaries if message.startswith("Overlay OCR complete:")]
     assert len(completed) == 5
@@ -588,8 +595,8 @@ def test_projected_live_hook_lines_learn_delay_and_log_each_outcome(scan_workflo
     assert "initial match: 100%" in completed[1]
     assert "timing: first_capture_ready" in completed[1]
     assert "initial delay: 0ms -> 0ms" in completed[2]
-    assert "initial delay: 0ms -> 5ms" in completed[3]
-    assert "initial delay: 5ms -> 5ms" in completed[4]
+    assert "initial delay: 0ms -> 50ms" in completed[3]
+    assert "initial delay: 50ms -> 50ms" in completed[4]
 
 
 def test_initial_scan_delay_stays_at_or_below_150ms_even_when_the_game_needs_longer(scan_workflow):

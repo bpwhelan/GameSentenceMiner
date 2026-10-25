@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { invokeIpc } from "../../lib/ipc";
 import { useTranslation } from "../../i18n";
 import { TextCaptureWizard } from "../TextCaptureWizard";
+import { GameBackgroundSettings } from "../GameBackgroundSettings";
+import { WorkspaceIcon } from "../Workspace";
+import { HomeGameMenu } from "./HomeGameMenu";
 import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types/models";
+import "./HomeTab.css";
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -78,6 +82,65 @@ function relativeTime(
   return t("home.status.timeDays", { n: Math.floor(diff / 86400) });
 }
 
+function AddGameDialog({ children, busy, returnFocus, onClose }: {
+  children: ReactNode;
+  busy: boolean;
+  returnFocus: HTMLElement | null;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current!;
+    const previousFocus = returnFocus ?? document.activeElement;
+    const focusStart = () => {
+      const control = dialog.querySelector<HTMLElement>("select:not(:disabled)") ?? dialog.querySelector<HTMLElement>("button:not(:disabled)");
+      (control ?? dialog).focus();
+    };
+    const containFocus = (event: FocusEvent) => {
+      if (event.target instanceof Node && !dialog.contains(event.target)) focusStart();
+    };
+    focusStart();
+    document.addEventListener("focusin", containFocus);
+    return () => {
+      document.removeEventListener("focusin", containFocus);
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected &&
+          (document.activeElement === document.body || dialog.contains(document.activeElement))) previousFocus.focus();
+    };
+  }, [returnFocus]);
+
+  return (
+    <div
+      ref={dialogRef}
+      id="home-new-capture"
+      className="capture-wizard-overlay home-add-game-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="home-new-game-heading"
+      aria-describedby="home-new-game-hint"
+      tabIndex={-1}
+      onClick={(event) => { if (!busy && event.target === event.currentTarget) onClose(); }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!busy) onClose();
+        } else if (event.key === "Tab") {
+          const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), select:not(:disabled), input:not(:disabled), a[href], [tabindex="0"]',
+          ));
+          const lastControl = controls[controls.length - 1];
+          const destination = event.shiftKey && document.activeElement === controls[0] ? lastControl
+            : !event.shiftKey && document.activeElement === lastControl ? controls[0] : null;
+          if (destination) { event.preventDefault(); destination.focus(); }
+        }
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Status Bar                                                         */
 /* ------------------------------------------------------------------ */
@@ -93,19 +156,29 @@ interface StatusPillProps {
 }
 
 function StatusPill({ icon, label, text, variant, tooltip, onClick, clickable }: StatusPillProps) {
+  const content = (
+    <>
+      <span className="home-status-pill__icon"><WorkspaceIcon name={icon} /></span>
+      <span className="home-status-pill__copy">
+        <span className="home-status-pill__label">{label}</span>
+        <span className="home-status-pill__text">{text}</span>
+      </span>
+      <span className="home-status-pill__dot" aria-hidden="true" />
+      {clickable && <span className="home-status-pill__action" aria-hidden="true">›</span>}
+    </>
+  );
+  const className = `home-status-pill home-status-pill--${variant}${clickable ? " home-status-pill--clickable" : ""}`;
+  if (!clickable) {
+    return <div className={className} data-tip={tooltip}>{content}</div>;
+  }
   return (
     <button
-      className={`home-status-pill home-status-pill--${variant}${clickable ? " home-status-pill--clickable" : ""}`}
+      className={className}
       data-tip={tooltip}
       onClick={onClick}
       type="button"
-      tabIndex={clickable ? 0 : -1}
     >
-      <span className="home-status-pill__icon">{icon}</span>
-      <span className="home-status-pill__label">{label}</span>
-      <span className="home-status-pill__dot" />
-      {clickable && <span className="home-status-pill__action" aria-hidden="true">›</span>}
-      <span className="home-status-pill__text">{text}</span>
+      {content}
     </button>
   );
 }
@@ -163,9 +236,10 @@ function AnkiBeaconModal({ onClose, beaconConnected }: AnkiBeaconModalProps) {
     <div
       className="home-modal-backdrop"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } }}
     >
-      <div className="home-modal home-anki-beacon-modal" role="dialog" aria-modal="true">
-        <h3>{t("home.ankiBeacon.title")}</h3>
+      <div className="home-modal home-anki-beacon-modal" role="dialog" aria-modal="true" aria-labelledby="home-anki-beacon-title">
+        <h3 id="home-anki-beacon-title">{t("home.ankiBeacon.title")}</h3>
         <p className="home-modal__desc">{t("home.ankiBeacon.description")}</p>
         <p className="home-modal__desc">{t("home.ankiBeacon.benefit")}</p>
         <div className="home-anki-beacon-links">
@@ -218,7 +292,7 @@ function AnkiBeaconModal({ onClose, beaconConnected }: AnkiBeaconModalProps) {
         )}
 
         <div className="home-modal__actions">
-          <button type="button" className="secondary" onClick={onClose}>
+          <button type="button" className="secondary" onClick={onClose} autoFocus>
             {t(installHasStarted ? "home.ankiBeacon.close" : "home.ankiBeacon.later")}
           </button>
           {showInstallButton && (
@@ -277,13 +351,14 @@ function RenameModal({ scene, onClose, onConfirm }: RenameModalProps) {
       className="home-modal-backdrop"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="home-modal" role="dialog" aria-modal="true">
-        <h3>{t("home.rename.title")}</h3>
+      <div className="home-modal" role="dialog" aria-modal="true" aria-labelledby="home-rename-title">
+        <h3 id="home-rename-title">{t("home.rename.title")}</h3>
         <p className="home-modal__desc">{t("home.rename.description")}</p>
         <input
           ref={inputRef}
           className="home-input"
           type="text"
+          aria-label={t("home.rename.title")}
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
@@ -383,8 +458,22 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const [selectedSceneId, setSelectedSceneId] = useState<string>("");
   const [renameTarget, setRenameTarget] = useState<ObsScene | null>(null);
   const [selectedSceneCaptureMode, setSelectedSceneCaptureMode] = useState<ObsCaptureMode | null>(null);
-  const [sceneCaptureModeLoading, setSceneCaptureModeLoading] = useState(false);
-  const [captureCardEverShown, setCaptureCardEverShown] = useState(false);
+  const [newCaptureOpen, setNewCaptureOpen] = useState(false);
+  const [sceneCreating, setSceneCreating] = useState(false);
+  const [sceneCreateError, setSceneCreateError] = useState(false);
+  const addGameTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const openNewCapture = useCallback((trigger: HTMLButtonElement) => {
+    addGameTriggerRef.current = trigger;
+    setNewCaptureOpen(true);
+  }, []);
+  const [gameSearch, setGameSearch] = useState("");
+  const selectedGameRef = useRef<HTMLButtonElement>(null);
+  const [gameMenu, setGameMenu] = useState<{ scene: ObsScene; anchor: HTMLButtonElement } | null>(null);
+  const closeGameMenu = useCallback(() => setGameMenu(null), []);
+
+  useEffect(() => {
+    if (!active || (gameMenu && !scenes.some(scene => scene.id === gameMenu.scene.id))) setGameMenu(null);
+  }, [active, scenes, gameMenu]);
 
   /* ---- Windows --------------------------------------------------- */
   const [windows, setWindows] = useState<ObsWindow[]>([]);
@@ -507,8 +596,15 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   /* ---- Scene actions --------------------------------------------- */
   const selectedScene = scenes.find((s) => s.id === selectedSceneId) ?? null;
   const isHelperScene = selectedScene ? HELPER_SCENE_NAMES.has(selectedScene.name) : true;
-  const hasUserScenes = scenes.some((s) => !HELPER_SCENE_NAMES.has(s.name));
-  if (hasUserScenes && !captureCardEverShown) setCaptureCardEverShown(true);
+  const userScenes = scenes.filter((s) => !HELPER_SCENE_NAMES.has(s.name));
+  const hasUserScenes = userScenes.length > 0;
+  const filteredScenes = userScenes.filter((scene) =>
+    scene.name.toLocaleLowerCase().includes(gameSearch.trim().toLocaleLowerCase()),
+  );
+
+  useEffect(() => {
+    if (active && !newCaptureOpen) selectedGameRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [active, selectedSceneId, newCaptureOpen, gameSearch]);
 
   /* ---- Scene profile mapping ------------------------------------- */
   const otherProfilesExist = gsmProfiles.some((p) => p !== DEFAULT_PROFILE_NAME);
@@ -537,12 +633,10 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   useEffect(() => {
     if (!active || !selectedSceneId) {
       setSelectedSceneCaptureMode(null);
-      setSceneCaptureModeLoading(false);
       return;
     }
 
     let cancelled = false;
-    setSceneCaptureModeLoading(true);
     invokeIpc<ObsCaptureMode | null>("obs.getSceneCaptureMode", selectedSceneId)
       .then((mode) => {
         if (!cancelled) {
@@ -551,9 +645,6 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
       })
       .catch(() => {
         if (!cancelled) setSelectedSceneCaptureMode(null);
-      })
-      .finally(() => {
-        if (!cancelled) setSceneCaptureModeLoading(false);
       });
 
     return () => { cancelled = true; };
@@ -619,6 +710,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
 
   const handleSceneChange = useCallback((id: string) => {
     setSelectedSceneId(id);
+    setNewCaptureOpen(false);
     if (id) void invokeIpc("obs.switchScene.id", id);
   }, []);
 
@@ -682,11 +774,10 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     }
   }, [newProfileName, selectedScene]);
 
-  const handleRemoveScene = useCallback(async () => {
-    if (!selectedSceneId) return;
-    await invokeIpc("obs.removeScene", selectedSceneId);
+  const handleRemoveScene = useCallback(async (scene: ObsScene) => {
+    await invokeIpc("obs.removeScene", scene.id);
     await refreshAll();
-  }, [selectedSceneId, refreshAll]);
+  }, [refreshAll]);
 
   const handleRenameConfirm = useCallback(
     async (newName: string) => {
@@ -701,24 +792,16 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     [renameTarget, refreshAll],
   );
 
-  const handleSwitchCaptureMode = useCallback(async () => {
-    if (!selectedSceneId || !selectedSceneCaptureMode) return;
+  const handleSwitchCaptureMode = useCallback(async (scene: ObsScene, mode: ObsCaptureMode) => {
     const targetMode: ObsCaptureMode =
-      selectedSceneCaptureMode === "window_capture" ? "game_capture" : "window_capture";
-    setSceneCaptureModeLoading(true);
-    try {
-      const result = await invokeIpc<ObsCaptureMode | null>("obs.switchSceneCaptureMode", {
-        sceneUuid: selectedSceneId,
-        targetMode,
-      });
-      setSelectedSceneCaptureMode(result === "window_capture" || result === "game_capture" ? result : null);
-      await refreshAll();
-    } catch {
-      setSelectedSceneCaptureMode(null);
-    } finally {
-      setSceneCaptureModeLoading(false);
-    }
-  }, [selectedSceneId, selectedSceneCaptureMode, refreshAll]);
+      mode === "window_capture" ? "game_capture" : "window_capture";
+    const result = await invokeIpc<ObsCaptureMode | null>("obs.switchSceneCaptureMode", {
+      sceneUuid: scene.id,
+      targetMode,
+    });
+    if (scene.id === selectedSceneId) setSelectedSceneCaptureMode(result === "window_capture" || result === "game_capture" ? result : null);
+    await refreshAll();
+  }, [selectedSceneId, refreshAll]);
 
   const handleOpenCaptureWizard = useCallback(() => {
     if (!selectedScene || isHelperScene) return;
@@ -728,38 +811,46 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
 
   const handleCreateScene = useCallback(async () => {
     const win = selectedWindow;
-    if (!win) return;
-    const payload = {
-      title: win.title,
-      value: win.value,
-      sceneName: overrideSceneName.trim() || win.title,
-      targetKind: win.targetKind ?? "window",
-      captureMode: canSelectCaptureMode ? selectedCaptureMode : undefined,
-      captureValues: win.captureValues ?? {},
-      videoDeviceId: win.videoDeviceId,
-      audioDeviceId: win.audioDeviceId,
-      wasapiInputDeviceId: win.wasapiInputDeviceId,
-      monitorId: win.monitorId,
-      pipewireInputKind: win.pipewireInputKind,
-    };
-    await invokeIpc("obs.createScene", payload);
-    await refreshAll();
-
+    if (!win || sceneCreating) return;
+    setSceneCreating(true);
+    setSceneCreateError(false);
     try {
-      const [settings, activeScene] = await Promise.all([
-        invokeIpc<{ textCaptureWizardEnabled?: boolean }>("settings.getSettings"),
-        invokeIpc<ObsScene | null>("obs.getActiveScene")
-      ]);
-      if (settings?.textCaptureWizardEnabled === false) {
-        return;
+      const payload = {
+        title: win.title,
+        value: win.value,
+        sceneName: overrideSceneName.trim() || win.title,
+        targetKind: win.targetKind ?? "window",
+        captureMode: canSelectCaptureMode ? selectedCaptureMode : undefined,
+        captureValues: win.captureValues ?? {},
+        videoDeviceId: win.videoDeviceId,
+        audioDeviceId: win.audioDeviceId,
+        wasapiInputDeviceId: win.wasapiInputDeviceId,
+        monitorId: win.monitorId,
+        pipewireInputKind: win.pipewireInputKind,
+      };
+      await invokeIpc("obs.createScene", payload);
+      await refreshAll();
+      setNewCaptureOpen(false);
+      setGameSearch("");
+
+      try {
+        const [settings, activeScene] = await Promise.all([
+          invokeIpc<{ textCaptureWizardEnabled?: boolean }>("settings.getSettings"),
+          invokeIpc<ObsScene | null>("obs.getActiveScene")
+        ]);
+        if (settings?.textCaptureWizardEnabled === false) return;
+        setCaptureWizardScene(activeScene ?? null);
+        setCaptureWizardOpen(true);
+      } catch {
+        setCaptureWizardScene(null);
+        setCaptureWizardOpen(true);
       }
-      setCaptureWizardScene(activeScene ?? null);
-      setCaptureWizardOpen(true);
     } catch {
-      setCaptureWizardScene(null);
-      setCaptureWizardOpen(true);
+      setSceneCreateError(true);
+    } finally {
+      setSceneCreating(false);
     }
-  }, [selectedWindow, overrideSceneName, selectedCaptureMode, canSelectCaptureMode, refreshAll]);
+  }, [selectedWindow, overrideSceneName, selectedCaptureMode, canSelectCaptureMode, refreshAll, sceneCreating]);
 
   const handleCaptureCardToggle = useCallback(async (enabled: boolean) => {
     try {
@@ -903,51 +994,413 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const captureCardTargets = windows.filter((w) => w.targetKind === "capture_card");
   const monitorTargets = windows.filter((w) => w.targetKind === "monitor");
 
+  const overlaySection = (
+    <section className="home-overlay-card" aria-labelledby="home-overlay-heading">
+      <div className="home-section-heading">
+        <h2 id="home-overlay-heading"><WorkspaceIcon name="layout" />{t("home.overlay.title")}</h2>
+        <span
+          className={`home-overlay-card__status ${
+            overlayRunning
+              ? "home-overlay-card__status--running"
+              : "home-overlay-card__status--stopped"
+          }`}
+        >
+          {overlayRunning
+            ? t("home.overlay.statusRunning")
+            : t("home.overlay.statusStopped")}
+        </span>
+      </div>
+      <p className="home-section-hint">{t("home.workspace.overlayHint")}</p>
+      <div className="home-section-body">
+        <div className="home-overlay-card__controls">
+          <div className="home-overlay-card__actions">
+            <button
+              type="button"
+              className="home-overlay-primary-btn"
+              onClick={overlayRunning ? openOverlaySettings : runOverlay}
+              data-tip={
+                overlayRunning
+                  ? t("home.actions.overlaySettingsTooltip")
+                  : t("home.actions.overlayTooltip")
+              }
+            >
+              <WorkspaceIcon name={overlayRunning ? "settings" : "play"} />
+              {overlayRunning ? t("home.actions.overlaySettings") : t("home.actions.overlay")}
+            </button>
+            <button
+              type="button"
+              className="home-quick-btn home-overlay-guide-btn"
+              onClick={() => openExternal(OVERLAY_DOCS_URL)}
+              data-tip={t("home.actions.overlayWiki")}
+            >
+              {t("home.overlay.guide")}
+            </button>
+          </div>
+          <div className="home-overlay-card__automation">
+            <label
+              className="home-toggle home-overlay-card__startup"
+              htmlFor="home-overlay-active-game-toggle"
+              data-tip={t("home.overlay.runWithActiveGameTooltip")}
+            >
+              <input
+                id="home-overlay-active-game-toggle"
+                type="checkbox"
+                checked={runOverlayWithActiveGame}
+                disabled={!overlaySettingsLoaded || overlaySettingsSaving}
+                onChange={(e) => void handleOverlayAutomationChange("runOverlayWithActiveGame", e.target.checked)}
+              />
+              <span>{t("home.overlay.runWithActiveGame")}</span>
+              <span className="home-overlay-card__recommended">{t("home.overlay.recommended")}</span>
+            </label>
+            <label
+              className="home-toggle home-overlay-card__startup"
+              htmlFor="home-overlay-startup-toggle"
+              data-tip={t("home.overlay.runOnStartupTooltip")}
+            >
+              <input
+                id="home-overlay-startup-toggle"
+                type="checkbox"
+                checked={runOverlayOnStartup}
+                disabled={!overlaySettingsLoaded || overlaySettingsSaving}
+                onChange={(e) => void handleOverlayAutomationChange("runOverlayOnStartup", e.target.checked)}
+              />
+              <span>{t("home.overlay.runOnStartup")}</span>
+            </label>
+            {overlaySettingsError ? <p role="alert">{t("home.overlay.settingsError")}</p> : null}
+          </div>
+        </div>
+        {!isWindows && (
+          <span className="home-overlay-card__warning">
+            {t("home.actions.overlayPlatformWarning")}
+          </span>
+        )}
+      </div>
+    </section>
+  );
+
+  const setupSection = (
+    <form className="capture-wizard-card home-add-game-card" aria-busy={sceneCreating}
+      onSubmit={(event) => { event.preventDefault(); if (canCreateScene) void handleCreateScene(); }}>
+      <div className="capture-wizard-header">
+        <div>
+          <h2 id="home-new-game-heading">{t("home.workspace.addGame")}</h2>
+          <p id="home-new-game-hint">{t(hasUserScenes ? "home.workspace.addGameHint" : "home.workspace.firstGameHint")}</p>
+        </div>
+        <button type="button" className="secondary home-add-game-close" disabled={sceneCreating}
+          aria-label={t("home.rename.cancel")} onClick={() => setNewCaptureOpen(false)}>
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+      <div className="capture-wizard-body home-section-body">
+        {/* Capture target selector */}
+        <div className="home-row">
+          <label className="home-row__label" htmlFor="home-window-select">
+            {t("home.obs.captureTargetLabel")}
+          </label>
+          <div className="home-row__controls">
+            <select
+              id="home-window-select"
+              className="home-select"
+              value={selectedWindowValue}
+              disabled={!canEnumerateWindows || sceneCreating}
+              data-tip={!canEnumerateWindows ? t("home.obs.notSupportedTooltip") : undefined}
+              onChange={(e) => handleWindowSelectionChange(e.target.value)}
+            >
+              {!canEnumerateWindows && (
+                <option>{t("home.obs.notSupportedOS")}</option>
+              )}
+              {canEnumerateWindows && windows.length > 0 && (
+                <option value="" disabled>{t("home.obs.selectWindow")}</option>
+              )}
+              {windowsLoading && windows.length === 0 && canEnumerateWindows && (
+                <option>{t("home.obs.loading")}</option>
+              )}
+              {windows.length === 0 && !windowsLoading && canEnumerateWindows && (
+                <option value="">{t("home.obs.noCaptureTargets")}</option>
+              )}
+              {windowTargets.length > 0 && (
+                <optgroup label={t("home.obs.sectionWindows")}>
+                  {windowTargets.map((w) => (
+                    <option key={w.value} value={w.value}>
+                      {w.targetKind === "wayland_pipewire"
+                        ? t("home.obs.waylandPipewireOption")
+                        : w.title}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {monitorTargets.length > 0 && (
+                <optgroup label={t("home.obs.sectionMonitors")}>
+                  {monitorTargets.map((w) => (
+                    <option key={w.value} value={w.value}>{w.title}</option>
+                  ))}
+                </optgroup>
+              )}
+              {captureCardTargets.length > 0 && (
+                <optgroup label={t("home.obs.sectionCaptureCards")}>
+                  {captureCardTargets.map((w) => (
+                    <option key={w.value} value={w.value}>
+                      {t("home.obs.captureCardPrefix", { title: w.title })}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            <button
+              type="button"
+              className="home-icon-btn"
+              disabled={!canEnumerateWindows || sceneCreating}
+              onClick={() => void loadWindows()}
+              data-tip={t("home.obs.refreshWindows")}
+              aria-label={t("home.obs.refreshWindows")}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Capture mode selector */}
+        {canSelectCaptureMode && <div className="home-row home-row--capture-mode">
+          <label className="home-row__label" htmlFor="home-capture-mode-window">
+            {t("home.obs.captureModeLabel")}
+          </label>
+          <div className="home-row__controls home-capture-mode">
+            <label className="home-capture-mode__option">
+              <input
+                id="home-capture-mode-window"
+                type="radio"
+                name="home-capture-mode"
+                value="window_capture"
+                checked={selectedCaptureMode === "window_capture"}
+                disabled={!canUseWindowCapture || sceneCreating}
+                onChange={() => setSelectedCaptureMode("window_capture")}
+              />
+              <span>{t("home.obs.captureModeWindow")}</span>
+            </label>
+            <label className="home-capture-mode__option">
+              <input
+                type="radio"
+                name="home-capture-mode"
+                value="game_capture"
+                checked={selectedCaptureMode === "game_capture"}
+                disabled={!canUseGameCapture || sceneCreating}
+                onChange={() => setSelectedCaptureMode("game_capture")}
+              />
+              <span>{t("home.obs.captureModeGame")}</span>
+            </label>
+          </div>
+        </div>}
+
+        {/* Override scene name — only shown once a target is selected */}
+        {selectedWindowValue && <div className="home-row home-row--scene-name-override">
+          <label className="home-row__label" htmlFor="home-scene-name-override">
+            {t("home.obs.overrideSceneName")}
+          </label>
+          <div className="home-row__controls">
+            <input
+              id="home-scene-name-override"
+              className="home-input"
+              type="text"
+              disabled={!canEnumerateWindows || sceneCreating}
+              value={overrideSceneName}
+              onChange={(e) => setOverrideSceneName(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
+        </div>}
+
+        {/* Capture card toggle */}
+        <div className="home-row home-row--toggle">
+          <span className="home-row__label" aria-hidden="true" />
+          <div className="home-row__controls">
+            <label
+              className="home-toggle"
+              htmlFor="home-capture-card-toggle"
+              data-tip={t("home.obs.captureCardTooltip")}
+            >
+              <input
+                id="home-capture-card-toggle"
+                type="checkbox"
+                disabled={!canEnumerateWindows || sceneCreating}
+                checked={captureCardEnabled}
+                onChange={(e) => void handleCaptureCardToggle(e.target.checked)}
+              />
+              <span>{t("home.obs.captureCardToggle")}</span>
+            </label>
+          </div>
+        </div>
+
+        {sceneCreateError && <p role="alert">{t("home.workspace.addGameError")}</p>}
+      </div>
+      <div className="capture-wizard-footer">
+        <div className="capture-wizard-footer-actions">
+          <button type="button" className="secondary" disabled={sceneCreating} onClick={() => setNewCaptureOpen(false)}>
+            {t("home.rename.cancel")}
+          </button>
+          <button
+            type="submit"
+            className="ws-primary"
+            disabled={!canCreateScene || sceneCreating}
+            data-tip={t(
+              isWaylandPipewireSelection
+                ? "home.obs.waylandPipewireTooltip"
+                : isMonitorSelection
+                  ? "home.obs.monitorCaptureTooltip"
+                  : "home.obs.setupCaptureTooltip",
+            )}
+          >
+            {t(sceneCreating ? "home.workspace.addingGame" : "home.obs.setupCapture")}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+
   /* ---- Render ---------------------------------------------------- */
   return (
-    <div className={`tab-panel ${active ? "active" : ""}`}>
-      <div className="modern-tab home-tab">
-        <div className="home-layout">
-
-          {/* ===== ACTIVE CAPTURE ===== */}
-          {captureCardEverShown && <section className="card home-obs-card home-capture-card">
-            <div className="card-header">
-              {t("home.obs.title")}
-              <span className="home-obs-card__badge">{t("home.obs.required")}</span>
+    <div className={`tab-panel home-panel ${active ? "active" : ""}`}>
+      <div className="gsm-workspace home-desk">
+        <aside className="home-library" aria-label={t("home.workspace.library")} inert={newCaptureOpen}>
+          <div className="home-library-brand">
+            <span className="home-library-mark"><WorkspaceIcon name="general" /></span>
+            <div>
+              <strong>{t("app.tabs.home")}</strong>
+              <span>{t("home.workspace.library")}</span>
             </div>
-            <div className="card-body">
-              {/* Scene selector */}
-              <div className="home-row">
-                <label className="home-row__label" htmlFor="home-scene-select">
-                  {t("home.obs.gameLabel")}
-                </label>
-                <div className="home-row__controls">
-                  <select
-                    id="home-scene-select"
-                    className="home-select"
-                    value={selectedSceneId}
-                    onChange={(e) => handleSceneChange(e.target.value)}
-                  >
-                    {scenesLoading && scenes.length === 0 && (
-                      <option>{t("home.obs.loading")}</option>
-                    )}
-                    {scenes.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="home-icon-btn"
-                    onClick={() => void refreshAll()}
-                    data-tip={t("home.obs.refreshScenes")}
-                    aria-label={t("home.obs.refreshScenes")}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-                  </button>
-                </div>
-              </div>
+          </div>
+          <button
+            type="button"
+            className="ws-primary home-add-game"
+            aria-haspopup="dialog"
+            aria-controls="home-new-capture"
+            onClick={(event) => openNewCapture(event.currentTarget)}
+          >
+            <span aria-hidden="true">+</span>
+            {t("home.workspace.addGame")}
+          </button>
+          <div className="home-library-heading">
+            <h2>{t("home.workspace.savedGames")}</h2>
+            <button
+              type="button"
+              className="home-icon-btn"
+              onClick={() => void refreshAll()}
+              aria-label={t("home.obs.refreshScenes")}
+              data-tip={t("home.obs.refreshScenes")}
+            >
+              <WorkspaceIcon name="updates" />
+            </button>
+          </div>
+          {hasUserScenes && <div className="home-library-search">
+            <WorkspaceIcon name="search" />
+            <input
+              type="search"
+              value={gameSearch}
+              placeholder={t("home.workspace.searchGames")}
+              aria-label={t("home.workspace.searchGames")}
+              onChange={(event) => setGameSearch(event.target.value)}
+            />
+          </div>}
+          <ul className="home-game-list">
+            {filteredScenes.map((scene) => (
+              <li key={scene.id} className="home-game-entry">
+                <button
+                  type="button"
+                  className="home-game-button"
+                  data-tip={scene.name}
+                  data-tip-if-truncated="span"
+                  ref={selectedSceneId === scene.id ? selectedGameRef : null}
+                  data-scene-id={scene.id}
+                  aria-current={selectedSceneId === scene.id ? "true" : undefined}
+                  onClick={() => handleSceneChange(scene.id)}
+                >
+                  <WorkspaceIcon name="general" />
+                  <span>{scene.name}</span>
+                </button>
+                <button type="button" className="home-game-menu-trigger" data-game-menu-id={scene.id}
+                  aria-label={t("home.workspace.gameActions", { name: scene.name })}
+                  aria-haspopup="menu" aria-expanded={gameMenu?.scene.id === scene.id}
+                  aria-controls={gameMenu?.scene.id === scene.id ? "home-game-menu" : undefined}
+                  onClick={(event) => setGameMenu(gameMenu?.scene.id === scene.id ? null : { scene, anchor: event.currentTarget })}>
+                  <span aria-hidden="true">⋯</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {!hasUserScenes && <p className="home-library-empty">{t(scenesLoading ? "home.obs.loading" : "home.workspace.noGames")}</p>}
+          {hasUserScenes && filteredScenes.length === 0 && <p className="home-library-empty" role="status">{t("home.workspace.noMatchingGames")}</p>}
+          <section className="home-status-card" aria-label={t("home.workspace.connections")}>
+            <div className="home-status-grid">
+              {/* Fixed core statuses */}
+              <StatusPill
+                icon="capture"
+                label={t("home.status.gsm")}
+                text={gsmText}
+                variant={gsmVariant}
+                tooltip={gsmTooltip}
+              />
+              <StatusPill
+                icon="general"
+                label={t("home.status.obs")}
+                text={obsOk ? t("home.status.connected") : t("home.status.disconnected")}
+                variant={obsOk ? "ok" : "bad"}
+                tooltip={obsOk ? t("home.status.tooltipObsConnected") : t("home.status.tooltipObsDisconnected")}
+                onClick={openOBS}
+                clickable
+              />
+              <StatusPill
+                icon="backups"
+                label={t("home.status.anki")}
+                text={ankiText}
+                variant={ankiVariant}
+                tooltip={ankiTooltip}
+                onClick={showAnkiBeaconNudge ? openAnkiBeaconModal : undefined}
+                clickable={showAnkiBeaconNudge}
+              />
+              <StatusPill
+                icon="layout"
+                label={t("home.status.clipboard")}
+                text={clipText}
+                variant={clipEnabled ? "ok" : "neutral"}
+                tooltip={clipTooltip}
+              />
+              {/* Dynamic input sources */}
+              {wsEntries.map(([url, name]) => (
+                <StatusPill
+                  key={url}
+                  icon="activity"
+                  label={name}
+                  text={t("home.status.connected")}
+                  variant="ok"
+                  tooltip={t("home.status.tooltipWsConnected", { name })}
+                />
+              ))}
+            </div>
+          </section>
+        </aside>
 
-                            {/* Scene profile selector — only when more than the Default profile exists */}
+        <div className="home-session" inert={newCaptureOpen}>
+          <div className="home-session-scroll">
+            {!hasUserScenes && <section className="home-empty-game" aria-labelledby="home-empty-game-heading">
+              <span className="home-empty-game__icon" aria-hidden="true"><WorkspaceIcon name="general" /></span>
+              <h1 id="home-empty-game-heading">{t("home.workspace.noGames")}</h1>
+              <p className="home-section-hint">{t("home.workspace.emptyGameHint")}</p>
+              <button type="button" className="ws-primary" aria-haspopup="dialog" aria-controls="home-new-capture" onClick={(event) => openNewCapture(event.currentTarget)}>
+                {t("home.workspace.addGame")}
+              </button>
+            </section>}
+            <section className="home-current-game" hidden={!hasUserScenes} aria-labelledby="home-current-game-heading">
+              <header className="home-section-heading home-game-header">
+                <div className="home-game-title">
+                  <span className="ws-eyebrow">{t("home.workspace.gameContext")}</span>
+                  <h1 id="home-current-game-heading">{isHelperScene ? t("home.workspace.chooseGame") : selectedScene?.name}</h1>
+                  <div className="home-game-meta">
+                    {selectedSceneCaptureMode && <span>{t(selectedSceneCaptureMode === "window_capture" ? "home.obs.captureModeWindow" : "home.obs.captureModeGame")}</span>}
+                    {isWindows && windowsDetectedExe && !isHelperScene && <span className="home-game-executable">{windowsDetectedExe}</span>}
+                    {isHelperScene && <span>{t("home.workspace.chooseGameHint")}</span>}
+                  </div>
+                </div>
+              </header>
+              {/* Scene profile selector — only when more than the Default profile exists */}
               {showSceneProfileRow && (
                 <div className="home-row">
                   <div className="home-row__label home-profile-label">
@@ -1016,489 +1469,148 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                   </div>
                 </div>
               )}
+            </section>
 
-
-              {/* Scene actions */}
-              <div className="home-row">
-                <span className="home-row__label">{/* spacer */}</span>
-                <div className="home-row__controls home-capture-actions">
-                  <button
-                    type="button"
-                    className="home-text-btn"
-                    disabled={isHelperScene}
-                    onClick={() => { if (selectedScene) setRenameTarget(selectedScene); }}
-                  >
-                    {t("home.obs.rename")}
-                  </button>
-                  {selectedSceneCaptureMode && (
-                    <button
-                      type="button"
-                      className="home-text-btn"
-                      disabled={isHelperScene || sceneCaptureModeLoading}
-                      onClick={() => void handleSwitchCaptureMode()}
-                    >
-                      {selectedSceneCaptureMode === "window_capture"
-                        ? t("home.obs.switchToGameCapture")
-                        : t("home.obs.switchToWindowCapture")}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="home-text-btn"
-                    disabled={isHelperScene}
-                    onClick={handleOpenCaptureWizard}
-                    data-tip={t("home.obs.runCaptureWizardTooltip")}
-                  >
-                    {t("home.obs.runCaptureWizard")}
-                  </button>
-                  <button
-                    type="button"
-                    className="home-text-btn home-text-btn--danger"
-                    disabled={isHelperScene}
-                    onClick={() => void handleRemoveScene()}
-                  >
-                    {t("home.obs.remove")}
-                  </button>
-                  {/* 
-                  // TODO: Switch profile per-scene
-                  <button type="button" className="home-text-btn" disabled>
-                    {t("home.obs.switchProfile")}
-                  </button>
-                  // TODO: Open OBS preview for current capture
-                  <button type="button" className="home-text-btn" disabled>
-                    {t("home.obs.preview")}
-                  </button>
-                   */}
+            <div className="home-tools">
+              {overlaySection}
+              <section className="home-quick-actions" aria-labelledby="home-text-feed-heading">
+                <div className="home-section-heading">
+                  <h2 id="home-text-feed-heading"><WorkspaceIcon name="activity" />{t("home.workspace.textFeed")}</h2>
                 </div>
-              </div>
+                <p className="home-section-hint">{t("home.workspace.textFeedHint")}</p>
+                <div className="home-tool-actions">
+                  <button type="button" className="home-feed-button" onClick={openTexthooker} data-tip={t("home.actions.texthookerTooltip")}>
+                    {t("home.actions.texthooker")}
+                    <WorkspaceIcon name="arrow" />
+                  </button>
+                </div>
+                <button type="button" className="home-settings-link" onClick={openGSMSettings} data-tip={t("home.actions.gsmSettingsTooltip")}>
+                  <WorkspaceIcon name="settings" />
+                  {t("home.actions.gsmSettings")}
+                  <WorkspaceIcon name="arrow" />
+                </button>
+              </section>
+            </div>
 
-              {/* Game executable — Linux Wine/Proton hook target (read-only on Windows) */}
-              {selectedScene && !isHelperScene && (
-                <div className="home-row">
-                  <label className="home-row__label" htmlFor="home-game-exe">
-                    {t("home.obs.gameExeLabel")}
-                  </label>
-                  <div className="home-row__controls">
-                    {isWindows ? (
-                      <input
-                        id="home-game-exe"
-                        className="home-input"
-                        type="text"
-                        value={windowsDetectedExe}
-                        readOnly
-                        disabled
-                        data-tip={t("home.obs.gameExeWindowsTooltip")}
-                        autoComplete="off"
-                      />
-                    ) : (
-                      <>
+            <section className="home-game-details" hidden={isHelperScene} aria-labelledby="home-game-options-heading">
+              <div className="home-section-heading">
+                <h2 id="home-game-options-heading"><WorkspaceIcon name="settings" />{t("home.workspace.gameOptions")}</h2>
+              </div>
+              <div className="home-section-body">
+                {/* Game executable — Linux Wine/Proton hook target (read-only on Windows) */}
+                {selectedScene && !isHelperScene && (
+                  <div className="home-row">
+                    <label className="home-row__label" htmlFor="home-game-exe">
+                      {t("home.obs.gameExeLabel")}
+                    </label>
+                    <div className="home-row__controls">
+                      {isWindows ? (
                         <input
                           id="home-game-exe"
                           className="home-input"
                           type="text"
-                          value={gameExePath}
-                          placeholder={t("home.obs.gameExePlaceholder")}
+                          value={windowsDetectedExe}
+                          readOnly
+                          disabled
+                          data-tip={t("home.obs.gameExeWindowsTooltip")}
                           autoComplete="off"
-                          onChange={(e) => setGameExePath(e.target.value)}
-                          onBlur={(e) => void persistGameExePath(e.target.value.trim())}
                         />
-                        <button
-                          type="button"
-                          className="home-text-btn"
-                          onClick={() => void handleBrowseGameExe()}
-                        >
-                          {t("home.obs.gameExeBrowse")}
-                        </button>
-                        <button
-                          type="button"
-                          className="home-text-btn"
-                          disabled={gameExeDetecting}
-                          onClick={() => void handleAutoDetectGameExe()}
-                        >
-                          {gameExeDetecting
-                            ? t("home.obs.gameExeDetecting")
-                            : t("home.obs.gameExeAutoDetect")}
-                        </button>
-                      </>
-                    )}
+                      ) : (
+                        <>
+                          <input
+                            id="home-game-exe"
+                            className="home-input"
+                            type="text"
+                            value={gameExePath}
+                            placeholder={t("home.obs.gameExePlaceholder")}
+                            autoComplete="off"
+                            onChange={(e) => setGameExePath(e.target.value)}
+                            onBlur={(e) => void persistGameExePath(e.target.value.trim())}
+                          />
+                          <button
+                            type="button"
+                            className="home-text-btn"
+                            onClick={() => void handleBrowseGameExe()}
+                          >
+                            {t("home.obs.gameExeBrowse")}
+                          </button>
+                          <button
+                            type="button"
+                            className="home-text-btn"
+                            disabled={gameExeDetecting}
+                            onClick={() => void handleAutoDetectGameExe()}
+                          >
+                            {gameExeDetecting
+                              ? t("home.obs.gameExeDetecting")
+                              : t("home.obs.gameExeAutoDetect")}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          </section>}
+                )}
 
-          {/* ===== NEW CAPTURE SETUP ===== */}
-          <section className="card home-setup-card">
-            <div className="card-header">
-              {t("home.obs.setupNewScene")}
-            </div>
-            <div className="card-body">
-              {/* Capture target selector */}
-              <div className="home-row">
-                <label className="home-row__label" htmlFor="home-window-select">
-                  {t("home.obs.captureTargetLabel")}
-                </label>
-                <div className="home-row__controls">
-                  <select
-                    id="home-window-select"
-                    className="home-select"
-                    value={selectedWindowValue}
-                    disabled={!canEnumerateWindows}
-                    data-tip={!canEnumerateWindows ? t("home.obs.notSupportedTooltip") : undefined}
-                    onChange={(e) => handleWindowSelectionChange(e.target.value)}
-                  >
-                    {!canEnumerateWindows && (
-                      <option>{t("home.obs.notSupportedOS")}</option>
-                    )}
-                    {canEnumerateWindows && windows.length > 0 && (
-                      <option value="" disabled>{t("home.obs.selectWindow")}</option>
-                    )}
-                    {windowsLoading && windows.length === 0 && canEnumerateWindows && (
-                      <option>{t("home.obs.loading")}</option>
-                    )}
-                    {windows.length === 0 && !windowsLoading && canEnumerateWindows && (
-                      <option value="">{t("home.obs.noCaptureTargets")}</option>
-                    )}
-                    {windowTargets.length > 0 && (
-                      <optgroup label={t("home.obs.sectionWindows")}>
-                        {windowTargets.map((w) => (
-                          <option key={w.value} value={w.value}>
-                            {w.targetKind === "wayland_pipewire"
-                              ? t("home.obs.waylandPipewireOption")
-                              : w.title}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {monitorTargets.length > 0 && (
-                      <optgroup label={t("home.obs.sectionMonitors")}>
-                        {monitorTargets.map((w) => (
-                          <option key={w.value} value={w.value}>{w.title}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {captureCardTargets.length > 0 && (
-                      <optgroup label={t("home.obs.sectionCaptureCards")}>
-                        {captureCardTargets.map((w) => (
-                          <option key={w.value} value={w.value}>
-                            {t("home.obs.captureCardPrefix", { title: w.title })}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
-                  <button
-                    type="button"
-                    className="home-icon-btn"
-                    disabled={!canEnumerateWindows}
-                    onClick={() => void loadWindows()}
-                    data-tip={t("home.obs.refreshWindows")}
-                    aria-label={t("home.obs.refreshWindows")}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-                  </button>
-                </div>
+                {isWindows && selectedScene && !isHelperScene && (
+                  <GameBackgroundSettings sceneId={selectedScene.id} active={active} />
+                )}
               </div>
+            </section>
+          </div>
 
-              {/* Capture mode selector */}
-              {canSelectCaptureMode && <div className="home-row home-row--capture-mode">
-                <label className="home-row__label" htmlFor="home-capture-mode-window">
-                  {t("home.obs.captureModeLabel")}
-                </label>
-                <div className="home-row__controls home-capture-mode">
-                  <label className="home-capture-mode__option">
-                    <input
-                      id="home-capture-mode-window"
-                      type="radio"
-                      name="home-capture-mode"
-                      value="window_capture"
-                      checked={selectedCaptureMode === "window_capture"}
-                      disabled={!canUseWindowCapture}
-                      onChange={() => setSelectedCaptureMode("window_capture")}
-                    />
-                    <span>{t("home.obs.captureModeWindow")}</span>
-                  </label>
-                  <label className="home-capture-mode__option">
-                    <input
-                      type="radio"
-                      name="home-capture-mode"
-                      value="game_capture"
-                      checked={selectedCaptureMode === "game_capture"}
-                      disabled={!canUseGameCapture}
-                      onChange={() => setSelectedCaptureMode("game_capture")}
-                    />
-                    <span>{t("home.obs.captureModeGame")}</span>
-                  </label>
-                </div>
-              </div>}
-
-              {/* Override scene name — only shown once a target is selected */}
-              {selectedWindowValue && <div className="home-row home-row--scene-name-override">
-                <label className="home-row__label" htmlFor="home-scene-name-override">
-                  {t("home.obs.overrideSceneName")}
-                </label>
-                <div className="home-row__controls">
-                  <input
-                    id="home-scene-name-override"
-                    className="home-input"
-                    type="text"
-                    disabled={!canEnumerateWindows}
-                    value={overrideSceneName}
-                    onChange={(e) => setOverrideSceneName(e.target.value)}
-                    autoComplete="off"
-                  />
-                </div>
-              </div>}
-
-              {/* Capture card toggle */}
-              <div className="home-row home-row--toggle">
-                <span className="home-row__label" aria-hidden="true" />
-                <div className="home-row__controls">
-                  <label
-                    className="home-toggle"
-                    htmlFor="home-capture-card-toggle"
-                    data-tip={t("home.obs.captureCardTooltip")}
-                  >
-                    <input
-                      id="home-capture-card-toggle"
-                      type="checkbox"
-                      disabled={!canEnumerateWindows}
-                      checked={captureCardEnabled}
-                      onChange={(e) => void handleCaptureCardToggle(e.target.checked)}
-                    />
-                    <span>{t("home.obs.captureCardToggle")}</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Create button */}
-              <div className="home-row">
-                <span className="home-row__label">{/* spacer */}</span>
-                <div className="home-row__controls">
-                  <button
-                    type="button"
-                    disabled={!canCreateScene}
-                    onClick={() => void handleCreateScene()}
-                    data-tip={t(
-                      isWaylandPipewireSelection
-                        ? "home.obs.waylandPipewireTooltip"
-                        : isMonitorSelection
-                          ? "home.obs.monitorCaptureTooltip"
-                          : "home.obs.setupCaptureTooltip",
-                    )}
-                  >
-                    {t("home.obs.setupCapture")}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* ===== OVERLAY ===== */}
-          <section className="card home-overlay-card">
-            <div className="card-header">
-              {t("home.overlay.title")}
-              <span
-                className={`home-overlay-card__status ${
-                  overlayRunning
-                    ? "home-overlay-card__status--running"
-                    : "home-overlay-card__status--stopped"
-                }`}
-              >
-                {overlayRunning
-                  ? t("home.overlay.statusRunning")
-                  : t("home.overlay.statusStopped")}
-              </span>
-            </div>
-            <div className="card-body">
-              <div className="home-overlay-card__controls">
-                <div className="home-overlay-card__actions">
-                  <button
-                    type="button"
-                    className="home-overlay-primary-btn"
-                    onClick={overlayRunning ? openOverlaySettings : runOverlay}
-                    data-tip={
-                      overlayRunning
-                        ? t("home.actions.overlaySettingsTooltip")
-                        : t("home.actions.overlayTooltip")
-                    }
-                  >
-                    {overlayRunning ? t("home.actions.overlaySettings") : t("home.actions.overlay")}
-                  </button>
-                  <button
-                    type="button"
-                    className="home-quick-btn home-overlay-guide-btn"
-                    onClick={() => openExternal(OVERLAY_DOCS_URL)}
-                    data-tip={t("home.actions.overlayWiki")}
-                  >
-                    {t("home.overlay.guide")}
-                  </button>
-                </div>
-                <div className="home-overlay-card__automation">
-                  <label
-                    className="home-toggle home-overlay-card__startup"
-                    htmlFor="home-overlay-active-game-toggle"
-                    data-tip={t("home.overlay.runWithActiveGameTooltip")}
-                  >
-                    <input
-                      id="home-overlay-active-game-toggle"
-                      type="checkbox"
-                      checked={runOverlayWithActiveGame}
-                      disabled={!overlaySettingsLoaded || overlaySettingsSaving}
-                      onChange={(e) => void handleOverlayAutomationChange("runOverlayWithActiveGame", e.target.checked)}
-                    />
-                    <span>{t("home.overlay.runWithActiveGame")}</span>
-                    <span className="home-overlay-card__recommended">{t("home.overlay.recommended")}</span>
-                  </label>
-                  <label
-                    className="home-toggle home-overlay-card__startup"
-                    htmlFor="home-overlay-startup-toggle"
-                    data-tip={t("home.overlay.runOnStartupTooltip")}
-                  >
-                    <input
-                      id="home-overlay-startup-toggle"
-                      type="checkbox"
-                      checked={runOverlayOnStartup}
-                      disabled={!overlaySettingsLoaded || overlaySettingsSaving}
-                      onChange={(e) => void handleOverlayAutomationChange("runOverlayOnStartup", e.target.checked)}
-                    />
-                    <span>{t("home.overlay.runOnStartup")}</span>
-                  </label>
-                  {overlaySettingsError ? <p role="alert">{t("home.overlay.settingsError")}</p> : null}
-                </div>
-              </div>
-              {!isWindows && (
-                <span className="home-overlay-card__warning">
-                  {t("home.actions.overlayPlatformWarning")}
-                </span>
-              )}
-            </div>
-          </section>
-
-          {/* ===== UTILITIES ===== */}
-          <section className="home-quick-actions">
-            <span className="home-quick-actions__title">{t("home.actions.title")}</span>
-            <div className="home-quick-actions__row">
-              <button
-                type="button"
-                className="home-quick-btn"
-                onClick={openGSMSettings}
-                data-tip={t("home.actions.gsmSettingsTooltip")}
-              >
-                {t("home.actions.gsmSettings")}
-              </button>
-              <button
-                type="button"
-                className="home-quick-btn"
-                onClick={openTexthooker}
-                data-tip={t("home.actions.texthookerTooltip")}
-              >
-                {t("home.actions.texthooker")}
-              </button>
-            </div>
-          </section>
-
-          {/* ===== STATUS ===== */}
-          <section className="card home-status-card">
-            <div className="card-header">{t("home.status.title")}</div>
-            <div className="card-body home-status-grid">
-              {/* Fixed core statuses */}
-              <StatusPill
-                icon="⛏"
-                label={t("home.status.gsm")}
-                text={gsmText}
-                variant={gsmVariant}
-                tooltip={gsmTooltip}
-              />
-              <StatusPill
-                icon="📹"
-                label={t("home.status.obs")}
-                text={obsOk ? t("home.status.connected") : t("home.status.disconnected")}
-                variant={obsOk ? "ok" : "bad"}
-                tooltip={obsOk ? t("home.status.tooltipObsConnected") : t("home.status.tooltipObsDisconnected")}
-                onClick={openOBS}
-                clickable
-              />
-              <StatusPill
-                icon="📘"
-                label={t("home.status.anki")}
-                text={ankiText}
-                variant={ankiVariant}
-                tooltip={ankiTooltip}
-                onClick={showAnkiBeaconNudge ? openAnkiBeaconModal : undefined}
-                clickable={showAnkiBeaconNudge}
-              />
-              <StatusPill
-                icon="📋"
-                label={t("home.status.clipboard")}
-                text={clipText}
-                variant={clipEnabled ? "ok" : "neutral"}
-                tooltip={clipTooltip}
-              />
-              {/* Dynamic input sources */}
-              {wsEntries.map(([url, name]) => (
-                <StatusPill
-                  key={url}
-                  icon="🔗"
-                  label={name}
-                  text={t("home.status.connected")}
-                  variant="ok"
-                  tooltip={t("home.status.tooltipWsConnected", { name })}
-                />
-              ))}
-            </div>
-          </section>
-
-          {/* ===== SUPPORT FOOTER ===== */}
-          <footer className="home-support">
-            <span className="home-support__heart">♥</span>
-            <span className="home-support__text">{t("home.support.text")}</span>
-            <a
-              href="#"
-              className="home-support__link"
-              onClick={(e) => { e.preventDefault(); openExternal("https://github.com/sponsors/bpwhelan"); }}
-            >
-              {t("home.support.githubSponsors")}
-            </a>
-            <a
-              href="#"
-              className="home-support__link"
-              onClick={(e) => { e.preventDefault(); openExternal("https://ko-fi.com/beangate"); }}
-            >
-              {t("home.support.kofi")}
-            </a>
-            <a
-              href="#"
-              className="home-support__link"
-              onClick={(e) => { e.preventDefault(); openExternal("https://github.com/bpwhelan/GameSentenceMiner"); }}
-            >
-              {t("home.support.githubStar")}
-            </a>
-          </footer>
         </div>
-
-        {/* Rename modal */}
-        {renameTarget && (
-          <RenameModal
-            scene={renameTarget}
-            onClose={() => setRenameTarget(null)}
-            onConfirm={(name) => void handleRenameConfirm(name)}
-          />
-        )}
-        {ankiBeaconModalOpen && (
-          <AnkiBeaconModal
-            beaconConnected={ankiBeaconOk}
-            onClose={closeAnkiBeaconModal}
-          />
-        )}
-        {captureWizardOpen ? (
-          <TextCaptureWizard
-            initialScene={captureWizardScene}
-            onNavigateTab={onNavigateTab}
-            onClose={handleCaptureWizardClose}
-          />
-        ) : null}
+        <footer className="home-support" inert={newCaptureOpen}>
+          <span className="home-support__heart" aria-hidden="true">♥</span>
+          <span className="home-support__text">{t("home.support.text")}</span>
+          <a
+            href="#"
+            className="home-support__link"
+            onClick={(e) => { e.preventDefault(); openExternal("https://github.com/sponsors/bpwhelan"); }}
+          >
+            {t("home.support.githubSponsors")}
+          </a>
+          <a
+            href="#"
+            className="home-support__link"
+            onClick={(e) => { e.preventDefault(); openExternal("https://ko-fi.com/beangate"); }}
+          >
+            {t("home.support.kofi")}
+          </a>
+          <a
+            href="#"
+            className="home-support__link"
+            onClick={(e) => { e.preventDefault(); openExternal("https://github.com/bpwhelan/GameSentenceMiner"); }}
+          >
+            {t("home.support.githubStar")}
+          </a>
+        </footer>
+        {active && newCaptureOpen && <AddGameDialog busy={sceneCreating} returnFocus={addGameTriggerRef.current} onClose={() => setNewCaptureOpen(false)}>{setupSection}</AddGameDialog>}
       </div>
+
+      {gameMenu && <HomeGameMenu key={gameMenu.scene.id} scene={gameMenu.scene} anchor={gameMenu.anchor} current={gameMenu.scene.id === selectedSceneId}
+        onClose={closeGameMenu} onRename={setRenameTarget} onRemove={handleRemoveScene}
+        onSwitchCaptureMode={handleSwitchCaptureMode} onCaptureWizard={handleOpenCaptureWizard} />}
+
+      {/* Rename modal */}
+      {renameTarget && (
+        <RenameModal
+          scene={renameTarget}
+          onClose={() => setRenameTarget(null)}
+          onConfirm={(name) => void handleRenameConfirm(name)}
+        />
+      )}
+      {ankiBeaconModalOpen && (
+        <AnkiBeaconModal
+          beaconConnected={ankiBeaconOk}
+          onClose={closeAnkiBeaconModal}
+        />
+      )}
+      {captureWizardOpen ? (
+        <TextCaptureWizard
+          initialScene={captureWizardScene}
+          onNavigateTab={onNavigateTab}
+          onClose={handleCaptureWizardClose}
+        />
+      ) : null}
     </div>
   );
 }

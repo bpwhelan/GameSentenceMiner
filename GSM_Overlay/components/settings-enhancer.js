@@ -1,16 +1,12 @@
-// Discoverability layer for the overlay settings window. Runs after the page's
-// inline script (so updateSettingsTabVisibility() is already defined and tabs are
-// initialized). It does three presentation-only things, driven by settings-metadata.js:
-//   1. Injects a one-line description under every setting that lacks one.
-//   2. Renders the Overview tab's capability cards (each jumps to a tab).
-//   3. Powers the cross-tab search box (filters every setting by name/help/keywords).
+// Discoverability layer for the overlay settings window. Runs after bootstrap.
+// Adds contextual help, precise jump links, and cross-page search using
+// settings-metadata.js. Home shortcuts share the original controls' bindings.
 // No persistence or overlay behavior is touched.
 (function (global) {
   "use strict";
 
   const descriptions = global.GSM_SETTING_DESCRIPTIONS || {};
   const groupKeywords = global.GSM_GROUP_KEYWORDS || {};
-  const capabilityCards = global.GSM_CAPABILITY_CARDS || [];
 
   let ipcRenderer = null;
   try {
@@ -25,12 +21,7 @@
     }
   }
 
-  function currentActiveTab() {
-    const active = document.querySelector(".settings-tab-button.active[data-settings-tab]");
-    return active ? active.dataset.settingsTab : "overview";
-  }
-
-  // ----- 1. Inline descriptions -------------------------------------------------
+  // ----- Contextual help -------------------------------------------------------
   function injectDescriptions() {
     Object.entries(descriptions).forEach(([id, text]) => {
       const control = document.getElementById(id);
@@ -48,11 +39,146 @@
     });
   }
 
-  // ----- jump-to-setting (used by capability cards + Overview callouts) ----------
+  let helpId = 0;
+  let activeHelp = null;
+
+  function positionHelp() {
+    const { trigger, tooltip } = activeHelp;
+    const rect = trigger.getBoundingClientRect();
+    const tip = tooltip.getBoundingClientRect();
+    tooltip.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - tip.width - 12))}px`;
+    tooltip.style.top = `${Math.max(12, rect.bottom + tip.height + 8 < innerHeight ? rect.bottom + 8 : rect.top - tip.height - 8)}px`;
+  }
+
+  function hideHelp() {
+    if (!activeHelp) return;
+    activeHelp.tooltip.hidePopover();
+    activeHelp.trigger.setAttribute("aria-expanded", "false");
+    activeHelp = null;
+  }
+
+  function addHelp(copy, notes, control) {
+    let trigger = copy.querySelector(".setting-help");
+    if (trigger) {
+      trigger.querySelector(".setting-tooltip").append(...notes);
+      return;
+    }
+    const title = Array.from(copy.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent.trim())
+      .join(" ")
+      .trim();
+    trigger = document.createElement("span");
+    trigger.className = "setting-help";
+    trigger.textContent = "?";
+    trigger.tabIndex = 0;
+    trigger.setAttribute("role", "button");
+    trigger.setAttribute("aria-label", `Help for ${title}`);
+    trigger.setAttribute("aria-expanded", "false");
+    const tooltip = document.createElement("span");
+    tooltip.id = `setting-help-${++helpId}`;
+    tooltip.className = "setting-tooltip";
+    tooltip.setAttribute("popover", "manual");
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.append(...notes);
+    trigger.setAttribute("aria-describedby", tooltip.id);
+    if (control) {
+      const ids = new Set(
+        (control.getAttribute("aria-describedby") || "")
+          .split(/\s+/)
+          .filter((id) => id && !tooltip.contains(document.getElementById(id))),
+      );
+      ids.add(tooltip.id);
+      control.setAttribute("aria-describedby", [...ids].join(" "));
+    }
+    trigger.append(tooltip);
+    // Keep the help next to the title, ahead of any live warnings below it.
+    const warning = Array.from(copy.children).find((node) => node.matches(".ctrl-warning, .status-note, [data-help-inline]"));
+    copy.insertBefore(trigger, warning || null);
+
+    const show = () => {
+      if (activeHelp?.trigger === trigger) return;
+      hideHelp();
+      tooltip.showPopover();
+      trigger.setAttribute("aria-expanded", "true");
+      activeHelp = { trigger, tooltip };
+      positionHelp();
+    };
+    trigger.addEventListener("pointerenter", show);
+    trigger.addEventListener("pointerleave", () => {
+      if (activeHelp?.trigger === trigger && document.activeElement !== trigger) hideHelp();
+    });
+    trigger.addEventListener("focus", show);
+    trigger.addEventListener("blur", () => {
+      if (activeHelp?.trigger === trigger) hideHelp();
+    });
+    trigger.addEventListener("click", (event) => {
+      event.preventDefault(); // Help inside a label must not toggle its setting.
+      event.stopPropagation();
+      show();
+    });
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      event.stopPropagation();
+      show();
+    });
+  }
+
+  function compactHelp() {
+    document.querySelectorAll(".label-text").forEach((copy) => {
+      const notes = Array.from(copy.children).filter(
+        (node) =>
+          node.matches(".hotkey-info, .setting-desc, .home-field-help") &&
+          !node.matches(".ctrl-warning, .status-note, [role='status'], [aria-live], [data-help-inline]"),
+      );
+      if (notes.length) addHelp(copy, notes, copy.closest("label, .label-row")?.querySelector("input, select"));
+    });
+    // Long section introductions and advanced instructions belong to the
+    // relevant heading or setting; live status and warnings remain inline.
+    const sectionNotes = document.querySelectorAll(
+      ".setting-group > .hotkey-info, .settings-page > .hotkey-info, .setting-group > .shared-setting-note",
+    );
+    sectionNotes.forEach((note) => {
+      if (note.matches("[id], [role], [aria-live], .ctrl-warning, .status-note, [data-help-inline]") || note.querySelector("[id]")) return;
+      let previous = note.previousElementSibling;
+      while (previous && !previous.matches("h4, h5, label, .label-row, .settings-section-banner")) {
+        previous = previous.previousElementSibling;
+      }
+      let copy = previous?.matches("label, .label-row") ? previous.querySelector(".label-text") : previous;
+      if (copy?.matches(".settings-section-banner")) copy = copy.querySelector(".settings-section-banner-title");
+      if (!copy || copy.matches(".sr-only")) copy = note.closest(".settings-page")?.querySelector(".settings-section-banner-title");
+      if (copy) addHelp(copy, [note]);
+    });
+    document.addEventListener(
+      "scroll",
+      () => {
+        if (!activeHelp) return;
+        // Tabbing to help can scroll the focused title into view. Reposition it
+        // after that scroll instead of immediately dismissing keyboard help.
+        const rect = activeHelp.trigger.getBoundingClientRect();
+        const panel = document.getElementById("settingsPagePanel").getBoundingClientRect();
+        if (document.activeElement === activeHelp.trigger && rect.top >= panel.top && rect.bottom <= panel.bottom) {
+          positionHelp();
+        } else hideHelp();
+      },
+      { capture: true, passive: true },
+    );
+    document.addEventListener("gsm-settings-before-navigate", hideHelp);
+    window.addEventListener("resize", hideHelp);
+    document.getElementById("settingsSearchInput").addEventListener("input", hideHelp);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && activeHelp) {
+        event.preventDefault();
+        hideHelp();
+      }
+    });
+  }
+
+  // ----- Jump to a setting on its full page ------------------------------------
   function jumpToSetting(id, fallbackTab) {
     const control = document.getElementById(id);
-    const group = control?.closest(".setting-group[data-tab]");
-    const tab = group?.dataset?.tab || fallbackTab;
+    const tab = control?.closest("[data-page]")?.dataset.page || fallbackTab;
     clearSearch();
     if (tab) switchToTab(tab);
     if (!control) return;
@@ -70,64 +196,9 @@
   }
   global.gsmJumpToSetting = jumpToSetting;
 
-  // ----- Red-boxes FAQ callout: only relevant while indicators are ON -----------
-  function refreshRedBoxCallout() {
-    const callout = document.getElementById("redBoxesCallout");
-    const indicators = document.getElementById("showTextIndicators");
-    if (!callout || !indicators) return;
-    callout.classList.toggle("red-callout-hidden", !indicators.checked);
-  }
-
-  function wireRedBoxCallout() {
-    const indicators = document.getElementById("showTextIndicators");
-    if (indicators) indicators.addEventListener("change", refreshRedBoxCallout);
-    // Settings arrive asynchronously over IPC; re-check after the page applies them.
-    if (ipcRenderer) {
-      const deferredRefresh = () => setTimeout(refreshRedBoxCallout, 0);
-      ipcRenderer.on("preload-settings", deferredRefresh);
-      ipcRenderer.on("settings-updated", deferredRefresh);
-    }
-    refreshRedBoxCallout();
-  }
-
-  // ----- 2. Capability cards (Overview tab) -------------------------------------
-  function renderCapabilityCards() {
-    const mount = document.getElementById("capabilityCards");
-    if (!mount) return;
-    mount.replaceChildren(...capabilityCards.map((card) => {
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className = "capability-card";
-      el.dataset.tab = card.tab;
-
-      const title = document.createElement("div");
-      title.className = "capability-card-title";
-      title.textContent = `${card.icon ? card.icon + " " : ""}${card.title}`;
-
-      const blurb = document.createElement("div");
-      blurb.className = "capability-card-blurb";
-      blurb.textContent = card.blurb;
-
-      const cta = document.createElement("div");
-      cta.className = "capability-card-cta";
-      cta.textContent = "Open settings →";
-
-      el.append(title, blurb, cta);
-      el.addEventListener("click", () => switchToTab(card.tab));
-      return el;
-    }));
-  }
-
-  function wireOverviewCallouts() {
-    document.querySelectorAll("[data-jump-setting]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        jumpToSetting(btn.dataset.jumpSetting, btn.dataset.jumpTab || undefined);
-      });
-    });
-  }
-
-  // ----- 3. Cross-tab search ----------------------------------------------------
+  // ----- Cross-tab search -------------------------------------------------------
   let searchIndex = [];
+  const openedDetails = new Map();
 
   function keywordsFor(headingCtx) {
     let keywords = "";
@@ -146,41 +217,76 @@
       // Walk headings + labels in document order so each label inherits the
       // nearest sub-heading (groups like Live Stats bundle Fields + Pomodoro).
       let section = firstHeading;
-      group.querySelectorAll("h4, h5, summary, label").forEach((node) => {
-        if (node.tagName !== "LABEL") {
+      group.querySelectorAll("h4, h5, summary, label, .label-row, .preset-card").forEach((node) => {
+        if (node.matches("h4, h5, summary")) {
           section = node.textContent.toLowerCase();
           return;
         }
+        // Home edits the same settings. Index the detailed control once so
+        // search results and counts do not duplicate its dashboard shortcut.
+        if (node.querySelector("[data-setting-alias]")) return;
+        const homeTerms = Array.from(node.querySelectorAll("input[id], select[id]"))
+          .map((control) => global.GSMSettingsHome?.searchTermsFor(control.id) || "")
+          .join(" ");
         const headingCtx = firstHeading + " " + section;
+        const region = node.closest("[data-page]");
+        const page = global.GSMSettingsNavigation.pages.find((page) => page.id === region?.dataset.page);
         searchIndex.push({
           label: node,
           group,
-          text: (node.textContent + " " + headingCtx + " " + keywordsFor(headingCtx)).toLowerCase(),
+          region,
+          text: (
+            node.textContent +
+            " " +
+            homeTerms +
+            " " +
+            headingCtx +
+            " " +
+            keywordsFor(headingCtx) +
+            " " +
+            (page ? `${page.categoryLabel} ${page.label}` : "")
+          ).toLowerCase(),
         });
       });
+    });
+    document.querySelectorAll("[data-page]").forEach((region) => {
+      const page = global.GSMSettingsNavigation.pages.find((page) => page.id === region.dataset.page);
+      if (!page) return;
+      const location = document.createElement("div");
+      location.className = "settings-search-location";
+      location.textContent = `${page.categoryLabel} / ${page.label}`;
+      region.prepend(location);
     });
   }
 
   function clearSearchStyles() {
     searchIndex.forEach((entry) => {
-      entry.label.style.display = "";
+      entry.label.classList.remove("search-hidden");
     });
-    document.querySelectorAll(".setting-group[data-tab]").forEach((g) => {
-      g.style.display = "";
+    openedDetails.forEach((open, details) => {
+      details.open = open;
     });
-    document.querySelectorAll(".settings-grid").forEach((grid) => {
-      grid.style.display = "";
+    openedDetails.clear();
+  }
+
+  function syncQuickFilterChips(activeQuery = "") {
+    const normalized = activeQuery.trim().toLowerCase();
+    document.querySelectorAll("[data-quick-filter]").forEach((chip) => {
+      const active = Boolean(normalized) && chip.dataset.quickFilter.toLowerCase() === normalized;
+      chip.classList.toggle("active", active);
+      chip.setAttribute("aria-pressed", String(active));
     });
   }
 
-  function clearSearch() {
+  function clearSearch(restore = true) {
     const input = document.getElementById("settingsSearchInput");
     if (input) input.value = "";
+    syncQuickFilterChips("");
     if (!document.body.classList.contains("search-active")) return;
     document.body.classList.remove("search-active");
     clearSearchStyles();
     setSearchStatus(0, 0, false);
-    switchToTab(currentActiveTab());
+    if (restore) global.GSMSettingsNavigation.refresh();
   }
 
   function setSearchStatus(matches, queryLen, active) {
@@ -188,11 +294,12 @@
     const noResults = document.getElementById("settingsSearchNoResults");
     const plural = matches === 1 ? "" : "es";
     if (count) count.textContent = active && queryLen ? `${matches} match${plural}` : "";
-    if (noResults) noResults.style.display = active && queryLen && matches === 0 ? "block" : "none";
+    if (noResults) noResults.hidden = !(active && queryLen && matches === 0);
   }
 
   function applySearch(rawQuery) {
     const query = rawQuery.trim().toLowerCase();
+    syncQuickFilterChips(query);
     if (!query) {
       clearSearch();
       return;
@@ -200,27 +307,43 @@
     document.body.classList.add("search-active");
 
     const matchedGroups = new Set();
+    const matchedRegions = new Set();
     let matchCount = 0;
     searchIndex.forEach((entry) => {
-      const isMatch = entry.text.includes(query);
-      entry.label.style.display = isMatch ? "" : "none";
+      // Navigation hides whole pages; language/backend/platform rules hide
+      // individual controls. Search should preserve those applicability rules.
+      let applicable = true;
+      for (let node = entry.label; node && node.id !== "settingsContent"; node = node.parentElement) {
+        if (node.style.display === "none" || (node.hidden && !node.matches("[data-page], .setting-group"))) {
+          applicable = false;
+          break;
+        }
+      }
+      const isMatch = applicable && entry.text.includes(query);
+      entry.label.classList.toggle("search-hidden", !isMatch);
       if (isMatch) {
         matchCount += 1;
         matchedGroups.add(entry.group);
+        if (entry.region) matchedRegions.add(entry.region);
+        let details = entry.label.closest("details");
+        while (details) {
+          if (!openedDetails.has(details)) openedDetails.set(details, details.open);
+          details.open = true;
+          details = details.parentElement?.closest("details");
+        }
       }
     });
 
     document.querySelectorAll(".setting-group[data-tab]").forEach((group) => {
       const show = matchedGroups.has(group);
-      group.style.display = show ? "block" : "none";
-      if (show && group.tagName === "DETAILS") group.open = true;
+      group.hidden = !show;
     });
 
-    document.querySelectorAll(".settings-grid").forEach((grid) => {
-      const hasMatch = Array.from(matchedGroups).some((g) => grid.contains(g));
-      grid.style.display = hasMatch ? "grid" : "none";
+    document.querySelectorAll("[data-page]").forEach((region) => {
+      region.hidden = !matchedRegions.has(region);
     });
 
+    global.GSMSettingsNavigation.refresh();
     setSearchStatus(matchCount, query.length, true);
   }
 
@@ -236,18 +359,54 @@
         }
       });
     }
-    if (clearBtn) clearBtn.addEventListener("click", () => clearSearch());
-    // Clicking any tab exits search so its inline styles don't fight the tab view.
-    document.querySelectorAll(".settings-tab-button[data-settings-tab]").forEach((btn) => {
-      btn.addEventListener("click", () => clearSearch());
+    if (clearBtn)
+      clearBtn.addEventListener("click", () => {
+        clearSearch();
+        input?.focus();
+      });
+    document.querySelectorAll("[data-quick-filter]").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        if (!input) return;
+        const term = chip.dataset.quickFilter || "";
+        if (input.value.trim().toLowerCase() === term.toLowerCase()) {
+          clearSearch();
+        } else {
+          input.value = term;
+          applySearch(term);
+        }
+      });
     });
+    document.addEventListener("keydown", (e) => {
+      if (!input) return;
+      const isCmdOrCtrlF = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f";
+      const activeEl = document.activeElement;
+      const inEditable =
+        activeEl &&
+        (activeEl.matches("input, select, textarea, [contenteditable='true']") ||
+          activeEl.classList.contains("capturing-hotkey") ||
+          activeEl.classList.contains("capturing-binding"));
+      if (isCmdOrCtrlF || (e.key === "/" && !inEditable && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+        e.preventDefault();
+        input.focus();
+        input.select();
+      }
+    });
+    // Navigation owns all entry points, including cards and external IPC requests.
+    document.addEventListener("gsm-settings-before-navigate", () => clearSearch(false));
+    const refreshSearch = () => {
+      if (document.body.classList.contains("search-active")) applySearch(input.value);
+    };
+    document.getElementById("settingsContent").addEventListener("change", refreshSearch);
+    if (ipcRenderer) {
+      ipcRenderer.on("preload-settings", () => setTimeout(refreshSearch, 0));
+      ipcRenderer.on("settings-updated", () => setTimeout(refreshSearch, 0));
+    }
   }
 
   function init() {
     injectDescriptions();
-    renderCapabilityCards();
-    wireOverviewCallouts();
-    wireRedBoxCallout();
+    compactHelp();
+
     buildSearchIndex();
     wireSearch();
   }

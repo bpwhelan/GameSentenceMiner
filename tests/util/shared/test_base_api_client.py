@@ -19,13 +19,24 @@ def test_fetch_image_as_base64_delegates_to_shared_utility(monkeypatch):
         captured.update(kwargs)
         return "ok"
 
-    monkeypatch.setattr(base_api_client, "_fetch_image_as_base64", fake_fetch)
+    monkeypatch.setattr(base_api_client, "_fetch_original_image_as_base64", fake_fetch)
     result = DummyClient.fetch_image_as_base64("https://example.com/img.png")
 
     assert result == "ok"
     assert captured["image_url"] == "https://example.com/img.png"
     assert captured["timeout"] == DummyClient.TIMEOUT
-    assert captured["thumbnail_size"] == DummyClient.THUMBNAIL_SIZE
+
+
+def test_fetch_image_can_still_request_an_explicit_thumbnail(monkeypatch):
+    captured = {}
+
+    def fake_fetch(**kwargs):
+        captured.update(kwargs)
+        return "thumbnail"
+
+    monkeypatch.setattr(base_api_client, "_fetch_image_as_base64", fake_fetch)
+    assert DummyClient.fetch_image_as_base64("https://example.com/img.png", (80, 100)) == "thumbnail"
+    assert captured["thumbnail_size"] == (80, 100)
     assert captured["output_format"] == "JPEG"
 
 

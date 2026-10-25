@@ -400,7 +400,7 @@ class ReplayAudioExtractor:
 
             # Just for safety
             if not context.last_note:
-                if get_config().anki.update_anki:
+                if get_config().anki.enabled:
                     with time_anki_card_block(context.timing_context, "replay.get_last_anki_card"):
                         context.last_note = anki.get_last_anki_card()
 
@@ -440,15 +440,7 @@ class ReplayAudioExtractor:
             if context.last_note:
                 logger.debug(context.last_note.pretty_print())
 
-            with time_anki_card_block(context.timing_context, "replay.get_screenshot_time"):
-                context.ss_timing = ffmpeg.get_screenshot_time(
-                    video_path,
-                    context.mined_line,
-                    doing_multi_line=bool(context.selected_lines),
-                    anki_card_creation_time=context.anki_card_creation_time,
-                )
-
-            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="gsm-card-prep") as executor:
+            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="gsm-card-prep") as executor:
                 audio_future = None
                 media_future = None
                 translation_future = context.translation_future
@@ -482,7 +474,15 @@ class ReplayAudioExtractor:
                     elif not get_config().anki.sentence_audio_field:
                         logger.info("No SentenceAudio Field in config, skipping audio processing!")
 
-                if get_config().anki.update_anki and context.last_note:
+                if get_config().anki.enabled and context.last_note:
+                    # Audio extraction can run while the screenshot timestamp is probed.
+                    with time_anki_card_block(context.timing_context, "replay.get_screenshot_time"):
+                        context.ss_timing = ffmpeg.get_screenshot_time(
+                            video_path,
+                            context.mined_line,
+                            doing_multi_line=bool(context.selected_lines),
+                            anki_card_creation_time=context.anki_card_creation_time,
+                        )
                     media_future = executor.submit(
                         run_anki_card_timed,
                         context.timing_context,
@@ -495,7 +495,9 @@ class ReplayAudioExtractor:
                         timing_context=context.timing_context,
                     )
                     if get_config().ai.add_to_anki and translation_future is None:
-                        translation_future = executor.submit(
+                        # A local executor joins its tasks on exit. Translation must
+                        # outlive preparation so the dialog can display it as it arrives.
+                        translation_future = anki.translation_prefetch_executor.submit(
                             run_anki_card_timed,
                             context.timing_context,
                             "replay.future.prefetch_ai_translation",
@@ -559,7 +561,7 @@ class ReplayAudioExtractor:
                         except Exception as e:
                             logger.exception(f"Failed to start animated screenshot prefetch early: {e}")
 
-            if get_config().anki.update_anki and context.last_note:
+            if get_config().anki.enabled and context.last_note:
                 with time_anki_card_block(context.timing_context, "replay.schedule_update_anki_card"):
                     context.background_update_started = bool(
                         anki.update_anki_card(
@@ -585,7 +587,7 @@ class ReplayAudioExtractor:
                             timing_context=context.timing_context,
                         )
                     )
-            elif get_config().features.notify_on_update and context.vad_result and context.vad_result.success:
+            elif get_config().features.notify_on_audio_generated and context.vad_result and context.vad_result.success:
                 from GameSentenceMiner.util.platform import notification
 
                 notification.send_audio_generated_notification(context.vad_trimmed_audio)
@@ -720,7 +722,9 @@ class ReplayAudioExtractor:
 
         if not vad_result.success:
             # Store the trimmed audio path so it can be offered to the user in the confirmation dialog
-            if get_config().anki.show_update_confirmation_dialog_v2:
+            if get_config().anki.show_update_confirmation_dialog_v2 and not getattr(
+                get_config().anki, "skip_confirmation_for_unvoiced", False
+            ):
                 vad_result.trimmed_audio_path = trimmed_audio
                 if os.path.exists(trimmed_audio):
                     final_audio_output = trimmed_audio

@@ -10,16 +10,29 @@ def observe(*frames):
     return timing
 
 
-def test_confirmed_late_sentence_moves_first_capture_back_in_small_steps():
+def test_initial_delay_starts_at_zero_then_waits_50ms_after_three_late_reveals():
+    delay = AdaptiveOverlayScanDelay()
+    assert delay.delay == 0
+    delay.use_context(("game", "hook"))
+    assert delay.delay == 0
+
+    for _ in range(2):
+        delay.record(observe((0.0, ""), (0.2, "expected sentence")))
+        assert delay.delay == 0
+    delay.record(observe((0.0, ""), (0.2, "expected sentence")))
+    assert delay.delay == pytest.approx(0.05)
+
+
+def test_three_confirmed_late_sentences_increase_delay_in_50ms_steps():
     delay = AdaptiveOverlayScanDelay()
     delay.use_context(("game", "hook"))
 
     for index in range(5):
         for _ in range(2):
             delay.record(observe((0.0, "前の台詞"), (0.8, "speaker expected sentence")))
-            assert delay.delay == pytest.approx(index * 0.005)
+            assert delay.delay == pytest.approx(min(0.15, index * 0.05))
         delay.record(observe((0.0, "前の台詞"), (0.8, "speaker expected sentence")))
-        assert delay.delay == pytest.approx((index + 1) * 0.005)
+        assert delay.delay == pytest.approx(min(0.15, (index + 1) * 0.05))
 
 
 @pytest.mark.parametrize(
@@ -38,14 +51,14 @@ def test_three_late_reveals_out_of_five_need_not_be_consecutive(intervening_fram
         assert delay.delay == 0
 
     delay.record(observe((0.0, ""), (0.2, "expected sentence")))
-    assert delay.delay == pytest.approx(0.005)
+    assert delay.delay == pytest.approx(0.05)
 
     # A bump consumes the evidence, so the next two late lines are not enough.
     for _ in range(2):
         delay.record(observe((0.0, ""), (0.2, "expected sentence")))
-        assert delay.delay == pytest.approx(0.005)
+        assert delay.delay == pytest.approx(0.05)
     delay.record(observe((0.0, ""), (0.2, "expected sentence")))
-    assert delay.delay == pytest.approx(0.01)
+    assert delay.delay == pytest.approx(0.1)
 
 
 @pytest.mark.parametrize(
@@ -66,7 +79,7 @@ def test_late_reveals_older_than_five_lines_do_not_count(intervening_frames):
         delay.record(observe((0.0, ""), (0.2, "expected sentence")))
         assert delay.delay == 0
     delay.record(observe((0.0, ""), (0.2, "expected sentence")))
-    assert delay.delay == pytest.approx(0.005)
+    assert delay.delay == pytest.approx(0.05)
 
 
 @pytest.mark.parametrize(
@@ -94,11 +107,11 @@ def test_delay_eases_down_only_after_repeated_first_capture_successes():
         delay.record(observe((0, ""), (0.2, "expected sentence")))
     for _ in range(7):
         delay.record(observe((0.1, "expected sentence")))
-        assert delay.delay == pytest.approx(0.005)
+        assert delay.delay == pytest.approx(0.05)
     delay.record(observe((0.1, "expected sentence")))
 
-    assert delay.delay == 0
-    for _ in range(40):
+    assert delay.delay == pytest.approx(0.045)
+    for _ in range(80):
         delay.record(observe((0.1, "expected sentence")))
     assert delay.delay == 0
 
@@ -111,7 +124,7 @@ def test_delay_is_bounded_and_does_not_use_ocr_finish_time_as_render_latency():
 
 
 @pytest.mark.parametrize("visible", ["", "a", "ab", "st", "話者abメニュー"])
-def test_at_most_ten_percent_of_the_expected_line_counts_toward_a_small_increase(visible):
+def test_at_most_ten_percent_of_the_expected_line_counts_toward_an_increase(visible):
     delay = AdaptiveOverlayScanDelay()
     timing = OverlayScanTiming(reference="abcdefghijklmnopqrst")
     timing.observe(visible, captured_at=0)
@@ -121,7 +134,7 @@ def test_at_most_ten_percent_of_the_expected_line_counts_toward_a_small_increase
         assert delay.delay == 0
     delay.record(timing)
 
-    assert delay.delay == pytest.approx(0.005)
+    assert delay.delay == pytest.approx(0.05)
     assert timing.first_match_ratio <= 0.1
     assert timing.outcome == "late_reveal"
 
@@ -154,9 +167,9 @@ def test_scan_summary_reports_the_initial_expected_line_match_percentage():
     timing.observe("ab", captured_at=1.0)
     timing.observe(timing.reference, captured_at=1.2)
 
-    summary = timing.summary(requested_at=1.0, initial_delay=0, next_delay=0.005)
+    summary = timing.summary(requested_at=1.0, initial_delay=0, next_delay=0.05)
     assert "initial match: 10%" in summary
-    assert "initial delay: 0ms -> 5ms" in summary
+    assert "initial delay: 0ms -> 50ms" in summary
 
 
 def test_switching_game_or_hook_discards_learned_delay():
@@ -188,7 +201,7 @@ def test_switching_game_or_hook_discards_pending_late_reveals(context):
         assert delay.delay == 0
     delay.use_context(context)
     delay.record(observe((0, ""), (0.2, "expected sentence")))
-    assert delay.delay == pytest.approx(0.005)
+    assert delay.delay == pytest.approx(0.05)
 
 
 @pytest.mark.parametrize("reference", ["", "a", "ab"])

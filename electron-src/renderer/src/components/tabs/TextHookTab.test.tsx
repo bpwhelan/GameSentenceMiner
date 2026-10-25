@@ -221,26 +221,103 @@ describe("TextHookTab", () => {
     expect(container.querySelector("#texthook-show-noise")).toBeNull();
   });
 
-  it("gives capture and live text their own space with advanced sections collapsed", async () => {
+  it("keeps the session available while switching between live text and configuration", async () => {
     await act(async () => {
       root.render(<TextHookTab active />);
       await flushAsyncWork();
     });
 
     const session = container.querySelector(".texthook-session-card")!;
-    expect(session.querySelector("#texthook-engine-select")).toBeTruthy();
-    expect(session.textContent).toContain("game.exe");
+    expect(container.querySelector(".th-target")?.textContent).toContain("game.exe");
     expect(session.textContent).toContain("Stop");
     const liveGrid = container.querySelector(".texthook-live-grid")!;
     expect(liveGrid.children).toHaveLength(2);
     expect(liveGrid.querySelector(".texthook-hooks")).toBeTruthy();
     expect(liveGrid.querySelector(".texthook-output")).toBeTruthy();
     expect(container.querySelector(".texthook-stepper")).toBeNull();
-    for (const selector of [".texthook-capture-options", ".texthook-help", ".texthook-log-details", ".texthook-engine-maintenance"]) {
-      expect(container.querySelector<HTMLDetailsElement>(selector)?.open).toBe(false);
+    for (const selector of [".texthook-help", ".texthook-engine-maintenance"]) {
+      const section = container.querySelector<HTMLElement>(selector)!;
+      expect(section.closest("details")).toBeNull();
+      expect(section.closest("[hidden]")?.id).toBe("texthook-view-tools");
     }
-    expect(container.querySelector("#texthook-manual-input")?.closest("details")?.classList.contains("texthook-capture-options")).toBe(true);
-    expect(container.querySelector("#texthook-flush-delay-input")?.closest("details")?.classList.contains("texthook-capture-options")).toBe(true);
+    const live = container.querySelector<HTMLElement>("#texthook-view-live")!;
+    const output = container.querySelector<HTMLElement>("#texthook-view-output")!;
+    expect(live.hidden).toBe(false);
+    expect(container.querySelector("#texthook-nav-engine")).toBeNull();
+    expect(live.querySelector("#texthook-engine-select")?.closest("[hidden]")).toBeNull();
+    expect(live.querySelector("#texthook-engine-select")).toBeTruthy();
+    expect(live.querySelector("#texthook-manual-input")).toBeTruthy();
+    expect(live.querySelector("#texthook-manual-input")?.closest("details, [hidden]")).toBeNull();
+    expect(output.querySelector("#texthook-flush-delay-input")).toBeTruthy();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#texthook-nav-output")!.click();
+      ipcListeners.get("texthook.text")?.({}, { hookId: "9", text: "Dialogue while configuring" });
+    });
+    expect(output.hidden).toBe(false);
+    expect(live.hidden).toBe(true);
+    expect(session.textContent).toContain("Stop");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#texthook-nav-live")!.click();
+    });
+    expect(live.hidden).toBe(false);
+    expect(container.querySelector(".texthook-output-pre")?.textContent).toBe("Dialogue while configuring");
+  });
+
+  it("supports arrow, Home, and End navigation between workspace views", async () => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    const key = async (view: string, pressed: string, target: string) => {
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>("#texthook-nav-" + view)!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: pressed, bubbles: true })
+        );
+      });
+      const tab = container.querySelector<HTMLButtonElement>("#texthook-nav-" + target)!;
+      expect(tab.getAttribute("aria-selected")).toBe("true");
+      expect(tab.tabIndex).toBe(0);
+      expect(document.activeElement).toBe(tab);
+      expect(container.querySelector<HTMLElement>("#texthook-view-" + target)!.hidden).toBe(false);
+    };
+    await key("live", "ArrowDown", "output");
+    await key("output", "End", "tools");
+    await key("tools", "ArrowDown", "live");
+    await key("live", "ArrowUp", "tools");
+    await key("tools", "Home", "live");
+  });
+
+  it("keeps the engine log mounted and returns to the previous view on Escape", async () => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    const consolePanel = container.querySelector<HTMLElement>("#texthook-view-console")!;
+    const log = container.querySelector(".texthook-log")!;
+    const toggle = container.querySelector<HTMLButtonElement>("#texthook-log-toggle")!;
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#texthook-nav-output")!.click();
+      toggle.click();
+      ipcListeners.get("texthook.log")?.({}, { level: "info", message: "Engine attached" });
+    });
+    expect(consolePanel.hidden).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(log.textContent).toContain("Engine attached");
+    await act(async () => {
+      Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Clear log")!.click();
+    });
+    expect(log.textContent).not.toContain("Engine attached");
+    await act(async () => {
+      log.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      ipcListeners.get("texthook.log")?.({}, { level: "info", message: "Still receiving messages" });
+    });
+    expect(consolePanel.hidden).toBe(true);
+    expect(container.querySelector<HTMLElement>("#texthook-view-output")!.hidden).toBe(false);
+    expect(document.activeElement).toBe(toggle);
+    expect(container.querySelector(".texthook-log")).toBe(log);
+    expect(log.textContent).toContain("Still receiving messages");
   });
 
   it("explains which hook engine to use and links to Text Processing when help is expanded", async () => {
@@ -364,7 +441,7 @@ describe("TextHookTab", () => {
     expect(selectedButton?.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("starts Luna hook search from the engine configuration button", async () => {
+  it("starts Luna hook search from the sidebar and returns to live text", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "texthook.getStatus") {
         return {
@@ -408,6 +485,10 @@ describe("TextHookTab", () => {
     expect(searchButton?.disabled).toBe(false);
 
     await act(async () => {
+      container.querySelector<HTMLButtonElement>("#texthook-nav-output")!.click();
+    });
+    expect(container.querySelector<HTMLElement>("#texthook-view-output")!.hidden).toBe(false);
+    await act(async () => {
       searchButton?.click();
       await flushAsyncWork();
     });
@@ -420,6 +501,7 @@ describe("TextHookTab", () => {
         flushDelayMs: 100,
       })
     );
+    expect(container.querySelector<HTMLElement>("#texthook-view-live")!.hidden).toBe(false);
   });
 
   it("ranks Agent scripts from scene, window, and executable without a prefilled filter", async () => {
@@ -514,6 +596,8 @@ describe("TextHookTab", () => {
     const scriptInput = container.querySelector(
       "#texthook-agent-script-input"
     ) as HTMLInputElement;
+    expect(scriptInput.closest("#texthook-view-live")).toBeTruthy();
+    expect(scriptInput.closest("[hidden]")).toBeNull();
     await act(async () => {
       const valueSetter = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
@@ -667,6 +751,135 @@ describe("TextHookTab", () => {
     });
 
     expect(container.querySelectorAll(".texthook-output-pre")).toHaveLength(1);
+  });
+
+  it.each([
+    ["starting", "Starting"],
+    ["waiting", "Waiting for text"],
+    ["receiving", "Receiving text"],
+  ])("shows the Agent %s phase", async (agentPhase, label) => {
+    const original = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus") {
+        return { ...(await original(channel)), engine: "agent", agentPhase, sessionId: "session-1" };
+      }
+      return original(channel, ...args);
+    });
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    expect(container.querySelector(".th-session-state")?.textContent ?? container.textContent).toContain(label);
+  });
+
+  it("clears previous output on automatic Agent restart with the same PID and keeps new text", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    let sessionId = "session-1";
+    const status = () => ({
+      running: true, engine: "agent", arch: "x64", pid: 1234, exeName: "game.exe",
+      selectedHookId: "agent", hookCount: 1, agentPhase: "waiting", sessionId,
+    });
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus") return status();
+      return original(channel, ...args);
+    });
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      ipcListeners.get("texthook.text")?.({}, { hookId: "agent", sessionId, text: "previous run" });
+    });
+    expect(container.querySelector(".texthook-output-pre")?.textContent).toBe("previous run");
+    sessionId = "session-2";
+    await act(async () => {
+      ipcListeners.get("texthook.status")?.({}, status());
+      ipcListeners.get("texthook.text")?.({}, { hookId: "agent", sessionId, text: "current run" });
+      await flushAsyncWork();
+    });
+    expect(container.querySelectorAll(".texthook-output-pre")).toHaveLength(1);
+    expect(container.querySelector(".texthook-output-pre")?.textContent).toBe("current run");
+    await act(async () => {
+      ipcListeners.get("texthook.status")?.({}, { ...status(), agentPhase: "receiving" });
+      ipcListeners.get("texthook.text")?.({}, { hookId: "agent", sessionId: "session-1", text: "late old text" });
+      await flushAsyncWork();
+    });
+    expect(container.querySelectorAll(".texthook-output-pre")).toHaveLength(1);
+    expect(container.querySelector(".texthook-output-pre")?.textContent).toBe("current run");
+  });
+
+  it("surfaces automatic Agent initialization failures", async () => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      ipcListeners.get("texthook.agentError")?.({}, { error: "Unity was not ready. Load the game and attach again." });
+    });
+    expect(container.textContent).toContain("Unity was not ready. Load the game and attach again.");
+    expect(container.querySelector("#texthook-view-console")?.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("allows Stop during manual Agent startup without reporting cancellation as a failure", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    let currentStatus: any = { running: false };
+    let finishStart: (value: unknown) => void = () => {};
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus") return currentStatus;
+      if (channel === "texthook.getProfile") {
+        return { engine: "agent", agentScriptPath: "C:\\scripts\\game.js" };
+      }
+      if (channel === "texthook.start") {
+        currentStatus = {
+          running: true, engine: "agent", arch: "x64", pid: 1234, exeName: "game.exe",
+          selectedHookId: null, hookCount: 0, agentPhase: "starting", sessionId: "session-1",
+        };
+        ipcListeners.get("texthook.status")?.({}, currentStatus);
+        return new Promise((resolve) => { finishStart = resolve; });
+      }
+      if (channel === "texthook.stop") {
+        currentStatus = { running: false };
+        ipcListeners.get("texthook.status")?.({}, currentStatus);
+        finishStart({ success: false, error: "Agent startup was cancelled." });
+        return { success: true };
+      }
+      return original(channel, ...args);
+    });
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Start")!.click();
+      await flushAsyncWork();
+    });
+    const stop = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Stop")!;
+    expect(stop.disabled).toBe(false);
+    await act(async () => { stop.click(); await flushAsyncWork(); });
+    expect(invokeMock).toHaveBeenCalledWith("texthook.stop");
+    expect(container.textContent).not.toContain("Agent startup was cancelled.");
+  });
+
+  it("does not let a stale status request replace a newer Agent session", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    let finishStatus: (value: unknown) => void = () => {};
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus") return new Promise((resolve) => { finishStatus = resolve; });
+      return original(channel, ...args);
+    });
+    await act(async () => { root.render(<TextHookTab active />); await flushAsyncWork(); });
+    const newStatus = {
+      running: true, engine: "agent", arch: "x64", pid: 1234, exeName: "game.exe",
+      selectedHookId: "agent", hookCount: 1, agentPhase: "receiving", sessionId: "new-session",
+    };
+    await act(async () => {
+      ipcListeners.get("texthook.status")?.({}, newStatus);
+      ipcListeners.get("texthook.text")?.({}, { hookId: "agent", sessionId: "new-session", text: "new dialogue" });
+      finishStatus({ ...newStatus, sessionId: "old-session", agentPhase: "waiting" });
+      await flushAsyncWork();
+    });
+    expect(container.querySelector(".th-session-state")?.textContent).toContain("Receiving text");
+    expect(container.querySelector(".texthook-output-pre")?.textContent).toBe("new dialogue");
   });
 
   it("hides the large-payload stress control outside development", async () => {

@@ -1,5 +1,29 @@
 {
   "home": {
+    "workspace": {
+      "library": "我的游戏",
+      "savedGames": "已保存的游戏",
+      "searchGames": "搜索游戏",
+      "noMatchingGames": "没有匹配的游戏。",
+      "noGames": "尚未添加游戏。",
+      "emptyGameHint": "添加第一个游戏，设置捕获并开始收集例句。",
+      "addingGame": "正在设置捕获…",
+      "addGameError": "无法设置捕获。请检查 OBS 是否已连接，然后重试。",
+      "chooseGame": "选择游戏",
+      "chooseGameHint": "选择已保存的游戏，或添加新的捕获。",
+      "gameContext": "游戏捕获",
+      "gameOptions": "游戏选项",
+      "gameActions": "{name}的操作",
+      "gameActionError": "无法更新此游戏。请重试。",
+      "backToGame": "返回游戏",
+      "textFeed": "文本流",
+      "textFeedHint": "在文本流中阅读捕获的文本并收集例句。",
+      "firstGameHint": "启动游戏，然后在下方选择游戏窗口来设置捕获。",
+      "addGame": "添加游戏",
+      "addGameHint": "捕获其他窗口、显示器或采集卡。",
+      "overlayHint": "在游玩时查词并收集例句。",
+      "connections": "连接状态"
+    },
     "status": {
       "title": "状态",
       "gsm": "GSM",
@@ -104,7 +128,7 @@
     },
     "support": {
       "text": "支持 GSM",
-      "githubSponsors": "GitHub Sponsors",
+      "githubSponsors": "GitHub Sponsors（首选）",
       "kofi": "Ko-fi",
       "githubStar": "在 GitHub 上加星（免费）"
     },
@@ -134,7 +158,9 @@
     "tabs": {
       "home": "主页",
       "ocr": "OCR",
-      "textHook": "Texthook / Agent",      "textProcessing": "文本预处理",      "stats": "统计",
+      "textHook": "Texthook / Agent",
+      "textProcessing": "文本预处理",
+      "stats": "统计",
       "gameSettings": "游戏自动化",
       "settings": "设置",
       "python": "Python",
@@ -486,6 +512,31 @@
     "quit": "退出"
   },
   "settings": {
+    "workspace": {
+      "brandHint": "偏好设置与工具",
+      "general": "常规",
+      "generalHelp": "选择外观、语言和启动行为。",
+      "layout": "标签页与窗口",
+      "layoutHelp": "选择常用标签页并设置游戏窗口相关功能。",
+      "updatesHelp": "在此管理桌面应用和后端的更新。",
+      "backupsHelp": "自动备份数据库，或备份所选数据。",
+      "storageHelp": "管理设置、数据库和下载工具的存储位置。",
+      "appearance": "外观",
+      "behavior": "启动与行为",
+      "moreSettings": "GSM 与悬浮窗设置",
+      "autoSave": "桌面偏好设置会自动保存。",
+      "searchPlaceholder": "搜索所有设置…",
+      "searchResults": "搜索结果",
+      "clearSearch": "清除搜索",
+      "openSection": "打开设置",
+      "navigation": "设置分类",
+      "selectiveBackup": "选择性备份与恢复",
+      "statsOverview": "概览",
+      "statsReading": "阅读统计",
+      "statsGoals": "目标",
+      "statsAnki": "Anki 统计",
+      "statsSearch": "搜索"
+    },
     "hub": {
       "findSetting": "查找设置",
       "findDescription": "搜索你想更改的内容，GSM 将打开正确的设置页面。",
@@ -749,6 +800,42 @@
     }
   },
   "ocr": {
+    "workspace": {
+      "recognition": "文字识别",
+      "filtering": "图像与输出",
+      "comparison": "文本比对",
+      "shortcuts": "快捷键",
+      "tools": "工具",
+      "navigation": "OCR 视图",
+      "scanSettings": "扫描设置",
+      "imageSettings": "图像设置",
+      "quickCapture": "快速捕获",
+      "quickCaptureHint": "使用快捷键或选择操作。",
+      "startToCapture": "启动 OCR 后即可快速捕获。",
+      "textOutput": "文本输出",
+      "copyText": "复制文本",
+      "lineBreaks": "保留换行",
+      "copyMode": "复制文本：{mode}",
+      "lineBreaksMode": "保留换行：{mode}",
+      "areaTools": "区域工具和指南",
+      "singlePassSummary": "{engine} · 每 {rate} 秒",
+      "twoPassSummary": "{stability} → {engine} · 每 {rate} 秒",
+      "comparisonPrimary": "核心阈值",
+      "comparisonTruncation": "截断规则",
+      "comparisonSubset": "子集与分块",
+      "resetDefaults": "恢复默认",
+      "toolsDiagnostics": "诊断与运行",
+      "toolsPackages": "扩展包",
+      "toolsFiles": "配置与文件",
+      "consoleExpand": "展开控制台",
+      "consoleCompact": "紧凑控制台",
+      "consoleDockRight": "左右分屏",
+      "consoleDockBottom": "底部停靠",
+      "pipelineCapture": "捕获",
+      "pipelineStability": "阶段1 · 稳定性",
+      "pipelineMain": "主 OCR",
+      "pipelineCadence": "频率"
+    },
     "sceneAndAreas": {
       "autostart": "自动启动 OCR：",
       "autostartHint": "选择此游戏活动时自动启动的 OCR 模式。此设置与游戏自动化共用。",
@@ -792,23 +879,74 @@
     "comparison": {
       "title": "文本比较调优",
       "expertTitle": "专家启发式",
-      "duplicateThreshold": { "label": "重复匹配阈值（%）", "title": "值越高越严格。如果不同的行被当作重复处理，请提高此值。" },
-      "changeThreshold": { "label": "文本变化阈值（%）", "title": "较低的值会在部分变化时更早触发 OCR2。较高的值会等待更明显的变化。" },
-      "evolvingPrefix": { "label": "递进前缀匹配（%）", "title": "用于检查短行是否看起来像长行的开头。" },
-      "truncationFallbackMin": { "label": "截断回退最小阈值（%）", "title": "允许前缀或后缀截断匹配之前所需的最小比较阈值。" },
-      "truncationStrictMin": { "label": "截断严格阈值（%）", "title": "超过此阈值时，GSM 还要求更强的基本相似度才能将截断视为相同文本。" },
-      "truncationMargin": { "label": "截断基础余量", "title": "在截断回退被拒绝之前，基本相似度可以低于比较阈值多少。" },
-      "truncationMinLength": { "label": "截断最小长度（字符）", "title": "允许截断匹配的最短归一化字符串长度。" },
-      "truncationMinRatio": { "label": "截断最小长度比（%）", "title": "在考虑截断匹配之前，较短行必须覆盖较长行的比例。" },
-      "subsetChunkMinLength": { "label": "子集块最小长度（字符）", "title": "短于此的传入 OCR 块会跳过块覆盖回退，除非是精确匹配。" },
-      "shortChunkLimit": { "label": "短块限制（字符）", "title": "等于或低于此长度的块使用较小的匹配块最小值。" },
-      "shortChunkMinSize": { "label": "短块匹配最小值", "title": "短块计入的最小连续匹配大小。" },
-      "defaultMinSize": { "label": "默认匹配最小值", "title": "较长块计入的最小连续匹配大小。" },
-      "coverageFloor": { "label": "子集覆盖下限（%）", "title": "去重回退允许的最低块覆盖要求。" },
-      "coverageCeiling": { "label": "子集覆盖上限（%）", "title": "去重回退允许的最高块覆盖要求。" },
-      "coverageOffset": { "label": "覆盖阈值偏移", "title": "将当前比较阈值转换为覆盖要求之前应用的偏移量。" },
-      "longestBlockMin": { "label": "最长块最小值（字符）", "title": "子集覆盖模式中所需的最小连续块大小。" },
-      "longestBlockDivisor": { "label": "最长块除数", "title": "较大的值会减少较长块所需的连续块长度。" }
+      "duplicateThreshold": {
+        "label": "重复匹配阈值（%）",
+        "title": "值越高越严格。如果不同的行被当作重复处理，请提高此值。"
+      },
+      "changeThreshold": {
+        "label": "文本变化阈值（%）",
+        "title": "较低的值会在部分变化时更早触发 OCR2。较高的值会等待更明显的变化。"
+      },
+      "evolvingPrefix": {
+        "label": "递进前缀匹配（%）",
+        "title": "用于检查短行是否看起来像长行的开头。"
+      },
+      "truncationFallbackMin": {
+        "label": "截断回退最小阈值（%）",
+        "title": "允许前缀或后缀截断匹配之前所需的最小比较阈值。"
+      },
+      "truncationStrictMin": {
+        "label": "截断严格阈值（%）",
+        "title": "超过此阈值时，GSM 还要求更强的基本相似度才能将截断视为相同文本。"
+      },
+      "truncationMargin": {
+        "label": "截断基础余量",
+        "title": "在截断回退被拒绝之前，基本相似度可以低于比较阈值多少。"
+      },
+      "truncationMinLength": {
+        "label": "截断最小长度（字符）",
+        "title": "允许截断匹配的最短归一化字符串长度。"
+      },
+      "truncationMinRatio": {
+        "label": "截断最小长度比（%）",
+        "title": "在考虑截断匹配之前，较短行必须覆盖较长行的比例。"
+      },
+      "subsetChunkMinLength": {
+        "label": "子集块最小长度（字符）",
+        "title": "短于此的传入 OCR 块会跳过块覆盖回退，除非是精确匹配。"
+      },
+      "shortChunkLimit": {
+        "label": "短块限制（字符）",
+        "title": "等于或低于此长度的块使用较小的匹配块最小值。"
+      },
+      "shortChunkMinSize": {
+        "label": "短块匹配最小值",
+        "title": "短块计入的最小连续匹配大小。"
+      },
+      "defaultMinSize": {
+        "label": "默认匹配最小值",
+        "title": "较长块计入的最小连续匹配大小。"
+      },
+      "coverageFloor": {
+        "label": "子集覆盖下限（%）",
+        "title": "去重回退允许的最低块覆盖要求。"
+      },
+      "coverageCeiling": {
+        "label": "子集覆盖上限（%）",
+        "title": "去重回退允许的最高块覆盖要求。"
+      },
+      "coverageOffset": {
+        "label": "覆盖阈值偏移",
+        "title": "将当前比较阈值转换为覆盖要求之前应用的偏移量。"
+      },
+      "longestBlockMin": {
+        "label": "最长块最小值（字符）",
+        "title": "子集覆盖模式中所需的最小连续块大小。"
+      },
+      "longestBlockDivisor": {
+        "label": "最长块除数",
+        "title": "较大的值会减少较长块所需的连续块长度。"
+      }
     },
     "hotkeys": {
       "title": "热键",
@@ -1002,9 +1140,113 @@
       "importFailed": "导入失败。",
       "areaConfigExported": "OCR 区域配置已复制到剪贴板。",
       "exportFailed": "导出失败。"
+    },
+    "desk": {
+      "preview": {
+        "live": "实时预览",
+        "paused": "预览已暂停",
+        "loading": "正在加载游戏预览…",
+        "unavailable": "预览不可用 · 显示已保存的区域",
+        "stale": "预览不可用 · 显示最后一帧",
+        "textBoxes": "文本框",
+        "pause": "暂停预览",
+        "resume": "恢复预览",
+        "detected": "{count} 个文本框 · 最近一次扫描",
+        "waiting": "等待 OCR 扫描",
+        "startHint": "启动 OCR 以显示文本框"
+      },
+      "brandHint": "捕获游戏文本",
+      "workspace": "OCR 工作区",
+      "capture": "捕获",
+      "textMatching": "文本匹配",
+      "captureAreas": "捕获区域",
+      "editAreas": "编辑区域",
+      "thisSession": "当前会话",
+      "engine": "文本识别",
+      "stability": "变化检测",
+      "adjustRecognition": "调整识别设置",
+      "editShortcuts": "编辑快捷键",
+      "unbound": "未设置快捷键",
+      "autoMode": "自动捕获",
+      "manualMode": "手动捕获",
+      "settingsSaved": "更改自动保存",
+      "closeConsole": "返回工作区",
+      "layoutOverview": "已保存的布局",
+      "wholeWindow": "整个窗口",
+      "wholeWindowHint": "绘制区域以聚焦所需文本。",
+      "savedLayout": "区域已保存",
+      "savedLayoutHint": "打开区域选择器查看此布局。",
+      "areaKinds": {
+        "normal": "文本",
+        "secondary": "菜单",
+        "excluded": "排除",
+        "black-hole": "黑洞",
+        "exclusive": "专用"
+      },
+      "viewHelp": {
+        "capture": "捕获布局、会话设置与单次扫描。",
+        "recognition": "选择文本检测和识别方式。",
+        "filtering": "优化捕获图像并选择文本输出方式。",
+        "comparison": "调整新文本、稳定文本和重复文本的判断。",
+        "shortcuts": "无需离开游戏即可捕获文本。",
+        "tools": "管理 OCR 组件、诊断与配置文件。",
+        "console": "实时 OCR 输出与诊断。使用其他页面时日志仍会保留。"
+      },
+      "shortcutHelp": "选择绑定栏并按下组合键。按 Escape 清除绑定。",
+      "openAreaSelector": "打开区域选择器",
+      "editor": {
+        "edit": "在预览中编辑区域",
+        "areaType": "绘制",
+        "undo": "撤销",
+        "clear": "清空",
+        "selectedArea": "选中的区域",
+        "none": "无",
+        "areaLabel": "{number} · {kind}",
+        "remove": "删除",
+        "cancel": "取消",
+        "save": "保存区域",
+        "saving": "保存中…",
+        "canvas": "在游戏预览上绘制 OCR 区域",
+        "hint": "拖动以绘制，点击区域以选中。预览已暂停；保存后应用更改。",
+        "legacyHint": "请使用“打开区域选择器”编辑此旧版或不受支持的布局。",
+        "errors": {
+          "sceneChanged": "场景已更改。请取消并重新打开当前场景的编辑器。",
+          "conflict": "已保存的区域在其他位置发生了更改。请取消并重新加载场景后再编辑。",
+          "invalid": "无法在此处保存此布局。请使用区域选择器。",
+          "failed": "无法保存区域。您的更改仍保留在此处，请重试。"
+        },
+        "keyboardModifiers": "键盘修饰键",
+        "modifierHint": "Shift: 排除 · Ctrl: 菜单 · Alt: 专属 · Ctrl+Alt: 黑洞"
+      }
     }
   },
   "texthook": {
+    "updates": {
+      "versionChoice": "引擎包版本",
+      "installSelected": "安装所选版本",
+      "updateLatest": "更新到最新版",
+      "recommended": "推荐",
+      "latest": "最新",
+      "pinHint": "可以同时升级或降级两个引擎。安装所选版本后会关闭自动更新，并保持该版本，直到您更改选择或重新启用自动更新。",
+      "buildVersions": "LunaHook {luna} · Textractor {textractor}"
+    },
+    "workspace": {
+      "title": "文本钩子",
+      "brandHint": "直接提取游戏文本",
+      "currentGame": "当前游戏",
+      "navigation": "文本钩子视图",
+      "live": "实时文本",
+      "liveHelp": "选择钩子，检查输出是否与游戏中的对话一致。",
+      "engine": "引擎与脚本",
+      "output": "输出与时序",
+      "outputHelp": "调整文本输出、修订等待时间和文本长度上限。",
+      "tools": "工具",
+      "toolsHelp": "了解文本钩子并管理已安装的引擎。",
+      "noHookSelected": "未选择钩子",
+      "logHelp": "本次会话中钩子引擎的消息。",
+      "closeLog": "返回工作区",
+      "clearLog": "清空日志"
+    },
     "credits": {
       "text": "文本挂接工具",
       "agent": "Agent",
@@ -1084,6 +1326,9 @@
     },
     "status": {
       "attached": "已附加",
+      "starting": "正在启动",
+      "waitingForText": "等待文本",
+      "receiving": "正在接收文本",
       "ready": "就绪",
       "noTarget": "无目标"
     },
@@ -1108,6 +1353,85 @@
       "manualFailed": "无法附加手动挂接。",
       "profileSaveFailed": "无法保存挂接配置。",
       "noExe": "未检测到活动捕获的可执行文件。"
+    }
+  },
+  "speechRecognition": {
+    "workspace": {
+      "title": "Windows 语音",
+      "brandHint": "语音识别",
+      "capture": "实时转录",
+      "captureHelp": "从所选 OBS 场景中的游戏识别语音对话。",
+      "advanced": "高级设置",
+      "activity": "运行日志",
+      "navigation": "Windows 语音视图",
+      "session": "语音识别会话",
+      "unsaved": "有未保存的更改",
+      "transcript": "识别的对话",
+      "clearText": "清空文本",
+      "interim": "识别中…",
+      "waiting": "等待游戏中的对话…",
+      "empty": "开始语音识别后，对话将显示在此处。",
+      "forwarding": "识别的对话会应用 GSM 的文本处理规则。"
+    },
+    "title": "Windows Speech Recognition",
+    "subtitle": "Run speech recognition for the current OBS scene and send recognized dialogue through GSM's text pipeline.",
+    "experimental": "Experimental · Windows only",
+    "loading": "Loading speech recognition workspace...",
+    "loadFailed": "Could not load speech recognition settings.",
+    "scenesLoadFailed": "Could not load OBS scenes.",
+    "sceneSwitchFailed": "Could not switch the active OBS scene.",
+    "scene": {
+      "title": "Scene",
+      "hint": "Choose the OBS scene whose game audio should be recognized.",
+      "label": "OBS scene",
+      "refresh": "Refresh",
+      "none": "No OBS scenes found",
+      "savedPerScene": "Settings below are saved for {scene} only.",
+      "connectObs": "Connect OBS to select a scene."
+    },
+    "engine": {
+      "title": "Recognition",
+      "hint": "Configure the recognizer used when this scene is started.",
+      "downloadHint": "The embedded backend may download about 358 MB and unpack about 492 MB on first use."
+    },
+    "backend": "Recognition backend",
+    "backendEmbedded": "Embedded speech (recommended)",
+    "backendSapi": "Windows SAPI",
+    "language": "Recognition language",
+    "languageJapanese": "Japanese",
+    "languageEnglish": "English",
+    "advanced": "Advanced runtime overrides",
+    "advancedHint": "Leave these blank to use GSM's downloaded speech bundle and automatic discovery.",
+    "modelPath": "Model path",
+    "runtimePath": "Runtime path",
+    "licenseFile": "Embedded Speech license file",
+    "automatic": "Automatic",
+    "optional": "Optional",
+    "save": "Save",
+    "saving": "Saving...",
+    "savedForScene": "Speech recognition settings saved for {scene}.",
+    "saveFailed": "Could not save speech recognition settings.",
+    "start": "Start Speech Recognition",
+    "stop": "Stop Speech Recognition",
+    "startFailed": "Could not start speech recognition.",
+    "stopFailed": "Could not stop speech recognition.",
+    "status": {
+      "idle": "Idle",
+      "starting": "Starting",
+      "running": "Running",
+      "stopping": "Stopping",
+      "error": "Error"
+    },
+    "console": {
+      "title": "Recognition log",
+      "hint": "Runtime messages and recognized text stay local to this app session.",
+      "clear": "Clear",
+      "empty": "Start speech recognition to see runtime logs and recognized text here."
+    },
+    "footer": {
+      "noScene": "No scene selected",
+      "runningHint": "Recognition stops automatically when the OBS scene changes.",
+      "idleHint": "Settings are scene-specific. Start recognition when you are ready."
     }
   }
 }

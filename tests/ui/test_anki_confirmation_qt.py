@@ -1,4 +1,7 @@
+import asyncio
+import inspect
 import os
+from concurrent.futures import Future
 from copy import deepcopy
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -11,9 +14,14 @@ from PyQt6.QtCore import QElapsedTimer, Qt, QTimer
 from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication
 
-from GameSentenceMiner.ui import anki_confirmation_qt, audio_waveform_widget
+from GameSentenceMiner.ui import anki_confirmation_qt
 from GameSentenceMiner.util.config.configuration import Anki
 from GameSentenceMiner.util.media.pause_gaps import AudioTimeline
+
+
+@pytest.fixture(autouse=True)
+def mock_foreground_window(monkeypatch):
+    monkeypatch.setattr(anki_confirmation_qt, "get_foreground_window_handle", lambda: None)
 
 
 class _UnavailableAudioPlayer:
@@ -107,6 +115,108 @@ def test_regenerate_sentence_meaning_is_enabled_by_default(monkeypatch):
     app.processEvents()
 
 
+def test_overlay_source_warning_is_shown_on_every_overlay_only_card(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", _UnavailableAudioPlayer)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    dialog = anki_confirmation_qt.AnkiConfirmationDialog()
+
+    for overlay_only in [True, False, True]:
+        dialog.populate_ui(
+            expression="overlay",
+            sentence="The overlay sentence.",
+            screenshot_path=None,
+            previous_screenshot_path=None,
+            audio_path=None,
+            translation="",
+            screenshot_timestamp=0,
+            previous_screenshot_timestamp=0,
+            overlay_only=overlay_only,
+        )
+        assert dialog.overlay_source_warning_label.isHidden() is (not overlay_only)
+        assert dialog.disable_session_checkbox.isHidden() is overlay_only
+    warning = dialog.overlay_source_warning_label.text()
+    assert "text hooking" in warning.lower()
+    assert "ocr" in warning.lower()
+    assert "speed" in warning.lower()
+    assert "statistics" in warning.lower()
+    assert "timing" in warning.lower()
+
+    dialog.deleteLater()
+    app.processEvents()
+
+
+def test_overlay_source_warning_bypasses_session_disable(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "disable_anki_confirmation_session", True)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    populated = []
+    dialog = SimpleNamespace(populate_ui=lambda *args: populated.append(args), exec=lambda: "confirmed")
+    monkeypatch.setattr(anki_confirmation_qt, "_anki_confirmation_dialog_instance", dialog)
+
+    result = anki_confirmation_qt.show_anki_confirmation(
+        None, "overlay", "The overlay sentence.", None, None, None, "", 0, 0, overlay_only=True
+    )
+
+    assert result == "confirmed"
+    assert len(populated) == 1
+    assert populated[0][-1] is True
+    app.processEvents()
+
+
+def test_overlay_source_warning_requires_confirmation_even_with_auto_accept(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    config = deepcopy(anki_confirmation_qt.get_config())
+    config.anki.auto_accept_timer = 1
+    config.anki.autoplay_audio = False
+    config.anki.confirmation_gamepad_enabled = False
+    monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
+    monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", _UnavailableAudioPlayer)
+    monkeypatch.setattr(anki_confirmation_qt.AnkiConfirmationDialog, "_should_focus_on_show", lambda self: False)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    dialog = anki_confirmation_qt.AnkiConfirmationDialog()
+    dialog.populate_ui("overlay", "The overlay sentence.", None, None, None, "", 0, 0, overlay_only=True)
+    dialog.show()
+    app.processEvents()
+
+    assert dialog._auto_accept_qtimer is None
+    assert dialog.auto_accept_label.isHidden()
+
+    dialog.hide()
+    dialog.deleteLater()
+    app.processEvents()
+
+
+@pytest.mark.parametrize("async_mode", [False, True])
+def test_overlay_warning_reaches_confirmation_through_dialog_manager(monkeypatch, async_mode):
+    from GameSentenceMiner.ui import qt_main
+
+    app = QApplication.instance() or QApplication([])
+    shown = []
+
+    def show_confirmation(**kwargs):
+        shown.append(kwargs)
+        return "confirmed"
+
+    manager = qt_main.DialogManager()
+    monkeypatch.setattr(qt_main, "get_dialog_manager", lambda: manager)
+    monkeypatch.setattr(qt_main, "_get_show_anki_confirmation", lambda: show_confirmation)
+    if async_mode:
+        result = asyncio.run(manager.anki_confirmation_async("word", "sentence", None, None, overlay_only=True))
+    else:
+        result = qt_main.launch_anki_confirmation("word", "sentence", None, None, overlay_only=True)
+
+    assert result == "confirmed"
+    assert len(shown) == 1
+    assert shown[0]["overlay_only"] is True
+    manager.deleteLater()
+    app.processEvents()
+
+
 def test_apply_window_behavior_preferences_sets_show_without_activating(monkeypatch):
     config = SimpleNamespace(anki=SimpleNamespace(confirmation_always_on_top=True))
     monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
@@ -170,6 +280,9 @@ def test_confirmation_exec_releases_only_acquired_game_pause(monkeypatch, focus_
         return "confirmed"
 
     monkeypatch.setattr(anki_confirmation_qt, "request_anki_confirmation_process_pause", request_pause)
+    monkeypatch.setattr(
+        anki_confirmation_qt, "_request_game_focus_restore", lambda _hwnd: probe.calls.append("restore")
+    )
     probe._exec_with_activation = run_dialog
     probe._exec_without_activation = run_dialog
 
@@ -182,6 +295,8 @@ def test_confirmation_exec_releases_only_acquired_game_pause(monkeypatch, focus_
     expected = ["apply", ("pause", True), "dialog"]
     if pause_succeeded:
         expected.append(("pause", False))
+    if not raises:
+        expected.append("restore")
     assert probe.calls == expected
 
 
@@ -203,10 +318,39 @@ def focus_confirmation_dialog(monkeypatch):
         app.processEvents()
 
 
+def test_confirmation_logs_first_paint_once_per_card(focus_confirmation_dialog, monkeypatch):
+    dialog, config = focus_confirmation_dialog
+    config.anki.confirmation_focus_on_show = False
+    timing_context = object()
+    context = SimpleNamespace(selected_lines=[], mined_line=None, audio_result=None, timing_context=timing_context)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", context)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    events = []
+    monkeypatch.setattr(
+        anki_confirmation_qt, "log_anki_card_timing", lambda ctx, event, **kwargs: events.append((ctx, event))
+    )
+
+    for _ in range(2):
+        dialog.populate_ui("word", "sentence", None, None, None, "", 0, 0)
+        dialog.show()
+        QApplication.instance().processEvents()
+        dialog.repaint()
+        dialog.hide()
+
+    assert [event for ctx, event in events if ctx is timing_context] == [
+        "anki.confirmation_dialog.populated",
+        "anki.confirmation_dialog.shown",
+        "anki.confirmation_dialog.populated",
+        "anki.confirmation_dialog.shown",
+    ]
+
+
 @pytest.mark.parametrize("focus_on_show", [False, True])
 @pytest.mark.parametrize("finish", ["accept", "reject", "close"])
+@pytest.mark.parametrize("pause_succeeded", [False, True])
 def test_confirmation_game_pause_lasts_until_dialog_finishes(
-    focus_confirmation_dialog, monkeypatch, focus_on_show, finish
+    focus_confirmation_dialog, monkeypatch, focus_on_show, finish, pause_succeeded
 ):
     dialog, config = focus_confirmation_dialog
     config.anki.confirmation_focus_on_show = focus_on_show
@@ -214,8 +358,17 @@ def test_confirmation_game_pause_lasts_until_dialog_finishes(
     visible_when_finished = []
     monkeypatch.setattr(anki_confirmation_qt, "activate_window", lambda _window: True)
     monkeypatch.setattr(
-        anki_confirmation_qt, "request_anki_confirmation_process_pause", lambda paused: calls.append(paused) or True
+        anki_confirmation_qt,
+        "request_anki_confirmation_process_pause",
+        lambda paused: calls.append(paused) or pause_succeeded,
     )
+    focus_restore_visibility = []
+
+    def restore_focus(_hwnd):
+        focus_restore_visibility.append(dialog.isVisible())
+        calls.append("restore")
+
+    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", restore_focus)
     monkeypatch.setattr(dialog, "_confirm_exit_and_apply_result", lambda: True)
 
     def finish_dialog():
@@ -227,7 +380,153 @@ def test_confirmation_game_pause_lasts_until_dialog_finishes(
     dialog.exec()
 
     assert visible_when_finished == [True]
-    assert calls == [True, "finish", False]
+    assert focus_restore_visibility == [False]
+    assert calls == [True, "finish", *([False] if pause_succeeded else []), "restore"]
+
+
+@pytest.mark.parametrize("finish", ["reject", "close"])
+def test_canceling_discard_prompt_keeps_game_pause_and_focus_in_confirmation(
+    focus_confirmation_dialog, monkeypatch, finish
+):
+    dialog, _config = focus_confirmation_dialog
+    calls = []
+    still_editing = []
+    monkeypatch.setattr(anki_confirmation_qt, "activate_window", lambda _window: True)
+    monkeypatch.setattr(
+        anki_confirmation_qt, "request_anki_confirmation_process_pause", lambda paused: calls.append(paused) or True
+    )
+    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", lambda _hwnd: calls.append("restore"))
+    choices = iter([anki_confirmation_qt.EXIT_CHOICE_CANCEL, anki_confirmation_qt.EXIT_CHOICE_DISCARD])
+    monkeypatch.setattr(dialog, "_show_exit_confirmation_message", lambda: next(choices))
+
+    def cancel_discard():
+        getattr(dialog, finish)()
+        still_editing.append((dialog.isVisible(), list(calls)))
+        QTimer.singleShot(0, getattr(dialog, finish))
+
+    QTimer.singleShot(20, cancel_discard)
+    dialog.exec()
+
+    assert still_editing == [(True, [True])]
+    assert calls == [True, False, "restore"]
+
+
+def test_confirmation_restores_the_window_focused_before_activation(monkeypatch):
+    probe = _ExecRoutingProbe(focus_on_show=True)
+    foreground = [0x123456789]
+    restored = []
+    monkeypatch.setattr(anki_confirmation_qt, "get_foreground_window_handle", lambda: foreground[0])
+    monkeypatch.setattr(anki_confirmation_qt, "request_anki_confirmation_process_pause", lambda _paused: False)
+    monkeypatch.setattr(anki_confirmation_qt, "_request_game_focus_restore", restored.append)
+
+    def run_dialog():
+        foreground[0] = 999
+        return "confirmed"
+
+    probe._exec_with_activation = run_dialog
+    assert anki_confirmation_qt.AnkiConfirmationDialog.exec(probe) == "confirmed"
+    assert restored == [0x123456789]
+
+
+def test_request_game_focus_restore_defers_to_overlay_when_connected(monkeypatch):
+    from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+    loop = SimpleNamespace(is_running=lambda: True)
+    monitor = SimpleNamespace(overlay_processor=SimpleNamespace(processing_loop=loop))
+    sent = []
+    monkeypatch.setattr(anki_confirmation_qt, "get_window_state_monitor", lambda: monitor)
+    monkeypatch.setattr(websocket_manager, "has_clients", lambda channel: channel == ID_OVERLAY)
+
+    async def send(channel, message):
+        sent.append((channel, message))
+
+    monkeypatch.setattr(websocket_manager, "send", send)
+    monkeypatch.setattr(anki_confirmation_qt, "submit_coroutine_to_loop", lambda _loop, coro: asyncio.run(coro))
+
+    anki_confirmation_qt._request_game_focus_restore(0x123456789)
+
+    assert sent == [(ID_OVERLAY, {"type": "anki-confirmation-closed", "previousForegroundHwnd": "4886718345"})]
+
+
+@pytest.mark.parametrize(
+    "previous_hwnd, overlay_state", [(None, "connected"), (42, "disconnected"), (42, "send-error")]
+)
+def test_request_game_focus_restore_reuses_overlay_target_resolution_and_activation(
+    monkeypatch, previous_hwnd, overlay_state
+):
+    from GameSentenceMiner.web import overlay_handler as overlay_handler_module
+    from GameSentenceMiner.web.gsm_websocket import websocket_manager
+
+    calls = []
+    loop = SimpleNamespace(is_running=lambda: True)
+    processor = SimpleNamespace(processing_loop=loop)
+
+    async def activate():
+        calls.append(("activate", monitor.target_hwnd))
+        return True
+
+    monitor = SimpleNamespace(
+        overlay_processor=processor,
+        target_hwnd=None,
+        find_target_hwnd=lambda: 42,
+        activate_target_window=activate,
+    )
+    processor.window_monitor = monitor
+    monkeypatch.setattr(anki_confirmation_qt, "get_window_state_monitor", lambda: monitor)
+    monkeypatch.setattr(overlay_handler_module, "get_overlay_processor", lambda: processor)
+    monkeypatch.setattr(websocket_manager, "has_clients", lambda _channel: overlay_state != "disconnected")
+
+    async def send(_channel, _message):
+        assert overlay_state == "send-error"
+        raise RuntimeError("Overlay disconnected during send")
+
+    monkeypatch.setattr(websocket_manager, "send", send)
+
+    def submit(target_loop, coroutine):
+        assert target_loop is loop
+        calls.append("submit")
+        future = Future()
+        future.set_result(asyncio.run(coroutine))
+        return future
+
+    monkeypatch.setattr(anki_confirmation_qt, "submit_coroutine_to_loop", submit)
+
+    anki_confirmation_qt._request_game_focus_restore(previous_hwnd)
+
+    assert calls == ["submit", ("activate", 42)]
+
+
+@pytest.mark.parametrize("unavailable", ["monitor", "processor", "loop", "stopped"])
+def test_request_game_focus_restore_skips_unavailable_window_monitor(monkeypatch, unavailable):
+    loop = SimpleNamespace(is_running=lambda: unavailable != "stopped")
+    processor = SimpleNamespace(processing_loop=None if unavailable == "loop" else loop)
+    monitor = SimpleNamespace(overlay_processor=None if unavailable == "processor" else processor)
+    monkeypatch.setattr(
+        anki_confirmation_qt, "get_window_state_monitor", lambda: None if unavailable == "monitor" else monitor
+    )
+    monkeypatch.setattr(
+        anki_confirmation_qt, "submit_coroutine_to_loop", lambda *_args: pytest.fail("Unexpected focus request")
+    )
+
+    anki_confirmation_qt._request_game_focus_restore()
+
+
+def test_request_game_focus_restore_closes_coroutine_if_loop_stops_during_submission(monkeypatch):
+    loop = SimpleNamespace(is_running=lambda: True)
+    monitor = SimpleNamespace(overlay_processor=SimpleNamespace(processing_loop=loop))
+    submitted = []
+    monkeypatch.setattr(anki_confirmation_qt, "get_window_state_monitor", lambda: monitor)
+
+    def submit(_loop, coroutine):
+        submitted.append(coroutine)
+        raise RuntimeError("Event loop is closed")
+
+    monkeypatch.setattr(anki_confirmation_qt, "submit_coroutine_to_loop", submit)
+
+    anki_confirmation_qt._request_game_focus_restore()
+
+    assert len(submitted) == 1
+    assert inspect.getcoroutinestate(submitted[0]) == inspect.CORO_CLOSED
 
 
 @pytest.mark.parametrize("failures_before_focus", [0, 2])
@@ -581,6 +880,9 @@ def test_click_active_component_invokes_focused_clickable_widget(monkeypatch):
 @pytest.fixture
 def gamepad_confirmation_dialog(monkeypatch):
     app = QApplication.instance() or QApplication([])
+    config = deepcopy(anki_confirmation_qt.get_config())
+    config.anki = Anki()
+    monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
     monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", _UnavailableAudioPlayer)
     # Exercise the real dialog and Qt timers without starting controller or audio services.
     monkeypatch.setattr(anki_confirmation_qt.AnkiConfirmationDialog, "showEvent", lambda self, event: None)
@@ -964,10 +1266,82 @@ def test_normalize_audio_edit_context_falls_back_to_probe_duration(monkeypatch):
     }
 
 
-def test_audio_expand_seconds_shared_between_dialog_and_waveform_labels():
-    assert audio_waveform_widget.AUDIO_EXPAND_SECONDS == 0.25
-    assert anki_confirmation_qt.AUDIO_EXPAND_SECONDS == audio_waveform_widget.AUDIO_EXPAND_SECONDS
-    assert audio_waveform_widget.EXPAND_BUTTON_SECONDS_TEXT == "0.25s"
+def test_audio_expand_default_labels(gamepad_confirmation_dialog):
+    waveform = gamepad_confirmation_dialog.waveform_widget
+    assert waveform.expand_start_button.text() == "◀ +0.25s"
+    assert waveform.expand_end_button.text() == "+0.25s ▶"
+
+
+def test_audio_expansion_refreshes_setting_for_each_card(gamepad_confirmation_dialog, monkeypatch):
+    dialog = gamepad_confirmation_dialog
+    config = deepcopy(anki_confirmation_qt.get_config())
+    monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    calls = []
+    monkeypatch.setattr(dialog, "_expand_audio_window", lambda **kwargs: calls.append(kwargs))
+
+    for step in [0.1, 2, 5, 0.25]:
+        config.anki.confirmation_audio_step = step
+        dialog.populate_ui("", "", None, None, None, "", 0, 0)
+        dialog.show()
+        waveform = dialog.waveform_widget
+        waveform.show()
+        waveform.set_expand_controls(True, can_expand_start=True, can_expand_end=True)
+        dialog.sentence_text.setFocus()
+        for key, modifier, factor in [
+            (Qt.Key.Key_Shift, Qt.KeyboardModifier.ShiftModifier, 5),
+            (Qt.Key.Key_Control, Qt.KeyboardModifier.ControlModifier, 0.2),
+        ]:
+            QTest.keyPress(dialog.sentence_text, key)
+            expected = step * factor
+            assert waveform.expand_start_button.text() == f"◀ +{expected:g}s"
+            QTest.mouseClick(waveform.expand_start_button, Qt.MouseButton.LeftButton, modifier)
+            assert calls[-1] == {"expand_start": pytest.approx(expected)}
+            QTest.keyRelease(dialog.sentence_text, key)
+            assert waveform.expand_end_button.text() == f"+{step:g}s ▶"
+        waveform.expand_end_button.click()
+        assert calls[-1] == {"expand_end": step}
+
+
+def test_audio_expansion_uses_output_format_instead_of_source_container(monkeypatch):
+    monkeypatch.setattr(
+        anki_confirmation_qt, "get_config", lambda: SimpleNamespace(audio=SimpleNamespace(extension="opus"))
+    )
+    renders = []
+    monkeypatch.setattr(anki_confirmation_qt, "trim_audio", lambda **kwargs: renders.append(kwargs))
+    waveform = SimpleNamespace(
+        duration=2.5,
+        get_cut_ranges=list,
+        load_audio=lambda path: None,
+        setVisible=lambda visible: None,
+        set_cut_ranges=lambda ranges: None,
+        set_playback_position=lambda position: None,
+        update=lambda: None,
+    )
+    probe = SimpleNamespace(
+        _audio_edit_source_path="source.mka",
+        _audio_edit_source_window=(10.0, 12.0),
+        waveform_widget=waveform,
+        audio_player=SimpleNamespace(stop_audio=lambda: None),
+        playback_timer=SimpleNamespace(stop=lambda: None),
+        audio_button=_WidgetProbe(),
+        play_original_button=_WidgetProbe(),
+        reset_audio_button=_WidgetProbe(),
+        _set_audio_cut_controls_visible=lambda visible: None,
+        _sync_audio_edit_selection_to_current_clip=lambda start, end: None,
+        _update_audio_buttons=lambda: None,
+        _update_audio_expand_buttons=lambda: None,
+        _update_cut_controls=lambda: None,
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._render_audio_edit_range(probe, 9.5, 12.0)
+
+    assert renders[0]["input_audio"] == "source.mka"
+    assert renders[0]["output_audio"].endswith(".opus")
+    assert renders[0]["output_audio"] == probe.audio_path
+    assert probe._audio_edit_source_window == (9.5, 12.0)
 
 
 def test_refresh_audio_controls_shows_reused_audio_without_waveform():
@@ -1349,6 +1723,42 @@ def test_next_dialogue_line_exposes_line_arriving_after_mine():
     probe = SimpleNamespace(_dialog_selected_lines=[selected_line])
 
     assert anki_confirmation_qt.AnkiConfirmationDialog._next_dialogue_line(probe) is future_line
+
+
+def test_saved_clip_dialogue_can_expand_two_lines_each_way_after_loading(tmp_path):
+    from GameSentenceMiner.util import clips
+    from tests.clip_helpers import write_clip
+
+    folder = write_clip(
+        tmp_path,
+        "a",
+        [
+            ("p2", "前々", "previous", 5),
+            ("p", "前", "previous", 10),
+            ("s", "選択", "selected", 15),
+            ("n", "次", "next", 20),
+            ("n2", "次々", "next", 25),
+        ],
+        27,
+    )
+    clip = clips.load_clip(str(folder))
+    dialog = anki_confirmation_qt.AnkiConfirmationDialog
+    context = SimpleNamespace(mined_line=clip.selected[0], selected_lines=[])
+    probe = SimpleNamespace(_dialog_selected_lines=dialog._dialogue_lines_from_context(context))
+    probe._previous_dialogue_line = lambda: dialog._previous_dialogue_line(probe)
+    probe._next_dialogue_line = lambda: dialog._next_dialogue_line(probe)
+    probe._selection_requires_fresh_replay = lambda lines: False
+    probe._apply_dialogue_line_change = lambda lines: setattr(probe, "_dialog_selected_lines", lines)
+
+    assert [line.id for line in probe._dialog_selected_lines] == ["s"]
+    for _ in range(2):
+        dialog._add_previous_dialogue_line(probe)
+        dialog._add_next_dialogue_line(probe)
+
+    assert [line.id for line in probe._dialog_selected_lines] == ["p2", "p", "s", "n", "n2"]
+    assert probe._previous_dialogue_line() is None
+    assert probe._next_dialogue_line() is None
+    assert all(line.clip is clip for line in probe._dialog_selected_lines)
 
 
 def test_next_line_control_stays_visible_and_disabled_while_waiting():

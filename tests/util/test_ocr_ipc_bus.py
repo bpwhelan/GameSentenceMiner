@@ -33,6 +33,32 @@ def ocr_over_bus(monkeypatch):
     broker.stop()
 
 
+def test_preview_request_leases_geometry_without_triggering_recognition(ocr_over_bus, monkeypatch):
+    from GameSentenceMiner.ocr import preview
+
+    commands = []
+    ocr_ipc.register_command_handler(commands.append)
+    geometry = preview.PreviewGeometry()
+    monkeypatch.setattr(preview, "preview_geometry", geometry)
+    ocr_ipc.start_ipc_listener()
+    assert bc.get_bus().wait_connected(5)
+    ocr_over_bus.send(
+        {
+            "v": 1,
+            "id": "geometry-request",
+            "src": "main",
+            "dst": "ocr",
+            "kind": "request",
+            "topic": preview.PREVIEW_GEOMETRY_TOPIC,
+            "data": {"enabled": True, "sceneName": "Game"},
+        }
+    )
+    response = ocr_over_bus.wait_for(lambda frame: frame.get("corr") == "geometry-request")
+    assert response["ok"] is True
+    assert geometry.enabled
+    assert commands == []
+
+
 def test_announce_event_reaches_broker(ocr_over_bus):
     ocr_ipc.start_ipc_listener()
     assert bc.get_bus().wait_connected(5), "OCR bus client did not connect"

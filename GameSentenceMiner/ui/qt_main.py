@@ -218,6 +218,7 @@ class DialogManager(QObject):
         translation_future,
         reusing_audio,
         reusing_screenshot,
+        overlay_only,
         callback,
     ):
         result = _get_show_anki_confirmation()(
@@ -234,6 +235,7 @@ class DialogManager(QObject):
             translation_future=translation_future,
             reusing_audio=reusing_audio,
             reusing_screenshot=reusing_screenshot,
+            overlay_only=overlay_only,
         )
         callback(result)
 
@@ -252,6 +254,7 @@ class DialogManager(QObject):
         reusing_audio=False,
         reusing_screenshot=False,
         parent=None,
+        overlay_only=False,
     ):
         return await self._run_async(
             lambda cb: self._logic_anki(
@@ -268,6 +271,7 @@ class DialogManager(QObject):
                 translation_future,
                 reusing_audio,
                 reusing_screenshot,
+                overlay_only,
                 cb,
             )
         )
@@ -287,6 +291,7 @@ class DialogManager(QObject):
         reusing_audio=False,
         reusing_screenshot=False,
         parent=None,
+        overlay_only=False,
     ):
         return self._run_sync(
             lambda cb: self._logic_anki(
@@ -303,6 +308,7 @@ class DialogManager(QObject):
                 translation_future,
                 reusing_audio,
                 reusing_screenshot,
+                overlay_only,
                 cb,
             )
         )
@@ -632,6 +638,7 @@ def launch_anki_confirmation(
     translation_future=None,
     reusing_audio=False,
     reusing_screenshot=False,
+    overlay_only=False,
 ):
     """
     Launch Anki confirmation. Thread-safe, blocking.
@@ -650,6 +657,7 @@ def launch_anki_confirmation(
         translation_future,
         reusing_audio,
         reusing_screenshot,
+        overlay_only=overlay_only,
     )
 
 

@@ -1,5 +1,29 @@
 {
   "home": {
+    "workspace": {
+      "library": "내 게임",
+      "savedGames": "저장된 게임",
+      "searchGames": "게임 검색",
+      "noMatchingGames": "일치하는 게임이 없습니다.",
+      "noGames": "아직 추가한 게임이 없습니다.",
+      "emptyGameHint": "첫 게임을 추가해 캡처를 설정하고 문장 수집을 시작하세요.",
+      "addingGame": "캡처 설정 중…",
+      "addGameError": "캡처를 설정하지 못했습니다. OBS 연결을 확인하고 다시 시도하세요.",
+      "chooseGame": "게임 선택",
+      "chooseGameHint": "저장된 게임을 선택하거나 새 캡처를 추가하세요.",
+      "gameContext": "게임 캡처",
+      "gameOptions": "게임 옵션",
+      "gameActions": "{name} 작업",
+      "gameActionError": "게임을 업데이트하지 못했습니다. 다시 시도하세요.",
+      "backToGame": "게임으로 돌아가기",
+      "textFeed": "텍스트 피드",
+      "textFeedHint": "텍스트 피드에서 캡처된 텍스트를 읽고 문장을 수집하세요.",
+      "firstGameHint": "게임을 실행한 다음 아래에서 게임 창을 선택해 캡처를 설정하세요.",
+      "addGame": "게임 추가",
+      "addGameHint": "다른 창, 화면 또는 캡처 카드를 캡처하세요.",
+      "overlayHint": "플레이하면서 단어를 찾고 문장을 수집하세요.",
+      "connections": "연결 상태"
+    },
     "status": {
       "title": "상태",
       "gsm": "GSM",
@@ -104,7 +128,7 @@
     },
     "support": {
       "text": "GSM 후원",
-      "githubSponsors": "GitHub Sponsors",
+      "githubSponsors": "GitHub Sponsors (권장)",
       "kofi": "Ko-fi",
       "githubStar": "GitHub에서 별 누르기 (무료)"
     },
@@ -134,7 +158,9 @@
     "tabs": {
       "home": "홈",
       "ocr": "OCR",
-      "textHook": "Texthook / Agent",      "textProcessing": "텍스트 처리",      "stats": "통계",
+      "textHook": "Texthook / Agent",
+      "textProcessing": "텍스트 처리",
+      "stats": "통계",
       "gameSettings": "게임 자동화",
       "settings": "설정",
       "python": "Python",
@@ -486,6 +512,31 @@
     "quit": "종료"
   },
   "settings": {
+    "workspace": {
+      "brandHint": "환경 설정 및 도구",
+      "general": "일반",
+      "generalHelp": "외관, 언어 및 시작 동작을 설정하세요.",
+      "layout": "탭 및 창",
+      "layoutHelp": "사용할 탭과 게임 창 관련 동작을 설정하세요.",
+      "updatesHelp": "데스크톱 앱과 백엔드 업데이트를 한곳에서 관리하세요.",
+      "backupsHelp": "데이터베이스를 자동으로 백업하거나 선택한 데이터를 백업하세요.",
+      "storageHelp": "설정, 데이터베이스 및 다운로드한 도구의 저장 위치를 관리하세요.",
+      "appearance": "외관",
+      "behavior": "시작 및 동작",
+      "moreSettings": "GSM 및 오버레이 설정",
+      "autoSave": "데스크톱 환경 설정은 자동으로 저장됩니다.",
+      "searchPlaceholder": "모든 설정 검색…",
+      "searchResults": "검색 결과",
+      "clearSearch": "검색 지우기",
+      "openSection": "설정 열기",
+      "navigation": "설정 섹션",
+      "selectiveBackup": "선택 백업 및 복원",
+      "statsOverview": "개요",
+      "statsReading": "읽기 통계",
+      "statsGoals": "목표",
+      "statsAnki": "Anki 통계",
+      "statsSearch": "검색"
+    },
     "hub": {
       "findSetting": "설정 찾기",
       "findDescription": "변경하려는 항목을 검색하면 GSM이 올바른 설정 화면을 엽니다.",
@@ -749,6 +800,42 @@
     }
   },
   "ocr": {
+    "workspace": {
+      "recognition": "인식",
+      "filtering": "이미지 및 출력",
+      "comparison": "텍스트 비교",
+      "shortcuts": "단축키",
+      "tools": "도구",
+      "navigation": "OCR 보기",
+      "scanSettings": "스캔 설정",
+      "imageSettings": "이미지 설정",
+      "quickCapture": "빠른 캡처",
+      "quickCaptureHint": "단축키를 사용하거나 작업을 선택하세요.",
+      "startToCapture": "빠른 캡처를 사용하려면 OCR을 시작하세요.",
+      "textOutput": "텍스트 출력",
+      "copyText": "텍스트 복사",
+      "lineBreaks": "줄바꿈 유지",
+      "copyMode": "텍스트 복사: {mode}",
+      "lineBreaksMode": "줄바꿈 유지: {mode}",
+      "areaTools": "영역 도구 및 가이드",
+      "singlePassSummary": "{engine} · {rate}초마다",
+      "twoPassSummary": "{stability} → {engine} · {rate}초마다",
+      "comparisonPrimary": "기본 임계값",
+      "comparisonTruncation": "자르기 규칙",
+      "comparisonSubset": "부분 일치 및 블록",
+      "resetDefaults": "기본값 복원",
+      "toolsDiagnostics": "진단 및 런타임",
+      "toolsPackages": "패키지",
+      "toolsFiles": "설정 및 파일",
+      "consoleExpand": "콘솔 확장",
+      "consoleCompact": "콘솔 축소",
+      "consoleDockRight": "분할 보기",
+      "consoleDockBottom": "하단 고정",
+      "pipelineCapture": "캡처",
+      "pipelineStability": "1단계 · 안정성",
+      "pipelineMain": "메인 OCR",
+      "pipelineCadence": "주기"
+    },
     "sceneAndAreas": {
       "autostart": "OCR 자동 시작:",
       "autostartHint": "이 게임이 활성화되면 자동으로 시작할 OCR 모드를 선택하세요. 이 설정은 게임 자동화와 공유됩니다.",
@@ -795,23 +882,74 @@
     "comparison": {
       "title": "텍스트 비교 튜닝",
       "expertTitle": "전문가 휴리스틱",
-      "duplicateThreshold": { "label": "중복 일치 임계값 (%)", "title": "값이 높을수록 엄격합니다. 다른 줄이 중복으로 처리되는 경우 이 값을 높이세요." },
-      "changeThreshold": { "label": "텍스트 변경 임계값 (%)", "title": "낮은 값은 부분 변경 시 OCR2를 더 빨리 트리거합니다. 높은 값은 더 명확한 변경을 기다립니다." },
-      "evolvingPrefix": { "label": "진화하는 접두사 일치 (%)", "title": "짧은 줄이 긴 줄의 시작처럼 보이는지 확인할 때 사용됩니다." },
-      "truncationFallbackMin": { "label": "절단 폴백 최소 임계값 (%)", "title": "접두사 또는 접미사 절단 일치가 허용되기 전에 필요한 최소 비교 임계값." },
-      "truncationStrictMin": { "label": "절단 엄격 임계값 (%)", "title": "이 임계값 이상에서 GSM은 절단을 같은 텍스트로 처리하기 전에 더 강한 기본 유사도도 요구합니다." },
-      "truncationMargin": { "label": "절단 기본 여유", "title": "절단 폴백이 거부되기 전에 기본 유사도가 비교 임계값보다 얼마나 낮을 수 있는지." },
-      "truncationMinLength": { "label": "절단 최소 길이 (문자)", "title": "절단 일치에 허용되는 가장 짧은 정규화된 문자열 길이." },
-      "truncationMinRatio": { "label": "절단 최소 길이 비율 (%)", "title": "절단 일치가 고려되기 전에 짧은 줄이 긴 줄의 얼마를 차지해야 하는지." },
-      "subsetChunkMinLength": { "label": "하위 집합 청크 최소 길이 (문자)", "title": "이보다 짧은 수신 OCR 청크는 정확히 일치하지 않는 한 청크 커버리지 폴백을 건너뜁니다." },
-      "shortChunkLimit": { "label": "짧은 청크 제한 (문자)", "title": "이 길이 이하의 청크는 더 작은 일치 블록 최솟값을 사용합니다." },
-      "shortChunkMinSize": { "label": "짧은 청크 일치 최솟값", "title": "짧은 청크에 대해 계산되는 최소 연속 일치 크기." },
-      "defaultMinSize": { "label": "기본 일치 최솟값", "title": "긴 청크에 대해 계산되는 최소 연속 일치 크기." },
-      "coverageFloor": { "label": "하위 집합 커버리지 하한 (%)", "title": "중복 제거 폴백에 허용되는 가장 낮은 청크 커버리지 요구사항." },
-      "coverageCeiling": { "label": "하위 집합 커버리지 상한 (%)", "title": "중복 제거 폴백에 허용되는 가장 높은 청크 커버리지 요구사항." },
-      "coverageOffset": { "label": "커버리지 임계값 오프셋", "title": "현재 비교 임계값을 커버리지 요구사항으로 변환하기 전에 적용되는 오프셋." },
-      "longestBlockMin": { "label": "최장 블록 최솟값 (문자)", "title": "하위 집합 커버리지 모드에서 필요한 최소 연속 블록 크기." },
-      "longestBlockDivisor": { "label": "최장 블록 제수", "title": "값이 클수록 긴 청크에 필요한 연속 블록 길이가 줄어듭니다." }
+      "duplicateThreshold": {
+        "label": "중복 일치 임계값 (%)",
+        "title": "값이 높을수록 엄격합니다. 다른 줄이 중복으로 처리되는 경우 이 값을 높이세요."
+      },
+      "changeThreshold": {
+        "label": "텍스트 변경 임계값 (%)",
+        "title": "낮은 값은 부분 변경 시 OCR2를 더 빨리 트리거합니다. 높은 값은 더 명확한 변경을 기다립니다."
+      },
+      "evolvingPrefix": {
+        "label": "진화하는 접두사 일치 (%)",
+        "title": "짧은 줄이 긴 줄의 시작처럼 보이는지 확인할 때 사용됩니다."
+      },
+      "truncationFallbackMin": {
+        "label": "절단 폴백 최소 임계값 (%)",
+        "title": "접두사 또는 접미사 절단 일치가 허용되기 전에 필요한 최소 비교 임계값."
+      },
+      "truncationStrictMin": {
+        "label": "절단 엄격 임계값 (%)",
+        "title": "이 임계값 이상에서 GSM은 절단을 같은 텍스트로 처리하기 전에 더 강한 기본 유사도도 요구합니다."
+      },
+      "truncationMargin": {
+        "label": "절단 기본 여유",
+        "title": "절단 폴백이 거부되기 전에 기본 유사도가 비교 임계값보다 얼마나 낮을 수 있는지."
+      },
+      "truncationMinLength": {
+        "label": "절단 최소 길이 (문자)",
+        "title": "절단 일치에 허용되는 가장 짧은 정규화된 문자열 길이."
+      },
+      "truncationMinRatio": {
+        "label": "절단 최소 길이 비율 (%)",
+        "title": "절단 일치가 고려되기 전에 짧은 줄이 긴 줄의 얼마를 차지해야 하는지."
+      },
+      "subsetChunkMinLength": {
+        "label": "하위 집합 청크 최소 길이 (문자)",
+        "title": "이보다 짧은 수신 OCR 청크는 정확히 일치하지 않는 한 청크 커버리지 폴백을 건너뜁니다."
+      },
+      "shortChunkLimit": {
+        "label": "짧은 청크 제한 (문자)",
+        "title": "이 길이 이하의 청크는 더 작은 일치 블록 최솟값을 사용합니다."
+      },
+      "shortChunkMinSize": {
+        "label": "짧은 청크 일치 최솟값",
+        "title": "짧은 청크에 대해 계산되는 최소 연속 일치 크기."
+      },
+      "defaultMinSize": {
+        "label": "기본 일치 최솟값",
+        "title": "긴 청크에 대해 계산되는 최소 연속 일치 크기."
+      },
+      "coverageFloor": {
+        "label": "하위 집합 커버리지 하한 (%)",
+        "title": "중복 제거 폴백에 허용되는 가장 낮은 청크 커버리지 요구사항."
+      },
+      "coverageCeiling": {
+        "label": "하위 집합 커버리지 상한 (%)",
+        "title": "중복 제거 폴백에 허용되는 가장 높은 청크 커버리지 요구사항."
+      },
+      "coverageOffset": {
+        "label": "커버리지 임계값 오프셋",
+        "title": "현재 비교 임계값을 커버리지 요구사항으로 변환하기 전에 적용되는 오프셋."
+      },
+      "longestBlockMin": {
+        "label": "최장 블록 최솟값 (문자)",
+        "title": "하위 집합 커버리지 모드에서 필요한 최소 연속 블록 크기."
+      },
+      "longestBlockDivisor": {
+        "label": "최장 블록 제수",
+        "title": "값이 클수록 긴 청크에 필요한 연속 블록 길이가 줄어듭니다."
+      }
     },
     "hotkeys": {
       "title": "단축키",
@@ -1006,9 +1144,113 @@
       "importFailed": "가져오기 실패.",
       "areaConfigExported": "OCR 영역 설정이 클립보드에 복사되었습니다.",
       "exportFailed": "내보내기 실패."
+    },
+    "desk": {
+      "preview": {
+        "live": "실시간 미리보기",
+        "paused": "미리보기 일시 정지됨",
+        "loading": "게임 미리보기 불러오는 중…",
+        "unavailable": "미리보기 불가 · 저장된 영역 표시 중",
+        "stale": "미리보기 불가 · 마지막 프레임",
+        "textBoxes": "텍스트 상자",
+        "pause": "미리보기 일시 정지",
+        "resume": "미리보기 재개",
+        "detected": "텍스트 상자 {count}개 · 최근 스캔",
+        "waiting": "OCR 스캔 대기 중",
+        "startHint": "OCR을 시작하면 텍스트 상자가 표시됩니다"
+      },
+      "brandHint": "게임 텍스트 캡처",
+      "workspace": "OCR 작업 공간",
+      "capture": "캡처",
+      "textMatching": "텍스트 비교",
+      "captureAreas": "캡처 영역",
+      "editAreas": "영역 편집",
+      "thisSession": "현재 세션",
+      "engine": "텍스트 인식",
+      "stability": "변화 감지",
+      "adjustRecognition": "인식 설정 변경",
+      "editShortcuts": "단축키 편집",
+      "unbound": "지정된 단축키 없음",
+      "autoMode": "자동 캡처",
+      "manualMode": "수동 캡처",
+      "settingsSaved": "변경 사항이 자동 저장됩니다",
+      "closeConsole": "작업 공간으로 돌아가기",
+      "layoutOverview": "저장된 배치",
+      "wholeWindow": "전체 창",
+      "wholeWindowHint": "원하는 텍스트에 맞춰 영역을 지정하세요.",
+      "savedLayout": "영역이 저장되어 있습니다",
+      "savedLayoutHint": "영역 선택기를 열어 배치를 확인하세요.",
+      "areaKinds": {
+        "normal": "텍스트",
+        "secondary": "메뉴",
+        "excluded": "제외",
+        "black-hole": "블랙홀",
+        "exclusive": "전용"
+      },
+      "viewHelp": {
+        "capture": "캡처 배치, 세션 설정 및 일회성 스캔.",
+        "recognition": "텍스트 감지 및 인식 방법을 선택하세요.",
+        "filtering": "캡처 이미지를 보정하고 텍스트 출력 방법을 선택하세요.",
+        "comparison": "새 텍스트, 안정된 텍스트 및 중복 판단을 조정하세요.",
+        "shortcuts": "게임을 떠나지 않고 텍스트를 캡처하세요.",
+        "tools": "OCR 패키지, 진단 및 설정 파일을 관리하세요.",
+        "console": "실시간 OCR 출력 및 진단. 다른 페이지를 사용하는 동안에도 로그가 유지됩니다."
+      },
+      "shortcutHelp": "입력란을 선택하고 키 조합을 누르세요. Escape를 누르면 해제됩니다.",
+      "openAreaSelector": "영역 선택기 열기",
+      "editor": {
+        "edit": "미리보기에서 영역 편집",
+        "areaType": "그리기",
+        "undo": "실행 취소",
+        "clear": "모두 지우기",
+        "selectedArea": "선택한 영역",
+        "none": "없음",
+        "areaLabel": "{number} · {kind}",
+        "remove": "삭제",
+        "cancel": "취소",
+        "save": "영역 저장",
+        "saving": "저장 중…",
+        "canvas": "게임 미리보기에 OCR 영역 그리기",
+        "hint": "드래그하여 그리고 영역을 클릭하여 선택하세요. 미리보기가 일시 정지되었습니다. 저장하면 변경 사항이 적용됩니다.",
+        "legacyHint": "이전 형식 또는 지원되지 않는 배치는 영역 선택기 열기를 사용하여 편집하세요.",
+        "errors": {
+          "sceneChanged": "장면이 변경되었습니다. 취소한 후 현재 장면의 편집기를 다시 여세요.",
+          "conflict": "저장된 영역이 다른 곳에서 변경되었습니다. 취소한 후 장면을 다시 불러오세요.",
+          "invalid": "이 배치는 여기서 저장할 수 없습니다. 영역 선택기를 사용하세요.",
+          "failed": "영역을 저장하지 못했습니다. 변경 사항은 유지됩니다. 다시 시도하세요."
+        },
+        "keyboardModifiers": "보조 키로 선택",
+        "modifierHint": "Shift: 제외 · Ctrl: 메뉴 · Alt: 전용 · Ctrl+Alt: 블랙홀"
+      }
     }
   },
   "texthook": {
+    "updates": {
+      "versionChoice": "엔진 패키지 버전",
+      "installSelected": "선택한 버전 설치",
+      "updateLatest": "최신 버전으로 업데이트",
+      "recommended": "권장",
+      "latest": "최신",
+      "pinHint": "두 엔진을 함께 업데이트하거나 이전 버전으로 되돌릴 수 있습니다. 버전을 선택해 설치하면 자동 업데이트가 꺼지고, 직접 변경하거나 자동 업데이트를 다시 켤 때까지 선택이 유지됩니다.",
+      "buildVersions": "LunaHook {luna} · Textractor {textractor}"
+    },
+    "workspace": {
+      "title": "텍스트 후킹",
+      "brandHint": "게임에서 직접 추출",
+      "currentGame": "현재 게임",
+      "navigation": "텍스트 후킹 보기",
+      "live": "실시간 텍스트",
+      "liveHelp": "후크를 선택하고 출력이 게임의 대사와 일치하는지 확인하세요.",
+      "engine": "엔진 및 스크립트",
+      "output": "출력 및 타이밍",
+      "outputHelp": "텍스트 전달 방식, 수정 대기 시간 및 최대 텍스트 길이를 조정하세요.",
+      "tools": "도구",
+      "toolsHelp": "텍스트 후킹에 대해 알아보고 설치된 엔진을 관리하세요.",
+      "noHookSelected": "선택한 후크 없음",
+      "logHelp": "이 세션의 후킹 엔진 메시지입니다.",
+      "closeLog": "작업 공간으로 돌아가기",
+      "clearLog": "로그 지우기"
+    },
     "credits": {
       "text": "텍스트 후킹 도구",
       "agent": "Agent",
@@ -1088,6 +1330,9 @@
     },
     "status": {
       "attached": "연결됨",
+      "starting": "시작 중",
+      "waitingForText": "텍스트 대기 중",
+      "receiving": "텍스트 수신 중",
       "ready": "준비 완료",
       "noTarget": "대상 없음"
     },
@@ -1112,6 +1357,85 @@
       "manualFailed": "수동 훅을 연결할 수 없습니다.",
       "profileSaveFailed": "프로필을 저장할 수 없습니다.",
       "noExe": "활성 캘처의 실행 파일을 찾을 수 없습니다."
+    }
+  },
+  "speechRecognition": {
+    "workspace": {
+      "title": "Windows 음성",
+      "brandHint": "음성 인식",
+      "capture": "실시간 대사",
+      "captureHelp": "선택한 OBS 장면의 게임에서 음성 대사를 인식합니다.",
+      "advanced": "고급 설정",
+      "activity": "활동 로그",
+      "navigation": "Windows 음성 보기",
+      "session": "음성 인식 세션",
+      "unsaved": "저장하지 않은 변경 사항",
+      "transcript": "인식된 대사",
+      "clearText": "텍스트 지우기",
+      "interim": "인식 중…",
+      "waiting": "게임 대사를 기다리는 중…",
+      "empty": "음성 인식을 시작하면 여기에 대사가 표시됩니다.",
+      "forwarding": "인식된 대사에는 GSM의 텍스트 처리 규칙이 적용됩니다."
+    },
+    "title": "Windows Speech Recognition",
+    "subtitle": "Run speech recognition for the current OBS scene and send recognized dialogue through GSM's text pipeline.",
+    "experimental": "Experimental · Windows only",
+    "loading": "Loading speech recognition workspace...",
+    "loadFailed": "Could not load speech recognition settings.",
+    "scenesLoadFailed": "Could not load OBS scenes.",
+    "sceneSwitchFailed": "Could not switch the active OBS scene.",
+    "scene": {
+      "title": "Scene",
+      "hint": "Choose the OBS scene whose game audio should be recognized.",
+      "label": "OBS scene",
+      "refresh": "Refresh",
+      "none": "No OBS scenes found",
+      "savedPerScene": "Settings below are saved for {scene} only.",
+      "connectObs": "Connect OBS to select a scene."
+    },
+    "engine": {
+      "title": "Recognition",
+      "hint": "Configure the recognizer used when this scene is started.",
+      "downloadHint": "The embedded backend may download about 358 MB and unpack about 492 MB on first use."
+    },
+    "backend": "Recognition backend",
+    "backendEmbedded": "Embedded speech (recommended)",
+    "backendSapi": "Windows SAPI",
+    "language": "Recognition language",
+    "languageJapanese": "Japanese",
+    "languageEnglish": "English",
+    "advanced": "Advanced runtime overrides",
+    "advancedHint": "Leave these blank to use GSM's downloaded speech bundle and automatic discovery.",
+    "modelPath": "Model path",
+    "runtimePath": "Runtime path",
+    "licenseFile": "Embedded Speech license file",
+    "automatic": "Automatic",
+    "optional": "Optional",
+    "save": "Save",
+    "saving": "Saving...",
+    "savedForScene": "Speech recognition settings saved for {scene}.",
+    "saveFailed": "Could not save speech recognition settings.",
+    "start": "Start Speech Recognition",
+    "stop": "Stop Speech Recognition",
+    "startFailed": "Could not start speech recognition.",
+    "stopFailed": "Could not stop speech recognition.",
+    "status": {
+      "idle": "Idle",
+      "starting": "Starting",
+      "running": "Running",
+      "stopping": "Stopping",
+      "error": "Error"
+    },
+    "console": {
+      "title": "Recognition log",
+      "hint": "Runtime messages and recognized text stay local to this app session.",
+      "clear": "Clear",
+      "empty": "Start speech recognition to see runtime logs and recognized text here."
+    },
+    "footer": {
+      "noScene": "No scene selected",
+      "runningHint": "Recognition stops automatically when the OBS scene changes.",
+      "idleHint": "Settings are scene-specific. Start recognition when you are ready."
     }
   }
 }

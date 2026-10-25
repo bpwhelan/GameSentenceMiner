@@ -32,10 +32,14 @@
         const actions = level.entryMining?.[index]?.actions;
         const audio = level.entryAudio?.[index]?.button;
         return [...new Set([...(actions?.querySelectorAll('button') || []), ...(audio ? [audio] : []),
-          ...level.popup.querySelectorAll('.gsm-hoshidicts-audio-menu button')])].sort((a, b) => {
-          const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
-          return Math.abs(ar.top - br.top) > 4 ? ar.top - br.top : ar.left - br.left;
-        });
+          ...level.popup.querySelectorAll('.gsm-hoshidicts-audio-menu button')])];
+      },
+      // Default selection uses action identity, not screen order. Sorting during
+      // readiness/render callbacks forced layout of each new word's definitions.
+      orderButtons(buttons) {
+        return buttons.map(button => ({ button, rect: button.getBoundingClientRect() }))
+          .sort(({ rect: a }, { rect: b }) => Math.abs(a.top - b.top) > 4 ? a.top - b.top : a.left - b.left)
+          .map(({ button }) => button);
       },
       preferred: (buttons, scope) => scope === 'grading'
         ? buttons.find(button => button.dataset.rating === '3') || buttons.find(button => button.dataset.deck === 'neverForget')
@@ -43,7 +47,25 @@
     });
     // An entry's Anki check can finish without a layout/lifecycle callback.
     // Track readiness directly, independently of audio and other entries' checks.
-    const observer = new window.MutationObserver(() => controller.refresh());
+    const observer = new window.MutationObserver(changes => {
+      if (!controller.active) return;
+      const level = current();
+      if (!level) return;
+      const controls = [
+        ...(level.entryMining || []).map(entry => entry?.actions),
+        ...(level.entryAudio || []).map(entry => entry?.button),
+        ...(grading?.buttons(level) || []),
+        controller.selected,
+      ].filter(Boolean);
+      // Glossaries, images and deferred definitions share the popup subtree.
+      // Only action readiness/replacement can change the controller default.
+      const relevant = changes.some(change => controls.some(control =>
+        control.contains(change.target)
+        || (change.type === 'attributes' && change.target.contains(control))
+        || (change.type === 'childList' && [...change.addedNodes, ...change.removedNodes]
+          .some(node => node.contains(control)))));
+      if (relevant) controller.refresh();
+    });
     const grading = window.GsmJitenGradingBar ? new window.GsmJitenGradingBar({ window, document,
       getHeadword: level => {
         const result = currentResult(level);

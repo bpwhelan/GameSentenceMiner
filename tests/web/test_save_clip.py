@@ -105,3 +105,65 @@ def test_saved_clip_lines_are_found_after_a_restart(monkeypatch):
 
     assert texthooking_page.get_event_line_by_id("a") is saved
     assert texthooking_page.get_event_line_by_id("unknown") is None
+
+
+def test_clip_save_waits_for_new_context_then_saves_after_padding(monkeypatch):
+    selected, first, second = _line("s", 0), _line("n", 4), _line("n2", 8)
+    timers, saved = [], []
+    clock = [0.0]
+    monkeypatch.setattr(texthooking_page.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(texthooking_page.gsm_state, "pending_clip_saves", [], raising=False)
+    monkeypatch.setattr(texthooking_page.obs, "save_replay_buffer", lambda: saved.append(True))
+
+    class Timer:
+        def __init__(self, delay, callback):
+            self.delay, self.callback = delay, callback
+
+        def start(self):
+            timers.append(self)
+
+    monkeypatch.setattr(texthooking_page.threading, "Timer", Timer)
+    monkeypatch.setattr(
+        clips,
+        "seconds_until_clip_ready",
+        lambda line: clips.MAX_WAIT_SECONDS if not line.next else max(0.0, 10 - clock[0]),
+    )
+    texthooking_page._queue_clip_save(selected, clips.MAX_WAIT_SECONDS)
+    clock[0] = 4
+    timers.pop(0).callback()
+    assert saved == []
+
+    selected.next = first
+    first.prev, first.next, second.prev = selected, second, first
+    clock[0] = 8
+    timers.pop(0).callback()
+    assert saved == []
+
+    clock[0] = 10
+    timers.pop(0).callback()
+    assert saved == [True]
+    assert texthooking_page.gsm_state.pending_clip_saves == [selected]
+
+
+def test_clip_save_stops_waiting_at_the_deadline(monkeypatch):
+    selected = _line("s", 0)
+    timers, saved = [], []
+    clock = [0.0]
+    monkeypatch.setattr(texthooking_page.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(texthooking_page.gsm_state, "pending_clip_saves", [], raising=False)
+    monkeypatch.setattr(texthooking_page.obs, "save_replay_buffer", lambda: saved.append(True))
+    monkeypatch.setattr(clips, "seconds_until_clip_ready", lambda line: clips.MAX_WAIT_SECONDS)
+
+    class Timer:
+        def __init__(self, delay, callback):
+            self.delay, self.callback = delay, callback
+
+        def start(self):
+            timers.append(self)
+
+    monkeypatch.setattr(texthooking_page.threading, "Timer", Timer)
+    texthooking_page._queue_clip_save(selected, clips.MAX_WAIT_SECONDS)
+    clock[0] = clips.MAX_WAIT_SECONDS
+    timers.pop(0).callback()
+
+    assert saved == [True]

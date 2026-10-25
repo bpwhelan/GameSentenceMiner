@@ -27,6 +27,26 @@ def test_list_returns_clips_newest_first(client, tmp_path):
     assert items[0]["size_bytes"] == (tmp_path / "2026-09-28" / "new" / "clip.mkv").stat().st_size
 
 
+def test_list_hides_surrounding_dialogue(client, tmp_path):
+    write_clip(
+        tmp_path,
+        "a",
+        [
+            ("p2", "前々", "previous", 5),
+            ("p", "前", "previous", 10),
+            ("s", "選択", "selected", 15),
+            ("n", "次", "next", 20),
+            ("n2", "次々", "next", 25),
+        ],
+        27,
+    )
+
+    items = client.get("/api/clips").get_json()["clips"]
+
+    assert len(items) == 1
+    assert items[0]["lines"] == [{"id": "s", "text": "選択"}]
+
+
 def test_ids_outside_the_clips_folder_are_rejected(client, tmp_path):
     (tmp_path.parent / "outside").mkdir(exist_ok=True)
 

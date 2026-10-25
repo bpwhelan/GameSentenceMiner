@@ -21,7 +21,7 @@ import type { EngineStatus, EngineDownloadProgress } from '../../shared/texthook
 export type { EngineStatus, EngineDownloadProgress } from '../../shared/texthook_updates.js';
 
 const FILES_BASE_URL = 'https://r2.gamesentenceminer.com/texthook/zip';
-const MANIFEST_URL = `${FILES_BASE_URL}/texthook_manifest.json`;
+const MANIFEST_URL = `${FILES_BASE_URL}/texthook_manifest_v2.json`;
 const MANIFEST_TIMEOUT_MS = 10_000;
 const FILE_TIMEOUT_MS = 120_000;
 const DOWNLOAD_ATTEMPTS = 2;
@@ -73,6 +73,14 @@ export interface TexhookManifest {
     /** Absent only in manifests from installations made before ZIP downloads. */
     archive?: ManifestEntry;
     files: ManifestEntry[];
+    notes?: string;
+    engineVersions?: { luna: string; textractor: string };
+}
+
+interface TexthookCatalog {
+    schemaVersion: 2;
+    recommendedVersion: string;
+    releases: TexhookManifest[];
 }
 
 interface LocalManifest extends TexhookManifest {
@@ -83,6 +91,8 @@ interface LocalManifest extends TexhookManifest {
 export interface PreparedTexthookUpdate {
     manifest: TexhookManifest;
     directory: string;
+    /** Only set by an explicit local version-selection request, never by the server. */
+    allowDowngrade?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +119,7 @@ function loadLocalManifest(): LocalManifest | null {
 function validateManifest(value: unknown): TexhookManifest {
     if (!value || typeof value !== 'object') throw new Error('Invalid texthook manifest: expected an object.');
     const manifest = value as Record<string, unknown>;
-    if (typeof manifest.version !== 'string' || !semver.valid(manifest.version) || !Array.isArray(manifest.files)) {
+    if (typeof manifest.version !== 'string' || semver.valid(manifest.version) !== manifest.version || !Array.isArray(manifest.files)) {
         throw new Error('Invalid texthook manifest: missing version or files.');
     }
     const paths = new Set<string>();
@@ -132,13 +142,40 @@ function validateManifest(value: unknown): TexhookManifest {
     let archive: ManifestEntry | undefined;
     if (manifest.archive !== undefined) {
         const entry = manifest.archive as ManifestEntry | null;
-        if (!entry || entry.path !== 'texthook.zip'
+        if (!entry || (entry.path !== 'texthook.zip' && entry.path !== `versions/${manifest.version}/texthook.zip`)
             || typeof entry.sha256 !== 'string' || !/^[a-f\d]{64}$/i.test(entry.sha256)) {
             throw new Error('Invalid texthook manifest: invalid archive path or SHA-256.');
         }
         archive = { path: entry.path, sha256: entry.sha256.toLowerCase() };
     }
-    return { version: manifest.version, files, ...(archive ? { archive } : {}) };
+    const metadata: Pick<TexhookManifest, 'notes' | 'engineVersions'> = {};
+    if (typeof manifest.notes === 'string') metadata.notes = manifest.notes.slice(0, 2000);
+    const engines = manifest.engineVersions as TexhookManifest['engineVersions'];
+    if (engines && typeof engines.luna === 'string' && typeof engines.textractor === 'string') {
+        metadata.engineVersions = { luna: engines.luna.slice(0, 80), textractor: engines.textractor.slice(0, 80) };
+    }
+    return { version: manifest.version, files, ...(archive ? { archive } : {}), ...metadata };
+}
+
+function validateCatalog(value: unknown): TexthookCatalog {
+    if (!value || typeof value !== 'object') throw new Error('Invalid texthook catalog.');
+    const catalog = value as Record<string, unknown>;
+    if (catalog.schemaVersion !== 2 || typeof catalog.recommendedVersion !== 'string'
+        || !Array.isArray(catalog.releases) || !catalog.releases.length) {
+        throw new Error('Invalid texthook catalog: expected schema version 2 and releases.');
+    }
+    const versions = new Set<string>();
+    const releases = catalog.releases.map((release) => {
+        const manifest = validateManifest(release);
+        if (versions.has(manifest.version)) throw new Error('Invalid texthook catalog: duplicate version.');
+        if (manifest.archive?.path !== `versions/${manifest.version}/texthook.zip`) {
+            throw new Error('Invalid texthook catalog: expected an immutable versioned archive.');
+        }
+        versions.add(manifest.version);
+        return manifest;
+    }).sort((a, b) => semver.rcompare(a.version, b.version));
+    if (!versions.has(catalog.recommendedVersion)) throw new Error('Invalid texthook catalog: recommended version is missing.');
+    return { schemaVersion: 2, recommendedVersion: catalog.recommendedVersion, releases };
 }
 
 function describeError(error: unknown, depth = 0): string {
@@ -191,12 +228,10 @@ async function fetchResponse(url: string, signal: AbortSignal): Promise<Response
     return response;
 }
 
-async function fetchRemoteManifest(): Promise<TexhookManifest> {
+async function fetchRemoteCatalog(): Promise<TexthookCatalog> {
     return withDownloadRetries(MANIFEST_URL, MANIFEST_TIMEOUT_MS, async (signal) => {
         const response = await fetchResponse(MANIFEST_URL, signal);
-        const manifest = validateManifest(await response.json());
-        if (!manifest.archive) throw new Error('Invalid texthook manifest: missing ZIP archive.');
-        return manifest;
+        return validateCatalog(await response.json());
     });
 }
 
@@ -287,11 +322,14 @@ async function fileMatchesManifest(destPath: string, expectedSha256: string): Pr
 /** Returns install state + whether a remote update is available. */
 export async function getEngineStatus(): Promise<EngineStatus> {
     const local = getLocalEngineStatus();
-    const remote = await fetchRemoteManifest().catch(() => null);
+    const remote = await fetchRemoteCatalog().catch(() => null);
     return {
         ...local,
-        remoteVersion: remote?.version ?? null,
-        updateAvailable: local.installed && isNewerEngineVersion(remote?.version ?? null, local.version),
+        remoteVersion: remote?.recommendedVersion ?? null,
+        updateAvailable: local.installed && isNewerEngineVersion(remote?.recommendedVersion ?? null, local.version),
+        ...(remote ? { availableVersions: remote.releases.map(({ version, notes, engineVersions }) => ({
+            version, ...(notes ? { notes } : {}), ...(engineVersions ? { engineVersions } : {}),
+        })) } : {}),
     };
 }
 
@@ -315,17 +353,24 @@ export async function downloadTexthookEngines(
 export async function prepareTexthookUpdate(
     onProgress?: (progress: EngineDownloadProgress) => void,
     onVerifying?: () => void,
+    selectedVersion?: string,
 ): Promise<PreparedTexthookUpdate> {
     const local = loadLocalManifest();
-    const manifest = await fetchRemoteManifest();
-    if (isNewerEngineVersion(local?.version ?? null, manifest.version)) {
+    const catalog = await fetchRemoteCatalog();
+    // First-use recovery may be repairing a newer pinned package after antivirus
+    // removed a runtime file. Repair that same version instead of downgrading it.
+    const repairVersion = local && !isTexthookInstalled()
+        && catalog.releases.some((release) => release.version === local.version) ? local.version : undefined;
+    const manifest = catalog.releases.find((release) => release.version === (selectedVersion ?? repairVersion ?? catalog.recommendedVersion));
+    if (!manifest) throw new Error(`Engine package ${selectedVersion} is not available in the catalog.`);
+    if (selectedVersion === undefined && isNewerEngineVersion(local?.version ?? null, manifest.version)) {
         throw new Error(`Refusing to downgrade hook engines from ${local!.version} to ${manifest.version}.`);
     }
     const archive = manifest.archive!;
     const directory = path.join(PACKAGES_DIR, crypto.randomBytes(16).toString('hex'));
     await fs.promises.mkdir(directory, { recursive: true });
-    const prepared = { directory, manifest };
-    const zipPath = path.join(directory, archive.path);
+    const prepared = { directory, manifest, allowDowngrade: selectedVersion !== undefined };
+    const zipPath = path.join(directory, 'texthook.zip');
     try {
         await downloadSingleFile(`${FILES_BASE_URL}/${archive.path}`, zipPath, archive.sha256, (bytesDownloaded, bytesTotal) => {
             onProgress?.({ file: archive.path, fileIndex: 0, totalFiles: 1, bytesDownloaded, bytesTotal: bytesTotal ?? null });
@@ -386,11 +431,14 @@ export async function activateTexthookUpdate(prepared: PreparedTexthookUpdate): 
     // Re-read every staged byte after a possible wait for an active hook to stop.
     await verifyPreparedPackage(prepared, true);
     const local = loadLocalManifest();
-    if (isNewerEngineVersion(local?.version ?? null, prepared.manifest.version)) {
+    if (!prepared.allowDowngrade && isNewerEngineVersion(local?.version ?? null, prepared.manifest.version)) {
         throw new Error('Refusing to downgrade hook engines during activation.');
     }
     const next: LocalManifest = {
         ...validateManifest(prepared.manifest),
+        // Older desktop versions must still be able to read this package pointer
+        // after a desktop rollback. The remote catalog alone uses versioned URLs.
+        ...(prepared.manifest.archive ? { archive: { ...prepared.manifest.archive, path: 'texthook.zip' } } : {}),
         packageDirectory: `packages/${path.basename(prepared.directory)}`,
         ...(local?.packageDirectory ? { previousPackageDirectory: local.packageDirectory } : {}),
     };

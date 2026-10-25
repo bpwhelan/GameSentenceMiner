@@ -1,0 +1,187 @@
+/* Shared desktop palettes and design tokens. Also compiled for overlay settings. */
+@plugin "daisyui" {
+  themes: all;
+}
+
+/* Default dark theme — tuned to match GSM's existing palette. */
+@plugin "daisyui/theme" {
+  name: "gsm-dark";
+  default: true;
+  color-scheme: dark;
+  --color-base-100: #1a1a1a;
+  --color-base-200: #2a2a2a;
+  --color-base-300: #383838;
+  --color-base-content: #ececef;
+  --color-primary: #7aa2ff;
+  --color-primary-content: #111827;
+  --color-secondary: #5f88cc;
+  --color-secondary-content: #f4f8ff;
+  --color-accent: #6cc28b;
+  --color-accent-content: #0f1a13;
+  --color-neutral: #2a2a2a;
+  --color-neutral-content: #ececef;
+  --color-info: #6eaef9;
+  --color-info-content: #08121c;
+  --color-success: #4caf72;
+  --color-success-content: #07140c;
+  --color-warning: #d6a02e;
+  --color-warning-content: #1a1305;
+  --color-error: #d9645f;
+  --color-error-content: #1a0f0f;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.4rem;
+  --radius-box: 0.6rem;
+}
+
+@plugin "daisyui/theme" {
+  name: "catppuccin-mocha";
+  color-scheme: dark;
+  --color-base-100: #181825;
+  --color-base-200: #1e1e2e;
+  --color-base-300: #313244;
+  --color-base-content: #cdd6f4;
+  --color-primary: #89b4fa;
+  --color-primary-content: #11111b;
+  --color-secondary: #cba6f7;
+  --color-secondary-content: #11111b;
+  --color-accent: #94e2d5;
+  --color-accent-content: #11111b;
+  --color-neutral: #313244;
+  --color-neutral-content: #cdd6f4;
+  --color-info: #89dceb;
+  --color-info-content: #11111b;
+  --color-success: #a6e3a1;
+  --color-success-content: #11111b;
+  --color-warning: #f9e2af;
+  --color-warning-content: #11111b;
+  --color-error: #f38ba8;
+  --color-error-content: #11111b;
+}
+
+@plugin "daisyui/theme" {
+  name: "solarized-dark";
+  color-scheme: dark;
+  --color-base-100: #002b36;
+  --color-base-200: #073642;
+  --color-base-300: #0a4a5a;
+  --color-base-content: #93a1a1;
+  --color-primary: #268bd2;
+  --color-primary-content: #002b36;
+  --color-secondary: #2aa198;
+  --color-secondary-content: #002b36;
+  --color-accent: #859900;
+  --color-accent-content: #002b36;
+  --color-neutral: #073642;
+  --color-neutral-content: #93a1a1;
+  --color-info: #268bd2;
+  --color-info-content: #002b36;
+  --color-success: #859900;
+  --color-success-content: #002b36;
+  --color-warning: #b58900;
+  --color-warning-content: #002b36;
+  --color-error: #dc322f;
+  --color-error-content: #fdf6e3;
+}
+
+@plugin "daisyui/theme" {
+  name: "solarized-light";
+  color-scheme: light;
+  --color-base-100: #fdf6e3;
+  --color-base-200: #eee8d5;
+  --color-base-300: #ded8c3;
+  --color-base-content: #586e75;
+  --color-primary: #268bd2;
+  --color-primary-content: #fdf6e3;
+  --color-secondary: #2aa198;
+  --color-secondary-content: #fdf6e3;
+  --color-accent: #859900;
+  --color-accent-content: #fdf6e3;
+  --color-neutral: #eee8d5;
+  --color-neutral-content: #586e75;
+  --color-info: #268bd2;
+  --color-info-content: #fdf6e3;
+  --color-success: #859900;
+  --color-success-content: #fdf6e3;
+  --color-warning: #b58900;
+  --color-warning-content: #fdf6e3;
+  --color-error: #dc322f;
+  --color-error-content: #fdf6e3;
+}
+
+@plugin "daisyui/theme" {
+  name: "high-contrast";
+  color-scheme: dark;
+  --color-base-100: #000000;
+  --color-base-200: #141414;
+  --color-base-300: #2a2a2a;
+  --color-base-content: #ffffff;
+  --color-primary: #ffe000;
+  --color-primary-content: #000000;
+  --color-secondary: #00e5ff;
+  --color-secondary-content: #000000;
+  --color-accent: #5bff9d;
+  --color-accent-content: #000000;
+  --color-neutral: #2a2a2a;
+  --color-neutral-content: #ffffff;
+  --color-info: #5bc8ff;
+  --color-info-content: #000000;
+  --color-success: #51ff8f;
+  --color-success-content: #000000;
+  --color-warning: #ffd400;
+  --color-warning-content: #000000;
+  --color-error: #ff5b5b;
+  --color-error-content: #000000;
+}
+
+/* Shared semantic tokens for the hand-written app and overlay styles. */
+:root {
+  --gsm-surface-0: var(--color-base-100);
+  --gsm-surface-1: var(--color-base-200);
+  --gsm-surface-2: var(--color-base-300);
+  --gsm-surface-3: color-mix(in srgb, var(--color-base-300) 80%, var(--color-base-content));
+  --gsm-surface-hover: color-mix(in srgb, var(--color-base-300) 72%, var(--color-base-content));
+
+  --gsm-border-subtle: color-mix(in srgb, var(--color-base-content) 12%, var(--color-base-100));
+  --gsm-border-default: color-mix(in srgb, var(--color-base-content) 22%, var(--color-base-100));
+  --gsm-border-strong: color-mix(in srgb, var(--color-base-content) 36%, var(--color-base-100));
+
+  --gsm-text-primary: var(--color-base-content);
+  --gsm-text-secondary: color-mix(in srgb, var(--color-base-content) 78%, var(--color-base-100));
+  --gsm-text-muted: color-mix(in srgb, var(--color-base-content) 55%, var(--color-base-100));
+  --gsm-text-faint: color-mix(in srgb, var(--color-base-content) 38%, var(--color-base-100));
+  --gsm-text-on-accent: #ffffff;
+  --gsm-on-accent-dark: var(--color-primary-content);
+
+  --gsm-accent: var(--color-primary);
+  --gsm-accent-strong: color-mix(in srgb, var(--color-primary) 78%, white);
+  --gsm-accent-hover: color-mix(in srgb, var(--color-primary) 82%, black);
+  --gsm-accent-text: color-mix(in srgb, var(--color-primary) 75%, var(--color-base-content));
+  --gsm-accent-soft: color-mix(in srgb, var(--color-primary) 15%, var(--color-base-100));
+  --gsm-accent-border: color-mix(in srgb, var(--color-primary) 42%, var(--color-base-100));
+
+  --gsm-success: var(--color-success);
+  --gsm-success-text: color-mix(in srgb, var(--color-success) 72%, var(--color-base-content));
+  --gsm-success-soft: color-mix(in srgb, var(--color-success) 15%, var(--color-base-100));
+  --gsm-success-border: color-mix(in srgb, var(--color-success) 45%, var(--color-base-100));
+
+  --gsm-warning: var(--color-warning);
+  --gsm-warning-text: color-mix(in srgb, var(--color-warning) 75%, var(--color-base-content));
+  --gsm-warning-soft: color-mix(in srgb, var(--color-warning) 15%, var(--color-base-100));
+  --gsm-warning-border: color-mix(in srgb, var(--color-warning) 45%, var(--color-base-100));
+
+  --gsm-danger: var(--color-error);
+  --gsm-danger-text: color-mix(in srgb, var(--color-error) 72%, var(--color-base-content));
+  --gsm-danger-soft: color-mix(in srgb, var(--color-error) 15%, var(--color-base-100));
+  --gsm-danger-border: color-mix(in srgb, var(--color-error) 45%, var(--color-base-100));
+
+  --gsm-font-mono: "Consolas", "Courier New", monospace;
+
+  --gsm-radius-sm: 6px;
+  --gsm-radius-md: 10px;
+  --gsm-radius-lg: 14px;
+  --gsm-radius-pill: 999px;
+
+  --gsm-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --gsm-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.32);
+}
+

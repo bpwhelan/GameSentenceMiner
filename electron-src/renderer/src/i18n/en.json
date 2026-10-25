@@ -1,5 +1,58 @@
 {
+  "gameBackground": {
+    "title": "Game background behavior (experimental)",
+    "help": "A small Windows hook for the game captured by this scene. Settings are remembered for this executable.",
+    "enabled": "Automatically apply to this game",
+    "keepRendering": "Keep rendering when unfocused",
+    "blockGamepad": "Block gamepad input when unfocused",
+    "target": "{name} (PID {pid})",
+    "noInput": "No supported controller API detected yet. XInput and DirectInput 8 gamepads are supported.",
+    "partial": "Some hooks could not be installed; support is partial.",
+    "error": "Hook error: {error}",
+    "retry": "Retry",
+    "limitations": "For offline games without anti-cheat. Close Special K before trying. Some engines may still pause; restart the game to fully remove the hook.",
+    "status": {
+      "disabled": "Off for this game.",
+      "waiting": "Waiting for the captured game.",
+      "blocked": "Another injector is active.",
+      "attaching": "Applying game behavior…",
+      "active": "Hooks active.",
+      "error": "The hook could not be applied."
+    },
+    "reason": {
+      "unsupported": "Available on Windows only.",
+      "missingBuild": "The game background helper has not been built or installed.",
+      "noCapture": "Select a game window capture in OBS.",
+      "notRunning": "The captured game is not running.",
+      "ambiguous": "Several game windows match this capture. Select a more specific capture.",
+      "specialK": "Special K is loaded. Restart the game without it before trying GSM's hooks."
+    }
+  },
   "home": {
+    "workspace": {
+      "library": "Your games",
+      "savedGames": "Saved games",
+      "searchGames": "Search games",
+      "noMatchingGames": "No matching games.",
+      "noGames": "No games added yet.",
+      "emptyGameHint": "Add your first game to set up capture and start mining.",
+      "addingGame": "Setting up capture…",
+      "addGameError": "Could not set up capture. Check that OBS is connected and try again.",
+      "chooseGame": "Choose a game",
+      "chooseGameHint": "Select a saved game, or add a new capture.",
+      "gameContext": "Game capture",
+      "gameOptions": "Game options",
+      "gameActions": "Actions for {name}",
+      "gameActionError": "Could not update this game. Please try again.",
+      "backToGame": "Back to game",
+      "textFeed": "Text feed",
+      "textFeedHint": "Read captured text and mine sentences in the Text Feed.",
+      "firstGameHint": "Open your game, then select its window below to set up capture.",
+      "addGame": "Add a game",
+      "addGameHint": "Capture another window, display, or capture card.",
+      "overlayHint": "Look up words and mine sentences as you play.",
+      "connections": "Connections"
+    },
     "status": {
       "title": "Status",
       "gsm": "GSM",
@@ -118,7 +171,7 @@
     },
     "support": {
       "text": "Support GSM",
-      "githubSponsors": "GitHub Sponsors",
+      "githubSponsors": "GitHub Sponsors (Preferred)",
       "kofi": "Ko-fi",
       "githubStar": "Star on GitHub (Free)"
     },
@@ -531,6 +584,31 @@
     }
   },
   "settings": {
+    "workspace": {
+      "brandHint": "Preferences & tools",
+      "general": "General",
+      "generalHelp": "Choose your appearance, language, and startup behavior.",
+      "layout": "Tabs & windows",
+      "layoutHelp": "Choose the tabs you use and how GSM works with game windows.",
+      "updatesHelp": "Manage desktop and backend updates in one place.",
+      "backupsHelp": "Keep automatic database copies or create a backup of selected data.",
+      "storageHelp": "Manage where GSM keeps your settings, database, and downloaded tools.",
+      "appearance": "Appearance",
+      "behavior": "Startup & behavior",
+      "moreSettings": "GSM & overlay settings",
+      "autoSave": "Desktop preferences save automatically.",
+      "searchPlaceholder": "Search all settings…",
+      "searchResults": "Search results",
+      "clearSearch": "Clear search",
+      "openSection": "Open section",
+      "navigation": "Settings sections",
+      "selectiveBackup": "Selective backup & restore",
+      "statsOverview": "Overview",
+      "statsReading": "Reading statistics",
+      "statsGoals": "Goals",
+      "statsAnki": "Anki statistics",
+      "statsSearch": "Search"
+    },
     "hub": {
       "findSetting": "Find a Setting",
       "findDescription": "Search for what you want to change and GSM will open the right settings screen for you.",
@@ -892,6 +970,24 @@
     }
   },
   "launcher": {
+    "workspace": {
+      "brand": "Automation",
+      "tagline": "Game & scene behavior",
+      "sharedTitle": "Shared settings",
+      "allScenes": "Across all scenes",
+      "sceneHint": "Choose the OBS scene to configure.",
+      "sceneDescription": "Choose what happens when this OBS scene becomes active.",
+      "sharedDescription": "Set OCR overrides that apply across your game profiles.",
+      "autosave": "Saves automatically",
+      "ocrNoneHint": "Leave OCR off for this scene.",
+      "ocrAutoHint": "Continuously capture game text.",
+      "ocrManualHint": "Capture text with your OCR hotkey.",
+      "overlayHint": "Open the overlay when this scene becomes active.",
+      "overlayManaged": "Managed by the overlay options on Home.",
+      "sceneTitle": "Scene automation",
+      "manualOcrHint": "Keep Manual OCR available for profiles that do not use Auto OCR.",
+      "ignoreSceneHint": "Keep OCR running when you switch OBS scenes."
+    },
     "title": "Game Automation",
     "docsButton": "Auto Launcher Docs",
     "docsButtonTooltip": "Open Auto Launcher documentation",
@@ -1018,6 +1114,42 @@
     }
   },
   "ocr": {
+    "workspace": {
+      "recognition": "Recognition",
+      "filtering": "Image & Output",
+      "comparison": "Comparison",
+      "shortcuts": "Shortcuts",
+      "tools": "Tools",
+      "navigation": "OCR views",
+      "scanSettings": "Scan settings",
+      "imageSettings": "Image settings",
+      "quickCapture": "Quick capture",
+      "quickCaptureHint": "Use a shortcut or choose an action.",
+      "startToCapture": "Start OCR to use quick capture.",
+      "textOutput": "Text output",
+      "copyText": "Copy text",
+      "lineBreaks": "Keep line breaks",
+      "copyMode": "Copy text: {mode}",
+      "lineBreaksMode": "Keep line breaks: {mode}",
+      "areaTools": "Area tools and guide",
+      "singlePassSummary": "{engine} · every {rate}s",
+      "twoPassSummary": "{stability} → {engine} · every {rate}s",
+      "comparisonPrimary": "Primary thresholds",
+      "comparisonTruncation": "Truncation rules",
+      "comparisonSubset": "Subset & blocks",
+      "resetDefaults": "Reset defaults",
+      "toolsDiagnostics": "Diagnostics & runtime",
+      "toolsPackages": "Packages",
+      "toolsFiles": "Configs & files",
+      "consoleExpand": "Expand console",
+      "consoleCompact": "Compact console",
+      "consoleDockRight": "Split view",
+      "consoleDockBottom": "Bottom dock",
+      "pipelineCapture": "Capture",
+      "pipelineStability": "Pass 1 · Stability",
+      "pipelineMain": "Main OCR",
+      "pipelineCadence": "Cadence"
+    },
     "sceneAndAreas": {
       "autostart": "Autostart OCR:",
       "autostartHint": "Choose which OCR mode starts automatically when this game is active. This setting is shared with Game Automation.",
@@ -1039,6 +1171,8 @@
       "advanced": "Advanced",
       "scanRate": "Scan Rate (s):",
       "scanSpeed": "Scan Speed:",
+      "onlineScans": "Use online scans for better accuracy",
+      "onlineScansHelp": "Off: ScreenAI reads text locally. On: send captured text areas to Google Lens for potentially better accuracy. Internet access is required; VPNs, location, or connection issues can slow scans down.",
       "language": "Language:",
       "scanImageQuality": "Scan Image Quality",
       "furiganaFilter": "Furigana Filter",
@@ -1067,23 +1201,74 @@
     "comparison": {
       "title": "Text Comparison Tuning",
       "expertTitle": "Expert Heuristics",
-      "duplicateThreshold": { "label": "Duplicate Match Threshold (%)", "title": "Higher values are stricter. Raise this if different lines are being treated as duplicates." },
-      "changeThreshold": { "label": "Text Change Threshold (%)", "title": "Lower values trigger OCR2 sooner on partial changes. Higher values wait for clearer changes." },
-      "evolvingPrefix": { "label": "Evolving Prefix Match (%)", "title": "Used when checking whether a short line looks like the beginning of a longer line." },
-      "truncationFallbackMin": { "label": "Truncation Fallback Min Threshold (%)", "title": "Minimum compare threshold required before prefix or suffix truncation matching is allowed." },
-      "truncationStrictMin": { "label": "Truncation Strict Threshold (%)", "title": "Above this threshold, GSM also requires a stronger base similarity before treating a truncation as the same text." },
-      "truncationMargin": { "label": "Truncation Base Margin", "title": "How far below the compare threshold the base similarity may be before truncation fallback is rejected." },
-      "truncationMinLength": { "label": "Truncation Min Length (chars)", "title": "Shortest normalized string length allowed for truncation matching." },
-      "truncationMinRatio": { "label": "Truncation Min Length Ratio (%)", "title": "How much of the longer line the shorter line must cover before truncation matching is considered." },
-      "subsetChunkMinLength": { "label": "Subset Chunk Min Length (chars)", "title": "Incoming OCR chunks shorter than this skip the chunk-coverage fallback unless they are exact matches." },
-      "shortChunkLimit": { "label": "Short Chunk Limit (chars)", "title": "Chunks at or below this length use the smaller matching-block minimum." },
-      "shortChunkMinSize": { "label": "Short Chunk Match Min Size", "title": "Minimum contiguous match size counted for short chunks." },
-      "defaultMinSize": { "label": "Default Match Min Size", "title": "Minimum contiguous match size counted for longer chunks." },
-      "coverageFloor": { "label": "Subset Coverage Floor (%)", "title": "Lowest allowed chunk-coverage requirement for dedupe fallback." },
-      "coverageCeiling": { "label": "Subset Coverage Ceiling (%)", "title": "Highest allowed chunk-coverage requirement for dedupe fallback." },
-      "coverageOffset": { "label": "Coverage Threshold Offset", "title": "Offset applied before converting the current compare threshold into a coverage requirement." },
-      "longestBlockMin": { "label": "Longest Block Minimum (chars)", "title": "Minimum contiguous block size required in subset coverage mode." },
-      "longestBlockDivisor": { "label": "Longest Block Divisor", "title": "Larger values reduce the required contiguous block length for longer chunks." }
+      "duplicateThreshold": {
+        "label": "Duplicate Match Threshold (%)",
+        "title": "Higher values are stricter. Raise this if different lines are being treated as duplicates."
+      },
+      "changeThreshold": {
+        "label": "Text Change Threshold (%)",
+        "title": "Lower values trigger OCR2 sooner on partial changes. Higher values wait for clearer changes."
+      },
+      "evolvingPrefix": {
+        "label": "Evolving Prefix Match (%)",
+        "title": "Used when checking whether a short line looks like the beginning of a longer line."
+      },
+      "truncationFallbackMin": {
+        "label": "Truncation Fallback Min Threshold (%)",
+        "title": "Minimum compare threshold required before prefix or suffix truncation matching is allowed."
+      },
+      "truncationStrictMin": {
+        "label": "Truncation Strict Threshold (%)",
+        "title": "Above this threshold, GSM also requires a stronger base similarity before treating a truncation as the same text."
+      },
+      "truncationMargin": {
+        "label": "Truncation Base Margin",
+        "title": "How far below the compare threshold the base similarity may be before truncation fallback is rejected."
+      },
+      "truncationMinLength": {
+        "label": "Truncation Min Length (chars)",
+        "title": "Shortest normalized string length allowed for truncation matching."
+      },
+      "truncationMinRatio": {
+        "label": "Truncation Min Length Ratio (%)",
+        "title": "How much of the longer line the shorter line must cover before truncation matching is considered."
+      },
+      "subsetChunkMinLength": {
+        "label": "Subset Chunk Min Length (chars)",
+        "title": "Incoming OCR chunks shorter than this skip the chunk-coverage fallback unless they are exact matches."
+      },
+      "shortChunkLimit": {
+        "label": "Short Chunk Limit (chars)",
+        "title": "Chunks at or below this length use the smaller matching-block minimum."
+      },
+      "shortChunkMinSize": {
+        "label": "Short Chunk Match Min Size",
+        "title": "Minimum contiguous match size counted for short chunks."
+      },
+      "defaultMinSize": {
+        "label": "Default Match Min Size",
+        "title": "Minimum contiguous match size counted for longer chunks."
+      },
+      "coverageFloor": {
+        "label": "Subset Coverage Floor (%)",
+        "title": "Lowest allowed chunk-coverage requirement for dedupe fallback."
+      },
+      "coverageCeiling": {
+        "label": "Subset Coverage Ceiling (%)",
+        "title": "Highest allowed chunk-coverage requirement for dedupe fallback."
+      },
+      "coverageOffset": {
+        "label": "Coverage Threshold Offset",
+        "title": "Offset applied before converting the current compare threshold into a coverage requirement."
+      },
+      "longestBlockMin": {
+        "label": "Longest Block Minimum (chars)",
+        "title": "Minimum contiguous block size required in subset coverage mode."
+      },
+      "longestBlockDivisor": {
+        "label": "Longest Block Divisor",
+        "title": "Larger values reduce the required contiguous block length for longer chunks."
+      }
     },
     "hotkeys": {
       "title": "Hotkeys",
@@ -1321,9 +1506,104 @@
       "importFailed": "Import failed.",
       "areaConfigExported": "OCR area config copied to clipboard.",
       "exportFailed": "Export failed."
+    },
+    "desk": {
+      "preview": {
+        "live": "Live preview",
+        "paused": "Preview paused",
+        "loading": "Loading game preview…",
+        "unavailable": "Preview unavailable · showing saved areas",
+        "stale": "Preview unavailable · last frame",
+        "textBoxes": "Text boxes",
+        "pause": "Pause preview",
+        "resume": "Resume preview",
+        "detected": "{count} text boxes · latest scan",
+        "waiting": "Waiting for an OCR scan",
+        "startHint": "Start OCR to see text boxes"
+      },
+      "brandHint": "Game text capture",
+      "workspace": "OCR workspace",
+      "capture": "Capture",
+      "textMatching": "Text matching",
+      "captureAreas": "Capture areas",
+      "editAreas": "Edit areas",
+      "thisSession": "This session",
+      "engine": "Text recognition",
+      "stability": "Change detection",
+      "adjustRecognition": "Adjust recognition",
+      "editShortcuts": "Edit shortcuts",
+      "unbound": "No shortcut",
+      "autoMode": "Automatic capture",
+      "manualMode": "Manual capture",
+      "settingsSaved": "Changes save automatically",
+      "closeConsole": "Back to workspace",
+      "layoutOverview": "Saved layout",
+      "wholeWindow": "Whole window",
+      "wholeWindowHint": "Draw areas to focus on the text you want.",
+      "savedLayout": "Areas are saved",
+      "savedLayoutHint": "Open the selector to inspect this layout.",
+      "areaKinds": {
+        "normal": "Text",
+        "secondary": "Menu",
+        "excluded": "Excluded",
+        "black-hole": "Black hole",
+        "exclusive": "Exclusive"
+      },
+      "viewHelp": {
+        "capture": "Your capture layout, session settings, and one-time scans.",
+        "recognition": "Choose how text is detected and read.",
+        "filtering": "Clean up the captured image and choose how text is delivered.",
+        "comparison": "Fine-tune when dialogue is new, stable, or repeated.",
+        "shortcuts": "Capture text without leaving your game.",
+        "tools": "Manage OCR packages, diagnostics, and configuration files.",
+        "console": "Live OCR output and diagnostics. Logs are kept while you use other pages."
+      },
+      "shortcutHelp": "Select a binding and press a key combination. Press Escape to clear it.",
+      "openAreaSelector": "Open Area Selector",
+      "editor": {
+        "edit": "Edit areas in preview",
+        "areaType": "Draw",
+        "undo": "Undo",
+        "clear": "Clear all",
+        "selectedArea": "Selected area",
+        "none": "None",
+        "areaLabel": "{number} · {kind}",
+        "remove": "Remove",
+        "cancel": "Cancel",
+        "save": "Save areas",
+        "saving": "Saving…",
+        "canvas": "Draw OCR areas on the game preview",
+        "hint": "Drag to draw. Click an area to select it. Preview is paused; save to apply your changes.",
+        "legacyHint": "Use Open Area Selector to edit this older or unsupported layout.",
+        "errors": {
+          "sceneChanged": "The scene changed. Cancel and reopen the preview editor for the current scene.",
+          "conflict": "The saved areas changed elsewhere. Cancel and reload the scene before editing again.",
+          "invalid": "This layout cannot be saved here. Use Open Area Selector.",
+          "failed": "Could not save areas. Your changes are still here; please try again."
+        },
+        "keyboardModifiers": "Keyboard modifiers",
+        "modifierHint": "Shift: Excluded · Ctrl: Menu · Alt: Exclusive · Ctrl+Alt: Black hole"
+      }
     }
   },
   "texthook": {
+    "workspace": {
+      "title": "Text hook",
+      "brandHint": "Direct game text",
+      "currentGame": "Current game",
+      "navigation": "Text hook views",
+      "live": "Live text",
+      "liveHelp": "Choose a hook and check that its output matches the dialogue in your game.",
+      "engine": "Engine & script",
+      "output": "Output & timing",
+      "outputHelp": "Fine-tune text delivery, revision timing, and the maximum text length.",
+      "tools": "Tools",
+      "toolsHelp": "Learn about text hooking and manage installed engines.",
+      "noHookSelected": "No hook selected",
+      "logHelp": "Messages from the hook engine for this session.",
+      "closeLog": "Back to workspace",
+      "clearLog": "Clear log"
+    },
     "updates": {
       "title": "LunaHook & Textractor",
       "description": "New builds download in the background and are applied when no text hook is running. Both engines are updated together.",
@@ -1331,6 +1611,13 @@
       "automatic": "Update automatically",
       "automaticOn": "Automatic updates on",
       "automaticOff": "Automatic updates off",
+      "versionChoice": "Engine package version",
+      "installSelected": "Install selected version",
+      "updateLatest": "Update to latest",
+      "recommended": "Recommended",
+      "latest": "Latest",
+      "pinHint": "You can upgrade or downgrade both engines together. Automatic updates turn off when you install a selected version, keeping your choice until you change it or enable automatic updates again.",
+      "buildVersions": "LunaHook {luna} · Textractor {textractor}",
       "verificationHint": "Every file is verified before GSM switches packages. The previous package is kept.",
       "repair": "Repair / reinstall",
       "updateNow": "Update now",
@@ -1477,6 +1764,9 @@
     },
     "status": {
       "attached": "Attached",
+      "starting": "Starting",
+      "waitingForText": "Waiting for text",
+      "receiving": "Receiving text",
       "ready": "Ready",
       "noTarget": "No Target"
     },
@@ -1555,6 +1845,23 @@
     "cancel": "Cancel"
   },
   "speechRecognition": {
+    "workspace": {
+      "title": "Windows Voice",
+      "brandHint": "Speech recognition",
+      "capture": "Live transcript",
+      "captureHelp": "Capture spoken dialogue from the game in your selected OBS scene.",
+      "advanced": "Advanced",
+      "activity": "Activity log",
+      "navigation": "Windows Voice views",
+      "session": "Speech recognition session",
+      "unsaved": "Unsaved changes",
+      "transcript": "Recognized dialogue",
+      "clearText": "Clear text",
+      "interim": "Listening…",
+      "waiting": "Waiting for dialogue from the game…",
+      "empty": "Start speech recognition to see dialogue here.",
+      "forwarding": "Recognized dialogue follows your GSM text processing rules."
+    },
     "title": "Windows Speech Recognition",
     "subtitle": "Run speech recognition for the current OBS scene and send recognized dialogue through GSM's text pipeline.",
     "experimental": "Experimental · Windows only",
@@ -1671,6 +1978,7 @@
       "normalizeForm": "Form:"
     },
     "rules": {
+      "mode": "Rule type",
       "addRule": "+ Add Rule",
       "toggleEnabled": "Toggle rule",
       "plain": "Plain",
@@ -1680,6 +1988,17 @@
       "caseSensitive": "Case sensitive",
       "wholeWord": "Whole word",
       "remove": "Remove rule"
+    },
+    "workspace": {
+      "eyebrow": "Captured text",
+      "description": "Clean up captured text and see the result as you edit.",
+      "unsaved": "Unsaved changes",
+      "saved": "Changes saved",
+      "enabledCount": "{count} of {total} enabled",
+      "live": "Live",
+      "sample": "Sample",
+      "previewHint": "Preview uses your current rules, including unsaved changes.",
+      "followLatest": "Follow latest game text"
     }
   }
 }

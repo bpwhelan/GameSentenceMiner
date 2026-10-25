@@ -20,6 +20,11 @@ const { JitenParseCache, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = re
 const { installJitenSessionBroker, JitenFrameRequests } = require('./jiten_session');
 const { LocalVocabulary, VocabularyConnection } = require('./local_vocabulary');
 const { forceForegroundWindow } = require('./win_foreground');
+const { createCustomPageController, normalizeCustomPageUrl } = require('./custom_page_window');
+const { parseGuideUrl } = require('./vn_guide');
+const { GuideLibrary } = require('./vn_guide_library');
+const { createVnGuideController } = require('./vn_guide_controller');
+const { createVnGuideHud } = require('./vn_guide_hud');
 const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
   MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
@@ -57,6 +62,8 @@ const {
   createOverlaySettingsReadyHandler,
 } = require('./overlay_settings_delivery');
 const { URL } = require('url');
+const { createQuickActionsBridge } = require('./quick_actions_bridge');
+const { DEFAULT_ACTIONS: DEFAULT_QUICK_ACTIONS, normalizeActions: normalizeQuickActions } = require('./quick_actions');
 
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
 const OVERLAY_HOST_SYMBOL = Symbol.for('gsm.overlay.host');
@@ -265,6 +272,7 @@ const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-b
 const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
 const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
 const VALID_TRACKED_GAME_WINDOW_STATES = new Set(["active", "background", "obscured", "minimized", "closed", "unknown"]);
+const VALID_LIVE_STATS_SCOPES = new Set(["session", "today"]);
 const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
 const VALID_LIVE_STATS_LAYOUTS = new Set(["stacked", "one-line"]);
 const VALID_LIVE_STATS_POSITION_MODES = new Set(["active-window", "overlay"]);
@@ -353,6 +361,7 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "weburl1",
   "weburl2",
   "texthookerUrl",
+  "customPageLastUrls",
   "mainBoxStartupWarningAcknowledged",
   "pushToShowEnforcedDialogDismissed",
   "dismissedFullscreenRecommendations",
@@ -1074,6 +1083,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "hideCompletedGoals": true,
   "hideLiveStatsOnTextOverlap": true,
   "liveStatsToggleHotkey": "Alt+Shift+L",
+  "liveStatsScope": "session",
   // Per-goal overlay selection chosen in the settings window:
   //   { [goalId]: { enabled: boolean, view: "today" | "overall" } }
   "overlayGoals": {},
@@ -1121,6 +1131,19 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "dismissedExclusiveFullscreenRecommendations": [], // Games for which display-mode recommendation was dismissed
   "texthookerHotkey": DEFAULT_TEXTHOOKER_HOTKEY,
   "texthookerUrl": DEFAULT_TEXTHOOKER_URL,
+  "customPageEnabled": false,
+  "customPageUrl": "",
+  "customPageHotkey": "Alt+Shift+U",
+  "customPageLastUrls": {},
+  "vnGuideEnabled": false,
+  "vnGuideUrl": "",
+  "vnGuideRoute": "",
+  "vnGuideMode": "auto",
+  "vnGuideDisplayStyle": "card",
+  "vnGuideAutoAdvance": true,
+  "vnGuideToggleHotkey": "Alt+Shift+G",
+  "vnGuideNextHotkey": "Alt+Shift+Right",
+  "vnGuideBackHotkey": "Alt+Shift+Left",
   "enableJitenReader": true,
   // Jiten Reader style SRS highlighting on the overlay text
   "jitenHighlightingEnabled": false,
@@ -1150,6 +1173,10 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
   "gamepadTranslateButton": -1, // Disabled by default; requests/toggles translation
   "gamepadPauseToggleButton": -1, // Disabled by default; pauses/resumes the text source while navigating
+  "gamepadQuickActionsButton": 9,
+  "keyboardQuickActionsKey": "Tab",
+  "gamepadQuickActions": DEFAULT_QUICK_ACTIONS,
+  "gamepadQuickActionsQuestion": "Explain this sentence in simpler terms.",
   "gamepadTokenModeToggleButton": 3, // Y button - toggles token/character navigation
   "gamepadMineButton": 0, // A button - mines the current Yomitan entry
   "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
@@ -1198,6 +1225,10 @@ const CONFIGURED_HOTKEY_SETTING_KEYS = Object.freeze([
   "translateHotkey",
   "liveStatsToggleHotkey",
   "texthookerHotkey",
+  "customPageHotkey",
+  "vnGuideToggleHotkey",
+  "vnGuideNextHotkey",
+  "vnGuideBackHotkey",
   "gamepadKeyboardHotkey",
 ]);
 const CONFIGURED_HOTKEY_SETTING_KEY_SET = new Set(CONFIGURED_HOTKEY_SETTING_KEYS);
@@ -1313,6 +1344,12 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
     if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideLiveStatsOnTextOverlap")) {
       cleanedSettings.hideLiveStatsOnTextOverlap = DEFAULT_USER_SETTINGS.hideLiveStatsOnTextOverlap;
       changed = true;
+    }
+    for (const key of ['customPageEnabled', 'customPageUrl', 'customPageHotkey', ...Object.keys(DEFAULT_USER_SETTINGS).filter(key => key.startsWith('vnGuide'))]) {
+      if (!Object.prototype.hasOwnProperty.call(cleanedSettings, key)) {
+        cleanedSettings[key] = DEFAULT_USER_SETTINGS[key];
+        changed = true;
+      }
     }
     profiles[normalizedName] = cleanedSettings;
   }
@@ -1588,6 +1625,11 @@ function normalizeTrackedGameWindowState(value) {
   return VALID_TRACKED_GAME_WINDOW_STATES.has(normalized) ? normalized : "unknown";
 }
 
+function normalizeLiveStatsScope(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VALID_LIVE_STATS_SCOPES.has(normalized) ? normalized : "session";
+}
+
 function normalizeLiveStatsDisplayMode(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return VALID_LIVE_STATS_DISPLAY_MODES.has(normalized) ? normalized : "always";
@@ -1781,6 +1823,12 @@ function normalizeLiveStatsSettings(settings) {
     changed = true;
   }
 
+  const normalizedScope = normalizeLiveStatsScope(settings.liveStatsScope);
+  if (settings.liveStatsScope !== normalizedScope) {
+    settings.liveStatsScope = normalizedScope;
+    changed = true;
+  }
+
   const normalizedDisplayMode = normalizeLiveStatsDisplayMode(settings.liveStatsDisplayModeV2);
   if (settings.liveStatsDisplayModeV2 !== normalizedDisplayMode) {
     settings.liveStatsDisplayModeV2 = normalizedDisplayMode;
@@ -1868,15 +1916,15 @@ function isTrackedGameWindowVisibleForManualHotkey() {
 function hasValidOverlayCapture() {
   if (!overlayCaptureAvailable) return false;
   if (["active", "background"].includes(trackedGameWindowState)) return true;
-  // TextFeed can cover the game itself; keep its existing visibility exception
+  // Reading windows can cover the game itself; keep their visibility exception
   // consistent with window-state-changed while the backend still confirms capture.
   // Also preserve an already-open lookup through the Magpie focus handoff.
   return trackedGameWindowState === "obscured" &&
-    (isTexthookerMode || yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
+    (isTexthookerMode || customPageController?.isVisible() || yomitanShown || shouldDeferObscuredStateAfterYomitanClose());
 }
 
 function canUseOverlayCapture() {
-  return hasValidOverlayCapture() && !isTexthookerMode;
+  return hasValidOverlayCapture() && !isTexthookerMode && !customPageController?.isVisible();
 }
 
 function publishOverlayCaptureAvailability() {
@@ -1901,6 +1949,7 @@ function invalidateOverlayCapture(reason = "capture-unavailable") {
     isTexthookerMode = false;
     if (texthookerWindow && !texthookerWindow.isDestroyed()) texthookerWindow.hide();
   }
+  customPageController?.hide('capture-unavailable');
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (!isLinux()) mainWindow.setIgnoreMouseEvents(true, { forward: true });
     mainWindow.hide();
@@ -1921,7 +1970,7 @@ function updateOverlayCaptureStatus(message) {
   clearTimeout(overlayCaptureExpiryTimer);
   overlayCaptureExpiryTimer = setTimeout(() => invalidateOverlayCapture("capture-status-expired"), 5000);
   publishOverlayCaptureAvailability();
-  if (!wasAvailable && !isTexthookerMode) {
+  if (!wasAvailable && !isTexthookerMode && !customPageController?.isVisible()) {
     if (shouldKeepOverlayVisibleWhenManualInactive()) {
       showOverlayWithoutFocusForManualVisibleMode("capture-ready");
     } else {
@@ -1954,6 +2003,9 @@ function getManualHotkeyTriggerBlockReason() {
   // merely created, hidden, or transitioning TextFeed window does not block it.
   if (isTexthookerDefinitelyVisible()) {
     return "texthooker-visible";
+  }
+  if (customPageController?.isVisible()) {
+    return "custom-page-visible";
   }
 
   if (!isTrackedGameWindowVisibleForManualHotkey()) {
@@ -2369,9 +2421,13 @@ let settingsWindow = null;
 let offsetHelperWindow = null;
 let texthookerWindow = null;
 let texthookerLoadToken = 0;
+let customPageController = null;
+let vnGuideController = null;
+let vnGuideHud = null;
 let tray = null;
 let platformOverride = null;
 let backend = null;
+const quickActionsBridge = createQuickActionsBridge({ getBackend: () => backend });
 let gsmProfileStateRefreshInterval = null;
 let gamepadServerProcess = null;
 let gamepadServerStarting = false;
@@ -2525,6 +2581,10 @@ function enableFindInPage(browserWindow) {
 
 function publishOverlaySocketData(type, data) {
   lastWebsocketData = data;
+  if (vnGuideController && (type === 'ws1' || type === 'ws2')) {
+    vnGuideController.setAvailable(canUseOverlayCapture());
+    vnGuideController.observe(type === 'ws1' ? { type: 'game_text', text: data } : data);
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("overlay-websocket-data", { type, data });
   }
@@ -2556,6 +2616,8 @@ function handleOverlayWebSocketControlMessage(type, data) {
     return false;
   }
 
+  if (message.type === 'quick-action-result') return quickActionsBridge.receive(message);
+
   if (message.type === "capture_status") {
     // Only the monitored data connection may grant capture availability.
     if (type === "ws2" && websocketStates.ws2) updateOverlayCaptureStatus(message);
@@ -2564,6 +2626,12 @@ function handleOverlayWebSocketControlMessage(type, data) {
 
   if (message.type === "anki-setup-yomitan") {
     void handleAnkiSetup(message);
+    return true;
+  }
+
+  if (message.type === "anki-confirmation-closed") {
+    // Both connections receive broadcasts; restore once through the control connection.
+    if (type === "backend-connector") restoreFocusAfterAnkiConfirmation(message);
     return true;
   }
 
@@ -2576,7 +2644,7 @@ function handleOverlayWebSocketControlMessage(type, data) {
   }
 
   if (message.type === "live_stats_update") {
-    maybePomodoroAutoStart(message.session_active);
+    if (message.scope !== "today") maybePomodoroAutoStart(message.session_active);
     return false; // still forward to renderer
   }
 
@@ -3930,12 +3998,14 @@ function maybeShowManualModeRecommendation(game) {
   manualModeRecommendationPromptedGames.add(gameKey);
 
   const workArea = getOverlayDisplayWorkArea();
-  const winWidth = 600;
+  const winWidth = 800;
   const winHeight = 800;
 
   manualModeRecommendationWindow = new BrowserWindow({
     width: winWidth,
     height: winHeight,
+    minWidth: 800,
+    minHeight: 500,
     x: Math.round(workArea.x + (workArea.width - winWidth) / 2),
     y: Math.round(workArea.y + (workArea.height - winHeight) / 2),
     icon: getOverlayAppIconPath(),
@@ -4023,12 +4093,14 @@ function maybeShowFullscreenModeRecommendation(game) {
   }
 
   const workArea = getOverlayDisplayWorkArea();
-  const winWidth = Math.min(680, workArea.width);
+  const winWidth = Math.min(800, workArea.width);
   const winHeight = Math.min(850, workArea.height);
 
   fullscreenModeRecommendationWindow = new BrowserWindow({
     width: winWidth,
     height: winHeight,
+    minWidth: 800,
+    minHeight: 500,
     x: Math.round(workArea.x + (workArea.width - winWidth) / 2),
     y: Math.round(workArea.y + (workArea.height - winHeight) / 2),
     icon: getOverlayAppIconPath(),
@@ -4142,6 +4214,7 @@ function shouldDeferObscuredStateAfterYomitanClose() {
 }
 
 function requestBackendFocusRestore(source, options = {}) {
+  if (customPageController?.isVisible()) return false;
   if (!backend || !backend.connected) {
     return false;
   }
@@ -4174,6 +4247,29 @@ function suppressBackendFocusRestoreForProfileSwitch(reason = "unknown") {
 
 function blurAndRestoreFocus(options = {}) {
   if (mainWindow && !mainWindow.isDestroyed()) {
+    if (isWindows() && currentMagpieState.active && mainWindow.isFocused()) {
+      const version = overlayFocusRequestVersion;
+      if (pendingMagpieFocusRestore?.version === version) return;
+      // blur() lets Windows activate an arbitrary window before the backend can
+      // select the game. Keep Magpie's tool window foreground until that direct
+      // handoff has had a chance to complete, avoiding an intermediate focus hop.
+      if (requestBackendFocusRestore("magpie-direct", options)) {
+        if (pendingMagpieFocusRestore) clearTimeout(pendingMagpieFocusRestore.timer);
+        const pending = { version, timer: null };
+        pendingMagpieFocusRestore = pending;
+        pending.timer = setTimeout(() => {
+          if (pendingMagpieFocusRestore !== pending) return;
+          pendingMagpieFocusRestore = null;
+          if (version !== overlayFocusRequestVersion) return;
+          if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused()) return;
+          if (shouldPreserveOverlayFocusForYomitan() || yomitanShown || resizeMode) return;
+          if (Date.now() < suppressBackendFocusRestoreUntil) return;
+          mainWindow.blur();
+          requestBackendFocusRestore("magpie-blur-fallback", { ...options, force: true });
+        }, 250);
+        return;
+      }
+    }
     mainWindow.blur();
     requestBackendFocusRestore("blur", options);
   }
@@ -4201,6 +4297,7 @@ function showInactiveAndRestoreFocus(options = {}) {
 }
 
 let overlayFocusRequestVersion = 0;
+let pendingMagpieFocusRestore = null;
 
 function releaseOverlayFocusAfterTopmostRecovery(delayMs = 120) {
   const version = overlayFocusRequestVersion;
@@ -4249,6 +4346,7 @@ function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert", options
       // Ignore - moveTop may not be available on all Electron/platform combos.
     }
   }
+  vnGuideHud?.reassertTopmost();
   return true;
 }
 
@@ -4426,6 +4524,19 @@ function aggressivelyFocusOverlayForGamepadNavigation() {
       }
     }, delay);
   }
+}
+
+function restoreFocusAfterAnkiConfirmation(message) {
+  if (isWindows() && gamepadNavigationActive && canUseOverlayCapture() &&
+      mainWindow && !mainWindow.isDestroyed()) {
+    const handle = mainWindow.getNativeWindowHandle();
+    const hwnd = handle.length === 8 ? handle.readBigUInt64LE().toString() : handle.readUInt32LE().toString();
+    if (message.previousForegroundHwnd === hwnd) {
+      aggressivelyFocusOverlayForGamepadNavigation();
+      return;
+    }
+  }
+  requestBackendFocusRestore("anki-confirmation-closed", { force: true });
 }
 
 let gamepadToggleRequestSeq = 0;
@@ -5201,6 +5312,8 @@ function syncOverlayWindowsToCurrentMonitor(reason = "unknown", options = {}) {
   if (includeTexthooker) {
     updated = applyBoundsIfNeeded(texthookerWindow, bounds, "texthookerWindow", reason) || updated;
   }
+  customPageController?.syncBounds(bounds);
+  vnGuideController?.syncBounds();
   if (includeOffsetHelper) {
     updated = applyBoundsIfNeeded(offsetHelperWindow, bounds, "offsetHelperWindow", reason) || updated;
   }
@@ -6016,6 +6129,7 @@ function deactivateTexthookerMode(reason = "texthooker-hide") {
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
   if (texthookerWindow && !texthookerWindow.isDestroyed()) texthookerWindow.hide();
+  if (reason === 'custom-page-switch-from-textfeed') return;
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('show-overlay-hotkey', false);
@@ -6051,6 +6165,7 @@ function registerTexthookerHotkey(oldHotkey) {
       return;
     }
     if (!hasValidOverlayCapture()) return;
+    customPageController?.hide('custom-page-switch-to-textfeed');
     if (!texthookerWindow || texthookerWindow.isDestroyed()) {
       createTexthookerWindow();
     }
@@ -6089,6 +6204,104 @@ function registerTexthookerHotkey(oldHotkey) {
   if (!registered) {
     console.warn(`[TexthookerMode] Failed to register texthooker hotkey: ${texthookerHotkey}`);
   }
+}
+
+function refreshVnGuideWindow() {
+  // Manual "Hide overlay" controls the lookup window, not the guide companion.
+  vnGuideController?.setAvailable(canUseOverlayCapture());
+  vnGuideHud?.reassertTopmost();
+}
+
+function registerVnGuideHotkeys() {
+  for (const action of ['toggle', 'next', 'back']) clearAppHotkey(`vn-guide-${action}`);
+  if (!vnGuideController && userSettings.vnGuideEnabled === true) {
+    vnGuideHud = createVnGuideHud({
+      BrowserWindow,
+      getBounds: () => getOverlayBoundsForDisplay(getCurrentOverlayMonitor({ logFallback: true })),
+      getWindowOptions: () => ({ icon: getOverlayAppIconPath(), ...getWindowsFramelessWindowOptions() }),
+    });
+    vnGuideController = createVnGuideController({
+      library: new GuideLibrary(dataPath), hud: vnGuideHud,
+      onChange: state => {
+        if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('vn-guide-state', state);
+      },
+      onRouteChange: routeId => {
+        const previous = userSettings.vnGuideRoute;
+        setOverlaySettingValue('vnGuideRoute', routeId);
+        if (!saveSettings()) {
+          setOverlaySettingValue('vnGuideRoute', previous);
+          throw new Error('Could not save the next route selection. Check that the GSM data folder is writable.');
+        }
+        publishOverlaySettingsSnapshot('vn-guide-next-route');
+      },
+    });
+  }
+  const configured = vnGuideController?.configure(userSettings);
+  if (userSettings.vnGuideEnabled !== true) return configured;
+  for (const [action, settingKey] of [['toggle', 'vnGuideToggleHotkey'], ['next', 'vnGuideNextHotkey'], ['back', 'vnGuideBackHotkey']]) {
+    if (!userSettings[settingKey]) continue;
+    setAppHotkey(`vn-guide-${action}`, userSettings[settingKey], () => {
+      if (!canUseOverlayCapture()) return;
+      vnGuideController?.setAvailable(true);
+      vnGuideController?.command(action);
+    }, { settingKey, debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
+  }
+  return configured;
+}
+
+function registerCustomPageHotkey() {
+  clearAppHotkey('custom-page');
+  customPageController?.configure(userSettings);
+  if (!userSettings.customPageEnabled || !normalizeCustomPageUrl(userSettings.customPageUrl)) return;
+
+  const registered = setAppHotkey('custom-page', userSettings.customPageHotkey, () => {
+    // Closing must still work after focus/capture changes. Opening follows the
+    // same game-availability rule as TextFeed.
+    if (customPageController?.isVisible()) {
+      customPageController.hide('custom-page-hotkey-hide');
+      return;
+    }
+    if (!hasValidOverlayCapture() || !mainWindow || mainWindow.isDestroyed()) return;
+    if (isTexthookerMode) deactivateTexthookerMode('custom-page-switch-from-textfeed');
+    if (!customPageController) {
+      customPageController = createCustomPageController({
+        BrowserWindow,
+        getSavedUrl: sourceUrl => userSettings.customPageLastUrls?.[sourceUrl],
+        onNavigate: (sourceUrl, url) => {
+          if (userSettings.customPageLastUrls?.[sourceUrl] === url) return;
+          setOverlaySettingValue('customPageLastUrls', { ...userSettings.customPageLastUrls, [sourceUrl]: url });
+          saveSettings();
+        },
+        getWindowOptions: () => ({ icon: getOverlayAppIconPath(), ...getWindowsFramelessWindowOptions() }),
+        getBounds: () => getOverlayBoundsForDisplay(getCurrentOverlayMonitor({ logFallback: true })),
+        focusWindow: forceForegroundWindow,
+        onShow: () => {
+          overlayFocusRequestVersion += 1;
+          cancelManualBackgroundRelease();
+          resetOverlayInteractionStateForHiddenGameWindow('custom-page-show');
+          clearManualActivationState('custom-page-show');
+          releaseAllOverlayPauseRequests();
+          mainWindow.webContents.send('show-overlay-hotkey', false);
+          mainWindow.hide();
+          publishOverlayCaptureAvailability();
+        },
+        onHide: (reason) => {
+          publishOverlayCaptureAvailability();
+          if (['capture-unavailable', 'custom-page-dispose', 'custom-page-switch-to-textfeed'].includes(reason)) return;
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            if (!isLinux()) mainWindow.setIgnoreMouseEvents(true, { forward: true });
+            if (canUseOverlayCapture() && (!isManualMode() || shouldKeepOverlayVisibleWhenManualInactive())) {
+              mainWindow.showInactive();
+            }
+          }
+          requestBackendFocusRestore(reason, { force: true });
+        },
+      });
+    }
+    customPageController.configure(userSettings);
+    customPageController.toggle();
+  }, { settingKey: 'customPageHotkey', debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
+  if (!registered) console.warn(`[CustomPage] Failed to register hotkey: ${userSettings.customPageHotkey}`);
 }
 
 function registerManualShowHotkey(oldHotkey) {
@@ -6257,6 +6470,8 @@ function openSettings(tab) {
   const openedSettingsWindow = new BrowserWindow({
     width: 1200,
     height: 980,
+    minWidth: 800,
+    minHeight: 500,
     icon: getOverlayAppIconPath(),
     resizable: true,
     title: "Overlay Settings",
@@ -6284,6 +6499,8 @@ function openSettings(tab) {
       show: true,
       width: 1200,
       height: 980,
+      minWidth: 800,
+      minHeight: 500,
       icon: getOverlayAppIconPath(),
       webPreferences: {
         nodeIntegration: true,
@@ -6358,6 +6575,8 @@ function openYomitanSettings() {
   yomitanSettingsWindow = new BrowserWindow({
     width: hachidoriExt ? Math.min(1440, workArea.width) : 1100,
     height: hachidoriExt ? Math.min(900, workArea.height) : 800,
+    minWidth: 800,
+    minHeight: 500,
     icon: getOverlayAppIconPath(),
     webPreferences: {
       preload: FIND_IN_PAGE_PRELOAD_PATH,
@@ -6397,6 +6616,8 @@ function openJitenReaderSettings() {
   jitenReaderSettingsWindow = new BrowserWindow({
     width: 1100,
     height: 600,
+    minWidth: 800,
+    minHeight: 500,
     icon: getOverlayAppIconPath(),
     webPreferences: {
       nodeIntegration: false
@@ -7425,6 +7646,8 @@ async function startOverlayAppImpl() {
     if (changed("overlaySettingsHotkey")) registerOverlaySettingsHotkey(previous.overlaySettingsHotkey);
     if (changed("translateHotkey")) registerTranslateHotkey(previous.translateHotkey);
     if (changed("texthookerHotkey")) registerTexthookerHotkey(previous.texthookerHotkey);
+    if (changed("customPageEnabled") || changed("customPageUrl") || changed("customPageHotkey")) registerCustomPageHotkey();
+    if (Object.keys(DEFAULT_USER_SETTINGS).some(key => key.startsWith('vnGuide') && changed(key))) registerVnGuideHotkeys();
     if (changed("liveStatsToggleHotkey")) registerLiveStatsToggleHotkey(previous.liveStatsToggleHotkey);
     if (changed("gamepadKeyboardHotkey") || changed("gamepadKeyboardEnabled") || changed("gamepadEnabled")) {
       registerGamepadKeyboardHotkey(previous.gamepadKeyboardHotkey);
@@ -7442,6 +7665,8 @@ async function startOverlayAppImpl() {
       registerToggleFuriganaHotkey();
       registerLiveStatsToggleHotkey();
       registerTexthookerHotkey();
+      registerCustomPageHotkey();
+      registerVnGuideHotkeys();
       registerGamepadKeyboardHotkey();
       registerManualShowHotkey();
       syncAppHotkeyInputServerConnection(`${reason}:route-all-hotkeys`);
@@ -7479,6 +7704,39 @@ async function startOverlayAppImpl() {
 
   createTexthookerWindow();
   registerTexthookerHotkey();
+  registerCustomPageHotkey();
+  registerVnGuideHotkeys();
+  bg.registerTask(() => vnGuideController?.setAvailable(canUseOverlayCapture()), 250);
+  ipcMain.handle('vn-guide-state', event => {
+    if (!settingsWindow || event.sender !== settingsWindow.webContents) return null;
+    return vnGuideController?.snapshot() || { enabled: false, routes: [] };
+  });
+  ipcMain.handle('vn-guide-command', async (event, { action, value } = {}) => {
+    const fromSettings = settingsWindow && event.sender === settingsWindow.webContents;
+    const fromHud = vnGuideHud?.owns(event.sender);
+    if (!fromSettings && !fromHud) return null;
+    if (fromHud && (!canUseOverlayCapture() || !['next', 'back', 'hide'].includes(action))) return null;
+    if (action === 'use-custom-page' && fromSettings) {
+      const configured = normalizeCustomPageUrl(userSettings.customPageUrl);
+      const url = userSettings.customPageLastUrls?.[configured] || configured;
+      let source;
+      try { source = parseGuideUrl(url); } catch (error) { return { ...vnGuideController?.snapshot(), error: error.message }; }
+      setOverlaySettingValue('vnGuideUrl', url);
+      setOverlaySettingValue('vnGuideRoute', '');
+      setOverlaySettingValue('vnGuideEnabled', true);
+      saveSettings();
+      await registerVnGuideHotkeys();
+      if (userSettings.vnGuideEnabled && userSettings.vnGuideUrl === url && !userSettings.vnGuideRoute
+        && source.step !== null && source.step < (vnGuideController?.snapshot().total || 0)) {
+        vnGuideController.command('jump', source.step);
+      }
+      publishOverlaySettingsSnapshot('vn-guide-import');
+      return vnGuideController?.snapshot();
+    }
+    if (!['toggle', 'next', 'back', 'jump', 'refresh', 'check-updates', 'hide'].includes(action)) return null;
+    try { return await vnGuideController?.command(action, value); }
+    catch (error) { return { ...vnGuideController?.snapshot(), error: error.message }; }
+  });
   registerManualShowHotkey();
 
   // Initialize backend connector
@@ -7579,6 +7837,8 @@ async function startOverlayAppImpl() {
       show: true,
       width: 1200,
       height: 980,
+      minWidth: 800,
+      minHeight: 500,
       icon: getOverlayAppIconPath(),
       webPreferences: {
         nodeIntegration: true,
@@ -7810,6 +8070,12 @@ async function startOverlayAppImpl() {
     mainWindow.setBackgroundColor('#00000000')
   })
 
+  // Keep the VN guide above the returning lookup window, including freeze frames.
+  // Defer until the reveal/focus operation has finished restacking the overlay.
+  for (const eventName of ['show', 'restore', 'focus']) {
+    mainWindow.on(eventName, () => setTimeout(refreshVnGuideWindow, 0));
+  }
+
   // Update tray menu when window visibility changes
   mainWindow.on('show', () => {
     updateTrayMenu();
@@ -7913,6 +8179,12 @@ async function startOverlayAppImpl() {
     }
   });
 
+  ipcMain.on("request-live-stats-today", (event, { reason = "refresh" } = {}) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
+    if (userSettings.liveStatsScope !== "today" || userSettings.showLiveStats === false) return;
+    if (backend?.connected) backend.send({ type: "get-live-stats-today", reason });
+  });
+
   ipcMain.on("translate-blocks", (event, payload) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
     if (backend && backend.connected) {
@@ -7920,6 +8192,17 @@ async function startOverlayAppImpl() {
     } else {
       mainWindow.webContents.send('translation-error', { request_id: payload.request_id, error: 'Backend not connected' });
     }
+  });
+
+  ipcMain.handle("quick-action", (event, action) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
+      || !userSettings.gamepadEnabled) return { success: false, error: 'Controller navigation is disabled.' };
+    if (action === 'translation') {
+      if (!gamepadNavigationActive || !backend?.connected) return { success: false, error: 'GSM is disconnected or navigation is inactive.' };
+      requestOrToggleTranslation();
+      return { success: true };
+    }
+    return quickActionsBridge.request(action).catch(error => ({ success: false, error: error.message }));
   });
 
   ipcMain.on("translation-request-failed", (event) => {
@@ -7970,7 +8253,7 @@ async function startOverlayAppImpl() {
 
     const normalizedWindowState = setTrackedGameWindowState(state, "window-state-changed");
     publishOverlayCaptureAvailability();
-    if (isTexthookerMode) return;
+    if (isTexthookerMode || customPageController?.isVisible()) return;
 
     currentMagpieState = magpieInfo !== undefined
       ? createMagpieState(magpieInfo)
@@ -8214,7 +8497,11 @@ async function startOverlayAppImpl() {
       updateTrayMenu();
       return;
     }
-    if (key === "showRecycledIndicator") {
+    if (key === "gamepadQuickActions") {
+      value = normalizeQuickActions(value);
+    } else if (key === "gamepadQuickActionsQuestion") {
+      value = String(value || '').trim().slice(0, 4000);
+    } else if (key === "showRecycledIndicator") {
       value = value === true;
     } else if (key === "fontSize") {
       value = normalizeFloatingWindowFontSize(value);
@@ -8258,6 +8545,8 @@ async function startOverlayAppImpl() {
       value = normalizeManualModeType(value);
     } else if (key === "manualModeInactiveBehavior") {
       value = normalizeManualModeInactiveBehavior(value);
+    } else if (key === "liveStatsScope") {
+      value = normalizeLiveStatsScope(value);
     } else if (key === "liveStatsDisplayModeV2") {
       value = normalizeLiveStatsDisplayMode(value);
     } else if (key === "liveStatsLayoutV2") {
@@ -8381,9 +8670,28 @@ async function startOverlayAppImpl() {
         registerToggleFuriganaHotkey();
         registerLiveStatsToggleHotkey();
         registerTexthookerHotkey();
+        registerCustomPageHotkey();
+        registerVnGuideHotkeys();
         registerGamepadKeyboardHotkey();
         registerManualShowHotkey();
         syncAppHotkeyInputServerConnection("setting-changed:routeAllHotkeysThroughInputServer");
+        break;
+      case "customPageEnabled":
+      case "customPageUrl":
+      case "customPageHotkey":
+        registerCustomPageHotkey();
+        break;
+      case "vnGuideEnabled":
+      case "vnGuideUrl":
+      case "vnGuideRoute":
+      case "vnGuideMode":
+      case "vnGuideDisplayStyle":
+      case "vnGuideAutoAdvance":
+      case "vnGuideToggleHotkey":
+      case "vnGuideNextHotkey":
+      case "vnGuideBackHotkey":
+        if (key === 'vnGuideUrl') setOverlaySettingValue('vnGuideRoute', '');
+        registerVnGuideHotkeys();
         break;
       case "texthookerUrl":
         if (texthookerWindow && !texthookerWindow.isDestroyed()) {
@@ -8442,6 +8750,9 @@ async function startOverlayAppImpl() {
       case "gamepadManualOverlayScanButton":
       case "gamepadTranslateButton":
       case "gamepadPauseToggleButton":
+      case "gamepadQuickActionsButton":
+      case "gamepadQuickActions":
+      case "gamepadQuickActionsQuestion":
       case "gamepadTokenModeToggleButton":
       case "gamepadMineButton":
       case "gamepadNextEntryButton":
@@ -8625,7 +8936,7 @@ async function startOverlayAppImpl() {
   // let alwaysOnTopInterval;
 
   ipcMain.on("text-received", (event, text) => {
-    if (isTexthookerMode) return;
+    if (isTexthookerMode || customPageController?.isVisible()) return;
     // Reset the activity timer on text received
     resetActivityTimer();
     // Reset translation state on new text
@@ -8818,6 +9129,11 @@ async function startOverlayAppImpl() {
   });
 
   registerOverlayEmitterListener(app, "before-quit", () => {
+    vnGuideController?.dispose();
+    vnGuideController = null;
+    vnGuideHud = null;
+    customPageController?.dispose();
+    customPageController = null;
     // Clear activity timer on quit
     if (activityTimer) {
       clearTimeout(activityTimer);
@@ -8907,6 +9223,12 @@ async function stopOverlayApp() {
       });
 
       runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());
+      runOverlayCleanupStep('quick actions', () => quickActionsBridge.destroy());
+      runOverlayCleanupStep('custom page', () => customPageController?.dispose());
+      customPageController = null;
+      runOverlayCleanupStep('VN guide', () => vnGuideController?.dispose());
+      vnGuideController = null;
+      vnGuideHud = null;
       runOverlayCleanupStep('Jiten requests', () => {
         localVocabulary.cancel();
         clearInterval(vocabularySyncInterval);

@@ -1,4 +1,5 @@
 import Store from "electron-store";
+import type { GameBackgroundOptions } from '../shared/game_background.js';
 import { SteamGame } from "./ui/steam.js";
 import {ObsScene} from "./ui/obs.js";
 import { BrowserWindow } from "electron";
@@ -58,6 +59,7 @@ interface OCRConfig {
     optimize_second_scan: boolean;
     text_appears_instantly?: boolean;
     advanced_debug_logging?: boolean;
+    useOnlineOcr?: boolean;
     ocr1: string;
     ocr2: string;
     scanRate: number;
@@ -163,6 +165,7 @@ interface FrontPageState {
 }
 
 interface StoreConfig {
+    gameBackgroundProfiles: Record<string, GameBackgroundOptions>;
     frontPageState: FrontPageState;
     yuzu: YuzuConfig;
     agentScriptsPath: string;
@@ -219,6 +222,7 @@ interface StoreConfig {
 
 export const store = new Store<StoreConfig>({
     defaults: {
+        gameBackgroundProfiles: {},
         frontPageState: {
             agentEnabled: false,
             ocrEnabled: false,
@@ -267,8 +271,9 @@ export const store = new Store<StoreConfig>({
             optimize_second_scan: true,
             text_appears_instantly: false,
             advanced_debug_logging: false,
+            useOnlineOcr: false,
             ocr1: DEFAULT_STABILITY_OCR,
-            ocr2: "glens",
+            ocr2: DEFAULT_STABILITY_OCR,
             language: "ja",
             ocr_screenshots: false,
             furigana_filter_sensitivity: 0,
@@ -1106,7 +1111,14 @@ export function getTheme(): string {
 }
 
 export function setTheme(theme: string): void {
-    store.set("theme", theme || "gsm-dark");
+    const nextTheme = theme || "gsm-dark";
+    if (getTheme() === nextTheme) return;
+    store.set("theme", nextTheme);
+    for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+            window.webContents.send('settings.themeChanged', nextTheme);
+        }
+    }
 }
 
 export function getHasCompletedSetup(): boolean {

@@ -8,7 +8,6 @@ from unittest.mock import Mock
 
 import pytest
 
-
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows window coverage")
 wwm = (
     importlib.import_module("GameSentenceMiner.util.platform.windows_window_monitor")
@@ -64,6 +63,55 @@ def test_full_coverage_preserves_the_existing_padded_test(desktop):
     assert monitor.occlusion_rects == [(10, 15, 990, 720)]
 
 
+@pytest.fixture
+def styled_desktop(desktop, monkeypatch):
+    monitor, api, rects = desktop
+    monkeypatch.delattr(monitor, "_is_overlay_window")
+    styles = {20: 0x2800A8, 30: 0, 40: 0}
+    titles = {20: "Discord Overlay", 30: "Other app", 40: "GSM Overlay"}
+    api.GetWindowLongW = Mock(side_effect=lambda hwnd, _: styles.get(hwnd, 0))
+    monkeypatch.setattr(monitor, "_get_window_class", lambda _: "Chrome_WidgetWin_1")
+    monkeypatch.setattr(monitor, "_get_window_title", lambda hwnd: titles.get(hwnd, ""))
+    monkeypatch.setattr(monitor, "_get_window_exe_name", lambda _: "Discord.exe")
+    return monitor, api, rects, styles, titles
+
+
+def test_discord_click_through_overlay_does_not_cover_the_game(styled_desktop):
+    monitor, _, rects, _, _ = styled_desktop
+    # Discord's transparent game overlay spans Nekopara's whole client area.
+    rects[20] = (0, 0, 1000, 800)
+    assert not monitor._is_window_obscured(10)
+    assert monitor.occlusion_rects == [(300, 200, 600, 500)]
+
+
+@pytest.mark.parametrize("style", [0, 0x80000, 0x20])
+def test_regular_discord_windows_still_cover_the_game(styled_desktop, style):
+    monitor, _, rects, styles, titles = styled_desktop
+    rects[20] = (0, 0, 1000, 800)
+    styles[20] = style
+    titles[20] = "Discord"
+    assert monitor._is_window_obscured(10)
+    assert monitor.occlusion_rects == [(0, 0, 1000, 800)]
+
+
+def test_click_through_overlay_detection_does_not_require_a_known_app(styled_desktop, monkeypatch):
+    monitor, _, _, styles, _ = styled_desktop
+    styles[20] = 0x80020
+    monkeypatch.setattr(monitor, "_get_window_class", lambda _: "UnfamiliarOverlayWindow")
+    monkeypatch.setattr(monitor, "_get_window_title", lambda _: "")
+    monkeypatch.setattr(monitor, "_get_window_exe_name", lambda _: "unknown.exe")
+    assert monitor._is_overlay_window(20)
+
+
+def test_discord_overlay_becomes_covering_when_it_accepts_input(styled_desktop):
+    monitor, _, rects, styles, _ = styled_desktop
+    rects[20] = (0, 0, 1000, 800)
+    assert not monitor._is_window_obscured(10)
+    styles[20] &= ~0x20
+    assert monitor._is_window_obscured(10)
+    assert monitor.occlusion_rects == [(0, 0, 1000, 800)]
+
+
 @pytest.mark.parametrize("focused", [False, True])
 def test_coverage_updates_publish_without_rescanning_unchanged_desktop(desktop, monkeypatch, focused):
     monitor, api, rects = desktop
@@ -116,6 +164,80 @@ def test_coverage_updates_publish_without_rescanning_unchanged_desktop(desktop, 
     asyncio.run(monitor.check_and_send())
     assert sent[-1]["data"] == "active"
     assert sent[-1]["occlusion_rects"] == []
+
+
+@pytest.mark.parametrize("delay_seconds", [0, 5, 10])
+def test_audio_mutes_on_overlay_coverage_and_waits_for_focus(desktop, monkeypatch, delay_seconds):
+    monitor, api, rects = desktop
+    now = time.time()
+    audio_clock = SimpleNamespace(now=1000.0)
+    monkeypatch.setattr(wwm, "time", SimpleNamespace(time=time.time, monotonic=lambda: audio_clock.now))
+    monitor.last_obs_check_time = monitor.last_hwnd_refresh_time = monitor.last_monitor_validation_time = now
+    monitor.last_window_rect = rects[10]
+    monitor.last_state = "active"
+    monitor.last_target_info = {"title": "Game"}
+    monitor.last_target_scene_name = "Game"
+    audio_calls = []
+
+    def set_mute(pid, muted, session_instance_ids=None):
+        audio_calls.append((pid, muted, session_instance_ids))
+        return [SimpleNamespace(changed=True, session_instance_id="game-audio")]
+
+    monkeypatch.setattr(wwm.websocket_manager, "has_clients", lambda _: False)
+    monkeypatch.setattr(
+        wwm,
+        "get_config",
+        lambda: SimpleNamespace(
+            advanced=SimpleNamespace(
+                mute_game_on_minimize=False,
+                mute_game_on_background=True,
+                mute_game_on_background_delay_seconds=delay_seconds,
+            ),
+            hotkeys=SimpleNamespace(unmute_target_window_on_focus=False),
+        ),
+    )
+    monkeypatch.setattr(wwm, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 10 else 0)
+    monkeypatch.setattr(wwm, "set_process_mute", set_mute)
+    for method in ("_sync_capture_monitor_to_window", "update_magpie_info", "_spawn_reprocess_last_results"):
+        monkeypatch.setattr(monitor, method, lambda *args: None)
+    for method in ("_is_fullscreen_window", "_is_exclusive_fullscreen", "_is_cursor_hidden"):
+        monkeypatch.setattr(monitor, method, lambda *args, **kwargs: False)
+    monkeypatch.setattr(monitor, "_build_client_rect_payload", lambda: None)
+
+    # Partial coverage leaves the game and overlay visible despite lost focus.
+    asyncio.run(monitor.check_and_send())
+    assert monitor.last_state == "background"
+    assert audio_calls == []
+
+    rects[20] = (0, 0, 1000, 800)
+    monitor._zorder_dirty = True
+    asyncio.run(monitor.check_and_send())
+    assert monitor.last_state == "obscured"
+    if delay_seconds:
+        assert audio_calls == []
+        audio_clock.now += delay_seconds - 0.1
+        asyncio.run(monitor.check_and_send())
+        assert audio_calls == []
+        audio_clock.now += 0.1
+        # No new window event or geometry change is needed for the delay to expire.
+        asyncio.run(monitor.check_and_send())
+    assert audio_calls == [(222, True, None)]
+
+    rects[20] = (100, 100, 400, 400)
+    monitor._zorder_dirty = True
+    asyncio.run(monitor.check_and_send())
+    assert monitor.last_state == "background"
+    assert audio_calls == [(222, True, None)]
+
+    api.GetForegroundWindow = lambda: 10
+    monitor._zorder_dirty = True
+    asyncio.run(monitor.check_and_send())
+    assert monitor.last_state == "active"
+    assert audio_calls == [(222, True, None), (222, False, None)]
+
+    # Keep checking audio when focus and geometry stay unchanged, without clients.
+    asyncio.run(monitor.check_and_send())
+    assert audio_calls == [(222, True, None), (222, False, None), (222, False, None)]
 
 
 def test_window_events_only_invalidate_top_level_geometry(desktop):

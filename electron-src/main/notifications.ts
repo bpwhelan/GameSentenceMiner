@@ -27,17 +27,26 @@ function sendNotification(
     type: NotificationType,
     message: string,
     timeout: number = 5000,
-    onClick?: () => void
+    onClick?: () => void,
+    actions: Array<{ text: string; onAction: () => void }> = [],
 ) {
     const notif = new Notification({
         icon: getIconPath(),
         title: type,
         body: message,
         silent: false,
+        actions: process.platform === 'win32' || process.platform === 'darwin'
+            ? actions.map(({ text }) => ({ type: 'button' as const, text }))
+            : undefined,
     });
 
     if (onClick) {
         notif.on('click', onClick);
+    }
+    if (actions.length > 0) {
+        notif.on('action', (event) => {
+            actions[event.actionIndex]?.onAction();
+        });
     }
 
     notif.show();
@@ -174,24 +183,28 @@ export function sendNotificationFromPython(data: any) {
 // Notification helpers
 export function sendNoteUpdated(noteID: number | string, noteId?: number) {
     const parsed = noteId ?? (typeof noteID === 'number' ? noteID : parseInt(String(noteID)));
+    const openCard = () => {
+        if (parsed && !Number.isNaN(parsed)) {
+            openAnkiCard(parsed);
+        }
+    };
     sendNotification(
         NotificationType.AnkiCardUpdated,
-        `Audio and/or Screenshot added to note: ${parsed}\n\n Click here to open card.`,
+        `Audio and/or Screenshot added to note: ${parsed}`,
         5000,
-        () => {
-            if (parsed && !Number.isNaN(parsed)) {
-                openAnkiCard(parsed);
-            }
-        }
+        openCard,
+        parsed && !Number.isNaN(parsed) ? [{ text: 'Open Card', onAction: openCard }] : [],
     );
 }
 
 export function sendScreenshotUpdated(noteID: number) {
+    const openCard = () => openAnkiCard(noteID);
     sendNotification(
         NotificationType.AnkiCardUpdated,
         `Screenshot updated on note: ${noteID}`,
         5000,
-        () => openAnkiCard(noteID)
+        openCard,
+        [{ text: 'Open Card', onAction: openCard }],
     );
 }
 
@@ -239,6 +252,7 @@ export async function sendAgentRestartNotification(
     reason: string,
     seconds: number,
     restartNow: () => void = () => {},
+    cancelRestart: () => void = () => {},
 ): Promise<void> {
     if (!Notification.isSupported()) {
         throw new Error('Desktop notifications are unavailable; GSM was not restarted.');
@@ -250,7 +264,10 @@ export async function sendAgentRestartNotification(
         silent: false,
         timeoutType: 'never',
         actions: process.platform === 'win32' || process.platform === 'darwin'
-            ? [{ type: 'button', text: 'Restart Now' }]
+            ? [
+                { type: 'button', text: 'Restart Now' },
+                { type: 'button', text: 'Cancel Restart' },
+            ]
             : undefined,
     });
     await new Promise<void>((resolve, reject) => {
@@ -265,9 +282,13 @@ export async function sendAgentRestartNotification(
         };
         notification.once('failed', (_event, message) => fail(`Restart notification failed: ${message}`));
         notification.once('action', (event) => {
-            if (event.actionIndex !== 0) return;
-            notification.close();
-            restartNow();
+            if (event.actionIndex === 0) {
+                notification.close();
+                restartNow();
+            } else if (event.actionIndex === 1) {
+                notification.close();
+                cancelRestart();
+            }
         });
         notification.once('show', () => {
             if (settled) return;

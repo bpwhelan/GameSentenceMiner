@@ -69,6 +69,7 @@ export function configureAnkiBeaconConfig(config: unknown, gsmPort: number): Jso
         return {
             ...operation,
             urls,
+            payload_mode: 'note',
         };
     });
 

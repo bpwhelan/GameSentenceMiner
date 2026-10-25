@@ -110,10 +110,6 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "anki", "enabled", color=LabelColor.RECOMMENDED, bold=True),
         window.anki_enabled_check,
     )
-    layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "anki", "update_anki"),
-        window.update_anki_check,
-    )
     layout.addRow(window._create_labeled_widget(tabs_i18n, "anki", "url"), window.anki_url_edit)
     window.anki_recommended_setup_button = QPushButton("Set up recommended note type: Lapis, Kiku, Senren…")
     window.anki_recommended_setup_button.clicked.connect(
@@ -299,6 +295,20 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.show_update_confirmation_dialog_check,
     )
+    skip_unvoiced_label = window._create_labeled_widget(
+        tabs_i18n,
+        "anki",
+        "skip_confirmation_for_unvoiced",
+        (
+            "Warning: Skip confirmation when VAD detects no voice. The confirmation window was originally "
+            "intended to let you double-check VAD results on unvoiced lines. Skipping it can leave missed "
+            "speech unnoticed and create cards without voice audio."
+        ),
+        color=LabelColor.WARNING,
+        bold=True,
+    )
+    window.anki_skip_confirmation_for_unvoiced_check.setToolTip(skip_unvoiced_label.toolTip())
+    layout.addRow(skip_unvoiced_label, window.anki_skip_confirmation_for_unvoiced_check)
     layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
@@ -325,6 +335,15 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             "Attempt to focus the Anki confirmation dialog when it opens.",
         ),
         window.anki_confirmation_focus_on_show_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "confirmation_audio_step",
+            "Seconds added by each audio expansion button click in the confirmation dialog.",
+        ),
+        window.anki_confirmation_audio_step_combo,
     )
     layout.addRow(
         window._create_labeled_widget(

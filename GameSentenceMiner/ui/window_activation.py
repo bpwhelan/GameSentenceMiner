@@ -5,6 +5,22 @@ from PyQt6.QtWidgets import QApplication, QWidget
 from GameSentenceMiner.util.logging_config import logger
 
 
+def get_foreground_window_handle() -> int | None:
+    """Capture the current Windows foreground before another window takes focus."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import pywintypes
+        import win32gui
+    except ImportError:
+        return None
+    try:
+        return int(win32gui.GetForegroundWindow() or 0) or None
+    except (pywintypes.error, OSError) as exc:
+        logger.debug(f"Unable to capture foreground window: {exc}")
+        return None
+
+
 def activate_window(window: QWidget) -> bool:
     """Activate a visible Qt window, including when Windows keeps another app focused."""
     window.raise_()

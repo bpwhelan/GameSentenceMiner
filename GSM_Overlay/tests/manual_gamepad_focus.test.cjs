@@ -6,12 +6,14 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { between } = require('./helpers/overlay-startup.cjs');
 const { createManualHotkeyController } = require('../manual_hotkey_controller');
+const { createVnGuideController } = require('../vn_guide_controller');
+const { validateRoute } = require('../vn_guide');
 
 const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
 
 function setup(t, settings = {}) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 10000 });
-  const state = { focused: false, visible: true, ignoreMouseEvents: true, focusCalls: 0 };
+  const state = { focused: false, visible: true, ignoreMouseEvents: true, focusCalls: 0, blurCalls: 0 };
   const restores = [];
   const pauseRequests = [];
   const rendererMessages = [];
@@ -27,6 +29,11 @@ function setup(t, settings = {}) {
     setBounds() {}, setIgnoreMouseEvents() {}, setAlwaysOnTop() {},
   });
   const mainWindow = {
+    getNativeWindowHandle: () => {
+      const handle = Buffer.alloc(8);
+      handle.writeBigUInt64LE(0x123456789n);
+      return handle;
+    },
     isDestroyed: () => false,
     isMinimized: () => false,
     isVisible: () => state.visible,
@@ -35,7 +42,7 @@ function setup(t, settings = {}) {
     showInactive: () => { state.visible = true; },
     hide: () => { state.visible = false; state.focused = false; },
     focus: () => { state.focused = true; state.focusCalls += 1; },
-    blur: () => { state.focused = false; },
+    blur: () => { state.focused = false; state.blurCalls += 1; },
     setIgnoreMouseEvents: ignore => { state.ignoreMouseEvents = ignore; },
     setAlwaysOnTop() {},
     setVisibleOnAllWorkspaces() {},
@@ -60,10 +67,12 @@ function setup(t, settings = {}) {
     OVERLAY_TOPMOST_REASSERT_THROTTLE_MS: 1500,
     lastFocusRestoreRequestAt: 0, suppressBackendFocusRestoreUntil: 0,
     overlayFocusRequestVersion: 0,
+    pendingMagpieFocusRestore: null,
     lastOverlayTopmostReassertAt: 0, pendingOverlayTopmostReassertTimer: null,
     manualHotkeyPressed: false, manualModeToggleState: false,
     gamepadNavigationActive: false, gamepadReleaseRecoveryVersion: 0,
     overlayCaptureAvailable: true, trackedGameWindowState: 'active', isTexthookerMode: false,
+    customPageController: null, vnGuideController: null, vnGuideHud: null,
     trackedGameWindowStateUpdatedAt: 0, magpieYomitanCloseVisibilityGuardActive: false,
     isOverlayVisible: false, resizeMode: false, yomitanShown: false,
     yomitanForegroundActive: false, yomitanRecoveryVersion: 0, lastYomitanEventAt: 0,
@@ -99,9 +108,11 @@ function setup(t, settings = {}) {
     'isManualMode', 'normalizeManualModeInactiveBehavior',
     'shouldKeepOverlayVisibleWhenManualInactive', 'shouldHideOverlayWindowForManualInactive',
     'requestBackendFocusRestore', 'blurAndRestoreFocus', 'hideAndRestoreFocus',
+    'restoreFocusAfterAnkiConfirmation', 'handleOverlayWebSocketControlMessage',
     'releaseOverlayFocusAfterTopmostRecovery', 'reassertOverlayTopmostWithoutFocus',
     'requestOverlayTopmostReassert', 'showOverlayWithoutFocusForManualVisibleMode',
     'aggressivelyShowOverlayAndReturnFocus', 'setGamepadNavigationModeActive',
+    'restoreAutomaticOverlayPassThrough', 'scheduleGamepadReleaseRecovery',
     'showOverlayUsingManualFlow', 'hideOverlayUsingManualFlow', 'clearManualActivationState',
     'shouldReassertOverlayAroundYomitan', 'shouldPreserveOverlayFocusForYomitan',
     'requestYomitanOverlayTopmostReassert',
@@ -151,6 +162,121 @@ function setup(t, settings = {}) {
   };
 }
 
+for (const manualMode of [false, true]) {
+  for (const navigationActive of [false, true]) {
+    for (const previouslyFocused of [false, true]) {
+      test(`Anki confirmation restores focus with manual=${manualMode}, navigation=${navigationActive}, previous overlay=${previouslyFocused}`, t => {
+        const { context, state, restores } = setup(t, { manualMode });
+        context.gamepadNavigationActive = navigationActive;
+        const message = {
+          type: 'anki-confirmation-closed',
+          previousForegroundHwnd: previouslyFocused ? '4886718345' : '42',
+        };
+        // The data socket and BackendConnector receive the same broadcast.
+        assert.equal(context.handleOverlayWebSocketControlMessage('ws2', message), true);
+        assert.equal(context.handleOverlayWebSocketControlMessage('backend-connector', message), true);
+        t.mock.timers.tick(1000);
+
+        const returnToOverlay = previouslyFocused && navigationActive;
+        assert.equal(state.focused, returnToOverlay);
+        assert.deepEqual(restores, returnToOverlay ? [] : ['restore-focus-request']);
+        assert.equal(state.focusCalls, returnToOverlay ? 5 : 0);
+        assert.equal(context.gamepadNavigationActive, navigationActive);
+      });
+    }
+  }
+}
+
+test('Anki confirmation cannot focus the overlay after navigation ends during recovery', t => {
+  const { context, state } = setup(t);
+  context.gamepadNavigationActive = true;
+  context.restoreFocusAfterAnkiConfirmation({ previousForegroundHwnd: '4886718345' });
+  context.gamepadNavigationActive = false;
+  t.mock.timers.tick(1000);
+  assert.equal(state.focusCalls, 0);
+});
+
+test('Anki confirmation returns to the game when overlay capture is unavailable', t => {
+  const { context, state, restores } = setup(t);
+  context.gamepadNavigationActive = true;
+  context.overlayCaptureAvailable = false;
+  context.restoreFocusAfterAnkiConfirmation({ previousForegroundHwnd: '4886718345' });
+  t.mock.timers.tick(1000);
+  assert.equal(state.focusCalls, 0);
+  assert.deepEqual(restores, ['restore-focus-request']);
+});
+
+test('Anki confirmation returns to the game when the overlay window has closed', t => {
+  const { context, restores } = setup(t);
+  context.gamepadNavigationActive = true;
+  context.mainWindow = null;
+  context.restoreFocusAfterAnkiConfirmation({ previousForegroundHwnd: '4886718345' });
+  assert.deepEqual(restores, ['restore-focus-request']);
+});
+
+test('pending game focus restoration cannot interrupt a visible custom page', t => {
+  const { context, restores } = setup(t);
+  context.customPageController = { isVisible: () => true };
+  assert.equal(context.requestBackendFocusRestore('delayed-manual-release', { force: true }), false);
+  assert.deepEqual(restores, []);
+  context.customPageController = null;
+  assert.equal(context.requestBackendFocusRestore('custom-page-hide', { force: true }), true);
+  assert.deepEqual(restores, ['restore-focus-request']);
+});
+
+for (const manualModeType of ['hold', 'toggle']) {
+  for (const background of ['off', 'on_demand']) {
+    test(`VN guide remains usable through manual ${manualModeType} hide-overlay cycles (background ${background})`, async t => {
+      const { context, state, pressManualHotkey, manualController, send } = setup(t, { manualModeType, manualModeInactiveBehavior: 'hide-overlay' });
+      context.getManualModeBackgroundMode = () => background;
+      const overlay = Object.assign(new EventEmitter(), context.mainWindow);
+      context.mainWindow = overlay;
+      for (const event of ['show', 'hide', 'focus']) {
+        const original = overlay[event];
+        overlay[event] = (...args) => { original(...args); overlay.emit(event); };
+      }
+      const originalShowInactive = overlay.showInactive;
+      overlay.showInactive = () => { originalShowInactive(); overlay.emit('show'); };
+      const updates = [];
+      let raises = 0;
+      const steps = validateRoute(['セーブ1', '大丈夫', '進む'].map(simpleJp => ({ simpleJp })));
+      const library = { save() {}, load: async () => ({ guide: { title: 'Test', routes: [] }, route: { id: 'one' }, steps, index: 0 }) };
+      const hud = { update: value => updates.push(value), reassertTopmost: () => { raises += 1; } };
+      const guide = createVnGuideController({ library, hud });
+      context.vnGuideController = guide;
+      context.vnGuideHud = hud;
+      const refresh = source.match(/^function refreshVnGuideWindow\([\s\S]*?^}/m);
+      assert.ok(refresh, 'Missing guide window refresh');
+      vm.runInContext(refresh[0], context);
+      vm.runInContext(between(source, '  // Keep the VN guide above', '  // Update tray menu when window visibility changes'), context);
+      await guide.configure({ vnGuideEnabled: true, vnGuideUrl: 'test', vnGuideMode: 'hotkey' });
+      context.refreshVnGuideWindow();
+      guide.command('toggle');
+      for (let cycle = 0; cycle < 3; cycle += 1) {
+        pressManualHotkey();
+        if (background === 'on_demand') send('manual-mode-background-painted');
+        t.mock.timers.tick(1);
+        assert.equal(state.visible, true);
+        assert.equal(guide.snapshot().visible, true);
+        assert.ok(raises > cycle, 'show/focus should restore the guide above the lookup overlay');
+        if (manualModeType === 'hold') manualController.handleRelease('input_server');
+        else pressManualHotkey();
+        t.mock.timers.tick(300);
+        context.refreshVnGuideWindow();
+        assert.equal(state.visible, false, 'hide-overlay still hides the lookup window');
+        assert.equal(guide.snapshot().visible, true, 'the guide remains available over the game');
+        assert.equal(guide.snapshot().index, 1);
+        assert.deepEqual(guide.snapshot().saveInstructions, ['セーブ1']);
+      }
+      guide.command('next');
+      assert.equal(guide.snapshot().text, '進む', 'guide controls work while the lookup overlay is hidden');
+      guide.command('hide');
+      context.refreshVnGuideWindow();
+      assert.equal(guide.snapshot().visible, false, 'restacking never overrides an explicit guide hide');
+    });
+  }
+}
+
 test('controller activation keeps focus through both activation messages and lookup changes', t => {
   const { activate, send, state, restores, rendererMessages } = setup(t);
   activate();
@@ -192,6 +318,72 @@ test('controller exit restores game focus and leaves the overlay visible but ina
   assert.equal(state.ignoreMouseEvents, true);
   assert.deepEqual(restores, ['restore-focus-request']);
   assert.equal(rendererMessages.at(-1)[1], false);
+});
+
+for (const exitMode of ['automatic-gamepad', 'manual-gamepad', 'manual-hotkey']) {
+  test(`Magpie ${exitMode} hands focus directly to the game without first blurring`, t => {
+    const { activate, deactivate, pressManualHotkey, context, state, restores } = setup(t, {
+      manualMode: exitMode !== 'automatic-gamepad',
+    });
+    context.currentMagpieState = { active: true };
+    if (exitMode === 'manual-hotkey') pressManualHotkey();
+    else activate();
+    t.mock.timers.tick(1000);
+    if (exitMode === 'manual-hotkey') pressManualHotkey();
+    else deactivate();
+    t.mock.timers.tick(40);
+
+    assert.deepEqual(restores, ['restore-focus-request']);
+    assert.equal(state.focused, true, 'wait for the targeted handoff instead of activating an arbitrary window');
+    assert.equal(state.blurCalls, 0);
+    state.focused = false; // The backend successfully activates the game.
+    t.mock.timers.tick(1000);
+    assert.equal(state.blurCalls, 0);
+    assert.deepEqual(restores, ['restore-focus-request']);
+  });
+}
+
+test('Magpie focus release falls back once if the targeted handoff leaves the overlay focused', t => {
+  const { activate, deactivate, context, state, restores } = setup(t, { manualMode: false });
+  context.currentMagpieState = { active: true };
+  activate();
+  t.mock.timers.tick(1000);
+  deactivate();
+  t.mock.timers.tick(120);
+  t.mock.timers.tick(120);
+  assert.equal(state.focused, true);
+  assert.deepEqual(restores, ['restore-focus-request'], 'topmost recovery must share the pending handoff');
+  t.mock.timers.tick(10);
+  assert.equal(state.focused, false);
+  assert.equal(state.blurCalls, 1);
+  assert.deepEqual(restores, ['restore-focus-request', 'restore-focus-request']);
+  t.mock.timers.tick(1000);
+  assert.equal(state.blurCalls, 1);
+});
+
+test('Magpie handoff fallback cannot blur a new manual activation', t => {
+  const { activate, deactivate, pressManualHotkey, context, state, restores } = setup(t);
+  context.currentMagpieState = { active: true };
+  activate();
+  deactivate();
+  t.mock.timers.tick(40);
+  pressManualHotkey();
+  t.mock.timers.tick(1000);
+  assert.equal(state.focused, true);
+  assert.equal(state.blurCalls, 0);
+  assert.deepEqual(restores, ['restore-focus-request']);
+});
+
+test('Magpie focus release still blurs when the backend is unavailable', t => {
+  const { activate, deactivate, context, state, restores } = setup(t);
+  context.currentMagpieState = { active: true };
+  context.backend.connected = false;
+  activate();
+  deactivate();
+  t.mock.timers.tick(1000);
+  assert.equal(state.focused, false);
+  assert.equal(state.blurCalls, 1);
+  assert.deepEqual(restores, []);
 });
 
 test('controller exit clears an active manual toggle even without Alt-Tab', t => {

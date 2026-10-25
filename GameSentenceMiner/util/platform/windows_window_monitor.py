@@ -37,6 +37,8 @@ EVENT_OBJECT_LOCATIONCHANGE = 0x800B
 WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
 WM_QUIT = 0x0012
+WS_EX_LAYERED = 0x00080000
+WS_EX_TRANSPARENT = 0x00000020
 
 # UWP / Microsoft Store (Game Pass) titles render into an ApplicationFrameWindow owned by
 # ApplicationFrameHost.exe; the game's own Windows.UI.Core.CoreWindow is a child owned by the
@@ -208,7 +210,12 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_hwnd_refresh_time = 0
         self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
         self.last_monitor_validation_time = 0.0
+        # Shared ownership for automatic minimize/background muting, so transitions
+        # between those states never briefly unmute the game.
         self.minimized_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
+        self._covered_audio_mute_pids: set[int] = set()
+        # HWND, PID, and monotonic start time of continuous coverage for the current target.
+        self._pending_background_audio_mute: Optional[Tuple[int, int, float]] = None
         self.hotkey_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
         self._audio_mute_lock = threading.RLock()
         self._reprocess_tasks: set = set()  # strong refs so fire-and-forget reprocess tasks aren't GC'd
@@ -371,11 +378,15 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         pid: Optional[int] = None,
     ) -> bool:
         with self._audio_mute_lock:
+            if pid is None or (self._pending_background_audio_mute and self._pending_background_audio_mute[1] == pid):
+                self._pending_background_audio_mute = None
             if pid is not None:
+                self._covered_audio_mute_pids.discard(pid)
                 if pid not in self.minimized_audio_mutes:
                     return False
                 mutes_to_restore = [(pid, self.minimized_audio_mutes.pop(pid))]
             else:
+                self._covered_audio_mute_pids.clear()
                 if not self.minimized_audio_mutes:
                     return False
                 mutes_to_restore = list(self.minimized_audio_mutes.items())
@@ -404,7 +415,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 else:
                     results = set_process_mute(muted_pid, False, session_instance_ids=session_ids)
 
-                    # Some games replace their audio session while minimized; fall back
+                    # Some games replace their audio session while muted; fall back
                     # to the whole process so the restored window doesn't stay silent.
                     if session_ids and not results:
                         results = set_process_mute(muted_pid, False)
@@ -412,11 +423,11 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 changed_count = sum(1 for result in results if result.changed)
                 if changed_count:
                     logger.debug(
-                        f"Restored audio for minimized target PID {muted_pid} ({reason or 'window restored'})."
+                        f"Restored audio for automatically muted target PID {muted_pid} ({reason or 'window restored'})."
                     )
                 restored_any = restored_any or bool(results)
             except Exception as e:
-                logger.debug(f"Failed to restore audio for minimized target PID {muted_pid}: {e}")
+                logger.debug(f"Failed to restore audio for automatically muted target PID {muted_pid}: {e}")
 
         return restored_any
 
@@ -495,6 +506,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         restore_all_sessions = any(not result.session_instance_id for result in changed_results)
         with self._audio_mute_lock:
             minimized_mute = self.minimized_audio_mutes.pop(pid, None)
+            self._covered_audio_mute_pids.discard(pid)
             if minimized_mute is not None:
                 minimized_session_ids, minimized_restore_all = minimized_mute
                 session_ids.update(minimized_session_ids)
@@ -530,23 +542,48 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         if not is_windows():
             return
 
+        mute_states = set()
+        background_delay_seconds = 5
         try:
             advanced_cfg = get_config().advanced
-            enabled = bool(getattr(advanced_cfg, "mute_game_on_minimize", False))
+            if getattr(advanced_cfg, "mute_game_on_minimize", False):
+                mute_states.add("minimized")
+            if getattr(advanced_cfg, "mute_game_on_background", False):
+                mute_states.add("obscured")
+                background_delay_seconds = getattr(advanced_cfg, "mute_game_on_background_delay_seconds", 5)
         except Exception:
-            enabled = False
+            mute_states.clear()
 
-        if not enabled:
+        if not mute_states:
             self._restore_minimized_audio_mute_internal("disabled", force_all_sessions=True)
             return
 
-        if current_state != "minimized":
-            should_force_restore = self.last_state == "minimized" and current_state in {
-                "active",
-                "background",
-                "obscured",
-            }
-            pid = _get_pid_for_hwnd(self.target_hwnd) if self.target_hwnd else 0
+        pid = _get_pid_for_hwnd(self.target_hwnd) if self.target_hwnd else 0
+        background_delay_elapsed = False
+        with self._audio_mute_lock:
+            if "obscured" not in mute_states:
+                self._covered_audio_mute_pids.clear()
+            if "obscured" not in mute_states or current_state != "obscured" or pid <= 0:
+                self._pending_background_audio_mute = None
+            else:
+                now = time.monotonic()
+                pending = self._pending_background_audio_mute
+                if pending is None or pending[:2] != (self.target_hwnd, pid):
+                    pending = self._pending_background_audio_mute = (self.target_hwnd, pid, now)
+                background_delay_elapsed = now - pending[2] >= background_delay_seconds
+            covered_mute_latched = pid in self._covered_audio_mute_pids
+
+        # Coverage triggers the mute; uncovering an unfocused game only reveals
+        # the overlay. Its audio stays muted until the game regains focus.
+        keep_muted_until_focus = covered_mute_latched and current_state != "active"
+        if current_state not in mute_states and not keep_muted_until_focus:
+            # Check Windows audio on every focused poll, even if mute ownership or
+            # the focus transition was lost. This also retries failed restores and
+            # catches late mutes/session replacements while the game stays focused.
+            should_force_restore = current_state == "active" or (
+                (self.last_state in mute_states or covered_mute_latched)
+                and current_state in {"background", "obscured", "minimized"}
+            )
             restored = False
             if pid > 0:
                 restored = self._restore_minimized_audio_mute_internal(
@@ -558,21 +595,26 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 self._force_unmute_current_target_audio(current_state)
             return
 
-        if not self.target_hwnd:
-            return
-
-        pid = _get_pid_for_hwnd(self.target_hwnd)
         if pid <= 0:
             return
 
         with self._audio_mute_lock:
-            if pid in self.minimized_audio_mutes or pid in self.hotkey_audio_mutes:
+            if pid in self.minimized_audio_mutes:
+                if current_state == "obscured":
+                    self._covered_audio_mute_pids.add(pid)
                 return
+            if pid in self.hotkey_audio_mutes:
+                return
+
+        # Delay only a new coverage mute. Existing automatic mutes and the
+        # independent minimize setting retain their current ownership/restore rules.
+        if current_state == "obscured" and not covered_mute_latched and not background_delay_elapsed:
+            return
 
         try:
             results = set_process_mute(pid, True)
         except Exception as e:
-            logger.debug(f"Failed to mute minimized target PID {pid}: {e}")
+            logger.debug(f"Failed to mute target PID {pid} ({current_state}): {e}")
             return
 
         changed_results = [result for result in results if result.changed]
@@ -583,7 +625,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         restore_all_sessions = any(not result.session_instance_id for result in changed_results)
         with self._audio_mute_lock:
             self.minimized_audio_mutes[pid] = (session_ids, restore_all_sessions)
-        logger.debug(f"Muted audio for minimized target PID {pid}.")
+            if current_state == "obscured":
+                self._covered_audio_mute_pids.add(pid)
+        logger.debug(f"Muted audio for target PID {pid} ({current_state}).")
 
     # --- Window info helpers ---
 
@@ -653,11 +697,19 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         """Check if a window is a transparent overlay (GSM, Magpie, OBS preview, etc).
 
         Returns TRUE only for windows that should be ignored in obscured checks.
-        Regular apps (Discord, VS Code, etc.) should return FALSE even if Electron-based.
+        Regular interactive apps (Discord, VS Code, etc.) should return FALSE even if Electron-based.
 
         Optimized to check cheap properties (class, title) before expensive exe lookup.
         """
         try:
+            # Game overlays such as Discord use a layered, click-through window
+            # spanning the game. Its bounding rectangle does not represent opaque
+            # coverage, even though it shares the regular app's class and executable.
+            extended_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            click_through_style = WS_EX_LAYERED | WS_EX_TRANSPARENT
+            if extended_style & click_through_style == click_through_style:
+                return True
+
             window_class = self._get_window_class(hwnd)
 
             if "Magpie" in window_class:
@@ -751,6 +803,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return False
 
     def _reset_capture_target(self) -> None:
+        self._pending_background_audio_mute = None
         self.target_hwnd = None
         self.last_known_target_hwnd = None
         self._browser_target_hwnd = None
@@ -1523,6 +1576,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # Apply any pending target-destroyed notification from the hook thread.
         if self._target_destroyed:
             self._target_destroyed = False
+            self._pending_background_audio_mute = None
             self.target_hwnd = None
             self.last_known_target_hwnd = None
             self._browser_target_hwnd = None
@@ -1582,6 +1636,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             self._zorder_dirty = True
 
         if not self.target_hwnd:
+            self._pending_background_audio_mute = None
             self.occlusion_rects = []
             self.retry_find_count += 1
             if self.ever_had_target_hwnd:
@@ -1931,7 +1986,31 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return False
 
         try:
-            if int(user32.GetForegroundWindow() or 0) == int(hwnd):
+
+            def _is_foreground() -> bool:
+                return int(user32.GetForegroundWindow() or 0) == int(hwnd)
+
+            if _is_foreground():
+                return True
+
+            # A visible game only needs activation. Re-showing/raising it first
+            # causes extra window-order changes, especially under Magpie.
+            if user32.IsIconic(hwnd):
+                logger.debug(f"Target window minimized, restoring (attempt {attempt_number})")
+                user32.ShowWindow(hwnd, SW_RESTORE)
+            elif not user32.IsWindowVisible(hwnd):
+                user32.ShowWindow(hwnd, SW_SHOW)
+
+            def _try_foreground() -> bool:
+                if _is_foreground():
+                    return True
+                user32.SetForegroundWindow(hwnd)
+                if _is_foreground():
+                    return True
+                time.sleep(0.03)
+                return _is_foreground()
+
+            if _try_foreground():
                 return True
 
             fg_hwnd = int(user32.GetForegroundWindow() or 0)
@@ -1947,15 +2026,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                     if user32.AttachThreadInput(a, b, True):
                         attached_pairs.append((a, b))
 
-            def _is_foreground() -> bool:
-                return int(user32.GetForegroundWindow() or 0) == int(hwnd)
-
             def _restore_and_raise(toggle_topmost: bool = False) -> None:
-                if user32.IsIconic(hwnd):
-                    logger.debug(f"Target window minimized, restoring (attempt {attempt_number})")
-                    user32.ShowWindow(hwnd, SW_RESTORE)
-                else:
-                    user32.ShowWindow(hwnd, SW_SHOW)
                 user32.BringWindowToTop(hwnd)
                 if toggle_topmost:
                     user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
@@ -1971,13 +2042,22 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                     user32.SetFocus(hwnd)
                 except Exception:
                     pass
-                user32.SetForegroundWindow(hwnd)
-                time.sleep(0.03)
-                return _is_foreground()
+                return _try_foreground()
 
             _attach(current_tid, fg_tid)
             _attach(current_tid, target_tid)
             _attach(fg_tid, target_tid)
+
+            if _try_foreground():
+                return True
+
+            # Magpie maintains its own ordering relative to the source window.
+            # Topmost toggles/Alt taps can disturb that ordering or scaling; let
+            # activate_target_window retry the direct handoff instead. Query live
+            # geometry too, since the monitor may not have observed scaling yet.
+            if self.magpie_info or get_magpie_info():
+                logger.debug(f"Magpie focus handoff deferred without raising the game (attempt {attempt_number})")
+                return False
 
             try:
                 user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), 0)

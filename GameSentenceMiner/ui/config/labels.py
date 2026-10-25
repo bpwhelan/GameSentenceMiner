@@ -12,6 +12,7 @@ class LabelColor(Enum):
     IMPORTANT = "important"
     ADVANCED = "advanced"
     RECOMMENDED = "recommended"
+    WARNING = "warning"
     DEPRECATED = "deprecated"
 
     def get_qt_color(self) -> str:
@@ -21,6 +22,7 @@ class LabelColor(Enum):
             LabelColor.IMPORTANT: "white",  # Remove old orange emphasis.
             LabelColor.ADVANCED: "#cc7a7a",  # Softer red.
             LabelColor.RECOMMENDED: "#7fbf7f",  # Slightly softer green.
+            LabelColor.WARNING: "#e05050",
             LabelColor.DEPRECATED: "#e05050",  # Red to flag deprecated options.
         }
         return color_map.get(self, "white")

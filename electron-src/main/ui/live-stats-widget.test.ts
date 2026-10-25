@@ -14,6 +14,7 @@ type LiveStatsWidget = {
 
 const widgetSource = readFileSync(resolve(process.cwd(), 'GSM_Overlay/live_stats_widget.js'), 'utf8');
 const settingsHtml = readFileSync(resolve(process.cwd(), 'GSM_Overlay/settings.html'), 'utf8');
+const settingsBindings = readFileSync(resolve(process.cwd(), 'GSM_Overlay/settings/bindings.js'), 'utf8');
 const overlayHtml = readFileSync(resolve(process.cwd(), 'GSM_Overlay/index.html'), 'utf8');
 const mainSource = readFileSync(resolve(process.cwd(), 'GSM_Overlay/main.js'), 'utf8');
 
@@ -83,7 +84,301 @@ function rect(left: number, top: number, right: number, bottom: number) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+describe('stats intake pause warning', () => {
+  it.each(['one-line', 'stacked'])('stays visible with stats disabled in %s layout and clears on resume', (layout) => {
+    const { dom, widget } = loadWidget();
+    widget.applySettings({ showLiveStats: false, showLiveGoals: false, liveStatsVisibilityMode: 'hidden', liveStatsLayoutV2: layout });
+    dom.window.dispatchEvent(new dom.window.CustomEvent('gsm-live-stats-update', {
+      detail: { reason: 'connect', updated_at: 100, text_intake_paused: true, session_active: false },
+    }));
+
+    const root = dom.window.document.querySelector('#gsm-live-stats')!;
+    const warning = root.querySelector('.gsm-live-stats-intake-warning');
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(true);
+    expect(warning?.getAttribute('data-text')).toBe('Stats intake paused');
+    expect(warning?.getAttribute('aria-label')).toBe('Stats intake paused');
+    // Keep the warning out of dictionary text scans, like the other stats text.
+    expect(warning?.textContent).toBe('');
+
+    widget.handleStatsUpdate({ updated_at: 101, text_intake_paused: false });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(false);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    dom.window.close();
+  });
+
+  it('survives auto-hide and text overlap until intake resumes', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    dom.window.setTimeout = setTimeout as unknown as typeof dom.window.setTimeout;
+    dom.window.clearTimeout = clearTimeout as unknown as typeof dom.window.clearTimeout;
+    widget.applySettings({ liveStatsDisplayModeV2: 'new-line', liveStatsAutoHideSeconds: 1 });
+    widget.handleStatsUpdate({ updated_at: 100, text_intake_paused: true });
+    const root = dom.window.document.querySelector<HTMLElement>('#gsm-live-stats')!;
+    root.getBoundingClientRect = vi.fn(() => rect(800, 10, 1000, 110) as DOMRect);
+    widget.handleTextBoundsUpdate([rect(850, 40, 900, 80)]);
+    vi.advanceTimersByTime(15 * 60 * 1000);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+
+    widget.handleStatsUpdate({ updated_at: 101, text_intake_paused: false });
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    dom.window.close();
+  });
+
+  it('updates immediately in Today mode and ignores stale daily pause state', () => {
+    const { dom, widget } = loadWidget();
+    widget.applySettings({ liveStatsScope: 'today', showLiveStats: false });
+    const root = dom.window.document.querySelector('#gsm-live-stats')!;
+    widget.handleStatsUpdate({ scope: 'session', updated_at: 200, text_intake_paused: true });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(true);
+    widget.handleStatsUpdate({ scope: 'today', updated_at: 199, text_intake_paused: false });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(true);
+    widget.handleStatsUpdate({ scope: 'session', updated_at: 201, text_intake_paused: false });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(false);
+    widget.handleStatsUpdate({ scope: 'today', updated_at: 200, text_intake_paused: true });
+    expect(root.classList.contains('gsm-live-stats-intake-paused')).toBe(false);
+    dom.window.close();
+  });
+});
+
+describe('live stats Session/Today scope', () => {
+  const now = new Date('2026-10-05T12:00:00Z').getTime();
+
+  function payload(scope: 'session' | 'today', totalCharacters: number, active = false) {
+    return {
+      type: 'live_stats_update',
+      scope,
+      reason: 'refresh',
+      updated_at: now / 1000,
+      session_active: active,
+      session_start_time: now / 1000 - 30,
+      last_line_time: now / 1000 - 10,
+      session_expires_at: now / 1000 + 1800,
+      period_end: now / 1000 + 3600,
+      values: {
+        chars_per_hour: 7200,
+        total_characters: totalCharacters,
+        active_reading_time: 30,
+        raw_reading_time: scope === 'today' ? 120 : 30,
+        cards_mined: 2,
+      },
+    };
+  }
+
+  function value(dom: JSDOM, key: string) {
+    return dom.window.document.querySelector(`[data-field-key="${key}"]`)?.getAttribute('data-text');
+  }
+
+  it('offers Session by default and Today in saved overlay settings', () => {
+    const dom = new JSDOM(settingsHtml);
+    const select = dom.window.document.querySelector<HTMLSelectElement>('#liveStatsScope');
+    expect(select?.value).toBe('session');
+    expect(Array.from(select?.options ?? []).map((option) => option.value)).toEqual(['session', 'today']);
+    expect(settingsBindings).toContain('createSelectBinding("liveStatsScope", "#liveStatsScope",');
+    expect(mainSource).toContain('"liveStatsScope": "session"');
+    dom.window.close();
+  });
+
+  it('keeps the session default and switches to cached day totals immediately', () => {
+    const { dom, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    // Existing backends send session snapshots without a scope.
+    const session = payload('session', 20);
+    delete (session as { scope?: string }).scope;
+    widget.handleStatsUpdate(session);
+    widget.handleStatsUpdate(payload('today', 500));
+    expect(value(dom, 'total_characters')).toBe('20');
+
+    widget.applySettings({ liveStatsScope: 'today' });
+    expect(value(dom, 'total_characters')).toBe('500');
+    widget.handleStatsUpdate(payload('session', 0));
+    expect(value(dom, 'total_characters')).toBe('500');
+
+    widget.applySettings({ liveStatsScope: 'unknown' });
+    expect(value(dom, 'total_characters')).toBe('0');
+    dom.window.close();
+  });
+
+  it('routes daily snapshot requests through the active overlay and Today setting', () => {
+    const start = mainSource.indexOf('  ipcMain.on("request-live-stats-today",');
+    const end = mainSource.indexOf('  ipcMain.on("translate-blocks",', start);
+    const sender = {};
+    const send = vi.fn();
+    let handler: (event: { sender: object }, payload?: Record<string, string>) => void;
+    const settings = { liveStatsScope: 'session', showLiveStats: true };
+    const backend = { connected: true, send };
+    vm.runInNewContext(mainSource.slice(start, end), {
+      ipcMain: { on: (_channel: string, callback: typeof handler) => { handler = callback; } },
+      mainWindow: { isDestroyed: () => false, webContents: sender },
+      userSettings: settings,
+      backend,
+    });
+    handler!({ sender });
+    expect(send).not.toHaveBeenCalled();
+    settings.liveStatsScope = 'today';
+    handler!({ sender: {} });
+    expect(send).not.toHaveBeenCalled();
+    handler!({ sender });
+    expect(send).toHaveBeenCalledWith({ type: 'get-live-stats-today', reason: 'refresh' });
+    send.mockClear();
+    backend.connected = false;
+    handler!({ sender });
+    expect(send).not.toHaveBeenCalled();
+    backend.connected = true;
+    settings.showLiveStats = false;
+    handler!({ sender });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('clears the previous game and immediately requests the selected game totals', () => {
+    const { dom, ipcSend, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    widget.applySettings({ liveStatsScope: 'today' });
+    widget.handleStatsUpdate({ ...payload('today', 500), game_name: 'First Game' });
+    expect(value(dom, 'total_characters')).toBe('500');
+    ipcSend.mockClear();
+
+    widget.handleStatsUpdate({
+      ...payload('session', 0), game_name: 'Second Game', reason: 'game_changed', updated_at: now / 1000 + 1,
+    });
+    expect(value(dom, 'total_characters')).not.toBe('500');
+    expect(ipcSend).toHaveBeenCalledWith('request-live-stats-today', { reason: 'game_changed' });
+    widget.handleStatsUpdate({ ...payload('today', 40), game_name: 'Second Game', updated_at: now / 1000 + 2 });
+    expect(value(dom, 'total_characters')).toBe('40');
+
+    // A query started before the switch must not bring back the old game.
+    widget.handleStatsUpdate({ ...payload('today', 500), game_name: 'First Game' });
+    expect(value(dom, 'total_characters')).toBe('40');
+
+    widget.handleStatsUpdate({
+      ...payload('session', 0), game_name: 'First Game', reason: 'game_changed', updated_at: now / 1000 + 3,
+    });
+    widget.handleStatsUpdate({ ...payload('today', 520), game_name: 'First Game', updated_at: now / 1000 + 4 });
+    expect(value(dom, 'total_characters')).toBe('520');
+    dom.window.close();
+  });
+
+  it('follows daily game changes after reconnect before the first live line', () => {
+    const { dom, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    widget.applySettings({ liveStatsScope: 'today' });
+    widget.handleStatsUpdate({ ...payload('session', 0), game_name: '', reason: 'connect' });
+    widget.handleStatsUpdate({ ...payload('today', 500), game_name: 'First Game' });
+    widget.handleStatsUpdate({ ...payload('today', 40), game_name: 'Second Game', updated_at: now / 1000 + 1 });
+    expect(value(dom, 'total_characters')).toBe('40');
+    // Old session metadata must not undo the newer active game.
+    widget.handleStatsUpdate({ ...payload('session', 500), game_name: 'First Game' });
+    expect(value(dom, 'total_characters')).toBe('40');
+    dom.window.close();
+  });
+
+  it('ticks daily raw time from the accumulated total and freezes it while inactive', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    let clock = now;
+    vi.spyOn(dom.window.Date, 'now').mockImplementation(() => clock);
+    widget.applySettings({ liveStatsScope: 'today' });
+    widget.handleStatsUpdate(payload('today', 500, true));
+    expect(value(dom, 'raw_reading_time')).toBe('2:00');
+
+    clock += 10000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('2:10');
+    widget.handleStatsUpdate(payload('today', 500, false));
+    clock += 1800000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('2:00');
+    dom.window.close();
+  });
+
+  it('replaces a pending daily gap with active time after thirty minutes without a refresh', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    let clock = now;
+    vi.spyOn(dom.window.Date, 'now').mockImplementation(() => clock);
+    widget.applySettings({ liveStatsScope: 'today' });
+    widget.handleStatsUpdate({
+      ...payload('today', 500, true),
+      session_expires_at: now / 1000 + 7200,
+      raw_time_gap_limit_seconds: 1800,
+      raw_time_pending_active_seconds: 25,
+    });
+
+    clock += 1790000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('31:50');
+    clock += 1000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('2:15');
+
+    widget.handleStatsUpdate({
+      ...payload('today', 500, true),
+      updated_at: clock / 1000,
+      session_expires_at: now / 1000 + 7200,
+      raw_time_gap_limit_seconds: 1800,
+      raw_time_pending_active_seconds: 25,
+      values: { ...payload('today', 500, true).values, raw_reading_time: 135 },
+    });
+    clock += 10000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'raw_reading_time')).toBe('2:15');
+    dom.window.close();
+  });
+
+  it('clears every daily field at cutover even without a new backend update', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    let clock = now;
+    vi.spyOn(dom.window.Date, 'now').mockImplementation(() => clock);
+    widget.applySettings({ liveStatsScope: 'today' });
+    const today = payload('today', 500, true);
+    today.period_end = now / 1000 + 1;
+    widget.handleStatsUpdate(today);
+
+    clock += 1000;
+    vi.advanceTimersByTime(1000);
+    expect(value(dom, 'total_characters')).toBe('0');
+    expect(value(dom, 'cards_mined')).toBe('0');
+    expect(value(dom, 'active_reading_time')).toBe('0:00');
+    expect(value(dom, 'raw_reading_time')).toBe('0:00');
+    widget.handleStatsUpdate(today);
+    expect(value(dom, 'total_characters')).toBe('0');
+    dom.window.close();
+  });
+
+  it('requests fresh day totals only while Today stats are enabled', () => {
+    vi.useFakeTimers();
+    const { dom, ipcSend, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    ipcSend.mockClear();
+    vi.advanceTimersByTime(6000);
+    expect(ipcSend).not.toHaveBeenCalledWith('request-live-stats-today', expect.anything());
+
+    widget.applySettings({ liveStatsScope: 'today' });
+    expect(ipcSend).toHaveBeenCalledWith('request-live-stats-today', { reason: 'scope_changed' });
+    ipcSend.mockClear();
+    widget.applySettings({ showLiveStats: false });
+    vi.advanceTimersByTime(6000);
+    expect(ipcSend).not.toHaveBeenCalledWith('request-live-stats-today', expect.anything());
+    dom.window.close();
+  });
+
+  it('allows brief daily stats to hide between background refreshes', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    vi.spyOn(dom.window.Date, 'now').mockReturnValue(now);
+    widget.applySettings({ liveStatsScope: 'today', liveStatsDisplayModeV2: 'new-line', liveStatsAutoHideSeconds: 1 });
+    widget.handleStatsUpdate(payload('today', 500));
+    expect(dom.window.document.querySelector('#gsm-live-stats')?.classList.contains('gsm-live-stats-visible')).toBe(true);
+    vi.advanceTimersByTime(1000);
+    widget.handleStatsUpdate(payload('today', 500));
+    expect(dom.window.document.querySelector('#gsm-live-stats')?.classList.contains('gsm-live-stats-visible')).toBe(false);
+    dom.window.close();
+  });
 });
 
 describe('live stats completed goals', () => {
@@ -93,7 +388,7 @@ describe('live stats completed goals', () => {
 
     expect(checkbox).not.toBeNull();
     expect(checkbox?.checked).toBe(true);
-    expect(settingsHtml).toContain('createCheckboxBinding("hideCompletedGoals", "#hideCompletedGoals")');
+    expect(settingsBindings).toContain('createCheckboxBinding("hideCompletedGoals", "#hideCompletedGoals")');
   });
 
   it('hides completed today and overall goals by default', () => {
@@ -196,7 +491,7 @@ describe('live stats text overlap avoidance', () => {
 
     expect(checkbox).not.toBeNull();
     expect(checkbox?.checked).toBe(true);
-    expect(settingsHtml).toContain(
+    expect(settingsBindings).toContain(
       'createCheckboxBinding("hideLiveStatsOnTextOverlap", "#hideLiveStatsOnTextOverlap")',
     );
     expect(mainSource).toContain('"hideLiveStatsOnTextOverlap": true');

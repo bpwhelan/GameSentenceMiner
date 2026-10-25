@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import os
 import platform
@@ -8,6 +9,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -62,6 +64,7 @@ from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
 from GameSentenceMiner.util.text_log import (
     GameLine,
     TextSource,
+    find_matching_line,
     get_all_lines,
     get_text_event,
     get_mined_line,
@@ -100,6 +103,20 @@ def _animated_screenshot_codec(settings) -> str:
     return getattr(settings, "codec", ANIMATED_SCREENSHOT_CODEC_DEFAULT)
 
 
+def _should_show_confirmation_dialog(config, vad_result, use_existing_files=False, *, overlay_only=False) -> bool:
+    if overlay_only:
+        return True
+    if not getattr(config.anki, "show_update_confirmation_dialog_v2", True) or use_existing_files:
+        return False
+    if not getattr(config.anki, "skip_confirmation_for_unvoiced", False):
+        return True
+    # With no VAD result (or VAD disabled), the line has not been classified as unvoiced.
+    if vad_result is None or getattr(vad_result, "model", None) in ("No VAD", "OFF", ""):
+        return True
+    # Fallback audio can change success; preserve the original speech detection result.
+    return bool(getattr(vad_result, "voice_detected", getattr(vad_result, "success", False)))
+
+
 def _should_animate_screenshot(config, vad_result) -> bool:
     if not config.screenshot.animated:
         return False
@@ -123,6 +140,7 @@ anki_beacon_note_queue: "Queue[Dict[str, Any]]" = Queue(maxsize=256)
 anki_beacon_state_lock = threading.Lock()
 processed_push_note_keys = set()
 _anki_monitor_stop = threading.Event()
+_anki_monitor_wake = threading.Event()
 
 
 @dataclass
@@ -735,6 +753,8 @@ class MediaAssets:
     # Success Message Flags
     animated: bool = False
     video: bool = False
+    # Saved clips keep their original game identity through deferred media work.
+    game_name: str = ""
 
 
 def _get_anki_field_config(field_key: str, anki_cfg=None):
@@ -848,6 +868,32 @@ def _image_tags(media_names: List[str]) -> str:
     return "".join(f'<img src="{html_escape(name, quote=True)}">' for name in media_names)
 
 
+def _media_filename_for_game(path: str, game_name: str = "") -> str:
+    """Name exported clip media after its saved game, retaining a unique file identity."""
+    source = Path(path)
+    if not game_name:
+        return source.name
+    timestamp = re.search(r"_\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3}", source.stem)
+    timestamp_suffix = timestamp.group(0) if timestamp else ""
+    identity = hashlib.sha256(os.path.normcase(os.path.abspath(path)).encode("utf-8")).hexdigest()[:16]
+    prefix = sanitize_filename(game_name) or "game"
+    return f"{prefix}{timestamp_suffix}_{identity}{source.suffix}"
+
+
+def _store_asset_media_file(
+    assets: MediaAssets,
+    path: str,
+    timing_context: AnkiCardTimingContext | None = None,
+    media_kind: str = "",
+):
+    kwargs = {}
+    if assets.game_name:
+        kwargs["filename"] = _media_filename_for_game(path, assets.game_name)
+    if timing_context is not None:
+        kwargs.update(timing_context=timing_context, media_kind=media_kind)
+    return store_media_file(path, **kwargs)
+
+
 def _put_selected_images_in_field(note: Dict, last_note: "AnkiCard", field_key: str, media_names: List[str], config):
     """Apply the field's append/replacement policy without erasing unrelated markup."""
     field_cfg = _get_anki_field_config(field_key, anki_cfg=config.anki)
@@ -891,7 +937,7 @@ def _process_selected_screenshots(
             raise RuntimeError(f"Selected {media_kind} media is missing; the Anki note was not changed")
         names = []
         for path in paths:
-            name = store_media_file(path, timing_context=timing_context, media_kind=media_kind)
+            name = _store_asset_media_file(assets, path, timing_context=timing_context, media_kind=media_kind)
             if not name:
                 raise RuntimeError(f"Failed to upload {media_kind} media; the Anki note was not changed")
             names.append(name)
@@ -971,7 +1017,7 @@ def _generate_media_files(
     timing_context: Optional[AnkiCardTimingContext] = None,
 ) -> MediaAssets:
     """Generates or retrieves paths for all media assets (audio, video, screenshots)."""
-    assets = MediaAssets()
+    assets = MediaAssets(game_name=_game_name_for(game_line) if getattr(game_line, "clip", None) else "")
     config = get_config()
 
     if reuse_audio:
@@ -986,6 +1032,10 @@ def _generate_media_files(
             assets.prev_screenshot_media_in_anki = list(anki_result.prev_screenshot_media_in_anki)
             assets.video_in_anki = anki_result.video_in_anki
             assets.extra_tags = anki_result.extra_tags
+            assets.reused_audio = bool(assets.audio_in_anki)
+            assets.reused_screenshot = bool(assets.screenshot_in_anki)
+            assets.reused_audio_result_id = result_id if assets.reused_audio else ""
+            assets.reused_screenshot_result_id = result_id if assets.reused_screenshot else ""
             return assets
         logger.warning("Requested reuse audio, but no cached Anki result found. Falling back to new media.")
 
@@ -1019,8 +1069,7 @@ def _generate_media_files(
                     video_path,
                     ss_time,
                 )
-        with time_anki_card_block(timing_context, "anki.media.wait_raw_screenshot_stable"):
-            wait_for_stable_file(assets.screenshot_path)
+        # get_raw_screenshot waits for FFmpeg to exit; its output is already complete.
 
     if _field_is_active("video_field") and vad_result:
         # Store video parameters for deferred generation in background thread
@@ -1049,8 +1098,6 @@ def _generate_media_files(
                     video_path,
                     assets.prev_screenshot_timestamp,
                 )
-            with time_anki_card_block(timing_context, "anki.media.wait_previous_raw_screenshot_stable"):
-                wait_for_stable_file(assets.prev_screenshot_path)
 
     return assets
 
@@ -1262,8 +1309,11 @@ def prefetch_animated_screenshot_for_confirmation(
         return
     if assets.selected_screenshots is not None:
         return
+    config = get_config()
+    if not _should_show_confirmation_dialog(config, vad_result):
+        return
     _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
-    _start_animated_screenshot_prefetch(assets, get_config(), timing_context=timing_context)
+    _start_animated_screenshot_prefetch(assets, config, timing_context=timing_context)
 
 
 def _parse_confirmation_dialog_result(result):
@@ -1542,6 +1592,12 @@ def _handle_file_management(
     word_path = os.path.join(date_path, sanitize_filename(tango))
     os.makedirs(word_path, exist_ok=True)
 
+    def copy_media(path, previous=False):
+        filename = _media_filename_for_game(path, assets.game_name)
+        if previous:
+            filename = "prev_" + filename
+        return shutil.copy(path, os.path.join(word_path, filename))
+
     if reuse_audio:
         # If reusing, copy all files from the original word's folder
         result_id = reuse_result_id or (game_line.id if game_line else None)
@@ -1555,29 +1611,26 @@ def _handle_file_management(
     elif config.paths.copy_temp_files_to_output_folder:
         # If creating new, copy generated files to the new word's folder
         if assets.audio_path and os.path.exists(assets.audio_path):
-            assets.final_audio_path = shutil.copy(assets.audio_path, word_path)
+            assets.final_audio_path = copy_media(assets.audio_path)
         if assets.screenshot_path and os.path.exists(assets.screenshot_path):
-            assets.final_screenshot_path = shutil.copy(assets.screenshot_path, word_path)
+            assets.final_screenshot_path = copy_media(assets.screenshot_path)
         if assets.selected_screenshots:
             for item in assets.selected_screenshots.items[1:]:
                 if os.path.exists(item.path):
-                    shutil.copy(item.path, word_path)
+                    copy_media(item.path)
         if assets.prev_screenshot_path and os.path.exists(assets.prev_screenshot_path):
-            dest_name = "prev_" + Path(assets.prev_screenshot_path).name
-            assets.final_prev_screenshot_path = shutil.copy(
-                assets.prev_screenshot_path, os.path.join(word_path, dest_name)
-            )
+            assets.final_prev_screenshot_path = copy_media(assets.prev_screenshot_path, previous=True)
         if assets.selected_prev_screenshots:
             for item in assets.selected_prev_screenshots.items[1:]:
                 if os.path.exists(item.path):
-                    shutil.copy(item.path, os.path.join(word_path, "prev_" + Path(item.path).name))
+                    copy_media(item.path, previous=True)
         if assets.video_path and os.path.exists(assets.video_path):
-            assets.final_video_path = shutil.copy(assets.video_path, word_path)
+            assets.final_video_path = copy_media(assets.video_path)
         elif video_path and config.paths.copy_trimmed_replay_to_output_folder and os.path.exists(video_path):
             try:
                 trimmed_video = ffmpeg.trim_replay_for_gameline(video_path, start_time, end_time, accurate=True)
                 if os.path.exists(trimmed_video):
-                    assets.final_video_path = shutil.copy(trimmed_video, word_path)
+                    assets.final_video_path = copy_media(trimmed_video)
             except Exception as e:
                 logger.error(f"Failed to trim replay video: {e}")
 
@@ -1682,6 +1735,8 @@ def update_anki_card(
                 reuse_result_id=reuse_result_id,
                 timing_context=timing_context,
             )
+    if getattr(game_line, "clip", None):
+        assets.game_name = _game_name_for(game_line)
     with time_anki_card_block(timing_context, "anki.update_anki_card.synchronize_deferred_media_metadata"):
         _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
     if reuse_audio_result_id:
@@ -1700,7 +1755,11 @@ def update_anki_card(
         if assets.reused_screenshot:
             assets.screenshot_path = ""
             assets.pending_animated = False
-    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files and not assets.reused_screenshot:
+    overlay_only = getattr(game_line, "source", None) == getattr(TextSource, "OVERLAY", "overlay")
+    show_confirmation = _should_show_confirmation_dialog(
+        config, vad_result, use_existing_files, overlay_only=overlay_only
+    )
+    if show_confirmation and not assets.reused_screenshot:
         with time_anki_card_block(timing_context, "anki.update_anki_card.start_animated_prefetch"):
             _start_animated_screenshot_prefetch(assets, config, timing_context=timing_context)
 
@@ -1717,14 +1776,24 @@ def update_anki_card(
             precomputed=precomputed_translation is not None,
         ):
             if precomputed_translation is None and translation_future is not None:
-                if translation_future.done():
+                if translation_future.done() or not show_confirmation:
                     try:
                         translation = translation_future.result()
                     except Exception as e:
                         logger.exception(f"Failed retrieving prefetched AI translation: {e}")
             elif precomputed_translation is None:
                 sentence_to_translate = _resolve_sentence_for_translation(note, last_note)
-                translation = prefetch_ai_translation(sentence_to_translate, game_line)
+                if show_confirmation:
+                    translation_future = translation_prefetch_executor.submit(
+                        run_anki_card_timed,
+                        timing_context,
+                        "replay.future.prefetch_ai_translation",
+                        prefetch_ai_translation,
+                        sentence_to_translate,
+                        game_line,
+                    )
+                else:
+                    translation = prefetch_ai_translation(sentence_to_translate, game_line)
             else:
                 translation = precomputed_translation
 
@@ -1740,7 +1809,7 @@ def update_anki_card(
 
     # 4. (Optional) Show confirmation dialog to the user, which may alter media
     use_voice = update_audio_flag or assets.audio_in_anki
-    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
+    if show_confirmation:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
 
         sentence = note["fields"].get(config.anki.sentence_field, last_note.get_field(config.anki.sentence_field))
@@ -1765,7 +1834,7 @@ def update_anki_card(
         with time_anki_card_block(timing_context, "anki.confirmation_dialog.previous_screenshot_time"):
             previous_line = (
                 _get_previous_context_line(game_line, selected_lines)
-                if _field_is_active("previous_image_field")
+                if not use_existing_files and _field_is_active("previous_image_field")
                 else None
             )
             previous_ss_time = ffmpeg.get_screenshot_time(video_path, previous_line) if previous_line else 0
@@ -1783,6 +1852,7 @@ def update_anki_card(
                 translation_future=translation_future,
                 reusing_audio=assets.reused_audio,
                 reusing_screenshot=assets.reused_screenshot,
+                overlay_only=overlay_only,
             )
 
         cancel_action = _confirmation_cancel_action(result)
@@ -1858,6 +1928,11 @@ def update_anki_card(
         # Add NSFW tag if checkbox was selected
         if add_nsfw_tag:
             assets.extra_tags.append("NSFW")
+    elif config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
+        # Initial card preparation deferred furigana to confirmation, which this line skipped.
+        sentence = note["fields"].get(config.anki.sentence_field, "")
+        if sentence and getattr(config.anki, "sentence_furigana_field", "") not in note["fields"]:
+            _apply_sentence_furigana_field(note, last_note, sentence, force=True)
 
     # 5. Prepare tags
     for extra_tag in assets.extra_tags:
@@ -1948,6 +2023,11 @@ def update_anki_card(
             anki_results[game_line.id] = published_result
             log_anki_card_timing(timing_context, "anki.background.result_published")
 
+        # Paused/excluded lines can be mined, but completion must not add them
+        # back to local stats, even if intake has since resumed.
+        if getattr(game_line, "excluded_from_stats", False):
+            return
+
         # 9. Update the local application database with final paths
         anki_audio_path = (
             os.path.join(config.audio.anki_media_collection, assets.audio_in_anki) if assets.audio_in_anki else ""
@@ -1959,7 +2039,7 @@ def update_anki_card(
         )
 
         with time_anki_card_block(timing_context, "anki.background.update_local_stats_and_db"):
-            live_stats_tracker.add_mined_line()
+            live_stats_tracker.add_mined_line(game_name=game_line.scene)
             GameLinesTable.update(
                 line_id=game_line.id,
                 screenshot_path=assets.final_screenshot_path,
@@ -2080,14 +2160,9 @@ def _process_screenshot(
 
     if assets.screenshot_path and not assets.screenshot_in_anki:
         logger.info("Uploading encoded screenshot to Anki...")
-        if timing_context is not None:
-            assets.screenshot_in_anki = store_media_file(
-                assets.screenshot_path,
-                timing_context=timing_context,
-                media_kind="screenshot",
-            )
-        else:
-            assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
+        assets.screenshot_in_anki = _store_asset_media_file(
+            assets, assets.screenshot_path, timing_context=timing_context, media_kind="screenshot"
+        )
         logger.info(f"Stored screenshot in Anki media collection: {assets.screenshot_in_anki}")
         if not assets.screenshot_in_anki:
             _notify_anki_enhancement_failure("Failed to upload screenshot to Anki media collection.")
@@ -2127,14 +2202,9 @@ def _process_previous_screenshot(
 
     if assets.prev_screenshot_path and not assets.prev_screenshot_in_anki:
         logger.info("Uploading encoded previous screenshot to Anki...")
-        if timing_context is not None:
-            assets.prev_screenshot_in_anki = store_media_file(
-                assets.prev_screenshot_path,
-                timing_context=timing_context,
-                media_kind="previous_screenshot",
-            )
-        else:
-            assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
+        assets.prev_screenshot_in_anki = _store_asset_media_file(
+            assets, assets.prev_screenshot_path, timing_context=timing_context, media_kind="previous_screenshot"
+        )
         logger.info(f"Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}")
         if not assets.prev_screenshot_in_anki:
             _notify_anki_enhancement_failure("Failed to upload the previous screenshot to Anki media collection.")
@@ -2262,14 +2332,9 @@ def _process_animated_screenshot(
                 wait_for_stable_file(path)
             logger.info(f"Animated screenshot generated: {path}")
 
-            if timing_context is not None:
-                assets.screenshot_in_anki = store_media_file(
-                    path,
-                    timing_context=timing_context,
-                    media_kind="animated_screenshot",
-                )
-            else:
-                assets.screenshot_in_anki = store_media_file(path)
+            assets.screenshot_in_anki = _store_asset_media_file(
+                assets, path, timing_context=timing_context, media_kind="animated_screenshot"
+            )
             logger.info(f"<bold>Stored animated screenshot in Anki: {assets.screenshot_in_anki}</bold>")
             if not assets.screenshot_in_anki:
                 _notify_anki_enhancement_failure("Failed to upload animated screenshot to Anki media collection.")
@@ -2333,10 +2398,9 @@ def _process_video(
             logger.info(f"Video generated: {path}")
             assets.video_path = path
 
-            if timing_context is not None:
-                assets.video_in_anki = store_media_file(path, timing_context=timing_context, media_kind="video")
-            else:
-                assets.video_in_anki = store_media_file(path)
+            assets.video_in_anki = _store_asset_media_file(
+                assets, path, timing_context=timing_context, media_kind="video"
+            )
             logger.info(f"Stored video in Anki: {assets.video_in_anki}")
             if not assets.video_in_anki:
                 _notify_anki_enhancement_failure("Failed to upload replay video to Anki media collection.")
@@ -2411,10 +2475,9 @@ def _process_audio(
             logger.error(f"Failed to encode audio with user settings: {e}")
 
     logger.info(f"Uploading audio to Anki: {assets.audio_path}...")
-    if timing_context is not None:
-        assets.audio_in_anki = store_media_file(assets.audio_path, timing_context=timing_context, media_kind="audio")
-    else:
-        assets.audio_in_anki = store_media_file(assets.audio_path)
+    assets.audio_in_anki = _store_asset_media_file(
+        assets, assets.audio_path, timing_context=timing_context, media_kind="audio"
+    )
     logger.info(f"Stored audio in Anki media collection: {assets.audio_in_anki}")
     if not assets.audio_in_anki:
         _notify_anki_enhancement_failure("Failed to upload audio to Anki media collection.")
@@ -3034,19 +3097,21 @@ def store_media_file(
     retries=5,
     timing_context: Optional[AnkiCardTimingContext] = None,
     media_kind: str = "",
+    filename: str | None = None,
 ):
     """Store media file in Anki with retry logic.
 
     Args:
         path: Path to the media file
         retries: Number of retries (default 5)
+        filename: Optional destination name in Anki, independent of the temporary source path.
     """
     try:
         path_obj = Path(path)
         original_filename = path_obj.name
-        sanitized_filename = sanitize_filename(original_filename)
+        sanitized_filename = sanitize_filename(filename or original_filename)
 
-        if original_filename != sanitized_filename:
+        if filename is None and original_filename != sanitized_filename:
             new_path = path_obj.parent / sanitized_filename
             logger.warning(
                 f"File contains unsafe characters. Reading and rewriting '{original_filename}' to '{sanitized_filename}', Report this in Discord/Github Please!"
@@ -3074,13 +3139,13 @@ def store_media_file(
             "anki.media.convert_to_base64",
             media_kind=media_kind,
             file_size_bytes=file_size,
-            filename=os.path.basename(path or ""),
+            filename=sanitized_filename,
         ):
             encoded_data = convert_to_base64(path)
 
         return invoke(
             "storeMediaFile",
-            filename=path,
+            filename=sanitized_filename if filename is not None else path,
             data=encoded_data,
             retries=retries,
             timeout=60,
@@ -3103,6 +3168,10 @@ def request(action, **params):
     return {"action": action, "params": params, "version": 6}
 
 
+class _AnkiCollectionBusyError(RuntimeError):
+    """Anki rejected an action while another collection operation was running."""
+
+
 def invoke(
     action,
     retries: int = 0,
@@ -3117,7 +3186,8 @@ def invoke(
 
     Args:
         action: The AnkiConnect action name.
-        retries: Number of retry attempts on failure.
+        retries: Number of retry attempts on other failures. Collection-busy
+            responses are retried until Anki is available or GSM stops.
         timeout: HTTP request timeout in seconds.
         raise_on_error: When True (default), raise on errors to preserve
             existing behaviour.  When False, log a warning and return None.
@@ -3131,7 +3201,10 @@ def invoke(
         logger.debug(f"Hitting Anki. Action: {action}. Data: {json.dumps(payload)}")
 
     attempt = 0
+    error_retries = 0
+    busy_retries = 0
     backoff = 0.5
+    busy_backoff = 0.5
     max_backoff = 5.0
     while True:
         request_start = time.perf_counter()
@@ -3150,6 +3223,8 @@ def invoke(
                 logger.error(f"Unexpected response from Anki: {response}")
                 raise Exception("response is missing required result field")
             if response["error"] is not None:
+                if response["error"] == "A collection operation is active.":
+                    raise _AnkiCollectionBusyError(response["error"])
                 logger.error(f"Anki returned an error: {response['error']}")
                 raise Exception(response["error"])
             result = response["result"]
@@ -3166,8 +3241,12 @@ def invoke(
                 result_type=type(result).__name__,
                 result_count=len(result) if isinstance(result, (list, tuple, dict)) else None,
             )
+            if busy_retries:
+                logger.info(f"Anki collection is available; request completed (action={action}).")
             return result
         except Exception as e:
+            collection_busy = isinstance(e, _AnkiCollectionBusyError)
+            will_retry = not _anki_monitor_stop.is_set() if collection_busy else retries > 0 and error_retries < retries
             log_anki_card_timing(
                 timing_context,
                 "anki_connect.invoke_failed",
@@ -3180,10 +3259,21 @@ def invoke(
                 file_size_bytes=file_size_bytes,
                 error_type=type(e).__name__,
                 error=str(e),
-                will_retry=bool(retries > 0 and attempt < retries),
+                will_retry=will_retry,
             )
-            # If no retries requested, raise or return None
-            if retries <= 0 or attempt >= retries:
+            if collection_busy and will_retry:
+                # Retry only the rejected request, preserving prepared media and
+                # successful earlier actions without spending the other-error budget.
+                busy_retries += 1
+                busy_backoff = min(busy_backoff * 2, max_backoff)
+                log = logger.warning if busy_retries == 1 else logger.debug
+                log(f"Anki collection is busy; retrying in {busy_backoff}s (action={action}).")
+                if not _anki_monitor_stop.wait(busy_backoff):
+                    attempt += 1
+                    continue
+
+            # A shutdown interrupts busy waits, even if ordinary retries remain.
+            if collection_busy or not will_retry:
                 if raise_on_error:
                     logger.error(f"Anki request failed (action={action}): {e}")
                     raise
@@ -3194,7 +3284,10 @@ def invoke(
             # Exponential backoff: 2^attempt seconds, capped at max_backoff
             backoff = min((backoff * 2), max_backoff)
             attempt += 1
-            logger.warning(f"Anki request failed, retrying in {backoff}s (attempt {attempt}/{retries})... Error: {e}")
+            error_retries += 1
+            logger.warning(
+                f"Anki request failed, retrying in {backoff}s (attempt {error_retries}/{retries})... Error: {e}"
+            )
             time.sleep(backoff)
 
 
@@ -3255,6 +3348,7 @@ def reset_anki_beacon_receiver_state():
         processed_push_note_keys.clear()
         anki_beacon_state = AnkiBeaconState(baseline_seeded=not first_run)
     gsm_status.anki_beacon_connected = False
+    _anki_monitor_wake.clear()
 
 
 def reset_anki_polling_gate_state():
@@ -3303,6 +3397,7 @@ def record_anki_beacon_heartbeat(payload: Dict[str, Any], received_at: Optional[
             anki_beacon_state.baseline_seeded = True
     gsm_status.anki_connected = True
     gsm_status.anki_beacon_connected = True
+    _anki_monitor_wake.set()
 
 
 def get_anki_beacon_wait_timeout_seconds(now: Optional[datetime] = None) -> float:
@@ -3385,11 +3480,13 @@ def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[da
         processed_push_note_keys.add(note_key)
 
     try:
+        timing_context = new_anki_card_timing_context(note_id=note_id, force=True)
         anki_beacon_note_queue.put(
             {
                 "session_id": session_id,
                 "note_id": note_id,
                 "payload": dict(payload),
+                "timing_context": timing_context,
             },
             timeout=0.25,
         )
@@ -3397,7 +3494,40 @@ def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[da
         with anki_beacon_state_lock:
             processed_push_note_keys.discard(note_key)
         raise RuntimeError("Anki event mailbox is backpressured") from error
+    _anki_monitor_wake.set()
     return "note_added"
+
+
+def _anki_card_from_beacon_payload(payload: dict[str, Any]) -> AnkiCard | None:
+    """Adapt Beacon's full-note schema to AnkiConnect's notesInfo schema.
+
+    Incomplete payloads use notesInfo instead, so absent tags/fields cannot bypass
+    the user's tag filters or overwrite policy. Empty field values remain valid.
+    """
+    fields = payload.get("fields")
+    tags = payload.get("tags")
+    card_ids = payload.get("card_ids")
+    model_name = payload.get("note_type_name")
+    if (
+        not isinstance(fields, dict)
+        or not fields
+        or not all(isinstance(name, str) and isinstance(value, str) for name, value in fields.items())
+        or not isinstance(tags, list)
+        or not all(isinstance(tag, str) for tag in tags)
+        or not isinstance(card_ids, list)
+        or not all(isinstance(card_id, int) and not isinstance(card_id, bool) and card_id > 0 for card_id in card_ids)
+        or not isinstance(model_name, str)
+    ):
+        return None
+    return AnkiCard.from_dict(
+        {
+            "noteId": payload["note_id"],
+            "modelName": model_name,
+            "tags": list(tags),
+            "fields": {name: {"value": value, "order": order} for order, (name, value) in enumerate(fields.items())},
+            "cards": list(card_ids),
+        }
+    )
 
 
 def _ensure_anki_beacon_baseline() -> bool:
@@ -3443,8 +3573,15 @@ def _process_next_anki_beacon_note(timeout_seconds: float = 0.0) -> bool:
         return False
 
     note_key = _get_anki_beacon_note_key(session_id, note_id)
+    timing_context = push_event.get("timing_context")
     try:
-        update_new_cards({note_id})
+        with time_anki_card_block(timing_context, "anki.beacon.resolve_note"):
+            card = _anki_card_from_beacon_payload(push_event.get("payload") or {})
+        log_anki_card_timing(timing_context, "anki.beacon.note_received", full_note=card is not None)
+        if card is not None:
+            update_single_card(card, timing_context=timing_context)
+        else:
+            update_new_cards({note_id}, timing_context=timing_context)
         previous_note_ids.add(note_id)
         gsm_status.anki_connected = True
         return True
@@ -3505,15 +3642,18 @@ def check_for_new_cards():
     return True
 
 
-def update_new_cards(new_card_ids):
+def update_new_cards(new_card_ids, timing_context: AnkiCardTimingContext | None = None):
     """Process multiple new cards by looping through each card ID."""
     # Get info for all new cards
-    cards_info = invoke("notesInfo", notes=list(new_card_ids))
+    cards_info = invoke("notesInfo", notes=list(new_card_ids), timing_context=timing_context)
 
     for card_dict in cards_info:
         try:
             card = AnkiCard.from_dict(card_dict)
-            update_single_card(card)
+            if timing_context is None:
+                update_single_card(card)
+            else:
+                update_single_card(card, timing_context=timing_context)
         except Exception as e:
             logger.error(f"Error processing card {card_dict.get('noteId', 'unknown')}: {e}")
             continue
@@ -3528,12 +3668,13 @@ def _resolve_mined_line_for_card(card, lines):
 
     Normally this matches the Anki sentence against the text log. Overlay scans (periodic /
     mouse-move, no text event) aren't in the log unless the user opted into the not-recommended
-    "add scanned lines to log" setting, so fall back to the last overlay scan when it matches the
-    card sentence and the log has no genuine match. This lets Yomitan overlay mining attach
-    audio/screenshot without polluting stats or the texthooker.
+    "add scanned lines to log" setting, so use a matching overlay scan when the log has no
+    genuine match. If no scan matches either, overlay cards use their own sentence and the
+    mining time as a best guess, without adding synthetic text to the log or statistics.
     """
     overlay_line = getattr(gsm_state, "last_overlay_scan_line", None)
     anki_sentence = remove_html_and_cloze_tags(get_sentence(card)) if card else ""
+    overlay_matches = overlay_line is not None and anki_sentence and lines_match(overlay_line.text, anki_sentence)
     overlay_mine = _is_overlay_mine(card)
     matching_lines = lines
     if overlay_mine:
@@ -3542,28 +3683,51 @@ def _resolve_mined_line_for_card(card, lines):
         text_event_lines = [line for line in available_lines if getattr(line, "source", None) != overlay_source]
         if text_event_lines:
             matching_lines = text_event_lines
+    match_kwargs = {"search_saved_clips": False} if lines or overlay_matches else {}
     try:
         if overlay_mine:
-            matched = get_mined_line(card, matching_lines, prefer_recent=True)
+            matched = get_mined_line(card, matching_lines, prefer_recent=True, **match_kwargs)
         else:
-            matched = get_mined_line(card, matching_lines)
+            matched = get_mined_line(card, matching_lines, **match_kwargs)
     except Exception:
         matched = None
 
-    if overlay_line is not None and anki_sentence and lines_match(overlay_line.text, anki_sentence):
-        matched_is_genuine = matched is not None and lines_match(matched.text, anki_sentence)
-        if not matched_is_genuine:
-            return overlay_line
+    matched_is_genuine = matched is not None and (
+        lines_match(matched.text, anki_sentence)
+        or find_matching_line(card, [matched], prefer_recent=overlay_mine) is not None
+    )
+    if not matched_is_genuine:
+        if overlay_matches:
+            matched = overlay_line
+        elif overlay_mine and anki_sentence and not getattr(matched, "clip", None):
+            matched = GameLine(
+                id=str(uuid.uuid4()),
+                text=anki_sentence,
+                time=datetime.now(),
+                prev=None,
+                next=None,
+                index=-1,
+                scene=gsm_state.current_game or "",
+                source=TextSource.OVERLAY,
+                source_padding=TextSource.padding_seconds(TextSource.OVERLAY),
+                excluded_from_stats=True,
+            )
 
     if matched is None:
         # Preserve the original "nothing to mine" error from get_mined_line.
         if overlay_mine:
-            return get_mined_line(card, matching_lines, prefer_recent=True)
-        return get_mined_line(card, matching_lines)
+            return get_mined_line(card, matching_lines, prefer_recent=True, **match_kwargs)
+        return get_mined_line(card, matching_lines, **match_kwargs)
+    if getattr(matched, "source", None) == getattr(TextSource, "OVERLAY", "overlay"):
+        logger.warning(
+            f"Anki note {getattr(card, 'noteId', 'unknown')} was mined using overlay text without a conventional "
+            "text source. Using best-guess audio and screenshot timing. Configure text hooking or an OCR tab "
+            "for overlay speed and consistency, accurate statistics, and reliable media timing."
+        )
     return matched
 
 
-def update_single_card(card):
+def update_single_card(card, timing_context: AnkiCardTimingContext | None = None):
     """Process a single card (extracted from update_new_card for reusability)."""
     timing_start = time.perf_counter()
     if not card or not check_tags_for_should_update(card):
@@ -3586,20 +3750,23 @@ def update_single_card(card):
     lines = _get_texthooking_page_module().get_selected_lines()
     from GameSentenceMiner import clip_cards
 
-    # A saved clip stands in for the OBS replay when no live line matches.
-    clip_line = None if lines else clip_cards.match_new_card(card)
-    game_line = clip_line or _resolve_mined_line_for_card(card, lines)
-    game_line.mined_time = datetime.now()
+    game_line = _resolve_mined_line_for_card(card, lines)
+    clip_line = None
+    if getattr(game_line, "clip", None) is not None:
+        clip_line = game_line
+        game_line.mined_time = game_line.clip.clip_end_time
+    else:
+        game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
-    timing_context = new_anki_card_timing_context(
-        note_id=getattr(card, "noteId", ""),
-        line_id=getattr(game_line, "id", ""),
-        word=current_word,
-        selected_line_count=len(lines or []),
-        # The context is passed through bounded queues as correlation metadata
-        # even when the optional timing log sink is disabled.
-        force=True,
-    )
+    if timing_context is None:
+        timing_context = new_anki_card_timing_context(
+            note_id=getattr(card, "noteId", ""),
+            # Keep correlation metadata even when the optional log sink is disabled.
+            force=True,
+        )
+    timing_context.line_id = str(getattr(game_line, "id", ""))
+    timing_context.word = current_word
+    timing_context.selected_line_count = len(lines or [])
     log_anki_card_timing(
         timing_context,
         "anki.update_single_card.card_detected",
@@ -4080,6 +4247,9 @@ def _monitor_anki_iteration(
             if not anki_beacon_state.push_mode_active:
                 logger.info("Anki Beacon heartbeat detected; disabling polling and switching to push event mode.")
                 anki_beacon_state.push_mode_active = True
+        # Newly pushed notes take priority over the one-time polling baseline request.
+        if _process_next_anki_beacon_note(timeout_seconds=0.0):
+            return 0, base_polling_rate
         _ensure_anki_beacon_baseline()
         if _process_next_anki_beacon_note(timeout_seconds=push_wait_timeout):
             return 0, base_polling_rate
@@ -4130,10 +4300,13 @@ def monitor_anki():
         unsuccessful_count = 0
         scaled_polling_rate = _get_anki_base_polling_rate_seconds()
         while not _anki_monitor_stop.is_set():
+            _anki_monitor_wake.clear()
+            if _anki_monitor_stop.is_set():
+                break
             unsuccessful_count, scaled_polling_rate = _monitor_anki_iteration(
                 unsuccessful_count,
                 scaled_polling_rate,
-                sleep_func=_anki_monitor_stop.wait,
+                sleep_func=_anki_monitor_wake.wait,
             )
     except KeyboardInterrupt:
         print("Stopped Checking For Anki Cards...")
@@ -4158,10 +4331,12 @@ def start_monitoring_anki():
 
 def stop_monitoring_anki() -> None:
     _anki_monitor_stop.set()
+    _anki_monitor_wake.set()
 
 
 def stop_anki_runtime() -> None:
     _anki_monitor_stop.set()
+    _anki_monitor_wake.set()
     translation_prefetch_executor.shutdown(wait=True, cancel_futures=False)
 
 

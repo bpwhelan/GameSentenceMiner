@@ -29,7 +29,8 @@ interface DetachedAgentState {
 }
 
 const METADATA_FILE = path.join(getBaseDir(), 'texthook', 'agent-host.json');
-const CONNECT_TIMEOUT_MS = 10_000;
+// Allow the Agent runner's bounded Unity startup retries to finish.
+const CONNECT_TIMEOUT_MS = 35_000;
 
 let callbacks: DetachedAgentCallbacks = {};
 let socket: net.Socket | null = null;
@@ -42,6 +43,7 @@ let cachedHooks: { hooks: any[]; selectedHookId: string | null } = {
 let nextRequestId = 1;
 let connectedMetadata: AgentHostMetadata | null = null;
 let connectPromise: Promise<boolean> | null = null;
+let startupGeneration = 0;
 const pendingRequests = new Map<
     number,
     { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
@@ -346,6 +348,7 @@ function delay(ms: number): Promise<void> {
 export async function startDetachedAgentHookSession(
     options: DetachedAgentStartOptions,
 ): Promise<StartHookResult> {
+    const generation = ++startupGeneration;
     if (process.platform !== 'win32') {
         return { success: false, error: 'Detached Agent sessions are currently available on Windows only.' };
     }
@@ -358,7 +361,7 @@ export async function startDetachedAgentHookSession(
         if (!state.startResult) {
             return { success: false, error: 'The detached Agent host is still starting.' };
         }
-        if (!state.startResult.success) return state.startResult;
+        if (!state.startResult.success) return reportStartupFailure(state.startResult);
     }
     const existingMetadata = readMetadata();
     if (existingMetadata && (await isProcessAlive(existingMetadata.hostPid))) {
@@ -377,6 +380,7 @@ export async function startDetachedAgentHookSession(
 
     const deadline = Date.now() + CONNECT_TIMEOUT_MS;
     while (Date.now() < deadline) {
+        if (generation !== startupGeneration) return { success: false, error: 'Agent startup was cancelled.' };
         try {
             let state: DetachedAgentState | null = null;
             if (socket && !socket.destroyed) {
@@ -386,9 +390,10 @@ export async function startDetachedAgentHookSession(
                 const metadata = readMetadata();
                 if (metadata) state = await connectWithMetadata(metadata);
             }
-            if (state?.startResult && !state.startResult.success) return state.startResult;
+            if (generation !== startupGeneration) return { success: false, error: 'Agent startup was cancelled.' };
+            if (state?.startResult && !state.startResult.success) return reportStartupFailure(state.startResult);
             // A Frida session exists before script.load() finishes. Only the
-            // completed start result proves that the game hooks are installed.
+            // completed start result proves that script initialization finished.
             if (state?.startResult?.success && cachedStatus?.running) {
                 return {
                     success: true,
@@ -406,6 +411,15 @@ export async function startDetachedAgentHookSession(
     return { success: false, error: 'Timed out waiting for the detached Agent host to start.' };
 }
 
+function reportStartupFailure(result: StartHookResult): StartHookResult {
+    // The host may fail before the client connects. Surface the persisted start
+    // result as well as live error events, including for automatic attachment.
+    const error = result.error ?? 'Agent script initialization failed.';
+    callbacks.onEvent?.('texthook.log', { message: error, level: 'error', ts: Date.now() });
+    callbacks.onEvent?.('texthook.agentError', { error });
+    return result;
+}
+
 export function isDetachedAgentHookRunning(): boolean {
     return Boolean(cachedStatus?.running);
 }
@@ -419,6 +433,7 @@ export function listDetachedAgentHooks(): { hooks: any[]; selectedHookId: string
 }
 
 export async function stopDetachedAgentHookSession(): Promise<{ success: boolean; error?: string }> {
+    ++startupGeneration;
     const currentSocket = socket;
     const metadata = connectedMetadata ?? readMetadata();
     if (!currentSocket || currentSocket.destroyed) {

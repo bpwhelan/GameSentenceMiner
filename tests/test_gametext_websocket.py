@@ -1,9 +1,73 @@
 import asyncio
+import threading
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
 
 import GameSentenceMiner.gametext as gametext
+
+
+def test_live_stats_expire_on_existing_projection_worker_without_new_text(monkeypatch):
+    from GameSentenceMiner.text_pipeline.models import SourceKind, TextEventKind, TextObservation
+    from GameSentenceMiner.util.stats import live_stats
+
+    tracker = live_stats.LiveSessionTracker()
+    captured_at = datetime.now(timezone.utc)
+    now = [captured_at.timestamp()]
+    expired = threading.Event()
+    projector_threads = []
+    reset_threads = []
+    published = []
+    monkeypatch.setattr(gametext, "live_stats_tracker", tracker)
+    monkeypatch.setattr(gametext.obs, "get_current_game", lambda **kwargs: tracker.game_name)
+    monkeypatch.setattr(live_stats, "time", SimpleNamespace(time=lambda: now[0]))
+    monkeypatch.setattr(
+        live_stats,
+        "get_stats_config",
+        lambda: SimpleNamespace(session_gap_seconds=600, regex_out_repetitions=False, extra_punctuation_regex=""),
+    )
+
+    def publish(tracker, *, reason):
+        published.append(live_stats.build_live_stats_payload(tracker, reason=reason))
+        if reason == "session_timeout":
+            reset_threads.append(threading.get_ident())
+            expired.set()
+
+    def project(event):
+        if event.kind is TextEventKind.APPENDED:
+            projector_threads.append(threading.get_ident())
+            tracker.add_line(event.record.text, event.record.first_seen_at_utc.timestamp())
+
+    monkeypatch.setattr(live_stats, "publish_live_stats_update", publish)
+    monkeypatch.setattr(gametext, "_project_text_domain_event", project)
+    runtime = gametext.get_authoritative_text_runtime()
+    try:
+        runtime.ingest(
+            TextObservation(
+                observation_id="idle-session",
+                source_kind=SourceKind.MANUAL,
+                source_instance="test",
+                raw_text="reading",
+                captured_at_utc=captured_at,
+                emitted_at_utc=captured_at,
+                received_at_utc=captured_at,
+                received_monotonic_ns=1,
+            )
+        )
+        assert runtime.wait_projected()
+        assert tracker.last_line_time is not None
+
+        # Advance only the clock; no further text event triggers the reset.
+        now[0] = tracker.last_line_time + 601.0
+        assert expired.wait(timeout=1.0)
+        assert reset_threads == projector_threads
+        assert reset_threads[0] != threading.get_ident()
+        assert published[-1]["reason"] == "session_timeout"
+        assert published[-1]["session_active"] is False
+        assert all(value == 0 for value in published[-1]["values"].values())
+    finally:
+        gametext.stop_authoritative_text_runtime()
 
 
 def _make_config(*, use_websocket: bool):
@@ -16,6 +80,22 @@ def _make_config(*, use_websocket: bool):
         ),
         advanced=SimpleNamespace(),
     )
+
+
+def test_live_stats_follow_active_game_without_waiting_for_new_text(monkeypatch):
+    from GameSentenceMiner.util.stats import live_stats
+
+    tracker = live_stats.LiveSessionTracker()
+    tracker.add_line("old game", 1000.0, line_id="one", game_name="First Game")
+    monkeypatch.setattr(gametext, "live_stats_tracker", tracker)
+    monkeypatch.setattr(gametext.obs, "get_current_game", lambda **kwargs: "Second Game")
+    monkeypatch.setattr(live_stats, "publish_live_stats_update", lambda *args, **kwargs: False)
+
+    gametext._expire_live_stats_session()
+
+    assert tracker.game_name == "Second Game"
+    assert tracker.last_line_time is None
+    assert tracker.get_live_lines() == []
 
 
 def test_listen_on_websocket_pauses_when_general_websocket_disabled(
@@ -143,7 +223,11 @@ def test_add_line_to_text_log_uses_display_source_name_for_logging(monkeypatch):
         ),
     )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: line)
-    monkeypatch.setattr(gametext, "live_stats_tracker", SimpleNamespace(add_line=lambda *_args, **_kwargs: None))
+    monkeypatch.setattr(
+        gametext,
+        "live_stats_tracker",
+        SimpleNamespace(add_line=lambda *_args, **_kwargs: None, reset_if_inactive=lambda: False),
+    )
     monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(last_line_received=""))
 
     asyncio.run(
@@ -391,6 +475,12 @@ def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
     announced_states = []
     paused_notifications = []
     resumed_notifications = []
+    overlay_updates = []
+
+    from GameSentenceMiner.web.gsm_websocket import websocket_manager
+
+    monkeypatch.setattr(websocket_manager, "has_clients", lambda _server_id: True)
+    monkeypatch.setattr(websocket_manager, "send_nowait", lambda _server_id, payload: overlay_updates.append(payload))
 
     monkeypatch.setattr(
         gametext,
@@ -413,14 +503,19 @@ def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
     monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
 
     assert gametext.set_text_intake_paused(True) is True
+    assert gametext.set_text_intake_paused(True) is True
     assert gametext.set_text_intake_paused(False) is False
 
     assert announced_states == [True, False]
     assert paused_notifications == [True]
     assert resumed_notifications == [True]
+    assert [(payload["reason"], payload["text_intake_paused"]) for payload in overlay_updates] == [
+        ("intake_paused", True),
+        ("intake_resumed", False),
+    ]
 
 
-def test_add_line_to_text_log_relays_only_to_outputs_when_text_intake_paused(monkeypatch):
+def test_add_line_to_text_log_excludes_paused_observations_from_stats(monkeypatch):
     observations = []
 
     class FakeRuntime:

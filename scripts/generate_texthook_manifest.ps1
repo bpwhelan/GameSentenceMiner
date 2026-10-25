@@ -9,5 +9,6 @@ param(
 $ErrorActionPreference = 'Stop'
 & node (Join-Path $PSScriptRoot 'generate-texthook-manifest.mjs') --source $SourceDirectory --version $Version --out-file $OutFile
 if ($LASTEXITCODE -ne 0) { throw 'Text-hook ZIP generation failed.' }
-Write-Host 'Upload texthook.zip first, then texthook_manifest.json, to gamesentenceminer/texthook/zip/.'
-Write-Host 'Use scripts/publish-lunahook-update.ps1 to publish and verify both objects.'
+Write-Host 'This is local package metadata, not a public update manifest.'
+Write-Host 'Use scripts/prepare-texthook-catalog.mjs to add the package to a v2 catalog, then scripts/publish-lunahook-update.ps1.'
+Write-Host 'Do not overwrite the legacy texthook.zip or texthook_manifest.json endpoints.'

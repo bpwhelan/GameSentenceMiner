@@ -16,6 +16,7 @@ describe("GameAutomationTab overlay automation", () => {
   let runOverlayWithActiveGame: boolean;
 
   beforeEach(() => {
+    window.localStorage.clear();
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
     runOverlayOnStartup = false;
@@ -92,5 +93,51 @@ describe("GameAutomationTab overlay automation", () => {
     await render(false);
     runOverlayWithActiveGame = false;
     expect((await render()).disabled).toBe(false);
+  });
+
+  it.each(["false", "true"])("shows launcher options and shared tool paths directly regardless of the old expansion preference (%s)", async (expanded) => {
+    window.localStorage.setItem("gsm.chrome.launcher.toolPathsLegacyExpanded", expanded);
+    await render();
+    expect(container.querySelector('input[name="text-hook-scene-1"]')?.closest("details, [hidden]")).toBeNull();
+    expect(container.querySelector("#agent-path-input")?.closest("[hidden]")?.id).toBe("automation-view-shared");
+    const shared = container.querySelector<HTMLButtonElement>("#automation-nav-shared")!;
+    await act(async () => shared.click());
+    expect(container.querySelector<HTMLElement>("#automation-view-scene")?.hidden).toBe(true);
+    expect(container.querySelector<HTMLElement>("#automation-view-shared")?.hidden).toBe(false);
+    expect(container.querySelector('[aria-controls="tool-paths-legacy-panel"]')).toBeNull();
+    for (const id of ["agent-path-input", "agent-scripts-path-input", "textractor-64-path-input", "textractor-32-path-input", "luna-path-input"]) {
+      const input = container.querySelector<HTMLInputElement>("#" + id)!;
+      expect(input, id).not.toBeNull();
+      expect(input.closest("details, [hidden]")).toBeNull();
+    }
+    expect(invokeMock).not.toHaveBeenCalledWith("settings.saveSceneLaunchProfile", expect.anything());
+  });
+
+  it("keeps launcher options visible when changing scenes without copying the previous profile", async () => {
+    const otherScene = { id: "scene-2", name: "Other game" };
+    const original = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string, payload: any) => {
+      if (channel === "obs.getScenes") return [scene, otherScene];
+      if (channel === "settings.getSceneLaunchProfile") return {
+        textHookMode: payload.id === scene.id ? "agent" : "none",
+        agentScriptPath: payload.id === scene.id ? "C:/scripts/game.js" : "",
+      };
+      return original(channel, payload);
+    });
+    await render();
+    expect(container.querySelector("#scene-agent-script-scene-1")?.closest("details, [hidden]")).toBeNull();
+    expect(container.querySelector<HTMLInputElement>("#scene-agent-script-scene-1")?.value).toBe("C:/scripts/game.js");
+    await act(async () => {
+      const selector = container.querySelector<HTMLSelectElement>("#launcher-scene-selector")!;
+      selector.value = otherScene.id;
+      selector.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector('input[name="text-hook-scene-2"]')?.closest("details, [hidden]")).toBeNull();
+    expect(container.querySelector("#scene-agent-script-scene-1")).toBeNull();
+    const autoOcr = container.querySelectorAll<HTMLInputElement>('input[name="ocr-mode-scene-2"]')[1];
+    await act(async () => autoOcr.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSceneLaunchProfile", expect.objectContaining({
+      scene: otherScene, ocrMode: "auto", textHookMode: "none",
+    }));
   });
 });

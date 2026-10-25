@@ -51,8 +51,8 @@ export function patchContent(source) {
     }
     for (const signature of ['function syncHostAttention()', 'function bindResultActions(rendered, level)',
         'function positionPopup(fromLevel = rootLevel, resetToolbar = false)']) {
-        // bindResultActions refreshes on a microtask, after the new buttons are bound.
-        source = replaceOnce(source, `  ${signature} {`, `  ${signature} {\n    queueMicrotask(() => gsmBridge?.refresh()); // GSM hook`);
+        // Coalesce lifecycle/layout callbacks after the new buttons are bound.
+        source = replaceOnce(source, `  ${signature} {`, `  ${signature} {\n    gsmBridge?.scheduleRefresh(); // GSM hook`);
     }
     source = replaceOnce(source, '  function teardown(reason) {', '  function teardown(reason) {\n    gsmBridge?.destroy(); // GSM hook');
     source = replaceOnce(source, '          resolve(reply);', '          gsmBridge?.requestCompleted(type, reply); // GSM hook\n          resolve(reply);');

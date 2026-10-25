@@ -232,31 +232,31 @@ app.whenReady().then(async () => {
   assert.equal(manualResult.dismissedAfterLookup, false);
 
   // Render the actual settings markup/styles for visual QA without IPC or a server.
-  const settings = fs.readFileSync(path.join(__dirname, '../settings.html'), 'utf8');
-  const navigationStart = settings.lastIndexOf('<h5', settings.indexOf('>Navigation Bindings</h5>'));
-  const navigationEnd = settings.lastIndexOf('<label>', settings.indexOf('Token Navigation Mode', navigationStart));
+  const { html: settings, styles: settingsStyles } = require('./helpers/settings-source.cjs').readSettingsSource();
+  const settingsDom = new (require('jsdom').JSDOM)(settings);
+  const labelsFor = ids => ids.map(id => settingsDom.window.document.getElementById(id).closest('label').outerHTML).join('');
+  const navigationBindings = labelsFor(['gamepadNavigateUp', 'gamepadNavigateDown', 'gamepadNavigateLeft', 'gamepadNavigateRight']);
   await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
-    '<!doctype html><meta charset="utf-8">' + settings.match(/<style>[\s\S]*?<\/style>/)[0] +
-    '<div class="container"><div class="setting-group">' + settings.slice(navigationStart, navigationEnd) + '</div></div>'
+    '<!doctype html><meta charset="utf-8">' + '<style>' + settingsStyles + '</style>' +
+    '<div class="container"><div class="setting-group"><h5>Navigation Bindings</h5>' + navigationBindings + '</div></div>'
   ));
   assert.deepEqual(await view.webContents.executeJavaScript(
     '[...document.querySelectorAll(".gamepad-binding-input")].map(input => input.value)'
   ), ['DPad Up', 'DPad Down', 'DPad Left', 'DPad Right']);
   assert.equal(await view.webContents.executeJavaScript('document.documentElement.scrollWidth > innerWidth'), false);
   fs.writeFileSync(path.join(directory, 'navigation-bindings.png'), (await view.webContents.capturePage()).toPNG());
-  const bindingStart = settings.lastIndexOf('<label>', settings.indexOf('Previous New / i+1 Jiten Word'));
-  const bindingEnd = settings.lastIndexOf('<label>', settings.indexOf('Token Mode Toggle', bindingStart));
+  const jitenBindings = labelsFor(['gamepadPrevJitenWordButton', 'gamepadNextJitenWordButton']);
   await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
-    '<!doctype html><meta charset="utf-8">' + settings.match(/<style>[\s\S]*?<\/style>/)[0] +
-    '<div class="container"><div class="setting-group">' + settings.slice(bindingStart, bindingEnd) + '</div></div>'
+    '<!doctype html><meta charset="utf-8">' + '<style>' + settingsStyles + '</style>' +
+    '<div class="container"><div class="setting-group">' + jitenBindings + '</div></div>'
   ));
   assert.equal(await view.webContents.executeJavaScript('document.documentElement.scrollWidth > innerWidth'), false);
   fs.writeFileSync(path.join(directory, 'jiten-word-bindings.png'), (await view.webContents.capturePage()).toPNG());
-  const start = settings.lastIndexOf('<h5', settings.indexOf('>Navigation Experiments</h5>'));
-  const end = settings.lastIndexOf('<h5', settings.indexOf('>Activation Methods</h5>', start));
+  const navigationExperiments = settingsDom.window.document.querySelector('[data-page="gamepad-advanced"]').innerHTML;
+  settingsDom.window.close();
   await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
-    '<!doctype html><meta charset="utf-8">' + settings.match(/<style>[\s\S]*?<\/style>/)[0] +
-    '<div class="container"><div class="setting-group">' + settings.slice(start, end) + '</div></div>'
+    '<!doctype html><meta charset="utf-8">' + '<style>' + settingsStyles + '</style>' +
+    '<div class="container"><div class="setting-group">' + navigationExperiments + '</div></div>'
   ));
   const overflow = await view.webContents.executeJavaScript('document.documentElement.scrollWidth > innerWidth');
   assert.equal(overflow, false);
@@ -264,7 +264,7 @@ app.whenReady().then(async () => {
 
   const manualCardCss = fs.readFileSync(path.join(__dirname, '../components/manual-mode-card.css'), 'utf8');
   await view.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
-    '<!doctype html><meta charset="utf-8">' + settings.match(/<style>[\s\S]*?<\/style>/)[0] +
+    '<!doctype html><meta charset="utf-8">' + '<style>' + settingsStyles + '</style>' +
     '<style>' + manualCardCss + '</style><div class="container"><div id="manual-card" class="setting-group gsm-mm-card"></div></div>'
   ));
   await view.webContents.executeJavaScript(

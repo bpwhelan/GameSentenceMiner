@@ -35,6 +35,7 @@ def setup_window(monkeypatch):
 def test_preset_is_saved_in_existing_config_format(setup_window, preset_id):
     window = setup_window
     preset = get_preset(preset_id)
+    window.anki_enabled_check.setChecked(False)
     window.video_field_edit.setCurrentText("Field from previous template")
     window.audio_enabled_check.setChecked(False)
     window.sentence_field_append_check.setChecked(True)
@@ -42,6 +43,7 @@ def test_preset_is_saved_in_existing_config_format(setup_window, preset_id):
     apply_recommended_fields(window, result)
     assert window.save_settings(show_indicator=False)
     saved = Config.load().get_config()
+    assert saved.anki.enabled is True
     assert saved.anki.note_type == preset.name
     for key, name in preset.gsm_fields.items():
         assert getattr(saved.anki, key).name == name
@@ -166,7 +168,6 @@ def test_note_type_selection_offers_and_saves_fields_for_renamed_models(
     monkeypatch.setattr(window, "_anki_invoke", invoke)
     window.word_field_edit.setCurrentText("OldWord")
     window.anki_enabled_check.setChecked(False)
-    window.update_anki_check.setChecked(False)
     window.audio_enabled_check.setChecked(False)
     window.sentence_field_overwrite_check.setChecked(False)
     window.sentence_field_append_check.setChecked(True)
@@ -193,7 +194,6 @@ def test_note_type_selection_offers_and_saves_fields_for_renamed_models(
         assert getattr(window, f"{key}_field_edit").currentText() == name
     assert window.req_word_field_edit.currentText() == preset.gsm_fields["word"]
     assert not window.anki_enabled_check.isChecked()
-    assert not window.update_anki_check.isChecked()
     assert not window.audio_enabled_check.isChecked()
     assert window.sentence_field_append_check.isChecked()
     assert not window.sentence_field_overwrite_check.isChecked()

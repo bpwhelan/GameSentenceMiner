@@ -7,14 +7,23 @@ formatting while allowing API-specific implementations.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.shared.image_utils import (
-    fetch_image_as_base64 as _fetch_image_as_base64,
-    download_cover_image as _download_cover_image,
-    THUMBNAIL_SIZE as _THUMBNAIL_SIZE,
     COVER_IMAGE_SIZE as _COVER_IMAGE_SIZE,
+)
+from GameSentenceMiner.util.shared.image_utils import (
+    THUMBNAIL_SIZE as _THUMBNAIL_SIZE,
+)
+from GameSentenceMiner.util.shared.image_utils import (
+    download_cover_image as _download_cover_image,
+)
+from GameSentenceMiner.util.shared.image_utils import (
+    fetch_image_as_base64 as _fetch_image_as_base64,
+)
+from GameSentenceMiner.util.shared.image_utils import (
+    fetch_original_image_as_base64 as _fetch_original_image_as_base64,
 )
 
 
@@ -91,20 +100,19 @@ class BaseApiClient(ABC):
     @classmethod
     def fetch_image_as_base64(cls, image_url: str, thumbnail_size: tuple = None) -> Optional[str]:
         """
-        Download an image from URL, resize to thumbnail, and convert to base64.
+        Download an original image, or an explicitly requested thumbnail, as base64.
 
         Uses shared image utilities for consistent image processing across all clients.
 
         Args:
             image_url: URL of the image to download
-            thumbnail_size: Tuple of (width, height) for thumbnail.
-                          Defaults to cls.THUMBNAIL_SIZE
+            thumbnail_size: Optional maximum (width, height). None preserves the original.
 
         Returns:
-            Base64-encoded JPEG image string with data URI prefix, or None on failure
+            Base64-encoded image with data URI prefix, or None on failure
         """
         if thumbnail_size is None:
-            thumbnail_size = cls.THUMBNAIL_SIZE
+            return _fetch_original_image_as_base64(image_url=image_url, timeout=cls.TIMEOUT)
 
         return _fetch_image_as_base64(
             image_url=image_url,

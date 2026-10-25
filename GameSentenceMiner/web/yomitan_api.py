@@ -7,16 +7,16 @@ for the most recently played games.
 
 import hashlib
 import json
-from flask import jsonify, make_response, request
 from typing import List
+
+from flask import jsonify, make_response, request
 
 from GameSentenceMiner.util.config.configuration import get_config, logger
 from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.yomitan_dict import FrequencyDictBuilder, YomitanDictBuilder
 
-
-YOMITAN_CHARACTER_DICTIONARY_REVISION_VERSION = 1
+YOMITAN_CHARACTER_DICTIONARY_REVISION_VERSION = 2
 
 
 def notify_yomitan_character_dictionary_changed(reason: str, game_id: str | None = None) -> None:

@@ -57,7 +57,7 @@ describe('agent restart control', () => {
         const duplicate = await control.requestRestart({ reason: 'Another agent', delaySeconds: 10 });
         expect(duplicate).toEqual(first);
         expect(deps.notify).toHaveBeenCalledOnce();
-        expect(deps.notify).toHaveBeenCalledWith('New OCR changes', 5, expect.any(Function));
+        expect(deps.notify).toHaveBeenCalledWith('New OCR changes', 5, expect.any(Function), expect.any(Function));
         await vi.advanceTimersByTimeAsync(4999);
         expect(deps.restart).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(1);

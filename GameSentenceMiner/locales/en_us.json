@@ -205,13 +205,17 @@
             "label": "Enabled:",
             "tooltip": "Enable or disable Anki integration."
           },
-          "update_anki": {
-            "label": "Update Anki:",
-            "tooltip": "Automatically update Anki with new data."
-          },
           "show_update_confirmation_dialog": {
             "label": "Show Update Confirmation Dialog:",
             "tooltip": "Show a confirmation dialog before updating Anki cards."
+          },
+          "skip_confirmation_for_unvoiced": {
+            "label": "Skip Confirmation for Unvoiced Lines:",
+            "tooltip": "Warning: Skip confirmation when VAD detects no voice. The confirmation window was originally intended to let you double-check VAD results on unvoiced lines. Skipping it can leave missed speech unnoticed and create cards without voice audio."
+          },
+          "confirmation_audio_step": {
+            "label": "Audio Expansion Step:",
+            "tooltip": "Seconds added by each audio expansion button click in the confirmation dialog."
           },
           "confirmation_gamepad_enabled": {
             "label": "Gamepad Controls:",
@@ -447,8 +451,8 @@
         "features": {
           "title": "Features",
           "notify_on_update": {
-            "label": "Notify on Anki Card Update:",
-            "tooltip": "Notify the user when GSM updates an Anki card."
+            "label": "Notify when an Anki Card Is Created or Updated:",
+            "tooltip": "Notify when GSM creates or updates an Anki card."
           },
           "open_anki_edit": {
             "label": "Open Anki Note in Edit View:",
@@ -473,6 +477,31 @@
           "generate_longplay": {
             "label": "Generate Longplay:",
             "tooltip": "Generate a Longplay video from OBS recording and write incoming GSM text to an SRT subtitle file. Restart required."
+          },
+          "notifications_title": "Desktop Notifications",
+          "notify_on_audio_generated": {
+            "label": "Notify on Audio Generated:",
+            "tooltip": "Notify when GSM finishes generating or trimming audio."
+          },
+          "notify_on_screenshot_saved": {
+            "label": "Notify on Screenshot Saved:",
+            "tooltip": "Notify when GSM saves a screenshot to disk."
+          },
+          "notify_on_anki_enhancement_failed": {
+            "label": "Notify on Anki Card Enhancement Failure:",
+            "tooltip": "Notify when GSM cannot finish enhancing an Anki card, including missing or failed audio."
+          },
+          "notify_on_errors": {
+            "label": "Notify on GSM Errors:",
+            "tooltip": "Notify when GSM encounters an error that needs attention."
+          },
+          "notify_on_obs_warning": {
+            "label": "Notify when OBS Replay is Unavailable:",
+            "tooltip": "Notify when GSM cannot use the OBS replay buffer."
+          },
+          "notify_on_text_intake_state": {
+            "label": "Notify when Text Intake Pauses or Resumes:",
+            "tooltip": "Notify when incoming text processing is paused or resumed."
           }
         },
         "screenshot": {
@@ -620,7 +649,7 @@
           },
           "pause_text_intake": {
             "label": "Pause GSM Text Intake Hotkey:",
-            "tooltip": "Temporarily pause or resume GSM's clipboard and websocket text intake. While paused, GSM skips its own stats/history logging and overlay triggers. Leave blank to disable this shortcut; no default hotkey is assigned."
+            "tooltip": "Temporarily pause or resume GSM's stats collection. Paused text is excluded from live stats, Discord activity, and the database. With text relays enabled, card mining and the overlay stay active. Leave blank to disable this shortcut; no default hotkey is assigned."
           },
           "copy_game_screenshot": {
             "label": "Copy Game Screenshot Hotkey:",
@@ -636,7 +665,7 @@
           },
           "relay_outputs_when_paused": {
             "checkbox": "Relay to Text Feed/output clients while paused",
-            "tooltip": "When enabled, paused text is still forwarded to the Text Feed page and output websocket clients after text processing, but GSM still skips its own stats/history logging and overlay triggers. Disable this for a full no-op that drops incoming text entirely."
+            "tooltip": "When enabled, card mining, the overlay, Text Feed, and output websocket clients stay active while stats collection is paused. Incoming text is kept in memory for mining but excluded from live stats, Discord activity, and the database. Disable this to drop incoming text entirely."
           }
         },
         "obs": {
@@ -766,7 +795,15 @@
           },
           "mute_game_on_minimize": {
             "label": "Mute Game When Minimized:",
-            "tooltip": "On Windows, mute the captured game while its window is minimized. Background or unfocused windows are not muted."
+            "tooltip": "On Windows, mute the captured game while its window is minimized. Muting when the game is covered is controlled by the setting below."
+          },
+          "mute_game_on_background": {
+            "label": "Mute Game When Covered:",
+            "tooltip": "On Windows, mute the captured game after its window stays completely covered by other windows for the delay below. Keep it muted until you focus the game again, even after uncovering it. Minimized-window muting is controlled separately."
+          },
+          "mute_game_on_background_delay_seconds": {
+            "label": "Background Mute Delay (seconds):",
+            "tooltip": "How long the game must stay completely covered before muting (0–300 seconds). Set 0 to mute immediately. Focusing or uncovering it before the delay expires cancels the countdown. Does not delay muting when minimized."
           }
         },
         "ai": {

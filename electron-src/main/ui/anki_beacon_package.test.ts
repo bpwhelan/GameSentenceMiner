@@ -74,11 +74,12 @@ describe('AnkiBeacon package configuration', () => {
                         'http://127.0.0.1:6001/anki/events',
                         'https://example.com/anki/events',
                     ],
-                    payload_mode: 'note_id',
+                    payload_mode: 'note',
                 },
             ],
         });
         expect(config.operations[0].urls[0]).toBe('http://127.0.0.1:7275/anki/events');
+        expect(config.operations[0].payload_mode).toBe('note_id');
     });
 
     it('rewrites config.json inside an installable add-on archive', async () => {
@@ -112,6 +113,7 @@ describe('AnkiBeacon package configuration', () => {
         expect(packagedConfig.operations[0].urls).toEqual([
             'http://127.0.0.1:6001/anki/events',
         ]);
+        expect(packagedConfig.operations[0].payload_mode).toBe('note');
         await expect(fsp.readFile(path.join(extractDir, '__init__.py'), 'utf8')).resolves.toBe(
             '# test add-on\n',
         );

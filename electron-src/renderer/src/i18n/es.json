@@ -1,5 +1,29 @@
 {
   "home": {
+    "workspace": {
+      "library": "Tus juegos",
+      "savedGames": "Juegos guardados",
+      "searchGames": "Buscar juegos",
+      "noMatchingGames": "No hay juegos coincidentes.",
+      "noGames": "Aún no se han añadido juegos.",
+      "emptyGameHint": "Añade tu primer juego para configurar la captura y empezar a recopilar frases.",
+      "addingGame": "Configurando la captura…",
+      "addGameError": "No se pudo configurar la captura. Comprueba que OBS esté conectado e inténtalo de nuevo.",
+      "chooseGame": "Elige un juego",
+      "chooseGameHint": "Selecciona un juego guardado o añade una nueva captura.",
+      "gameContext": "Captura del juego",
+      "gameOptions": "Opciones del juego",
+      "gameActions": "Acciones para {name}",
+      "gameActionError": "No se pudo actualizar este juego. Inténtalo de nuevo.",
+      "backToGame": "Volver al juego",
+      "textFeed": "Texto capturado",
+      "textFeedHint": "Lee el texto capturado y recopila frases en el Text Feed.",
+      "firstGameHint": "Abre el juego y selecciona su ventana abajo para configurar la captura.",
+      "addGame": "Añadir un juego",
+      "addGameHint": "Captura otra ventana, pantalla o tarjeta de captura.",
+      "overlayHint": "Busca palabras y recopila frases mientras juegas.",
+      "connections": "Conexiones"
+    },
     "status": {
       "title": "Estado",
       "gsm": "GSM",
@@ -104,7 +128,7 @@
     },
     "support": {
       "text": "Apoyar GSM",
-      "githubSponsors": "GitHub Sponsors",
+      "githubSponsors": "GitHub Sponsors (Preferido)",
       "kofi": "Ko-fi",
       "githubStar": "Estrella en GitHub (Gratis)"
     },
@@ -488,6 +512,31 @@
     "quit": "Salir"
   },
   "settings": {
+    "workspace": {
+      "brandHint": "Preferencias y herramientas",
+      "general": "General",
+      "generalHelp": "Elige la apariencia, el idioma y el comportamiento al iniciar.",
+      "layout": "Pestañas y ventanas",
+      "layoutHelp": "Elige las pestañas que usas y las opciones de las ventanas del juego.",
+      "updatesHelp": "Administra las actualizaciones de la aplicación y del backend.",
+      "backupsHelp": "Crea copias automáticas de la base de datos o respalda datos seleccionados.",
+      "storageHelp": "Administra dónde se guardan los ajustes, la base de datos y las herramientas.",
+      "appearance": "Apariencia",
+      "behavior": "Inicio y comportamiento",
+      "moreSettings": "Ajustes de GSM y del overlay",
+      "autoSave": "Las preferencias de escritorio se guardan automáticamente.",
+      "searchPlaceholder": "Buscar en todos los ajustes…",
+      "searchResults": "Resultados de búsqueda",
+      "clearSearch": "Borrar búsqueda",
+      "openSection": "Abrir sección",
+      "navigation": "Secciones de ajustes",
+      "selectiveBackup": "Copia y restauración selectivas",
+      "statsOverview": "Resumen",
+      "statsReading": "Estadísticas de lectura",
+      "statsGoals": "Objetivos",
+      "statsAnki": "Estadísticas de Anki",
+      "statsSearch": "Buscar"
+    },
     "hub": {
       "findSetting": "Buscar ajuste",
       "findDescription": "Busca lo que quieres cambiar y GSM abrirá la pantalla de ajustes correcta.",
@@ -751,6 +800,42 @@
     }
   },
   "ocr": {
+    "workspace": {
+      "recognition": "Reconocimiento",
+      "filtering": "Imagen y salida",
+      "comparison": "Comparación",
+      "shortcuts": "Atajos",
+      "tools": "Herramientas",
+      "navigation": "Vistas de OCR",
+      "scanSettings": "Ajustes de escaneo",
+      "imageSettings": "Ajustes de imagen",
+      "quickCapture": "Captura rápida",
+      "quickCaptureHint": "Usa un atajo o elige una acción.",
+      "startToCapture": "Inicia OCR para usar la captura rápida.",
+      "textOutput": "Salida de texto",
+      "copyText": "Copiar texto",
+      "lineBreaks": "Conservar saltos",
+      "copyMode": "Copiar texto: {mode}",
+      "lineBreaksMode": "Conservar saltos: {mode}",
+      "areaTools": "Herramientas de áreas y guía",
+      "singlePassSummary": "{engine} · cada {rate} s",
+      "twoPassSummary": "{stability} → {engine} · cada {rate} s",
+      "comparisonPrimary": "Umbrales principales",
+      "comparisonTruncation": "Reglas de truncado",
+      "comparisonSubset": "Subconjuntos y bloques",
+      "resetDefaults": "Restablecer valores",
+      "toolsDiagnostics": "Diagnóstico y ejecución",
+      "toolsPackages": "Paquetes",
+      "toolsFiles": "Archivos y ajustes",
+      "consoleExpand": "Expandir consola",
+      "consoleCompact": "Compactar consola",
+      "consoleDockRight": "Vista dividida",
+      "consoleDockBottom": "Consola inferior",
+      "pipelineCapture": "Captura",
+      "pipelineStability": "Paso 1 · Estabilidad",
+      "pipelineMain": "OCR principal",
+      "pipelineCadence": "Cadencia"
+    },
     "sceneAndAreas": {
       "autostart": "Inicio automático de OCR:",
       "autostartHint": "Elige qué modo de OCR se inicia automáticamente cuando este juego está activo. Esta configuración se comparte con Automatización de juegos.",
@@ -794,23 +879,74 @@
     "comparison": {
       "title": "Ajuste de comparación de texto",
       "expertTitle": "Heurísticas avanzadas",
-      "duplicateThreshold": { "label": "Umbral de coincidencia de duplicados (%)", "title": "Valores más altos son más estrictos. Aumenta este valor si líneas diferentes se tratan como duplicados." },
-      "changeThreshold": { "label": "Umbral de cambio de texto (%)", "title": "Valores más bajos activan OCR2 antes con cambios parciales. Valores más altos esperan cambios más claros." },
-      "evolvingPrefix": { "label": "Coincidencia de prefijo evolutivo (%)", "title": "Se usa al comprobar si una línea corta parece el comienzo de una línea más larga." },
-      "truncationFallbackMin": { "label": "Umbral mínimo de respaldo de truncamiento (%)", "title": "Umbral de comparación mínimo requerido antes de permitir la coincidencia de truncamiento de prefijo o sufijo." },
-      "truncationStrictMin": { "label": "Umbral estricto de truncamiento (%)", "title": "Por encima de este umbral, GSM también requiere una similitud base más fuerte antes de tratar un truncamiento como el mismo texto." },
-      "truncationMargin": { "label": "Margen base de truncamiento", "title": "Cuánto puede estar por debajo del umbral de comparación la similitud base antes de que se rechace el respaldo de truncamiento." },
-      "truncationMinLength": { "label": "Longitud mínima de truncamiento (caracteres)", "title": "Longitud mínima de cadena normalizada permitida para coincidencia de truncamiento." },
-      "truncationMinRatio": { "label": "Ratio mínimo de longitud de truncamiento (%)", "title": "Cuánto de la línea más larga debe cubrir la línea más corta antes de considerar la coincidencia de truncamiento." },
-      "subsetChunkMinLength": { "label": "Longitud mínima de fragmento de subconjunto (caracteres)", "title": "Los fragmentos OCR entrantes más cortos que esto omiten el respaldo de cobertura de fragmentos a menos que sean coincidencias exactas." },
-      "shortChunkLimit": { "label": "Límite de fragmento corto (caracteres)", "title": "Los fragmentos de esta longitud o menos usan el mínimo de bloque de coincidencia más pequeño." },
-      "shortChunkMinSize": { "label": "Tamaño mínimo de coincidencia de fragmento corto", "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos cortos." },
-      "defaultMinSize": { "label": "Tamaño mínimo de coincidencia predeterminado", "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos más largos." },
-      "coverageFloor": { "label": "Piso de cobertura de subconjunto (%)", "title": "Requisito de cobertura de fragmentos más bajo permitido para respaldo de deduplicación." },
-      "coverageCeiling": { "label": "Techo de cobertura de subconjunto (%)", "title": "Requisito de cobertura de fragmentos más alto permitido para respaldo de deduplicación." },
-      "coverageOffset": { "label": "Desplazamiento del umbral de cobertura", "title": "Desplazamiento aplicado antes de convertir el umbral de comparación actual en un requisito de cobertura." },
-      "longestBlockMin": { "label": "Mínimo de bloque más largo (caracteres)", "title": "Tamaño mínimo de bloque contiguo requerido en modo de cobertura de subconjunto." },
-      "longestBlockDivisor": { "label": "Divisor de bloque más largo", "title": "Valores más grandes reducen la longitud de bloque contiguo requerida para fragmentos más largos." }
+      "duplicateThreshold": {
+        "label": "Umbral de coincidencia de duplicados (%)",
+        "title": "Valores más altos son más estrictos. Aumenta este valor si líneas diferentes se tratan como duplicados."
+      },
+      "changeThreshold": {
+        "label": "Umbral de cambio de texto (%)",
+        "title": "Valores más bajos activan OCR2 antes con cambios parciales. Valores más altos esperan cambios más claros."
+      },
+      "evolvingPrefix": {
+        "label": "Coincidencia de prefijo evolutivo (%)",
+        "title": "Se usa al comprobar si una línea corta parece el comienzo de una línea más larga."
+      },
+      "truncationFallbackMin": {
+        "label": "Umbral mínimo de respaldo de truncamiento (%)",
+        "title": "Umbral de comparación mínimo requerido antes de permitir la coincidencia de truncamiento de prefijo o sufijo."
+      },
+      "truncationStrictMin": {
+        "label": "Umbral estricto de truncamiento (%)",
+        "title": "Por encima de este umbral, GSM también requiere una similitud base más fuerte antes de tratar un truncamiento como el mismo texto."
+      },
+      "truncationMargin": {
+        "label": "Margen base de truncamiento",
+        "title": "Cuánto puede estar por debajo del umbral de comparación la similitud base antes de que se rechace el respaldo de truncamiento."
+      },
+      "truncationMinLength": {
+        "label": "Longitud mínima de truncamiento (caracteres)",
+        "title": "Longitud mínima de cadena normalizada permitida para coincidencia de truncamiento."
+      },
+      "truncationMinRatio": {
+        "label": "Ratio mínimo de longitud de truncamiento (%)",
+        "title": "Cuánto de la línea más larga debe cubrir la línea más corta antes de considerar la coincidencia de truncamiento."
+      },
+      "subsetChunkMinLength": {
+        "label": "Longitud mínima de fragmento de subconjunto (caracteres)",
+        "title": "Los fragmentos OCR entrantes más cortos que esto omiten el respaldo de cobertura de fragmentos a menos que sean coincidencias exactas."
+      },
+      "shortChunkLimit": {
+        "label": "Límite de fragmento corto (caracteres)",
+        "title": "Los fragmentos de esta longitud o menos usan el mínimo de bloque de coincidencia más pequeño."
+      },
+      "shortChunkMinSize": {
+        "label": "Tamaño mínimo de coincidencia de fragmento corto",
+        "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos cortos."
+      },
+      "defaultMinSize": {
+        "label": "Tamaño mínimo de coincidencia predeterminado",
+        "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos más largos."
+      },
+      "coverageFloor": {
+        "label": "Piso de cobertura de subconjunto (%)",
+        "title": "Requisito de cobertura de fragmentos más bajo permitido para respaldo de deduplicación."
+      },
+      "coverageCeiling": {
+        "label": "Techo de cobertura de subconjunto (%)",
+        "title": "Requisito de cobertura de fragmentos más alto permitido para respaldo de deduplicación."
+      },
+      "coverageOffset": {
+        "label": "Desplazamiento del umbral de cobertura",
+        "title": "Desplazamiento aplicado antes de convertir el umbral de comparación actual en un requisito de cobertura."
+      },
+      "longestBlockMin": {
+        "label": "Mínimo de bloque más largo (caracteres)",
+        "title": "Tamaño mínimo de bloque contiguo requerido en modo de cobertura de subconjunto."
+      },
+      "longestBlockDivisor": {
+        "label": "Divisor de bloque más largo",
+        "title": "Valores más grandes reducen la longitud de bloque contiguo requerida para fragmentos más largos."
+      }
     },
     "hotkeys": {
       "title": "Atajos de teclado",
@@ -1004,9 +1140,113 @@
       "importFailed": "Importación fallida.",
       "areaConfigExported": "Configuración de área OCR copiada al portapapeles.",
       "exportFailed": "Exportación fallida."
+    },
+    "desk": {
+      "preview": {
+        "live": "Vista previa en directo",
+        "paused": "Vista previa pausada",
+        "loading": "Cargando vista previa del juego…",
+        "unavailable": "Vista previa no disponible · áreas guardadas",
+        "stale": "Vista previa no disponible · último fotograma",
+        "textBoxes": "Cuadros de texto",
+        "pause": "Pausar vista previa",
+        "resume": "Reanudar vista previa",
+        "detected": "{count} cuadros de texto · último escaneo",
+        "waiting": "Esperando un escaneo de OCR",
+        "startHint": "Inicia OCR para ver los cuadros de texto"
+      },
+      "brandHint": "Captura de texto del juego",
+      "workspace": "Espacio de OCR",
+      "capture": "Captura",
+      "textMatching": "Comparación de texto",
+      "captureAreas": "Áreas de captura",
+      "editAreas": "Editar áreas",
+      "thisSession": "Esta sesión",
+      "engine": "Reconocimiento de texto",
+      "stability": "Detección de cambios",
+      "adjustRecognition": "Ajustar reconocimiento",
+      "editShortcuts": "Editar atajos",
+      "unbound": "Sin atajo",
+      "autoMode": "Captura automática",
+      "manualMode": "Captura manual",
+      "settingsSaved": "Los cambios se guardan automáticamente",
+      "closeConsole": "Volver al espacio de trabajo",
+      "layoutOverview": "Distribución guardada",
+      "wholeWindow": "Ventana completa",
+      "wholeWindowHint": "Dibuja áreas para centrarte en el texto que quieres.",
+      "savedLayout": "Las áreas están guardadas",
+      "savedLayoutHint": "Abre el selector para revisar esta distribución.",
+      "areaKinds": {
+        "normal": "Texto",
+        "secondary": "Menú",
+        "excluded": "Excluida",
+        "black-hole": "Agujero negro",
+        "exclusive": "Exclusiva"
+      },
+      "viewHelp": {
+        "capture": "Áreas de captura, ajustes de sesión y capturas puntuales.",
+        "recognition": "Elige cómo se detecta y reconoce el texto.",
+        "filtering": "Mejora la imagen capturada y elige cómo se entrega el texto.",
+        "comparison": "Ajusta cuándo un diálogo es nuevo, estable o repetido.",
+        "shortcuts": "Captura texto sin salir del juego.",
+        "tools": "Gestiona paquetes de OCR, diagnósticos y archivos de configuración.",
+        "console": "Salida y diagnósticos de OCR en directo. Los registros se conservan al usar otras páginas."
+      },
+      "shortcutHelp": "Selecciona una combinación y pulsa las teclas que quieras usar. Escape la borra.",
+      "openAreaSelector": "Abrir selector de áreas",
+      "editor": {
+        "edit": "Editar áreas en la vista previa",
+        "areaType": "Dibujar",
+        "undo": "Deshacer",
+        "clear": "Borrar todo",
+        "selectedArea": "Área seleccionada",
+        "none": "Ninguna",
+        "areaLabel": "{number} · {kind}",
+        "remove": "Eliminar",
+        "cancel": "Cancelar",
+        "save": "Guardar áreas",
+        "saving": "Guardando…",
+        "canvas": "Dibujar áreas de OCR en la vista previa del juego",
+        "hint": "Arrastra para dibujar. Haz clic en un área para seleccionarla. La vista previa está pausada; guarda para aplicar los cambios.",
+        "legacyHint": "Usa Abrir selector de áreas para editar esta distribución antigua o no compatible.",
+        "errors": {
+          "sceneChanged": "La escena ha cambiado. Cancela y vuelve a abrir el editor para la escena actual.",
+          "conflict": "Las áreas guardadas han cambiado en otro lugar. Cancela y recarga la escena antes de editar de nuevo.",
+          "invalid": "Esta distribución no se puede guardar aquí. Usa Abrir selector de áreas.",
+          "failed": "No se pudieron guardar las áreas. Tus cambios siguen aquí; inténtalo de nuevo."
+        },
+        "keyboardModifiers": "Teclas modificadoras",
+        "modifierHint": "Shift: Excluida · Ctrl: Menú · Alt: Exclusiva · Ctrl+Alt: Agujero negro"
+      }
     }
   },
   "texthook": {
+    "updates": {
+      "versionChoice": "Versión del paquete de motores",
+      "installSelected": "Instalar la versión seleccionada",
+      "updateLatest": "Actualizar a la última versión",
+      "recommended": "Recomendada",
+      "latest": "Última",
+      "pinHint": "Puedes actualizar ambos motores o volver a una versión anterior. Instalar una versión seleccionada desactiva las actualizaciones automáticas y conserva tu elección hasta que la cambies o vuelvas a activarlas.",
+      "buildVersions": "LunaHook {luna} · Textractor {textractor}"
+    },
+    "workspace": {
+      "title": "Captura de texto",
+      "brandHint": "Texto directo del juego",
+      "currentGame": "Juego actual",
+      "navigation": "Vistas de captura de texto",
+      "live": "Texto en vivo",
+      "liveHelp": "Elige un hook y comprueba que su salida coincida con el diálogo del juego.",
+      "engine": "Motor y script",
+      "output": "Salida y tiempos",
+      "outputHelp": "Ajusta la entrega de texto, el tiempo de revisión y la longitud máxima.",
+      "tools": "Herramientas",
+      "toolsHelp": "Consulta la ayuda y administra los motores instalados.",
+      "noHookSelected": "Ningún hook seleccionado",
+      "logHelp": "Mensajes del motor de captura de esta sesión.",
+      "closeLog": "Volver al espacio de trabajo",
+      "clearLog": "Limpiar registro"
+    },
     "credits": {
       "text": "Herramientas de text hook",
       "agent": "Agent",
@@ -1086,6 +1326,9 @@
     },
     "status": {
       "attached": "Adjuntado",
+      "starting": "Iniciando",
+      "waitingForText": "Esperando texto",
+      "receiving": "Recibiendo texto",
       "ready": "Listo",
       "noTarget": "Sin objetivo"
     },
@@ -1110,6 +1353,85 @@
       "manualFailed": "No se pudo adjuntar el hook manual.",
       "profileSaveFailed": "No se pudo guardar el perfil del hook.",
       "noExe": "No se detectó ejecutable para la captura activa."
+    }
+  },
+  "speechRecognition": {
+    "workspace": {
+      "title": "Voz de Windows",
+      "brandHint": "Reconocimiento de voz",
+      "capture": "Transcripción en vivo",
+      "captureHelp": "Captura los diálogos hablados del juego en la escena de OBS seleccionada.",
+      "advanced": "Avanzado",
+      "activity": "Registro de actividad",
+      "navigation": "Vistas de Voz de Windows",
+      "session": "Sesión de reconocimiento de voz",
+      "unsaved": "Cambios sin guardar",
+      "transcript": "Diálogo reconocido",
+      "clearText": "Borrar texto",
+      "interim": "Escuchando…",
+      "waiting": "Esperando diálogo del juego…",
+      "empty": "Inicia el reconocimiento de voz para ver los diálogos aquí.",
+      "forwarding": "Se aplican las reglas de procesamiento de texto de GSM a los diálogos reconocidos."
+    },
+    "title": "Windows Speech Recognition",
+    "subtitle": "Run speech recognition for the current OBS scene and send recognized dialogue through GSM's text pipeline.",
+    "experimental": "Experimental · Windows only",
+    "loading": "Loading speech recognition workspace...",
+    "loadFailed": "Could not load speech recognition settings.",
+    "scenesLoadFailed": "Could not load OBS scenes.",
+    "sceneSwitchFailed": "Could not switch the active OBS scene.",
+    "scene": {
+      "title": "Scene",
+      "hint": "Choose the OBS scene whose game audio should be recognized.",
+      "label": "OBS scene",
+      "refresh": "Refresh",
+      "none": "No OBS scenes found",
+      "savedPerScene": "Settings below are saved for {scene} only.",
+      "connectObs": "Connect OBS to select a scene."
+    },
+    "engine": {
+      "title": "Recognition",
+      "hint": "Configure the recognizer used when this scene is started.",
+      "downloadHint": "The embedded backend may download about 358 MB and unpack about 492 MB on first use."
+    },
+    "backend": "Recognition backend",
+    "backendEmbedded": "Embedded speech (recommended)",
+    "backendSapi": "Windows SAPI",
+    "language": "Recognition language",
+    "languageJapanese": "Japanese",
+    "languageEnglish": "English",
+    "advanced": "Advanced runtime overrides",
+    "advancedHint": "Leave these blank to use GSM's downloaded speech bundle and automatic discovery.",
+    "modelPath": "Model path",
+    "runtimePath": "Runtime path",
+    "licenseFile": "Embedded Speech license file",
+    "automatic": "Automatic",
+    "optional": "Optional",
+    "save": "Save",
+    "saving": "Saving...",
+    "savedForScene": "Speech recognition settings saved for {scene}.",
+    "saveFailed": "Could not save speech recognition settings.",
+    "start": "Start Speech Recognition",
+    "stop": "Stop Speech Recognition",
+    "startFailed": "Could not start speech recognition.",
+    "stopFailed": "Could not stop speech recognition.",
+    "status": {
+      "idle": "Idle",
+      "starting": "Starting",
+      "running": "Running",
+      "stopping": "Stopping",
+      "error": "Error"
+    },
+    "console": {
+      "title": "Recognition log",
+      "hint": "Runtime messages and recognized text stay local to this app session.",
+      "clear": "Clear",
+      "empty": "Start speech recognition to see runtime logs and recognized text here."
+    },
+    "footer": {
+      "noScene": "No scene selected",
+      "runningHint": "Recognition stops automatically when the OBS scene changes.",
+      "idleHint": "Settings are scene-specific. Start recognition when you are ready."
     }
   }
 }

@@ -111,6 +111,21 @@ def test_two_collections_sharing_destination_keep_every_item(tmp_path, monkeypat
     )
 
 
+def test_saved_clip_selected_images_use_distinct_saved_game_names(tmp_path, monkeypatch):
+    monkeypatch.setattr(anki, "_get_anki_field_config", _field_config)
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: Path(kwargs["filename"]).name)
+    result = _result(tmp_path, ["akaiito-first.avif", "akaiito-second.avif"])
+    assets = anki.MediaAssets(game_name="FFVII Rebirth", selected_screenshots=result)
+    note = {"fields": {}}
+
+    anki._process_selected_screenshots(assets, note, _config(), ExistingNote({"Picture": ""}))
+
+    assert len(set(assets.screenshot_media_in_anki)) == 2
+    assert all(name.startswith("FFVIIRebirth_") and "akaiito" not in name for name in assets.screenshot_media_in_anki)
+    assert all(name in note["fields"]["Picture"] for name in assets.screenshot_media_in_anki)
+    assert all(Path(item.path).is_file() for item in result.items)
+
+
 def test_hotkey_hands_complete_collection_to_background_update(tmp_path, monkeypatch):
     result = _result(tmp_path, ["one.avif", "two.avif"])
     captures = []

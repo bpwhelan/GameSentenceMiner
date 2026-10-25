@@ -1,6 +1,62 @@
+import json
+
 import pytest
 
+from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import Anki, Config, ProfileConfig
+
+
+@pytest.mark.parametrize("loader", [Config.load, configuration.load_config])
+def test_legacy_anki_toggles_migrate_to_one_enabled_setting(tmp_path, monkeypatch, loader):
+    legacy_states = [
+        ({"enabled": True, "update_anki": True}, True),
+        ({"enabled": True, "update_anki": False}, False),
+        ({"enabled": False, "update_anki": True}, False),
+        ({"enabled": False, "update_anki": False}, False),
+        ({"update_anki": False}, False),
+        ({"update_anki": True}, True),
+        ({"enabled": False}, False),
+        ({"enabled": True}, True),
+        ({}, True),
+    ]
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "current_profile": "0",
+                "configs": {
+                    str(index): {"name": str(index), "anki": state} for index, (state, _) in enumerate(legacy_states)
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(configuration, "get_config_path", lambda: str(config_path))
+
+    loaded = loader()
+
+    for index, (_, enabled) in enumerate(legacy_states):
+        profile = loaded.configs[str(index)]
+        assert profile.anki.enabled is enabled
+        assert "update_anki" not in profile.anki.to_dict()
+
+    # Enabling Anki after migration must not leave a hidden switch blocking updates.
+    loaded.configs["1"].anki.enabled = True
+    loaded.save()
+    reloaded = loader()
+    assert reloaded.configs["1"].anki.enabled is True
+    assert all("update_anki" not in profile.anki.to_dict() for profile in reloaded.configs.values())
+
+
+def test_profileless_config_preserves_disabled_anki_updates(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"anki": {"enabled": True, "update_anki": False}}), encoding="utf-8")
+    monkeypatch.setattr(configuration, "get_config_path", lambda: str(config_path))
+
+    loaded = configuration.load_config()
+
+    assert loaded.get_config().anki.enabled is False
+    assert "update_anki" not in loaded.get_config().anki.to_dict()
 
 
 def test_same_selected_lines_different_mined_line_reuse_defaults():
@@ -8,6 +64,49 @@ def test_same_selected_lines_different_mined_line_reuse_defaults():
 
     assert config.reuse_audio_for_same_selected_lines_different_mined_line is True
     assert config.reuse_screenshot_for_same_selected_lines_different_mined_line is False
+
+
+def test_confirmation_audio_step_defaults_for_existing_configs():
+    assert Anki.from_dict({}).confirmation_audio_step == 0.25
+
+
+@pytest.mark.parametrize("step", [0.1, 0.25, 0.5, 1, 2, 3, 4, 5])
+def test_confirmation_audio_step_round_trips_and_syncs_across_profiles(step):
+    config = Config(
+        current_profile="active",
+        configs={
+            "active": ProfileConfig(anki=Anki(confirmation_audio_step=step)),
+            "other": ProfileConfig(),
+        },
+    )
+    config.sync_shared_fields()
+    restored = Config.from_dict(config.to_dict())
+    assert all(profile.anki.confirmation_audio_step == step for profile in restored.configs.values())
+
+
+@pytest.mark.parametrize("step", [None, -1, 0, 0.3, 10, float("nan"), float("inf"), "bad"])
+def test_invalid_confirmation_audio_step_uses_default(step):
+    assert Anki(confirmation_audio_step=step).confirmation_audio_step == 0.25
+
+
+def test_skip_confirmation_for_unvoiced_defaults_off_for_existing_configs():
+    assert Anki().skip_confirmation_for_unvoiced is False
+    existing = Anki().to_dict()
+    existing.pop("skip_confirmation_for_unvoiced")
+    assert Anki.from_dict(existing).skip_confirmation_for_unvoiced is False
+
+
+def test_skip_confirmation_for_unvoiced_round_trips_and_syncs_across_profiles():
+    config = Config(
+        current_profile="active",
+        configs={
+            "active": ProfileConfig(anki=Anki(skip_confirmation_for_unvoiced=True)),
+            "other": ProfileConfig(),
+        },
+    )
+    config.sync_shared_fields()
+    restored = Config.from_dict(config.to_dict())
+    assert all(profile.anki.skip_confirmation_for_unvoiced for profile in restored.configs.values())
 
 
 def test_confirmation_gamepad_binding_defaults_preserve_existing_controls():

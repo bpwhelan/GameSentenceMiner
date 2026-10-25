@@ -5,10 +5,10 @@ const vm = require('node:vm');
 const test = require('node:test');
 
 function loadSettings(platform = 'linux') {
-  const source = fs.readFileSync(path.join(__dirname, '../settings.html'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '../settings/inputs.js'), 'utf8');
   const section = (start, end) => {
-    const from = source.indexOf(start);
-    const to = source.indexOf(end, from);
+    const from = source.indexOf(start.trimStart());
+    const to = source.indexOf(end.trimStart(), from);
     assert.ok(from >= 0 && to > from, `Settings section: ${start}`);
     return source.slice(from, to);
   };
@@ -40,9 +40,9 @@ function loadSettings(platform = 'linux') {
   });
   vm.runInContext([
     section('    const GAMEPAD_BUTTON_LABELS = {', '    const KEYBOARD_BINDING_INPUT_CONFIG = {'),
-    section('    let gamepadStatusInterval = null;', '    function updateTokenizerBackendFieldState()'),
+    section('    let gamepadStatusInterval = null;', '    // Reusable hotkey input'),
     section('    function getCaptureTargetGamepad(', '    // ==================== Keyboard Binding Capture'),
-    section('    function getGamepadButtonLabel(', '    // Check gamepad status periodically'),
+    section('    function getGamepadButtonLabel(', '    // Check gamepad server connection status'),
     'updateGamepadStatus = () => {};',
   ].join('\n'), context);
   const call = code => vm.runInContext(code, context);

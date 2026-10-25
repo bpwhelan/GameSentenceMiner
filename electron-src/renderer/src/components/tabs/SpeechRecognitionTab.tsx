@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { WorkspaceIcon, WorkspaceNavigation } from "../Workspace";
+import "./SpeechRecognitionTab.css";
+
 import { useTranslation } from "../../i18n";
 import { invokeIpc, onIpc } from "../../lib/ipc";
 import type { ObsScene } from "../../types/models";
@@ -49,7 +52,7 @@ const DEFAULT_SETTINGS: WindowsSpeechSettings = {
   language: "ja",
   modelPath: "",
   runtimePath: "",
-  licenseFile: ""
+  licenseFile: "",
 };
 
 const DEFAULT_STATUS: WindowsSpeechStatus = {
@@ -59,21 +62,35 @@ const DEFAULT_STATUS: WindowsSpeechStatus = {
   backend: "",
   language: "",
   error: "",
-  reason: ""
+  reason: "",
 };
 
 const MAX_LOG_LINES = 250;
+type SpeechView = "capture" | "advanced" | "activity";
+const SPEECH_VIEWS = [
+  {
+    id: "capture",
+    labelKey: "speechRecognition.workspace.capture",
+  },
+  {
+    id: "advanced",
+    labelKey: "speechRecognition.workspace.advanced",
+  },
+  {
+    id: "activity",
+    labelKey: "speechRecognition.workspace.activity",
+  },
+] as const;
 
 function toObsScenes(value: unknown): ObsScene[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(
-    (scene): scene is ObsScene =>
-      Boolean(
-        scene &&
-          typeof scene === "object" &&
-          typeof (scene as ObsScene).id === "string" &&
-          typeof (scene as ObsScene).name === "string"
-      )
+  return value.filter((scene): scene is ObsScene =>
+    Boolean(
+      scene &&
+        typeof scene === "object" &&
+        typeof (scene as ObsScene).id === "string" &&
+        typeof (scene as ObsScene).name === "string",
+    ),
   );
 }
 
@@ -88,12 +105,14 @@ function normalizeStatus(value: unknown): WindowsSpeechStatus {
     backend: String(payload.backend ?? ""),
     language: String(payload.language ?? ""),
     error: String(payload.error ?? ""),
-    reason: String(payload.reason ?? "")
+    reason: String(payload.reason ?? ""),
   };
 }
 
 export function SpeechRecognitionTab({ active }: { active: boolean }) {
   const t = useTranslation();
+  const [workspaceView, setWorkspaceView] = useState<SpeechView>("capture");
+  const transcriptRef = useRef<HTMLDivElement>(null);
   const [scenes, setScenes] = useState<ObsScene[]>([]);
   const [selectedSceneId, setSelectedSceneId] = useState("");
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
@@ -110,7 +129,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
 
   const selectedScene = useMemo(
     () => scenes.find((scene) => scene.id === selectedSceneId) ?? null,
-    [scenes, selectedSceneId]
+    [scenes, selectedSceneId],
   );
 
   const loadScene = useCallback(
@@ -118,7 +137,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
       setLoadingScene(true);
       try {
         const snapshot = await invokeIpc<WindowsSpeechSnapshot>("speech-recognition.loadScene", {
-          scene
+          scene,
         });
         if (!snapshot.success) {
           setNotice({ type: "error", text: snapshot.error || t("speechRecognition.loadFailed") });
@@ -134,18 +153,20 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
         setLoadingScene(false);
       }
     },
-    [t]
+    [t],
   );
 
   const refreshScenes = useCallback(async () => {
     try {
       const [sceneResponse, activeScene] = await Promise.all([
         invokeIpc<unknown>("obs.getScenes"),
-        invokeIpc<ObsScene | null>("obs.getActiveScene")
+        invokeIpc<ObsScene | null>("obs.getActiveScene"),
       ]);
       const nextScenes = toObsScenes(sceneResponse);
       const nextScene =
-        (activeScene && nextScenes.find((scene) => scene.id === activeScene.id)) ?? nextScenes[0] ?? null;
+        (activeScene && nextScenes.find((scene) => scene.id === activeScene.id)) ??
+        nextScenes[0] ??
+        null;
       setScenes(nextScenes);
       setSelectedSceneId(nextScene?.id ?? "");
       if (nextScene) {
@@ -172,7 +193,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
         id: ++logIdRef.current,
         level: String(event.level ?? "info").toLowerCase(),
         message: event.message,
-        timestamp: typeof event.timestamp === "number" ? event.timestamp : Date.now()
+        timestamp: typeof event.timestamp === "number" ? event.timestamp : Date.now(),
       };
       setLogs((current) => [...current, line].slice(-MAX_LOG_LINES));
     });
@@ -192,7 +213,9 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
     const consoleElement = consoleRef.current;
     if (!consoleElement) return;
     consoleElement.scrollTop = consoleElement.scrollHeight;
-  }, [logs]);
+    const transcript = transcriptRef.current;
+    if (transcript) transcript.scrollTop = transcript.scrollHeight;
+  }, [logs, workspaceView, active]);
 
   const updateSettings = useCallback((patch: Partial<WindowsSpeechSettings>) => {
     setSettings((current) => {
@@ -208,7 +231,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
     async (scene: ObsScene, nextSettings: WindowsSpeechSettings, showNotice: boolean) => {
       const result = await invokeIpc<CommandResult>("speech-recognition.saveScene", {
         scene,
-        settings: nextSettings
+        settings: nextSettings,
       });
       if (!result.success) {
         setNotice({ type: "error", text: result.error || t("speechRecognition.saveFailed") });
@@ -216,11 +239,14 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
       }
       setDirty(false);
       if (showNotice) {
-        setNotice({ type: "success", text: t("speechRecognition.savedForScene", { scene: scene.name }) });
+        setNotice({
+          type: "success",
+          text: t("speechRecognition.savedForScene", { scene: scene.name }),
+        });
       }
       return true;
     },
-    [t]
+    [t],
   );
 
   const save = useCallback(async () => {
@@ -254,7 +280,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
         setBusy("");
       }
     },
-    [dirty, loadScene, persistScene, scenes, selectedScene, t]
+    [dirty, loadScene, persistScene, scenes, selectedScene, t],
   );
 
   const start = useCallback(async () => {
@@ -265,7 +291,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
     try {
       const result = await invokeIpc<CommandResult>("speech-recognition.start", {
         scene: selectedScene,
-        settings: settingsRef.current
+        settings: settingsRef.current,
       });
       if (!result.success) {
         const message = result.error || t("speechRecognition.startFailed");
@@ -275,7 +301,11 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
       }
       setDirty(false);
     } catch {
-      setStatus((current) => ({ ...current, state: "error", error: t("speechRecognition.startFailed") }));
+      setStatus((current) => ({
+        ...current,
+        state: "error",
+        error: t("speechRecognition.startFailed"),
+      }));
       setNotice({ type: "error", text: t("speechRecognition.startFailed") });
     } finally {
       setBusy("");
@@ -301,206 +331,366 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
   const isRunning = status.state === "running" || status.state === "starting";
   const controlsDisabled = Boolean(busy) || loadingScene || !selectedScene;
 
-  if (!active) return null;
+  const currentView = SPEECH_VIEWS.find((view) => view.id === workspaceView)!;
+  const transcriptLines = useMemo(() => {
+    const lines: Array<SpeechLogLine & { text: string; partial: boolean }> = [];
+    for (const line of logs) {
+      if (line.level !== "result") continue;
+      const entry = {
+        ...line,
+        text: line.message.replace(/^\[(?:final|partial)\]\s*/i, ""),
+        partial: /^\[partial\]/i.test(line.message),
+      };
+      if (lines[lines.length - 1]?.partial) lines[lines.length - 1] = entry;
+      else lines.push(entry);
+    }
+    return lines;
+  }, [logs]);
 
-  if (!loaded) {
+  if (!active) return null;
+  if (!loaded)
     return (
-      <div className="tab-panel active speech-recognition-panel">
+      <div className="tab-panel active">
         <div className="speech-recognition-loading">{t("speechRecognition.loading")}</div>
       </div>
     );
-  }
 
   return (
-    <div className="tab-panel active speech-recognition-panel">
-      <div className="modern-tab speech-recognition-workspace">
-        {notice ? (
-          <div className={`speech-recognition-notice speech-recognition-notice--${notice.type}`} role="status">
-            {notice.text}
-          </div>
-        ) : null}
-
-        <header className="speech-recognition-header">
-          <div>
-            <div className="speech-recognition-title-row">
-              <h1>{t("speechRecognition.title")}</h1>
-              <span>{t("speechRecognition.experimental")}</span>
-            </div>
-            <p>{t("speechRecognition.subtitle")}</p>
-          </div>
-        </header>
-
-        <div className="speech-recognition-dashboard">
-          <div className="speech-recognition-column">
-            <section className="card legacy-card speech-recognition-card">
-              <div className="speech-recognition-card-heading">
-                <div>
-                  <h2>{t("speechRecognition.scene.title")}</h2>
-                  <p>{t("speechRecognition.scene.hint")}</p>
-                </div>
-                <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void refreshScenes()}>
-                  {t("speechRecognition.scene.refresh")}
-                </button>
-              </div>
-              <label htmlFor="speech-scene">{t("speechRecognition.scene.label")}</label>
-              <select
-                id="speech-scene"
-                value={selectedSceneId}
-                disabled={Boolean(busy) || scenes.length === 0}
-                onChange={(event) => void switchScene(event.target.value)}
-              >
-                {scenes.length === 0 ? (
-                  <option value="">{t("speechRecognition.scene.none")}</option>
-                ) : (
-                  scenes.map((scene) => (
-                    <option key={scene.id} value={scene.id}>
-                      {scene.name}
-                    </option>
-                  ))
-                )}
-              </select>
-              <div className="speech-recognition-scene-note">
-                {selectedScene
-                  ? t("speechRecognition.scene.savedPerScene", { scene: selectedScene.name })
-                  : t("speechRecognition.scene.connectObs")}
-              </div>
-            </section>
-
-            <section className="card legacy-card speech-recognition-card">
-              <div className="speech-recognition-card-heading">
-                <div>
-                  <h2>{t("speechRecognition.engine.title")}</h2>
-                  <p>{t("speechRecognition.engine.hint")}</p>
-                </div>
-                <button type="button" className="secondary" disabled={!dirty || Boolean(busy)} onClick={() => void save()}>
-                  {busy === "save" ? t("speechRecognition.saving") : t("speechRecognition.save")}
-                </button>
-              </div>
-              <div className="speech-recognition-grid">
-                <label htmlFor="speech-backend">
-                  <span>{t("speechRecognition.backend")}</span>
-                  <select
-                    id="speech-backend"
-                    value={settings.backend}
-                    disabled={loadingScene}
-                    onChange={(event) =>
-                      updateSettings({ backend: event.target.value === "sapi" ? "sapi" : "embedded" })
-                    }
-                  >
-                    <option value="embedded">{t("speechRecognition.backendEmbedded")}</option>
-                    <option value="sapi">{t("speechRecognition.backendSapi")}</option>
-                  </select>
-                </label>
-                <label htmlFor="speech-language">
-                  <span>{t("speechRecognition.language")}</span>
-                  <select
-                    id="speech-language"
-                    value={settings.language}
-                    disabled={loadingScene}
-                    onChange={(event) =>
-                      updateSettings({ language: event.target.value === "en" ? "en" : "ja" })
-                    }
-                  >
-                    <option value="ja">{t("speechRecognition.languageJapanese")}</option>
-                    <option value="en">{t("speechRecognition.languageEnglish")}</option>
-                  </select>
-                </label>
-              </div>
-              <p className="speech-recognition-download-note">{t("speechRecognition.engine.downloadHint")}</p>
-            </section>
-
-            <details className="card legacy-card speech-recognition-card speech-recognition-advanced">
-              <summary>{t("speechRecognition.advanced")}</summary>
-              <p>{t("speechRecognition.advancedHint")}</p>
-              <label>
-                <span>{t("speechRecognition.modelPath")}</span>
-                <input
-                  type="text"
-                  value={settings.modelPath}
-                  placeholder={t("speechRecognition.automatic")}
-                  onChange={(event) => updateSettings({ modelPath: event.target.value })}
-                />
-              </label>
-              <label>
-                <span>{t("speechRecognition.runtimePath")}</span>
-                <input
-                  type="text"
-                  value={settings.runtimePath}
-                  placeholder={t("speechRecognition.automatic")}
-                  onChange={(event) => updateSettings({ runtimePath: event.target.value })}
-                />
-              </label>
-              <label>
-                <span>{t("speechRecognition.licenseFile")}</span>
-                <input
-                  type="text"
-                  value={settings.licenseFile}
-                  placeholder={t("speechRecognition.optional")}
-                  onChange={(event) => updateSettings({ licenseFile: event.target.value })}
-                />
-              </label>
-            </details>
-          </div>
-
-          <section className="card legacy-card speech-recognition-card speech-recognition-console-card">
-            <div className="speech-recognition-card-heading">
-              <div>
-                <h2>{t("speechRecognition.console.title")}</h2>
-                <p>{t("speechRecognition.console.hint")}</p>
-              </div>
-              <div className="speech-recognition-console-actions">
-                <span className={`speech-recognition-status speech-recognition-status--${status.state}`}>
-                  {statusLabel}
-                </span>
-                <button type="button" className="secondary" onClick={() => setLogs([])}>
-                  {t("speechRecognition.console.clear")}
-                </button>
-              </div>
-            </div>
-            <div ref={consoleRef} className="speech-recognition-console" role="log" aria-live="polite">
-              {logs.length === 0 ? (
-                <div className="speech-recognition-console-empty">{t("speechRecognition.console.empty")}</div>
-              ) : (
-                logs.map((line) => (
-                  <div key={line.id} className={`speech-recognition-log speech-recognition-log--${line.level}`}>
-                    <time>{new Date(line.timestamp).toLocaleTimeString()}</time>
-                    <span>{line.message}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-        </div>
-
-        <footer className={`speech-recognition-footer speech-recognition-footer--${status.state}`}>
-          <div className="speech-recognition-footer-status">
-            <span className={`speech-recognition-status speech-recognition-status--${status.state}`}>
-              {statusLabel}
+    <div className="tab-panel active">
+      <div className="gsm-workspace speech-desk">
+        <aside className="ws-sidebar">
+          <div className="ws-brand">
+            <span className="ws-brand-mark">
+              <WorkspaceIcon name="speech" />
             </span>
             <div>
-              <strong>
-                {status.sceneName || selectedScene?.name || t("speechRecognition.footer.noScene")}
-              </strong>
-              <p>
-                {status.error ||
-                  (isRunning
-                    ? t("speechRecognition.footer.runningHint")
-                    : t("speechRecognition.footer.idleHint"))}
-              </p>
+              <strong>{t("speechRecognition.workspace.title")}</strong>
+              <span>{t("speechRecognition.workspace.brandHint")}</span>
             </div>
           </div>
-          <div className="speech-recognition-footer-actions">
+          <span className="speech-experimental">{t("speechRecognition.experimental")}</span>
+          <div className="speech-scene-picker">
+            <div className="speech-scene-heading">
+              <label htmlFor="speech-scene">{t("speechRecognition.scene.label")}</label>
+              <button
+                type="button"
+                disabled={Boolean(busy)}
+                aria-label={t("speechRecognition.scene.refresh")}
+                onClick={() => void refreshScenes()}
+              >
+                <WorkspaceIcon name="updates" />
+              </button>
+            </div>
+            <select
+              id="speech-scene"
+              value={selectedSceneId}
+              disabled={Boolean(busy) || scenes.length === 0}
+              onChange={(event) => void switchScene(event.target.value)}
+            >
+              {scenes.length === 0 ? (
+                <option value="">{t("speechRecognition.scene.none")}</option>
+              ) : (
+                scenes.map((scene) => (
+                  <option
+                    key={scene.id}
+                    value={scene.id}
+                  >
+                    {scene.name}
+                  </option>
+                ))
+              )}
+            </select>
+            <p>
+              {selectedScene
+                ? t("speechRecognition.scene.savedPerScene", { scene: selectedScene.name })
+                : t("speechRecognition.scene.connectObs")}
+            </p>
+          </div>
+          <WorkspaceNavigation
+            prefix="speech"
+            items={SPEECH_VIEWS.map((view) => ({ id: view.id, label: t(view.labelKey) }))}
+            value={workspaceView}
+            onChange={setWorkspaceView}
+            label={t("speechRecognition.workspace.navigation")}
+          />
+          <section
+            className="ws-sidebar-footer speech-session"
+            aria-label={t("speechRecognition.workspace.session")}
+          >
+            <div
+              className={
+                "ws-state " +
+                (isRunning
+                  ? "is-running"
+                  : status.state === "error"
+                    ? "is-error"
+                    : status.state === "stopping"
+                      ? "is-pending"
+                      : "")
+              }
+              role="status"
+            >
+              <i aria-hidden="true" />
+              {statusLabel}
+            </div>
+            <strong>
+              {status.sceneName || selectedScene?.name || t("speechRecognition.footer.noScene")}
+            </strong>
+            <p>
+              {status.error ||
+                t(
+                  isRunning
+                    ? "speechRecognition.footer.runningHint"
+                    : "speechRecognition.footer.idleHint",
+                )}
+            </p>
             {isRunning || status.state === "stopping" ? (
-              <button type="button" className="danger" disabled={Boolean(busy)} onClick={() => void stop()}>
+              <button
+                type="button"
+                className="danger"
+                disabled={Boolean(busy)}
+                onClick={() => void stop()}
+              >
+                <WorkspaceIcon name="stop" />
                 {t("speechRecognition.stop")}
               </button>
             ) : (
-              <button type="button" disabled={controlsDisabled} onClick={() => void start()}>
+              <button
+                type="button"
+                className="ws-primary"
+                disabled={controlsDisabled}
+                onClick={() => void start()}
+              >
+                <WorkspaceIcon name="play" />
                 {t("speechRecognition.start")}
               </button>
             )}
+          </section>
+        </aside>
+        <main className="ws-main">
+          <header className="ws-page-header">
+            <div>
+              <h1>{t(currentView.labelKey)}</h1>
+              {notice ? (
+                <div
+                  className={"ws-notice " + (notice.type === "error" ? "is-error" : "")}
+                  role="status"
+                >
+                  {notice.text}
+                </div>
+              ) : null}
+            </div>
+            <div className="ws-header-actions">
+              {dirty ? (
+                <span className="ws-state is-pending">
+                  {t("speechRecognition.workspace.unsaved")}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                className={dirty ? "ws-primary" : ""}
+                disabled={!dirty || controlsDisabled}
+                onClick={() => void save()}
+              >
+                {t(busy === "save" ? "speechRecognition.saving" : "speechRecognition.save")}
+              </button>
+            </div>
+          </header>
+          <div className="ws-pages">
+            <section
+              id="speech-view-capture"
+              className="ws-view speech-capture-view"
+              role="tabpanel"
+              aria-labelledby="speech-nav-capture"
+              hidden={workspaceView !== "capture"}
+              tabIndex={0}
+            >
+              <div className="speech-engine-bar">
+                <div className="speech-engine-fields">
+                  <div className="input-group">
+                    <label htmlFor="speech-backend">{t("speechRecognition.backend")}</label>
+                    <select
+                      id="speech-backend"
+                      value={settings.backend}
+                      disabled={loadingScene || Boolean(busy)}
+                      onChange={(event) =>
+                        updateSettings({
+                          backend: event.target.value === "sapi" ? "sapi" : "embedded",
+                        })
+                      }
+                    >
+                      <option value="embedded">{t("speechRecognition.backendEmbedded")}</option>
+                      <option value="sapi">{t("speechRecognition.backendSapi")}</option>
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="speech-language">{t("speechRecognition.language")}</label>
+                    <select
+                      id="speech-language"
+                      value={settings.language}
+                      disabled={loadingScene || Boolean(busy)}
+                      onChange={(event) =>
+                        updateSettings({ language: event.target.value === "en" ? "en" : "ja" })
+                      }
+                    >
+                      <option value="ja">{t("speechRecognition.languageJapanese")}</option>
+                      <option value="en">{t("speechRecognition.languageEnglish")}</option>
+                    </select>
+                  </div>
+                </div>
+                {settings.backend === "embedded" ? (
+                  <p className="speech-download-note">
+                    {t("speechRecognition.engine.downloadHint")}
+                  </p>
+                ) : null}
+              </div>
+              <section
+                className="speech-transcript-section"
+                aria-labelledby="speech-transcript-title"
+              >
+                <div className="speech-transcript-heading">
+                  <h2 id="speech-transcript-title">
+                    {t("speechRecognition.workspace.transcript")}
+                  </h2>
+                  <button
+                    type="button"
+                    disabled={transcriptLines.length === 0}
+                    onClick={() =>
+                      setLogs((current) => current.filter((line) => line.level !== "result"))
+                    }
+                  >
+                    {t("speechRecognition.workspace.clearText")}
+                  </button>
+                </div>
+                <div
+                  className="speech-transcript"
+                  ref={transcriptRef}
+                  role="log"
+                  aria-live="polite"
+                  aria-label={t("speechRecognition.workspace.transcript")}
+                  tabIndex={0}
+                >
+                  {transcriptLines.length ? (
+                    transcriptLines.map((line) => (
+                      <article
+                        key={line.id}
+                        className={"speech-transcript-line" + (line.partial ? " is-partial" : "")}
+                      >
+                        <div>
+                          <time>{new Date(line.timestamp).toLocaleTimeString()}</time>
+                          {line.partial ? (
+                            <span>{t("speechRecognition.workspace.interim")}</span>
+                          ) : null}
+                        </div>
+                        <p>{line.text}</p>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="speech-empty">
+                      <WorkspaceIcon name="speech" />
+                      <p>
+                        {t(
+                          isRunning
+                            ? "speechRecognition.workspace.waiting"
+                            : "speechRecognition.workspace.empty",
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </section>
+              <p className="speech-forwarding-note">
+                {t("speechRecognition.workspace.forwarding")}
+              </p>
+            </section>
+            <section
+              id="speech-view-advanced"
+              className="ws-view"
+              role="tabpanel"
+              aria-labelledby="speech-nav-advanced"
+              hidden={workspaceView !== "advanced"}
+              tabIndex={0}
+            >
+              <div className="speech-advanced-form">
+                <div className="input-group">
+                  <label htmlFor="speech-model-path">{t("speechRecognition.modelPath")}</label>
+                  <input
+                    id="speech-model-path"
+                    type="text"
+                    value={settings.modelPath}
+                    disabled={loadingScene || Boolean(busy)}
+                    placeholder={t("speechRecognition.automatic")}
+                    onChange={(event) => updateSettings({ modelPath: event.target.value })}
+                  />
+                </div>
+                <div className="input-group">
+                  <label htmlFor="speech-runtime-path">{t("speechRecognition.runtimePath")}</label>
+                  <input
+                    id="speech-runtime-path"
+                    type="text"
+                    value={settings.runtimePath}
+                    disabled={loadingScene || Boolean(busy)}
+                    placeholder={t("speechRecognition.automatic")}
+                    onChange={(event) => updateSettings({ runtimePath: event.target.value })}
+                  />
+                </div>
+                <div className="input-group">
+                  <label htmlFor="speech-license-path">{t("speechRecognition.licenseFile")}</label>
+                  <input
+                    id="speech-license-path"
+                    type="text"
+                    value={settings.licenseFile}
+                    disabled={loadingScene || Boolean(busy)}
+                    placeholder={t("speechRecognition.optional")}
+                    onChange={(event) => updateSettings({ licenseFile: event.target.value })}
+                  />
+                </div>
+              </div>
+            </section>
+            <section
+              id="speech-view-activity"
+              className="ws-view speech-activity-view"
+              role="tabpanel"
+              aria-labelledby="speech-nav-activity"
+              hidden={workspaceView !== "activity"}
+              tabIndex={0}
+            >
+              <div className="speech-activity-toolbar">
+                <span className="ws-state">{statusLabel}</span>
+                <button
+                  type="button"
+                  onClick={() => setLogs([])}
+                >
+                  {t("speechRecognition.console.clear")}
+                </button>
+              </div>
+              <div
+                ref={consoleRef}
+                className="speech-recognition-console"
+                role="log"
+                aria-live="polite"
+                aria-label={t("speechRecognition.console.title")}
+                tabIndex={0}
+              >
+                {logs.length === 0 ? (
+                  <div className="speech-empty">
+                    <p>{t("speechRecognition.console.empty")}</p>
+                  </div>
+                ) : (
+                  logs.map((line) => (
+                    <div
+                      key={line.id}
+                      className={`speech-recognition-log speech-recognition-log--${line.level}`}
+                    >
+                      <time>{new Date(line.timestamp).toLocaleTimeString()}</time>
+                      <span>{line.message}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
           </div>
-        </footer>
+        </main>
       </div>
     </div>
   );

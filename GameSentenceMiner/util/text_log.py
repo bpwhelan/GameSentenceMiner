@@ -74,6 +74,7 @@ class GameLine:
     first_seen_time: datetime | None = None
     finalized_time: datetime | None = None
     source_instance: str = ""
+    excluded_from_stats: bool = False
 
     def get_previous_time(self):
         if self.prev:
@@ -214,8 +215,8 @@ class GameText:
                 first_seen_time=first_seen,
                 finalized_time=finalized,
                 source_instance=record.source_instance,
+                excluded_from_stats=record.excluded_from_stats,
             )
-            line.excluded_from_stats = record.excluded_from_stats
             self.values_dict[line.id] = line
             self.values.append(line)
             self.game_line_index += 1
@@ -486,7 +487,9 @@ def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> 
     )
 
 
-def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = False) -> GameLine:
+def get_matching_line(
+    last_note: AnkiCard, lines=None, *, prefer_recent: bool = False, search_saved_clips: bool = True
+) -> GameLine:
     """
     Find a matching GameLine for the given AnkiCard.
 
@@ -496,21 +499,36 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
         prefer_recent: Prefer the newest valid match before applying expression or
             text-similarity ranking. Overlay mines use this because an NVL block can
             contain several recent text events and older dialogue remains on screen.
+        search_saved_clips: Search saved clips before falling back to the latest line.
+            Explicit Text Feed selections and matching overlay scans keep their own media.
 
     Returns:
-        GameLine: The matching line or the latest line if no match found
+        GameLine: A matching live or saved line, or the latest line if no match is found.
     """
     if not lines:
         lines = get_all_lines()
+
+    best_line = find_matching_line(last_note, lines, prefer_recent=prefer_recent)
+    if best_line is not None:
+        return best_line
+
+    if search_saved_clips and last_note and last_note.get_field(get_config().anki.sentence_field):
+        try:
+            # Imported here because clips rebuild their lines using this module.
+            from GameSentenceMiner.util import clips
+
+            clips_root = clips.get_clips_root()
+            saved_line = clips.match_card_to_clip(last_note, clips_root) if clips_root else None
+            if saved_line is not None:
+                logger.info(f"No matching sentence in GSM's live history. Using saved clip: {saved_line.clip.folder}")
+                return saved_line
+        except Exception as error:  # noqa: BLE001 - Saved clip failures must preserve live mining.
+            logger.exception(f"Failed to check saved clips before the history fallback: {error}")
 
     if not lines:
         raise Exception(
             "No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config."
         )
-
-    best_line = find_matching_line(last_note, lines, prefer_recent=prefer_recent)
-    if best_line is not None:
-        return best_line
 
     if last_note and last_note.get_field(get_config().anki.sentence_field):
         logger.info(
@@ -520,12 +538,18 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
 
 
 def find_matching_line(
-    last_note: AnkiCard, lines, *, prefer_recent: bool = False, respect_replay_window: bool = True
+    last_note: AnkiCard,
+    lines,
+    *,
+    prefer_recent: bool = False,
+    respect_replay_window: bool = True,
+    minimum_score: float = 0.0,
 ) -> GameLine | None:
     """Return the line that best matches the card's sentence, or None when nothing matches.
 
     Clips pass respect_replay_window=False: their footage lives in a saved clip, so age
-    does not rule them out.
+    does not rule them out. minimum_score requires sentence or highlighted-context
+    similarity before accepting a candidate, including containment matches.
     """
     if not last_note or not lines:
         return None
@@ -569,14 +593,16 @@ def find_matching_line(
             # source can legitimately append an older media timestamp after a newer
             # line, so never assume the remaining list is timestamp-sorted.
             continue
-        if lines_match(line.text, anki_sentence):
+        if lines_match(line.text, anki_sentence) and (
+            minimum_score <= 0 or _match_score(line.text, anki_sentence) >= minimum_score
+        ):
             candidates.append(line)
         context_score = _highlight_context_score(
             line.text,
             normalized_context_sentence,
             mined_expression_spans,
         )
-        if context_score >= HIGHLIGHT_CONTEXT_MIN_SCORE:
+        if context_score >= max(HIGHLIGHT_CONTEXT_MIN_SCORE, minimum_score):
             expression_context_candidates.append(line)
             expression_context_scores[line.id] = context_score
 
@@ -632,12 +658,14 @@ def get_text_event(last_note) -> GameLine:
     return line
 
 
-def get_mined_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = False) -> GameLine:
+def get_mined_line(
+    last_note: AnkiCard, lines=None, *, prefer_recent: bool = False, search_saved_clips: bool = True
+) -> GameLine:
     """
     Legacy wrapper for get_matching_line with original behavior.
     Uses stripped text comparison and accepts custom lines.
     """
-    line = get_matching_line(last_note, lines=lines, prefer_recent=prefer_recent)
+    line = get_matching_line(last_note, lines=lines, prefer_recent=prefer_recent, search_saved_clips=search_saved_clips)
     _freeze_authoritative_line(line)
     return line
 

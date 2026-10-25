@@ -42,6 +42,7 @@ from GameSentenceMiner.ocr.debug_logging import (
 )
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.composite_layout import CompositeLayout
+from GameSentenceMiner.ocr.preview import preview_geometry
 from GameSentenceMiner.ocr.gsm_ocr_config import (
     OCRConfig,
     has_config_changed,
@@ -356,7 +357,7 @@ class TwoPassOCRController:
         """Process a single OCR result through the two-pass pipeline."""
         orig_text_string = "".join(item for item in orig_text if item is not None) if orig_text else ""
         orig_text_list = [item for item in (orig_text or []) if item is not None]
-        raw_text_string = str(raw_text if raw_text is not None else (text or ""))
+        raw_text_string = str(raw_text if raw_text is not None else (orig_text_string or text or ""))
         current_time = time or datetime.now()
 
         if came_from_ss:
@@ -573,39 +574,32 @@ class TwoPassOCRController:
         source: str = "ocr",
     ) -> None:
         start = perf_counter()
-        joined = "".join(str(x) for x in (orig_text_list or []) if x is not None)
+        # Re-filter the stable frame against delivered text, independently of
+        # OCR1's rolling history. Preserve separators lost by joining its chunks.
+        joined = raw_text or "".join(str(x) for x in (orig_text_list or []) if x is not None)
         if not joined:
             return
         if self.filtering is None:
             filtered_text, orig_text = joined, [joined]
         else:
             filtered_text, orig_text = self.filtering(
-                joined, self.last_ocr2_result, engine=self.config.ocr2_engine + ".2"
+                joined, self.last_ocr2_result, engine=self.config.ocr2_engine, is_second_ocr=True
             )
         keep_newline = self.config.keep_newline
         try:
             from GameSentenceMiner.owocr.owocr.ocr import post_process
-            from GameSentenceMiner.util.config.electron_config import (
-                get_ocr_keep_newline,
-                get_ocr_language,
-            )
 
-            keep_newline = get_ocr_keep_newline(source)
-            if get_ocr_language() in ("ja", "zh"):
+            if self.config.language in ("ja", "zh"):
                 filtered_text = post_process(filtered_text, keep_blank_lines=keep_newline)
         except Exception:
             pass
-        last_sent = self.last_sent_result
-        if last_sent and filtered_text and len(filtered_text) > len(last_sent):
-            if filtered_text.startswith(last_sent):
-                filtered_text = filtered_text[len(last_sent) :].strip()
         if filtered_text:
             elapsed = perf_counter() - start
             engine_name = (
                 self.config.ocr1_engine_readable or self.config.ocr1_engine or self.config.ocr2_engine or "OCR1"
             )
             logger.info(
-                f"OCR Run 2 (bypassed): Text recognized in {elapsed:0.03f}s using {engine_name} (filtered from OCR1 orig_text): {filtered_text}"
+                f"Stable text delivered in {elapsed:0.03f}s using {engine_name} (no second scan): {filtered_text}"
             )
         self._dispatch_second_pass_result(
             filtered_text,
@@ -864,20 +858,19 @@ class TwoPassOCRController:
         pending_img = pending.img
         pending_crop = pending.crop_coords
         pending_source = pending.source
-        pending_response = response_dict or pending.response_dict
+        pending_response = pending.response_dict
 
-        # same-engine bypass is intentionally disabled for now.
-        # if self.config.same_engine:
-        #     self._send_same_engine_filtered(
-        #         pending.orig_text_list,
-        #         pending_time,
-        #         pending_img,
-        #         raw_text=pending.raw_text,
-        #         response_dict=pending_response,
-        #         source=source,
-        #     )
-        #     self._clear_pending()
-        #     return
+        if self.config.same_engine:
+            self._send_same_engine_filtered(
+                pending.orig_text_list,
+                pending_time,
+                pending_img,
+                raw_text=pending.raw_text,
+                response_dict=pending_response,
+                source=pending_source,
+            )
+            self._clear_pending()
+            return True
 
         ocr2_img = self._build_ocr2_image(pending_crop, pending_img)
         queued = self._queue_second_pass_task(
@@ -1145,7 +1138,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         self._debug_frame_id += 1
         orig_text_string = "".join(item for item in orig_text if item is not None) if orig_text else ""
         orig_text_list = [item for item in (orig_text or []) if item is not None]
-        raw_text_string = str(raw_text if raw_text is not None else (text or ""))
+        raw_text_string = str(raw_text if raw_text is not None else (orig_text_string or text or ""))
         current_time = time or datetime.now()
         active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
         self._debug(
@@ -3428,9 +3421,31 @@ def _save_ocr2_optimization_debug_images(pre_crop_image, cropped_image) -> dict[
     return {name: str(path) for name, path in paths.items()}
 
 
+def _update_capture_preview(response_dict):
+    if not preview_geometry.enabled:
+        return
+    # Use the identity attached when the image was captured. The active game may
+    # have changed while an engine was processing a queued frame.
+    if not isinstance(response_dict, dict):
+        return
+    pipeline = response_dict.get("pipeline")
+    capture = pipeline.get("capture") if isinstance(pipeline, dict) else None
+    if not isinstance(capture, dict):
+        return
+    scene_name = capture.get("scene_name")
+    source_name = capture.get("source_name")
+    if scene_name and source_name:
+        try:
+            preview_geometry.update(response_dict, scene_name=scene_name, source_name=source_name)
+        except (TypeError, ValueError, AttributeError, KeyError, OverflowError) as error:
+            logger.debug(f"Could not update OCR preview geometry: {error}")
+
+
 async def send_result(text, time, response_dict=None, source=TextSource.OCR):
     if shutdown_requested:
         return
+    if source != TextSource.SCREEN_CROPPER:
+        _update_capture_preview(response_dict)
     if text:
         # Skip expensive overlay coordinate math when no overlay client is
         # connected. The overlay is Windows-only and most users don't enable it.
@@ -3808,6 +3823,7 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 for c in (
                     "ocr1",
                     "ocr2",
+                    "useOnlineOcr",
                     "language",
                     "furigana_filter_sensitivity",
                     "text_appears_instantly",
@@ -3829,6 +3845,9 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 reset_callback_vars()
                 if mode_switched:
                     logger.info("Advanced mode toggled, resetting OCR state")
+            elif _controller is not None and any(key in changes for key in ("keep_newline", "keep_newline_auto")):
+                # Same-engine delivery uses the controller's formatting snapshot.
+                _controller.config.keep_newline = get_ocr_keep_newline()
             if "base_scale" in changes:
                 try:
                     if hasattr(ocr_runtime, "obs_screenshot_thread") and ocr_runtime.obs_screenshot_thread:
@@ -3910,6 +3929,8 @@ def ocr_result_callback(
 
     active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
 
+    if not came_from_ss:
+        _update_capture_preview(response_dict)
     ctrl.handle_ocr_result(
         text,
         orig_text,

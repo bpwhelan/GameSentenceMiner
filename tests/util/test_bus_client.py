@@ -165,3 +165,28 @@ def test_subscribe_receives_events(broker, client):
         time.sleep(0.02)
     assert received, "subscriber was not invoked"
     assert received[0]["data"] == {"hi": 1}
+
+
+def test_concurrent_preview_request_keeps_text_events_responsive(broker, client):
+    started = threading.Event()
+    release = threading.Event()
+    text_received = threading.Event()
+
+    async def capture(_message):
+        started.set()
+        await asyncio.to_thread(release.wait, 3)
+        return "frame"
+
+    client.handle("capture.preview", capture, concurrent=True)
+    client.subscribe("text", lambda _message: text_received.set())
+    broker.send(
+        {"v": 1, "id": "capture", "src": "main", "dst": "tester", "kind": "request", "topic": "capture.preview"}
+    )
+    try:
+        assert started.wait(2)
+        broker.send({"v": 1, "id": "text", "src": "main", "dst": "tester", "kind": "event", "topic": "text"})
+        assert text_received.wait(1), "A slow game preview blocked incoming text"
+    finally:
+        release.set()
+    response = broker.wait_for(lambda frame: frame.get("corr") == "capture")
+    assert response["data"] == "frame"

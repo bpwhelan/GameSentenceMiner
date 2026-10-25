@@ -195,13 +195,17 @@
             "label": "启用:",
             "tooltip": "启用或禁用 Anki 集成。"
           },
-          "update_anki": {
-            "label": "更新 Anki:",
-            "tooltip": "使用新数据自动更新 Anki。"
-          },
           "show_update_confirmation_dialog": {
             "label": "显示更新确认对话框:",
             "tooltip": "在更新 Anki 卡片之前显示确认对话框。"
+          },
+          "skip_confirmation_for_unvoiced": {
+            "label": "跳过未检测到语音行的确认：",
+            "tooltip": "警告：VAD 未检测到语音时跳过确认窗口。确认窗口最初是为了让用户复查未检测到语音行的 VAD 结果。跳过确认可能使漏检的语音无法被发现，并生成没有语音音频的卡片。"
+          },
+          "confirmation_audio_step": {
+            "label": "音频扩展步长：",
+            "tooltip": "在确认对话框中，每次点击音频扩展按钮时增加的秒数。"
           },
           "confirmation_gamepad_enabled": {
             "label": "手柄控制:",
@@ -405,8 +409,8 @@
         "features": {
           "title": "功能",
           "notify_on_update": {
-            "label": "更新时通知:",
-            "tooltip": "发生更新时通知用户。"
+            "label": "创建或更新 Anki 卡片时通知：",
+            "tooltip": "GSM 创建或更新 Anki 卡片时通知用户。"
           },
           "open_anki_edit": {
             "label": "打开 Anki 编辑:",
@@ -431,6 +435,31 @@
           "generate_longplay": {
             "label": "生成长流程视频:",
             "tooltip": "从 OBS 录制生成长流程视频，并将 GSM 收到的文本写入 SRT 字幕文件。需要重启。"
+          },
+          "notifications_title": "桌面通知",
+          "notify_on_audio_generated": {
+            "label": "生成音频时通知：",
+            "tooltip": "GSM 完成音频生成或剪辑时通知。"
+          },
+          "notify_on_screenshot_saved": {
+            "label": "保存截图时通知：",
+            "tooltip": "GSM 将截图保存到磁盘时通知。"
+          },
+          "notify_on_anki_enhancement_failed": {
+            "label": "Anki 卡片增强失败时通知：",
+            "tooltip": "GSM 无法完成 Anki 卡片增强时通知，包括音频缺失或生成失败。"
+          },
+          "notify_on_errors": {
+            "label": "GSM 出错时通知：",
+            "tooltip": "GSM 出现需要处理的错误时通知。"
+          },
+          "notify_on_obs_warning": {
+            "label": "OBS 回放不可用时通知：",
+            "tooltip": "GSM 无法使用 OBS 回放缓冲区时通知。"
+          },
+          "notify_on_text_intake_state": {
+            "label": "文本输入暂停或恢复时通知：",
+            "tooltip": "收到的文本处理暂停或恢复时通知。"
           }
         },
         "screenshot": {
@@ -575,7 +604,7 @@
           },
           "pause_text_intake": {
             "label": "暂停 GSM 文本输入热键:",
-            "tooltip": "临时暂停或恢复 GSM 的剪贴板/WebSocket 文本输入。暂停时，GSM 会跳过自身的统计/历史记录以及 Overlay 触发。留空即可禁用此热键；默认不分配热键。"
+            "tooltip": "临时暂停或恢复 GSM 的统计收集。暂停期间收到的文本不会更新实时统计、Discord 活动或数据库。启用文本转发时，制卡和悬浮层仍会正常工作。留空即可禁用此热键；默认不分配热键。"
           },
           "mute_target_window": {
             "label": "目标窗口静音/取消静音热键:",
@@ -587,7 +616,7 @@
           },
           "relay_outputs_when_paused": {
             "checkbox": "暂停时仍转发到文本评送/输出客户端",
-            "tooltip": "启用后，暂停期间的文本在完成文本处理后仍会转发到文本评送页面和输出 websocket 客户端，但 GSM 仍会跳过自身的统计/历史记录以及 Overlay 触发。关闭后会完全丢弃传入文本。"
+            "tooltip": "启用后，暂停统计收集期间仍可使用制卡、悬浮层、文本馈送和输出 WebSocket 客户端。收到的文本会保留在内存中供制卡使用，但不会更新实时统计、Discord 活动或数据库。关闭后会完全丢弃传入文本。"
           }
         },
         "obs": {
@@ -713,7 +742,15 @@
           },
           "mute_game_on_minimize": {
             "label": "最小化时静音游戏:",
-            "tooltip": "在 Windows 上，仅当目标游戏窗口最小化时将其静音。后台或未聚焦时不会静音。"
+            "tooltip": "在 Windows 上，当目标游戏窗口最小化时将其静音。游戏被其他窗口遮挡时的静音由下方的设置控制。"
+          },
+          "mute_game_on_background": {
+            "label": "游戏被遮挡时静音:",
+            "tooltip": "在 Windows 上，当目标游戏窗口被其他窗口完全遮挡并持续达到下方设置的延迟时间后将其静音。即使窗口重新显示，也会保持静音，直到你重新聚焦游戏。最小化时的静音由单独的设置控制。"
+          },
+          "mute_game_on_background_delay_seconds": {
+            "label": "后台静音延迟（秒）:",
+            "tooltip": "游戏窗口需要持续被完全遮挡多久才会静音（0–300 秒）。设为 0 可立即静音。如果在延迟结束前重新聚焦游戏或使窗口重新可见，倒计时将被取消。此设置不会延迟最小化时的静音。"
           }
         },
         "ai": {

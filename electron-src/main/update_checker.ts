@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import log from "electron-log";
 import { getPythonPath } from "./store.js";
+import { isDev } from "./util.js";
 import {
     getProjectPath,
 } from "./services/python_ops.js";
@@ -87,7 +88,10 @@ async function checkForUpdates(
             return { updateAvailable: false, latestVersion: null };
         }
 
-        const latestVersion = await getLatestCompatibleVersion(bundledVersion);
+        // Development installs use the local checkout, so a PyPI post release
+        // cannot be installed by that update path. Comparing against it would
+        // reinstall the same local version on every launch.
+        const latestVersion = isDev ? bundledVersion : await getLatestCompatibleVersion(bundledVersion);
         console.log(`Latest compatible backend version: ${latestVersion}`);
 
         const decision = getBackendUpdateDecision(

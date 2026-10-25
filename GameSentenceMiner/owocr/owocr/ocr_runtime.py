@@ -512,6 +512,8 @@ def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second
         "capture": {
             "original_size": _size_dict(capture_original_w, capture_original_h),
             "scaled_size": _size_dict(capture_scaled_w, capture_scaled_h),
+            "scene_name": meta.get("scene_name"),
+            "source_name": meta.get("source_name"),
         },
         "processing": {
             "processed_size": _size_dict(processed_w, processed_h),
@@ -1240,26 +1242,26 @@ class TextFiltering:
 
     # --- Layout Analysis Methods (ported from upstream owocr) ---
 
-    def order_paragraphs_and_lines(self, ocr_result):
+    def order_paragraphs_and_lines(self, ocr_result, *, language=None):
         mode = get_native_mode("ocr")
         if mode is NativeMode.PYTHON or not native_ocr.is_available():
-            return self._order_paragraphs_and_lines_python(ocr_result)
+            return self._order_paragraphs_and_lines_python(ocr_result, language=language)
 
         try:
-            native_result = self._order_paragraphs_and_lines_native(ocr_result)
+            native_result = self._order_paragraphs_and_lines_native(ocr_result, language=language)
         except Exception as exc:
             logger.warning(f"Native OCR layout failed; using Python fallback: {exc}")
-            return self._order_paragraphs_and_lines_python(ocr_result)
+            return self._order_paragraphs_and_lines_python(ocr_result, language=language)
 
         if mode is not NativeMode.SHADOW:
             return native_result
 
-        python_result = self._order_paragraphs_and_lines_python(copy.deepcopy(ocr_result))
+        python_result = self._order_paragraphs_and_lines_python(copy.deepcopy(ocr_result), language=language)
         if self._layout_signature(native_result) != self._layout_signature(python_result):
             logger.warning("Native OCR layout shadow result differs from the Python reference")
         return python_result
 
-    def _order_paragraphs_and_lines_native(self, ocr_result):
+    def _order_paragraphs_and_lines_native(self, ocr_result, *, language=None):
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
         source_lines = {}
         native_lines = []
@@ -1297,7 +1299,7 @@ class TextFiltering:
             lines=native_lines,
             image_width=float(getattr(image_properties, "width", 0) or 0),
             image_height=float(getattr(image_properties, "height", 0) or 0),
-            language=str(get_ocr_language() or self.initial_lang),
+            language=str(language if language is not None else (get_ocr_language() or self.initial_lang)),
             furigana_filter=self.furigana_filter,
             support_center_aligned_text=self.support_center_aligned_text,
             merge_close_paragraphs=self.merge_close_paragraphs,
@@ -1380,7 +1382,7 @@ class TextFiltering:
             for paragraph in ocr_result.paragraphs
         ]
 
-    def _order_paragraphs_and_lines_python(self, ocr_result):
+    def _order_paragraphs_and_lines_python(self, ocr_result, *, language=None):
         # Update sensitivity config
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
 
@@ -1400,7 +1402,7 @@ class TextFiltering:
                 )
 
         # Wrap lines into dicts with extra metadata needed for reordering
-        all_lines = self._create_line_dicts(ocr_result)
+        all_lines = self._create_line_dicts(ocr_result, language=language)
 
         if not all_lines:
             return ocr_result
@@ -1426,8 +1428,8 @@ class TextFiltering:
             paragraphs=final_paragraphs,
         )
 
-    def _create_line_dicts(self, ocr_result):
-        lang = get_ocr_language()
+    def _create_line_dicts(self, ocr_result, *, language=None):
+        lang = language if language is not None else get_ocr_language()
         lines = []
         for paragraph in ocr_result.paragraphs:
             for line in paragraph.lines:
@@ -3175,8 +3177,10 @@ class OBSScreenshotThread(threading.Thread):
                     time.sleep(self.inactive_source_retry_interval)
                     continue
 
+                capture_scene_name = self.current_scene
+                capture_source_name = self.current_source_name
                 img = obs.get_screenshot_PIL(
-                    source_name=self.current_source_name,
+                    source_name=capture_source_name,
                     width=self.width,
                     height=self.height,
                     img_format="jpg",
@@ -3204,6 +3208,8 @@ class OBSScreenshotThread(threading.Thread):
                         primary_rectangles.append(list(rect.coordinates))
                 frame_metadata = {
                     "capture_source": "obs",
+                    "scene_name": capture_scene_name,
+                    "source_name": capture_source_name,
                     "capture_original_size": self.get_capture_original_size(capture_width, capture_height),
                     "capture_scaled_size": _size_dict(capture_width, capture_height),
                     "ocr_area_crop_offset": CompositeLayout.from_metadata(crop_offset).to_metadata(),

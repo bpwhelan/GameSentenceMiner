@@ -45,7 +45,7 @@ from GameSentenceMiner.util.platform.notification import (
     send_text_intake_resumed_notification,
 )
 from GameSentenceMiner.util.platform.windows_clipboard import WindowsClipboardListener
-from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
+from GameSentenceMiner.util.stats.live_stats import live_stats_tracker, publish_live_stats_update
 from GameSentenceMiner.util.text_log import (
     GameLine,
     TextSource,
@@ -104,7 +104,6 @@ _ocr_hook_redundancy_warned = False
 
 _text_runtime: AuthoritativeTextRuntime | None = None
 _text_runtime_lock = threading.RLock()
-_projected_lines: dict[str, GameLine] = {}
 _overlay_dispatcher = None
 
 DEFAULT_TEXTHOOK_MAX_BUFFER_SIZE = 3000
@@ -117,12 +116,21 @@ MAX_JAPANESE_QUOTE_PAIRS = 10
 # ---------------------------------------------------------------------------
 
 
+def _expire_live_stats_session() -> None:
+    # Reconcile game changes and expiry on the same thread as incoming lines.
+    current_game = obs.get_current_game(update=False)
+    if current_game:
+        live_stats_tracker.set_game(current_game)
+    live_stats_tracker.reset_if_inactive()
+
+
 def get_authoritative_text_runtime() -> AuthoritativeTextRuntime:
     global _text_runtime
     with _text_runtime_lock:
         if _text_runtime is None:
             _text_runtime = AuthoritativeTextRuntime(
                 _project_text_domain_event,
+                projection_idle_callback=_expire_live_stats_session,
                 retention_provider=lambda: timedelta(
                     seconds=max(0, float(getattr(gsm_state, "replay_buffer_length", 0) or 0)) + 5
                 ),
@@ -277,6 +285,13 @@ def set_text_intake_paused(paused: bool) -> bool:
     old_state = is_text_intake_paused()
     gsm_state.text_input_paused = new_state
     if new_state != old_state:
+        if new_state:
+            from GameSentenceMiner.util.database.reading_breaks_table import ReadingBreaksTable
+
+            paused_at = time.time()
+            live_stats_tracker.mark_reading_break(paused_at)
+            ReadingBreaksTable.record(paused_at)
+        publish_live_stats_update(live_stats_tracker, reason="intake_paused" if new_state else "intake_resumed")
         logger.info(f"GSM text intake {'paused' if new_state else 'resumed'}.")
         announce_text_intake_state(new_state)
         if new_state:
@@ -979,40 +994,12 @@ def ingest_text_v2_payload(payload: dict) -> dict[str, object]:
     return ack.to_dict()
 
 
-def _line_from_record(record: TextRecordSnapshot) -> GameLine:
-    if not record.relay_only:
-        return game_log.upsert_authoritative_line(record)
-    line = _projected_lines.get(record.line_id)
-    captured_at = to_local_naive_datetime(record.captured_at_utc)
-    if line is None:
-        line = GameLine(
-            id=record.line_id,
-            text=record.text,
-            time=captured_at,
-            prev=None,
-            next=None,
-            index=-1,
-            scene=record.scene,
-            source=record.source_kind.value,
-            source_padding=TextSource.padding_seconds(record.source_kind.value),
-        )
-        _projected_lines[record.line_id] = line
-    line.text = record.text
-    line.revision = record.revision
-    line.state = record.state.value
-    line.session_id = record.session_id
-    line.stream_sequence = record.stream_sequence
-    line.first_seen_time = to_local_naive_datetime(record.first_seen_at_utc)
-    line.finalized_time = to_local_naive_datetime(record.finalized_at_utc) if record.finalized_at_utc else None
-    line.source_instance = record.source_instance
-    line.excluded_from_stats = True
-    return line
-
-
 def _project_text_domain_event(event: TextDomainEvent) -> None:
     global current_line_time, _dont_collect_stats_notice_count
     record = event.record
-    line = _line_from_record(record)
+    # Stats-paused text still needs linked, timestamped history for Anki mining
+    # and replay media. Exclusion controls stats/persistence, not this history.
+    line = game_log.upsert_authoritative_line(record)
     source_label = record.source_display_name or record.source_kind.value
     current_line_time = to_local_naive_datetime(record.captured_at_utc)
 
@@ -1020,10 +1007,7 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
 
     project_text_domain_event(event, line)
     if event.kind is TextEventKind.EXPIRED:
-        if record.relay_only:
-            _projected_lines.pop(record.line_id, None)
-        else:
-            game_log.remove_by_id(record.line_id)
+        game_log.remove_by_id(record.line_id)
         return
     if event.kind in (TextEventKind.APPENDED, TextEventKind.UPDATED):
         if event.kind is TextEventKind.APPENDED:
@@ -1062,11 +1046,13 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
                 record.first_seen_at_utc.timestamp(),
                 line_id=record.line_id,
                 revision=record.revision,
+                game_name=record.scene,
             )
-        _notify_discord_activity(record.scene)
+        if not record.relay_only:
+            _notify_discord_activity(record.scene)
         return
 
-    if event.kind is not TextEventKind.FROZEN or record.relay_only:
+    if event.kind is not TextEventKind.FROZEN:
         return
 
     obs.add_longplay_srt_line(current_line_time, line)

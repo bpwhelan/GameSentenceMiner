@@ -1,14 +1,14 @@
 from pathlib import Path
 
-
 OVERLAY_DIR = Path(__file__).resolve().parents[1] / "GSM_Overlay"
 
 
 def test_settings_page_exposes_floating_window_font_size():
     settings_html = (OVERLAY_DIR / "settings.html").read_text(encoding="utf-8")
+    settings_bindings = (OVERLAY_DIR / "settings" / "bindings.js").read_text(encoding="utf-8")
 
     assert 'id="fontSize"' in settings_html
-    assert 'createNumberBinding("fontSize", "#fontSize"' in settings_html
+    assert 'createNumberBinding("fontSize", "#fontSize"' in settings_bindings
     assert "Floating Window Font Size" in settings_html
 
 

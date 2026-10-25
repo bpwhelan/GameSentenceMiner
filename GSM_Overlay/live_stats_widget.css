@@ -70,6 +70,44 @@
   text-transform: uppercase;
 }
 
+.gsm-live-stats-intake-warning {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  color: #ffd58a;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: normal;
+}
+
+.gsm-live-stats-intake-warning::before {
+  content: "";
+  width: 4px;
+  height: 12px;
+  border-left: 3px solid currentColor;
+  border-right: 3px solid currentColor;
+  flex: 0 0 auto;
+}
+
+#gsm-live-stats.gsm-live-stats-intake-paused {
+  border-color: #e6a23c;
+  background: rgba(42, 29, 12, 0.94);
+}
+
+#gsm-live-stats.gsm-live-stats-intake-paused.gsm-live-stats-visible {
+  opacity: 1;
+}
+
+#gsm-live-stats.gsm-live-stats-intake-paused .gsm-live-stats-intake-warning {
+  display: flex;
+}
+
+/* Preserve the warning when text overlap hides the rest of the widget. */
+#gsm-live-stats.gsm-live-stats-intake-paused.gsm-live-stats-text-overlap-hidden > :not(.gsm-live-stats-intake-warning) {
+  display: none;
+}
+
 .gsm-live-stats-status {
   width: 7px;
   height: 7px;

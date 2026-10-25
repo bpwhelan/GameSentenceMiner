@@ -312,6 +312,30 @@ def test_tadoku_settings_reject_invalid_game_whitelist(client, monkeypatch, valu
     assert response.get_json()["error"] == "Tadoku automatic sync game whitelist must contain valid game IDs"
 
 
+def test_tadoku_settings_keep_saved_password_and_cookie_when_password_is_blank(client, monkeypatch):
+    config = _stats_config(
+        tadoku_username="reader@example.com",
+        tadoku_password="saved-password",
+        tadoku_session_cookie="saved-cookie",
+    )
+    monkeypatch.setattr("GameSentenceMiner.web.database_api.get_stats_config", lambda: config)
+    monkeypatch.setattr("GameSentenceMiner.web.database_api.save_stats_config", lambda _config: None)
+
+    response = client.post(
+        "/api/settings",
+        json={"tadoku_username": "reader@example.com", "tadoku_password": "", "tadoku_title_source": "original"},
+    )
+
+    assert response.status_code == 200
+    assert config.tadoku_username == "reader@example.com"
+    assert config.tadoku_password == "saved-password"
+    assert config.tadoku_session_cookie == "saved-cookie"
+    assert config.tadoku_title_source == "original"
+    assert response.get_json()["tadoku_configured"] is True
+    assert "tadoku_password" not in response.get_json()
+    assert "tadoku_session_cookie" not in response.get_json()
+
+
 def test_tadoku_settings_can_clear_saved_credentials(client, monkeypatch):
     config = _stats_config(
         tadoku_username="reader",

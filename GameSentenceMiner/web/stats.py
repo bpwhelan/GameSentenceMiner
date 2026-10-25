@@ -1,9 +1,10 @@
 """
 Statistics Calculation Module
 
-Pure computation functions for reading statistics. These functions operate on
+Calculation functions for reading statistics. These functions operate on
 lists of GameLinesTable records or pre-aggregated data and return plain dicts /
-values.  They have **no** Flask dependency and can be called from API handlers,
+values. Reading-time calculations also load saved pause boundaries unless the
+caller supplies them. They have **no** Flask dependency and can be called from API handlers,
 cron jobs, or tests.
 
 Functions that deal with *rollup aggregation* (combining daily snapshots with
@@ -24,9 +25,9 @@ from GameSentenceMiner.util.config.configuration import (
 )
 from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.util.stats.stats_util import (
-    adaptive_cap_seconds,
+    gap_crosses_reading_break,
     has_cards,
-    session_median_cps,
+    session_reading_seconds,
 )
 from GameSentenceMiner.util.text_utils import is_kanji as is_kanji  # noqa: PLC0414 - public compatibility re-export
 
@@ -355,6 +356,8 @@ def calculate_reading_speed_heatmap_data(
 def calculate_actual_reading_time(
     timestamps: Sequence[float],
     line_texts: Sequence[str],
+    *,
+    reading_breaks: Sequence[float] | None = None,
 ) -> float:
     """Estimate reading time with a separate median pace for each session.
 
@@ -363,7 +366,9 @@ def calculate_actual_reading_time(
     the configured session break are neither credited nor used to learn pace.
     The final line in each session has no observed duration and gets no credit.
 
-    Batch stats use the complete session; live stats only know gaps seen so far.
+    Batch and live stats recalculate all measured gaps at the current median.
+    Gaps spanning an explicit pause are neither credited nor used to learn pace.
+    Unless supplied, pause boundaries are read from the stats database.
     Callers supply the same cleaned text used for their character totals.
 
     Returns:
@@ -376,24 +381,29 @@ def calculate_actual_reading_time(
         ((timestamp, text) for timestamp, text in zip(timestamps, line_texts) if isfinite(timestamp)),
         key=lambda p: p[0],
     )
+    if len(sorted_pairs) < 2:
+        return 0.0
+    if reading_breaks is None:
+        from GameSentenceMiner.util.database.reading_breaks_table import ReadingBreaksTable
+
+        reading_breaks = ReadingBreaksTable.between(sorted_pairs[0][0], sorted_pairs[-1][0])
+    reading_breaks = sorted(reading_breaks)
     session_gap = get_stats_config().session_gap_seconds
     raw_gaps: list[tuple[float, int]] = []
     total_seconds = 0.0
 
-    def session_seconds() -> float:
-        median_cps = session_median_cps(raw_gaps)
-        return sum(min(gap, adaptive_cap_seconds(chars, median_cps)) for gap, chars in raw_gaps)
-
     for i in range(len(sorted_pairs) - 1):
         raw_gap = sorted_pairs[i + 1][0] - sorted_pairs[i][0]
         if raw_gap > session_gap:
-            total_seconds += session_seconds()
+            total_seconds += session_reading_seconds(raw_gaps)
             raw_gaps.clear()
+            continue
+        if gap_crosses_reading_break(sorted_pairs[i][0], sorted_pairs[i + 1][0], reading_breaks):
             continue
         char_count = len(sorted_pairs[i][1] or "")
         raw_gaps.append((raw_gap, char_count))
 
-    return total_seconds + session_seconds()
+    return total_seconds + session_reading_seconds(raw_gaps)
 
 
 # ---------------------------------------------------------------------------

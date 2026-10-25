@@ -14,6 +14,53 @@ def _image_bytes(mode="RGB", size=(10, 10), fmt="PNG", color=(10, 20, 30)):
     return buffer.getvalue()
 
 
+@pytest.mark.parametrize("fmt,mime", [("JPEG", "jpeg"), ("PNG", "png"), ("GIF", "gif"), ("WEBP", "webp")])
+def test_fetch_original_image_preserves_bytes_and_resolution(monkeypatch, fmt, mime):
+    raw = _image_bytes(size=(380, 500), fmt=fmt)
+    response = type("Response", (), {"status_code": 200, "content": raw})()
+    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: response)
+
+    result = image_utils.fetch_original_image_as_base64("https://example.com/portrait")
+
+    assert result.startswith(f"data:image/{mime};base64,")
+    assert base64.b64decode(result.split(",", 1)[1]) == raw
+
+
+def test_fetch_original_image_preserves_transparency(monkeypatch):
+    raw = _image_bytes(mode="RGBA", size=(380, 500), color=(10, 20, 30, 0))
+    response = type("Response", (), {"status_code": 200, "content": raw})()
+    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: response)
+    result = image_utils.fetch_original_image_as_base64("https://example.com/portrait.png")
+    assert base64.b64decode(result.split(",", 1)[1]) == raw
+
+
+def test_fetch_original_image_converts_other_formats_without_losing_resolution(monkeypatch):
+    raw = _image_bytes(size=(380, 500), fmt="BMP")
+    response = type("Response", (), {"status_code": 200, "content": raw})()
+    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: response)
+    result = image_utils.fetch_original_image_as_base64("https://example.com/portrait.bmp")
+    assert result.startswith("data:image/png;base64,")
+    with Image.open(io.BytesIO(base64.b64decode(result.split(",", 1)[1]))) as image:
+        assert image.size == (380, 500)
+        assert image.getpixel((0, 0)) == (10, 20, 30, 255)
+
+
+@pytest.mark.parametrize("status,content", [(404, b""), (200, b"not an image")])
+def test_fetch_original_image_handles_failed_downloads(monkeypatch, status, content):
+    response = type("Response", (), {"status_code": status, "content": content})()
+    monkeypatch.setattr(image_utils.requests, "get", lambda *_args, **_kwargs: response)
+    assert image_utils.fetch_original_image_as_base64("https://example.com/portrait") is None
+
+
+def test_fetch_original_image_handles_request_exception(monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise image_utils.requests.RequestException("offline")
+
+    monkeypatch.setattr(image_utils.requests, "get", fail)
+    assert image_utils.fetch_original_image_as_base64("https://example.com/portrait") is None
+    assert image_utils.fetch_original_image_as_base64("") is None
+
+
 def test_convert_image_to_rgb_returns_same_object_for_rgb():
     image = Image.new("RGB", (2, 2), (1, 2, 3))
     converted = image_utils.convert_image_to_rgb(image)

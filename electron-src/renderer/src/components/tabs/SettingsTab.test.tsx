@@ -100,6 +100,59 @@ describe("SettingsTab data folder controls", () => {
     }));
   });
 
+  it("preserves Windows Speech visibility when another desktop preference is saved", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "settings.getSettings") return { visibleTabs: ["speech", "stats"] };
+      return fallback(channel);
+    });
+    await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+    await act(async () => container.querySelector<HTMLInputElement>("#start-console-minimized")!.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", expect.objectContaining({
+      visibleTabs: ["speech", "stats"],
+    }));
+  });
+
+  it("opens and focuses a local settings section from search results", async () => {
+    await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+    const search = container.querySelector<HTMLInputElement>("#settings-hub-search")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "beta");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const result = Array.from(container.querySelectorAll(".settings-directory-item")).find(
+      (item) => item.querySelector("strong")?.textContent === "Updates and beta releases"
+    )!;
+    const open = result.querySelector<HTMLButtonElement>("button")!;
+    expect(open.disabled).toBe(false);
+    await act(async () => open.click());
+    expect(search.value).toBe("");
+    expect(container.querySelector<HTMLElement>("#settings-view-updates")!.hidden).toBe(false);
+    expect(document.activeElement?.id).toBe("auto-update-gsm");
+  });
+
+  it("supports keyboard navigation without discarding fields on other settings pages", async () => {
+    await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+    const startup = container.querySelector<HTMLInputElement>("#start-console-minimized")!;
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#settings-nav-general")!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "End", bubbles: true })
+      );
+    });
+    expect(container.querySelector<HTMLElement>("#settings-view-storage")!.hidden).toBe(false);
+    expect(document.activeElement?.id).toBe("settings-nav-storage");
+    const location = container.querySelector<HTMLElement>(".settings-data-folder-location")!;
+    expect(location.closest("details, [hidden]")).toBeNull();
+    expect(location.textContent).toContain("C:\\Users\\Tester\\.config\\GameSentenceMiner\\data_dir.json");
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#settings-nav-storage")!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Home", bubbles: true })
+      );
+    });
+    expect(container.querySelector<HTMLElement>("#settings-view-general")!.hidden).toBe(false);
+    expect(container.querySelector("#start-console-minimized")).toBe(startup);
+  });
+
   it("shows and starts data relocation from the Settings tab", async () => {
     await act(async () => {
       root.render(

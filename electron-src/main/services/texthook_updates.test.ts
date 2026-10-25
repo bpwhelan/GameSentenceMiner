@@ -24,6 +24,29 @@ function setup() {
 afterEach(() => vi.useRealTimers());
 
 describe('automatic text hook updates', () => {
+    it('installs a selected older version and pins automatic updates off', async () => {
+        const { manager, deps } = setup();
+        await expect(manager.downloadVersion('0.9.0')).resolves.toEqual({ success: true });
+        expect(deps.prepare).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), '0.9.0');
+        expect(manager.getState().automatic).toBe(false);
+    });
+
+    it('replaces a queued automatic update with the selected version while a hook is active', async () => {
+        const { manager, deps } = setup();
+        deps.isBusy.mockReturnValue(true);
+        await manager.check();
+        await manager.waitForOperation();
+        expect(await manager.downloadVersion('0.9.0')).toEqual({ success: true, deferred: true });
+        expect(deps.discard).toHaveBeenCalledOnce();
+        expect(deps.prepare).toHaveBeenLastCalledWith(expect.any(Function), expect.any(Function), '0.9.0');
+        expect(manager.getState().automatic).toBe(false);
+    });
+
+    it('does not download binaries when a user only checks the catalog', async () => {
+        const { manager, deps } = setup();
+        await manager.check(false);
+        expect(deps.prepare).not.toHaveBeenCalled();
+    });
     it('automatically prepares a newer package and installs it while idle', async () => {
         const { manager, deps } = setup();
         await manager.check();

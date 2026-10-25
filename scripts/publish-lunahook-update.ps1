@@ -11,14 +11,13 @@ $accountId = 'eb6f3aaa8492feed2490ff04c24c21a1'
 $zoneId = 'db893888235dcd57e2e13f23786c08f2'
 $publicBase = 'https://r2.gamesentenceminer.com/texthook/zip'
 $remote = 'GSMR2:gamesentenceminer/texthook/zip'
-$manifestName = 'texthook_manifest.json'
-$archiveName = 'texthook.zip'
+$manifestName = 'texthook_manifest_v2.json'
 $utf8 = [Text.UTF8Encoding]::new($false)
 
-function Read-Manifest([string]$File) {
-    $manifest = Get-Content -LiteralPath $File -Raw | ConvertFrom-Json
+function Assert-Release($manifest) {
     if (!$manifest.version -or !$manifest.files -or $manifest.files.Count -eq 0) { throw 'Invalid engine manifest.' }
-    if ($manifest.archive.path -cne $archiveName -or $manifest.archive.sha256 -notmatch '^[a-f0-9]{64}$') {
+    if ($manifest.version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$' -or
+        $manifest.archive.path -cne "versions/$($manifest.version)/texthook.zip" -or $manifest.archive.sha256 -notmatch '^[a-f0-9]{64}$') {
         throw 'Invalid ZIP archive metadata.'
     }
     $seen = @{}
@@ -30,11 +29,24 @@ function Read-Manifest([string]$File) {
             $entry.sha256 -notmatch '^[a-f0-9]{64}$') { throw "Invalid manifest entry: $relative" }
         $seen[$relative.ToLowerInvariant()] = $true
     }
-    return $manifest
+}
+
+function Read-Catalog([string]$File) {
+    if (!(Test-Path -LiteralPath $File)) { throw 'A v2 catalog is required. Legacy manifests and ZIP endpoints must not be overwritten.' }
+    $catalog = Get-Content -LiteralPath $File -Raw | ConvertFrom-Json
+    if ($catalog.schemaVersion -ne 2 -or !$catalog.releases -or !$catalog.recommendedVersion) { throw 'Invalid v2 catalog.' }
+    $seen = @{}
+    foreach ($release in $catalog.releases) {
+        Assert-Release $release
+        if ($seen.ContainsKey($release.version)) { throw 'Duplicate catalog version.' }
+        $seen[$release.version] = $true
+    }
+    if (!$seen.ContainsKey($catalog.recommendedVersion)) { throw 'Recommended version is missing.' }
+    return $catalog
 }
 
 function Assert-Hashes($Manifest, [string]$Directory) {
-    $archivePath = Join-Path $Directory $archiveName
+    $archivePath = Join-Path $Directory $Manifest.archive.path
     if ((Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Manifest.archive.sha256) {
         throw 'ZIP SHA-256 mismatch.'
     }
@@ -102,8 +114,10 @@ $candidate = (Resolve-Path -LiteralPath $CandidateDirectory).Path
 $backup = [IO.Path]::GetFullPath($BackupDirectory)
 if (Test-Path -LiteralPath $backup) { throw 'Use a fresh backup directory; existing rollback copies must be preserved.' }
 $candidateManifestPath = Join-Path $candidate $manifestName
-$manifest = Read-Manifest $candidateManifestPath
-Assert-Hashes $manifest $candidate
+$catalog = Read-Catalog $candidateManifestPath
+foreach ($release in $catalog.releases) {
+    if (Test-Path -LiteralPath (Join-Path $candidate $release.archive.path)) { Assert-Hashes $release $candidate }
+}
 Get-Command rclone -ErrorAction Stop | Out-Null
 
 $token = $null
@@ -144,78 +158,111 @@ try {
     $previousDirectory = Join-Path $backup 'previous'
     New-Item -ItemType Directory -Path $previousDirectory -Force | Out-Null
     $previousManifestPath = Join-Path $previousDirectory $manifestName
-    # List from the existing parent prefix so an empty zip/ directory is a valid first publication.
-    $published = @(Invoke-Rclone @('lsf', 'GSMR2:gamesentenceminer/texthook', '--recursive', '--files-only', '--include', '/zip/texthook_manifest.json'))
+    $published = @(Invoke-Rclone @('lsf', 'GSMR2:gamesentenceminer/texthook', '--recursive', '--files-only', '--include', '/zip/**'))
     $previous = $null
+    $previousHash = $null
     if ($published -contains "zip/$manifestName") {
         Invoke-Rclone @('copyto', "$remote/$manifestName", $previousManifestPath)
-        $previous = Read-Manifest $previousManifestPath
-        if ($previous.version -eq $manifest.version) { throw 'The manifest version is already published. Verify it instead of reusing a version for changed bytes.' }
-        Invoke-Rclone @('copyto', "$remote/$archiveName", (Join-Path $previousDirectory $archiveName))
-        Assert-Hashes $previous $previousDirectory
-        Write-Output "Verified rollback copy of v$($previous.version) at $previousDirectory"
-    } else {
-        Write-Output 'First ZIP publication: no previous manifest at texthook/zip/.'
+        $previous = Read-Catalog $previousManifestPath
+        $previousHash = (Get-FileHash -LiteralPath $previousManifestPath).Hash
+        foreach ($release in $previous.releases) {
+            $replacement = @($catalog.releases | Where-Object { $_.version -ceq $release.version })
+            if ($replacement.Count -ne 1 -or
+                ($replacement[0] | ConvertTo-Json -Depth 20 -Compress) -cne ($release | ConvertTo-Json -Depth 20 -Compress)) {
+                throw "Existing version $($release.version) must be retained unchanged."
+            }
+            $destination = Join-Path $previousDirectory $release.archive.path
+            New-Item -ItemType Directory -Path (Split-Path $destination) -Force | Out-Null
+            Invoke-Rclone @('copyto', "$remote/$($release.archive.path)", $destination)
+            Assert-Hashes $release $previousDirectory
+        }
+        Write-Output "Backed up and verified $($previous.releases.Count) existing catalog versions."
+    }
+    # A failed earlier upload may have left an unreferenced ZIP. Reuse it only
+    # when every byte matches; never overwrite a path with different contents.
+    $existingArchives = @{}
+    foreach ($release in $catalog.releases) {
+        $relative = $release.archive.path
+        if ($published -contains "zip/$relative") {
+            $check = Join-Path $backup 'existing-archives'
+            $destination = Join-Path $check $relative
+            New-Item -ItemType Directory -Path (Split-Path $destination) -Force | Out-Null
+            Invoke-Rclone @('copyto', "$remote/$relative", $destination)
+            Assert-Hashes $release $check
+            $existingArchives[$relative] = $true
+        } elseif (!(Test-Path -LiteralPath (Join-Path $candidate $relative))) {
+            throw "Missing candidate archive: $relative"
+        }
     }
     if (!$Publish) {
-        Write-Output "Preflight passed for v$($manifest.version) ($($manifest.files.Count) files). No remote files changed. Use -Publish and a fresh backup directory to upload."
+        Write-Output "V2 preflight passed: $($catalog.releases.Count) versions, recommended $($catalog.recommendedVersion). No remote files changed."
         return
     }
-
-    $uploadOptions = @('--metadata', '--metadata-set', 'cache-control=public, max-age=0, must-revalidate')
-    # With -PurgeCache, prove permission before changing any object bytes.
-    Clear-PublicCache @($archiveName, $manifestName)
+    $catalogOptions = @('--metadata', '--metadata-set', 'cache-control=public, max-age=0, must-revalidate')
+    $archiveOptions = @('--immutable', '--metadata', '--metadata-set', 'cache-control=public, max-age=31536000, immutable')
+    $paths = @($catalog.releases | ForEach-Object { $_.archive.path }) + @($manifestName)
+    Clear-PublicCache $paths
     $manifestUploadAttempted = $false
     try {
-        Invoke-Rclone (@('copyto', (Join-Path $candidate $archiveName), "$remote/$archiveName", '--ignore-times') + $uploadOptions)
-        $originCheck = Join-Path $backup 'origin-verification'
-        Invoke-Rclone @('copyto', "$remote/$archiveName", (Join-Path $originCheck $archiveName))
-        Assert-Hashes $manifest $originCheck
-        Clear-PublicCache @($archiveName)
-        $publicCheck = Join-Path $backup 'public-verification'
-        Assert-PublicFile $archiveName $manifest.archive.sha256 $publicCheck
-        # Only advertise the version after the ZIP is publicly verified.
+        foreach ($release in $catalog.releases) {
+            $relative = $release.archive.path
+            if (!$existingArchives.ContainsKey($relative)) {
+                Invoke-Rclone (@('copyto', (Join-Path $candidate $relative), "$remote/$relative") + $archiveOptions)
+            }
+            $originCheck = Join-Path $backup 'origin-verification'
+            $destination = Join-Path $originCheck $relative
+            New-Item -ItemType Directory -Path (Split-Path $destination) -Force | Out-Null
+            Invoke-Rclone @('copyto', "$remote/$relative", $destination)
+            Assert-Hashes $release $originCheck
+            Clear-PublicCache @($relative)
+            Assert-PublicFile $relative $release.archive.sha256 (Join-Path $backup 'public-verification')
+        }
+        # Detect another publisher before replacing the catalog; retained ZIPs
+        # make an older in-flight catalog safe throughout publication.
+        $currentObjects = @(Invoke-Rclone @('lsf', 'GSMR2:gamesentenceminer/texthook', '--recursive', '--files-only', '--include', '/zip/**'))
+        if ($currentObjects -contains "zip/$manifestName") {
+            $currentPath = Join-Path $backup 'catalog-before-commit.json'
+            Invoke-Rclone @('copyto', "$remote/$manifestName", $currentPath)
+            if (!$previousHash -or (Get-FileHash -LiteralPath $currentPath).Hash -ne $previousHash) {
+                throw 'The catalog changed during publication. Run again with a fresh backup and catalog.'
+            }
+        } elseif ($previous) { throw 'The catalog disappeared during publication.' }
+        # Advertise releases only after every archive is publicly verified.
         $manifestUploadAttempted = $true
-        Invoke-Rclone (@('copyto', $candidateManifestPath, "$remote/$manifestName", '--ignore-times') + $uploadOptions)
+        Invoke-Rclone (@('copyto', $candidateManifestPath, "$remote/$manifestName", '--ignore-times') + $catalogOptions)
         Clear-PublicCache @($manifestName)
-        $manifestHash = (Get-FileHash -LiteralPath $candidateManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        Assert-PublicFile $manifestName $manifestHash $publicCheck
-        Assert-PublicFile $archiveName $manifest.archive.sha256 $publicCheck
+        $manifestHash = (Get-FileHash -LiteralPath $candidateManifestPath).Hash.ToLowerInvariant()
+        Assert-PublicFile $manifestName $manifestHash (Join-Path $backup 'public-verification')
     } catch {
         $publishFailure = $_.Exception.Message
-        if (!$previous) {
-            if ($manifestUploadAttempted) {
-                Invoke-Rclone @('deletefile', "$remote/$manifestName")
-                Clear-PublicCache @($manifestName)
-            }
-            throw "First ZIP publication failed; no version is advertised. Preserve $backup before retrying. $publishFailure"
+        if ($manifestUploadAttempted) {
+            try {
+                if ($previous) {
+                    Invoke-Rclone (@('copyto', $previousManifestPath, "$remote/$manifestName", '--ignore-times') + $catalogOptions)
+                    Clear-PublicCache @($manifestName)
+                    Assert-PublicFile $manifestName $previousHash.ToLowerInvariant() (Join-Path $backup 'rollback-verification')
+                } else {
+                    Invoke-Rclone @('deletefile', "$remote/$manifestName")
+                    Clear-PublicCache @($manifestName)
+                }
+            } catch { throw "Publication failed and catalog rollback is unverified. Preserve $backup and inspect R2." }
         }
-        Write-Warning 'Publication failed; restoring the previous verified payload and manifest.'
-        try {
-            Invoke-Rclone (@('copyto', (Join-Path $previousDirectory $archiveName), "$remote/$archiveName", '--ignore-times') + $uploadOptions)
-            Invoke-Rclone (@('copyto', $previousManifestPath, "$remote/$manifestName", '--ignore-times') + $uploadOptions)
-            Clear-PublicCache @($archiveName, $manifestName)
-            Assert-PublicFile $archiveName $previous.archive.sha256 (Join-Path $backup 'rollback-verification')
-            $oldManifestHash = (Get-FileHash -LiteralPath $previousManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
-            Assert-PublicFile $manifestName $oldManifestHash (Join-Path $backup 'rollback-verification')
-        } catch { throw "Publication failed and rollback is unverified. Preserve $backup and inspect R2 before retrying." }
-        throw "Publication failed; previous version restored and publicly verified. $publishFailure"
+        throw "V2 publication failed; the previous catalog is preserved. Immutable archives are retained. $publishFailure"
     }
     $report = [ordered]@{
-        version = $manifest.version
-        previousVersion = $previous.version
-        filesVerified = $manifest.files.Count
-        originFilesVerified = $manifest.files.Count
+        schemaVersion = 2
+        recommendedVersion = $catalog.recommendedVersion
+        versions = @($catalog.releases | ForEach-Object { $_.version })
+        filesVerified = ($catalog.releases | ForEach-Object { $_.files.Count } | Measure-Object -Sum).Sum
         cachePurged = [bool]$PurgeCache
         manifestUrl = "$publicBase/$manifestName"
         manifestSha256 = $manifestHash
-        archiveUrl = "$publicBase/$archiveName"
-        archiveSha256 = $manifest.archive.sha256
+        archives = @($catalog.releases | ForEach-Object { @{url="$publicBase/$($_.archive.path)"; sha256=$_.archive.sha256} })
         backup = $previousDirectory
         publishedAt = [DateTime]::UtcNow.ToString('o')
     }
-    [IO.File]::WriteAllText((Join-Path $backup 'publication.json'), ($report | ConvertTo-Json), $utf8)
-    Write-Output "Published and publicly verified v$($manifest.version): one ZIP ($($manifest.files.Count) runtime files) and one manifest."
+    [IO.File]::WriteAllText((Join-Path $backup 'publication.json'), ($report | ConvertTo-Json -Depth 8), $utf8)
+    Write-Output "Published and publicly verified v2 catalog: $($catalog.releases.Count) versions; recommended $($catalog.recommendedVersion). Legacy objects were not changed."
 } finally {
     foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, $oldEnvironment[$name], 'Process') }
     $token = $null

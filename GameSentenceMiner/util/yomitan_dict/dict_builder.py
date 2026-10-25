@@ -4,7 +4,7 @@ import io
 import json
 import time
 import zipfile
-from typing import TYPE_CHECKING, Set, List, Dict
+from typing import TYPE_CHECKING, Dict, List, Set
 
 from .content_builder import ContentBuilder
 from .image_handler import ImageHandler
@@ -119,8 +119,9 @@ class YomitanDictBuilder:
 
         # Handle image if present
         image_path = None
-        if char.get("image_base64"):
-            filename, image_bytes = self.image_handler.decode_image(char["image_base64"], char["id"])
+        character_image = self.image_handler.get_character_image(char)
+        if character_image:
+            filename, image_bytes = character_image
             self.images[char["id"]] = (filename, image_bytes)
             image_path = f"img/{filename}"
 

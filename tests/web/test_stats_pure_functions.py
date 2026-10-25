@@ -418,6 +418,25 @@ class TestReadingTimeSessionBoundaries:
     def test_a_first_long_pause_cannot_justify_its_own_reading_time(self):
         assert calculate_actual_reading_time([0.0, 600.0], ["あ" * 20, "end"]) == 60.0
 
+    def test_explicit_pause_excludes_the_interrupted_gap_from_credit_and_pace(self):
+        timestamps = [0.0, 10.0, 130.0, 250.0, 370.0, 970.0]
+        assert (
+            calculate_actual_reading_time(
+                timestamps, ["あ" * 20] * len(timestamps), reading_breaks=[20.0, 140.0, 260.0]
+            )
+            == 35.0
+        )
+
+    def test_pause_at_previous_line_timestamp_excludes_the_following_gap(self):
+        assert calculate_actual_reading_time([0.0, 120.0, 130.0], ["あ" * 20] * 3, reading_breaks=[0.0]) == 10.0
+
+    def test_pause_does_not_discard_other_gaps_or_reset_the_session_pace(self):
+        # The long gap after resuming still uses the pace established before pausing.
+        assert (
+            calculate_actual_reading_time([0.0, 10.0, 130.0, 730.0], ["あ" * 20] * 4, reading_breaks=[20.0, 30.0])
+            == 35.0
+        )
+
     def test_burst_heavy_session_preserves_real_reading_gaps(self):
         timestamps = [0.0, 10.0, 20.0] + [20.0 + i * 0.01 for i in range(1, 21)] + [30.2]
         assert calculate_actual_reading_time(timestamps, ["あ" * 20] * len(timestamps)) == pytest.approx(30.2)

@@ -24,8 +24,8 @@ from PyQt6.QtWidgets import (
 from urllib.parse import quote
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
-from GameSentenceMiner.ui.audio_waveform_widget import AUDIO_EXPAND_SECONDS, AudioWaveformWidget
-from GameSentenceMiner.ui.window_activation import activate_window
+from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
+from GameSentenceMiner.ui.window_activation import activate_window, get_foreground_window_handle
 from GameSentenceMiner.replay_handler import request_dialogue_replay_refresh
 from GameSentenceMiner.util.config.configuration import (
     get_config,
@@ -35,6 +35,7 @@ from GameSentenceMiner.util.config.configuration import (
     save_current_config,
     reload_config,
 )
+from GameSentenceMiner.util.concurrency.transport import submit_coroutine_to_loop
 from GameSentenceMiner.util.gsm_utils import (
     get_file_modification_time,
     make_unique_file_name,
@@ -42,13 +43,59 @@ from GameSentenceMiner.util.gsm_utils import (
     sanitize_filename,
 )
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
+from GameSentenceMiner.util.anki_card_timing import elapsed_ms, log_anki_card_timing
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length, get_video_duration, splice_audio, trim_audio
 from GameSentenceMiner.util.platform.gamepad_hotkey import (
     GamepadHotkeyDispatcher,
     GamepadInputClient,
     parse_gamepad_binding,
 )
-from GameSentenceMiner.util.platform.window_state_monitor import request_anki_confirmation_process_pause
+from GameSentenceMiner.util.platform.window_state_monitor import (
+    get_window_state_monitor,
+    request_anki_confirmation_process_pause,
+)
+
+
+def _request_game_focus_restore(previous_foreground_hwnd=None):
+    monitor = get_window_state_monitor()
+    if monitor is None:
+        return
+    loop = getattr(monitor.overlay_processor, "processing_loop", None)
+    if loop is None or not loop.is_running():
+        logger.debug("Window monitor loop unavailable for Anki confirmation focus restore.")
+        return
+
+    restore = None
+    try:
+        from GameSentenceMiner.web.overlay_handler import overlay_handler
+
+        async def restore_focus():
+            if previous_foreground_hwnd:
+                from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+                if websocket_manager.has_clients(ID_OVERLAY):
+                    try:
+                        # The overlay owns the live navigation state. Let it decide
+                        # whether to reclaim its prior focus or return to the game.
+                        await websocket_manager.send(
+                            ID_OVERLAY,
+                            {
+                                "type": "anki-confirmation-closed",
+                                "previousForegroundHwnd": str(previous_foreground_hwnd),
+                            },
+                        )
+                        return
+                    except (OSError, RuntimeError) as exc:
+                        logger.debug(f"Unable to request overlay focus restoration: {exc}")
+            await overlay_handler.handle_restore_focus_request()
+
+        # Reuse focus activation retries without blocking Qt.
+        restore = restore_focus()
+        submit_coroutine_to_loop(loop, restore)
+    except (ImportError, RuntimeError) as exc:
+        if restore is not None:
+            restore.close()
+        logger.exception(f"Failed requesting game focus after Anki confirmation: {exc}")
 
 
 # -------------------------------------------------------------------------
@@ -226,8 +273,11 @@ class AnkiConfirmationDialog(QDialog):
         self.vad_result = None
         self.reusing_audio = False
         self.reusing_screenshot = False
+        self.overlay_only = False
         self.result = None
         self.first_launch = True
+        self._dialog_shown_logged = False
+        self._populate_start_perf = 0.0
         self._force_autoplay = False
         self._audio_edit_context = None
         self._audio_edit_source_path = None
@@ -324,6 +374,22 @@ class AnkiConfirmationDialog(QDialog):
         dialog_layout = QVBoxLayout(self)
         dialog_layout.setContentsMargins(8, 8, 8, 8)
         dialog_layout.setSpacing(4)
+
+        self.overlay_source_warning_label = QLabel(
+            "<b>Warning: this card was created without a conventional text source.</b><br>"
+            "GSM is using overlay text with best-guess audio and screenshot timing. "
+            "GSM strongly recommends receiving text separately through text hooking or an OCR tab "
+            "for overlay speed and consistency, accurate statistics, reliable voice and screenshot timing, "
+            "and other features."
+        )
+        self.overlay_source_warning_label.setWordWrap(True)
+        self.overlay_source_warning_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.overlay_source_warning_label.setTextFormat(Qt.TextFormat.RichText)
+        self.overlay_source_warning_label.setStyleSheet(
+            "color: #664d03; background-color: #fff3cd; border: 1px solid #ffca2c; border-radius: 4px; padding: 8px;"
+        )
+        self.overlay_source_warning_label.setVisible(False)
+        dialog_layout.addWidget(self.overlay_source_warning_label)
 
         self.auto_accept_label = QLabel()
         self.auto_accept_label.setStyleSheet("color: #007bff; font-weight: bold; font-size: 14px;")
@@ -519,6 +585,7 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout.addWidget(self.codec_info_label)
 
         self.waveform_widget = AudioWaveformWidget()
+        self.waveform_widget.set_expand_step(get_config().anki.confirmation_audio_step)
         self.waveform_widget.setMinimumHeight(54)
         self.waveform_widget.setMaximumHeight(92)
         self.waveform_widget.set_dark_mode()
@@ -661,8 +728,17 @@ class AnkiConfirmationDialog(QDialog):
         translation_future=None,
         reusing_audio=False,
         reusing_screenshot=False,
+        overlay_only=False,
     ):
+        self._populate_start_perf = time.perf_counter()
+        self._dialog_shown_logged = False
         self._apply_window_behavior_preferences()
+        self.overlay_only = bool(overlay_only)
+        self.waveform_widget.set_expand_step(get_config().anki.confirmation_audio_step)
+        self.overlay_source_warning_label.setVisible(self.overlay_only)
+        self.disable_session_checkbox.setVisible(not self.overlay_only)
+        if self.overlay_only:
+            self._cancel_auto_accept()
 
         # Store state
         self.screenshot_timestamp = screenshot_timestamp
@@ -784,6 +860,22 @@ class AnkiConfirmationDialog(QDialog):
         self._update_dialogue_line_controls(has_translation=has_translation)
 
         self._configure_tab_order()
+        log_anki_card_timing(
+            getattr(self._replay_context, "timing_context", None),
+            "anki.confirmation_dialog.populated",
+            elapsed_ms=elapsed_ms(self._populate_start_perf),
+        )
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._dialog_shown_logged:
+            self._dialog_shown_logged = True
+            logger.info("Anki confirmation dialog shown.")
+            log_anki_card_timing(
+                getattr(self._replay_context, "timing_context", None),
+                "anki.confirmation_dialog.shown",
+                populate_to_show_ms=elapsed_ms(self._populate_start_perf) if self._populate_start_perf else None,
+            )
 
     def _poll_translation_future(self):
         future = self._translation_future
@@ -889,7 +981,7 @@ class AnkiConfirmationDialog(QDialog):
             # showEvent runs before the native window has finished being shown.
             self._focus_on_show_timer.start(0)
 
-        if get_config().anki.auto_accept_timer > 0:
+        if get_config().anki.auto_accept_timer > 0 and not self.overlay_only:
             self._cancel_auto_accept()
             self._auto_accept_remaining = int(get_config().anki.auto_accept_timer)
             self.auto_accept_label.setVisible(True)
@@ -1999,8 +2091,8 @@ class AnkiConfirmationDialog(QDialog):
             raise RuntimeError("Expanded audio range is empty.")
 
         game_name = sanitize_filename(gsm_state.current_game) if gsm_state.current_game else "expanded"
-        orig_ext = os.path.splitext(self._audio_edit_source_path)[1] or ".wav"
-        filename = f"{game_name}_manual_audio_expand_{int(time.time())}{orig_ext}"
+        output_ext = get_config().audio.extension
+        filename = f"{game_name}_manual_audio_expand_{int(time.time())}.{output_ext}"
         new_path = make_unique_file_name(os.path.join(get_temporary_directory(), filename))
         previous_cut_ranges = self.waveform_widget.get_cut_ranges()
         previous_window = self._audio_edit_source_window
@@ -2061,11 +2153,11 @@ class AnkiConfirmationDialog(QDialog):
         self._update_audio_expand_buttons()
         self.waveform_widget.update()
 
-    def _expand_audio_start(self):
-        self._expand_audio_window(expand_start=AUDIO_EXPAND_SECONDS)
+    def _expand_audio_start(self, seconds):
+        self._expand_audio_window(expand_start=seconds)
 
-    def _expand_audio_end(self):
-        self._expand_audio_window(expand_end=AUDIO_EXPAND_SECONDS)
+    def _expand_audio_end(self, seconds):
+        self._expand_audio_window(expand_end=seconds)
 
     def _expand_audio_window(self, expand_start=0.0, expand_end=0.0):
         if not self._audio_edit_range or not self._audio_edit_source_path or not self._audio_edit_source_window:
@@ -2613,15 +2705,19 @@ class AnkiConfirmationDialog(QDialog):
         return self.result
 
     def exec(self):
+        previous_foreground_hwnd = get_foreground_window_handle()
         self._apply_window_behavior_preferences()
         pause_requested = request_anki_confirmation_process_pause(True)
         try:
             if self._should_focus_on_show():
-                return self._exec_with_activation()
-            return self._exec_without_activation()
+                result = self._exec_with_activation()
+            else:
+                result = self._exec_without_activation()
         finally:
             if pause_requested:
                 request_anki_confirmation_process_pause(False)
+        _request_game_focus_restore(previous_foreground_hwnd)
+        return result
 
 
 def show_anki_confirmation(
@@ -2638,6 +2734,7 @@ def show_anki_confirmation(
     translation_future=None,
     reusing_audio=False,
     reusing_screenshot=False,
+    overlay_only=False,
 ):
     global _anki_confirmation_dialog_instance
 
@@ -2645,7 +2742,7 @@ def show_anki_confirmation(
     if app is None:
         app = QApplication(sys.argv)
 
-    if gsm_state.disable_anki_confirmation_session:
+    if gsm_state.disable_anki_confirmation_session and not overlay_only:
         vad_result = gsm_state.vad_result
         vad_ran = vad_result is not None and hasattr(vad_result, "success")
         vad_detected_voice = vad_ran and bool(vad_result.success)
@@ -2685,6 +2782,7 @@ def show_anki_confirmation(
         translation_future,
         reusing_audio,
         reusing_screenshot,
+        overlay_only,
     )
 
     result = _anki_confirmation_dialog_instance.exec()

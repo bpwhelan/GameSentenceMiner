@@ -125,6 +125,8 @@ export function openSteamWindow() {
     steamWindow = new BrowserWindow({
         width: 1000,
         height: 800,
+        minWidth: 800,
+        minHeight: 500,
         webPreferences: getSecureWebPreferences(),
     });
 
@@ -269,6 +271,8 @@ export function registerSteamIPC() {
             gameConfigWindow = new BrowserWindow({
                 width: 1280,
                 height: 1000,
+                minWidth: 800,
+                minHeight: 500,
                 parent: mainWindow,
                 modal: true,
                 webPreferences: getSecureWebPreferences(),

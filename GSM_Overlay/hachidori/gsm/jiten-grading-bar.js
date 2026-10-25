@@ -43,9 +43,11 @@
     }
     render(owner, view) {
       const headword = this.getHeadword(owner);
-      view.bar.hidden = !(this.config.enabled && headword?.term);
+      const hidden = !(this.config.enabled && headword?.term);
+      if (view.bar.hidden !== hidden) view.bar.hidden = hidden;
       // Inline display needs to respect hidden even in reader styles that reset it.
-      view.bar.style.display = view.bar.hidden ? 'none' : 'flex';
+      const display = hidden ? 'none' : 'flex';
+      if (view.bar.style.display !== display) view.bar.style.display = display;
       const signature = `${this.config.showGrading !== false}:${this.config.twoGrades === true}`;
       const revision = `${owner.lookupToken}:${headword?.term}:${headword?.reading}`;
       if (view.revision !== revision) { view.revision = revision; view.status.textContent = ''; }

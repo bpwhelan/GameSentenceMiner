@@ -155,3 +155,10 @@ electron-src/assets/prerelease.json
 /.tmp_capstone
 /native/gsm-ocr/target
 /native/gsm-ocr/bin
+/native/game-background-hooks/build-*/
+/native/game-background-hooks/bin/
+/build/game-background-hooks/
+/native/gsm-core/target
+/native/gsm-input/target
+/native/gsm-runtime/bin
+/native/gsm-runtime/target

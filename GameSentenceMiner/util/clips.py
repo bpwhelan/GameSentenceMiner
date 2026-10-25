@@ -5,7 +5,7 @@ A clip keeps the replay's streams, and its modification time is the wall-clock t
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from GameSentenceMiner.util.config.configuration import get_config, logger
@@ -16,12 +16,10 @@ from GameSentenceMiner.util.text_log import GameLine, find_matching_line
 CLIPS_FOLDER_NAME = "Clips"
 MANIFEST_NAME = "manifest.json"
 
-LEAD_SECONDS = 5.0
-TRAIL_SECONDS = 2.0
-PREVIOUS_LINE_MAX_GAP_SECONDS = 15.0
-NEXT_LINE_CONTEXT_SECONDS = 10.0
-NEWEST_LINE_WINDOW_SECONDS = 10.0
+CONTEXT_LINES_EACH_SIDE = 2
+CONTEXT_PADDING_SECONDS = 2.0
 MAX_WAIT_SECONDS = 20.0
+MIN_SAVED_CLIP_MATCH_SCORE = 90.0
 
 
 class LineOutsideReplayError(RuntimeError):
@@ -32,35 +30,44 @@ class LineOutsideReplayError(RuntimeError):
 class ClipWindow:
     start_time: datetime
     end_time: datetime
-    previous_line: GameLine | None = None
-    next_line: GameLine | None = None
+    previous_lines: list[GameLine] = field(default_factory=list)
+    next_lines: list[GameLine] = field(default_factory=list)
 
 
 def plan_clip_window(line: GameLine) -> ClipWindow:
     """Pick the wall-clock span to keep: the line plus enough context for later editing."""
-    previous_line = line.prev
-    if previous_line and (line.time - previous_line.time).total_seconds() > PREVIOUS_LINE_MAX_GAP_SECONDS:
-        previous_line = None
-    context_start = previous_line.time if previous_line else line.time
-    lead = LEAD_SECONDS + float(line.source_padding or 0)
-    start_time = context_start - timedelta(seconds=lead)
+    previous_lines = []
+    neighbor = line.prev
+    for _ in range(CONTEXT_LINES_EACH_SIDE):
+        if neighbor is None:
+            break
+        previous_lines.insert(0, neighbor)
+        neighbor = neighbor.prev
 
-    next_line = line.next
-    if next_line:
-        end_time = next_line.time + timedelta(seconds=NEXT_LINE_CONTEXT_SECONDS)
-        if next_line.next:
-            end_time = min(end_time, next_line.next.time + timedelta(seconds=TRAIL_SECONDS))
-    else:
-        # Nothing follows yet, so leave room for the voice line to finish.
-        end_time = line.time + timedelta(seconds=NEWEST_LINE_WINDOW_SECONDS)
+    next_lines = []
+    neighbor = line.next
+    for _ in range(CONTEXT_LINES_EACH_SIDE):
+        if neighbor is None:
+            break
+        next_lines.append(neighbor)
+        neighbor = neighbor.next
 
-    return ClipWindow(start_time, end_time, previous_line, next_line)
+    context = [*previous_lines, line, *next_lines]
+    padding = timedelta(seconds=CONTEXT_PADDING_SECONDS)
+    start_time = min(context_line.time for context_line in context) - padding
+    end_time = max(context_line.time for context_line in context) + padding
+    return ClipWindow(start_time, end_time, previous_lines, next_lines)
 
 
 def seconds_until_clip_ready(line: GameLine, now: datetime | None = None) -> float:
     """How long to wait before saving the replay so it covers the planned window."""
     now = now or datetime.now()
-    remaining = (plan_clip_window(line).end_time - now).total_seconds()
+    window = plan_clip_window(line)
+    end_time = window.end_time
+    if len(window.next_lines) < CONTEXT_LINES_EACH_SIDE:
+        # Let the live log supply the following dialogue, without waiting indefinitely.
+        end_time = max(end_time, line.time + timedelta(seconds=MAX_WAIT_SECONDS))
+    remaining = (end_time - now).total_seconds()
     return min(max(0.0, remaining), MAX_WAIT_SECONDS)
 
 
@@ -155,12 +162,17 @@ def save_clip(video_path: str, line: GameLine, clips_root: str) -> str:
     clip_end_time = replay_end_time - timedelta(seconds=replay_length - (clip_start + clip_length))
     os.utime(clip_path, (clip_end_time.timestamp(), clip_end_time.timestamp()))
 
-    entries = []
-    if window.previous_line:
-        entries.append(_line_entry(window.previous_line, "previous"))
-    entries.append(_line_entry(line, "selected"))
-    if window.next_line and offset(window.next_line.time) <= clip_start + clip_length:
-        entries.append(_line_entry(window.next_line, "next"))
+    # Context stays in the manifest, linked for the confirmation dialog. Only the
+    # selected role is listed or matched as a saved clip. Hide unavailable footage.
+    entries = [
+        _line_entry(context_line, role)
+        for context_line, role in [
+            *((previous, "previous") for previous in window.previous_lines),
+            (line, "selected"),
+            *((following, "next") for following in window.next_lines),
+        ]
+        if role == "selected" or clip_start <= offset(context_line.time) <= clip_start + clip_length
+    ]
 
     # Game pauses in the clip (epoch seconds), so their silence can be removed however late it is mined.
     clip_start_time = clip_end_time - timedelta(seconds=clip_length)
@@ -269,6 +281,9 @@ def find_saved_line(line_id: str) -> GameLine | None:
 
 
 def match_card_to_clip(card, clips_root: str) -> GameLine | None:
-    """Match a card's sentence against every saved line using the live matcher's ranking."""
-    candidates = sorted((line for clip in iter_clips(clips_root) for line in clip.selected), key=lambda line: line.time)
-    return find_matching_line(card, candidates, respect_replay_window=False)
+    """Confidently match a card to a saved line whose footage still exists."""
+    candidates = sorted(
+        (line for clip in iter_clips(clips_root) if os.path.isfile(clip.clip_path) for line in clip.selected),
+        key=lambda line: line.time,
+    )
+    return find_matching_line(card, candidates, respect_replay_window=False, minimum_score=MIN_SAVED_CLIP_MATCH_SCORE)

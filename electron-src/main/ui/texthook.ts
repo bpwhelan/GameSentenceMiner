@@ -1006,7 +1006,9 @@ function isIgnorableEngineLine(line: string): boolean {
         line === '======================' ||
         line === 'Now showing text from all hooks.' ||
         line === 'Now showing text only from selected hook.' ||
-        /^Selected hook #[0-9a-fA-F]+(?: \(Handle: [0-9a-fA-F]+\))?(?:Now showing text only from selected hook\.)?$/.test(line)
+        /^Now showing text only from \d+ selected hook\(s\)\.$/.test(line) ||
+        // Support both CLI acknowledgement formats, including joined status lines.
+        /^Selected hook(?: #[0-9a-fA-F]+(?: \(Handle: [0-9a-fA-F]+\))?|: [0-9a-fA-F]+)(?:\s*Now showing text only from (?:selected hook|\d+ selected hook\(s\))\.)?$/.test(line)
     );
 }
 
@@ -2327,7 +2329,11 @@ export function registerTextHookIPC(): void {
     });
 
     ipcMain.handle('texthook.getEngineStatus', () => getEngineUpdates().getState());
-    ipcMain.handle('texthook.checkEngineUpdates', () => getEngineUpdates().check());
+    ipcMain.handle('texthook.checkEngineUpdates', () => getEngineUpdates().check(false));
+    ipcMain.handle('texthook.installEngineVersion', (_event, version: unknown) => {
+        if (typeof version !== 'string') throw new Error('Invalid engine package version.');
+        return getEngineUpdates().downloadVersion(version);
+    });
     ipcMain.handle('texthook.downloadEngines', () => getEngineUpdates().download());
     ipcMain.handle('texthook.setAutomaticEngineUpdates', (_event, enabled: unknown) => {
         if (typeof enabled !== 'boolean') throw new Error('Expected an automatic updates preference.');

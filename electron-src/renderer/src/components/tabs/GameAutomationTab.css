@@ -1,0 +1,263 @@
+.automation-desk .ws-main {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.automation-desk .automation-scene-picker {
+  padding: 0 5px 24px;
+}
+.automation-desk .automation-scene-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.automation-desk .automation-scene-heading label {
+  font-size: 11px;
+  color: var(--gsm-text-muted);
+}
+.automation-desk .automation-scene-heading button {
+  width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  border: 0;
+  color: var(--gsm-text-muted);
+}
+.automation-desk .automation-scene-picker select {
+  font-size: 12px;
+  background: var(--gsm-surface-0);
+}
+.automation-desk .automation-scene-picker p {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--gsm-text-muted);
+}
+.automation-desk .automation-session strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 2px 0 14px;
+}
+.automation-desk .automation-autosave {
+  white-space: nowrap;
+}
+.automation-desk .automation-autosave svg {
+  width: 14px;
+  height: 14px;
+}
+.automation-desk .automation-scene-content {
+  max-width: 980px;
+}
+.automation-desk .launcher-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+.automation-desk .launcher-mode-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px;
+  min-width: 0;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: 7px;
+  background: var(--gsm-surface-1);
+  cursor: pointer;
+}
+.automation-desk .launcher-mode-item:has(input:checked) {
+  border-color: var(--gsm-accent-border);
+  background: var(--gsm-accent-soft);
+}
+.automation-desk input[type="radio"] {
+  accent-color: var(--gsm-accent);
+  width: 15px;
+  height: 15px;
+  margin: 3px 0 0;
+  flex: 0 0 auto;
+}
+.automation-desk .launcher-mode-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+}
+.automation-desk .launcher-mode-item small {
+  display: block;
+  margin-top: 6px;
+  color: var(--gsm-text-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.automation-desk :is(.automation-toggle-row, .automation-overrides .input-group) {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+}
+.automation-desk :is(.automation-toggle-row, .automation-overrides .input-group) label {
+  flex: 1;
+  cursor: pointer;
+}
+.automation-desk :is(.automation-toggle-row, .automation-overrides .input-group) label strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+}
+.automation-desk :is(.automation-toggle-row, .automation-overrides .input-group) label span {
+  display: block;
+  color: var(--gsm-text-muted);
+  font-size: 11px;
+  line-height: 1.8;
+  margin-top: 6px;
+  max-width: 680px;
+}
+.automation-desk .automation-toggle-row label .automation-managed-note {
+  color: var(--gsm-accent-text);
+}
+.automation-desk .scene-switcher-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px 24px;
+  margin: 0 0 28px;
+  padding: 0 0 28px;
+  border: 0;
+  border-bottom: 1px solid var(--gsm-border-subtle);
+  border-radius: 0;
+  background: transparent;
+}
+.automation-desk .scene-switcher-settings h3 {
+  align-self: center;
+  font-size: 15px;
+}
+.automation-desk .scene-switcher-settings__source-button {
+  font-size: 11px;
+  margin-top: 0;
+}
+.automation-desk .scene-switcher-settings__field {
+  grid-column: 1 / -1;
+  max-width: 680px;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 0;
+}
+.automation-desk .scene-switcher-settings__toggle {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  margin-top: 0;
+}
+.automation-desk .scene-switcher-settings > p {
+  grid-column: 1 / -1;
+  font-size: 11px;
+}
+.automation-desk .launcher-legacy-settings {
+  margin: 0;
+  padding: 16px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.automation-desk .launcher-legacy-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: fit-content;
+  color: var(--gsm-text-muted);
+  font-size: 12px;
+}
+.automation-desk .launcher-legacy-badge {
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-muted);
+  border-color: var(--gsm-border-subtle);
+  font-size: 10px;
+}
+.automation-desk .launcher-legacy-settings-body {
+  padding: 18px 0 0;
+}
+.automation-desk .launcher-legacy-settings .launcher-mode-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.automation-desk .launcher-legacy-settings .launcher-mode-item {
+  align-items: center;
+  padding: 12px;
+  font-size: 12px;
+}
+.automation-desk .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin: 0;
+}
+.automation-desk .muted {
+  color: var(--gsm-text-muted);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.automation-desk .automation-overrides {
+  max-width: 900px;
+}
+.automation-desk .automation-legacy-tools {
+  max-width: 900px;
+  padding-top: 4px;
+}
+.automation-desk .launcher-card-header {
+  justify-content: flex-start;
+  gap: 12px;
+  margin: 0 0 20px;
+}
+.automation-desk .launcher-card-title {
+  color: var(--gsm-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.automation-desk #tool-paths-legacy-panel .input-group {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.automation-desk #tool-paths-legacy-panel .input-group label {
+  flex: 1 0 100%;
+}
+.automation-desk #tool-paths-legacy-panel .input-group input[type="text"] {
+  flex: 1;
+  width: 180px;
+}
+.automation-desk #tool-paths-legacy-panel .input-group:has(input[type="checkbox"]) label {
+  flex: 1;
+}
+.automation-desk .launcher-texthook-nudge {
+  padding: 16px;
+  margin: 0;
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-subtle);
+}
+.automation-desk .launcher-texthook-nudge h2 {
+  font-size: 13px;
+}
+.automation-desk .launcher-texthook-nudge p {
+  margin-top: 6px;
+  font-size: 11px;
+}
+.automation-desk .automation-status {
+  padding: 12px 36px;
+  border-top: 1px solid var(--gsm-border-subtle);
+  color: var(--gsm-text-muted);
+  font-size: 11px;
+}
+@container gsm-workspace-main (max-width: 650px) {
+  .automation-desk .launcher-mode-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .automation-desk .launcher-legacy-details .launcher-mode-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .automation-desk .automation-autosave {
+    padding-top: 0;
+  }
+  .automation-desk .scene-switcher-settings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .automation-desk .scene-switcher-settings__source-button {
+    justify-self: start;
+  }
+}

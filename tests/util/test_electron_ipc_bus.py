@@ -93,3 +93,30 @@ def test_ocr_broadcast_bridges_to_backend_handler(backend_over_bus):
     assert _wait(lambda: len(received) > 0), "ocr_result was not bridged"
     assert received[0]["function"] == "ocr_result"
     assert received[0]["data"]["text"] == "セリフ"
+
+
+def test_capture_preview_request_returns_a_frame_without_dispatching_an_ocr_command(backend_over_bus, monkeypatch):
+    from GameSentenceMiner.ocr import preview
+
+    commands = []
+    e.register_command_handler(commands.append)
+    monkeypatch.setattr(
+        preview, "capture_preview", lambda request: {"sceneId": request["sceneId"], "imageData": "jpeg-frame"}
+    )
+    e.start_ipc_listener_in_thread()
+    assert bc.get_bus().wait_connected(5)
+    backend_over_bus.send(
+        {
+            "v": 1,
+            "id": "preview-request",
+            "src": "main",
+            "dst": "backend",
+            "kind": "request",
+            "topic": preview.PREVIEW_FRAME_TOPIC,
+            "data": {"sceneId": "scene", "sceneName": "Game"},
+        }
+    )
+    response = backend_over_bus.wait_for(lambda frame: frame.get("corr") == "preview-request")
+    assert response["ok"] is True
+    assert response["data"] == {"sceneId": "scene", "imageData": "jpeg-frame"}
+    assert commands == []

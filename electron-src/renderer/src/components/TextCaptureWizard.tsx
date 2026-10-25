@@ -890,7 +890,7 @@ export function TextCaptureWizard({
             <h2 id="capture-wizard-title">{t("captureWizard.title")}</h2>
             <p>{t("captureWizard.subtitle")}</p>
           </div>
-          <button type="button" className="secondary" disabled={saving} onClick={() => void closeWizard()}>
+          <button type="button" className="secondary" disabled={saving} onClick={() => void closeWizard()} autoFocus>
             {t("captureWizard.actions.deny")}
           </button>
         </div>

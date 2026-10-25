@@ -1023,6 +1023,34 @@ def test_apply_ipc_config_reload_refreshes_hotkeys_and_clipboard_toggle(monkeypa
     assert "hotkeys-refreshed" in events
 
 
+def test_online_ocr_flag_reload_switches_engines_and_resets_stability(monkeypatch):
+    events = []
+    monkeypatch.setattr(gsm_ocr, "reload_electron_config", lambda: None)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_advanced_debug_logging", lambda: False)
+    monkeypatch.setattr(gsm_ocr, "get_scene_furigana_filter_sensitivity", lambda **kwargs: 0)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr1", lambda: "screenai")
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr, "reset_callback_vars", lambda: events.append("reset"))
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "engine_change_handler_name", lambda name, **kwargs: events.append(name))
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "set_ocr_engines", lambda *args: events.append(args))
+    gsm_ocr.apply_ipc_config_reload({"reload_area": False, "changes": {"useOnlineOcr": (False, True)}})
+    assert events == ["screenai", "glens", ("screenai", "glens"), "reset"]
+
+
+def test_same_engine_newline_preference_refreshes_without_discarding_pending_text(monkeypatch):
+    controller = gsm_ocr.TwoPassOCRControllerV2(gsm_ocr.TwoPassConfig(ocr1_engine="screenai", ocr2_engine="screenai"))
+    controller.handle_ocr_result("一行目", ["一行目"])
+    pending = controller._v2_pending_text
+    monkeypatch.setattr(gsm_ocr, "_controller", controller)
+    monkeypatch.setattr(gsm_ocr, "reload_electron_config", lambda: None)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_advanced_debug_logging", lambda: False)
+    monkeypatch.setattr(gsm_ocr, "get_scene_furigana_filter_sensitivity", lambda **kwargs: 0)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_keep_newline", lambda: True)
+    gsm_ocr.apply_ipc_config_reload({"reload_area": False, "changes": {"keep_newline_auto": (False, True)}})
+    assert controller.config.keep_newline is True
+    assert controller._v2_pending_text is pending
+
+
 def test_handle_command_reload_config_announces_reloaded_status(monkeypatch):
     announced = []
 

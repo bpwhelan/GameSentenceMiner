@@ -56,8 +56,8 @@ def enrich_aggregated_stats(stats: Dict, third_party_by_date: Optional[Dict] = N
     """
     Add third-party characters and time into an aggregated stats dict.
 
-    Only adds to total_characters, total_reading_time_seconds, and total_active_time_seconds.
-    Session metrics, Anki metrics, etc. are not affected.
+    Adds characters, reading time, and line counts when supplied by an importer.
+    Anki and vocabulary metrics are not affected.
 
     Args:
         stats: Aggregated stats dict (from aggregate_rollup_data or combine_rollup_and_live_stats)
@@ -75,6 +75,29 @@ def enrich_aggregated_stats(stats: Dict, third_party_by_date: Optional[Dict] = N
     stats["total_characters"] = stats.get("total_characters", 0) + tp_total_chars
     stats["total_reading_time_seconds"] = stats.get("total_reading_time_seconds", 0.0) + tp_total_time
     stats["total_active_time_seconds"] = stats.get("total_active_time_seconds", 0.0) + tp_total_time
+    tp_total_lines = sum(d.get("lines", 0) for d in third_party_by_date.values())
+    if tp_total_lines:
+        stats["total_lines"] = stats.get("total_lines", 0) + tp_total_lines
+    imported_sessions = [day["session_stats"] for day in third_party_by_date.values() if "session_stats" in day]
+    if imported_sessions:
+        native_count = stats.get("total_sessions", 0)
+        native_duration = stats.get("average_session_seconds", 0.0) * native_count
+        session_count = native_count + sum(day["count"] for day in imported_sessions)
+        stats["total_sessions"] = session_count
+        stats["average_session_seconds"] = (
+            native_duration + sum(day["time"] for day in imported_sessions)
+        ) / session_count
+        stats["longest_session_seconds"] = max(
+            stats.get("longest_session_seconds", 0.0), max(day["longest"] for day in imported_sessions)
+        )
+        shortest = [stats.get("shortest_session_seconds", 0.0)] + [day["shortest"] for day in imported_sessions]
+        stats["shortest_session_seconds"] = min((seconds for seconds in shortest if seconds > 0), default=0.0)
+        stats["max_chars_in_session"] = max(
+            stats.get("max_chars_in_session", 0), max(day["max_chars"] for day in imported_sessions)
+        )
+        stats["max_time_in_session_seconds"] = max(
+            stats.get("max_time_in_session_seconds", 0.0), max(day["longest"] for day in imported_sessions)
+        )
 
     # Recalculate average reading speed with the new totals
     total_active_time = stats.get("total_active_time_seconds", 0.0)

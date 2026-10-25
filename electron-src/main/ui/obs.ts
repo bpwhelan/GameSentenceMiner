@@ -24,7 +24,8 @@ import axios from 'axios';
 import extract from 'extract-zip';
 import { installSessionManager } from '../services/install_session_state.js';
 import { syncProcessPausingTargetForScene } from '../services/process_pausing_target.js';
-import { getWindowsSystemExecutable } from '../runtime/windows_tools.js';
+import { closeWindowsOBSGracefully } from '../runtime/windows_obs_shutdown.js';
+import { createObsSettingsSnapshot } from '../services/obs_settings_snapshot.js';
 import type {
     InstallProgressKind,
     InstallStageStatus,
@@ -1184,6 +1185,25 @@ function writeObsSeedConfigs(packedVersion: number | null): void {
     writeElectronOBSWebSocketConfig(getElectronOBSStartupConfig());
 }
 
+async function snapshotOBSSettings(reason: string): Promise<void> {
+    try {
+        await createObsSettingsSnapshot(
+            path.join(OBS_CONFIG_PATH, 'config', 'obs-studio'),
+            path.join(BASE_DIR, 'backup', 'obs'),
+            reason,
+            {
+                relatedFiles: [
+                    { sourcePath: path.join(BASE_DIR, 'config.json'), snapshotPath: 'gsm/config.json' },
+                    { sourcePath: path.join(BASE_DIR, 'electron', 'config.json'), snapshotPath: 'gsm/electron-config.json' },
+                ],
+            }
+        );
+    } catch (error) {
+        console.warn('Could not back up OBS scenes and recording profiles:',
+            error instanceof Error ? error.message : String(error));
+    }
+}
+
 /**
  * Trim a downloaded OBS install down to what GSM uses: drop all *.pdb debug
  * symbols and the obs-browser CEF runtime (~275MB). Mirrors prune_obs_directory
@@ -1267,6 +1287,7 @@ async function ensureObsInstalledInternal(): Promise<ObsEnsureStatus> {
         // Existing install: keep configs seeded and trim dead weight, but never
         // re-download.
         try {
+            await snapshotOBSSettings('before OBS startup');
             writeObsSeedConfigs(packObsVersion(null));
             pruneObsDirectory();
         } catch (error) {
@@ -1384,8 +1405,8 @@ function readOBSProcessPid(): number | null {
 
     try {
         const rawPid = fs.readFileSync(OBS_PID_FILE, 'utf-8').trim();
-        const pid = Number.parseInt(rawPid, 10);
-        return Number.isFinite(pid) && pid > 0 ? pid : null;
+        const pid = /^\d+$/.test(rawPid) ? Number(rawPid) : NaN;
+        return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
     } catch {
         return null;
     }
@@ -1470,7 +1491,7 @@ async function processImageIsObs(pid: number): Promise<boolean> {
                 '/FI',
                 `PID eq ${pid}`,
             ]);
-            return /obs/i.test(stdout ?? '');
+            return /^\s*"obs(?:32|64)?\.exe"\s*,/im.test(stdout ?? '');
         }
         const { stdout } = await execFileAsync('ps', ['-p', String(pid), '-o', 'comm=']);
         return /obs/i.test(stdout ?? '');
@@ -1559,7 +1580,10 @@ async function launchOBSFromElectronInternal(
             );
             return { status: 'already-running', pid: existingPid };
         }
-        await closeOBSFromElectron({ ignoreCloseConfig: true, reason: options.reason });
+        const closeResult = await closeOBSFromElectron({ ignoreCloseConfig: true, reason: options.reason });
+        if (closeResult.status === 'failed') {
+            return closeResult;
+        }
     }
 
     let launchCommand = resolveElectronOBSLaunchCommand(config.obsPath);
@@ -1572,6 +1596,9 @@ async function launchOBSFromElectronInternal(
     }
 
     try {
+        if (switcherMigrationPending) {
+            await snapshotOBSSettings('before OBS scene-switcher migration');
+        }
         await migrateLegacyWindowSceneSwitcherCollections(SCENE_CONFIG_PATH);
         cleanupOBSStartupArtifacts(getPortableOBSConfigDirectory(launchCommand));
         // For the bundled portable OBS (Windows), pick the websocket port for
@@ -1654,6 +1681,75 @@ export function launchOBSFromElectron(
     return electronOBSLaunchPromise;
 }
 
+async function stopOBSOutputsForShutdown(): Promise<void> {
+    // Use a separate, bounded connection: normal connection recovery registers
+    // scene helpers and retries, neither of which should run during shutdown.
+    refreshObsConfig();
+    const shutdownClient = new OBSWebSocket();
+    const request = (requestType: string, timeoutMs = OBS_CALL_TIMEOUT_MS) =>
+        withTimeout(`OBS shutdown ${requestType}`, timeoutMs, () =>
+            shutdownClient.call(requestType as any)
+        );
+    const outputActive = async (requestType: string): Promise<boolean> => {
+        let status: { outputActive?: unknown } | undefined;
+        try {
+            status = await request(requestType) as typeof status;
+        } catch (error) {
+            // OBS reports InvalidResourceState when replay buffering is disabled
+            // in the recording profile and therefore has no output to stop.
+            if (requestType === 'GetReplayBufferStatus' && (error as { code?: number })?.code === 604) {
+                return false;
+            }
+            throw error;
+        }
+        if (typeof status?.outputActive !== 'boolean') {
+            throw new Error(`OBS did not report a valid output state for ${requestType}; it was left running.`);
+        }
+        return status.outputActive;
+    };
+
+    try {
+        await withTimeout('OBS shutdown connection', 5000, () =>
+            shutdownClient.connect(`ws://${obsConfig.host}:${obsConfig.port}`, obsConfig.password)
+        );
+        if (await outputActive('GetStreamStatus')) {
+            throw new Error('OBS is streaming. Stop the stream manually before closing OBS.');
+        }
+        const [recording, replayBuffer] = await Promise.all([
+            outputActive('GetRecordStatus'), outputActive('GetReplayBufferStatus'),
+        ]);
+        const stopOutput = async (requestType: string, timeoutMs?: number) => {
+            try {
+                await request(requestType, timeoutMs);
+            } catch (error) {
+                // A concurrent manual stop can finish between status and stop.
+                // OutputNotRunning is safe; the status check below still verifies it.
+                if ((error as { code?: number })?.code !== 501) throw error;
+            }
+        };
+        if (recording) await stopOutput('StopRecord', 30_000);
+        if (replayBuffer) await stopOutput('StopReplayBuffer');
+
+        // StopReplayBuffer acknowledges the request before the encoder finishes.
+        // Closing the window immediately can still produce OBS's active-output dialog.
+        const deadline = Date.now() + 15_000;
+        while (true) {
+            const states = await Promise.all([
+                outputActive('GetRecordStatus'), outputActive('GetReplayBufferStatus'),
+            ]);
+            if (states.every((active) => !active)) return;
+            if (Date.now() >= deadline) {
+                throw new Error('OBS outputs did not finish stopping within 15 seconds; OBS was left running.');
+            }
+            await wait(250);
+        }
+    } finally {
+        await withTimeout('OBS shutdown disconnect', OBS_DISCONNECT_TIMEOUT_MS, () =>
+            shutdownClient.disconnect()
+        ).catch((error) => console.warn('Could not disconnect OBS shutdown client:', getObsErrorMessage(error)));
+    }
+}
+
 export async function closeOBSFromElectron(
     options: ElectronOBSProcessOptions = {}
 ): Promise<ElectronOBSProcessResult> {
@@ -1681,7 +1777,7 @@ export async function closeOBSFromElectron(
     }
 
     // For a PID we didn't spawn this session (read from obs_pid.txt), confirm it
-    // is actually OBS before killing it — Windows may have reused the PID for an
+    // is actually OBS before closing it — Windows may have reused the PID for an
     // unrelated process after our OBS exited.
     if (!ownedPid && !(await processImageIsObs(pid))) {
         clearOBSProcessPid();
@@ -1690,8 +1786,11 @@ export async function closeOBSFromElectron(
     }
 
     try {
+        await snapshotOBSSettings('before OBS shutdown');
+        await stopOBSOutputsForShutdown();
         if (isWindows()) {
-            await execFileAsync(getWindowsSystemExecutable('taskkill.exe'), ['/PID', String(pid), '/T', '/F']);
+            await closeWindowsOBSGracefully(pid, execFileAsync);
+            await snapshotOBSSettings('after OBS shutdown');
         } else if (ownedProcess?.pid === pid) {
             ownedProcess.kill('SIGTERM');
         } else {
@@ -2409,6 +2508,8 @@ export function openOBSWindow() {
     obsWindow = new BrowserWindow({
         width: 800,
         height: 600,
+        minWidth: 800,
+        minHeight: 500,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,

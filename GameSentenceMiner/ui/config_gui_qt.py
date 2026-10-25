@@ -814,8 +814,8 @@ class ConfigWindow(QWidget):
                 ),
                 anki=Anki(
                     enabled=self.anki_enabled_check.isChecked(),
-                    update_anki=self.update_anki_check.isChecked(),
                     show_update_confirmation_dialog_v2=self.show_update_confirmation_dialog_check.isChecked(),
+                    skip_confirmation_for_unvoiced=self.anki_skip_confirmation_for_unvoiced_check.isChecked(),
                     auto_accept_timer=self._get_auto_accept_timer_value(),
                     url=self.anki_url_edit.text(),
                     note_type=self.anki_note_type_combo.currentText(),
@@ -890,6 +890,7 @@ class ConfigWindow(QWidget):
                     remove_overlay_tag=self.remove_overlay_tag_check.isChecked(),
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
+                    confirmation_audio_step=self.anki_confirmation_audio_step_combo.currentData(),
                     confirmation_gamepad_enabled=self.anki_confirmation_gamepad_enabled_check.isChecked(),
                     confirmation_gamepad_focus_up=str(
                         self.anki_confirmation_gamepad_focus_up_combo.currentData() or ""
@@ -948,6 +949,12 @@ class ConfigWindow(QWidget):
                 features=Features(
                     full_auto=self.full_auto_check.isChecked(),
                     notify_on_update=self.editor.profile.features.notify_on_update,
+                    notify_on_audio_generated=self.editor.profile.features.notify_on_audio_generated,
+                    notify_on_screenshot_saved=self.editor.profile.features.notify_on_screenshot_saved,
+                    notify_on_anki_enhancement_failed=(self.editor.profile.features.notify_on_anki_enhancement_failed),
+                    notify_on_errors=self.editor.profile.features.notify_on_errors,
+                    notify_on_obs_warning=self.editor.profile.features.notify_on_obs_warning,
+                    notify_on_text_intake_state=self.editor.profile.features.notify_on_text_intake_state,
                     open_anki_edit=self.editor.profile.features.open_anki_edit,
                     open_anki_in_browser=self.editor.profile.features.open_anki_in_browser,
                     browser_query=self.browser_query_edit.text(),
@@ -1056,6 +1063,8 @@ class ConfigWindow(QWidget):
                     wgc_capture_fps=self.wgc_capture_fps_spin.value(),
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
                     mute_game_on_minimize=self.mute_game_on_minimize_check.isChecked(),
+                    mute_game_on_background=self.mute_game_on_background_check.isChecked(),
+                    mute_game_on_background_delay_seconds=self.mute_game_on_background_delay_seconds_spin.value(),
                 ),
                 ai=Ai(
                     add_to_anki=self.ai_enabled_check.isChecked(),
@@ -1496,6 +1505,12 @@ class ConfigWindow(QWidget):
         self.native_language_combo = QComboBox()
         self.locale_combo = QComboBox()
         self.notify_on_update_check = QCheckBox()
+        self.notify_on_audio_generated_check = QCheckBox()
+        self.notify_on_screenshot_saved_check = QCheckBox()
+        self.notify_on_anki_enhancement_failed_check = QCheckBox()
+        self.notify_on_errors_check = QCheckBox()
+        self.notify_on_obs_warning_check = QCheckBox()
+        self.notify_on_text_intake_state_check = QCheckBox()
 
         # Text Processing
         self.string_replacement_enabled_check = QCheckBox()
@@ -1512,13 +1527,16 @@ class ConfigWindow(QWidget):
 
         # Anki
         self.anki_enabled_check = QCheckBox()
-        self.update_anki_check = QCheckBox()
         self.show_update_confirmation_dialog_check = QCheckBox()
+        self.anki_skip_confirmation_for_unvoiced_check = QCheckBox()
         self.auto_accept_timer_enabled_check = QCheckBox()
         self.auto_accept_timer_edit = QLineEdit()
         self.auto_accept_timer_edit.setValidator(QTGui.QIntValidator())
         self.anki_confirmation_always_on_top_check = QCheckBox()
         self.anki_confirmation_focus_on_show_check = QCheckBox()
+        self.anki_confirmation_audio_step_combo = QComboBox()
+        for seconds in Anki.CONFIRMATION_AUDIO_STEPS:
+            self.anki_confirmation_audio_step_combo.addItem(f"{seconds:g}s", seconds)
         self.anki_confirmation_gamepad_enabled_check = QCheckBox()
         self.anki_confirmation_gamepad_focus_up_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_gamepad_focus_down_combo = self._create_gamepad_hotkey_combo()
@@ -1827,6 +1845,9 @@ class ConfigWindow(QWidget):
         self.dont_collect_stats_check = QCheckBox()
         self.dont_collect_stats_check.clicked.connect(self._on_dont_collect_stats_clicked)
         self.mute_game_on_minimize_check = QCheckBox()
+        self.mute_game_on_background_check = QCheckBox()
+        self.mute_game_on_background_delay_seconds_spin = QSpinBox()
+        self.mute_game_on_background_delay_seconds_spin.setRange(0, 300)
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()
 
@@ -3142,8 +3163,8 @@ class ConfigWindow(QWidget):
 
         # Anki
         self.anki_enabled_check.setChecked(s.anki.enabled)
-        self.update_anki_check.setChecked(s.anki.update_anki)
         self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog_v2)
+        self.anki_skip_confirmation_for_unvoiced_check.setChecked(s.anki.skip_confirmation_for_unvoiced)
         auto_accept_timer_enabled = s.anki.auto_accept_timer > 0
         self.auto_accept_timer_enabled_check.setChecked(auto_accept_timer_enabled)
         self.auto_accept_timer_edit.setText(
@@ -3152,6 +3173,9 @@ class ConfigWindow(QWidget):
         self._sync_auto_accept_timer_controls()
         self.anki_confirmation_always_on_top_check.setChecked(bool(getattr(s.anki, "confirmation_always_on_top", True)))
         self.anki_confirmation_focus_on_show_check.setChecked(bool(getattr(s.anki, "confirmation_focus_on_show", True)))
+        self.anki_confirmation_audio_step_combo.setCurrentIndex(
+            self.anki_confirmation_audio_step_combo.findData(s.anki.confirmation_audio_step)
+        )
         self.anki_confirmation_gamepad_enabled_check.setChecked(
             bool(getattr(s.anki, "confirmation_gamepad_enabled", False))
         )
@@ -3629,6 +3653,10 @@ class ConfigWindow(QWidget):
         self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))
         self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
         self.mute_game_on_minimize_check.setChecked(bool(getattr(s.advanced, "mute_game_on_minimize", False)))
+        self.mute_game_on_background_check.setChecked(bool(getattr(s.advanced, "mute_game_on_background", False)))
+        self.mute_game_on_background_delay_seconds_spin.setValue(
+            getattr(s.advanced, "mute_game_on_background_delay_seconds", 5)
+        )
         self.current_version_label.setText(get_current_version())
         self.latest_version_label.setText(get_latest_version())
 

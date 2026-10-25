@@ -277,6 +277,9 @@ test('Jiten availability recovery preserves authoritative OCR metadata', () => {
 });
 
 test('all overlay inline scripts remain syntactically valid', () => {
+  const settings = require('./helpers/settings-source.cjs').readSettingsSource();
+  assert.ok(settings.scripts.length && settings.styles.length, 'Settings assets must load from the HTML shell');
+  new vm.Script(settings.scripts);
   for (const file of ['index.html', 'settings.html']) {
     const html = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {

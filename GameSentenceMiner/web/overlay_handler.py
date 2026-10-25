@@ -7,16 +7,17 @@ import json
 from typing import Optional
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result, get_sentence_analysis
-from GameSentenceMiner.ai.setup import ai_setup_required, ai_error_message
+from GameSentenceMiner.ai.overlay_translation import translate_overlay_blocks, validate_blocks
 from GameSentenceMiner.ai.prompts.presets import STUDY_TASKS
 from GameSentenceMiner.ai.prompts.templates import build_translation_prompt
-from GameSentenceMiner.ai.overlay_translation import translate_overlay_blocks, validate_blocks
-from GameSentenceMiner.obs import get_current_game, get_current_scene
+from GameSentenceMiner.ai.setup import ai_error_message, ai_setup_required
+from GameSentenceMiner.obs import get_current_game, get_current_scene, save_replay_buffer
 from GameSentenceMiner.util.config.configuration import (
     AI_DEEPL,
     coerce_gsm_owned_overlay_value,
     get_config,
     get_master_config,
+    gsm_state,
     logger,
     save_full_config,
     serialize_gsm_owned_overlay,
@@ -46,6 +47,7 @@ class OverlayRequestHandler:
         self.processing = False
         self._block_translation_lock = asyncio.Lock()
         self._latest_block_request = None
+        self._today_stats_lock = asyncio.Lock()
 
     async def handle_message(self, message_str: str):
         """
@@ -78,12 +80,16 @@ class OverlayRequestHandler:
                 await self.handle_send_click_request(message)
             elif message_type == "process-pause-request":
                 await self.handle_process_pause_request(message)
+            elif message_type == "quick-action-request":
+                await self.handle_quick_action_request(message)
             elif message_type == "set-gsm-overlay-config":
                 await self.handle_gsm_overlay_config_request(message)
             elif message_type == "get-gsm-overlay-config":
                 await self.broadcast_gsm_owned_overlay_config()
             elif message_type == "get-gsm-profile-state":
                 await self.broadcast_gsm_profile_state()
+            elif message_type == "get-live-stats-today":
+                await self.broadcast_today_live_stats(message)
             elif message_type == "select-ocr-area":
                 self.handle_select_ocr_area_request(message)
             elif message_type == "open-gsm-settings":
@@ -95,6 +101,51 @@ class OverlayRequestHandler:
             logger.error(f"Failed to parse overlay message: {e}")
         except Exception as e:
             logger.exception(f"Error handling overlay message: {e}")
+
+    async def handle_quick_action_request(self, message: dict):
+        request_id = message.get("request_id")
+
+        def perform():
+            from GameSentenceMiner import gametext
+
+            action = message.get("action")
+            if action not in {"state", "toggle-intake", "replay-audio"}:
+                raise ValueError("Unknown quick action")
+            lines = get_all_lines()
+            can_replay = bool(lines)
+            if action == "toggle-intake":
+                gametext.toggle_text_intake_paused()
+            elif action == "replay-audio":
+                from GameSentenceMiner.web.service import handle_texthooker_button, has_cached_texthooker_audio
+
+                if not lines:
+                    raise ValueError("No captured line available to replay yet.")
+                line = lines[-1]
+                gsm_state.line_for_audio = line
+                gsm_state.texthooker_audio_request = {
+                    "line_id": line.id,
+                    "trim_with_vad": False,
+                    "playback_mode": "native",
+                }
+                # Match Text Feed's native playback, including its audio cache and
+                # built-in player when no external video player is configured.
+                cached = not get_config().advanced.video_player_path and has_cached_texthooker_audio(line.id, False)
+                if cached or line in (gsm_state.previous_line_for_audio, gsm_state.previous_line_for_screenshot):
+                    handle_texthooker_button(gsm_state.previous_replay or "")
+                else:
+                    save_replay_buffer()
+            return {"paused": gametext.is_text_intake_paused(), "canReplay": can_replay}
+
+        try:
+            state = await asyncio.to_thread(perform)
+            result = {"success": True, **state}
+        except Exception as error:  # noqa: BLE001 - return action failures to the controller UI
+            logger.warning(f"Overlay quick action failed: {error}")
+            result = {"success": False, "error": str(error)}
+        await websocket_manager.send(
+            ID_OVERLAY,
+            {"type": "quick-action-result", "request_id": request_id, **result},
+        )
 
     async def handle_translation_request(self, message: dict | None = None):
         if message is not None and "blocks" in message:
@@ -136,8 +187,12 @@ class OverlayRequestHandler:
 
             mode = (message or {}).get("mode", "translation")
             if mode != "translation":
-                if not isinstance(mode, str) or mode not in STUDY_TASKS:
+                if not isinstance(mode, str) or mode not in {*STUDY_TASKS, "custom"}:
                     await self.send_error("Choose a valid sentence analysis mode.", request_id)
+                    return
+                question = (message or {}).get("question", "")
+                if not isinstance(question, str) or len(question) > 4000 or (mode == "custom" and not question.strip()):
+                    await self.send_error("Enter a question of 1–4000 characters.", request_id)
                     return
                 blocks = validate_blocks((message or {}).get("blocks", []))
                 lines = get_all_lines()
@@ -149,6 +204,7 @@ class OverlayRequestHandler:
                         None,
                         get_current_game(sanitize=False, update=False) or "Unknown Game",
                         mode,
+                        question,
                     )
                     if not result:
                         raise ValueError("Empty AI response")
@@ -547,6 +603,30 @@ class OverlayRequestHandler:
     async def broadcast_gsm_profile_state(self) -> None:
         """Answer overlay reconciliation requests without exposing config.json paths."""
         await websocket_manager.send(ID_OVERLAY, build_gsm_profile_state_payload())
+
+    async def broadcast_today_live_stats(self, message: dict) -> None:
+        """Calculate daily history off the websocket loop; coalesce overlapping polls."""
+        from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
+        from GameSentenceMiner.util.stats.live_stats import build_today_live_stats_payload, live_stats_tracker
+
+        if self._today_stats_lock.locked():
+            return
+        async with self._today_stats_lock:
+            # A scene can change while history is loading. Rebuild once for the
+            # new game instead of broadcasting the previous game's snapshot.
+            for _attempt in range(2):
+                game_name = get_current_game(update=False) or ""
+                future = submit_background_work(
+                    build_today_live_stats_payload,
+                    live_stats_tracker,
+                    reason=str(message.get("reason") or "refresh"),
+                    game_name=game_name,
+                    timeout=0,
+                )
+                payload = await asyncio.wrap_future(future)
+                if game_name == (get_current_game(update=False) or ""):
+                    await websocket_manager.send(ID_OVERLAY, payload)
+                    return
 
     def handle_select_ocr_area_request(self, message: dict):
         """Launch the OCR/overlay area selector from the overlay settings UI."""

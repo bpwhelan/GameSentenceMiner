@@ -139,4 +139,61 @@ describe("SpeechRecognitionTab", () => {
     expect(container.textContent).toContain("[final] 認識された文");
     expect(consoleElement.scrollTop).toBe(240);
   });
+
+  it("replaces interim dialogue with the final sentence while preserving the activity log", async () => {
+    await act(async () => root.render(<I18nProvider><SpeechRecognitionTab active /></I18nProvider>));
+    const emit = (message: string) => listeners.get("speech-recognition.log")?.(
+      { sender: null }, { level: "result", message, timestamp: 1234 }
+    );
+    await act(async () => { emit("[partial] 今日"); emit("[partial] 今日は一緒に"); });
+    expect(container.querySelectorAll(".speech-transcript-line")).toHaveLength(1);
+    expect(container.querySelector(".speech-transcript-line p")?.textContent).toBe("今日は一緒に");
+    await act(async () => emit("[final] 今日は一緒に帰ろう。"));
+    expect(container.querySelectorAll(".speech-transcript-line")).toHaveLength(1);
+    expect(container.querySelector(".speech-transcript-line.is-partial")).toBeNull();
+    expect(container.querySelector(".speech-transcript-line p")?.textContent).toBe("今日は一緒に帰ろう。");
+    expect(container.querySelectorAll(".speech-recognition-log")).toHaveLength(3);
+  });
+
+  it("keeps draft recognition settings when moving between views", async () => {
+    await act(async () => root.render(<I18nProvider><SpeechRecognitionTab active /></I18nProvider>));
+    const backend = container.querySelector<HTMLSelectElement>("#speech-backend")!;
+    await act(async () => {
+      backend.value = "sapi";
+      backend.dispatchEvent(new Event("change", { bubbles: true }));
+      container.querySelector<HTMLButtonElement>("#speech-nav-advanced")!.click();
+    });
+    expect(container.querySelector<HTMLElement>("#speech-view-advanced")!.hidden).toBe(false);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#speech-nav-advanced")!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Home", bubbles: true })
+      );
+    });
+    expect(container.querySelector<HTMLElement>("#speech-view-capture")!.hidden).toBe(false);
+    expect(backend.value).toBe("sapi");
+    const save = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Save")!;
+    await act(async () => save.click());
+    expect(invokeMock).toHaveBeenCalledWith("speech-recognition.saveScene", expect.objectContaining({
+      scene: {id: "scene-a", name: "Game A"}, settings: expect.objectContaining({ backend: "sapi" })
+    }));
+  });
+
+  it("saves dirty preferences before switching the active scene", async () => {
+    await act(async () => root.render(<I18nProvider><SpeechRecognitionTab active /></I18nProvider>));
+    await act(async () => {
+      const language = container.querySelector<HTMLSelectElement>("#speech-language")!;
+      language.value = "en";
+      language.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      const scene = container.querySelector<HTMLSelectElement>("#speech-scene")!;
+      scene.value = "scene-b";
+      scene.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(invokeMock).toHaveBeenCalledWith("speech-recognition.saveScene", {
+      scene: {id: "scene-a", name: "Game A"}, settings: expect.objectContaining({language: "en"})
+    });
+    expect(invokeMock).toHaveBeenCalledWith("obs.switchScene.id", "scene-b");
+    expect(invokeMock).toHaveBeenCalledWith("speech-recognition.loadScene", {scene:{id:"scene-b", name:"Game B"}});
+  });
 });

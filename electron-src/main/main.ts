@@ -1,4 +1,5 @@
 import { activeGame } from './active_game.js';
+import { startGameBackgroundHooks, stopGameBackgroundHooks } from './services/game_background_runtime.js';
 import {
     app,
     BrowserWindow,
@@ -1673,6 +1674,8 @@ async function createWindow() {
     mainWindow = new BrowserWindow({
         width: Math.min(1280, workWidth),
         height: Math.min(1000, workHeight),
+        minWidth: 800,
+        minHeight: 500,
         icon: getIconPath(),
         // Start hidden; show when ready for consistent taskbar icon
         show: false,
@@ -2782,6 +2785,7 @@ if (!app.requestSingleInstanceLock()) {
             createWindow().then(async () => {
                 createTray();
                 autoLauncher.startPolling();
+                if (!isQuitting) startGameBackgroundHooks();
                 // setTimeout(async () => {
                 //     await checkAndRunWizard(true);
                 // }, 1000);
@@ -3133,9 +3137,16 @@ async function runQuit(relaunchArgs?: string[]): Promise<void> {
 
     try {
         const results = await Promise.allSettled([
-            closeAllPythonProcesses(),
+            stopGameBackgroundHooks(),
             stopInputServer(),
-            closeOBSFromElectron({ reason: 'app quit' }),
+            closeAllPythonProcesses().then(async () => {
+                // The backend automatically starts replay buffering for an active
+                // game. Stop that manager before asking OBS to stop its outputs.
+                const result = await closeOBSFromElectron({ reason: 'app quit' });
+                if (result.status === 'failed') {
+                    throw new Error(result.error ?? 'OBS could not close safely.');
+                }
+            }),
         ]);
         const cleanupErrors: unknown[] = [];
         for (const result of results) {
@@ -3175,6 +3186,7 @@ export async function quit(relaunchArgs?: string[]): Promise<void> {
 // Stop everything that holds handles in the data dir, without quitting the app (used before a
 // data-folder relocation). Mirrors quit() minus app.quit().
 async function stopAllChildrenForRelocation(): Promise<void> {
+    await stopGameBackgroundHooks();
     autoLauncher.stopPolling();
     shutdownWindowSceneSwitcher();
     stopOverlay();
@@ -3182,7 +3194,10 @@ async function stopAllChildrenForRelocation(): Promise<void> {
     await stopScripts();
     await closeAllPythonProcesses();
     await stopInputServer();
-    await closeOBSFromElectron({ reason: 'data relocation' });
+    const obsResult = await closeOBSFromElectron({ reason: 'data relocation' });
+    if (obsResult.status === 'failed') {
+        throw new Error(obsResult.error ?? 'OBS could not close safely; data relocation was cancelled.');
+    }
     await stopBus().catch((err) => console.warn('Failed to stop message bus during relocation:', err));
 }
 

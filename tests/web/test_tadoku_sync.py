@@ -547,164 +547,253 @@ def test_tadoku_client_prefers_language_specific_character_unit():
     assert client.resolve_character_unit_id("jpn") == "japanese"
 
 
+class _TadokuSession:
+    """Scripted HTTP responses; never contact a real Tadoku account."""
+
+    def __init__(self, *responses):
+        self.cookies = requests.cookies.RequestsCookieJar()
+        self.responses = list(responses)
+        self.requests = []
+        self.sent_cookies = []
+
+    def request(self, method, url, **kwargs):
+        self.requests.append((method, url, kwargs))
+        prepared = requests.Request(method, url, cookies=self.cookies).prepare()
+        self.sent_cookies.append(prepared.headers.get("Cookie", ""))
+        assert self.responses, f"Unexpected request: {method} {url}"
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        self.cookies.update(response.cookies)
+        return response
+
+
+def _tadoku_response(status=200, payload=None, *, cookie=""):
+    response = SimpleNamespace(
+        ok=200 <= status < 400,
+        status_code=status,
+        content=b"{}",
+        text="",
+        json=lambda: payload or {},
+        cookies=requests.cookies.RequestsCookieJar(),
+    )
+    if cookie:
+        response.cookies.set("tadoku_session", cookie, domain=".tadoku.app", path="/", secure=True)
+    return response
+
+
 def test_tadoku_client_uses_deployed_internal_immersion_route():
-    class _Response:
-        ok = True
-        status_code = 200
-        content = b'{"units": []}'
-
-        @staticmethod
-        def json():
-            return {"units": []}
-
-    class _Session:
-        def __init__(self):
-            self.request_urls = []
-            self.cookies = requests.cookies.RequestsCookieJar()
-
-        def request(self, method, url, **kwargs):
-            self.request_urls.append((method, url, kwargs))
-            if url.endswith("/self-service/login/browser"):
-                return SimpleNamespace(
-                    ok=True,
-                    content=b"{}",
-                    json=lambda: {
-                        "ui": {
-                            "action": "https://account.tadoku.app/kratos/self-service/login?flow=id",
-                            "nodes": [{"attributes": {"name": "csrf_token", "value": "csrf-value"}}],
-                        }
-                    },
-                )
-            if "self-service/login?flow=" in url:
-                self.cookies.set("ory_kratos_session", "fresh-cookie")
-                return SimpleNamespace(
-                    ok=True,
-                    content=b"{}",
-                    json=lambda: {},
-                )
-            return _Response()
-
-    session = _Session()
-    client = TadokuClient("reader", "password", session=session)
+    session = _TadokuSession(_tadoku_response(cookie="fresh-cookie"), _tadoku_response(payload={"units": []}))
+    client = TadokuClient("reader@example.com", "password", session=session)
 
     with pytest.raises(TadokuSyncError, match="no Character unit"):
         client.resolve_character_unit_id("jpn")
 
-    method, url, kwargs = session.request_urls[-1]
+    method, url, kwargs = session.requests[-1]
     assert method == "GET"
     assert url == "https://tadoku.app/api/internal/immersion/logs/configuration-options"
     assert "headers" not in kwargs
+    assert session.sent_cookies[-1] == "tadoku_session=fresh-cookie"
 
 
-def test_tadoku_client_exchanges_credentials_for_browser_session_cookie():
-    class _Session:
-        def __init__(self):
-            self.requests = []
-            self.cookies = requests.cookies.RequestsCookieJar()
+def test_tadoku_client_exchanges_saved_credentials_for_new_session_cookie():
+    session = _TadokuSession(_tadoku_response(cookie="fresh-cookie"))
+    client = TadokuClient(" reader@example.com ", " password-secret ", session=session)
 
-        def request(self, method, url, **kwargs):
-            self.requests.append((method, url, kwargs))
-            if url.endswith("/self-service/login/browser"):
-                return SimpleNamespace(
-                    ok=True,
-                    content=b"{}",
-                    json=lambda: {
-                        "ui": {
-                            "action": "https://account.tadoku.app/kratos/self-service/login?flow=flow-id",
-                            "nodes": [{"attributes": {"name": "csrf_token", "value": "csrf-value"}}],
-                        }
-                    },
-                )
-            self.cookies.set("ory_kratos_session", "fresh-cookie")
-            return SimpleNamespace(
-                ok=True,
-                content=b"{}",
-                json=lambda: {},
-            )
+    client.refresh_session()
 
-    session = _Session()
-    client = TadokuClient("reader", "password-secret", session=session)
-
-    client._login()
-
-    assert session.requests[1][2]["data"] == {
-        "identifier": "reader",
-        "password": "password-secret",
-        "method": "password",
-        "csrf_token": "csrf-value",
-    }
-    assert session.cookies.get("ory_kratos_session") == "fresh-cookie"
+    assert len(session.requests) == 1
+    method, url, kwargs = session.requests[0]
+    assert method == "POST"
+    assert url == "https://tadoku.app/api/internal/identity/login"
+    assert kwargs["json"] == {"email": "reader@example.com", "password": " password-secret "}
+    assert kwargs["headers"]["Origin"] == "https://tadoku.app"
+    prepared = requests.Request(method, url, json=kwargs["json"], headers=kwargs["headers"]).prepare()
+    assert prepared.headers["Content-Type"] == "application/json"
+    assert "Authorization" not in prepared.headers
+    assert "X-Session-Token" not in prepared.headers
+    assert kwargs["timeout"] == 20
+    assert client.session_cookie == "fresh-cookie"
 
 
 def test_tadoku_client_reuses_saved_cookie_without_logging_in():
-    class _Session:
-        def __init__(self):
-            self.cookies = requests.cookies.RequestsCookieJar()
-            self.requests = []
-
-        def request(self, method, url, **kwargs):
-            self.requests.append((method, url, kwargs))
-            return SimpleNamespace(
-                ok=True,
-                status_code=200,
-                content=b'{"units": []}',
-                json=lambda: {"units": []},
-            )
-
-    session = _Session()
-    client = TadokuClient("reader", "password", session_cookie="saved-cookie", session=session)
+    session = _TadokuSession(_tadoku_response(payload={"units": []}))
+    client = TadokuClient("reader@example.com", "password", session_cookie="saved-cookie", session=session)
 
     with pytest.raises(TadokuSyncError, match="no Character unit"):
         client.resolve_character_unit_id("jpn")
 
     assert len(session.requests) == 1
-    assert "/self-service/login/" not in session.requests[0][1]
+    assert session.requests[0][1].endswith("/immersion/logs/configuration-options")
+    assert session.sent_cookies == ["tadoku_session=saved-cookie"]
+    assert client.session_cookie == "saved-cookie"
+    cookie = next(iter(session.cookies))
+    assert cookie.secure and cookie.domain == ".tadoku.app" and cookie.path == "/"
+
+
+@pytest.mark.parametrize("saved_cookie", ["legacy-kratos-cookie", "expired-tadoku-cookie"])
+def test_tadoku_client_refreshes_saved_cookie_once_after_401(saved_cookie):
+    session = _TadokuSession(
+        _tadoku_response(401), _tadoku_response(cookie="refreshed-cookie"), _tadoku_response(payload={"id": "log-1"})
+    )
+    client = TadokuClient("reader@example.com", "password", session_cookie=saved_cookie, session=session)
+    payload = {"amount": 123, "description": "Existing log format"}
+
+    assert client.create_log(payload) == {"id": "log-1"}
+
+    assert len(session.requests) == 3
+    assert session.requests[0] == session.requests[2]
+    assert session.requests[0][2]["json"] == payload
+    assert session.requests[1][1].endswith("/identity/login")
+    assert session.sent_cookies == [f"tadoku_session={saved_cookie}", "", "tadoku_session=refreshed-cookie"]
+    assert client.session_cookie == "refreshed-cookie"
+
+
+def test_tadoku_client_stops_after_second_401():
+    session = _TadokuSession(_tadoku_response(401), _tadoku_response(cookie="fresh-cookie"), _tadoku_response(401))
+    client = TadokuClient("reader@example.com", "password", session_cookie="old-cookie", session=session)
+
+    with pytest.raises(TadokuSyncError, match="HTTP 401"):
+        client.create_log({"amount": 123})
+
+    assert len(session.requests) == 3
+
+
+@pytest.mark.parametrize(
+    ("status", "message"),
+    [
+        (400, "HTTP 400"),
+        (401, "email and password"),
+        (403, "HTTP 403"),
+        (429, "15 minutes"),
+        (503, "temporarily unavailable"),
+    ],
+)
+def test_tadoku_login_failure_does_not_retry_or_expose_response(status, message):
+    response = _tadoku_response(status)
+    response.text = "password-secret cookie-secret"
+    session = _TadokuSession(_tadoku_response(401), response)
+    client = TadokuClient("reader@example.com", "password-secret", session_cookie="old-cookie", session=session)
+
+    with pytest.raises(TadokuSyncError, match=message) as error:
+        client.create_log({"amount": 123})
+
+    assert len(session.requests) == 2
+    assert "password-secret" not in str(error.value)
+    assert "cookie-secret" not in str(error.value)
+
+
+@pytest.mark.parametrize("status", [403, 429, 503])
+def test_tadoku_api_errors_do_not_trigger_login_or_retry(status):
+    session = _TadokuSession(_tadoku_response(status))
+    client = TadokuClient("reader@example.com", "password", session_cookie="saved-cookie", session=session)
+
+    with pytest.raises(TadokuSyncError, match=f"HTTP {status}"):
+        client.create_log({"amount": 123})
+
+    assert len(session.requests) == 1
     assert client.session_cookie == "saved-cookie"
 
 
-def test_tadoku_client_refreshes_saved_cookie_once_after_401():
-    class _Session:
-        def __init__(self):
-            self.cookies = requests.cookies.RequestsCookieJar()
-            self.requests = []
-            self.api_calls = 0
+def test_tadoku_login_requires_new_cookie_and_clears_stale_sessions():
+    response = _tadoku_response()
+    response.cookies.set("ory_kratos_session", "legacy-response-cookie", domain=".tadoku.app", path="/")
+    session = _TadokuSession(response)
+    session.cookies.set("ory_kratos_session", "legacy-cookie", domain=".tadoku.app", path="/")
+    session.cookies.set("tadoku_session", "host-cookie", domain="tadoku.app", path="/")
+    client = TadokuClient("reader@example.com", "password", session_cookie="saved-cookie", session=session)
 
-        def request(self, method, url, **kwargs):
-            self.requests.append((method, url, kwargs))
-            if url.endswith("/self-service/login/browser"):
-                return SimpleNamespace(
-                    ok=True,
-                    status_code=200,
-                    content=b"{}",
-                    json=lambda: {
-                        "ui": {
-                            "action": "https://account.tadoku.app/kratos/self-service/login?flow=id",
-                            "nodes": [{"attributes": {"name": "csrf_token", "value": "csrf-value"}}],
-                        }
-                    },
-                )
-            if "self-service/login?flow=" in url:
-                self.cookies.clear()
-                self.cookies.set("ory_kratos_session", "refreshed-cookie")
-                return SimpleNamespace(ok=True, status_code=200, content=b"{}", json=lambda: {})
-            self.api_calls += 1
-            if self.api_calls == 1:
-                return SimpleNamespace(ok=False, status_code=401, content=b"", text="")
-            return SimpleNamespace(
-                ok=True,
-                status_code=200,
-                content=b'{"units": []}',
-                json=lambda: {"units": []},
-            )
+    with pytest.raises(TadokuSyncError, match="session cookie"):
+        client.refresh_session()
 
-    session = _Session()
-    client = TadokuClient("reader", "password", session_cookie="expired-cookie", session=session)
+    assert session.sent_cookies == [""]
+    assert client.session_cookie == ""
 
-    with pytest.raises(TadokuSyncError, match="no Character unit"):
-        client.resolve_character_unit_id("jpn")
 
-    assert session.api_calls == 2
-    assert client.session_cookie == "refreshed-cookie"
+def test_tadoku_login_handles_network_failure_without_retry():
+    session = _TadokuSession(requests.Timeout("timed out"))
+    client = TadokuClient("reader@example.com", "password", session=session)
+
+    with pytest.raises(TadokuSyncError, match="Could not reach Tadoku login"):
+        client.refresh_session()
+
+    assert len(session.requests) == 1
+
+
+def test_sync_migrates_legacy_cookie_preserving_settings_and_incremental_history(monkeypatch):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    StatsExportStateTable.mark_successful_export(tadoku_game_cursor_key("game-1"), 120.0)
+    _line("already-synced", "game-1", "Scene A", "old", 110.0)
+    _line("pending", "game-1", "Scene A", "new", 130.0)
+    config = _config(
+        tadoku_username="reader@example.com",
+        tadoku_session_cookie="legacy-kratos-cookie",
+        tadoku_daily_sync_enabled=True,
+        tadoku_daily_sync_game_ids=["game-1"],
+        tadoku_title_source="original",
+    )
+    original_settings = vars(config).copy()
+    units = {"units": [{"id": "characters", "log_activity_id": 1, "name": "Character"}]}
+    session = _TadokuSession(
+        _tadoku_response(payload=units),
+        _tadoku_response(401),
+        _tadoku_response(cookie="fresh-cookie"),
+        _tadoku_response(payload={"registrations": []}),
+        _tadoku_response(payload={"id": "log-1"}),
+        _tadoku_response(payload=units),
+        _tadoku_response(payload={"registrations": []}),
+        _tadoku_response(payload={"id": "log-2"}),
+    )
+    saved = []
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.requests.Session", lambda: session)
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.save_stats_config", lambda value: saved.append(value))
+    now = [150.0]
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: now[0])
+
+    result = run_tadoku_sync(config=config)
+
+    assert result["characters_sent"] == 3
+    assert session.requests[4][2]["json"]["amount"] == 3
+    assert vars(config) == {**original_settings, "tadoku_session_cookie": "fresh-cookie"}
+    assert saved == [config]
+    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-1")) == 150.0
+    assert run_tadoku_sync(config=config)["entries_sent"] == 0
+    assert len(session.requests) == 5
+
+    _line("next", "game-1", "Scene A", "next", 160.0)
+    now[0] = 200.0
+    assert run_tadoku_sync(config=config)["characters_sent"] == 4
+    assert len(session.requests) == 8
+    assert all(cookie == "tadoku_session=fresh-cookie" for cookie in session.sent_cookies[5:])
+    assert saved == [config]
+
+
+@pytest.mark.parametrize("login_succeeds", [False, True])
+def test_failed_sync_keeps_history_and_saves_only_successful_login(monkeypatch, login_succeeds):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    StatsExportStateTable.mark_successful_export(tadoku_game_cursor_key("game-1"), 120.0)
+    _line("pending", "game-1", "Scene A", "new", 130.0)
+    config = _config(tadoku_username="reader@example.com", tadoku_session_cookie="legacy-cookie")
+    responses = [_tadoku_response(401)]
+    if login_succeeds:
+        responses.extend([_tadoku_response(cookie="fresh-cookie"), _tadoku_response(503)])
+    else:
+        responses.append(_tadoku_response(401))
+    session = _TadokuSession(*responses)
+    saved = []
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.requests.Session", lambda: session)
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.save_stats_config", lambda value: saved.append(value))
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+
+    with pytest.raises(TadokuSyncError):
+        run_tadoku_sync(config=config)
+
+    assert config.tadoku_session_cookie == ("fresh-cookie" if login_succeeds else "legacy-cookie")
+    assert saved == ([config] if login_succeeds else [])
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
+    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-1")) == 120.0
+    assert build_tadoku_preview(upper_bound=150.0)["total_characters"] == 3
+    assert GameLinesTable.get("pending") is not None
 
 
 def test_tadoku_client_selects_all_eligible_ongoing_contest_registrations():
@@ -930,21 +1019,13 @@ def test_tadoku_api_manually_refreshes_and_persists_authentication(monkeypatch):
     app = flask.Flask(__name__)
     app.config["TESTING"] = True
     register_tadoku_api_routes(app)
-    config = _config(tadoku_session_cookie="old-cookie")
+    config = _config(tadoku_username="reader@example.com", tadoku_session_cookie="old-cookie")
     saved = []
-
-    class _Client:
-        def __init__(self, username, password):
-            assert username == "reader"
-            assert password == "password-secret"
-            self.session_cookie = ""
-
-        def refresh_session(self):
-            self.session_cookie = "fresh-cookie"
+    session = _TadokuSession(_tadoku_response(cookie="fresh-cookie"))
 
     monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.get_stats_config", lambda: config)
     monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.save_stats_config", lambda value: saved.append(value))
-    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.TadokuClient", _Client)
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.requests.Session", lambda: session)
 
     response = app.test_client().post("/api/tadoku/auth/refresh")
 
@@ -952,6 +1033,31 @@ def test_tadoku_api_manually_refreshes_and_persists_authentication(monkeypatch):
     assert response.get_json() == {"authenticated": True}
     assert config.tadoku_session_cookie == "fresh-cookie"
     assert saved == [config]
+    assert len(session.requests) == 1
+    assert session.requests[0][1] == "https://tadoku.app/api/internal/identity/login"
+    assert session.requests[0][2]["json"] == {"email": "reader@example.com", "password": "password-secret"}
+
+
+def test_tadoku_api_failed_manual_refresh_keeps_saved_login_and_sync_history(monkeypatch):
+    app = flask.Flask(__name__)
+    app.config["TESTING"] = True
+    register_tadoku_api_routes(app)
+    config = _config(tadoku_session_cookie="old-cookie")
+    original_settings = vars(config).copy()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    saved = []
+    session = _TadokuSession(_tadoku_response(401))
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.get_stats_config", lambda: config)
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.save_stats_config", lambda value: saved.append(value))
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.requests.Session", lambda: session)
+
+    response = app.test_client().post("/api/tadoku/auth/refresh")
+
+    assert response.status_code == 401
+    assert "email and password" in response.get_json()["error"]
+    assert saved == []
+    assert vars(config) == original_settings
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
 
 
 def test_tadoku_api_manual_auth_requires_saved_credentials(monkeypatch):
@@ -966,4 +1072,4 @@ def test_tadoku_api_manual_auth_requires_saved_credentials(monkeypatch):
     response = app.test_client().post("/api/tadoku/auth/refresh")
 
     assert response.status_code == 400
-    assert response.get_json()["error"] == "Save a Tadoku username and password first"
+    assert response.get_json()["error"] == "Save a Tadoku email and password first"

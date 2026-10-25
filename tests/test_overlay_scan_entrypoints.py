@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 OVERLAY_DIR = Path(__file__).resolve().parents[1] / "GSM_Overlay"
 
 
@@ -20,6 +19,7 @@ def test_overlay_activation_scan_has_one_capture_setting():
 
 def test_text_appears_instantly_setting_is_in_capture_and_synced_to_backend():
     settings_html = (OVERLAY_DIR / "settings.html").read_text(encoding="utf-8")
+    settings_bindings = (OVERLAY_DIR / "settings" / "bindings.js").read_text(encoding="utf-8")
     main_js = (OVERLAY_DIR / "main.js").read_text(encoding="utf-8")
 
     capture_start = settings_html.index('<div class="setting-group full-width" data-tab="capture">')
@@ -28,8 +28,8 @@ def test_text_appears_instantly_setting_is_in_capture_and_synced_to_backend():
 
     assert "Text Appears Instantly" in primary_capture_group
     assert 'id="text_appears_instantly"' in primary_capture_group
-    assert "Yomitan lookups can miss characters" in primary_capture_group
-    assert 'createCheckboxBinding("text_appears_instantly", "#text_appears_instantly")' in settings_html
+    assert "Yomitan lookups can miss characters" in " ".join(primary_capture_group.split())
+    assert 'createCheckboxBinding("text_appears_instantly", "#text_appears_instantly")' in settings_bindings
     assert 'text_appears_instantly: "text_appears_instantly"' in main_js
 
 
@@ -45,6 +45,7 @@ def test_overlay_activation_scan_covers_each_overlay_entrypoint():
 
 def test_last_sent_ocr_presence_settings_are_nested_and_synced_to_backend():
     settings_html = (OVERLAY_DIR / "settings.html").read_text(encoding="utf-8")
+    settings_bindings = (OVERLAY_DIR / "settings" / "bindings.js").read_text(encoding="utf-8")
     main_js = (OVERLAY_DIR / "main.js").read_text(encoding="utf-8")
     index_html = (OVERLAY_DIR / "index.html").read_text(encoding="utf-8")
     overlay_processor = (
@@ -58,7 +59,7 @@ def test_last_sent_ocr_presence_settings_are_nested_and_synced_to_backend():
     assert 'id="last_sent_ocr_presence_remove_notation"' in settings_html
     assert 'id="last_sent_ocr_presence_invalidate_lookups"' in settings_html
     assert 'class="sub-option last-sent-ocr-presence-option"' in settings_html
-    assert 'createCheckboxBinding("last_sent_ocr_presence_check"' in settings_html
+    assert 'createCheckboxBinding("last_sent_ocr_presence_check"' in settings_bindings
     assert 'last_sent_ocr_presence_check: "last_sent_ocr_presence_check"' in main_js
     assert 'data.type === "ocr_text_invalidated"' in index_html
     assert 'data.type === "ocr_text_revalidated"' in index_html

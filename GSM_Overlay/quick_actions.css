@@ -1,0 +1,32 @@
+#gsm-quick-actions {
+  position: fixed;
+  right: 28px;
+  bottom: 86px;
+  width: min(520px, calc(100vw - 48px));
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 20px;
+  border: 1px solid #647c9d;
+  border-radius: 16px;
+  background: rgba(17, 23, 34, .98);
+  color: #edf4ff;
+  box-shadow: 0 12px 48px #0009;
+  z-index: 2147483646;
+  font: 17px/1.45 system-ui, sans-serif;
+  writing-mode: horizontal-tb;
+  pointer-events: auto;
+}
+#gsm-quick-actions .quick-actions-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 16px; }
+#gsm-quick-actions .quick-actions-header strong { font-size: 22px; }
+#gsm-quick-actions button { font: inherit; color: inherit; background: #253145; border: 1px solid #50617a; border-radius: 9px; cursor: pointer; }
+#gsm-quick-actions .quick-actions-back { padding: 7px 14px; }
+#gsm-quick-actions .quick-actions-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#gsm-quick-actions .quick-actions-button { min-height: 78px; padding: 14px; text-align: left; }
+#gsm-quick-actions .quick-actions-button.selected { background: #244c65; border-color: #80e3c3; outline: 3px solid #80e3c3; outline-offset: 2px; }
+#gsm-quick-actions button:focus-visible { outline: 3px solid #80e3c3; }
+#gsm-quick-actions button:disabled { opacity: .6; }
+#gsm-quick-actions .quick-actions-status { min-height: 1.45em; margin: 14px 0 8px; color: #bfe8dc; }
+#gsm-quick-actions footer { color: #a6b6cc; font-size: 13px; }
+#gsm-quick-actions .quick-actions-question { font-size: 14px; color: #bbcddd; overflow-wrap: anywhere; }
+#gsm-quick-actions .quick-actions-result { max-height: 52vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }

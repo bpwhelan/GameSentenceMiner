@@ -1,4 +1,5 @@
 import math
+from unittest.mock import Mock
 
 import pytest
 
@@ -60,6 +61,17 @@ def test_raw_reading_time_zero_without_session():
     assert payload["values"]["raw_reading_time"] == 0.0
 
 
+@pytest.mark.parametrize("paused", [False, True])
+def test_live_stats_snapshot_includes_intake_state_before_any_text(monkeypatch, paused):
+    from GameSentenceMiner.util.config.configuration import gsm_state
+
+    monkeypatch.setattr(gsm_state, "text_input_paused", paused)
+    payload = build_live_stats_payload(LiveSessionTracker(), reason="connect")
+
+    assert payload["text_intake_paused"] is paused
+    assert payload["session_active"] is False
+
+
 def test_raw_reading_time_resets_on_session_gap():
     from GameSentenceMiner.util.config.configuration import get_stats_config
 
@@ -106,16 +118,154 @@ def _mock_stats_config(monkeypatch, **overrides):
 
     import GameSentenceMiner.util.stats.live_stats as live_mod
 
-    monkeypatch.setattr(
-        live_mod,
-        "get_stats_config",
-        lambda: SimpleNamespace(
-            session_gap_seconds=1800,
-            regex_out_repetitions=False,
-            extra_punctuation_regex="",
-            **overrides,
-        ),
-    )
+    settings = {
+        "session_gap_seconds": 1800,
+        "regex_out_repetitions": False,
+        "extra_punctuation_regex": "",
+        **overrides,
+    }
+    stats_config = SimpleNamespace(**settings)
+    monkeypatch.setattr(live_mod, "get_stats_config", lambda: stats_config)
+    return stats_config
+
+
+def test_switching_games_starts_a_new_session_without_crediting_previous_game(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("あ" * 20, 1000.0, line_id="one", game_name="First Game")
+    tracker.add_line("あ" * 20, 1010.0, line_id="two", game_name="First Game")
+    tracker.add_mined_line()
+    tracker.add_line("new game", 1020.0, line_id="three", game_name="Second Game")
+
+    payload = build_live_stats_payload(tracker, now=1020.0)
+    assert payload["game_name"] == "Second Game"
+    assert tracker.lines_count == 1
+    assert tracker.session_start_time == 1020.0
+    assert all(value == 0 for value in payload["values"].values())
+
+
+def test_game_change_publishes_an_empty_session_before_the_next_line(monkeypatch):
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    _mock_stats_config(monkeypatch)
+    publish = Mock()
+    monkeypatch.setattr(live_mod, "publish_live_stats_update", publish)
+    tracker = LiveSessionTracker()
+    tracker.add_line("reading", 1000.0, line_id="one", game_name="First Game")
+    publish.reset_mock()
+
+    assert tracker.set_game("Second Game") is True
+    assert tracker.set_game("Second Game") is False
+    publish.assert_called_once_with(tracker, reason="game_changed")
+    assert tracker.game_name == "Second Game"
+    assert tracker.last_line_time is None
+    assert tracker.get_live_lines() == []
+
+
+def test_delayed_mining_from_previous_game_does_not_count_for_current_game(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("reading", 1000.0, line_id="one", game_name="First Game")
+    tracker.set_game("Second Game")
+    tracker.add_mined_line(game_name="First Game")
+    assert tracker.get_cards_mined() == 0
+    tracker.add_mined_line(game_name="Second Game")
+    assert tracker.get_cards_mined() == 1
+
+
+@pytest.mark.parametrize("session_gap_seconds", [600, 1800, 7200])
+@pytest.mark.parametrize("gap_offset", [-1, 0, 1])
+def test_idle_session_resets_only_after_configured_gap(monkeypatch, session_gap_seconds, gap_offset):
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    _mock_stats_config(monkeypatch, session_gap_seconds=session_gap_seconds)
+    publish = Mock()
+    monkeypatch.setattr(live_mod, "publish_live_stats_update", publish)
+    tracker = LiveSessionTracker()
+    for index in range(5):
+        tracker.add_line("あ" * 20, 1000.0 + index * 10, line_id=f"line-{index}")
+    tracker.times_mined = 2
+    before = build_live_stats_payload(tracker, now=1040.0)
+    publish.reset_mock()
+
+    expired = tracker.reset_if_inactive(now=1040.0 + session_gap_seconds + gap_offset)
+
+    assert expired is (gap_offset > 0)
+    if gap_offset <= 0:
+        assert build_live_stats_payload(tracker, now=1040.0) == before
+        publish.assert_not_called()
+    else:
+        payload = build_live_stats_payload(tracker, now=1040.0)
+        assert payload["session_active"] is False
+        assert payload["session_start_time"] is None
+        assert payload["last_line_time"] is None
+        assert all(value == 0 for value in payload["values"].values())
+        assert tracker.last_line_text is None
+        assert tracker.last_line_chars == 0
+        assert tracker.lines_count == 0
+        assert tracker.last_line_id is None
+        assert tracker._line_ledger == {}
+        assert tracker._reading_gaps == []
+        assert tracker._reading_breaks == []
+        publish.assert_called_once_with(tracker, reason="session_timeout")
+
+
+def test_idle_session_publishes_reset_once_and_next_line_starts_fresh(monkeypatch):
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    _mock_stats_config(monkeypatch)
+    publish = Mock()
+    monkeypatch.setattr(live_mod, "publish_live_stats_update", publish)
+    tracker = LiveSessionTracker()
+    tracker.add_line("old session", 1000.0, line_id="one")
+    tracker.add_line("last line", 1010.0, line_id="two")
+    publish.reset_mock()
+
+    assert tracker.reset_if_inactive(now=2811.0) is True
+    assert tracker.reset_if_inactive(now=3000.0) is False
+    publish.assert_called_once_with(tracker, reason="session_timeout")
+
+    # Resetting also clears the revision ledger and the pending line's credit.
+    tracker.add_line("fresh session", 3010.0, line_id="one")
+    assert tracker.session_start_time == 3010.0
+    assert tracker.lines_count == 1
+    assert tracker.get_total_chars() == 0
+    assert tracker.get_active_reading_time() == 0
+    assert tracker.get_raw_reading_time() == 0
+    assert tracker.reset_if_inactive(now=3011.0) is False
+
+
+def test_idle_session_check_uses_current_gap_setting(monkeypatch):
+    config = _mock_stats_config(monkeypatch, session_gap_seconds=600)
+    tracker = LiveSessionTracker()
+    tracker.add_line("reading", 1000.0)
+
+    config.session_gap_seconds = 1800
+    assert tracker.reset_if_inactive(now=1601.0) is False
+    config.session_gap_seconds = 600
+    assert tracker.reset_if_inactive(now=1601.0) is True
+
+
+def test_revisions_and_mining_do_not_extend_idle_session(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("first", 1000.0, line_id="one")
+    tracker.add_line("last", 1010.0, line_id="two")
+    tracker.add_line("revised", 1000.0, line_id="one", revision=2)
+    tracker.add_mined_line()
+
+    assert tracker.reset_if_inactive(now=2811.0) is True
+    assert tracker.get_cards_mined() == 0
+
+
+def test_empty_session_does_not_publish_idle_resets(monkeypatch):
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    publish = Mock()
+    monkeypatch.setattr(live_mod, "publish_live_stats_update", publish)
+
+    assert LiveSessionTracker().reset_if_inactive(now=10000.0) is False
+    publish.assert_not_called()
 
 
 @pytest.mark.parametrize("legacy_settings", [{}, {"reading_time_adaptive_v2": False}])
@@ -237,6 +387,86 @@ def test_live_and_batch_use_the_same_pace_sample_filters(monkeypatch):
 
     assert tracker.total_reading_seconds == pytest.approx(75.2)
     assert tracker.total_reading_seconds == pytest.approx(calculate_actual_reading_time(timestamps, texts))
+
+
+@pytest.mark.parametrize("gaps", [[10.0] * 10 + [60.0] * 11, [60.0] * 11 + [10.0] * 10, [120.0, 10.0]])
+def test_live_reading_time_matches_batch_after_every_pace_change(monkeypatch, gaps):
+    from GameSentenceMiner.web import stats
+
+    config = _mock_stats_config(monkeypatch)
+    monkeypatch.setattr(stats, "get_stats_config", lambda: config)
+    tracker = LiveSessionTracker()
+    timestamps = [1000.0]
+    texts = ["あ" * 20]
+    tracker.add_line(texts[0], timestamps[0])
+    for gap in gaps:
+        timestamps.append(timestamps[-1] + gap)
+        texts.append("あ" * 20)
+        tracker.add_line(texts[-1], timestamps[-1])
+        assert tracker.get_active_reading_time() == pytest.approx(
+            stats.calculate_actual_reading_time(timestamps, texts)
+        )
+
+
+def test_revising_completed_text_recalculates_the_pace_and_time(monkeypatch):
+    from GameSentenceMiner.web import stats
+
+    config = _mock_stats_config(monkeypatch)
+    monkeypatch.setattr(stats, "get_stats_config", lambda: config)
+    tracker = LiveSessionTracker()
+    timestamps = [1000.0, 1100.0, 1110.0, 1120.0, 1720.0]
+    texts = ["あ" * 20] * len(timestamps)
+    texts[0] = "あ" * 3
+    for index, timestamp in enumerate(timestamps):
+        tracker.add_line(texts[index], timestamp, line_id=str(index))
+
+    texts[0] = "あ" * 200
+    tracker.add_line(texts[0], timestamps[0], line_id="0", revision=2)
+
+    assert tracker.get_active_reading_time() == pytest.approx(stats.calculate_actual_reading_time(timestamps, texts))
+    assert tracker.get_total_chars() == 260
+
+
+def test_pause_gap_is_neither_credited_nor_used_to_learn_pace(monkeypatch):
+    from GameSentenceMiner.web import stats
+
+    config = _mock_stats_config(monkeypatch)
+    monkeypatch.setattr(stats, "get_stats_config", lambda: config)
+    tracker = LiveSessionTracker()
+    timestamps = [1000.0, 1010.0, 1130.0, 1250.0, 1370.0, 1970.0]
+    breaks = [1020.0, 1140.0, 1260.0]
+    texts = ["あ" * 20] * len(timestamps)
+    for index, timestamp in enumerate(timestamps):
+        if 2 <= index <= 4:
+            tracker.mark_reading_break(breaks[index - 2])
+        tracker.add_line(texts[index], timestamp, line_id=str(index))
+
+    # Three interrupted gaps must not replace the established 2 cps pace.
+    assert tracker.get_active_reading_time() == 10.0 + 25.0
+    assert tracker.get_active_reading_time() == stats.calculate_actual_reading_time(
+        timestamps, texts, reading_breaks=breaks
+    )
+
+
+def test_pause_before_first_line_does_not_discard_resumed_reading(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.mark_reading_break(900.0)
+    tracker.add_line("あ" * 20, 1000.0)
+    tracker.add_line("あ" * 20, 1010.0)
+    assert tracker.get_active_reading_time() == 10.0
+
+
+def test_queued_text_before_pause_keeps_its_measured_reading_time(monkeypatch):
+    _mock_stats_config(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("あ" * 20, 1000.0)
+    tracker.mark_reading_break(1020.0)
+    # A delayed projection still belongs to the uninterrupted part of the session.
+    tracker.add_line("あ" * 20, 1010.0)
+    tracker.add_line("あ" * 20, 1130.0)
+    tracker.add_line("あ" * 20, 1140.0)
+    assert tracker.get_active_reading_time() == 20.0
 
 
 def test_timestamp_zero_is_a_valid_session_start(monkeypatch):

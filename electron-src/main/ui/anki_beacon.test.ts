@@ -74,12 +74,13 @@ describe('AnkiBeacon installer IPC', () => {
             expect.objectContaining({ responseType: 'arraybuffer' }),
         );
         expect(mkdirMock).toHaveBeenCalledWith('C:\\temp\\GameSentenceMiner', { recursive: true });
-        expect(writeFileMock).toHaveBeenCalledWith(
-            'C:\\temp\\GameSentenceMiner\\Anki.Beacon.ankiaddon',
+        expect(writeConfiguredAnkiBeaconAddonMock).toHaveBeenCalledWith(
             Buffer.from('addon'),
+            'C:\\temp\\GameSentenceMiner\\Anki.Beacon.ankiaddon',
+            7275,
         );
         expect(openPathMock).toHaveBeenCalledWith('C:\\temp\\GameSentenceMiner\\Anki.Beacon.ankiaddon');
-        expect(writeConfiguredAnkiBeaconAddonMock).not.toHaveBeenCalled();
+        expect(writeFileMock).not.toHaveBeenCalled();
     });
 
     it('preconfigures the downloaded add-on when GSM uses a nondefault port', async () => {

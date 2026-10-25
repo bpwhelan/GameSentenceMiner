@@ -10,6 +10,14 @@ can use the command below from the repository root:
 npm run agent:restart -- --build --reason "The OCR fix is ready to try"
 ```
 
+For agent handoff, add `--handoff`. The command returns after GSM accepts the
+request and shows the warning, so the agent does not wait for the replacement
+app or backend to start:
+
+```powershell
+npm run agent:restart -- --build --handoff --reason "The OCR fix is ready to try"
+```
+
 `--build` builds the Electron main process and renderer before asking GSM to
 restart. If the build fails, the running app is left alone. Omit `--build` for
 Python-only changes or when the necessary assets have already been built:
@@ -22,17 +30,23 @@ The command:
 
 1. Checks the running GSM instance and refuses to interrupt an update or installation.
 2. Shows a desktop notification explaining the reason and waits 30 seconds by default.
-   On Windows and macOS, choose **Restart Now** in the notification to restart early.
-3. Runs the normal shutdown cleanup, waiting for the backend, OCR, overlay,
-   input service, and other managed processes. A cleanup failure prevents relaunch.
+   On Windows and macOS, choose **Restart Now** to restart early or **Cancel Restart**
+   to keep the current app running. If neither action is chosen, the countdown restarts GSM.
+3. If the restart is not cancelled, runs the normal shutdown cleanup, waiting for
+   the backend, OCR, overlay, input service, and other managed processes. A cleanup
+   failure prevents relaunch.
 4. Relaunches the same app with its original arguments and normal startup settings.
-5. Waits for the matching new app instance and its backend to be ready, then prints
-   confirmation. GSM also shows a ready notification.
+5. By default, waits for the matching new app instance and its backend to be ready, then
+   prints confirmation. GSM also shows a ready notification. With `--handoff`, the
+   command returns after the warning is displayed and leaves the countdown and restart
+   to GSM.
 
-The exit code is zero only after readiness is confirmed. Failures and timeouts
-return a nonzero code; check the message and GSM logs before retrying. A timeout
-does not kill the replacement app. Concurrent requests share one warning and
-restart. If desktop notifications cannot be delivered, GSM stays running.
+Without `--handoff`, the exit code is zero after readiness is confirmed or the
+user cancels the restart. With `--handoff`, zero means GSM accepted the request
+and displayed the warning. Failures and timeouts return a nonzero code; check the
+message and GSM logs before retrying. A timeout does not kill the replacement
+app. Concurrent requests share one warning and restart. If desktop notifications
+cannot be delivered, GSM stays running.
 
 ```powershell
 npm run agent:status
@@ -50,6 +64,18 @@ restart Electron before the warning. Manually started tools follow their normal
 startup settings; this command does not promise to restore an unsaved UI session.
 An independently launched overlay or other tool is outside the main app's managed
 processes and must be restarted separately when its code changes.
+
+The backend stops first so its replay-buffer manager cannot restart OBS outputs.
+GSM then stops active recording and replay buffering through OBS WebSocket and
+waits for both outputs to become inactive. Recording has up to 30 seconds to
+finalize, followed by up to 15 seconds for output status to settle. An active
+stream or an unavailable WebSocket connection prevents automatic OBS shutdown.
+Managed OBS then receives a normal close request and has up to 10 seconds to save and
+exit. A confirmation dialog or failed shutdown cancels the restart; GSM leaves
+OBS running instead of force-killing it. Scene collections, recording profiles,
+and their related GSM settings are snapshotted under `<GSM data directory>/backup/obs`
+before startup changes and shutdown, and again after OBS exits. The newest 20
+snapshots are retained. Each includes a `snapshot.json` file listing its contents.
 
 The command does not sync or build Yomitan, regenerate Hachidori, or compile Rust
 helpers. Follow the relevant repository workflows first. `--build` only targets a

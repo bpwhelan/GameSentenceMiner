@@ -157,6 +157,8 @@ export function openYuzuWindow() {
     yuzuWindow = new BrowserWindow({
         width: 800,
         height: 600,
+        minWidth: 800,
+        minHeight: 500,
         webPreferences: getSecureWebPreferences(),
     });
 

@@ -9,18 +9,21 @@
     "start": "npm run build && electron .",
     "agent:restart": "node scripts/restart-gsm.mjs",
     "agent:status": "node scripts/restart-gsm.mjs --status",
-    "build": "npm run sync:version && npm run sync:legacy && npm run build:main && npm run build:renderer",
+    "build": "npm run sync:version && npm run sync:theme && npm run sync:legacy && npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.electron.json",
     "build:renderer": "vite build --config electron-src/renderer/vite.config.ts",
     "build:windows-audio": "node scripts/build-windows-audio-helper.mjs",
     "build:windows-speech": "node scripts/build-windows-speech-helper.mjs",
     "build:windows-helpers": "node scripts/build-windows-helpers.mjs",
-    "dev": "npm run sync:legacy && concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
+    "build:game-background": "node scripts/build-game-background-hooks.mjs",
+    "test:game-background": "node scripts/test-game-background-hooks.mjs && node scripts/test-direct-input-background-hooks.mjs",
+    "dev": "npm run sync:theme && npm run sync:legacy && concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
     "dev:chaos-update": "npm run build:main && node scripts/run-update-chaos.cjs",
     "dev:main": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
     "dev:renderer": "vite --config electron-src/renderer/vite.config.ts",
     "dev:electron": "wait-on tcp:5173 dist/main/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 nodemon --exitcrash --watch dist/main --watch dist/preload --ext js,mjs,cjs --exec \"node scripts/electron-dev-once.cjs\"",
     "sync:legacy": "node electron-src/renderer/scripts/sync-legacy-assets.mjs",
+    "sync:theme": "node scripts/sync-overlay-theme.mjs",
     "test:ts": "vitest run --config vitest.config.ts",
     "test:ts:watch": "vitest --config vitest.config.ts",
     "build:native": "python -m pip install --disable-pip-version-check --no-deps -e .",
@@ -86,14 +89,21 @@
         "from": "native",
         "to": "resources/native",
         "filter": [
-          "**/bin/x64/*.exe"
+          "**/bin/x64/*.exe",
+          "!game-background-hooks/**"
         ]
       }
     ],
     "win": {
       "target": "nsis",
       "icon": "assets/gsm.ico",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "extraFiles": [
+        {
+          "from": "build/game-background-hooks",
+          "to": "resources/native/game-background-hooks"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

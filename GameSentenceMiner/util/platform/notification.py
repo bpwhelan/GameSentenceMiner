@@ -14,6 +14,41 @@ except Exception:
 
 _ELECTRON_MODE = _IPC_AVAILABLE and os.environ.get("GSM_ELECTRON") == "1"
 
+_NOTIFICATION_FEATURES = {
+    "AnkiCardUpdated": "notify_on_update",
+    "AnkiEnhancementFailed": "notify_on_anki_enhancement_failed",
+    "ScreenshotSaved": "notify_on_screenshot_saved",
+    "AudioGenerated": "notify_on_audio_generated",
+    "CheckOBS": "notify_on_obs_warning",
+    "Error": "notify_on_errors",
+    "GSMTextIntakePaused": "notify_on_text_intake_state",
+    "GSMTextIntakeResumed": "notify_on_text_intake_state",
+}
+
+_NOTIFICATION_TYPE_BY_TITLE = {
+    "Anki Card Updated": "AnkiCardUpdated",
+    "Anki Enhancement Failed": "AnkiEnhancementFailed",
+    "Screenshot Saved": "ScreenshotSaved",
+    "Audio Trimmed": "AudioGenerated",
+    "OBS Replay Invalid": "CheckOBS",
+    "Error": "Error",
+    "GSM Ready": "GSMReady",
+    "GSM Text Intake Paused": "GSMTextIntakePaused",
+    "GSM Text Intake Resumed": "GSMTextIntakeResumed",
+}
+
+
+def _notification_enabled(type_key: str) -> bool:
+    feature_name = _NOTIFICATION_FEATURES.get(type_key)
+    if not feature_name:
+        return True
+    try:
+        from GameSentenceMiner.util.config.configuration import get_config
+
+        return bool(getattr(get_config().features, feature_name, True))
+    except Exception:
+        return True
+
 
 def open_browser_window(note_id, query=None):
     url = "http://localhost:8765"
@@ -71,6 +106,8 @@ def _send_ipc_notification(type_key: str, message: str = "", extra: dict = None)
     `extra` will be merged into the payload so callers can include structured fields
     like `noteId` when available.
     """
+    if not _notification_enabled(type_key):
+        return True
     if _ELECTRON_MODE:
         try:
             payload = {"type": type_key, "message": message}
@@ -85,18 +122,9 @@ def _send_ipc_notification(type_key: str, message: str = "", extra: dict = None)
 
 def send_notification(title, message, timeout):
     # Map title values to NotificationType enum keys expected by Electron
-    title_to_key = {
-        "Anki Card Updated": "AnkiCardUpdated",
-        "Anki Enhancement Failed": "AnkiEnhancementFailed",
-        "Screenshot Saved": "ScreenshotSaved",
-        "Audio Trimmed": "AudioGenerated",  # Python title wording differs; map to AudioGenerated
-        "OBS Replay Invalid": "CheckOBS",
-        "Error": "Error",
-        "GSM Ready": "GSMReady",
-        "GSM Text Intake Paused": "GSMTextIntakePaused",
-        "GSM Text Intake Resumed": "GSMTextIntakeResumed",
-    }
-    type_key = title_to_key.get(title)
+    type_key = _NOTIFICATION_TYPE_BY_TITLE.get(title)
+    if type_key and not _notification_enabled(type_key):
+        return
     if type_key and _send_ipc_notification(type_key, message):
         return
     try:
@@ -202,8 +230,8 @@ def announce_text_intake_state(paused: bool):
 def send_text_intake_paused_notification(relay_outputs_enabled: bool = True):
     if relay_outputs_enabled:
         message = (
-            "Clipboard and websocket text intake is paused. GSM will skip stats and overlay processing, "
-            "but texthooker and output websocket relays stay active."
+            "Stats collection is paused. Card mining, the overlay, Text Feed, and output relays stay active. "
+            "Incoming text will not update live stats, Discord activity, or the database."
         )
     else:
         message = "Clipboard and websocket text intake is paused. Incoming text will be fully ignored until resumed."

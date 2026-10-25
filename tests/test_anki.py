@@ -1,7 +1,10 @@
+import base64
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -68,7 +71,8 @@ text_log_stub.GameLine = object
 text_log_stub.TextSource = object
 text_log_stub.get_all_lines = lambda *args, **kwargs: []
 text_log_stub.get_text_event = lambda *args, **kwargs: None
-text_log_stub.get_mined_line = lambda card, lines=None: SimpleNamespace(id="line-1", text="Line")
+text_log_stub.get_mined_line = lambda card, lines=None, **kwargs: SimpleNamespace(id="line-1", text="Line")
+text_log_stub.find_matching_line = lambda *args, **kwargs: None
 text_log_stub.lines_match = lambda *args, **kwargs: False
 text_log_stub.strip_whitespace_and_punctuation = lambda text: "".join(ch for ch in text if ch.isalnum())
 
@@ -691,12 +695,14 @@ def test_resolve_mined_line_prefers_recent_match_for_overlay_card(monkeypatch):
     )
     calls = []
 
-    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False):
+    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False, search_saved_clips=True):
+        assert not search_saved_clips
         calls.append((lines, prefer_recent))
         return latest_matching_line if prefer_recent else earlier_line
 
     monkeypatch.setattr(anki, "get_config", lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence")))
     monkeypatch.setattr(anki, "get_mined_line", fake_get_mined_line)
+    monkeypatch.setattr(anki, "lines_match", lambda text, sentence: text in sentence)
     monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
 
     assert anki._resolve_mined_line_for_card(card, [earlier_line, latest_matching_line]) is latest_matching_line
@@ -712,16 +718,161 @@ def test_resolve_mined_line_prefers_text_event_over_injected_overlay_scan(monkey
     )
     calls = []
 
-    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False):
+    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False, search_saved_clips=True):
+        assert not search_saved_clips
         calls.append((lines, prefer_recent))
         return lines[-1]
 
     monkeypatch.setattr(anki, "get_config", lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence")))
     monkeypatch.setattr(anki, "get_mined_line", fake_get_mined_line)
+    monkeypatch.setattr(anki, "lines_match", lambda text, sentence: text in sentence)
     monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
 
     assert anki._resolve_mined_line_for_card(card, [text_event, injected_scan]) is text_event
     assert calls == [([text_event], True)]
+
+
+@pytest.fixture
+def overlay_mining_history(monkeypatch):
+    from GameSentenceMiner.util import clips, text_log
+
+    config = _base_config()
+    history = []
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(text_log, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "GameLine", text_log.GameLine)
+    monkeypatch.setattr(anki, "TextSource", text_log.TextSource)
+    monkeypatch.setattr(anki, "get_mined_line", text_log.get_mined_line)
+    monkeypatch.setattr(anki, "find_matching_line", text_log.find_matching_line)
+    monkeypatch.setattr(anki, "lines_match", text_log.lines_match)
+    monkeypatch.setattr(anki, "get_all_lines", lambda: history)
+    monkeypatch.setattr(text_log, "get_all_lines", lambda: history)
+    monkeypatch.setattr(clips, "get_clips_root", lambda: None)
+    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
+    return history
+
+
+@pytest.mark.parametrize("scan_text", [None, "An unrelated overlay scan"])
+def test_overlay_mining_without_text_history_uses_card_sentence(monkeypatch, overlay_mining_history, scan_text):
+    sentence = "This is the <b>overlay</b> sentence."
+    card = SimpleNamespace(noteId=42, tags=["overlay"], get_field=lambda _field: sentence)
+    if scan_text:
+        monkeypatch.setattr(
+            anki.gsm_state, "last_overlay_scan_line", SimpleNamespace(text=scan_text, time=datetime.now())
+        )
+    warnings = []
+    monkeypatch.setattr(anki.logger, "warning", warnings.append)
+    before = datetime.now()
+
+    line = anki._resolve_mined_line_for_card(card, [])
+
+    assert line.text == "This is the overlay sentence."
+    assert line.source == "overlay"
+    assert line.source_padding == anki.TextSource.padding_seconds("overlay")
+    assert before <= line.time <= datetime.now()
+    assert line.prev is None and line.next is None
+    assert line.excluded_from_stats
+    assert overlay_mining_history == []
+    assert len(warnings) == 1
+    assert "overlay" in warnings[0].lower()
+
+
+def test_overlay_mining_uses_matching_scan_timing_without_text_history(monkeypatch, overlay_mining_history):
+    scan = anki.GameLine(
+        id="scan",
+        text="The overlay sentence.",
+        time=datetime.now() - timedelta(seconds=8),
+        source="overlay",
+        prev=None,
+        next=None,
+    )
+    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", scan)
+    card = SimpleNamespace(noteId=42, tags=["overlay"], get_field=lambda _field: "The <b>overlay</b> sentence.")
+    warnings = []
+    monkeypatch.setattr(anki.logger, "warning", warnings.append)
+
+    assert anki._resolve_mined_line_for_card(card, []) is scan
+    assert len(warnings) == 1
+    assert overlay_mining_history == []
+
+
+def test_overlay_mining_prefers_overlay_sentence_over_unrelated_history(overlay_mining_history):
+    overlay_mining_history.append(
+        anki.GameLine(id="old", text="Unrelated history.", time=datetime.now(), source="hooker", prev=None, next=None)
+    )
+    card = SimpleNamespace(noteId=42, tags=["overlay"], get_field=lambda _field: "The overlay sentence.")
+
+    line = anki._resolve_mined_line_for_card(card, [])
+
+    assert line.text == "The overlay sentence."
+    assert line.source == "overlay"
+    assert [line.id for line in overlay_mining_history] == ["old"]
+
+
+def test_overlay_mining_prefers_matching_text_source_without_warning(monkeypatch, overlay_mining_history):
+    line = anki.GameLine(
+        id="hook", text="The overlay sentence.", time=datetime.now(), source="hooker", prev=None, next=None
+    )
+    overlay_mining_history.append(line)
+    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", SimpleNamespace(text=line.text, source="overlay"))
+    warnings = []
+    monkeypatch.setattr(anki.logger, "warning", warnings.append)
+    card = SimpleNamespace(noteId=42, tags=["overlay"], get_field=lambda _field: "The <b>overlay</b> sentence.")
+
+    assert anki._resolve_mined_line_for_card(card, []) is line
+    assert warnings == []
+
+
+def test_overlay_mining_keeps_conventional_match_using_highlighted_word_context(overlay_mining_history):
+    line = anki.GameLine(
+        id="hook",
+        text=(
+            "あったりまえよ。わざわざ姉貴の所のMystic Eyes殺しを奪ってまで作った、"
+            "AozakiAoko渾身の一品なんだから。粗末に扱ったらただじゃおかないからね、志貴"
+        ),
+        time=datetime.now(),
+        source="hooker",
+        prev=None,
+        next=None,
+    )
+    overlay_mining_history.append(line)
+    fields = {
+        "Sentence": (
+            "「うわあ！すごい、すごいよ先生！ラクガキがちっとも見えない！」"
+            "「あったりまえよ。わざわざ<b>姉貴</b>の所の魔眼殺しを奪ってまで作った、"
+            "蒼崎青子渾身の一品なんだから。粗末に扱ったらただじゃおかないからね、志貴」"
+        ),
+        "Word": "姉貴",
+    }
+    card = SimpleNamespace(noteId=42, tags=["overlay"], get_field=fields.__getitem__)
+
+    assert anki._resolve_mined_line_for_card(card, []) is line
+
+
+def test_non_overlay_mining_still_requires_a_text_source(overlay_mining_history):
+    card = SimpleNamespace(noteId=42, tags=[], get_field=lambda _field: "A sentence.")
+    with pytest.raises(Exception, match="No voicelines in GSM"):
+        anki._resolve_mined_line_for_card(card, [])
+
+
+def test_update_single_card_queues_overlay_mine_without_text_history(monkeypatch, overlay_mining_history):
+    card = SimpleNamespace(
+        noteId=42,
+        tags=["overlay"],
+        get_field=lambda field: {"Sentence": "The <b>overlay</b> sentence.", "Word": "overlay"}[field],
+    )
+    queued = []
+    monkeypatch.setattr(anki, "queue_card_for_processing", lambda *args, **kwargs: queued.append(args))
+    monkeypatch.setattr(anki, "anki_results", {})
+
+    anki.update_single_card(card)
+
+    assert len(queued) == 1
+    assert queued[0][0] is card
+    assert queued[0][2].source == "overlay"
+    assert queued[0][2].text == "The overlay sentence."
+    assert queued[0][2].mined_time >= queued[0][2].time
+    assert overlay_mining_history == []
 
 
 def test_set_sentence_audio_cache_entry_and_prune():
@@ -772,7 +923,7 @@ def test_update_single_card_reuses_audio_only_for_same_selection_different_mined
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: second_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: second_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -829,7 +980,7 @@ def test_update_single_card_reuses_all_media_for_same_selection_different_mined_
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: second_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: second_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -877,7 +1028,7 @@ def test_update_single_card_reuses_same_selection_and_mined_line(monkeypatch):
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: first_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: first_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -923,7 +1074,7 @@ def test_update_single_card_does_not_use_line_result_without_matching_selection_
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: first_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: first_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -980,7 +1131,7 @@ def test_update_single_card_reuses_screenshot_only_when_configured(monkeypatch):
         "_get_texthooking_page_module",
         lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
     )
-    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: second_line)
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None, **kwargs: second_line)
     monkeypatch.setattr(
         anki,
         "queue_card_for_processing",
@@ -1365,7 +1516,7 @@ def test_refresh_anki_connect_connection_status_preserves_fresh_beacon_on_failur
 
 def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypatch):
     processed = []
-    monkeypatch.setattr(anki, "update_new_cards", lambda note_ids: processed.append(set(note_ids)))
+    monkeypatch.setattr(anki, "update_new_cards", lambda note_ids, **kwargs: processed.append(set(note_ids)))
 
     payload = {
         "event": "note_added",
@@ -1381,6 +1532,160 @@ def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypat
     assert processed == [{42}]
     assert anki.previous_note_ids == {42}
     assert anki.first_run is False
+
+
+def _full_beacon_payload():
+    return {
+        "event": "note_added",
+        "session_id": "session-1",
+        "note_id": 42,
+        "note_type_id": 1,
+        "note_type_name": "Mining",
+        "tags": ["overlay", "日本語"],
+        "fields": {"Word": "語", "Sentence": "<b>例文</b>", "Picture": "", "SentenceAudio": ""},
+        "card_ids": [43, 44],
+        "cards": [{"card_id": 43, "template_index": 0, "deck_id": 1}],
+    }
+
+
+@pytest.mark.parametrize("card_ids", [[43, 44], []])
+def test_beacon_full_note_uses_real_anki_card_without_fetching(monkeypatch, card_ids):
+    from GameSentenceMiner.util.models import model
+
+    config = _base_config()
+    config.anki.sentence_furigana_field = ""
+    monkeypatch.setattr(model, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "AnkiCard", model.AnkiCard)
+    monkeypatch.setattr(anki, "invoke", lambda *_args, **_kwargs: pytest.fail("full note must not be fetched"))
+    cards = []
+    monkeypatch.setattr(anki, "update_single_card", lambda card, **kwargs: cards.append((card, kwargs)))
+    payload = _full_beacon_payload()
+    payload["card_ids"] = card_ids
+    payload["fields"]["Definition"] = "<ul><li>日本語の定義 &amp; HTML</li></ul>" * 1000
+
+    assert anki.handle_incoming_anki_event(payload) == "note_added"
+    assert anki._process_next_anki_beacon_note() is True
+    assert len(cards) == 1
+    card, kwargs = cards[0]
+    assert isinstance(card, model.AnkiCard)
+    assert card.noteId == 42
+    assert card.modelName == "Mining"
+    assert card.get_field("Sentence") == "<b>例文</b>"
+    assert card.fields["Sentence"].order == 1
+    assert card.get_field("Picture") == ""
+    assert card.cards == card_ids
+    assert card.get_field("Definition") == payload["fields"]["Definition"]
+    assert card.tags == payload["tags"]
+    assert kwargs["timing_context"].note_id == "42"
+    assert anki.previous_note_ids == {42}
+    assert anki.handle_incoming_anki_event(payload) == "duplicate_note_added"
+
+
+@pytest.mark.parametrize(
+    "invalid_fields",
+    [
+        {"fields": {}},
+        {"fields": {"Word": None}},
+        {"tags": None},
+        {"tags": [1]},
+        {"card_ids": None},
+        {"card_ids": ["not-an-id"]},
+        {"note_type_name": None},
+    ],
+)
+def test_beacon_incomplete_note_falls_back_to_fetch(monkeypatch, invalid_fields):
+    processed = []
+    monkeypatch.setattr(anki, "update_new_cards", lambda ids, **kwargs: processed.append(set(ids)))
+    payload = {**_full_beacon_payload(), **invalid_fields}
+
+    assert anki.handle_incoming_anki_event(payload) == "note_added"
+    assert anki._process_next_anki_beacon_note() is True
+    assert processed == [{42}]
+
+
+def test_generated_screenshot_does_not_wait_for_an_already_finished_encoder(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.anki.previous_image_field = ""
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    screenshot = tmp_path / "raw.png"
+    screenshot.write_bytes(b"finished image")
+    monkeypatch.setattr(anki.ffmpeg, "get_raw_screenshot", lambda *args: str(screenshot))
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda *args: pytest.fail("encoder already finished"))
+
+    assets = anki._generate_media_files(False, None, "replay.mkv", 1, 0, None, [])
+
+    assert assets.screenshot_path == str(screenshot)
+
+
+def test_confirmation_starts_missing_translation_in_background(monkeypatch):
+    from concurrent.futures import Future
+
+    cfg = _base_config()
+    cfg.anki.show_update_confirmation_dialog_v2 = True
+    cfg.anki.previous_image_field = ""
+    cfg.ai.add_to_anki = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda card: (False, False))
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *args: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda *args: [])
+    monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *args, **kwargs: None)
+    monkeypatch.setattr(anki, "prefetch_ai_translation", lambda *args: pytest.fail("must not wait for translation"))
+    pending_translation = Future()
+    submissions = []
+    monkeypatch.setattr(
+        anki,
+        "translation_prefetch_executor",
+        SimpleNamespace(submit=lambda *args: submissions.append(args) or pending_translation),
+    )
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+    shown = []
+
+    def launch_confirmation(*args, **kwargs):
+        shown.append(True)
+        assert kwargs["translation_future"] is pending_translation
+        assert not pending_translation.done()
+        return None
+
+    qt_main_stub.launch_anki_confirmation = launch_confirmation
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+
+    assert (
+        anki.update_anki_card(
+            SimpleNamespace(noteId=42, get_field=lambda field: "sentence"),
+            note={"id": 42, "fields": {"Sentence": "sentence"}},
+            precomputed_assets=anki.MediaAssets(),
+        )
+        is False
+    )
+    assert shown == [True]
+    assert len(submissions) == 1
+
+
+def test_beacon_processes_queued_note_before_startup_baseline_fetch(monkeypatch):
+    from GameSentenceMiner.util.models import model
+
+    cfg = _base_config()
+    cfg.anki.enabled = True
+    cfg.anki.polling_rate_v2 = 1000
+    cfg.anki.sentence_furigana_field = ""
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(model, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "AnkiCard", model.AnkiCard)
+    monkeypatch.setattr(anki, "get_anki_beacon_wait_timeout_seconds", lambda: 60)
+    monkeypatch.setattr(anki, "get_note_ids", lambda: pytest.fail("queued note must not wait for baseline"))
+    processed = []
+    monkeypatch.setattr(anki, "update_single_card", lambda card, **kwargs: processed.append(card.noteId))
+    anki.handle_incoming_anki_event(_full_beacon_payload())
+
+    assert anki._monitor_anki_iteration(0, 1) == (0, 1)
+    assert processed == [42]
+
+
+def test_beacon_note_wakes_monitor_during_polling_backoff():
+    anki._anki_monitor_wake.clear()
+    anki.handle_incoming_anki_event({"event": "note_added", "note_id": 42})
+
+    assert anki._anki_monitor_wake.is_set()
 
 
 def test_monitor_anki_iteration_uses_push_queue_when_heartbeat_is_fresh(monkeypatch):
@@ -1404,7 +1709,7 @@ def test_monitor_anki_iteration_uses_push_queue_when_heartbeat_is_fresh(monkeypa
 
     unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
 
-    assert timeouts == [60.0]
+    assert timeouts == [0.0, 60.0]
     assert unsuccessful_count == 0
     assert scaled_polling_rate == 1.0
 
@@ -2813,6 +3118,259 @@ def test_process_audio_notifies_when_upload_fails(monkeypatch, tmp_path):
     assert messages == ["Failed to upload audio to Anki media collection."]
 
 
+@pytest.mark.parametrize("kind", ["screenshot", "previous_screenshot", "audio", "animation", "video"])
+def test_saved_clip_media_uploads_use_saved_game_names_without_changing_source(kind, monkeypatch, tmp_path):
+    cfg = _base_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    suffix = ".opus" if kind == "audio" else ".webm" if kind in {"animation", "video"} else ".avif"
+    media = tmp_path / f"akaiito_2026-10-06-20-02-48-892{suffix}"
+    media.write_bytes(b"saved clip content")
+    uploads = []
+
+    def upload(action, **kwargs):
+        assert action == "storeMediaFile"
+        uploads.append(kwargs)
+        return Path(kwargs["filename"]).name
+
+    monkeypatch.setattr(anki, "invoke", upload)
+    monkeypatch.setattr(anki, "_encode_and_replace_raw_image", lambda path, **kwargs: path)
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda path: None)
+    assets = anki.MediaAssets(game_name="FFVII Rebirth")
+    note = {"fields": {}}
+    if kind == "screenshot":
+        assets.screenshot_path = str(media)
+        anki._process_screenshot(assets, note, cfg, True, False)
+    elif kind == "previous_screenshot":
+        assets.prev_screenshot_path = str(media)
+        anki._process_previous_screenshot(assets, note, cfg, False)
+    elif kind == "audio":
+        assets.audio_path = str(media)
+        anki._process_audio(assets, note, cfg, True, False)
+    elif kind == "animation":
+        assets.pending_animated = True
+        monkeypatch.setattr(anki, "_generate_animated_screenshot_for_window", lambda *args: str(media))
+        anki._process_animated_screenshot(assets, note, cfg, True, False)
+    else:
+        assets.pending_video = True
+        assets.video_params = {"video_path": "clip.mkv", "start_time": 0, "vad_start": 0, "vad_end": 1}
+        monkeypatch.setattr(anki.ffmpeg, "get_anki_compatible_video", lambda *args, **kwargs: str(media), raising=False)
+        anki._process_video(assets, note, cfg, False)
+
+    (uploaded,) = uploads
+    filename = Path(uploaded["filename"]).name
+    assert filename.startswith("FFVIIRebirth_")
+    assert "akaiito" not in filename
+    assert filename.endswith(suffix)
+    assert "2026-10-06-20-02-48-892" in filename
+    assert base64.b64decode(uploaded["data"]) == b"saved clip content"
+    assert media.read_bytes() == b"saved clip content"
+
+
+def test_saved_clip_output_files_use_the_same_names_as_anki(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.paths.output_folder = str(tmp_path / "output")
+    cfg.paths.copy_temp_files_to_output_folder = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_encode_and_replace_raw_image", lambda path, **kwargs: path)
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: Path(kwargs["filename"]).name)
+    audio = tmp_path / "akaiito_2026-10-06-20-02-49-652.opus"
+    screenshot = tmp_path / "akaiito_2026-10-06-20-02-48-892.avif"
+    audio.write_bytes(b"audio")
+    screenshot.write_bytes(b"image")
+    assets = anki.MediaAssets(game_name="FFVII Rebirth", audio_path=str(audio), screenshot_path=str(screenshot))
+    note = {"fields": {}}
+
+    anki._process_audio(assets, note, cfg, True, False)
+    anki._process_screenshot(assets, note, cfg, True, False)
+    anki._handle_file_management("word", False, SimpleNamespace(id="saved"), assets, "", 0, 1)
+
+    assert Path(assets.final_audio_path).name == assets.audio_in_anki
+    assert Path(assets.final_screenshot_path).name == assets.screenshot_in_anki
+    assert Path(assets.final_audio_path).read_bytes() == b"audio"
+    assert Path(assets.final_screenshot_path).read_bytes() == b"image"
+    assert "akaiito" not in assets.audio_in_anki + assets.screenshot_in_anki
+
+
+def test_saved_clip_game_name_is_carried_into_media_assets(monkeypatch):
+    cfg = _base_config()
+    cfg.screenshot.enabled = False
+    cfg.anki.previous_image_field = ""
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "get_current_game", lambda: "akaiito")
+    line = SimpleNamespace(clip=object(), scene="FFVII Rebirth", prev=None)
+
+    assets = anki._generate_media_files(False, line, "clip.mkv", 0, 0, None, [])
+
+    assert assets.game_name == "FFVII Rebirth"
+
+
+@pytest.mark.parametrize(
+    "skip_unvoiced,show_dialog,vad_result,expected_dialog",
+    [
+        (False, True, SimpleNamespace(success=False, model="Silero"), True),
+        (True, True, SimpleNamespace(success=False, model="Silero"), False),
+        (True, True, SimpleNamespace(success=True, voice_detected=True, model="Silero"), True),
+        (True, True, SimpleNamespace(success=True, voice_detected=False, model="Silero"), False),
+        (True, True, SimpleNamespace(success=True, voice_detected=False, model="Silero", tts_used=True), False),
+        (True, True, SimpleNamespace(success=True, voice_detected=False, model="No VAD"), True),
+        (True, True, SimpleNamespace(success=False, voice_detected=False, model="OFF"), True),
+        (True, True, SimpleNamespace(success=True, voice_detected=False, model=""), True),
+        (True, True, None, True),
+        (True, False, SimpleNamespace(success=True, voice_detected=True, model="Silero"), False),
+    ],
+)
+def test_update_anki_card_skips_confirmation_only_for_detected_unvoiced_lines(
+    monkeypatch, skip_unvoiced, show_dialog, vad_result, expected_dialog
+):
+    cfg = _base_config()
+    cfg.anki.show_update_confirmation_dialog_v2 = show_dialog
+    cfg.anki.skip_confirmation_for_unvoiced = skip_unvoiced
+    cfg.anki.previous_image_field = ""
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _note: (False, True))
+    monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
+    monkeypatch.setattr(anki, "_apply_confirmed_sentence_fields", lambda *_args: None)
+    furigana_calls = []
+    monkeypatch.setattr(anki, "_apply_sentence_furigana_field", lambda *args, **kwargs: furigana_calls.append(args))
+    prefetch_calls = []
+    monkeypatch.setattr(
+        anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: prefetch_calls.append(True)
+    )
+    confirmation_calls = []
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+
+    def launch_confirmation(*args, **_kwargs):
+        confirmation_calls.append(args)
+        return (False, args[1], args[5], args[2], args[3], False, None, {})
+
+    qt_main_stub.launch_anki_confirmation = launch_confirmation
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+    updates = []
+    monkeypatch.setattr(anki, "check_and_update_note", lambda *args, **_kwargs: updates.append(args))
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn: fn())
+
+    assert anki.update_anki_card(
+        SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note={"id": 10, "fields": {"Sentence": "sentence"}},
+        tango="word",
+        should_update_audio=False,
+        game_line=SimpleNamespace(id="line", text="sentence", TL="", prev=None),
+        vad_result=vad_result,
+        precomputed_assets=anki.MediaAssets(screenshot_path="still.png"),
+    )
+    assert bool(confirmation_calls) is expected_dialog
+    assert bool(prefetch_calls) is expected_dialog
+    assert len(updates) == 1
+    assert updates[0][3].screenshot_path == "still.png"
+    assert not updates[0][4]
+    assert bool(furigana_calls) is (show_dialog and not expected_dialog)
+
+
+def test_skipped_unvoiced_confirmation_keeps_furigana_and_pending_translation(monkeypatch):
+    cfg = _overlay_furigana_config()
+    cfg.anki.show_update_confirmation_dialog_v2 = True
+    cfg.anki.skip_confirmation_for_unvoiced = True
+    cfg.ai.add_to_anki = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _note: (False, False))
+    monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
+    monkeypatch.setattr(anki.tokenizer, "reading", lambda _sentence: "文[ぶん]", raising=False)
+    translation_future = SimpleNamespace(done=lambda: False, result=lambda: "A sentence")
+    updates = []
+    monkeypatch.setattr(anki, "check_and_update_note", lambda _last_note, note, *_args, **_kwargs: updates.append(note))
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn: fn())
+
+    assert anki.update_anki_card(
+        SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note={"id": 10, "fields": {"Sentence": "文"}},
+        tango="word",
+        should_update_audio=False,
+        game_line=SimpleNamespace(id="line", text="文", TL="", prev=None),
+        vad_result=SimpleNamespace(success=False, model="Silero"),
+        precomputed_assets=anki.MediaAssets(),
+        translation_future=translation_future,
+    )
+    assert updates[0]["fields"]["SentenceFurigana"] == "文[ぶん]"
+    assert updates[0]["fields"]["AIField"] == "A sentence"
+
+
+@pytest.mark.parametrize("source", ["overlay", "hooker"])
+@pytest.mark.parametrize("show_dialog", [False, True])
+@pytest.mark.parametrize("use_existing_files", [False, True])
+def test_update_anki_card_passes_overlay_source_warning_to_confirmation(
+    monkeypatch, source, show_dialog, use_existing_files
+):
+    config = _base_config()
+    config.anki.show_update_confirmation_dialog_v2 = show_dialog
+    config.anki.skip_confirmation_for_unvoiced = True
+    config.anki.previous_image_field = ""
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _card: (False, False))
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda *_args: [])
+    monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_apply_sentence_furigana_field", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "check_and_update_note", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn: fn())
+    shown = []
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+    qt_main_stub.launch_anki_confirmation = lambda *args, **kwargs: shown.append(kwargs)
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+
+    anki.update_anki_card(
+        SimpleNamespace(noteId=42, get_field=lambda _field: "sentence"),
+        note={"id": 42, "fields": {"Sentence": "sentence"}},
+        game_line=SimpleNamespace(id="line", source=source, text="sentence", prev=None),
+        precomputed_assets=anki.MediaAssets(),
+        use_existing_files=use_existing_files,
+        vad_result=SimpleNamespace(success=False, voice_detected=False, model="Silero"),
+    )
+
+    if source == "overlay":
+        assert len(shown) == 1
+        assert shown[0]["overlay_only"] is True
+    else:
+        assert shown == []
+
+
+def test_overlay_warning_confirmation_preserves_reused_media(monkeypatch):
+    config = _base_config()
+    config.anki.show_update_confirmation_dialog_v2 = False
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _card: (False, False))
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda *_args: [])
+    monkeypatch.setattr(
+        anki.ffmpeg, "get_screenshot_time", lambda *_args: pytest.fail("Reused media has no new replay"), raising=False
+    )
+    monkeypatch.setattr(
+        anki,
+        "anki_results",
+        {"scan": anki.AnkiUpdateResult(success=True, audio_in_anki="audio.opus", screenshot_in_anki="shot.webp")},
+    )
+    shown = []
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+    qt_main_stub.launch_anki_confirmation = lambda *args, **kwargs: shown.append(kwargs)
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+
+    assert not anki.update_anki_card(
+        SimpleNamespace(noteId=42, get_field=lambda _field: "sentence"),
+        note={"id": 42, "fields": {"Sentence": "sentence"}},
+        game_line=SimpleNamespace(id="scan", source="overlay", text="sentence", prev=SimpleNamespace()),
+        use_existing_files=True,
+    )
+
+    assert len(shown) == 1
+    assert shown[0]["overlay_only"]
+    assert shown[0]["reusing_audio"]
+    assert shown[0]["reusing_screenshot"]
+
+
 def test_update_anki_card_confirmation_marks_reused_media(monkeypatch):
     cfg = _base_config()
     cfg.anki.show_update_confirmation_dialog_v2 = True
@@ -2978,6 +3536,65 @@ def test_cleanup_assets_invokes_callback():
     assert called == ["ok"]
 
 
+@pytest.mark.parametrize("excluded_from_stats", [False, True])
+def test_card_completion_preserves_line_stats_exclusion(monkeypatch, excluded_from_stats):
+    cfg = _base_config()
+    cfg.anki.show_update_confirmation_dialog_v2 = False
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _note: (False, False))
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda game_line=None: [])
+    monkeypatch.setattr(anki, "_handle_file_management", lambda *_args, **_kwargs: "saved-media")
+    monkeypatch.setattr(anki, "anki_results", {})
+    queued = []
+    monkeypatch.setattr(anki, "submit_background_work", queued.append)
+    completed = []
+
+    def complete_note(_last_note, note, _tags, assets, _voice, _picture, _reuse, callback, **_kwargs):
+        completed.append(note)
+        callback(assets)
+
+    monkeypatch.setattr(anki, "check_and_update_note", complete_note)
+    mined_stats = []
+    db_updates = []
+    monkeypatch.setattr(
+        anki, "live_stats_tracker", SimpleNamespace(add_mined_line=lambda **kwargs: mined_stats.append(kwargs))
+    )
+    monkeypatch.setattr(anki, "GameLinesTable", SimpleNamespace(update=lambda **kwargs: db_updates.append(kwargs)))
+    line = SimpleNamespace(
+        id="paused-line",
+        text="sentence",
+        TL="",
+        prev=None,
+        scene="Paused Game",
+        excluded_from_stats=excluded_from_stats,
+    )
+    note = {"id": 10, "fields": {"Sentence": "sentence"}}
+
+    assert anki.update_anki_card(
+        last_note=SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note=note,
+        tango="word",
+        should_update_audio=False,
+        game_line=line,
+        selected_lines=[],
+        precomputed_assets=anki.MediaAssets(audio_in_anki="sentence.opus", screenshot_in_anki="sentence.webp"),
+    )
+    # Completion can happen after intake resumes; exclusion belongs to the line.
+    monkeypatch.setattr(anki.gsm_state, "text_input_paused", False)
+    assert len(queued) == 1
+    queued[0]()
+
+    assert completed == [note]
+    result = anki.anki_results[line.id]
+    assert result.success is True
+    assert result.audio_in_anki == "sentence.opus"
+    assert result.screenshot_in_anki == "sentence.webp"
+    assert result.word_path == "saved-media"
+    assert len(mined_stats) == (0 if excluded_from_stats else 1)
+    assert len(db_updates) == (0 if excluded_from_stats else 1)
+
+
 def test_update_anki_card_marks_video_pending_for_background_work(monkeypatch):
     cfg = _base_config()
     cfg.anki.show_update_confirmation_dialog_v2 = False
@@ -3110,6 +3727,163 @@ def test_invoke_success_and_failure_retry(monkeypatch):
     with pytest.raises(Exception):
         anki.invoke("deckNames", retries=1)
     assert attempts["count"] >= 2
+
+
+def _anki_connect_response(*, error=None, result=None):
+    return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"error": error, "result": result})
+
+
+@pytest.fixture
+def anki_connect(monkeypatch):
+    post = Mock()
+    wait = Mock(return_value=False)
+    stop = anki.threading.Event()
+    monkeypatch.setattr(anki, "get_config", _base_config)
+    monkeypatch.setattr(anki.requests, "post", post)
+    monkeypatch.setattr(anki, "_anki_monitor_stop", stop)
+    monkeypatch.setattr(stop, "wait", wait)
+    return SimpleNamespace(post=post, wait=wait, stop=stop)
+
+
+@pytest.mark.parametrize("raise_on_error", [True, False])
+def test_invoke_waits_for_collection_without_retry_limit(monkeypatch, anki_connect, raise_on_error):
+    anki_connect.post.side_effect = [
+        *[_anki_connect_response(error="A collection operation is active.") for _ in range(12)],
+        _anki_connect_response(result=[42]),
+    ]
+    errors = Mock()
+    timing = Mock()
+    monkeypatch.setattr(anki.logger, "error", errors)
+    monkeypatch.setattr(anki, "log_anki_card_timing", timing)
+
+    assert anki.invoke("guiSelectedNotes", raise_on_error=raise_on_error) == [42]
+
+    assert anki_connect.post.call_count == 13
+    assert all(call == anki_connect.post.call_args_list[0] for call in anki_connect.post.call_args_list)
+    assert [call.args[0] for call in anki_connect.wait.call_args_list] == [1, 2, 4, *([5] * 9)]
+    errors.assert_not_called()
+    assert all(call.kwargs["will_retry"] for call in timing.call_args_list[:-1])
+    assert [call.kwargs["attempt"] for call in timing.call_args_list] == list(range(1, 14))
+
+
+def test_invoke_busy_wait_does_not_use_other_error_retry_budget(monkeypatch, anki_connect):
+    busy = _anki_connect_response(error="A collection operation is active.")
+    anki_connect.post.side_effect = [
+        busy,
+        busy,
+        anki.requests.ConnectionError("connection lost"),
+        busy,
+        _anki_connect_response(result=42),
+    ]
+    sleep = Mock()
+    monkeypatch.setattr(anki.time, "sleep", sleep)
+
+    assert anki.invoke("deckNames", retries=1) == 42
+
+    assert anki_connect.post.call_count == 5
+    assert anki_connect.wait.call_count == 3
+    sleep.assert_called_once_with(1.0)
+
+
+@pytest.mark.parametrize("raise_on_error", [True, False])
+def test_invoke_still_stops_on_other_errors_after_collection_busy(anki_connect, raise_on_error):
+    anki_connect.post.side_effect = [
+        _anki_connect_response(error="A collection operation is active."),
+        _anki_connect_response(error="note was not found"),
+    ]
+
+    if raise_on_error:
+        with pytest.raises(Exception, match="note was not found"):
+            anki.invoke("updateNoteFields", raise_on_error=raise_on_error)
+    else:
+        assert anki.invoke("updateNoteFields", raise_on_error=raise_on_error) is None
+
+    assert anki_connect.post.call_count == 2
+    anki_connect.wait.assert_called_once_with(1.0)
+
+
+@pytest.mark.parametrize("stop_during_wait", [True, False])
+@pytest.mark.parametrize("raise_on_error", [True, False])
+def test_invoke_collection_busy_stops_on_shutdown(monkeypatch, anki_connect, stop_during_wait, raise_on_error):
+    anki_connect.post.return_value = _anki_connect_response(error="A collection operation is active.")
+    monkeypatch.setattr(anki, "translation_prefetch_executor", Mock())
+
+    def stop_runtime(_timeout):
+        anki.stop_anki_runtime()
+        return True
+
+    if stop_during_wait:
+        anki_connect.wait.side_effect = stop_runtime
+    else:
+        anki.stop_anki_runtime()
+
+    if raise_on_error:
+        with pytest.raises(Exception, match="A collection operation is active"):
+            anki.invoke("guiSelectedNotes", retries=5)
+    else:
+        assert anki.invoke("guiSelectedNotes", retries=5, raise_on_error=False) is None
+
+    anki_connect.post.assert_called_once()
+    assert anki_connect.wait.call_count == int(stop_during_wait)
+
+
+@pytest.mark.parametrize(
+    "busy_action", ["storeMediaFile", "guiSelectedNotes", "updateNoteFields", "addTags", "removeTags"]
+)
+def test_check_and_update_note_finishes_after_collection_busy(monkeypatch, tmp_path, anki_connect, busy_action):
+    config = _base_config()
+    config.anki.remove_overlay_tag = True
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    audio = tmp_path / "audio.mp3"
+    audio.write_bytes(b"audio")
+    cleanup = Mock()
+    assets = anki.MediaAssets(audio_path=str(audio), cleanup_callback=cleanup)
+    last_note = SimpleNamespace(noteId=42, get_field=lambda field: "word" if field == "Word" else "")
+    note = {"id": 42, "fields": {"Sentence": "sentence"}}
+    completed = Mock()
+    failed = Mock()
+    sync = Mock()
+    remove_word = Mock()
+    monkeypatch.setattr(anki, "_notify_anki_enhancement_failure", failed)
+    monkeypatch.setattr(anki, "_mark_anki_update_failure", failed)
+    monkeypatch.setattr(anki, "_trigger_incremental_anki_cache_sync", sync)
+    monkeypatch.setattr(anki.gsm_status, "remove_word_being_processed", remove_word)
+    successful_actions = []
+    remaining_busy_responses = 6
+
+    def post(_url, *, json, **_kwargs):
+        nonlocal remaining_busy_responses
+        cleanup.assert_not_called()
+        completed.assert_not_called()
+        remove_word.assert_not_called()
+        action = json["action"]
+        if action == busy_action and remaining_busy_responses:
+            remaining_busy_responses -= 1
+            return _anki_connect_response(error="A collection operation is active.")
+        successful_actions.append(action)
+        result = {"storeMediaFile": "audio.mp3", "guiSelectedNotes": []}.get(action)
+        return _anki_connect_response(result=result)
+
+    anki_connect.post.side_effect = post
+
+    anki.check_and_update_note(
+        last_note,
+        note,
+        tags=["mined"],
+        assets=assets,
+        use_voice=True,
+        assets_ready_callback=completed,
+        processing_word="word",
+    )
+
+    assert successful_actions == ["storeMediaFile", "guiSelectedNotes", "updateNoteFields", "addTags", "removeTags"]
+    assert anki_connect.wait.call_count == 6
+    assert note["fields"]["SentenceAudio"] == "[sound:audio.mp3]"
+    completed.assert_called_once_with(assets)
+    cleanup.assert_called_once_with()
+    remove_word.assert_called_once_with("word")
+    sync.assert_called_once_with([42])
+    failed.assert_not_called()
 
 
 def test_get_last_anki_card_and_get_cards_by_sentence(monkeypatch):
