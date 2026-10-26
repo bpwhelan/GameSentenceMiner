@@ -25,6 +25,9 @@ import {DisplayProfileSelection} from './display-profile-selection.js';
 import {DisplayResizer} from './display-resizer.js';
 import {Display} from './display.js';
 import {GsmJitenGrading} from './gsm-jiten-grading.js';
+import {prepareGsmPopupTooltips} from './gsm-popup-tooltips.js';
+
+prepareGsmPopupTooltips();
 
 await Application.main(true, async (application) => {
     const documentFocusController = new DocumentFocusController();

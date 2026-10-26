@@ -11,6 +11,7 @@ import type { IpcEventLike } from "../../types/global";
 
 const invokeMock = vi.fn();
 const sendMock = vi.fn();
+const terminalMocks = vi.hoisted(() => ({ write: vi.fn(), create: vi.fn(), clear: vi.fn() }));
 
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
@@ -21,6 +22,7 @@ vi.mock("@xterm/addon-fit", () => ({
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     options: Record<string, unknown> = {};
+    constructor(options: Record<string, unknown>) { terminalMocks.create(options); }
 
     loadAddon() {}
     open() {}
@@ -33,9 +35,9 @@ vi.mock("@xterm/xterm", () => ({
       return "";
     }
     clearSelection() {}
-    clear() {}
+    clear() { terminalMocks.clear(); }
     writeln() {}
-    write() {}
+    write(data: string) { terminalMocks.write(data); }
     dispose() {}
   }
 }));
@@ -49,6 +51,7 @@ async function flushAsyncWork() {
 describe("OCRTab", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let ipcListeners: Map<string, Set<(...args: any[]) => void>>;
 
   beforeEach(() => {
     (
@@ -57,6 +60,10 @@ describe("OCRTab", () => {
     vi.useFakeTimers();
     invokeMock.mockReset();
     sendMock.mockReset();
+    terminalMocks.write.mockReset();
+    terminalMocks.create.mockReset();
+    terminalMocks.clear.mockReset();
+    ipcListeners = new Map();
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "ocr.get-ocr-config") {
         return {
@@ -78,7 +85,12 @@ describe("OCRTab", () => {
       value: {
         invoke: invokeMock,
         send: sendMock,
-        on: () => () => {}
+        on: (channel: string, listener: (...args: any[]) => void) => {
+          const callbacks = ipcListeners.get(channel) ?? new Set();
+          callbacks.add(listener);
+          ipcListeners.set(channel, callbacks);
+          return () => callbacks.delete(listener);
+        }
       }
     });
     Object.defineProperty(window, "gsmEnv", {
@@ -240,6 +252,29 @@ describe("OCRTab", () => {
     });
     expect(consolePanel.hidden).toBe(true);
     expect(document.activeElement?.id).toBe("ocr-nav-filtering");
+  });
+
+  it("buffers only recent OCR console output while hidden and clears its pending history", async () => {
+    await act(async () => {
+      root.render(<OCRTab active />);
+      await flushAsyncWork();
+    });
+    const emit = () => {
+      for (const listener of ipcListeners.get("ocr-ipc-config-reloaded") ?? []) listener({});
+    };
+    await act(async () => { for (let i = 0; i < 65; i++) emit(); });
+    expect(terminalMocks.write).not.toHaveBeenCalled();
+    expect(terminalMocks.create).toHaveBeenCalledWith(expect.objectContaining({ scrollback: 50 }));
+    const toggle = container.querySelector<HTMLButtonElement>("#ocr-console-toggle")!;
+    await act(async () => { toggle.click(); });
+    expect(terminalMocks.write.mock.calls.map(([data]) => data).join("").match(/Configuration reloaded/g)).toHaveLength(50);
+    terminalMocks.write.mockClear();
+    await act(async () => { toggle.click(); });
+    await act(async () => { emit(); });
+    const clear = container.querySelector<HTMLButtonElement>(".desk-console-toolbar button")!;
+    await act(async () => { clear.click(); toggle.click(); });
+    expect(terminalMocks.clear).toHaveBeenCalledOnce();
+    expect(terminalMocks.write).not.toHaveBeenCalled();
   });
 
   it("runs quick-capture actions through the existing OCR commands", async () => {

@@ -1521,6 +1521,9 @@
         "textBoxes": "テキスト枠",
         "pause": "プレビューを停止",
         "resume": "プレビューを再開",
+        "enableLive": "ライブプレビューを有効にする",
+        "refresh": "画像を更新",
+        "refreshing": "更新中…",
         "detected": "テキスト枠 {count} 個 · 最新の読み取り",
         "waiting": "OCR の読み取りを待機中",
         "startHint": "OCR を開始するとテキスト枠が表示されます"

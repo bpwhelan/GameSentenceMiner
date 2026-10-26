@@ -657,7 +657,7 @@ def test_second_ocr_prefers_google_lens_overlay_payload(monkeypatch):
     monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
     monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: saved.append(args))
 
-    async def _send_result(text, time, *, response_dict=None, source=None):
+    def _send_result(text, time, *, response_dict=None, source=None):
         sent.append({"text": text, "response_dict": response_dict, "source": source})
 
     monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
@@ -709,7 +709,7 @@ def test_second_ocr_formula_only_google_lens_payload_uses_ocr1_result(monkeypatc
     monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
     monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: None)
 
-    async def _send_result(text, time, *, response_dict=None, source=None):
+    def _send_result(text, time, *, response_dict=None, source=None):
         sent.append({"text": text, "response_dict": response_dict, "source": source})
 
     monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
@@ -898,7 +898,7 @@ def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch
     monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
     monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: saved.append(args))
 
-    async def _send_result(text, time, *, response_dict=None, source=None):
+    def _send_result(text, time, *, response_dict=None, source=None):
         sent.append(
             {
                 "text": text,

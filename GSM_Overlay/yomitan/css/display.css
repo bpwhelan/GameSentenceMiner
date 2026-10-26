@@ -266,6 +266,15 @@
 body {
     overflow: hidden;
 }
+/* Native title tooltips bypass TextScanner's mouse guards. Exclude their targets
+   from hit testing while Magpie captures the cursor, including newly rendered
+   content and children that otherwise opt into pointer events. Keep titles intact
+   for keyboard actions, accessibility, and mouse interaction after handoff. */
+:root[data-gsm-magpie-captured] [title],
+:root[data-gsm-magpie-captured] [title] * {
+    /* stylelint-disable-next-line declaration-no-important -- Override inline pointer-events in dictionary content. */
+    pointer-events: none !important;
+}
 ol, ul {
     margin-top: 0;
     margin-bottom: var(--list-padding);

@@ -16,6 +16,8 @@ import { HomeTab } from "./components/tabs/HomeTab";
 import { SpeechRecognitionTab } from "./components/tabs/SpeechRecognitionTab";
 import { useTranslation } from "./i18n";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "./lib/theme";
+import { createBufferedTerminalWriter } from "./lib/bufferedTerminal";
+import { LOGS_TERMINAL_HISTORY_LIMIT, LOGS_TERMINAL_BUFFER_CHARACTERS } from "./lib/debugHistory";
 import type { DesktopUpdateChangelogSnapshot } from "../../shared/changelog";
 import type { InstallSessionSnapshot } from "../../shared/install_session";
 
@@ -250,6 +252,9 @@ function ConsolePanel({
   const t = useTranslation();
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const termInstanceRef = useRef<Terminal | null>(null);
+  const terminalWriterRef = useRef<ReturnType<typeof createBufferedTerminalWriter> | null>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const downloadStarted = useRef(false);
@@ -292,6 +297,7 @@ function ConsolePanel({
     }
 
     const term = new Terminal({
+      scrollback: LOGS_TERMINAL_HISTORY_LIMIT,
       fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace',
       fontSize: 14,
       cursorBlink: false,
@@ -307,6 +313,16 @@ function ConsolePanel({
     fitAddon.fit();
     termInstanceRef.current = term;
     fitAddonRef.current = fitAddon;
+    const output = createBufferedTerminalWriter(
+      (data) => term.write(data),
+      () => activeRef.current && document.visibilityState !== "hidden",
+      {
+        maxLines: LOGS_TERMINAL_HISTORY_LIMIT,
+        maxCharacters: LOGS_TERMINAL_BUFFER_CHARACTERS,
+        batchIntervalMs: 16,
+      },
+    );
+    terminalWriterRef.current = output;
 
     type TerminalStream = "stdout" | "stderr";
     type TerminalChannel = "basic" | "background";
@@ -376,7 +392,7 @@ function ConsolePanel({
         adjustmentStarted.current ||
         updateProgressStarted.current;
       if (hadInline) {
-        term.write("\r\n");
+        output.write("\r\n");
       }
       downloadStarted.current = false;
       transcribeStarted.current = false;
@@ -389,36 +405,36 @@ function ConsolePanel({
       const trimmed = value.trimEnd();
       if (!downloadStarted.current) {
         downloadStarted.current = true;
-        term.write("\r\n");
+        output.write("\r\n");
       }
-      term.write(`\x1b[32m${trimmed}\x1b[0m\r`);
+      output.write(`\x1b[32m${trimmed}\x1b[0m\r`);
     };
 
     const printVADStatus = (value: string) => {
       if (value.startsWith("Transcription:")) {
         if (!transcribeStarted.current) {
-          term.write("\r\n");
+          output.write("\r\n");
         }
         transcribeStarted.current = true;
         vadStarted.current = false;
         adjustmentStarted.current = false;
       } else if (value.startsWith("VAD:")) {
         if (!vadStarted.current) {
-          term.write("\r\n");
+          output.write("\r\n");
         }
         vadStarted.current = true;
         transcribeStarted.current = false;
         adjustmentStarted.current = false;
       } else if (value.startsWith("Adjustment:")) {
         if (!adjustmentStarted.current) {
-          term.write("\r\n");
+          output.write("\r\n");
         }
         adjustmentStarted.current = true;
         transcribeStarted.current = false;
         vadStarted.current = false;
       }
 
-      term.write(`\x1b[32m${value.trimEnd()}\x1b[0m\r`);
+      output.write(`\x1b[32m${value.trimEnd()}\x1b[0m\r`);
     };
 
     const printUpdateProgress = (value: string): boolean => {
@@ -437,13 +453,13 @@ function ConsolePanel({
       const percent = Math.round(ratio * 100);
 
       if (!updateProgressStarted.current) {
-        term.write("\r\n");
+        output.write("\r\n");
       }
       updateProgressStarted.current = true;
-      term.write(`\r\x1b[2K\x1b[32mUpdate: [${bar}] ${percent}%${label ? ` ${label}` : ""}\x1b[0m`);
+      output.write(`\r\x1b[2K\x1b[32mUpdate: [${bar}] ${percent}%${label ? ` ${label}` : ""}\x1b[0m`);
 
       if (current >= total) {
-        term.write("\r\n");
+        output.write("\r\n");
         updateProgressStarted.current = false;
       }
       return true;
@@ -454,26 +470,26 @@ function ConsolePanel({
       const normalized = (level ?? "").toUpperCase();
 
       if (normalized === "ERROR" || stream === "stderr") {
-        term.write(`\x1b[91m${text}\x1b[0m`);
+        output.write(`\x1b[91m${text}\x1b[0m`);
         return;
       }
       if (normalized === "WARNING") {
-        term.write(`\x1b[33m${text}\x1b[0m`);
+        output.write(`\x1b[33m${text}\x1b[0m`);
         return;
       }
       if (normalized === "SUCCESS") {
-        term.write(`\x1b[32m${text}\x1b[0m`);
+        output.write(`\x1b[32m${text}\x1b[0m`);
         return;
       }
       if (normalized === "BACKGROUND") {
-        term.write(`\x1b[90m${text}\x1b[0m`);
+        output.write(`\x1b[90m${text}\x1b[0m`);
         return;
       }
       if (normalized === "TEXT_RECEIVED") {
-        term.write(`\x1b[36m${text}\x1b[0m`);
+        output.write(`\x1b[36m${text}\x1b[0m`);
         return;
       }
-      term.write(`\x1b[37m${text}\x1b[0m`);
+      output.write(`\x1b[37m${text}\x1b[0m`);
     };
 
     const handleTerminalEvent = (payload: unknown, fallbackStream: TerminalStream) => {
@@ -567,19 +583,23 @@ function ConsolePanel({
     terminalRef.current.addEventListener("contextmenu", handleContextMenu);
     window.addEventListener("resize", handleResize);
     window.addEventListener(THEME_CHANGED_EVENT, handleThemeChange);
+    document.addEventListener("visibilitychange", output.flush);
 
     return () => {
       offStdout();
       offStderr();
       window.removeEventListener("resize", handleResize);
       window.removeEventListener(THEME_CHANGED_EVENT, handleThemeChange);
+      document.removeEventListener("visibilitychange", output.flush);
       terminalRef.current?.removeEventListener("contextmenu", handleContextMenu);
       if (resizeTimerRef.current) {
         clearTimeout(resizeTimerRef.current);
       }
+      output.dispose();
       term.dispose();
       termInstanceRef.current = null;
       fitAddonRef.current = null;
+      terminalWriterRef.current = null;
     };
   }, [onRequestConsole]);
 
@@ -587,6 +607,7 @@ function ConsolePanel({
     if (!active) {
       return;
     }
+    terminalWriterRef.current?.flush();
     if (resizeTimerRef.current) {
       clearTimeout(resizeTimerRef.current);
     }

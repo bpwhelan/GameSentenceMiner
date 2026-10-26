@@ -186,6 +186,13 @@
 .ocr-desk .desk-game {
   padding: 0 5px 23px;
 }
+.ocr-desk .desk-autostart {
+  margin-top: 12px;
+}
+.ocr-desk .desk-autostart select {
+  background: var(--gsm-surface-0);
+  font-size: 12px;
+}
 .ocr-desk .ocr-scene-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 26px;
@@ -528,6 +535,7 @@
 .ocr-desk .desk-preview-controls > div {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
 }
 .ocr-desk .desk-preview-state {
@@ -558,7 +566,8 @@
   width: 12px;
   height: 12px;
 }
-.ocr-desk .desk-preview-pause {
+.ocr-desk .desk-preview-pause,
+.ocr-desk .desk-preview-refresh {
   min-height: 26px;
   padding: 3px 7px;
   font-size: 10px;
@@ -793,61 +802,22 @@
   max-width: 230px;
   font-size: 11px;
 }
-.ocr-desk .desk-session-settings {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
-  gap: 24px;
+.ocr-desk .desk-quick-capture {
   padding-top: 20px;
   margin-top: 24px;
   border-top: 1px solid var(--gsm-border-subtle);
 }
-.ocr-desk .desk-session-summary {
-  min-width: 0;
-}
-.ocr-desk .desk-session-heading {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px 20px;
+.ocr-desk .desk-quick-capture > .desk-section-heading {
   margin-bottom: 12px;
 }
-.ocr-desk .desk-session-heading h2 {
-  font-size: 13px;
-}
-.ocr-desk .desk-session-heading .desk-text-button {
-  font-size: 11px;
-}
-.ocr-desk .desk-session-settings dl {
+.ocr-desk .desk-quick-capture .desk-section-heading > div {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 28px;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+.ocr-desk .desk-quick-capture .desk-section-heading p {
   margin: 0;
-}
-.ocr-desk .desk-session-settings dl > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.ocr-desk .desk-session-settings dt {
-  color: var(--gsm-text-muted);
-  font-size: 11px;
-}
-.ocr-desk .desk-session-settings dd {
-  margin: 0;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.ocr-desk .desk-autostart {
-  padding-left: 20px;
-  border-left: 1px solid var(--gsm-border-subtle);
-}
-.ocr-desk .desk-autostart select {
-  font-size: 12px;
-}
-.ocr-desk .desk-quick-capture {
-  padding-top: 27px;
-  margin-top: 27px;
-  border-top: 1px solid var(--gsm-border-subtle);
 }
 .ocr-desk .desk-quick-actions {
   display: grid;
@@ -855,13 +825,13 @@
   gap: 12px;
 }
 .ocr-desk .desk-quick-actions button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 10px;
-  padding: 17px 14px;
-  min-height: 112px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-content: center;
+  justify-items: start;
+  gap: 3px 12px;
+  padding: 12px 14px;
+  min-height: 64px;
   text-align: left;
 }
 .ocr-desk .desk-quick-actions button:hover:not(:disabled) {
@@ -869,6 +839,8 @@
   border-color: var(--gsm-accent-border);
 }
 .ocr-desk .desk-quick-actions button > svg {
+  grid-row: 1 / span 2;
+  align-self: center;
   color: var(--gsm-accent-text);
   width: 20px;
   height: 20px;
@@ -881,6 +853,10 @@
 }
 .ocr-desk .desk-quick-actions button > span {
   font-size: 12px;
+}
+.ocr-desk .desk-quick-actions kbd {
+  grid-column: 2;
+  overflow-wrap: anywhere;
 }
 .ocr-desk kbd {
   padding: 0;
@@ -1462,10 +1438,11 @@
     gap: 20px;
   }
   .ocr-desk .desk-quick-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
   .ocr-desk .desk-quick-actions button {
-    padding: 14px 10px;
+    padding: 12px;
   }
   .ocr-desk .desk-recognition-layout {
     grid-template-columns: minmax(0, 1fr) 220px;
@@ -1505,24 +1482,6 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 26px;
   }
-  .ocr-desk .desk-session-settings {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 18px;
-  }
-  .ocr-desk .desk-session-settings dl {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-    margin-bottom: 12px;
-  }
-  .ocr-desk .desk-session-settings dl > div {
-    margin: 0;
-  }
-  .ocr-desk .desk-autostart {
-    padding: 15px 0 0;
-    border: 0;
-    border-top: 1px solid var(--gsm-border-subtle);
-  }
   .ocr-desk .desk-side {
     padding: 24px 0 0;
     border: 0;
@@ -1530,13 +1489,6 @@
   }
   .ocr-desk .desk-output-table {
     max-width: 480px;
-  }
-  .ocr-desk .desk-quick-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .ocr-desk .desk-quick-actions button {
-    min-height: 104px;
-    padding: 16px;
   }
   .ocr-desk .desk-tools-panel {
     grid-template-columns: 1fr;
@@ -1614,7 +1566,7 @@
     font-size: 12px;
   }
 }
-@media (max-height: 700px) {
+@media (max-height: 800px) {
   .ocr-desk .desk-sidebar {
     padding-top: 17px;
   }

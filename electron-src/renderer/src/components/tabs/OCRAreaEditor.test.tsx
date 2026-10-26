@@ -38,6 +38,10 @@ describe("editing OCR areas in the preview", () => {
         active disabled={false} ocrRunning onSaved={onSaved} /></I18nProvider>);
       await flush();
     });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".desk-preview-refresh")!.click();
+      await flush();
+    });
   };
   const button = (label: string) => [...container.querySelectorAll<HTMLButtonElement>("button")]
     .find((element) => element.textContent === label || element.getAttribute("aria-label") === label)!;

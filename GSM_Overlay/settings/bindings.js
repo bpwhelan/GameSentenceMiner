@@ -919,6 +919,8 @@ const SETTING_BINDING_DEFINITIONS = [
     afterApply: () => syncDictionaryReaderUi(),
   }),
   createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
+  createCheckboxBinding("textHoverClickThrough", "#textHoverClickThrough"),
+  createCheckboxBinding("hideYomitanAfterMine", "#hideYomitanAfterMine"),
   createCheckboxBinding("routeAllHotkeysThroughInputServer", "#routeAllHotkeysThroughInputServer"),
   createNumberBinding("afkTimer", "#afkTimer", {
     fallback: 5,

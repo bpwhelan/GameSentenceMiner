@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const { pathToFileURL } = require('node:url');
 const { execFileSync } = require('node:child_process');
 const { rendererFixtureSource, renderCases, line, overlayRoot, readRenderer } = require('./helpers/overlay-render.cjs');
 
@@ -119,6 +120,73 @@ app.whenReady().then(async () => {
   })()`);
   assert.deepEqual(coverage, { before: true, hidden: true, coveredHit: false, visibleHit: true, hiddenAfterRender: true, restoredHit: true });
   console.log('Partial coverage: covered text rejects pointer hits; visible and restored text remain lookupable.');
+
+  // Use the bundled Yomitan scanner to verify that new margins contain actual
+  // lookupable text, rather than merely a larger elementFromPoint target.
+  const lookupPage = path.join(directory, 'lookup.html');
+  fs.writeFileSync(lookupPage, '<!doctype html><meta charset="utf-8"><body></body>');
+  const generatorUrl = pathToFileURL(path.join(overlayRoot, 'yomitan/js/dom/text-source-generator.js')).href;
+  const lookupWindow = windows[1];
+  await lookupWindow.loadFile(lookupPage);
+  await lookupWindow.webContents.executeJavaScript(rendererFixtureSource(readRenderer(), blocks));
+  await lookupWindow.webContents.executeJavaScript(`(async () => {
+    const { TextSourceGenerator } = await import(${JSON.stringify(generatorUrl)});
+    const generator = new TextSourceGenerator();
+    window.scanPoint = ({ x, y }) => {
+      const source = generator.getRangeFromPoint(x, y, { deepContentScan: false, normalizeCssZoom: false, language: 'japanese', browser: 'chrome' });
+      if (!source) return null;
+      source.setEndOffset(2, false, false);
+      const text = source.text();
+      source.cleanup();
+      return text;
+    };
+  })()`);
+  let lookupChecks = 0;
+  for (const vertical of [false, true]) {
+    const words = Array.from('なんで本当に').map((text, i) => ({ text, bounding_rect: {
+      x1: (100 + (vertical ? 0 : i * 52)) / 1920,
+      y1: (200 + (vertical ? i * 52 : 0)) / 1080,
+      x3: (100 + (vertical ? 56 : i * 52 + 34)) / 1920,
+      y3: (200 + (vertical ? i * 52 + 34 : 56)) / 1080,
+    } }));
+    const payload = { data: [{ text: 'なんで本当に', words, isVertical: vertical, bounding_rect: {
+      x1: words[0].bounding_rect.x1, y1: words[0].bounding_rect.y1,
+      x3: words.at(-1).bounding_rect.x3, y3: words.at(-1).bounding_rect.y3,
+    } }] };
+    for (const size of [[1920, 1080], [1280, 720]]) {
+      for (const options of [{}, { offsetX: 1.25, offsetY: -0.8 }, { magpie: {
+        sourceWindowLeftEdgePosition: 0, sourceWindowTopEdgePosition: 0,
+        sourceWindowRightEdgePosition: 1920, sourceWindowBottomEdgePosition: 1080,
+        magpieWindowLeftEdgePosition: 0, magpieWindowTopEdgePosition: 0,
+        magpieWindowRightEdgePosition: 2560, magpieWindowBottomEdgePosition: 1440,
+      } }]) {
+        await lookupWindow.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+          width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false,
+        });
+        await lookupWindow.webContents.executeJavaScript('resetFixture()');
+        await run(lookupWindow, payload, options);
+        const points = await lookupWindow.webContents.executeJavaScript(`(() => {
+          const boxes = [...document.querySelectorAll('.text-box')];
+          const box = boxes.find(box => box.textContent === '本');
+          const r = box.getBoundingClientRect();
+          const next = boxes.find(box => box.textContent === '当').getBoundingClientRect();
+          return ${vertical} ? [
+            { x: (r.left + r.right) / 2, y: r.top + 1 },
+            { x: (r.left + r.right) / 2, y: r.bottom - 1 },
+            { x: (next.left + next.right) / 2, y: next.top + 1 },
+          ] : [
+            { x: r.left + 1, y: (r.top + r.bottom) / 2 },
+            { x: r.right - 1, y: (r.top + r.bottom) / 2 },
+            { x: next.left + 1, y: (next.top + next.bottom) / 2 },
+          ];
+        })()`);
+        const after = await lookupWindow.webContents.executeJavaScript(`${JSON.stringify(points)}.map(scanPoint)`);
+        assert.deepEqual(after, ['本当', '本当', '当に'], 'the fixed start, extended end and next character must remain distinct lookup targets');
+        lookupChecks += points.length;
+      }
+    }
+  }
+  console.log(`Character margins: ${lookupChecks} fixed-start, extended-end and neighbor points scan the correct word, including vertical text, offsets and Magpie scaling.`);
   for (const window of windows) window.destroy();
   clearTimeout(timeout);
   app.quit();

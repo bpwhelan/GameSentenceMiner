@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useLocale, useTranslation } from "../../i18n";
 import { onIpc } from "../../lib/ipc";
+import { useBufferedState } from "../../lib/useBufferedState";
+import { DEBUG_TEXT_HISTORY_LIMIT as HISTORY_LIMIT } from "../../lib/debugHistory";
 
-const HISTORY_LIMIT = 50;
 const SOURCE_KEYS = new Map([
   ["ocr", "ocr.activity.sources.auto"],
   ["ocr_manual", "ocr.activity.sources.manual"],
@@ -11,6 +12,7 @@ const SOURCE_KEYS = new Map([
 ]);
 
 interface OCRTextFeedProps {
+  active?: boolean;
   running: boolean;
   paused: boolean;
   manual: boolean;
@@ -47,12 +49,12 @@ function activityFromLog(payload: unknown): Activity | null {
   return null;
 }
 
-export function OCRTextFeed({ running, paused, manual }: OCRTextFeedProps) {
+export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextFeedProps) {
   const t = useTranslation();
   const [locale] = useLocale();
-  const [captures, setCaptures] = useState<Capture[]>([]);
-  const [activity, setActivity] = useState<Activity | null>(null);
-  const [starting, setStarting] = useState(false);
+  const [captures, setCaptures] = useBufferedState<Capture[]>([], active);
+  const [activity, setActivity] = useBufferedState<Activity | null>(null, active);
+  const [starting, setStarting] = useBufferedState(false, active);
   const nextId = useRef(0);
   const timeLocale = locale === "ukr" ? "uk" : locale;
 

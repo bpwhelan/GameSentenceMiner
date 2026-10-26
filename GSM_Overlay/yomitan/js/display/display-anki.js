@@ -1327,6 +1327,11 @@ export class DisplayAnki {
             // Signal overlay that mining occurred
             try {
                 window.dispatchEvent(new CustomEvent('gsm-anki-note-added'));
+                // Popup frames have an extension origin; their local events
+                // cannot reach the overlay's optional close-after-mining handler.
+                if (window.top !== window) {
+                    window.top?.postMessage({type: 'gsm-anki-note-added'}, '*');
+                }
             } catch (e) {
                 // ignore
             }

@@ -155,6 +155,21 @@ describe("SpeechRecognitionTab", () => {
     expect(container.querySelectorAll(".speech-recognition-log")).toHaveLength(3);
   });
 
+  it("keeps only twenty recent sentences and fifty activity entries", async () => {
+    await act(async () => root.render(<I18nProvider><SpeechRecognitionTab active /></I18nProvider>));
+    await act(async () => {
+      for (let i = 0; i < 65; i++) {
+        listeners.get("speech-recognition.log")?.({}, { level: "result", message: `[final] Sentence ${i}`, timestamp: i });
+      }
+    });
+    const transcript = container.querySelectorAll(".speech-transcript-line p");
+    expect(transcript).toHaveLength(20);
+    expect(transcript[0].textContent).toBe("Sentence 45");
+    expect(transcript[19].textContent).toBe("Sentence 64");
+    expect(container.querySelectorAll(".speech-recognition-log")).toHaveLength(50);
+    expect(container.querySelector(".speech-recognition-log")?.textContent).toContain("Sentence 15");
+  });
+
   it("keeps draft recognition settings when moving between views", async () => {
     await act(async () => root.render(<I18nProvider><SpeechRecognitionTab active /></I18nProvider>));
     const backend = container.querySelector<HTMLSelectElement>("#speech-backend")!;

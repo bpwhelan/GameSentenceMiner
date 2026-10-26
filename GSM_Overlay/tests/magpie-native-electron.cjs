@@ -19,7 +19,9 @@ app.whenReady().then(async () => {
     const magpiePointerToViewport = ${magpiePointerToViewport.toString()};
     const module = {exports: {}};
     ${fs.readFileSync(path.join(overlayRoot, 'text_hover.js'), 'utf8')}
-    const hover = module.exports.createTextHoverController({window, document, onIgnore() {}});
+    let clickThrough = true;
+    const hover = module.exports.createTextHoverController({window, document, onIgnore() {},
+      isClickThroughEnabled: () => clickThrough});
     const display = { physicalBounds: { x: -1920, y: 164 }, physicalSize: { width: 1920, height: 1080 } };
     renderFixture(${JSON.stringify({ data: [line('日本語', 0.2, 0.4, 0.3, 0.1)] })});
     document.body.classList.add('magpie-active');
@@ -33,9 +35,13 @@ app.whenReady().then(async () => {
     const hit = hover.project(magpiePointerToViewport(point, display, window));
     const after = getComputedStyle(box).color;
     const surface = getComputedStyle(box).backgroundColor;
+    clickThrough = false;
+    const capturedHit = hover.project(magpiePointerToViewport(point, display, window));
+    document.body.classList.toggle('magpie-pointer-hover', capturedHit);
+    const capturedSurface = getComputedStyle(box).backgroundColor;
     box.style.visibility = 'hidden';
     const hiddenHit = hover.project(magpiePointerToViewport(point, display, window));
-    return { hit, hiddenHit, before, after, surface, moves };
+    return { hit, capturedHit, capturedSurface, hiddenHit, before, after, surface, moves };
   })()`);
   assert.equal(hits.hit, false, 'hovered text must pass clicks to the game');
   assert.equal(hits.moves, 1, 'hover still reaches the dictionary scanner');
@@ -43,6 +49,8 @@ app.whenReady().then(async () => {
   assert.equal(hits.before, 'rgba(255, 255, 255, 0)');
   assert.equal(hits.after, hits.before, 'OCR text remains transparent over the game');
   assert.match(hits.surface, /, 0\)$/);
+  assert.equal(hits.capturedHit, true, 'text accepts input when click-through is off');
+  assert.match(hits.capturedSurface, /, 0\.004\)$/, 'Magpie can hit the text surface for native handoff');
 
   if (process.platform === 'win32') {
     const native = createMagpieNative();

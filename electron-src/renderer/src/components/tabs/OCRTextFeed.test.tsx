@@ -91,9 +91,9 @@ describe("OCR captured text", () => {
       for (let index = 0; index < 60; index++) result(`line ${index}`);
     });
     const entries = container.querySelectorAll(".desk-text-content");
-    expect(entries).toHaveLength(50);
+    expect(entries).toHaveLength(20);
     expect(entries[0].textContent).toBe("line 59");
-    expect(entries[49].textContent).toBe("line 10");
+    expect(entries[19].textContent).toBe("line 40");
   });
 
   it("summarizes repeated idle and skip messages without adding them to the history", async () => {
@@ -152,6 +152,19 @@ describe("OCR captured text", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Clear captured text"]')!.click());
     expect(container.querySelectorAll(".desk-text-entry")).toHaveLength(0);
     expect(container.textContent).toContain("Your captured text appears here");
+  });
+
+  it("buffers captured text while its view is hidden", async () => {
+    await act(async () => root.render(<OCRTextFeed active={false} running paused={false} manual={false} />));
+    await act(async () => {
+      for (let i = 0; i < 25; i++) result(`Hidden capture ${i}`);
+    });
+    expect(container.querySelectorAll(".desk-text-entry")).toHaveLength(0);
+    await act(async () => root.render(<OCRTextFeed active running paused={false} manual={false} />));
+    const entries = container.querySelectorAll(".desk-text-content");
+    expect(entries).toHaveLength(20);
+    expect(entries[0].textContent).toBe("Hidden capture 24");
+    expect(entries[19].textContent).toBe("Hidden capture 5");
   });
 
   it.each([

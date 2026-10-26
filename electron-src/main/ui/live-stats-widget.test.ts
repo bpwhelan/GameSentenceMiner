@@ -10,6 +10,7 @@ type LiveStatsWidget = {
   handleGoalsUpdate: (payload: { goals: unknown[] }) => void;
   handleStatsUpdate: (payload: Record<string, unknown>) => void;
   handleTextBoundsUpdate: (rects: Array<Record<string, number>>) => void;
+  handlePomodoroUpdate: (payload: Record<string, unknown>) => void;
 };
 
 const widgetSource = readFileSync(resolve(process.cwd(), 'GSM_Overlay/live_stats_widget.js'), 'utf8');
@@ -377,6 +378,52 @@ describe('live stats Session/Today scope', () => {
     vi.advanceTimersByTime(1000);
     widget.handleStatsUpdate(payload('today', 500));
     expect(dom.window.document.querySelector('#gsm-live-stats')?.classList.contains('gsm-live-stats-visible')).toBe(false);
+    dom.window.close();
+  });
+});
+
+describe('live stats idle work', () => {
+  it('has no heartbeat with disabled or inactive session stats, and restarts for live time', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    widget.applySettings({ showLiveStats: false, showLiveGoals: false });
+    expect(vi.getTimerCount()).toBe(0);
+    widget.applySettings({ showLiveStats: true });
+    widget.handleStatsUpdate({ session_active: false, values: { raw_reading_time: 30 } });
+    expect(vi.getTimerCount()).toBe(0);
+    widget.handleStatsUpdate({ session_active: true, session_start_time: Date.now() / 1000 - 30 });
+    expect(vi.getTimerCount()).toBe(1);
+    widget.applySettings({ showLiveStats: false });
+    expect(vi.getTimerCount()).toBe(0);
+    dom.window.close();
+  });
+
+  it('stops live time work for an obscured game and catches up immediately when restored', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    let now = Date.now();
+    vi.spyOn(dom.window.Date, 'now').mockImplementation(() => now);
+    widget.handleStatsUpdate({ session_active: true, session_start_time: now / 1000 - 30 });
+    expect(vi.getTimerCount()).toBe(1);
+    dom.window.dispatchEvent(new dom.window.CustomEvent('gsm-window-state-update', { detail: { data: 'obscured' } }));
+    expect(vi.getTimerCount()).toBe(0);
+    now += 10000;
+    dom.window.dispatchEvent(new dom.window.CustomEvent('gsm-window-state-update', { detail: { data: 'active' } }));
+    expect(vi.getTimerCount()).toBe(1);
+    expect(dom.window.document.querySelector('[data-field-key="raw_reading_time"]')?.getAttribute('data-text')).toBe('0:40');
+    dom.window.close();
+  });
+
+  it('keeps running Pomodoro countdowns live and sleeps while paused', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    const publish = (running: boolean) => widget.handlePomodoroUpdate({
+      enabled: true, running, remainingMs: 60000, endTimestamp: Date.now() + 60000,
+    });
+    publish(true);
+    expect(vi.getTimerCount()).toBe(1);
+    publish(false);
+    expect(vi.getTimerCount()).toBe(0);
     dom.window.close();
   });
 });

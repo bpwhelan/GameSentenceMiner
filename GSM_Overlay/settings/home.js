@@ -9,9 +9,15 @@
   const sections = [
     {
       id: "activation",
-      title: "Show & hide",
-      page: "interaction-reveal",
+      title: "Interaction",
+      page: "interaction-mouse",
       fields: [
+        field(
+          "textHoverClickThrough",
+          "Click through overlay text",
+          "In automatic mode, clicks reach your game while hover lookups work. Turn off to select text or use click lookups.",
+          { inlineHelp: true },
+        ),
         field("manualMode", "Push to show", "Keep the overlay out of the way until you activate it."),
         field("manualModeType", "Activation", "", {
           when: () => checked("manualMode"),
@@ -26,6 +32,10 @@
           when: () => checked("manualMode"),
           optionLabels: { "hide-overlay": "Hide overlay", "disable-interaction": "Keep text visible" },
         }),
+      ],
+      links: [
+        ["interaction-mouse", "Mouse & text settings →"],
+        ["interaction-reveal", "Push to show settings →"],
       ],
       warning: "manual",
     },

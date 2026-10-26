@@ -273,6 +273,12 @@ background: rgba(202, 12, 12, 0.692);
     transition: opacity 0.3s ease;
   }
 
+  /* With text click-through disabled, Magpie needs a nontransparent pixel at
+     the lookup surface to hand its captured cursor back to the overlay. */
+  body.magpie-pointer-hover .text-box {
+    background: rgba(0, 0, 0, 0.004) !important;
+  }
+
   body.manual-interaction-suppressed .text-box,
   body.manual-interaction-suppressed .big-interactive-area,
   body.manual-interaction-suppressed .text-block-container {
@@ -526,6 +532,11 @@ background: rgba(202, 12, 12, 0.692);
     border-top: 2px solid #00ff88;
     border-radius: 50%;
     animation: spin 1s linear infinite;
+  }
+
+  #loading-indicator:not(.show) .loading-spinner,
+  #loading-indicator:not(.show) .loading-dot {
+    animation: none;
   }
 
   .checkmark {
@@ -996,6 +1007,7 @@ background: rgba(202, 12, 12, 0.692);
   // transform projects text; native cursor samples hit-test that rendered text.
   let currentMagpieInfo = null;
   let isMagpieActive = false;
+  let textHoverClickThrough = true;
   const CJK_LEXICAL_REGEX = /[\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Han}\p{Script_Extensions=Hangul}]/u;
   const LATIN_NUMERIC_REGEX = /[A-Za-z0-9]/;
 
@@ -1611,7 +1623,8 @@ background: rgba(202, 12, 12, 0.692);
   const { magpiePointerToViewport } = require('./magpie_hit_test');
   const { createTextHoverController } = require('./text_hover');
   const textHover = createTextHoverController({ window, document,
-    onIgnore: ignore => ipcRenderer.send('text-hover-ignore', ignore) });
+    isClickThroughEnabled: () => textHoverClickThrough,
+    onIgnore: ignore => ipcRenderer.send('text-hover-ignore', ignore, textHoverClickThrough) });
   ipcRenderer.on('text-hover-refresh', () => textHover.refresh());
   ipcRenderer.on('magpie-pointer', (_event, sample) => {
     if (sample.signature !== magpieController.getState().signature) {
@@ -1620,12 +1633,14 @@ background: rgba(202, 12, 12, 0.692);
     }
     const point = magpiePointerToViewport(sample, display, window);
     const hit = textHover.project(point || { ...sample, x: -1, y: -1 });
-    // Only real controls take mouse input. Dictionary scanning over game text
-    // receives projected hover events while the actual click goes to the game.
+    document.body.classList.toggle('magpie-pointer-hover', hit && !textHoverClickThrough);
+    // Cursor projection stays active with either mouse policy. When enabled,
+    // click-through affects game text only; dictionary controls still capture.
     ipcRenderer.send('magpie-pointer-hit', { sequence: sample.sequence, hit });
   });
   ipcRenderer.on('magpie-pointer-reset', () => {
     textHover.reset();
+    document.body.classList.remove('magpie-pointer-hover');
   });
 
   const dragBar = document.getElementById("draggable");
@@ -1736,9 +1751,9 @@ background: rgba(202, 12, 12, 0.692);
   // Listen for mining success signal from Yomitan extension
   window.addEventListener('gsm-anki-note-added', (event) => {
     console.log('Received mining success signal');
-    if (hideYomitanAfterMine && OverlayUtils) {
+    if (hideYomitanAfterMine === true) {
       if (dictionaryReader === 'hachidori') void window.gsmHachidoriBridge?.closePopups().catch(console.warn);
-      else OverlayUtils.hideYomitan();
+      else void closeYomitanLookups('note-added');
     }
   });
   // Bridge: listen for postMessage from Yomitan iframe/extension and re-dispatch as CustomEvent
@@ -2541,6 +2556,7 @@ background: rgba(202, 12, 12, 0.692);
       currentMagpieInfo = result.state.info;
       isMagpieActive = result.state.active;
       document.body.classList.toggle('magpie-active', isMagpieActive);
+      if (!isMagpieActive) document.body.classList.remove('magpie-pointer-hover');
       return result;
     }
 
@@ -2964,7 +2980,7 @@ background: rgba(202, 12, 12, 0.692);
       boundaries,
       isBlockStart,
       isBlockEnd,
-      wordList,
+      wordList: useLexicalWordBoxes ? wordList : expandCjkCharacterHitboxes(wordList, isVertical),
       blockCount,
       isVertical,
     };
@@ -3407,6 +3423,7 @@ background: rgba(202, 12, 12, 0.692);
                 text: word.text,
                 widthPercent: x3 - x1,
                 heightPercent: y3 - y1,
+                fitCharacterHitbox: word.fitCharacterHitbox === true,
                 x1,
                 y1,
                 y3,
@@ -3619,6 +3636,7 @@ background: rgba(202, 12, 12, 0.692);
     textBox.style.overflow = 'visible';
     textBox.style.whiteSpace = 'nowrap';
     textBox.style.fontSize = '48px';
+    textBox.style.letterSpacing = '';
     textBox.style.lineHeight = '1';
     textBox.style.background = 'rgba(0,0,0,0)';
     textBox.style.border = 'none';
@@ -3735,6 +3753,51 @@ background: rgba(202, 12, 12, 0.692);
       cursor += span * (weights[i] / totalWeight);
     }
     return edges;
+  }
+
+  function expandCjkCharacterHitboxes(units, isVertical) {
+    const startKey = isVertical ? 'y1' : 'x1';
+    const endKey = isVertical ? 'y3' : 'x3';
+    const alongPixels = isVertical ? window.innerHeight : window.innerWidth;
+    const crossPixels = isVertical ? window.innerWidth : window.innerHeight;
+    if (!(alongPixels > 0 && crossPixels > 0)) return units;
+    const isFullWidthLetter = text => /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]$/u.test(text)
+      && !/[\uFF61-\uFF9F]/u.test(text);
+
+    // OCR often gives ink-tight bounds, leaving part of a full-width character
+    // outside its lookup target. Keep its recognized start fixed and extend
+    // only the trailing edge toward the next character (right, or down in a
+    // vertical column), leaving a small gap before the next recognized start.
+    // Work from the original bounds so padding never compounds across characters
+    // or OCR retries. Keep punctuation, spaces and half-width text unchanged.
+    let extended = false;
+    const extendedUnits = units.map((unit, index) => {
+      const next = units[index + 1];
+      if (!isFullWidthLetter(unit.text) || !isFullWidthLetter(next?.text) || !next.bounding_rect) return unit;
+      const rect = unit.bounding_rect;
+      const span = rect[endKey] - rect[startKey];
+      // Convert the cross-axis extent into along-axis units before comparing:
+      // normalized X and Y coordinates use different viewport dimensions.
+      const crossSpan = (isVertical ? rect.x3 - rect.x1 : rect.y3 - rect.y1) * crossPixels / alongPixels;
+      if (!(span > 0 && Number.isFinite(crossSpan) && crossSpan > span)) return unit;
+      const gap = next.bounding_rect[startKey] - rect[endKey];
+      // Large gaps may separate words or labels. Do not bridge them or extend
+      // touching/overlapping boxes. Cap growth to 40% of the glyph's cross-axis
+      // size and stop once the box is a full-width cell.
+      if (!(gap > 1e-9 && gap <= crossSpan * 0.5)) return unit;
+      const padding = Math.min(gap * 0.8, crossSpan * 0.4, crossSpan - span);
+      if (!(padding > 1e-9)) return unit;
+      extended = true;
+      return {
+        ...unit,
+        bounding_rect: { ...rect, [endKey]: rect[endKey] + padding },
+      };
+    });
+    // Fit all full-width letters on an adjusted line, including its unchanged
+    // final character, whose median-sized text could otherwise overflow left
+    // into the preceding character's newly extended lookup area.
+    return extended ? extendedUnits.map(unit => isFullWidthLetter(unit.text)
+      ? { ...unit, fitCharacterHitbox: true } : unit) : units;
   }
 
   function buildLexicalWordRenderUnits(words, lineText, appendTrailingSpace = false) {
@@ -3940,6 +4003,17 @@ background: rgba(202, 12, 12, 0.692);
         ? Math.round(lineFontSize)
         : lineWordBox.estimatedFontSize;
       lineWordBox.box.style.fontSize = `${effectiveFontSize}px`;
+      if (lineWordBox.fitCharacterHitbox) {
+        // Yomitan scans text ranges, not just element bounds. Full-width glyphs
+        // advance by 1em; adjust that advance to fill the padded cell while
+        // retaining the line's font size. This also prevents a wider median
+        // glyph from overflowing a narrower neighbor and stealing its lookup.
+        const measuredExtent = isVertical ? lineWordBox.boundBox.height : lineWordBox.boundBox.width;
+        const extent = measuredExtent > 0 ? measuredExtent : (isVertical
+          ? lineWordBox.heightPercent * window.innerHeight / 100
+          : lineWordBox.widthPercent * window.innerWidth / 100);
+        lineWordBox.box.style.letterSpacing = `${extent - effectiveFontSize}px`;
+      }
 
       if (!keepNaturalSize && uniformExtentPercent > 0) {
         const clampedStart = Math.max(0, Math.min(100 - uniformExtentPercent, uniformStartPercent));
@@ -4716,6 +4790,8 @@ background: rgba(202, 12, 12, 0.692);
   ipcRenderer.on("load-settings", (event, newsettings) => {
     dictionaryReader = normalizeDictionaryReader(newsettings.dictionaryReader);
     applyFloatingWindowFontSize(newsettings.fontSize);
+    textHoverClickThrough = newsettings.textHoverClickThrough !== false;
+    textHover.refresh();
     setupWebSocket(newsettings.weburl1, true)
     setupWebSocket(newsettings.weburl2, false)
     hideOnStartup = newsettings.hideOnStartup;
@@ -4778,9 +4854,7 @@ background: rgba(202, 12, 12, 0.692);
       furiganaOutlineColor: newsettings.furiganaOutlineColor,
       furiganaOutlineWidth: newsettings.furiganaOutlineWidth,
     });
-    if (newsettings.hideYomitanAfterMine !== undefined) {
-      hideYomitanAfterMine = newsettings.hideYomitanAfterMine;
-    }
+    hideYomitanAfterMine = newsettings.hideYomitanAfterMine === true;
     
     // Load gamepad settings
     if (newsettings.gamepadEnabled !== undefined) {
@@ -4960,6 +5034,11 @@ background: rgba(202, 12, 12, 0.692);
       const value = updatedSettings[key];
 
       switch (key) {
+        case "textHoverClickThrough":
+          textHoverClickThrough = value !== false;
+          if (textHoverClickThrough) document.body.classList.remove('magpie-pointer-hover');
+          textHover.refresh();
+          break;
         case "fontSize":
           applyFloatingWindowFontSize(value);
           break;
@@ -5096,7 +5175,7 @@ background: rgba(202, 12, 12, 0.692);
           applyFuriganaStyleSettings({ [key]: value });
           break;
         case "hideYomitanAfterMine":
-          hideYomitanAfterMine = value;
+          hideYomitanAfterMine = value === true;
           break;
         case "showRecycledIndicator":
           showRecycledIndicator = value;
@@ -6024,7 +6103,9 @@ background: rgba(202, 12, 12, 0.692);
 
   // IPC: Temporarily suppress gamepad handling while settings input test runs.
   ipcRenderer.on('overlay-capture-state', (event, payload) => {
-    overlayCaptureAvailable = payload?.available === true;
+    const available = payload?.available === true;
+    if (available === overlayCaptureAvailable) return;
+    overlayCaptureAvailable = available;
     gamepadHandler?.setInputSuppressed(gamepadInputSuppressed || !overlayCaptureAvailable);
     if (!overlayCaptureAvailable) {
       cancelDeferredManualReveal();

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import "./TextHookTab.css";
 import { invokeIpc, onIpc } from "../../lib/ipc";
+import { useBufferedState } from "../../lib/useBufferedState";
+import {
+  DEBUG_LOG_HISTORY_LIMIT as MAX_LOG_LINES,
+  DEBUG_TEXT_HISTORY_LIMIT as MAX_TEXT_LINES,
+} from "../../lib/debugHistory";
 import { useLocale, useTranslation } from "../../i18n";
 import { AgentScriptSearchDialog } from "../AgentScriptSearchDialog";
 import type { EngineUpdateState } from "../../../../shared/texthook_updates";
@@ -93,12 +98,14 @@ interface SavedProfile {
 }
 
 interface TextLine {
+  id: number;
   ts: number;
   text: string;
   hookId: string;
 }
 
 interface LogLine {
+  id: number;
   ts: number;
   level: "info" | "warn" | "error";
   message: string;
@@ -109,8 +116,6 @@ interface NoticeState {
   message: string;
 }
 
-const MAX_LOG_LINES = 200;
-const MAX_TEXT_LINES = 300;
 const DEFAULT_FLUSH_DELAY_MS = 100;
 const MAX_FLUSH_DELAY_MS = 5000;
 const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = 3000;
@@ -225,7 +230,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [status, setStatus] = useState<RuntimeStatus>({ running: false });
   const [capture, setCapture] = useState<ActiveCapture | null>(null);
-  const [hooks, setHooks] = useState<HookEntry[]>([]);
+  const [hooks, setHooks] = useBufferedState<HookEntry[]>([], active);
   const [targetLanguage, setTargetLanguage] = useState("");
   const [showLikelyNoise, setShowLikelyNoise] = useState(false);
   const rankHookCandidates = useMemo(() => createHookRanker(), []);
@@ -246,8 +251,9 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     candidates: AgentScriptCandidate[];
     query: string;
   } | null>(null);
-  const [logLines, setLogLines] = useState<LogLine[]>([]);
-  const [textLines, setTextLines] = useState<TextLine[]>([]);
+  const [logLines, setLogLines] = useBufferedState<LogLine[]>([], active);
+  const [textLines, setTextLines] = useBufferedState<TextLine[]>([], active);
+  const nextLineIdRef = useRef(0);
   const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null);
   const [copyToClipboard, setCopyToClipboard] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -519,10 +525,12 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
       if (typeof payload.sessionId === "string" && payload.sessionId !== activeAgentSessionIdRef.current) return;
       const text = sanitizeTextHookText(payload.text, maxBufferSize);
       if (text === null) return;
+      const id = nextLineIdRef.current++;
       setTextLines((current) => {
         const next: TextLine[] = [
           ...current,
           {
+            id,
             ts: typeof payload.ts === "number" ? payload.ts : Date.now(),
             text,
             hookId: String(payload.hookId ?? ""),
@@ -536,10 +544,12 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     });
     const offLog = onIpc("texthook.log", (_e, payload: any) => {
       if (!payload || typeof payload.message !== "string") return;
+      const id = nextLineIdRef.current++;
       setLogLines((current) => {
         const next: LogLine[] = [
           ...current,
           {
+            id,
             ts: typeof payload.ts === "number" ? payload.ts : Date.now(),
             level: payload.level === "warn" || payload.level === "error" ? payload.level : "info",
             message: payload.message,
@@ -1459,9 +1469,9 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                   >
                     {textLines.length > 0 ? (
                       <ul className="texthook-output-list">
-                        {textLines.map((line, idx) => (
+                        {textLines.map((line) => (
                           <li
-                            key={`${line.ts}-${line.hookId}-${idx}`}
+                            key={line.id}
                             className="texthook-output-line"
                           >
                             <pre className="texthook-output-pre">{line.text}</pre>
@@ -1646,9 +1656,9 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                   <div className="texthook-empty">{t("texthook.log.empty")}</div>
                 ) : (
                   <ul className="texthook-log-list">
-                    {logLines.map((line, idx) => (
+                    {logLines.map((line) => (
                       <li
-                        key={`${line.ts}-${idx}`}
+                        key={line.id}
                         className={`texthook-log-line texthook-log-line--${line.level}`}
                       >
                         {line.message}

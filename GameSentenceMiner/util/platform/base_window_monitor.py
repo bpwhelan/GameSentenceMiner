@@ -396,6 +396,7 @@ _CRITICAL_DENYLIST: List[str] = [
     # Linux session bus
     "dbus-daemon",
     "dbus-broker",
+    "xdg-desktop-portal",
     # Input methods — never pause these (critical for Japanese text entry)
     "ibus-daemon",
     "ibus-x11",

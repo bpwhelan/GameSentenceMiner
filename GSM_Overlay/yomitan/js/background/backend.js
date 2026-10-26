@@ -2546,6 +2546,15 @@ export class Backend {
      * @returns {Promise<string>}
      */
     async _getScreenshot(tabId, frameId, format, quality) {
+        // Electron does not implement tab screenshots. Do not temporarily hide
+        // the popup for an unsupported capture: that can trigger cursor-exit
+        // auto-hide or release Magpie's mouse ownership while Add note is held.
+        if (
+            typeof chrome.tabs?.captureVisibleTab !== 'function' &&
+            (typeof browser === 'undefined' || typeof browser.tabs?.captureVisibleTab !== 'function')
+        ) {
+            throw new Error('Tab screenshots are not supported in this environment');
+        }
         const tab = await this._getTabById(tabId);
         const {windowId} = tab;
 

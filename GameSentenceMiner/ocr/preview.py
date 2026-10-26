@@ -89,7 +89,9 @@ class PreviewGeometry:
         with self._lock:
             if self._expires <= self._clock() or not request.get("enabled"):
                 self._latest = None
-            self._expires = self._clock() + 5 if request.get("enabled") else 0
+            # Live previews can wait three seconds between captures, plus the
+            # capture request timeout. Keep geometry alive across that gap.
+            self._expires = self._clock() + 10 if request.get("enabled") else 0
             if self._latest and self._latest["sceneName"] == request.get("sceneName"):
                 return self._latest
             return None
@@ -141,14 +143,23 @@ def capture_preview(request: dict[str, Any]) -> dict[str, Any] | None:
         )
         if image is None or obs.get_current_scene() != scene_name:
             return None
-        image.thumbnail((960, 720))
-        with io.BytesIO() as buffer:
-            rgb = image.convert("RGB")
-            try:
-                rgb.save(buffer, format="JPEG", quality=70)
-            finally:
-                rgb.close()
-            image_data = "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+        # OBS already returns a sized JPEG backed by BytesIO. Forward those
+        # bytes without decoding and then recompressing every preview request.
+        # Native capture and oversized images still use the normal resize path.
+        stream = getattr(image, "fp", None)
+        if image.format == "JPEG" and isinstance(stream, io.BytesIO) and image.width <= 960 and image.height <= 720:
+            encoded = stream.getvalue()
+        else:
+            image.thumbnail((960, 720))
+            with io.BytesIO() as buffer:
+                rgb = image if image.mode == "RGB" else image.convert("RGB")
+                try:
+                    rgb.save(buffer, format="JPEG", quality=70)
+                finally:
+                    if rgb is not image:
+                        rgb.close()
+                encoded = buffer.getvalue()
+        image_data = "data:image/jpeg;base64," + base64.b64encode(encoded).decode("ascii")
         return {
             "sceneId": request.get("sceneId"),
             "sceneName": scene_name,

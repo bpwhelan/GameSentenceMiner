@@ -15,6 +15,8 @@ import type { DesktopUpdateChangelogSnapshot } from '../../shared/changelog.js';
 const invokeMock = vi.fn();
 const sendMock = vi.fn();
 const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+const terminalWriteMock = vi.hoisted(() => vi.fn());
+const terminalCreateMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@xterm/addon-fit', () => ({
     FitAddon: class {
@@ -24,9 +26,10 @@ vi.mock('@xterm/addon-fit', () => ({
 
 vi.mock('@xterm/xterm', () => ({
     Terminal: class {
+        constructor(options: unknown) { terminalCreateMock(options); }
         loadAddon() {}
         open() {}
-        write() {}
+        write(data: string) { terminalWriteMock(data); }
         dispose() {}
         hasSelection() {
             return false;
@@ -173,6 +176,8 @@ describe('App install-session integration', () => {
         listeners.clear();
         invokeMock.mockReset();
         sendMock.mockReset();
+        terminalWriteMock.mockReset();
+        terminalCreateMock.mockReset();
 
         invokeMock.mockImplementation(async (channel: string) => {
             if (channel === 'install-session.getActive') {
@@ -259,6 +264,78 @@ describe('App install-session integration', () => {
             exportButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         });
         expect(invokeMock).toHaveBeenCalledWith('logs.export');
+    });
+
+    it('defers terminal parsing until the Logs tab and window are visible', async () => {
+        const { default: App } = await import('./App.js');
+        await act(async () => { root.render(<App />); });
+        const emitOutput = (message: string) => {
+            for (const listener of listeners.get('terminal-output') ?? []) listener({}, { message });
+        };
+        await act(async () => { emitOutput('Dialogue while another tab is open'); });
+        expect(terminalWriteMock).not.toHaveBeenCalled();
+        const logsButton = Array.from(container.querySelectorAll('.tab-button')).find(
+            (button) => button.textContent === 'Logs'
+        );
+        expect(logsButton).toBeDefined();
+        await act(async () => { logsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+        expect(terminalWriteMock.mock.calls.map(([data]) => data).join('')).toContain('Dialogue while another tab is open');
+        terminalWriteMock.mockClear();
+        try {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+            await act(async () => {
+                document.dispatchEvent(new Event('visibilitychange'));
+                emitOutput('Dialogue while minimized');
+            });
+            expect(terminalWriteMock).not.toHaveBeenCalled();
+        } finally {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+            await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+        }
+        expect(terminalWriteMock.mock.calls.map(([data]) => data).join('')).toContain('Dialogue while minimized');
+        terminalWriteMock.mockClear();
+        vi.useFakeTimers();
+        try {
+            await act(async () => { emitOutput('Visible output'); emitOutput('More visible output'); });
+            expect(terminalWriteMock).not.toHaveBeenCalled();
+            await act(async () => { vi.advanceTimersByTime(16); });
+            expect(terminalWriteMock).toHaveBeenCalledOnce();
+            const output = terminalWriteMock.mock.calls[0][0];
+            expect(output).toContain('Visible output');
+            expect(output).toContain('More visible output');
+        } finally { vi.useRealTimers(); }
+    });
+
+    it('renders only fifty recent setup log entries', async () => {
+        const { InstallSessionModal } = await import('./components/InstallSessionModal.js');
+        const snapshot = createSnapshot('running', 'repair');
+        snapshot.logs = Array.from({ length: 100 }, (_, i) => ({ id: `log-${i}`, message: `Setup entry ${i}`, createdAt: i }));
+        await act(async () => root.render(<InstallSessionModal snapshot={snapshot} onRetry={() => {}} onOpenLogs={() => {}} onQuit={() => {}} />));
+        await act(async () => container.querySelector<HTMLButtonElement>('.install-session-logs-header')!.click());
+        const entries = container.querySelectorAll('.install-session-log-entry');
+        expect(entries).toHaveLength(50);
+        expect(entries[0].textContent).toBe('Setup entry 50');
+        expect(entries[49].textContent).toBe('Setup entry 99');
+        expect(snapshot.logs).toHaveLength(100);
+    });
+
+    it('preserves the longer Logs history while the tab is hidden', async () => {
+        const { default: App } = await import('./App.js');
+        await act(async () => { root.render(<App />); });
+        expect(terminalCreateMock).toHaveBeenCalledWith(expect.objectContaining({ scrollback: 1000 }));
+        await act(async () => {
+            for (let i = 0; i < 1200; i++) {
+                for (const listener of listeners.get('terminal-output') ?? []) listener({}, { message: `History ${i}` });
+            }
+        });
+        expect(terminalWriteMock).not.toHaveBeenCalled();
+        const logsButton = Array.from(container.querySelectorAll('.tab-button')).find(button => button.textContent === 'Logs')!;
+        await act(async () => { logsButton.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+        const data = terminalWriteMock.mock.calls.map(([value]) => value).join('');
+        expect(data.match(/History \d+/g)).toHaveLength(1000);
+        expect(data).toContain('History 200\r\n');
+        expect(data).toContain('History 1199\r\n');
+        expect(data).not.toContain('History 199\r\n');
     });
 
     it('loads the stats tab from the configured GSM single port', async () => {

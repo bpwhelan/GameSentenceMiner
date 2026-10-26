@@ -63,3 +63,110 @@ node GSM_Overlay/tests/run-overlay-render-electron.cjs 90eb145b5b8dd1a91ba4c0eca
 The extension configuration now sets `debug = false`, so editable installations also use optimized Rust. Without that setting, setuptools-rust normally chooses debug builds for in-place installs. [setuptools-rust build configuration](https://setuptools-rust.readthedocs.io/en/latest/reference.html)
 
 For diagnosis, set `GSM_NATIVE_OVERLAY_MODE=python` to use the reference kernels, or `GSM_NATIVE_OVERLAY_MODE=shadow` to compare results while returning the Python result. Shadow mode is deliberately slower. `GSM_NATIVE_MODE` remains the global override; the existing OCR-specific mode controls the older OCR kernels separately. Restart GSM and the overlay to load the rebuilt native extension and renderer.
+
+## Idle overlay and desktop preview audit (2026-10-25)
+
+The idle pass targets unnecessary captures, renderer updates, and background
+timers. It does not change OCR inference or the game's own capture rate.
+
+| Controlled measurement | Before | After |
+| --- | ---: | ---: |
+| Unchanged preview requests over 30 seconds (fake clock) | 41 | 0 by default; 12 with live preview enabled |
+| OBS JPEG response handling, median CPU per frame | 7.68 ms | 0.65 ms |
+| Disabled stats widget timer callbacks over 6 seconds | 6 | 0 |
+
+The JPEG fixture is a 960 × 540, approximately 215 KB image. CPU timings are
+medians of five batches of 120 frames. The overlay fixture uses real Chromium
+layout/hit testing, the production hover controller and stats widget, and a
+mocked Magpie native cursor. Timings include Chromium profiling overhead and
+normal scheduling noise. These measurements do not establish an end-to-end
+Task Manager CPU percentage for a particular game.
+
+Changes:
+
+- The preview starts paused and makes no captures until the user chooses
+  Refresh Frame or Enable Live Preview. Refresh Frame captures once and stays
+  paused. Optional live preview waits 1 second between changing frames and
+  up to 3 seconds while static or unavailable. Returning to a visible desktop only
+  refreshes automatically while live preview is enabled. Unchanged images and
+  geometry retain their React state. The OCR geometry lease covers the longer
+  refresh interval and capture timeout so boxes do not expire between updates.
+- The desktop window enables Chromium background throttling. Disabling it also
+  affects the Page Visibility API, preventing the preview's visibility gate from
+  reliably stopping captures when the desktop is hidden/minimized.
+- Already sized OBS JPEGs pass through without decoding and recompressing.
+  Native RGB capture still encodes once; oversized/non-JPEG images retain the
+  resize/conversion path and aspect ratio.
+- Magpie keeps sampling and hit-testing every 16 ms, including when stationary,
+  so text changing beneath the pointer does not wait for a periodic recheck.
+  The initial 250 ms stationary optimization was removed after reported hover
+  latency. At most one renderer hit test remains in flight, with stalled replies
+  retaining their existing retry path.
+- Session stats only keep a timer for visible advancing values/countdowns.
+  Disabled stats and fully obscured/minimized/closed games stop that work;
+  restoration catches up from timestamps. Enabled Today stats retain their
+  refresh/cutover logic while available.
+- Hidden TextFeed windows can throttle rendering. Monitor events still trigger
+  immediate recovery; the config/topology fallback checks every 5 seconds
+  instead of reparsing config and querying window bounds every 500 ms.
+
+To profile the current implementation without touching a running game or saved
+settings:
+
+```powershell
+node scripts/benchmark-overlay-idle.cjs
+.venv/Scripts/python.exe scripts/benchmark_ocr_preview.py
+npm run test:ts -- electron-src/renderer/src/components/tabs/useOCRPreview.test.tsx electron-src/main/ui/live-stats-widget.test.ts
+```
+
+For before/after comparisons, snapshot `magpie_session.js`,
+`live_stats_widget.js`, and `preview.py` before applying changes. Pass the
+directory containing the first two files as the first argument to the Node
+benchmark (and optionally a 2–30 second duration as the second argument). Pass
+the baseline `preview.py` path to the Python benchmark. The measurements above
+used the working-tree snapshot from immediately before this audit, preserving
+the existing in-progress Magpie changes.
+
+Initial validation for this pass: 587 overlay tests passed (one skipped), 14 Python
+preview tests passed, and the desktop/main renderer build passed. All 1,415
+executed desktop tests passed across the full run and focused reruns (two
+skipped). Three slow UI tests needed a rerun with two workers and a 15-second
+timeout; the home dashboard's stale control-count assertion was updated to
+include the existing text click-through control and passed separately. Ruff
+format/lint and an Electron hide/show visibility smoke check also passed.
+
+The paused-by-default follow-up passed 57 focused desktop tests and 15 Python
+preview tests, including single-frame refresh, capture failure, idle visibility
+changes, optional live cadence, area editing, and geometry lease expiry.
+
+### Live profiling and responsiveness follow-up
+
+A 15-second sample of the running application, normalized across 16 logical
+processors, showed approximately 0.87% CPU in the Python backend and 0.44% in
+the overlay GPU process. Live Python sampling found WGC frame copying and
+frequent log-file operations. Log callsite counts showed most traffic was
+foreground refresh/foreground-change/active-game IPC polling. Overlay
+diagnostics also showed a native hide repeated approximately every second
+while already hidden. These are observations before the follow-up changes,
+not measured post-restart CPU savings.
+
+- WGC screenshot sessions now release themselves after five seconds without
+  a frame consumer, rather than copying frames indefinitely after preview
+  pause/close. A native test against the running game confirmed idle shutdown
+  and successful recreation on the next request.
+- Repeated unavailable capture heartbeats no longer hide an already-hidden
+  native overlay or repeat renderer popup cleanup. Real capture loss still
+  immediately clears interaction and closes popups.
+- An invisible startup spinner has no running animation. Showing it restores
+  the existing spinner animation.
+- Routine foreground/status IPC wire diagnostics use TRACE instead of the
+  default DEBUG file sink; other commands/events retain DEBUG diagnostics.
+- Real Electron/Yomitan startup, normal/projected hover, popup handoff,
+  auto-hide and mining smoke phases passed. Python capture, logging and IPC
+  tests passed. Existing lint diagnostics in legacy Python files were compared
+  against HEAD; this pass introduced none.
+
+Final follow-up validation: 86 focused Python tests, 57 desktop tests, the
+overlay Node suite, additional idle-indicator/heartbeat tests, all real Yomitan
+smoke phases, and the main/renderer build passed. The native idle-release test
+used the running game's window without saving its image or changing focus.

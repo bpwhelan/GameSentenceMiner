@@ -120,6 +120,8 @@ export class Frontend {
         this._clearSelectionDelayToken = 0;
         /** @type {boolean} */
         this._isPointerOverPopup = false;
+        /** @type {?{x: number, y: number, overText: boolean, overPopup: boolean}} */
+        this._gsmOverlayHoverState = null;
         /** @type {boolean} */
         this._gsmGamepadNavigationActive = false;
         /** @type {?import('settings').OptionsContext} */
@@ -206,6 +208,8 @@ export class Frontend {
         this._gsmYomitanApiBridge.prepare();
         window.addEventListener('message', this._onGsmPostMessageBind, false);
         window.addEventListener(GSM_GAMEPAD_NAVIGATION_EVENT_TYPE, this._onGsmGamepadNavigationEventBind, false);
+        window.addEventListener('gsm-overlay-hover', this._onGsmOverlayHover.bind(this), false);
+        window.dispatchEvent(new Event('gsm-overlay-hover-request'));
 
         this._textScanner.on('clear', this._onTextScannerClear.bind(this));
         this._textScanner.on('searchSuccess', this._onSearchSuccess.bind(this));
@@ -543,6 +547,16 @@ export class Frontend {
      */
     _onSearchSuccess({type, dictionaryEntries, sentence, inputInfo: {eventType, detail: inputInfoDetail}, textSource, optionsContext, detail, pageTheme}) {
         if (!this._isCurrentGsmLookup(inputInfoDetail)) { return; }
+        const hover = this._gsmOverlayHoverState;
+        if (
+            eventType === 'mouseMove' && hover && !hover.overText && !hover.overPopup &&
+            this._options?.scanning.autoHideResults && !this._isGsmGamepadNavigationActive()
+        ) {
+            // An asynchronous lookup may finish after the mouse has left its
+            // text. Do not let that result cancel the pending hide or reopen it.
+            void this._clearSelectionDelayed(this._options.scanning.hideDelay, false, false);
+            return;
+        }
         this._stopClearSelectionDelayed();
         let focus = (eventType === 'mouseMove');
         if (typeof inputInfoDetail === 'object' && inputInfoDetail !== null) {
@@ -596,6 +610,34 @@ export class Frontend {
     }
 
     /**
+     * @param {Event} event
+     */
+    _onGsmOverlayHover(event) {
+        const detail = /** @type {{active?: boolean, x?: number, y?: number, overText?: boolean, overPopup?: boolean}|undefined} */ (
+            event instanceof CustomEvent ? /** @type {CustomEvent<unknown>} */ (event).detail : void 0
+        );
+        if (detail?.active === false) {
+            this._gsmOverlayHoverState = null;
+            this._stopClearSelectionDelayed();
+            return;
+        }
+        if (detail?.active !== true || typeof detail.x !== 'number' || typeof detail.y !== 'number') { return; }
+        if (!Number.isFinite(detail.x) || !Number.isFinite(detail.y)) { return; }
+        const previous = this._gsmOverlayHoverState;
+        const hover = {x: detail.x, y: detail.y, overText: detail.overText === true, overPopup: detail.overPopup === true};
+        this._gsmOverlayHoverState = hover;
+        if (this._isGsmGamepadNavigationActive()) { return; }
+        if (hover.overText || hover.overPopup) {
+            // Re-entering the same word may not cause another successful scan.
+            if (hover.overPopup || !previous?.overText) { this._stopClearSelectionDelayed(); }
+            return;
+        }
+        if (this._options?.scanning.autoHideResults) {
+            void this._clearSelectionDelayed(this._options.scanning.hideDelay, false, false);
+        }
+    }
+
+    /**
      * @param {boolean} passive
      */
     _clearSelection(passive) {
@@ -620,6 +662,14 @@ export class Frontend {
      * @private
      */
     async _isPointerOverAnyPopup() {
+        const hover = this._gsmOverlayHoverState;
+        if (hover) {
+            if (hover.overPopup) { return true; }
+            // Native mouseout can be lost during Magpie handoff. The overlay's
+            // latest point takes precedence over cached mouse-over flags.
+            // containsPoint also covers child popups and closed shadow hosts.
+            return this._popup !== null && await this._popup.containsPoint(hover.x, hover.y);
+        }
         if (this._isPointerOverPopup) {
             return true;
         }

@@ -125,6 +125,66 @@ describe("TextHookTab", () => {
     expect(container.textContent).not.toContain("(no text yet)");
   });
 
+  it.each(["inactive tab", "hidden window"])("buffers hook output without rendering in an %s", async (hiddenMode) => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      if (hiddenMode === "hidden window") {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      } else root.render(<TextHookTab active={false} />);
+    });
+    const before = container.innerHTML;
+    try {
+      await act(async () => {
+        ipcListeners.get("texthook.hooks")?.({}, {
+          selectedHookId: null,
+          hooks: [{ id: "9", function: "Hook #9", preview: "Buffered preview", samples: [] }],
+        });
+        for (let i = 0; i < 305; i++) {
+          ipcListeners.get("texthook.text")?.({}, { text: `Buffered dialogue ${i}`, hookId: "9", ts: i });
+          ipcListeners.get("texthook.log")?.({}, { message: `Buffered log ${i}`, ts: i });
+        }
+      });
+      expect(container.innerHTML === before).toBe(true);
+    } finally {
+      await act(async () => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+        document.dispatchEvent(new Event("visibilitychange"));
+        root.render(<TextHookTab active />);
+        await flushAsyncWork();
+      });
+    }
+    expect(container.querySelectorAll(".texthook-output-line")).toHaveLength(20);
+    expect(container.querySelector(".texthook-output-line")?.textContent).toContain("Buffered dialogue 285");
+    expect(container.textContent).toContain("Buffered dialogue 304");
+    expect(container.querySelectorAll(".texthook-log-line")).toHaveLength(50);
+    expect(container.textContent).toContain("Buffered log 304");
+  });
+
+  it("preserves retained output and log rows when their histories fill up", async () => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      for (let i = 0; i < 300; i++) {
+        ipcListeners.get("texthook.text")?.({}, { text: `Dialogue ${i}`, hookId: "9", ts: i });
+        ipcListeners.get("texthook.log")?.({}, { message: `Log ${i}`, ts: i });
+      }
+    });
+    const retainedTextRow = container.querySelectorAll(".texthook-output-line")[1];
+    const retainedLogRow = container.querySelectorAll(".texthook-log-line")[1];
+    await act(async () => {
+      ipcListeners.get("texthook.text")?.({}, { text: "Next dialogue", hookId: "9", ts: 300 });
+      ipcListeners.get("texthook.log")?.({}, { message: "Next log", ts: 300 });
+    });
+    expect(container.querySelector(".texthook-output-line")).toBe(retainedTextRow);
+    expect(container.querySelector(".texthook-log-line")).toBe(retainedLogRow);
+  });
+
   it.each(["luna", "textractor"])("ranks %s hooks and lets users reveal and select likely noise", async (engine) => {
     const original = invokeMock.getMockImplementation()!;
     invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {

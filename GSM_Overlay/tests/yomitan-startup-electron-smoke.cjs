@@ -37,16 +37,27 @@ app.whenReady().then(async () => {
   }`, context);
   const page = path.join(root, 'GSM_Overlay', 'index.html');
   fs.mkdirSync(path.dirname(page), { recursive: true });
-  const hoverBootstrap = phase === 'hover' ? `<script>
+  const hoverBootstrap = ['hover', 'auto-hide', 'mining'].includes(phase) ? `<script>
     const {createTextHoverController} = require(${JSON.stringify(path.join(overlay, 'text_hover.js'))});
     window.hoverFixture = createTextHoverController({window, document,
+      isClickThroughEnabled: () => window.textClickThrough !== false,
       onIgnore: ignore => require('electron').ipcRenderer.send('fixture-hover-ignore', ignore)});
     window.syntheticClicks = 0; window.rawMoves = 0;
     window.addEventListener('click', () => window.syntheticClicks++);
     window.addEventListener('pointermove', event => { if (event.isTrusted) window.rawMoves++; });
   </script>` : '';
+  const renderer = fs.readFileSync(path.join(overlay, 'index.html'), 'utf8');
+  const miningBootstrap = phase === 'mining' ? `<script>
+    let dictionaryReader = 'yomitan', hideYomitanAfterMine = false, yomitanShowing = false, hideOnYomitanClose = false;
+    window.minedNotes = 0; window.popupHideCount = 0;
+    window.addEventListener('yomitan-popup-shown', () => { yomitanShowing = true; });
+    window.addEventListener('yomitan-popup-hidden', () => { yomitanShowing = false; window.popupHideCount++; });
+    window.addEventListener('gsm-anki-note-added', () => { window.minedNotes++; });
+    ${between(renderer, '  async function closeYomitanLookups(', '  function getGsmDictionaryUrls(')}
+    ${between(renderer, '  // Listen for mining success signal', '  let unHoverTimer')}
+  </script>` : '';
   // Like index.html, install hover routing before Yomitan's document_idle script.
-  fs.writeFileSync(page, '<!doctype html><meta charset="utf-8"><div id="word" class="text-box interactive" style="font:32px sans-serif;margin:80px">食べる</div>' + hoverBootstrap);
+  fs.writeFileSync(page, '<!doctype html><meta charset="utf-8"><div id="word" class="text-box interactive" style="font:32px sans-serif;margin:80px">食べる</div>' + hoverBootstrap + miningBootstrap);
   const extension = await context.startYomitan();
   assert.ok(extension);
   if (phase === 'seed') {
@@ -89,6 +100,32 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, webPreferences: {
     session: overlaySession, nodeIntegration: true, contextIsolation: false, backgroundThrottling: false, webSecurity: false,
   } });
+  if (['auto-hide', 'mining'].includes(phase)) {
+    const settings = new BrowserWindow({ show: false, webPreferences: { session: overlaySession } });
+    await settings.loadURL(`chrome-extension://${extension.id}/settings.html`);
+    await settings.webContents.executeJavaScript(`(async () => {
+      const {API} = await import('./js/comm/api.js');
+      const {WebExtension} = await import('./js/extension/web-extension.js');
+      const api = new API(new WebExtension());
+      const options = await api.optionsGetFull();
+      const profile = options.profiles[options.profileCurrent].options;
+      const scanning = profile.scanning;
+      scanning.autoHideResults = true;
+      scanning.hideDelay = 80;
+      scanning.hidePopupOnCursorExit = false;
+      if (${phase === 'mining'}) {
+        scanning.hidePopupOnCursorExit = true;
+        scanning.hidePopupOnCursorExitDelay = 50;
+        profile.anki.enable = true;
+        profile.anki.duplicateBehavior = 'new';
+        profile.anki.cardFormats = [{...profile.anki.cardFormats[0], type: 'term', deck: 'Fixture', model: 'Fixture',
+          fields: {Word: {value: '{expression}', overwriteMode: 'overwrite'},
+            Screenshot: {value: '{screenshot}', overwriteMode: 'overwrite'}}}];
+      }
+      await api.setAllSettings(options, 'gsm-auto-hide-smoke');
+    })()`);
+    settings.destroy();
+  }
   win.webContents.on('console-message', event => console.log('[page]', event.message));
   await win.loadFile(page);
   for (const name of ['extension_bridge.js', 'yomitan_bridge.js']) {
@@ -133,10 +170,139 @@ app.whenReady().then(async () => {
     return false;
   })()`);
   assert.equal(definition, true, 'the popup must render the actual dictionary definition');
+  if (phase === 'mining') {
+    const buttonPoint = await popup.executeJavaScript(`(async () => {
+      for (let i = 0; i < 100; i++) {
+        const button = document.querySelector('[data-action="save-note"]');
+        if (button && !button.disabled) {
+          const rect = button.getBoundingClientRect();
+          return {x: rect.x + rect.width / 2, y: rect.y + rect.height / 2};
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      throw new Error('The real Add note button did not become ready');
+    })()`);
+    const buttonScreenPoint = await win.webContents.executeJavaScript(`(() => {
+      const rect = document.querySelector('iframe.yomitan-popup').getBoundingClientRect();
+      return {x: Math.round(rect.x + ${buttonPoint.x}), y: Math.round(rect.y + ${buttonPoint.y})};
+    })()`);
+    win.webContents.sendInputEvent({type: 'mouseMove', ...buttonScreenPoint});
+    await win.webContents.executeJavaScript('new Promise(resolve => setTimeout(resolve, 200))');
+    await win.webContents.executeJavaScript('window.popupHideCount = 0');
+    await popup.executeJavaScript(`window.addEventListener('click', event => { window.fixtureClickedAction = event.target.closest('[data-action]')?.dataset.action; });`);
+    // A hidden BrowserWindow has no compositor hit-test surface for native
+    // clicks into its extension iframe. Activate the actual button in-frame.
+    const clickNote = () => popup.executeJavaScript(`document.querySelector('[data-action="save-note"]').click()`);
+    await clickNote();
+    try { await win.webContents.executeJavaScript(`(async () => {
+      for (let i = 0; i < 100; i++) {
+        if (window.minedNotes === 1) return;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      throw new Error('Mining success did not reach the overlay');
+    })()`); } catch (error) {
+      console.error('Mining fixture:', await popup.executeJavaScript(`({clicked: window.fixtureClickedAction,
+        disabled: document.querySelector('[data-action="save-note"]')?.disabled,
+        notifications: document.querySelector('#content-footer')?.textContent,
+        error: document.querySelector('.anki-note-error')?.textContent})`));
+      throw error;
+    }
+    await win.webContents.executeJavaScript('new Promise(resolve => setTimeout(resolve, 250))');
+    assert.equal(await win.webContents.executeJavaScript('window.popupHideCount'), 0,
+      'Add note must not hide or flicker the popup when opt-in is off, including screenshot templates');
+    await popup.executeJavaScript(`(async () => {
+      for (let i = 0; i < 80; i++) {
+        if (!document.querySelector('[data-action="save-note"]').disabled) return;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      throw new Error('Add note did not become available again');
+    })()`);
+    await win.webContents.executeJavaScript('hideYomitanAfterMine = true');
+    await clickNote();
+    await win.webContents.executeJavaScript(`(async () => {
+      for (let i = 0; i < 100; i++) {
+        if (window.minedNotes === 2 && window.popupHideCount === 1) return;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      throw new Error('Explicit close-after-mining opt-in did not close the popup');
+    })()`);
+    console.log('PASS: real Add note stays open by default, skips unsupported screenshot hiding, and closes only on opt-in');
+    win.destroy(); clearTimeout(timeout); app.exit(0); return;
+  }
+  if (phase === 'auto-hide') {
+    await win.webContents.executeJavaScript(`(async () => {
+      window.popupHidden = false;
+      window.addEventListener('yomitan-popup-hidden', () => { window.popupHidden = true; });
+      const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+      // Reproduce a missed native mouseout followed by leaving the viewport.
+      // There is no element at the destination to generate an empty scan.
+      const frame = document.querySelector('iframe.yomitan-popup');
+      if (!frame) throw new Error('Missing popup frame');
+      const rect = frame.getBoundingClientRect();
+      const popupPoint = {x: rect.x + 10, y: rect.y + 10, captured: false};
+      hoverFixture.project(popupPoint);
+      await delay(200);
+      if (window.popupHidden) throw new Error('Auto-hide closed a popup while it was being read');
+      hoverFixture.project({x: -1, y: -1, captured: true});
+      await delay(60);
+      hoverFixture.project(popupPoint);
+      await delay(200);
+      if (window.popupHidden) throw new Error('Returning to the popup did not cancel auto-hide');
+      frame.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
+      hoverFixture.project({...${JSON.stringify(point)}, captured: true});
+      hoverFixture.project({x: -1, y: -1, captured: true});
+      for (let i = 0; i < 40; i++) {
+        if (window.popupHidden) return;
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      throw new Error('Auto-hide left the popup stuck after the pointer moved away');
+    })()`);
+    await win.webContents.executeJavaScript(`hoverFixture.reset(); window.popupShown = false; window.popupHidden = false;`);
+    win.webContents.sendInputEvent({type: 'mouseMove', ...point});
+    const nativePopupPoint = await win.webContents.executeJavaScript(`(async () => {
+      for (let i = 0; i < 100; i++) {
+        if (window.popupShown) {
+          const rect = document.querySelector('iframe.yomitan-popup').getBoundingClientRect();
+          return {x: Math.round(rect.x + 10), y: Math.round(rect.y + 10)};
+        }
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      throw new Error('A native mouse lookup did not reopen the popup');
+    })()`);
+    win.webContents.sendInputEvent({type: 'mouseMove', ...nativePopupPoint});
+    await win.webContents.executeJavaScript(`new Promise(resolve => setTimeout(resolve, 200))`);
+    assert.equal(await win.webContents.executeJavaScript('window.popupHidden'), false,
+      'ordinary mouse movement into the popup must preserve it');
+    win.webContents.sendInputEvent({type: 'mouseMove', x: 20, y: 20});
+    await win.webContents.executeJavaScript(`(async () => {
+      for (let i = 0; i < 40; i++) {
+        if (window.popupHidden) return;
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      throw new Error('Ordinary mouse movement away from the popup did not auto-hide it');
+    })()`);
+    console.log('PASS: real popup auto-hide handles native/projected mouse leave, reading/re-entry, and missed mouseout');
+    win.destroy(); clearTimeout(timeout); app.exit(0); return;
+  }
   if (phase === 'hover') {
     // A real dictionary lookup succeeded using ordinary Chromium hover while
     // the window retained its native pass-through style. Now exercise Magpie's
     // projected stream against that same unmodified Yomitan frontend.
+    const tooltipBeforeCapture = await popup.executeJavaScript(`(() => {
+      window.dictionaryTooltipState = () => {
+        // The fixture window is hidden. Disable offscreen rendering skips so
+        // Chromium hit-tests the dictionary's children as it does on screen.
+        for (const entry of document.querySelectorAll('.entry')) entry.style.contentVisibility = 'visible';
+        const tag = document.querySelector('.tag[data-category="dictionary"]');
+        if (!tag?.title) throw new Error('Missing dictionary metadata tooltip');
+        const label = tag.querySelector('.tag-label-content');
+        const rect = label.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        return {title: tag.title, nativeHit: tag.contains(hit)};
+      };
+      return dictionaryTooltipState();
+    })()`);
+    assert.equal(tooltipBeforeCapture.nativeHit, true, 'ordinary dictionary tooltips stay available');
     const lib = process.platform === 'win32' ? require('koffi').load('user32.dll') : null;
     const style = lib?.func('long __stdcall GetWindowLongW(uintptr_t, int)');
     const foreground = lib?.func('uintptr_t __stdcall GetForegroundWindow()');
@@ -164,6 +330,55 @@ app.whenReady().then(async () => {
     await new Promise(resolve => setTimeout(resolve, 100));
     assert.equal(await win.webContents.executeJavaScript('window.rawMoves'), 0,
       'raw source coordinates must not reach the scanner after projected hover starts');
+    await popup.executeJavaScript(`(async () => {
+      const {TextScanner} = await import('./js/language/text-scanner.js');
+      window.syncPopupPointerState = () => new Promise(resolve => {
+        const listener = event => {
+          if (event.source !== top || event.data?.type !== 'gsm-magpie-pointer-state') return;
+          window.removeEventListener('message', listener);
+          resolve(event.data.captured);
+        };
+        window.addEventListener('message', listener);
+        top.postMessage({type: 'gsm-magpie-pointer-state-request'}, '*');
+      });
+      if (!await syncPopupPointerState()) throw new Error('Popup did not receive the captured cursor state');
+      const original = TextScanner.prototype._searchAtFromMouseMove;
+      window.popupHoverScans = 0;
+      TextScanner.prototype._searchAtFromMouseMove = function(...args) {
+        window.popupHoverScans++;
+        return original.apply(this, args);
+      };
+      window.moveOverPopupWord = () => {
+        const target = document.querySelector('.headword');
+        if (!target) throw new Error('Missing dictionary headword');
+        const rect = target.getBoundingClientRect();
+        target.dispatchEvent(new PointerEvent('pointermove', {bubbles: true,
+          pointerType: 'mouse', isPrimary: true, pointerId: 1,
+          clientX: rect.x + 5, clientY: rect.y + 5}));
+      };
+      moveOverPopupWord();
+    })()`);
+    assert.equal(await popup.executeJavaScript('window.popupHoverScans'), 0,
+      'source-space movement inside the real popup frame must not start a nested lookup');
+    assert.deepEqual(await popup.executeJavaScript('dictionaryTooltipState()'),
+      {title: tooltipBeforeCapture.title, nativeHit: false},
+      'the raw cursor cannot hit native dictionary tooltips during Magpie capture');
+    assert.equal(await popup.executeJavaScript(`(() => {
+      const tag = document.querySelector('.tag[data-category="dictionary"]');
+      const replacement = tag.cloneNode(true);
+      replacement.title = 'Updated dictionary metadata';
+      replacement.querySelector('.tag-label-content').style.pointerEvents = 'auto';
+      tag.replaceWith(replacement);
+      return dictionaryTooltipState().nativeHit;
+    })()`), false, 'new dictionary content and its descendants also suppress native tooltips');
+    await win.webContents.executeJavaScript(`hoverFixture.project({...${JSON.stringify(point)}, captured: false});`);
+    await popup.executeJavaScript('syncPopupPointerState()');
+    assert.deepEqual(await popup.executeJavaScript('dictionaryTooltipState()'),
+      {title: 'Updated dictionary metadata', nativeHit: true},
+      'native tooltip hit testing and current metadata survive cursor handoff');
+    await popup.executeJavaScript('moveOverPopupWord()');
+    assert.ok(await popup.executeJavaScript('window.popupHoverScans > 0'),
+      'intentional popup word scanning resumes after native cursor handoff');
     const hitResults = await win.webContents.executeJavaScript(`(() => {
       let popupPoint = null;
       for (let y = 5; y < innerHeight && !popupPoint; y += 10) {
@@ -178,9 +393,12 @@ app.whenReady().then(async () => {
         text: hoverFixture.project({...${JSON.stringify(point)}, captured: false}), clicks: syntheticClicks};
     })()`);
     assert.deepEqual(hitResults, { popup: true, text: false, clicks: 0 });
+    assert.equal(await win.webContents.executeJavaScript(`window.textClickThrough = false;
+      hoverFixture.project({...${JSON.stringify(point)}, captured: true});`), true,
+    'disabling click-through captures text while retaining projected lookup');
     if (foreground) assert.equal(foreground(), previousForeground, 'hover must not activate the overlay');
     assert.equal(win.isFocused(), false);
-    console.log('PASS: real Yomitan normal/projected hover, text click-through, popup hit regions, no synthetic clicks or focus changes');
+    console.log('PASS: real Yomitan normal/projected hover, dictionary tooltip capture/handoff, text click-through, popup hit regions, no synthetic clicks or focus changes');
     win.destroy(); clearTimeout(timeout); app.exit(0); return;
   }
   for (const name of ['dictionary_navigation.js', 'gamepad.js', 'jiten_highlight.js']) {

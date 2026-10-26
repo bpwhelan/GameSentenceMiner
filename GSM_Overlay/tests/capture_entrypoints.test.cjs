@@ -59,7 +59,7 @@ function setup(t) {
   });
   const names = [
     'hasValidOverlayCapture', 'canUseOverlayCapture', 'publishOverlayCaptureAvailability',
-    'canTrackMagpiePointer', 'canUseTextHoverClickThrough',
+    'canTrackMagpiePointer', 'canRouteTextHover',
     'invalidateOverlayCapture', 'updateOverlayCaptureStatus', 'publishOverlaySocketState',
     'showOverlayUsingManualFlow', 'setGamepadNavigationModeActive',
     'reassertOverlayTopmostWithoutFocus', 'aggressivelyShowOverlayAndReturnFocus',
@@ -269,6 +269,13 @@ test('every reveal, scan, and focus entry rejects unconfirmed capture', t => {
   assert.ok(messages.some(([name]) => name === 'overlay-capture-state'));
 });
 
+test('unavailable capture heartbeats do not repeatedly hide an already hidden native window', t => {
+  const { context: c, effects } = setup(t);
+  effects.length = 0;
+  for (let i = 0; i < 4; i++) c.updateOverlayCaptureStatus({ available: false, window_state: 'obscured' });
+  assert.deepEqual(effects, []);
+});
+
 test('capture loss and heartbeat expiry cancel pending focus and reject stale entry', t => {
   const { context: c, effects } = setup(t);
   c.updateOverlayCaptureStatus({ available: true, window_state: 'active' });
@@ -425,7 +432,8 @@ test('renderer capture state suppresses controller and keyboard entry and clears
     let overlayCaptureAvailable = false, gamepadInputSuppressed = false;
     const dictionaryReader = 'yomitan', showFurigana = false, pendingManualRevealForBackground = false;
     const isManualInteractionSuppressed = () => false;
-    const cancelDeferredManualReveal = () => {}, closeYomitanLookups = () => {};
+    window.popupCloseRequests = 0;
+    const cancelDeferredManualReveal = () => {}, closeYomitanLookups = () => { window.popupCloseRequests++; };
     const updateGamepadStatusIndicator = () => {};
     const gamepadSettings = { enabled: true, controllerEnabled: true, keyboardEnabled: true };
     ${between(renderer, '  function shouldUseGamepadHandler()', '  async function ensureGamepadModuleLoaded()')}
@@ -443,6 +451,9 @@ test('renderer capture state suppresses controller and keyboard entry and clears
   handler.activateNavigation({ type: 'gamepad' });
   assert.equal(handler.isActive, true);
   listeners.get('overlay-capture-state')(null, { available: false });
+  const closeRequests = window.popupCloseRequests;
+  listeners.get('overlay-capture-state')(null, { available: false });
+  assert.equal(window.popupCloseRequests, closeRequests, 'unchanged heartbeats must not repeatedly close dictionary frames');
   assert.equal(handler.isActive, false);
   assert.equal(handler.toggleModeActive, false);
   assert.equal(handler.overlayFocusHeld, false);

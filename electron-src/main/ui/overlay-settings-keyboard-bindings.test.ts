@@ -19,7 +19,9 @@ function nextTick(delay = 0) {
 
 function loadOverlaySettingsPage(platform = "win32") {
   const settingsPath = path.resolve(process.cwd(), "GSM_Overlay/settings.html");
-  const html = fs.readFileSync(settingsPath, "utf8");
+  // These tests assert DOM/inline state. Real Chromium layout is covered by the
+  // settings Electron suite; parsing the full theme here delays JSDOM's load event.
+  const html = fs.readFileSync(settingsPath, "utf8").replace(/<link\b[^>]*rel="stylesheet"[^>]*>/g, "");
   const sent: Array<{ channel: string; payload: IpcPayload }> = [];
   const invoked: Array<{ channel: string; payload: IpcPayload }> = [];
   const listeners = new Map<string, IpcListener>();
@@ -302,9 +304,9 @@ describe("overlay settings home dashboard", () => {
       const values = (id: string) => Array.from(doc.getElementById(id).options).map((option: any) => option.value);
       expect(values("home-manualModeType")).toEqual(values("manualModeType"));
       expect(doc.getElementById("home-manualModeType").options[0].textContent).toBe("Hold to show");
-      expect(doc.querySelectorAll("#settingsHome [data-setting-alias]")).toHaveLength(11);
+      expect(doc.querySelectorAll("#settingsHome [data-setting-alias]")).toHaveLength(12);
       expect(doc.querySelectorAll(".home-card")).toHaveLength(4);
-      for (const id of ["manualMode", "showHotkey", "engine_v2", "monitor_to_capture", "showFurigana", "showTextIndicators", "dictionaryReaderSelection"]) {
+      for (const id of ["manualMode", "showHotkey", "engine_v2", "monitor_to_capture", "showFurigana", "showTextIndicators", "dictionaryReaderSelection", "textHoverClickThrough"]) {
         const shortcut = doc.getElementById(`home-${id}`);
         expect(shortcut, id).not.toBeNull();
         expect(shortcut.closest("[data-page]").dataset.page, id).toBe("overview-start");

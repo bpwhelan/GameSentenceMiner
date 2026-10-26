@@ -9,6 +9,15 @@ async function run() {
   const source = path.resolve(__dirname, '../yomitan');
   const extension = path.join(root, 'GSM_Overlay', 'yomitan');
   fs.cpSync(source, extension, { recursive: true });
+  // Simulated Anki stays inside this disposable extension. No notes are
+  // sent to a real collection; the popup and its save workflow stay real.
+  fs.appendFileSync(path.join(extension, 'js/background/backend.js'), `
+    Backend.prototype._onApiIsAnkiConnected = async () => true;
+    Backend.prototype._onApiGetAnkiNoteInfo = async ({notes}) => notes.map(() =>
+      ({canAdd: true, valid: true, noteIds: null, noteInfos: []}));
+    let fixtureNoteId = 1000;
+    Backend.prototype._onApiAddAnkiNote = async () => ++fixtureNoteId;
+  `);
   // Simulate an older worker whose settings work but whose frontend cannot start.
   // The following update keeps both the manifest version and timestamp unchanged.
   fs.writeFileSync(path.join(extension, 'stale-worker-fixture.js'), `
@@ -16,7 +25,7 @@ async function run() {
     Backend.prototype._onApiGetEnvironmentInfo = () => { throw new Error('stale Yomitan worker fixture'); };
   `);
   fs.writeFileSync(path.join(extension, 'sw.js'), `import './stale-worker-fixture.js'; import './js/background/background-main.js';`);
-  for (const phase of ['seed', 'upgrade', 'lookup', 'hover']) {
+  for (const phase of ['seed', 'upgrade', 'lookup', 'hover', 'auto-hide', 'mining']) {
     await new Promise((resolve, reject) => {
       const child = spawn(require('electron'), [path.join(__dirname, 'yomitan-startup-electron-smoke.cjs'), root, phase], {
         env, windowsHide: true, stdio: 'inherit',

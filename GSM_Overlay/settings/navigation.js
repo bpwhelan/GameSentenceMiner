@@ -40,6 +40,7 @@
       label: "Interaction",
       icon: "cursor",
       pages: [
+        ["mouse", "Mouse & text", "Let clicks pass through overlay text to your game, or turn this off for text selection and click lookups."],
         ["reveal", "Push to show", "Reveal the overlay by holding a key or toggling it on demand."],
         ["hotkeys", "Hotkeys", "Set keyboard shortcuts for overlay windows and actions."],
         ["behavior", "Startup & behavior", "Choose how the overlay opens, focuses, and responds to inactivity."],

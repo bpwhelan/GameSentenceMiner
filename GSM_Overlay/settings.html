@@ -609,6 +609,24 @@
 
               <!-- Interaction -->
 
+              <section class="settings-page" data-page="interaction-mouse">
+                <div class="setting-group" data-tab="interaction">
+                  <h4>Mouse &amp; Text</h4>
+                  <label>
+                    <span class="label-text">
+                      Click through overlay text
+                      <div class="hotkey-info">
+                        On by default in automatic mode. Clicks on overlay text reach the game while hover lookups
+                        remain available. Turn off to select text or use click lookups.
+                        Dictionary popups and controls stay clickable.
+                        Applies on Windows and macOS; manual and controller interaction are unchanged.
+                      </div>
+                    </span>
+                    <input type="checkbox" id="textHoverClickThrough" checked />
+                  </label>
+                </div>
+              </section>
+
               <section class="settings-page" data-page="interaction-reveal">
                 <div class="setting-group full-width" data-tab="interaction" id="manualModeCardMount"></div>
                 <div class="setting-group" data-tab="interaction">
@@ -749,6 +767,16 @@
                       </div>
                     </span>
                     <input type="checkbox" id="focusOverlayOnYomitanLookup" />
+                  </label>
+                  <label>
+                    <span class="label-text">
+                      Close dictionary popup after adding a note
+                      <div class="hotkey-info">
+                        Close the popup after a successful Anki save, including mouse, keyboard, and controller mining.
+                        Off by default. Failed saves keep the popup open so you can retry.
+                      </div>
+                    </span>
+                    <input type="checkbox" id="hideYomitanAfterMine" />
                   </label>
                   <label>
                     <span class="label-text">Auto-Minimize After Inactivity (minutes, 0 = disabled)</span>

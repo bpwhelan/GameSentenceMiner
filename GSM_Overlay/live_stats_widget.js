@@ -70,6 +70,8 @@
     tickTimer: null,
     temporarilyVisible: false,
     hiddenForTextOverlap: false,
+    visible: false,
+    windowAvailable: true,
   };
 
   function normalizeBoolean(value, fallback = false) {
@@ -326,6 +328,21 @@
       });
     }
     renderPomodoro();
+  }
+
+  function syncTickTimer() {
+    const statsVisible = isStatsModeVisible() && state.windowAvailable && document.visibilityState !== "hidden";
+    const needsTick = statsVisible && (
+      state.settings.liveStatsScope === "today" ||
+      (state.visible && selectedStatsPayload()?.session_active && state.settings.liveStatsFields.raw_reading_time !== false) ||
+      (state.visible && state.pomodoro?.enabled && state.pomodoro.running)
+    );
+    if (needsTick && state.tickTimer === null) {
+      state.tickTimer = setInterval(updateLiveTimes, 1000);
+    } else if (!needsTick && state.tickTimer !== null) {
+      clearInterval(state.tickTimer);
+      state.tickTimer = null;
+    }
   }
 
   function isStatsModeVisible() {
@@ -708,6 +725,8 @@
 
   function setVisible(visible) {
     ensureRoot().classList.toggle("gsm-live-stats-visible", visible);
+    state.visible = visible;
+    syncTickTimer();
   }
 
   function updateVisibility() {
@@ -863,6 +882,10 @@
     state.targetWindowRect = normalizeTargetWindowRect(payload.target_window_rect);
     state.targetClientRect = normalizeTargetWindowRect(payload.target_client_rect);
     state.magpieInfo = normalizeMagpieInfo(payload.magpie_info);
+    const wasAvailable = state.windowAvailable;
+    state.windowAvailable = !["minimized", "obscured", "closed"].includes(payload.data);
+    if (state.windowAvailable && !wasAvailable) updateLiveTimes();
+    syncTickTimer();
     updatePosition();
   }
 
@@ -888,10 +911,12 @@
   function init() {
     ensureRoot();
     render();
-    if (state.tickTimer === null) {
-      state.tickTimer = setInterval(updateLiveTimes, 1000);
-    }
   }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "hidden") updateLiveTimes();
+    syncTickTimer();
+  });
 
   window.GSMLiveStatsWidget = {
     applySettings,

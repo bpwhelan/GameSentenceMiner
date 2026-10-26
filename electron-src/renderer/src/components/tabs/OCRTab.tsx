@@ -11,6 +11,8 @@ import type { ObsScene, SceneLaunchProfile, SceneOcrMode } from "../../types/mod
 import { useTranslation } from "../../i18n";
 import { tooltipProps } from "../Tooltip";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "../../lib/theme";
+import { createBufferedTerminalWriter } from "../../lib/bufferedTerminal";
+import { DEBUG_LOG_HISTORY_LIMIT } from "../../lib/debugHistory";
 
 type ProcessPriority =
   | "low"
@@ -1199,6 +1201,9 @@ export function OCRTab({ active }: OcrTabProps) {
 
   const terminalElementRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
+  const terminalWriterRef = useRef<ReturnType<typeof createBufferedTerminalWriter> | null>(null);
+  const terminalVisibleRef = useRef(false);
+  terminalVisibleRef.current = active && workspaceView === "console";
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1367,6 +1372,7 @@ export function OCRTab({ active }: OcrTabProps) {
   }, [notice]);
 
   const fitTerminal = useCallback(() => {
+    if (!terminalVisibleRef.current || document.visibilityState === "hidden") return;
     if (resizeTimerRef.current) {
       clearTimeout(resizeTimerRef.current);
     }
@@ -1384,6 +1390,7 @@ export function OCRTab({ active }: OcrTabProps) {
     }
 
     const terminal = new Terminal({
+      scrollback: DEBUG_LOG_HISTORY_LIMIT,
       convertEol: true,
       fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace',
       fontSize: 13,
@@ -1401,6 +1408,11 @@ export function OCRTab({ active }: OcrTabProps) {
     fitAddon.fit();
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    const output = createBufferedTerminalWriter(
+      (data) => terminal.write(data),
+      () => terminalVisibleRef.current && document.visibilityState !== "hidden",
+    );
+    terminalWriterRef.current = output;
 
     terminal.onData((data) => {
       sendIpc("ocr.stdin", data);
@@ -1436,10 +1448,12 @@ export function OCRTab({ active }: OcrTabProps) {
     terminalElementRef.current.addEventListener("contextmenu", handleContextMenu);
     window.addEventListener("resize", handleResize);
     window.addEventListener(THEME_CHANGED_EVENT, handleThemeChange);
+    document.addEventListener("visibilitychange", output.flush);
 
     return () => {
       window.removeEventListener("resize", handleResize);
       window.removeEventListener(THEME_CHANGED_EVENT, handleThemeChange);
+      document.removeEventListener("visibilitychange", output.flush);
       terminalElementRef.current?.removeEventListener(
         "contextmenu",
         handleContextMenu
@@ -1447,14 +1461,17 @@ export function OCRTab({ active }: OcrTabProps) {
       if (resizeTimerRef.current) {
         clearTimeout(resizeTimerRef.current);
       }
+      output.dispose();
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
+      terminalWriterRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     if (active) {
+      terminalWriterRef.current?.flush();
       fitTerminal();
     }
   }, [active, workspaceView, fitTerminal]);
@@ -1465,8 +1482,8 @@ export function OCRTab({ active }: OcrTabProps) {
       if (!trimmedMessage) {
         return;
       }
-      const terminal = terminalRef.current;
-      if (!terminal) {
+      const output = terminalWriterRef.current;
+      if (!output) {
         return;
       }
 
@@ -1474,7 +1491,7 @@ export function OCRTab({ active }: OcrTabProps) {
       const previousRepeatedLine = repeatedTerminalLineRef.current;
       if (dedupeKey && previousRepeatedLine?.dedupeKey === dedupeKey) {
         const nextCount = previousRepeatedLine.count + 1;
-        terminal.write(
+        output.write(
           `\x1b[1A\r\x1b[2K${formatRepeatedTerminalLine(
             previousRepeatedLine.baseMessage,
             nextCount
@@ -1489,7 +1506,7 @@ export function OCRTab({ active }: OcrTabProps) {
         return;
       }
 
-      terminal.writeln(message);
+      output.write(`${message}\r\n`);
       repeatedTerminalLineRef.current = dedupeKey
         ? {
             dedupeKey,
@@ -1503,6 +1520,7 @@ export function OCRTab({ active }: OcrTabProps) {
   );
 
   const clearTerminal = useCallback(() => {
+    terminalWriterRef.current?.clear();
     terminalRef.current?.clear();
     previousLogLineRef.current = "";
     repeatedTerminalLineRef.current = null;
@@ -2175,10 +2193,6 @@ export function OCRTab({ active }: OcrTabProps) {
     (action) => config[action.gamepadKey]
   ).length;
 
-  const usesTwoPassFlow =
-    (!config.advancedMode || config.twoPassOCR) &&
-    effectiveMainEngine !== effectiveStabilityEngine;
-
   return (
     <div className={"tab-panel " + (active ? "active" : "")}>
       <div className="ocr-desk">
@@ -2239,6 +2253,29 @@ export function OCRTab({ active }: OcrTabProps) {
                 >
                   ↻
                 </button>
+              </div>
+            </div>
+            <div className="desk-autostart">
+              <div
+                className="input-group tooltip-trigger tooltip-trigger--start"
+                {...tooltipProps(autostartTooltip)}
+              >
+                <label htmlFor="ocr-autostart-mode">{t("ocr.sceneAndAreas.autostart")}</label>
+                <select
+                  id="ocr-autostart-mode"
+                  aria-description={autostartTooltip}
+                  value={selectedAutostartMode ?? "none"}
+                  disabled={
+                    loadingScenes || selectedAutostartMode === null || savingAutostart
+                  }
+                  onChange={(event) => {
+                    void saveAutostart(event.target.value as SceneOcrMode);
+                  }}
+                >
+                  <option value="none">{t("launcher.scene.ocrNone")}</option>
+                  <option value="auto">{t("launcher.scene.ocrAuto")}</option>
+                  <option value="manual">{t("launcher.scene.ocrManual")}</option>
+                </select>
               </div>
             </div>
           </div>
@@ -2412,69 +2449,12 @@ export function OCRTab({ active }: OcrTabProps) {
                   </div>
                 </section>
                 <OCRTextFeed
+                  active={active && workspaceView === "capture"}
                   running={runningState.isRunning}
                   paused={paused}
                   manual={runningState.mode === "manual"}
                 />
               </div>
-              <aside className="desk-session-settings">
-                <div className="desk-session-summary">
-                  <div className="desk-session-heading">
-                    <h2>{t("ocr.desk.thisSession")}</h2>
-                    <button
-                      type="button"
-                      className="desk-text-button"
-                      onClick={() => openWorkspace("recognition")}
-                    >
-                      {t("ocr.desk.adjustRecognition")}
-                      <span aria-hidden="true">→</span>
-                    </button>
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>{t("ocr.desk.engine")}</dt>
-                      <dd>{getEngineLabel(effectiveMainEngine)}</dd>
-                    </div>
-                    {usesTwoPassFlow ? (
-                      <div>
-                        <dt>{t("ocr.desk.stability")}</dt>
-                        <dd>{getEngineLabel(effectiveStabilityEngine)}</dd>
-                      </div>
-                    ) : null}
-                    <div>
-                      <dt>{t("ocr.settings.language")}</dt>
-                      <dd>{t("ocr.languages." + config.language)}</dd>
-                    </div>
-                    <div>
-                      <dt>{t("ocr.settings.scanSpeed")}</dt>
-                      <dd>{scanSummary}</dd>
-                    </div>
-                  </dl>
-                </div>
-                <div className="desk-autostart">
-                  <div
-                    className="input-group tooltip-trigger tooltip-trigger--start"
-                    {...tooltipProps(autostartTooltip)}
-                  >
-                    <label htmlFor="ocr-autostart-mode">{t("ocr.sceneAndAreas.autostart")}</label>
-                    <select
-                      id="ocr-autostart-mode"
-                      aria-description={autostartTooltip}
-                      value={selectedAutostartMode ?? "none"}
-                      disabled={
-                        loadingScenes || selectedAutostartMode === null || savingAutostart
-                      }
-                      onChange={(event) => {
-                        void saveAutostart(event.target.value as SceneOcrMode);
-                      }}
-                    >
-                      <option value="none">{t("launcher.scene.ocrNone")}</option>
-                      <option value="auto">{t("launcher.scene.ocrAuto")}</option>
-                      <option value="manual">{t("launcher.scene.ocrManual")}</option>
-                    </select>
-                  </div>
-                </div>
-              </aside>
               {!loadingScenes && scenes.length === 0 ? (
                 <p className="desk-empty-hint">{t("ocr.sceneAndAreas.noScenesHint")}</p>
               ) : null}

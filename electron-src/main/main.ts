@@ -1681,6 +1681,9 @@ async function createWindow() {
         show: false,
         webPreferences: getSecureWebPreferences({
             nodeIntegrationInSubFrames: true,
+            // Let hidden/minimized desktop pages report visibility correctly so
+            // previews can stop capturing and Chromium can suspend idle paints.
+            backgroundThrottling: true,
         }),
         title: windowTitle,
     });

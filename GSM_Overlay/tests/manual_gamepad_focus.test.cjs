@@ -55,6 +55,7 @@ function setup(t, settings = {}) {
       manualMode: true, manualModeType: 'toggle',
       manualModeInactiveBehavior: 'disable-interaction',
       manualModeDisableInteractionFocusOverlay: true,
+      textHoverClickThrough: JSON.parse(source.match(/"textHoverClickThrough": (true|false)/)[1]),
       focusOverlayOnYomitanLookup: false, ...settings,
     },
     MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY: 'hide-overlay',
@@ -102,7 +103,7 @@ function setup(t, settings = {}) {
   });
   const functions = [
     'hasValidOverlayCapture', 'canUseOverlayCapture', 'publishOverlayCaptureAvailability',
-    'canTrackMagpiePointer', 'canUseTextHoverClickThrough',
+    'canTrackMagpiePointer', 'canRouteTextHover',
     'attachMagpieSession',
     'setTrackedGameWindowState',
     'requestOverlayPauseForSource', 'requestOverlayResumeForSource',
@@ -292,7 +293,7 @@ test('controller activation keeps focus through both activation messages and loo
   assert.equal(rendererMessages.filter(([channel]) => channel === 'show-overlay-hotkey').length, 1);
 });
 
-test('automatic dictionary lookup keeps text click-through and permits only current renderer hover controls', t => {
+test('automatic dictionary lookup defaults to text click-through and permits only current renderer hover controls', t => {
   const { context, state, send, rendererMessages } = setup(t, { manualMode: false });
   state.ignoreMouseEvents = true;
   state.focused = false;
@@ -319,7 +320,7 @@ test('automatic dictionary lookup keeps text click-through and permits only curr
 });
 
 test('automatic hover replies never override explicit manual, controller, resize or dictionary focus', t => {
-  const { context, state } = setup(t, { manualMode: false });
+  const { context, state } = setup(t, { manualMode: false, textHoverClickThrough: true });
   for (const owner of ['manualHotkeyPressed', 'manualModeToggleState', 'gamepadNavigationActive', 'resizeMode', 'yomitanForegroundActive']) {
     context[owner] = true;
     state.ignoreMouseEvents = false;
@@ -327,6 +328,20 @@ test('automatic hover replies never override explicit manual, controller, resize
     assert.equal(state.ignoreMouseEvents, false, owner);
     context[owner] = false;
   }
+});
+
+test('text click-through can be disabled while Magpie tracking stays available', t => {
+  const { context, state, send } = setup(t, { manualMode: false, textHoverClickThrough: false });
+  assert.equal(context.canRouteTextHover(), true);
+  assert.equal(context.canTrackMagpiePointer(), true);
+  context.ipcMain.emit('text-hover-ignore', { sender: context.mainWindow.webContents }, false, false);
+  assert.equal(state.ignoreMouseEvents, false, 'text can acquire input with the setting off');
+  context.ipcMain.emit('text-hover-ignore', { sender: context.mainWindow.webContents }, true);
+  assert.equal(state.ignoreMouseEvents, false, 'late click-through replies cannot override the setting');
+  send('set-ignore-mouse-events', true);
+  assert.equal(state.ignoreMouseEvents, false, 'legacy mouse-down release cannot break text selection');
+  send('yomitan-event', true);
+  assert.equal(state.ignoreMouseEvents, false, 'the legacy popup interaction still captures input');
 });
 
 test('controller activation honors focus-on-activate without a separate gamepad focus request', t => {

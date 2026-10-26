@@ -1478,7 +1478,10 @@ class GSMApplication:
         self._start_thread(_get_run_text_hooker_page(), "texthooker-page")
 
     def handle_ipc_command(self, cmd: dict) -> None:
-        logger.debug(f"IPC Command Received: {cmd}")
+        # Routine foreground/status polling is wire traffic, not a debug event.
+        # Logging every request to disk keeps the backend busy while idle.
+        level = "TRACE" if cmd.get("function") == FunctionName.REFRESH_FOREGROUND_WINDOW.value else "DEBUG"
+        logger.log(level, f"IPC Command Received: {cmd}")
         try:
             function = cmd.get("function")
             if function == FunctionName.QUIT.value:

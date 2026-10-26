@@ -42,11 +42,39 @@ app
     await view.loadFile(path.join(__dirname, "../settings.html"));
     view.webContents.send("preload-settings", {
       userSettings: { gamepadEnabled: true, showFurigana: true, showTextIndicators: true },
-      defaultSettings: { showTextIndicators: true },
+      defaultSettings: { showTextIndicators: true, textHoverClickThrough: true },
       websocketStates: { ws1: false, ws2: false },
       runtimeSettings: {},
     });
     await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), true);
+    assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), true);
+    assert.equal(await run("document.getElementById('home-textHoverClickThrough').getClientRects().length > 0"), true,
+      'click-through must be available directly on Home without expanding anything');
+    assert.equal(await run("document.getElementById('textHoverClickThrough').closest('[data-page]').dataset.page"),
+      'interaction-mouse', 'the detailed toggle belongs in Mouse & text');
+    assert.equal(await run("document.getElementById('hideYomitanAfterMine').checked"), false);
+    await run("document.getElementById('hideYomitanAfterMine').click()");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.ok(saved.some(({ key, value }) => key === 'hideYomitanAfterMine' && value === true),
+      'close after mining must be an explicit saved opt-in');
+    view.webContents.send('settings-updated', { hideYomitanAfterMine: false });
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run("document.getElementById('hideYomitanAfterMine').checked"), false);
+    await run("document.getElementById('home-textHoverClickThrough').click()");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.ok(saved.some(({ key, value }) => key === 'textHoverClickThrough' && value === false),
+      'Home must save an explicit opt-out through the real settings binding');
+    assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), false);
+    await run("GSMSettingsNavigation.navigate('interaction-mouse'); document.getElementById('textHoverClickThrough').click()");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), true);
+    view.webContents.send('settings-updated', { textHoverClickThrough: false });
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), false);
+    assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), false,
+      'a disabled profile choice must remain disabled in both views');
+    saved.length = 0;
     // Exercise the conditional Home rows and the same settings in full pages.
     view.webContents.send("settings-updated", {
       manualMode: true,

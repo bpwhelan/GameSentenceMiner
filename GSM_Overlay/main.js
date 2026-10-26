@@ -1059,6 +1059,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "hideOnStartup": true,
   "openSettingsOnStartup": true,
   "focusOverlayOnYomitanLookup": false,
+  "textHoverClickThrough": true,
   "manualMode": false,
   "manualModeType": "hold",
   "manualModeInactiveBehavior": MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY,
@@ -1952,7 +1953,7 @@ function invalidateOverlayCapture(reason = "capture-unavailable") {
     if (texthookerWindow && !texthookerWindow.isDestroyed()) texthookerWindow.hide();
   }
   customPageController?.hide('capture-unavailable');
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
     if (!isLinux()) mainWindow.setIgnoreMouseEvents(true, { forward: true });
     mainWindow.hide();
   }
@@ -4174,7 +4175,7 @@ function canTrackMagpiePointer() {
     && !gamepadNavigationActive && !resizeMode && !yomitanForegroundActive;
 }
 
-function canUseTextHoverClickThrough() {
+function canRouteTextHover() {
   return (isWindows() || isMac()) && canTrackMagpiePointer();
 }
 
@@ -4501,7 +4502,7 @@ function restoreOverlayAfterYomitanLookup() {
   if (isWindows() || isMac()) {
     mainWindow.setIgnoreMouseEvents(true, { forward: true });
   }
-  if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
+  if (canRouteTextHover()) mainWindow.webContents.send('text-hover-refresh');
 
   if (shouldHideOverlayWindowForManualInactive()) {
     hideAndRestoreFocus();
@@ -5898,7 +5899,7 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
   } else {
     mainWindow.show();
   }
-  if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
+  if (canRouteTextHover()) mainWindow.webContents.send('text-hover-refresh');
 }
 
 function revealAutomaticOverlayForSignal(source, options = {}) {
@@ -6049,7 +6050,9 @@ function createTexthookerWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      backgroundThrottling: false, // Prevents sleeping
+      // Hidden reading windows can throttle timers/painting; websocket delivery
+      // continues and the page catches up when shown again.
+      backgroundThrottling: true,
     },
   });
 
@@ -7907,7 +7910,9 @@ async function startOverlayAppImpl() {
     onDisplayChanged("display-metrics-changed", changedDisplay, changedMetrics);
   });
 
-  // Fallback polling for monitor topology + config monitor index changes.
+  // Display events handle topology changes immediately. This slower fallback
+  // detects external config edits/offscreen windows without parsing config.json
+  // and querying native display/window geometry twice a second while idle.
   bg.registerTask(() => {
     try {
       const currentSignature = getOverlayDisplaySyncSignature();
@@ -7919,7 +7924,7 @@ async function startOverlayAppImpl() {
     } catch (e) {
       console.error('[DisplaySync] Background monitor check failed', e);
     }
-  }, 500);
+  }, 5000);
 
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.setAlwaysOnTop(true, "screen-saver");
@@ -7943,10 +7948,11 @@ async function startOverlayAppImpl() {
     if (event.sender === mainWindow?.webContents) magpieSession?.handleHit(reply);
   });
 
-  ipcMain.on('text-hover-ignore', (event, ignore) => {
+  ipcMain.on('text-hover-ignore', (event, ignore, clickThroughText = true) => {
     if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
     if (event.sender !== mainWindow?.webContents || typeof ignore !== 'boolean') return;
-    if (!canUseTextHoverClickThrough() || magpieSession?.ownsPointer()) return;
+    if (!canRouteTextHover() || magpieSession?.ownsPointer()) return;
+    if (clickThroughText !== (userSettings.textHoverClickThrough === true)) return;
     mainWindow.setIgnoreMouseEvents(ignore, { forward: true });
   });
 
@@ -7956,9 +7962,9 @@ async function startOverlayAppImpl() {
     // rendered hit tests. Ordinary DOM hover events use the hardware cursor,
     // which may still be in source coordinates during Magpie capture.
     if (magpieSession?.ownsPointer()) return;
-    // In automatic mode the hover router distinguishes game text from popup
-    // controls. Legacy per-element handlers must not capture the whole window.
-    if (canUseTextHoverClickThrough()) {
+    // The hover router applies the text click-through preference and preserves
+    // press/release ownership. Legacy enter/leave handlers must not override it.
+    if (canRouteTextHover()) {
       mainWindow.webContents.send('text-hover-refresh');
       return;
     }
@@ -8020,7 +8026,7 @@ async function startOverlayAppImpl() {
       overlayFocusRequestVersion += 1;
       cancelPendingMagpieFocusRestore();
     }
-    if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
+    if (canRouteTextHover()) mainWindow.webContents.send('text-hover-refresh');
   })
 
 
@@ -8032,7 +8038,12 @@ async function startOverlayAppImpl() {
     // Invalidate pending close-recovery attempts whenever popup state flips.
     yomitanRecoveryVersion += 1;
     yomitanShown = state;
-    magpieSession?.invalidatePointer();
+    // A popup does not end automatic projection. Keep filtering source-space
+    // hover while discarding its pending hit result; resetting here opens a
+    // second native hover stream until the next cursor sample arrives.
+    magpieSession?.invalidatePointer({
+      keepProjection: !userSettings.focusOverlayOnYomitanLookup && canTrackMagpiePointer(),
+    });
     if (state) {
       overlayFocusRequestVersion += 1;
       cancelPendingMagpieFocusRestore();
@@ -8040,7 +8051,7 @@ async function startOverlayAppImpl() {
         focusOverlayForYomitanLookup();
       } else {
         yomitanForegroundActive = false;
-        if (canUseTextHoverClickThrough()) {
+        if (canRouteTextHover()) {
           mainWindow.webContents.send('text-hover-refresh');
         } else if (isWindows() || isMac()) {
           mainWindow.setIgnoreMouseEvents(false, { forward: true });
@@ -8071,7 +8082,7 @@ async function startOverlayAppImpl() {
         return;
       }
 
-      if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
+      if (canRouteTextHover()) mainWindow.webContents.send('text-hover-refresh');
 
       if (!isWindows() && !isMac()) {
         hideAndRestoreFocus();
@@ -8114,7 +8125,7 @@ async function startOverlayAppImpl() {
   // Update tray menu when window visibility changes
   mainWindow.on('show', () => {
     updateTrayMenu();
-    if (canUseTextHoverClickThrough()) mainWindow.webContents.send('text-hover-refresh');
+    if (canRouteTextHover()) mainWindow.webContents.send('text-hover-refresh');
   });
 
   mainWindow.on('hide', () => {
@@ -8382,7 +8393,7 @@ async function startOverlayAppImpl() {
         }
         resetOverlayInteractionStateForHiddenGameWindow("window-state:obscured");
         // Game window is completely hidden by other windows - hide overlay
-        if (!yomitanShown && !resizeMode && !mainWindow.isMinimized()) {
+        if (!yomitanShown && !resizeMode && mainWindow.isVisible() && !mainWindow.isMinimized()) {
           mainWindow.hide();
         }
         break;
@@ -8401,7 +8412,7 @@ async function startOverlayAppImpl() {
       case "closed":
         // Game window is closed - hide overlay
         resetOverlayInteractionStateForHiddenGameWindow("window-state:closed");
-        mainWindow.hide();
+        if (mainWindow.isVisible()) mainWindow.hide();
         break;
 
       case "unknown":
@@ -8587,6 +8598,7 @@ async function startOverlayAppImpl() {
       value = normalizeOverlayGoals(value);
     } else if (
       key === "hideCompletedGoals"
+      || key === "textHoverClickThrough"
       || key === "hideLiveStatsOnTextOverlap"
       || key === "pomodoroEnabled"
       || key === "pomodoroAutoStart"
@@ -8641,6 +8653,9 @@ async function startOverlayAppImpl() {
         } else if (!value) {
           yomitanForegroundActive = false;
         }
+        break;
+      case "textHoverClickThrough":
+        magpieSession?.invalidatePointer({ keepProjection: canTrackMagpiePointer() });
         break;
       case "afkTimer":
         resetActivityTimer();

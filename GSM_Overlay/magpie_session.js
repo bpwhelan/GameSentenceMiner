@@ -4,15 +4,15 @@ const { normalizeMagpieInfo, mapCursorToMagpie } = require('./magpie');
 // never periodic topmost retries. The short timer samples input (and geometry
 // only during a windowed drag); capture changes only after a current renderer hit test.
 function createMagpieSession({ native, window: win, canTrackPointer, onScaling, onPointer,
-  setIgnoreMouseEvents, requestRefresh, onPointerReset = () => {}, setIntervalFn = setInterval, clearIntervalFn = clearInterval }) {
+  setIgnoreMouseEvents, requestRefresh, onPointerReset = () => {}, now = Date.now, setIntervalFn = setInterval, clearIntervalFn = clearInterval }) {
   let target = null, info = null, timer = null, dragging = false, disposed = false;
   let sequence = 0, pendingSequence = null, pendingAt = 0, lastCaptured = null, ignoring = null;
   let pointerActive = false;
 
-  function invalidatePointer() {
-    if (pointerActive) { pointerActive = false; onPointerReset(); }
+  function invalidatePointer({ keepProjection = false } = {}) {
+    if (!keepProjection && pointerActive) { pointerActive = false; onPointerReset(); }
     pendingSequence = null;
-    lastCaptured = null;
+    if (!keepProjection) lastCaptured = null;
     ignoring = null;
   }
 
@@ -61,10 +61,11 @@ function createMagpieSession({ native, window: win, canTrackPointer, onScaling, 
     // At most one hit test in flight. A busy renderer must not perpetually lose
     // a race against a newer sequence. Expiry discards a stalled reply; it never
     // changes mouse ownership.
-    if (pendingSequence !== null && Date.now() - pendingAt < 100) return;
+    const sampledAt = now();
+    if (pendingSequence !== null && sampledAt - pendingAt < 100) return;
     const point = cursor.captured ? mapCursorToMagpie(cursor, info) : cursor;
     pendingSequence = ++sequence;
-    pendingAt = Date.now();
+    pendingAt = sampledAt;
     pointerActive = true;
     onPointer({ ...cursor, sequence, x: point?.x ?? -Infinity, y: point?.y ?? -Infinity, signature: info.signature });
   }

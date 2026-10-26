@@ -66,9 +66,59 @@ describe("OCR capture preview", () => {
       await flush();
     });
   };
+  const click = async (selector: string) => act(async () => {
+    container.querySelector<HTMLButtonElement>(selector)!.click();
+    await flush();
+  });
+
+  it("starts paused, captures a single frame on demand, and only polls after live preview is enabled", async () => {
+    await render();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Preview paused");
+    expect(container.querySelector(".desk-preview-pause")?.textContent).toBe("Enable live preview");
+    await click(".desk-preview-refresh");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("image")?.getAttribute("href")).toBe(frame.imageData);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await click(".desk-preview-pause");
+    expect(invoke).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(invoke).toHaveBeenCalledTimes(3);
+  });
+
+  it("coalesces repeated manual refreshes and stays paused after a capture failure", async () => {
+    let finish!: (value: unknown) => void;
+    invoke.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await render();
+    await click(".desk-preview-refresh");
+    expect(container.querySelector<HTMLButtonElement>(".desk-preview-refresh")!.disabled).toBe(true);
+    await click(".desk-preview-refresh");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(null); await flush(); });
+    expect(container.querySelector<HTMLButtonElement>(".desk-preview-refresh")!.disabled).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await click(".desk-preview-refresh");
+    expect(container.querySelector("image")).not.toBeNull();
+  });
+
+  it("keeps paused previews idle through visibility, text box, and scene changes", async () => {
+    await render();
+    await act(async () => { container.querySelector<HTMLInputElement>(".desk-preview-box-toggle input")!.click(); });
+    for (const visibility of ["hidden", "visible"]) {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: visibility });
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+    }
+    await render(true, { id: "new", name: "Other" });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(invoke).not.toHaveBeenCalled();
+  });
 
   it("places the image and detected boxes in the same aspect-correct SVG", async () => {
     await render();
+    await click(".desk-preview-refresh");
     expect(invoke).toHaveBeenCalledWith("ocr.get-preview", {
       sceneId: "scene",
       sceneName: "Game",
@@ -85,6 +135,7 @@ describe("OCR capture preview", () => {
 
   it("pauses preview refresh without stopping OCR and lets text boxes be hidden", async () => {
     await render();
+    await click(".desk-preview-pause");
     const pause = container.querySelector<HTMLButtonElement>(".desk-preview-pause")!;
     await act(async () => {
       pause.click();
@@ -114,6 +165,7 @@ describe("OCR capture preview", () => {
     await render(false);
     expect(invoke).not.toHaveBeenCalled();
     await render();
+    await click(".desk-preview-pause");
     const count = invoke.mock.calls.length;
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
     await act(async () => {
@@ -139,6 +191,7 @@ describe("OCR capture preview", () => {
         })
     );
     await render();
+    await click(".desk-preview-pause");
     invoke.mockResolvedValue(null);
     await render(true, { id: "new", name: "Other" });
     await act(async () => {
@@ -148,7 +201,7 @@ describe("OCR capture preview", () => {
     expect(container.querySelector("image")).toBeNull();
     invoke.mockResolvedValue({ ...frame, sceneId: "new", sceneName: "Other" });
     await act(async () => {
-      vi.advanceTimersByTime(750);
+      vi.advanceTimersByTime(3000);
       await flush();
     });
     expect(container.querySelector("image")?.getAttribute("href")).toBe(frame.imageData);

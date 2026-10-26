@@ -975,7 +975,6 @@ def test_effective_denylist_includes_critical_floor(monkeypatch):
 # --- truncation-aware denylist + expanded critical floor ---
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX gate")
 def test_effective_denylist_truncated_comm_blocked(monkeypatch):
     """A critical process whose /proc/comm is kernel-truncated to 15 chars is still denied.
 
@@ -987,6 +986,8 @@ def test_effective_denylist_truncated_comm_blocked(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "")
     monkeypatch.setattr(window_state_monitor, "_get_process_comm_name", lambda _pid: "xdg-desktop-por")
     monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    monkeypatch.setattr(window_state_monitor, "_get_process_uid", lambda _pid: 1000)
+    monkeypatch.setattr(window_state_monitor.os, "geteuid", lambda: 1000, raising=False)
     monkeypatch.setattr(
         window_state_monitor,
         "get_config",

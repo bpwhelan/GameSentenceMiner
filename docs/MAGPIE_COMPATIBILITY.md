@@ -79,11 +79,13 @@ mouse release. At most one renderer hit test is in flight; a stalled reply can
 expire without changing input ownership. During a windowed drag, the same timer
 refreshes native geometry until Magpie broadcasts the end of movement.
 
-In automatic mode, **game text remains click-through even while hovered or while
-a dictionary popup is open**. Real popup surfaces and toolbar controls still
-accept input. Explicit manual/controller/resize interaction and the optional
-focus-on-lookup setting retain their existing ownership. Text selection and
-click-triggered lookup therefore belong to those explicit interaction modes.
+**Click through overlay text** defaults to on in automatic mode. Find it directly
+on Overlay Settings → Home, or under Interaction → Mouse & text. When enabled, game text
+passes clicks through even while hovered or while a dictionary popup is open.
+When disabled, text accepts selection and click-triggered lookups. Real popup
+surfaces and toolbar controls accept input with either setting. Changes apply
+immediately and are saved with the overlay profile. Explicit manual/controller/
+resize interaction and focus-on-lookup retain their existing ownership.
 
 For ordinary windows, Electron's
 [`setIgnoreMouseEvents(true, {forward: true})`](https://www.electronjs.org/docs/latest/api/base-window#winsetignoremouseeventsignore-options)
@@ -95,14 +97,52 @@ Magpie's captured cursor is still in source coordinates. The existing sampler
 projects it into the displayed image and includes held buttons and modifiers.
 `text_hover.js` hit-tests actual laid-out elements, respecting font fitting,
 offsets, visibility, clipping and the occlusion mask. It feeds projected pointer
-and mouse movement to the dictionary scanner without acquiring native input over
-game text. Raw source-coordinate hover is suppressed during that projection.
+and mouse movement to the dictionary scanner. With click-through enabled it does
+so without acquiring native input over game text. Raw source-coordinate hover is
+suppressed during projection with either setting.
 Stationary samples are deduplicated so they cannot continually reset Yomitan's
 scan delay; modifier-only changes still reach the scanner. No mouse-button or
-click events are synthesized, and the previous one-alpha text surface is gone.
+click events are synthesized. The one-alpha text surface is enabled only for
+projected hits with click-through off, so Magpie can hand over native text input.
 
-Only a hit on a popup/control requests native input, allowing Magpie itself to
-hand off the cursor. A capture-style transition skips one sample because Magpie
+Popup frames have independent event paths and cannot be filtered by the root
+document's capture listener. The renderer sends Magpie's captured-cursor state
+to popup frames through a message handshake, since extension frames cannot read
+the overlay document across origins. A new Electron popup waits for that reply
+before scanning. Yomitan checks capture state before mouse movement and again
+after its scan delay, and cancels pending scans when capture resumes. Normal
+nested lookups resume once Magpie releases capture. Popup open/close invalidates
+pending hit replies without resetting projection, preventing an unfiltered hover
+gap before the next sample. Explicit interaction modes still reset projection.
+
+Native HTML tooltips use Chromium hit testing independently of scanner events.
+Yomitan's popup applies the same capture handshake before rendering content and
+excludes tooltip targets and their descendants from pointer hits while Magpie
+owns the cursor. This also covers new dictionary content and disabled scanning.
+Titles remain intact for accessibility and keyboard actions; normal tooltip
+hover and mouse controls return as soon as Magpie hands over the real cursor.
+Browser pages and Electron hosts without the GSM bridge keep normal tooltips.
+
+The same hover hit test reports the displayed pointer to Yomitan's auto-hide
+logic, including empty space and viewport exits that cannot produce a scan.
+This overrides stale native popup-hover flags after cursor handoff. Popup
+geometry still protects nested and shadow-hosted dictionary frames. Auto-hide
+uses the reader's configured delay, cancels when the mouse returns, and rejects
+late mouse lookup results after leaving the text. Hiding also cancels pending
+popup creation, so a slow first opening cannot reappear after dismissal. The
+setting remains optional; controller lookups and reading inside the popup are
+preserved.
+
+Mining keeps the popup open by default. **Close dictionary popup after adding a
+note**, under Overlay Settings → Interaction → Startup & behavior, explicitly
+opts into closing after a successful Anki save. It applies to mouse, keyboard,
+and controller mining; failed saves do not request a close. Yomitan forwards
+successful saves from its extension frame to the overlay, which uses the reader's
+close API. Unsupported browser screenshots are rejected before hiding any
+popups, avoiding an accidental cursor-exit dismissal during note creation.
+
+A hit on a popup/control (or text with click-through off) requests native input,
+allowing Magpie itself to hand off the cursor. A capture-style transition skips one sample because Magpie
 updates the style before moving the cursor. Samples outside the source rectangle
 are not projected across letterbox/monitor gaps. Monitor origins and physical/CSS
 dimensions are applied once at this boundary.

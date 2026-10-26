@@ -185,6 +185,8 @@ export class TextScanner extends EventDispatcher {
         this._gsmGamepadNavigationActive = false;
         /** @type {number} */
         this._gsmNoMatchingInputLogTime = 0;
+        /** @type {?boolean} */
+        this._gsmMagpiePopupMouseCaptured = null;
     }
 
     /** @type {boolean} */
@@ -1066,12 +1068,52 @@ export class TextScanner extends EventDispatcher {
      */
     _onMousePointerMove(e) {
         this._scanTimerClear();
+        if (this._isGsmMagpiePopupMouseSuppressed()) {
+            this._lastMouseMove = null;
+            return;
+        }
         this._lastMouseMove = e;
 
         const inputInfo = this._getMatchingInputGroupFromEvent('mouse', 'mouseMove', e);
         if (inputInfo === null) { return; }
 
         void this._searchAtFromMouseMove(e.clientX, e.clientY, inputInfo);
+    }
+
+    /**
+     * @returns {boolean}
+     */
+    _isGsmMagpiePopupMouseSuppressed() {
+        if (typeof window === 'undefined' || window === window.top) { return false; }
+        // New Electron popup frames wait for the root's state reply. Their
+        // extension origin prevents reading the overlay DOM directly.
+        return this._gsmMagpiePopupMouseCaptured ?? /Electron\//.test(navigator.userAgent);
+    }
+
+    /**
+     * @param {MessageEvent<unknown>} event
+     */
+    _onGsmMagpiePointerState(event) {
+        if (event.source !== window.top) { return; }
+        const data = /** @type {{type?: unknown, captured?: unknown}|null} */ (event.data);
+        if (data?.type !== 'gsm-magpie-pointer-state' || typeof data.captured !== 'boolean') { return; }
+        this._gsmMagpiePopupMouseCaptured = data.captured;
+        if (data.captured) {
+            this._scanTimerClear();
+            this._lastMouseMove = null;
+        }
+    }
+
+    /** */
+    _requestGsmMagpiePointerState() {
+        if (typeof window === 'undefined' || window === window.top) { return; }
+        this._eventListeners.addEventListener(window, 'message', this._onGsmMagpiePointerState.bind(this));
+        window.top?.postMessage({type: 'gsm-magpie-pointer-state-request'}, '*');
+        // Non-overlay Electron pages may also embed Yomitan. A missing bridge
+        // should not permanently disable their ordinary popup scanning.
+        setTimeout(() => {
+            if (this._gsmMagpiePopupMouseCaptured === null) { this._gsmMagpiePopupMouseCaptured = false; }
+        }, 1000);
     }
 
     /** */
@@ -1266,6 +1308,7 @@ export class TextScanner extends EventDispatcher {
         for (const args of eventListenerInfos) {
             this._eventListeners.addEventListener(...args);
         }
+        this._requestGsmMagpiePointerState();
     }
 
     /**
@@ -1503,14 +1546,16 @@ export class TextScanner extends EventDispatcher {
      * @param {import('text-scanner').InputInfo} inputInfo
      */
     async _searchAtFromMouseMove(x, y, inputInfo) {
-        if (this._pendingLookup) { return; }
+        if (this._pendingLookup || this._isGsmMagpiePopupMouseSuppressed()) { return; }
 
         if (inputInfo.passive && !await this._scanTimerWait()) {
             // Aborted
             return;
         }
 
-        await this._searchAt(x, y, inputInfo);
+        if (!this._isGsmMagpiePopupMouseSuppressed()) {
+            await this._searchAt(x, y, inputInfo);
+        }
     }
 
     /**

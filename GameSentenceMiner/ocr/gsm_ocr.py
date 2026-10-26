@@ -4,7 +4,6 @@ This module consolidates the previous split between runtime orchestration and
 two-pass controller logic while keeping compatibility shims for legacy imports.
 """
 
-import asyncio
 import copy
 import functools
 
@@ -3352,7 +3351,7 @@ class OCRProcessor:
                 source=source,
                 response_dict=final_payload,
             )
-            asyncio.run(send_result(text, time, response_dict=final_payload, source=source))
+            send_result(text, time, response_dict=final_payload, source=source)
             emit_ocr_debug(
                 debug_enabled,
                 "delivery.sent",
@@ -3441,7 +3440,9 @@ def _update_capture_preview(response_dict):
             logger.debug(f"Could not update OCR preview geometry: {error}")
 
 
-async def send_result(text, time, response_dict=None, source=TextSource.OCR):
+def send_result(text, time, response_dict=None, source=TextSource.OCR):
+    # IPC queues delivery itself. Keep this synchronous so bus callbacks can
+    # send results from their running event loop as well as from OCR workers.
     if shutdown_requested:
         return
     if source != TextSource.SCREEN_CROPPER:
@@ -3574,7 +3575,7 @@ def _resolve_engine_readable_name(preferred_name: str) -> str:
 
 
 def _send_result_callback(text, time, *, response_dict=None, source=None):
-    """Controller callback: send OCR result via websocket + capture metrics."""
+    """Controller callback: send OCR result via IPC and capture metrics."""
     global _last_metrics_img
     line_source = source or TextSource.OCR
     if _last_metrics_img is not None:
@@ -3585,7 +3586,7 @@ def _send_result_callback(text, time, *, response_dict=None, source=None):
             response_dict=response_dict,
         )
         _last_metrics_img = None
-    asyncio.run(send_result(text, time, response_dict=response_dict, source=line_source))
+    send_result(text, time, response_dict=response_dict, source=line_source)
 
 
 def _run_second_ocr_callback(img, last_result, filtering, engine, **kw):

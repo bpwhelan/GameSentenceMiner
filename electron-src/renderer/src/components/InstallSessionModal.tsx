@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "../i18n";
+import { DEBUG_LOG_HISTORY_LIMIT } from "../lib/debugHistory";
 
 import type {
   InstallProgressKind,
@@ -206,6 +207,7 @@ export function InstallSessionModal({
   const logListRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const [logsExpanded, setLogsExpanded] = useState(false);
+  const visibleLogs = snapshot.logs.slice(-DEBUG_LOG_HISTORY_LIMIT);
 
   const displayStages = useMemo(() => {
     return DISPLAY_STAGE_GROUPS.map((group) => {
@@ -399,7 +401,7 @@ export function InstallSessionModal({
             >
               <span>{t("install.logs")}</span>
               <span className="install-session-logs-header-meta">
-                <span>{snapshot.logs.length}</span>
+                <span>{visibleLogs.length}</span>
                 <span
                   className={`install-session-logs-chevron ${
                     logsExpanded ? "expanded" : ""
@@ -423,7 +425,7 @@ export function InstallSessionModal({
                 {snapshot.logs.length === 0 ? (
                   <div className="install-session-log-entry">{t("install.waitingForLogs")}</div>
                 ) : (
-                  snapshot.logs.map((entry) => (
+                  visibleLogs.map((entry) => (
                     <div key={entry.id} className="install-session-log-entry">
                       {entry.message.trim() || t("install.emptyLog")}
                     </div>

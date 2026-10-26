@@ -1,3 +1,6 @@
+import base64
+import io
+
 import pytest
 from PIL import Image
 
@@ -65,6 +68,15 @@ def test_empty_detection_replaces_previous_boxes():
     assert preview.snapshot({"enabled": True, "sceneName": "Game"})["boxes"] == []
 
 
+def test_preview_geometry_lease_covers_slow_capture_and_live_refresh_gaps():
+    now = [0.0]
+    preview = PreviewGeometry(clock=lambda: now[0])
+    preview.snapshot({"enabled": True, "sceneName": "Game"})
+    preview.update(payload(), scene_name="Game", source_name="Window")
+    now[0] = 5.5
+    assert preview.snapshot({"enabled": True, "sceneName": "Game"})["boxes"]
+
+
 def test_frame_capture_is_read_only_source_scoped_and_preserves_aspect_ratio(monkeypatch):
     from GameSentenceMiner import obs
 
@@ -92,6 +104,45 @@ def test_scene_changes_during_capture_cannot_return_the_old_game(monkeypatch):
     monkeypatch.setattr(obs, "get_source_from_scene", lambda _scene: {"sourceName": "Window"})
     monkeypatch.setattr(obs, "get_screenshot_PIL", lambda **kwargs: Image.new("RGB", (320, 180)))
     assert capture_preview({"sceneId": "id", "sceneName": "Game"}) is None
+
+
+def test_obs_jpeg_preview_reuses_compressed_image_without_decoding_or_reencoding(monkeypatch):
+    from GameSentenceMiner import obs
+
+    with io.BytesIO() as buffer, Image.new("RGB", (960, 540), "blue") as original:
+        original.save(buffer, format="JPEG", quality=70)
+        encoded = buffer.getvalue()
+    image = Image.open(io.BytesIO(encoded))
+
+    def unexpected_decode(*args, **kwargs):
+        pytest.fail("An already sized OBS JPEG must not be decoded or reencoded")
+
+    monkeypatch.setattr(image, "load", unexpected_decode)
+    monkeypatch.setattr(obs, "get_current_scene", lambda: "Game")
+    monkeypatch.setattr(obs, "get_source_from_scene", lambda _: {"sourceName": "Window"})
+    monkeypatch.setattr(obs, "get_screenshot_PIL", lambda **kwargs: image)
+    result = capture_preview({"sceneId": "id", "sceneName": "Game"})
+    assert base64.b64decode(result["imageData"].split(",", 1)[1]) == encoded
+    assert (result["width"], result["height"]) == (960, 540)
+
+
+@pytest.mark.parametrize(
+    ("size", "mode", "image_format", "expected"),
+    [((1600, 1200), "RGB", "JPEG", (960, 720)), ((800, 2000), "RGBA", "PNG", (288, 720))],
+)
+def test_preview_still_resizes_oversized_and_converts_non_jpeg_images(monkeypatch, size, mode, image_format, expected):
+    from GameSentenceMiner import obs
+
+    with Image.new(mode, size) as original, io.BytesIO() as buffer:
+        original.save(buffer, format=image_format)
+        encoded = buffer.getvalue()
+    monkeypatch.setattr(obs, "get_current_scene", lambda: "Game")
+    monkeypatch.setattr(obs, "get_source_from_scene", lambda _: {"sourceName": "Window"})
+    monkeypatch.setattr(obs, "get_screenshot_PIL", lambda **kwargs: Image.open(io.BytesIO(encoded)))
+    result = capture_preview({"sceneId": "id", "sceneName": "Game"})
+    with Image.open(io.BytesIO(base64.b64decode(result["imageData"].split(",", 1)[1]))) as output:
+        assert output.format == "JPEG"
+        assert output.size == expected == (result["width"], result["height"])
 
 
 def test_pipeline_keeps_the_capture_identity_for_queued_ocr_results(monkeypatch):

@@ -38,6 +38,7 @@ BACKEND_EVENT_TOPIC = "backend.event"
 BACKEND_COMMAND_TOPIC = "backend.command"
 OCR_EVENT_TOPIC = "ocr.event"
 TEXT_INGRESS_TOPIC = "text.ingress.v2"
+_ROUTINE_IPC_EVENTS = frozenset({"foreground_window_changed", "active_game_state"})
 
 
 class FunctionName(Enum):
@@ -149,7 +150,7 @@ def send_message(
         published = bus_client.get_bus().publish(bus_client.MAIN, BACKEND_EVENT_TOPIC, payload)
         if wait and published is not None:
             published.result(timeout=1.0)
-        logger.debug(f"IPC bus event sent: {function}")
+        logger.log("TRACE" if function in _ROUTINE_IPC_EVENTS else "DEBUG", f"IPC bus event sent: {function}")
         return
 
     payload = {"function": function}
@@ -159,7 +160,7 @@ def send_message(
         payload["id"] = id
     line = "GSMMSG:" + json.dumps(payload, ensure_ascii=False)
     print(line, flush=True)
-    logger.debug(f"IPC Sent: {line}")
+    logger.log("TRACE" if function in _ROUTINE_IPC_EVENTS else "DEBUG", f"IPC Sent: {line}")
 
 
 def get_install_session_id() -> str:
@@ -233,7 +234,9 @@ def _dispatch_command(msg: Dict[str, Any]) -> None:
 def _on_backend_command(busmsg: Dict[str, Any]) -> None:
     cmd = busmsg.get("data") or {}
     if isinstance(cmd, dict):
-        logger.debug(f"IPC bus command received: {cmd.get('function')}")
+        function = cmd.get("function")
+        level = "TRACE" if function == FunctionName.REFRESH_FOREGROUND_WINDOW.value else "DEBUG"
+        logger.log(level, f"IPC bus command received: {function}")
         _dispatch_command(cmd)
 
 

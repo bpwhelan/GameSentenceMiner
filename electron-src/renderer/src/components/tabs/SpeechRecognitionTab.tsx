@@ -5,6 +5,8 @@ import "./SpeechRecognitionTab.css";
 
 import { useTranslation } from "../../i18n";
 import { invokeIpc, onIpc } from "../../lib/ipc";
+import { useBufferedState } from "../../lib/useBufferedState";
+import { DEBUG_LOG_HISTORY_LIMIT, DEBUG_TEXT_HISTORY_LIMIT } from "../../lib/debugHistory";
 import type { ObsScene } from "../../types/models";
 
 interface WindowsSpeechSettings {
@@ -65,7 +67,6 @@ const DEFAULT_STATUS: WindowsSpeechStatus = {
   reason: "",
 };
 
-const MAX_LOG_LINES = 250;
 type SpeechView = "capture" | "advanced" | "activity";
 const SPEECH_VIEWS = [
   {
@@ -117,7 +118,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
   const [selectedSceneId, setSelectedSceneId] = useState("");
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [status, setStatus] = useState(DEFAULT_STATUS);
-  const [logs, setLogs] = useState<SpeechLogLine[]>([]);
+  const [logs, setLogs] = useBufferedState<SpeechLogLine[]>([], active);
   const [loaded, setLoaded] = useState(false);
   const [loadingScene, setLoadingScene] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -195,7 +196,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
         message: event.message,
         timestamp: typeof event.timestamp === "number" ? event.timestamp : Date.now(),
       };
-      setLogs((current) => [...current, line].slice(-MAX_LOG_LINES));
+      setLogs((current) => [...current, line].slice(-DEBUG_LOG_HISTORY_LIMIT));
     });
     return () => {
       offStatus();
@@ -344,7 +345,7 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
       if (lines[lines.length - 1]?.partial) lines[lines.length - 1] = entry;
       else lines.push(entry);
     }
-    return lines;
+    return lines.slice(-DEBUG_TEXT_HISTORY_LIMIT);
   }, [logs]);
 
   if (!active) return null;

@@ -130,6 +130,8 @@ class _WGCCallbackPacer:
 class _WGCSession:
     """Keeps a WGC capture session alive and buffers the latest frame."""
 
+    _IDLE_TIMEOUT_SECONDS = 5.0
+
     def __init__(
         self,
         hwnd: int,
@@ -152,6 +154,7 @@ class _WGCSession:
         self._closed = False
         self._control = None
         self._pacer = _WGCCallbackPacer(self.fps)
+        self._last_grab_at = time.monotonic()
 
         capture = WindowsCapture(
             cursor_capture=include_cursor,
@@ -164,12 +167,23 @@ class _WGCSession:
         def on_frame_arrived(frame: Frame, capture_control: InternalCaptureControl):
             callback_started_at = time.perf_counter()
             with self._lock:
-                # The extension's ndarray is backed by callback-owned native
-                # memory, so retain an owned copy after this callback returns.
-                self._frame_buffer = frame.frame_buffer.copy()
-                self._frame_width = frame.width
-                self._frame_height = frame.height
-                self._ready.set()
+                idle = self._closed or time.monotonic() - self._last_grab_at >= self._IDLE_TIMEOUT_SECONDS
+                if idle:
+                    # A preview/card screenshot must not leave a full-window
+                    # capture copying frames forever after its viewer closes.
+                    self._closed = True
+                    self._frame_buffer = None
+                    self._ready.set()
+                else:
+                    # Retain owned memory after the native callback returns.
+                    self._frame_buffer = frame.frame_buffer.copy()
+                    self._frame_width = frame.width
+                    self._frame_height = frame.height
+                    self._ready.set()
+            if idle:
+                self._pacer.stop()
+                capture_control.stop()
+                return
             # windows-capture invokes this handler synchronously. Waiting after
             # publishing the frame applies backpressure to native capture
             # without making grab() wait on the frame lock. Its native
@@ -197,6 +211,10 @@ class _WGCSession:
 
     def grab(self, timeout: float = 2.0) -> tuple[np.ndarray, int, int]:
         """Return the latest owned frame buffer and dimensions."""
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("WGC capture session closed unexpectedly.")
+            self._last_grab_at = time.monotonic()
         if not self._ready.wait(timeout=timeout):
             raise RuntimeError("Timed out waiting for Windows Graphics Capture frame.")
         if self._closed:

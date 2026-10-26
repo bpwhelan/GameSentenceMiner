@@ -12,10 +12,11 @@ const info = {
 };
 
 function setup() {
+  let now = 0;
   let notification, reorder, tick, blocked = false, visible = true, covered = false;
   let snapshot = info;
   let cursor = { x: 1280, y: 736, captured: true };
-  const events = [], samples = [], ignores = [], refreshes = [];
+  const events = [], samples = [], ignores = [], refreshes = [], resets = [];
   const native = {
     watch(_win, callback, onReorder) { notification = callback; reorder = onReorder; return () => { notification = reorder = null; }; },
     read(expected) { return snapshot?.source_hwnd === expected ? snapshot : null; },
@@ -27,16 +28,38 @@ function setup() {
     canTrackPointer: () => !blocked, onScaling: e => events.push(e),
     onPointer: p => samples.push(p), setIgnoreMouseEvents: v => ignores.push(v),
     requestRefresh: () => refreshes.push(true),
+    onPointerReset: () => resets.push(true),
+    now: () => now,
     setIntervalFn: fn => { tick = fn; return 1; }, clearIntervalFn: () => { tick = null; },
   });
-  return { session, events, samples, ignores, refreshes,
+  return { session, events, samples, ignores, refreshes, resets,
     notify: (...args) => notification(...args), tick: () => tick?.(),
     reorder: () => reorder?.(), setCovered: v => { covered = v; },
     setCursor: v => { cursor = v; }, setSnapshot: v => { snapshot = v; },
     setBlocked: v => { blocked = v; }, setVisible: v => { visible = v; },
     hasTimer: () => !!tick,
+    advance: ms => { now += ms; },
   };
 }
+
+test('stationary pointers recheck changed text on the next sample without a hover delay', () => {
+  const f = setup();
+  f.session.updateTarget(42);
+  for (let i = 0; i < 625; i++) {
+    f.tick();
+    f.session.handleHit({ sequence: f.samples.at(-1).sequence, hit: false });
+    f.advance(16);
+  }
+  assert.equal(f.samples.length, 625, 'changed text beneath the pointer must not wait for an idle throttle');
+  const count = f.samples.length;
+  f.setCursor({ x: 1281, y: 736, captured: true });
+  f.tick();
+  assert.equal(f.samples.length, count + 1, 'movement stays responsive');
+  f.session.handleHit({ sequence: f.samples.at(-1).sequence, hit: false });
+  f.session.invalidatePointer({ keepProjection: true });
+  f.tick();
+  assert.equal(f.samples.length, count + 2, 'popup/settings changes force a fresh hit test');
+});
 
 test('starts mid-session, scopes native state to the selected game, and disposes', () => {
   const f = setup();
@@ -117,6 +140,23 @@ test('queued pointer replies cannot release a dictionary, manual, or controller 
   f.setBlocked(false);
   f.session.handleHit(reply);
   assert.deepEqual(f.ignores, []);
+});
+
+test('popup changes discard hit replies without admitting raw source-space hover', () => {
+  const f = setup();
+  f.session.updateTarget(42);
+  f.tick();
+  const reply = { sequence: f.samples.at(-1).sequence, hit: true };
+  f.session.invalidatePointer({ keepProjection: true });
+  assert.equal(f.resets.length, 0, 'popup open/close must keep the projected hover filter active');
+  f.session.handleHit(reply);
+  assert.equal(f.ignores.length, 0, 'the old hit reply is discarded');
+  f.tick();
+  f.session.handleHit({ sequence: f.samples.at(-1).sequence, hit: true });
+  assert.deepEqual(f.ignores, [false]);
+  f.setBlocked(true);
+  f.tick();
+  assert.equal(f.resets.length, 1, 'manual/controller/focused dictionary interaction restores native hover');
 });
 
 test('a button pressed during a renderer hit test keeps its native recipient until release', () => {

@@ -60,6 +60,8 @@ export class Popup extends EventDispatcher {
         this._injectPromise = null;
         /** @type {boolean} */
         this._injectPromiseComplete = false;
+        /** @type {number} */
+        this._showContentToken = 0;
         /** @type {DynamicProperty<boolean>} */
         this._visible = new DynamicProperty(false);
         /** @type {boolean} */
@@ -238,6 +240,9 @@ export class Popup extends EventDispatcher {
      * @param {boolean} changeFocus Whether or not the parent popup or host frame should be focused.
      */
     hide(changeFocus) {
+        // A cold popup can still be preparing its frame while auto-hide runs.
+        // Cancel that show even when the frame has not become visible yet.
+        this._showContentToken += 1;
         if (!this.isVisibleSync()) {
             return;
         }
@@ -335,15 +340,18 @@ export class Popup extends EventDispatcher {
     async showContent(details, displayDetails) {
         if (this._optionsContext === null) { throw new Error('Options not assigned'); }
 
+        const token = ++this._showContentToken;
         const {optionsContext, sourceRects, writingMode} = details;
         if (optionsContext !== null) {
             await this._setOptionsContextIfDifferent(optionsContext);
         }
+        if (token !== this._showContentToken) { return; }
 
         // If there's already a timer running on the same popup from a previous lookup, reset it
         this.stopHideDelayed();
 
-        await this._show(sourceRects, writingMode);
+        await this._show(sourceRects, writingMode, token);
+        if (token !== this._showContentToken) { return; }
 
         if (displayDetails !== null) {
             safePerformance.mark('invokeDisplaySetContent:start');
@@ -701,10 +709,11 @@ export class Popup extends EventDispatcher {
     /**
      * @param {import('popup').Rect[]} sourceRects
      * @param {import('document-util').NormalizedWritingMode} writingMode
+     * @param {number} token
      */
-    async _show(sourceRects, writingMode) {
+    async _show(sourceRects, writingMode, token) {
         const injected = await this._inject();
-        if (!injected) { return; }
+        if (!injected || token !== this._showContentToken) { return; }
 
         const viewport = this._getViewport(this._scaleRelativeToVisualViewport);
         let {left, top, width, height, after, below} = this._getPosition(sourceRects, writingMode, viewport);

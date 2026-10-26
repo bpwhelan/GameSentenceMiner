@@ -1549,6 +1549,9 @@
         "textBoxes": "Text boxes",
         "pause": "Pause preview",
         "resume": "Resume preview",
+        "enableLive": "Enable live preview",
+        "refresh": "Refresh frame",
+        "refreshing": "Refreshing…",
         "detected": "{count} text boxes · latest scan",
         "waiting": "Waiting for an OCR scan",
         "startHint": "Start OCR to see text boxes"

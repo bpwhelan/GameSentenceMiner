@@ -183,6 +183,56 @@ def test_wgc_session_paces_after_publishing_outside_frame_lock(monkeypatch):
     assert captured_buffer is not frame_buffer
 
 
+@pytest.mark.parametrize("renew", [False, True])
+def test_wgc_session_stops_copying_and_releases_capture_without_recent_consumers(monkeypatch, renew):
+    captures = []
+    clock = [0.0]
+    stops = []
+    monkeypatch.setattr(screenshot_capture_module.time, "monotonic", lambda: clock[0])
+
+    class FakeWindowsCapture:
+        def __init__(self, **kwargs):
+            captures.append(self)
+
+        def event(self, handler):
+            setattr(self, handler.__name__, handler)
+            return handler
+
+        def start_free_threaded(self):
+            return SimpleNamespace(is_finished=lambda: False, stop=lambda: None)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "windows_capture",
+        SimpleNamespace(
+            WindowsCapture=FakeWindowsCapture,
+            Frame=object,
+            InternalCaptureControl=object,
+        ),
+    )
+    session = _WGCSession(123)
+    monkeypatch.setattr(session._pacer, "wait_after_frame", lambda _: None)
+    frame = SimpleNamespace(frame_buffer=np.zeros((2, 3, 4), dtype=np.uint8), width=3, height=2)
+    control = SimpleNamespace(stop=lambda: stops.append(True))
+    captures[0].on_frame_arrived(frame, control)
+    original = session._frame_buffer
+    if renew:
+        clock[0] = 4.0
+        session.grab(timeout=0)
+    clock[0] = 6.0
+    captures[0].on_frame_arrived(frame, control)
+    if renew:
+        assert session.alive
+        assert not stops
+        assert session._frame_buffer is not original
+    else:
+        assert not session.alive
+        assert stops == [True]
+        assert session._frame_buffer is None
+        with pytest.raises(RuntimeError, match="closed"):
+            session.grab(timeout=0)
+
+
 def test_wgc_session_cache_restarts_when_fps_changes(monkeypatch):
     created = []
 

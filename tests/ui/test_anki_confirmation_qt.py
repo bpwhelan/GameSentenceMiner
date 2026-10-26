@@ -470,6 +470,7 @@ def test_request_game_focus_restore_reuses_overlay_target_resolution_and_activat
         target_hwnd=None,
         find_target_hwnd=lambda: 42,
         activate_target_window=activate,
+        request_refresh=lambda: calls.append("refresh"),
     )
     processor.window_monitor = monitor
     monkeypatch.setattr(anki_confirmation_qt, "get_window_state_monitor", lambda: monitor)
@@ -493,7 +494,7 @@ def test_request_game_focus_restore_reuses_overlay_target_resolution_and_activat
 
     anki_confirmation_qt._request_game_focus_restore(previous_hwnd)
 
-    assert calls == ["submit", ("activate", 42)]
+    assert calls == ["submit", ("activate", 42), "refresh"]
 
 
 @pytest.mark.parametrize("unavailable", ["monitor", "processor", "loop", "stopped"])

@@ -85,10 +85,10 @@ export function OCRCaptureMap({
   ocrRunning: boolean;
 }) {
   const t = useTranslation();
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState(true);
   const [showBoxes, setShowBoxes] = useState(true);
   const [editing, setEditing] = useState<{ config: CaptureMapConfig | null; frame: OcrPreviewFrame } | null>(null);
-  const { frame, unavailable } = useOCRPreview({
+  const { frame, unavailable, refreshing, refresh } = useOCRPreview({
     active,
     paused: paused || !!editing,
     sceneId: scene?.id ?? "",
@@ -217,15 +217,17 @@ export function OCRCaptureMap({
           {t(
             !scene
               ? "ocr.footer.noSceneSelected"
-              : unavailable
-                ? frame
-                  ? "ocr.desk.preview.stale"
-                  : "ocr.desk.preview.unavailable"
-                : paused
-                  ? "ocr.desk.preview.paused"
-                  : frame
-                    ? "ocr.desk.preview.live"
-                    : "ocr.desk.preview.loading"
+              : refreshing
+                ? "ocr.desk.preview.loading"
+                : unavailable
+                  ? frame
+                    ? "ocr.desk.preview.stale"
+                    : "ocr.desk.preview.unavailable"
+                  : paused
+                    ? "ocr.desk.preview.paused"
+                    : frame
+                      ? "ocr.desk.preview.live"
+                      : "ocr.desk.preview.loading"
           )}
         </span>
         <div>
@@ -239,12 +241,20 @@ export function OCRCaptureMap({
           </label>
           <button
             type="button"
+            className="desk-preview-refresh"
+            disabled={!scene || disabled || !active || refreshing}
+            onClick={refresh}
+          >
+            {t(refreshing ? "ocr.desk.preview.refreshing" : "ocr.desk.preview.refresh")}
+          </button>
+          <button
+            type="button"
             className="desk-preview-pause"
-            disabled={!scene || disabled}
-            aria-pressed={paused}
+            disabled={!scene || disabled || !active}
+            aria-pressed={!paused}
             onClick={() => setPaused((current) => !current)}
           >
-            {t(paused ? "ocr.desk.preview.resume" : "ocr.desk.preview.pause")}
+            {t(paused ? "ocr.desk.preview.enableLive" : "ocr.desk.preview.pause")}
           </button>
         </div>
       </div>

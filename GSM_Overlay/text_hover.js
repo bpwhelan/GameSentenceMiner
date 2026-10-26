@@ -3,19 +3,51 @@
 const DICTIONARY_SURFACES = 'iframe.yomitan-popup, yomitan-popup-tag-name, hachidori-host';
 const CONTROLS = 'button, input, select, textarea, a[href], [contenteditable="true"], #action-panel, #font-size-popover';
 const GAME_TEXT = '.text-box, .nav-char-box, .big-interactive-area, #text';
+const LOOKUP_TEXT = '.text-box, .nav-char-box, #text';
 
-function isClickableHoverTarget(target) {
+function isClickableHoverTarget(target, clickThroughText = true) {
   if (!target?.closest) return false;
   if (target.closest(`${DICTIONARY_SURFACES}, ${CONTROLS}`)) return true;
-  if (target.closest(GAME_TEXT)) return false;
+  if (target.closest(GAME_TEXT)) return !clickThroughText;
   return !!target.closest('.interactive');
 }
 
-function createTextHoverController({ window: win, document: doc, onIgnore }) {
+function createTextHoverController({ window: win, document: doc, onIgnore, isClickThroughEnabled = () => true }) {
   let projected = false, dispatching = false, lastPoint = null, lastTarget = null;
   let lastSignature = '', interactive = false, publishedIgnore = null;
+  let popupMouseCaptured = false;
+  let hoverState = null;
+  const popupFrames = new Set();
   const events = ['pointermove', 'pointerover', 'pointerout', 'pointerup',
     'mousemove', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave'];
+
+  function sendPopupState(frame) {
+    try {
+      if (frame.closed) { popupFrames.delete(frame); return; }
+      frame.postMessage({ type: 'gsm-magpie-pointer-state', captured: popupMouseCaptured }, '*');
+    } catch { popupFrames.delete(frame); }
+  }
+  function onPopupStateRequest(event) {
+    if (event.data?.type !== 'gsm-magpie-pointer-state-request' || !event.source || event.source === win) return;
+    popupFrames.add(event.source);
+    sendPopupState(event.source);
+  }
+  function publishPopupState(captured) {
+    if (popupMouseCaptured === captured) return;
+    popupMouseCaptured = captured;
+    for (const frame of popupFrames) sendPopupState(frame);
+  }
+  win.addEventListener('message', onPopupStateRequest);
+
+  function emitHoverState() {
+    if (hoverState) win.dispatchEvent(new win.CustomEvent('gsm-overlay-hover', { detail: hoverState }));
+  }
+  function publishHoverState(next) {
+    if (hoverState && Object.keys(next).every(key => hoverState[key] === next[key])) return;
+    hoverState = next;
+    emitHoverState();
+  }
+  win.addEventListener('gsm-overlay-hover-request', emitHoverState);
 
   function update(point, synthesize) {
     const { x, y } = point;
@@ -23,8 +55,12 @@ function createTextHoverController({ window: win, document: doc, onIgnore }) {
       && x < win.innerWidth && y < win.innerHeight ? doc.elementFromPoint(x, y) : null;
     // Never split a press/release between the game and the overlay, including a
     // drag from a cross-origin dictionary frame back onto the game text.
-    if (!point.buttons) interactive = isClickableHoverTarget(target);
+    if (!point.buttons) interactive = isClickableHoverTarget(target, isClickThroughEnabled());
     lastPoint = point;
+    // Auto-hide must also see empty space and viewport exits, where there may
+    // be no DOM target to scan. Use the same displayed point as mouse ownership.
+    publishHoverState({ active: true, x, y,
+      overText: !!target?.closest(LOOKUP_TEXT), overPopup: !!target?.closest(DICTIONARY_SURFACES) });
     if (synthesize) {
       const signature = [x, y, point.buttons || 0, !!point.shiftKey, !!point.ctrlKey, !!point.altKey, !!point.metaKey].join(':');
       if (target !== lastTarget || signature !== lastSignature) {
@@ -61,8 +97,7 @@ function createTextHoverController({ window: win, document: doc, onIgnore }) {
     if (projected) {
       // Once Magpie releases capture, native enter/leave events must still
       // reach the popup frame and toolbar controls (including their ancestors).
-      if (isClickableHoverTarget(event.target) && (!lastPoint?.captured
-        || event.target === lastTarget || event.target.contains?.(lastTarget))) return;
+      if (!lastPoint?.captured && isClickableHoverTarget(event.target)) return;
       // Magpie's hardware cursor can still be in source space. The projected
       // samples below are the sole root-page hover stream during that session.
       event.stopImmediatePropagation();
@@ -73,7 +108,13 @@ function createTextHoverController({ window: win, document: doc, onIgnore }) {
   }
   for (const name of events) win.addEventListener(name, onEvent, true);
   return {
-    project(point) { projected = true; return update(point, true); },
+    project(point) {
+      projected = true;
+      // Popup frames have their own event path and extension origin. A state
+      // handshake keeps a new frame from scanning before its first reply.
+      publishPopupState(point.captured === true);
+      return update(point, true);
+    },
     refresh() {
       if (lastPoint && !projected) { publishedIgnore = null; update(lastPoint, false); }
     },
@@ -89,9 +130,18 @@ function createTextHoverController({ window: win, document: doc, onIgnore }) {
         } finally { dispatching = false; }
       }
       projected = false; lastPoint = null; lastTarget = null;
+      publishPopupState(false);
+      publishHoverState({ active: false });
       lastSignature = ''; interactive = false; publishedIgnore = null;
     },
-    dispose() { for (const name of events) win.removeEventListener(name, onEvent, true); },
+    dispose() {
+      publishPopupState(false);
+      publishHoverState({ active: false });
+      popupFrames.clear();
+      win.removeEventListener('message', onPopupStateRequest);
+      win.removeEventListener('gsm-overlay-hover-request', emitHoverState);
+      for (const name of events) win.removeEventListener(name, onEvent, true);
+    },
   };
 }
 
