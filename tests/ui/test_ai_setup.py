@@ -1,8 +1,11 @@
 import os
+import sys
 
 import pytest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
+from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
 from GameSentenceMiner.ui.config.ai_setup import ai_config_from_form
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 from GameSentenceMiner.util.config.configuration import AI_GEMINI, AI_ZAI, Config
@@ -23,6 +26,31 @@ def ai_window(monkeypatch):
     window._auto_save_timer.stop()
     window.close()
     app.processEvents()
+
+
+@pytest.mark.parametrize("guide_hidden", [False, True])
+def test_confirmation_waveform_opens_with_ai_settings(ai_window, monkeypatch, guide_hidden):
+    app = QApplication.instance()
+    ai_window.show()
+    ai_window.ai_setup_guide.setHidden(guide_hidden)
+    app.processEvents()
+
+    # AISetupGuide stores its parent as `window`, shadowing QWidget.window().
+    # Capture callback errors so a regression fails the test instead of aborting pytest.
+    callback_errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda _type, error, _traceback: callback_errors.append(error))
+    dialog = QDialog()
+    waveform = AudioWaveformWidget(dialog)
+    QVBoxLayout(dialog).addWidget(waveform)
+    QTimer.singleShot(50, dialog.accept)
+    try:
+        assert dialog.exec() == QDialog.DialogCode.Accepted
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+        app.processEvents()
+
+    assert not callback_errors, [str(error) for error in callback_errors]
 
 
 def test_provider_setup_guidance_and_preset_round_trip(ai_window):
