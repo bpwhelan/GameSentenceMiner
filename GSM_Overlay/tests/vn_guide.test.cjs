@@ -580,6 +580,95 @@ test('a distinct final menu after manual advancement is detected on its first sc
   assert.equal(guide.detected, true);
 });
 
+test('a final scan of a fuzzy next menu both confirms the old choice and detects the new one', () => {
+  const guide = tracker(['大丈夫', 'セーブ1', 'わたしは首を横に振る', '進む']);
+  guide.observe(frame(menu(), { line_id: 'choice-1', presence_id: 'choice-1' }), 1000);
+  guide.observe(frame([line('わたしは首を横に振ろ', .3), line('戻る', .43)], { line_id: 'choice-2', presence_id: 'choice-2' }), 1200);
+  assert.equal(guide.index, 2);
+  assert.equal(guide.detected, true, 'the only scan of the next menu must not be consumed by the old choice');
+  assert.equal(guide.armed.stable, true);
+  assert.deepEqual(guide.saveInstructions, ['セーブ1']);
+  guide.observe(frame([line('次の会話', .8)], { line_id: 'dialogue' }), 1400);
+  assert.equal(guide.index, 3);
+});
+
+test('a stable adjacent menu can catch up during OCR retries, including retries of the same hooked line', () => {
+  for (const sameLine of [false, true]) {
+    const guide = tracker(['大丈夫', 'セーブ1', '進む', '待つ']);
+    guide.observe(frame(menu(), { line_id: 'hook', presence_id: 'choice-1' }), 1000);
+    const next = frame([line('進む', .3), line('戻る', .43)], {
+      line_id: sameLine ? 'hook' : 'next-hook', is_final: false,
+    });
+    guide.observe({ ...next, presence_id: 'retry-1' }, 1200);
+    assert.equal(guide.index, 0, 'a single preliminary scan is not enough');
+    guide.observe({ ...next, presence_id: 'retry-2' }, 1400);
+    assert.equal(guide.index, 2);
+    assert.equal(guide.detected, true);
+    assert.equal(guide.armed.stable, true);
+    assert.equal(guide.recoveredFrom, 0);
+    assert.deepEqual(guide.saveInstructions, ['セーブ1']);
+    guide.observe({ ...next, is_final: true, presence_id: 'final' }, 4000);
+    assert.equal(guide.index, 2, 'the eventual final scan must not consume the new menu');
+    guide.back();
+    assert.equal(guide.index, 0);
+  }
+});
+
+test('preliminary menu catch-up needs an armed choice and cannot skip further steps, save UI, or known alternatives', () => {
+  for (const scenario of ['unseen', 'unstable', 'manual', 'suspended', 'alternative', 'distant', 'save']) {
+    const guide = tracker(['大丈夫', '進む', '待つ']);
+    if (scenario !== 'unseen') guide.observe(frame(
+      scenario === 'alternative' ? [line('大丈夫', .3), line('進む', .43)] : menu(),
+      { line_id: 'choice', is_final: scenario !== 'unstable' },
+    ), 1000);
+    if (scenario === 'suspended') guide.suspendDetection();
+    const data = [line(scenario === 'distant' ? '待つ' : '進む', .3), line('戻る', .43)];
+    if (scenario === 'save') data.push(line('セーブ', .1));
+    for (const time of [1200, 1500, 1800]) {
+      guide.observe(frame(data, { line_id: 'next', is_final: false }), time, scenario !== 'manual');
+      assert.equal(guide.index, 0, scenario);
+    }
+  }
+});
+
+test('interrupted preliminary evidence must start over before recovering the next menu', () => {
+  for (const interruption of ['blank', 'clear', 'invalidated', 'old-menu', 'other-menu']) {
+    const guide = tracker(['大丈夫', '進む', '待つ']);
+    const old = frame(menu(), { line_id: 'hook', presence_id: 'old' });
+    const next = frame([line('進む', .3), line('戻る', .43)], { line_id: 'hook', is_final: false });
+    guide.observe(old, 1000);
+    guide.observe({ ...next, presence_id: 'retry-1' }, 1200);
+    const interruptions = {
+      blank: frame([], { line_id: 'hook' }),
+      clear: { type: 'overlay_clear', line_id: 'hook' },
+      invalidated: { type: 'ocr_text_invalidated', presence_id: 'old' },
+      'old-menu': old,
+      'other-menu': frame(menu('待つ'), { line_id: 'hook', is_final: false }),
+    };
+    guide.observe(interruptions[interruption], 1300);
+    guide.observe({ ...next, presence_id: 'retry-2' }, 1500);
+    assert.equal(guide.index, 0, interruption);
+    guide.observe({ ...next, presence_id: 'retry-3' }, 1750);
+    assert.equal(guide.index, 1, interruption);
+  }
+});
+
+test('stale or revalidated menu scans cannot build preliminary catch-up evidence', () => {
+  for (const source of ['stale-line', 'same-presence', 'revalidated']) {
+    const guide = tracker(['大丈夫', '進む']);
+    guide.observe(frame(menu(), { line_id: 'old', presence_id: 'old' }), 1000);
+    if (source === 'stale-line') guide.observe({ type: 'overlay_clear', line_id: 'new' }, 1100);
+    const next = frame([line('進む', .3), line('戻る', .43)], {
+      line_id: 'old', presence_id: source === 'stale-line' ? 'next' : 'old', is_final: false,
+    });
+    for (const time of [1200, 1500, 1800]) {
+      guide.observe(source === 'revalidated'
+        ? { type: 'ocr_text_revalidated', presence_id: 'old', payload: next } : next, time);
+      assert.equal(guide.index, 0, source);
+    }
+  }
+});
+
 test('new-line clears still respect save screens and manual-only progression', () => {
   for (const saving of [false, true]) {
     const guide = tracker();

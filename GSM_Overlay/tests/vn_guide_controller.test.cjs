@@ -975,3 +975,46 @@ test('a capture interruption during a new-line scan cannot use the previous menu
   controller.observe({ ...dialogue, line_id: 'dialogue' });
   assert.equal(controller.snapshot().index, 0);
 });
+
+test('rapid Akai Ito menus replace the old hint during retries without waiting for final OCR or showing a confirmation', async t => {
+  const choices = ['駅員さんに聞きたいことが', 'バスがなくても何とか……', 'やっぱり戻してください'];
+  const { controller, settings, library, advance, updates } = setup(t, {
+    fetchJson: async source => source.endsWith('/guide.json') ? manifest : choices.map(simpleJp => ({ simpleJp })),
+  });
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.observe({ ...menu, line_id: 'skipped-hook', data: [line(choices[0], .3), line('下調べもしたし大丈夫', .43)] });
+  for (let index = 1; index < choices.length; index += 1) {
+    const data = [line(choices[index], .3), line(index === 1 ? '旅館を紹介してもらうことにした' : '覚悟を決めた', .43)];
+    advance(200);
+    controller.observe({ ...menu, data, line_id: 'skipped-hook', is_final: false, presence_id: `retry-${index}-1` });
+    advance(250);
+    controller.observe({ ...menu, data, line_id: 'skipped-hook', is_final: false, presence_id: `retry-${index}-2` });
+    assert.equal(controller.snapshot().index, index);
+    assert.equal(controller.snapshot().text, choices[index]);
+    assert.equal(controller.snapshot().detected, true);
+    assert.equal(controller.snapshot().visible, true);
+    assert.equal(controller.snapshot().loggedChoice, null);
+    assert.equal(updates.at(-1).text, choices[index]);
+    assert.equal(library.progress['test-game/one'].index, index);
+  }
+});
+
+test('a fuzzy next-menu scan shows its instruction and save reminder instead of logging the previous choice', async t => {
+  const { controller, settings, advance, updates, library } = setup(t, {
+    fetchJson: async source => source.endsWith('/guide.json') ? manifest
+      : ['大丈夫', 'セーブ1', 'わたしは首を横に振る', '進む'].map(simpleJp => ({ simpleJp })),
+  });
+  await controller.configure(settings);
+  controller.setAvailable(true);
+  controller.observe({ ...menu, line_id: 'choice-1' });
+  advance(200);
+  controller.observe({ ...menu, line_id: 'choice-2', data: [line('わたしは首を横に振ろ', .3), line('戻る', .43)] });
+  assert.equal(controller.snapshot().index, 2);
+  assert.equal(controller.snapshot().detected, true);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().loggedChoice, null);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  assert.equal(updates.at(-1).text, 'わたしは首を横に振る');
+  assert.equal(library.progress['test-game/one'].index, 2);
+});

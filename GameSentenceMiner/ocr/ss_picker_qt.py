@@ -1,28 +1,33 @@
 import ctypes
 import ctypes.wintypes
 import logging
-import mss
-import mss.tools
 import sys
+import time
+
+import mss
 from PIL import Image
-from PyQt6.QtCore import Qt, QRect, QTimer, QPoint
-from PyQt6.QtGui import QCursor, QPainter, QPen, QColor, QPixmap, QImage
+from PyQt6.QtCore import QEvent, QEventLoop, QPoint, QRect, Qt, QTimer
+from PyQt6.QtGui import QColor, QCursor, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from GameSentenceMiner.ocr.coordinate_math import logical_box_to_even_physical_box
 
 # Import Window State Manager
-from GameSentenceMiner.ui import window_state_manager, WindowId
+from GameSentenceMiner.ui import WindowId, window_state_manager
 
 logger = logging.getLogger("GSM_OCR")
 
 
-# Windows helpers for forcing focus
-HWND_TOPMOST = -1
-SWP_NOMOVE = 0x0002
-SWP_NOSIZE = 0x0001
-SWP_SHOWWINDOW = 0x0040
-SWP_FLAGS_TOPMOST = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+SESSION_TIMEOUT_MS = 60_000
+ACTIVATION_GRACE_SECONDS = 1.0
+
+
+def _notify_complete(callback, result):
+    if callback is not None:
+        try:
+            callback(result)
+        except Exception:
+            logger.exception("Screen cropper completion callback failed")
 
 
 def create_high_visibility_crosshair_cursor() -> QCursor:
@@ -84,7 +89,7 @@ def get_monitor_dpi_scale():
                 idx = len(monitors_dpi)
                 monitors_dpi[idx] = scale
                 logger.debug(f"Monitor {idx}: DPI={dpiX.value}, Scale={scale:.2f}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Never let a DPI probe failure escape a native callback.
                 logger.warning(f"Failed to get DPI for monitor: {e}")
                 monitors_dpi[len(monitors_dpi)] = 1.0
             return True
@@ -102,7 +107,7 @@ def get_monitor_dpi_scale():
         user32.EnumDisplayMonitors(None, None, MonitorEnumProc(callback), 0)
 
         return monitors_dpi
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - DPI discovery is best effort; capture can use the default scale.
         logger.warning(f"Failed to get monitor DPI scaling: {e}. Using 1.0")
         return {}
 
@@ -129,7 +134,24 @@ class ScreenCropperWidget(QWidget):
         self.dpi_scale_x = 1.0
         self.dpi_scale_y = 1.0
         self.physical_to_logical_scale = 1.0
-        self._input_grabbed = False
+        self._session_active = False
+        self._activation_deadline = 0.0
+        self._session_timeout = QTimer(self)
+        self._session_timeout.setSingleShot(True)
+        self._session_timeout.setInterval(SESSION_TIMEOUT_MS)
+        self._session_timeout.timeout.connect(lambda: self._cancel("selection timed out"))
+        self._safety_timer = QTimer(self)
+        self._safety_timer.setInterval(250)
+        self._safety_timer.timeout.connect(self._check_session)
+        self._focus_loss_timer = QTimer(self)
+        self._focus_loss_timer.setSingleShot(True)
+        self._focus_loss_timer.setInterval(50)
+        self._focus_loss_timer.timeout.connect(self._cancel_if_unfocused)
+        app = QApplication.instance()
+        app.applicationStateChanged.connect(self._application_state_changed)
+        app.aboutToQuit.connect(lambda: self._cancel("application is shutting down"))
+        app.screenRemoved.connect(lambda screen: self._cancel("screen configuration changed"))
+        app.screenAdded.connect(lambda screen: self._cancel("screen configuration changed"))
 
         # Drawing state
         self.start_pos = None
@@ -137,6 +159,7 @@ class ScreenCropperWidget(QWidget):
         self.is_drawing = False
 
         self.setCursor(create_high_visibility_crosshair_cursor())
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def prepare_capture(
         self,
@@ -158,6 +181,12 @@ class ScreenCropperWidget(QWidget):
             transparent_mode: Whether to use transparent overlay mode
             dpi_scale: DPI scale factor for coordinate conversion
         """
+        if self._session_active:
+            logger.info("Ignoring another screen cropper request while selection is active")
+            _notify_complete(on_complete, None)
+            return
+
+        self._session_active = True
         self.captured_image = captured_image
         self.monitor_geometry = monitor_geometry
         self.main_monitor = main_monitor
@@ -207,13 +236,67 @@ class ScreenCropperWidget(QWidget):
             f"size {logical_width}x{logical_height}, DPI scale: {dpi_scale:.2f}"
         )
 
+        self._activation_deadline = time.monotonic() + ACTIVATION_GRACE_SECONDS
+        self._session_timeout.start()
+        self._safety_timer.start()
         self.show()
         self.activateWindow()
         self.raise_()
-        self._force_windows_focus()
-        self._grab_input()
+        self.setFocus()
+        # Qt automatically captures the mouse for a drag. Explicit mouse/keyboard
+        # grabs survive focus changes and can leave the desktop apparently frozen.
         self.update()
-        QTimer.singleShot(300, self._force_windows_focus)
+
+    def event(self, event):
+        if getattr(self, "_session_active", False):
+            if event.type() == QEvent.Type.WindowDeactivate:
+                self._focus_loss_timer.start()
+            elif event.type() == QEvent.Type.WindowActivate:
+                self._focus_loss_timer.stop()
+            elif event.type() == QEvent.Type.WindowStateChange and self.isMinimized():
+                self._cancel("picker was minimized")
+        return super().event(event)
+
+    def hideEvent(self, event):
+        self._cancel("picker was hidden")
+        super().hideEvent(event)
+
+    def _application_state_changed(self, state):
+        if self._session_active and state != Qt.ApplicationState.ApplicationActive:
+            self._focus_loss_timer.start()
+
+    def _cancel_if_unfocused(self):
+        # Windows can deliver the old window's deactivation after its callback
+        # has reopened this widget. Check the settled focus before cancelling.
+        if not self.isActiveWindow() or QApplication.applicationState() != Qt.ApplicationState.ApplicationActive:
+            self._cancel("picker lost focus")
+
+    def _check_session(self):
+        if not self._session_active:
+            return
+        if not self.isVisible() or self.isMinimized():
+            self._cancel("picker is no longer visible")
+        elif time.monotonic() >= self._activation_deadline and (
+            not self.isActiveWindow() or QApplication.applicationState() != Qt.ApplicationState.ApplicationActive
+        ):
+            # Also handles a denied activation or a missed native deactivation event.
+            self._cancel("picker could not keep focus")
+        elif self.is_drawing and not (QApplication.mouseButtons() & Qt.MouseButton.LeftButton):
+            # A window switch can swallow the mouse release. Allow a fresh drag.
+            self._reset_selection()
+
+    def _reset_selection(self):
+        self.is_drawing = False
+        self.start_pos = None
+        self.current_pos = None
+        self._release_input()
+        self.update()
+
+    def _cancel(self, reason):
+        if self._session_active:
+            logger.info("Screen cropper cancelled: %s", reason)
+            self.result = None
+            self._finish()
 
     def _attach_result_metadata(
         self,
@@ -237,8 +320,8 @@ class ScreenCropperWidget(QWidget):
             "transparent_mode": bool(self.transparent_mode),
         }
         try:
-            setattr(image, "_gsm_screen_crop_metadata", metadata)
-        except Exception as e:
+            image._gsm_screen_crop_metadata = metadata
+        except (AttributeError, TypeError) as e:
             logger.debug(f"Failed to attach crop metadata to image: {e}")
 
     def paintEvent(self, event):
@@ -307,7 +390,7 @@ class ScreenCropperWidget(QWidget):
                 painter.fillRect(self.rect(), QColor(0, 0, 0, 128))
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
+        if self._session_active and event.button() == Qt.MouseButton.LeftButton:
             self.start_pos = event.pos()
             self.current_pos = event.pos()
             self.is_drawing = True
@@ -319,7 +402,7 @@ class ScreenCropperWidget(QWidget):
             self.update()
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self.is_drawing:
+        if self._session_active and event.button() == Qt.MouseButton.LeftButton and self.is_drawing:
             self.is_drawing = False
             self.current_pos = event.pos()
 
@@ -328,185 +411,129 @@ class ScreenCropperWidget(QWidget):
             x2 = max(self.start_pos.x(), self.current_pos.x())
             y2 = max(self.start_pos.y(), self.current_pos.y())
 
-            if (x2 - x1) > 0 and (y2 - y1) > 0:
-                if self.transparent_mode:
-                    # In transparent mode, take a fresh screenshot of the selected area
-                    # Convert widget logical coordinates to physical screen coordinates
-                    try:
-                        with mss.mss() as sct:
-                            physical_x1, physical_y1, physical_x2, physical_y2 = logical_box_to_even_physical_box(
-                                x1,
-                                y1,
-                                x2,
-                                y2,
-                                scale=self.physical_to_logical_scale,
-                                max_width=int(self.monitor_geometry["width"]),
-                                max_height=int(self.monitor_geometry["height"]),
-                            )
-
-                            if physical_x2 <= physical_x1 or physical_y2 <= physical_y1:
-                                logger.warning("Selection area too small after even-coordinate alignment")
-                                self.result = None
-                                self.start_pos = None
-                                self.current_pos = None
-                                self.update()
-                                return
-
-                            monitor_region = {
-                                "left": self.monitor_geometry["left"] + physical_x1,
-                                "top": self.monitor_geometry["top"] + physical_y1,
-                                "width": physical_x2 - physical_x1,
-                                "height": physical_y2 - physical_y1,
-                            }
-                            sct_grab = sct.grab(monitor_region)
-                            # Convert to PIL Image
-                            self.result = Image.frombytes("RGB", sct_grab.size, sct_grab.bgra, "raw", "BGRX")
-                            self._attach_result_metadata(
-                                self.result,
-                                monitor_region["left"],
-                                monitor_region["top"],
-                                monitor_region["width"],
-                                monitor_region["height"],
-                            )
-                            logger.info(
-                                f"Fresh screenshot captured: ({monitor_region['left']}, {monitor_region['top']}) "
-                                f"size {monitor_region['width']}x{monitor_region['height']} (physical pixels)"
-                            )
-                    except Exception as e:
-                        logger.error(f"Error capturing fresh screenshot: {e}")
-                        self.result = None
-                else:
-                    # Original mode: crop from the already-captured image
-                    # Widget coordinates are in logical pixels, need to convert to physical for cropping
-                    if self.captured_image:
-                        physical_x1, physical_y1, physical_x2, physical_y2 = logical_box_to_even_physical_box(
-                            x1,
-                            y1,
-                            x2,
-                            y2,
-                            scale=self.physical_to_logical_scale,
-                            max_width=int(self.captured_image.width),
-                            max_height=int(self.captured_image.height),
-                        )
-
-                        if physical_x2 <= physical_x1 or physical_y2 <= physical_y1:
-                            logger.warning("Selection area too small after even-coordinate alignment")
-                            self.start_pos = None
-                            self.current_pos = None
-                            self.update()
-                            return
-
-                        self.result = self.captured_image.crop((physical_x1, physical_y1, physical_x2, physical_y2))
-                        self._attach_result_metadata(
-                            self.result,
-                            self.monitor_geometry["left"] + physical_x1,
-                            self.monitor_geometry["top"] + physical_y1,
-                            physical_x2 - physical_x1,
-                            physical_y2 - physical_y1,
-                        )
-                        logger.info(
-                            f"Selection made: logical ({x1}, {y1}) to ({x2}, {y2}), "
-                            f"physical ({physical_x1}, {physical_y1}) to ({physical_x2}, {physical_y2})"
-                        )
-
-                # Hide instead of close to preserve instance
-                self._finish()
-            else:
+            if x2 <= x1 or y2 <= y1:
                 logger.warning("Selection area too small")
-                self.start_pos = None
-                self.current_pos = None
-                self.update()
+                self._reset_selection()
+                return
+            try:
+                self._capture_selection(x1, y1, x2, y2)
+            except Exception:
+                logger.exception("Screen cropper selection failed")
+                self._cancel("selection failed")
+
+    def _capture_selection(self, x1, y1, x2, y2):
+        physical_x1, physical_y1, physical_x2, physical_y2 = logical_box_to_even_physical_box(
+            x1,
+            y1,
+            x2,
+            y2,
+            scale=self.physical_to_logical_scale,
+            max_width=int(self.monitor_geometry["width"]),
+            max_height=int(self.monitor_geometry["height"]),
+        )
+        if physical_x2 <= physical_x1 or physical_y2 <= physical_y1:
+            logger.warning("Selection area too small after even-coordinate alignment")
+            self._reset_selection()
+            return
+
+        region = {
+            "left": self.monitor_geometry["left"] + physical_x1,
+            "top": self.monitor_geometry["top"] + physical_y1,
+            "width": physical_x2 - physical_x1,
+            "height": physical_y2 - physical_y1,
+        }
+        if self.transparent_mode:
+            with mss.mss() as sct:
+                grab = sct.grab(region)
+                self.result = Image.frombytes("RGB", grab.size, grab.bgra, "raw", "BGRX")
+        else:
+            self.result = self.captured_image.crop((physical_x1, physical_y1, physical_x2, physical_y2))
+        self._attach_result_metadata(self.result, region["left"], region["top"], region["width"], region["height"])
+        logger.info("Screen cropper selected region: %s", region)
+        self._finish()
 
     def keyPressEvent(self, event):
+        if not self._session_active:
+            return
         if event.key() == Qt.Key.Key_Escape:
-            logger.info("Screen cropper cancelled")
-            self.result = None
-            self._finish()
+            self._cancel("Escape pressed")
         elif event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
-            # Grab main monitor area
-            # Convert main monitor coords from physical to logical for cropping
-            if self.captured_image:
-                # Main monitor coordinates are in physical pixels
-                main_left = self.main_monitor["left"] - self.monitor_geometry["left"]
-                main_top = self.main_monitor["top"] - self.monitor_geometry["top"]
-                main_right = main_left + self.main_monitor["width"]
-                main_bottom = main_top + self.main_monitor["height"]
+            try:
+                self._select_main_monitor()
+            except Exception:
+                logger.exception("Screen cropper main monitor selection failed")
+                self._cancel("main monitor selection failed")
 
-                main_left, main_top, main_right, main_bottom = logical_box_to_even_physical_box(
-                    main_left,
-                    main_top,
-                    main_right,
-                    main_bottom,
-                    scale=1.0,
-                    max_width=int(self.captured_image.width),
-                    max_height=int(self.captured_image.height),
-                )
+    def _select_main_monitor(self):
+        # Grab main monitor area
+        # Convert main monitor coords from physical to logical for cropping
+        if self.captured_image:
+            # Main monitor coordinates are in physical pixels
+            main_left = self.main_monitor["left"] - self.monitor_geometry["left"]
+            main_top = self.main_monitor["top"] - self.monitor_geometry["top"]
+            main_right = main_left + self.main_monitor["width"]
+            main_bottom = main_top + self.main_monitor["height"]
 
-                self.result = self.captured_image.crop((main_left, main_top, main_right, main_bottom))
-                self._attach_result_metadata(
-                    self.result,
-                    self.monitor_geometry["left"] + main_left,
-                    self.monitor_geometry["top"] + main_top,
-                    main_right - main_left,
-                    main_bottom - main_top,
-                )
-            logger.info("Main monitor area selected")
-            self._finish()
+            main_left, main_top, main_right, main_bottom = logical_box_to_even_physical_box(
+                main_left,
+                main_top,
+                main_right,
+                main_bottom,
+                scale=1.0,
+                max_width=int(self.captured_image.width),
+                max_height=int(self.captured_image.height),
+            )
+
+            self.result = self.captured_image.crop((main_left, main_top, main_right, main_bottom))
+            self._attach_result_metadata(
+                self.result,
+                self.monitor_geometry["left"] + main_left,
+                self.monitor_geometry["top"] + main_top,
+                main_right - main_left,
+                main_bottom - main_top,
+            )
+        logger.info("Main monitor area selected")
+        self._finish()
 
     def _finish(self):
-        """Helper to handle closing logic: callback, hide, save geometry"""
-        if self.on_complete:
-            self.on_complete(self.result)
-
-        # Save geometry (though mostly relevant for resizing, less so for fullscreen tools)
-        window_state_manager.save_geometry(self, WindowId.SCREEN_CROPPER)
+        """End each session once, releasing the desktop before waking its caller."""
+        if not self._session_active:
+            return
+        self._session_active = False
+        callback, self.on_complete = self.on_complete, None
+        result = self.result
+        self._session_timeout.stop()
+        self._safety_timer.stop()
+        self._focus_loss_timer.stop()
+        self.is_drawing = False
+        self.start_pos = None
+        self.current_pos = None
         self._release_input()
         self.hide()
+        self.captured_image = None
+        self.pixmap = None
+        try:
+            window_state_manager.save_geometry(self, WindowId.SCREEN_CROPPER)
+        except Exception:
+            logger.exception("Could not save screen cropper geometry")
+        # The callback may open the picker again. Do no session cleanup after it.
+        _notify_complete(callback, result)
 
     def closeEvent(self, event):
-        """Handle actual window closing (if forced)"""
-        if self.on_complete:
-            self.on_complete(self.result)
-        window_state_manager.save_geometry(self, WindowId.SCREEN_CROPPER)
-        self._release_input()
+        self._cancel("picker was closed")
         event.accept()
 
-    def _force_windows_focus(self):
-        if sys.platform != "win32":
-            return
-        try:
-            hwnd = int(self.winId())
-            user32 = ctypes.windll.user32
-            user32.ReleaseCapture()
-            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_FLAGS_TOPMOST)
-            user32.SetForegroundWindow(hwnd)
-            user32.BringWindowToTop(hwnd)
-            user32.SetActiveWindow(hwnd)
-            user32.SetFocus(hwnd)
-        except Exception as e:
-            logger.debug(f"Failed to force focus via Win32: {e}")
-
-    def _grab_input(self):
-        if self._input_grabbed:
-            return
-        try:
-            self.grabKeyboard()
-            self.grabMouse()
-        except Exception as e:
-            logger.debug(f"Failed to grab input: {e}")
-        else:
-            self._input_grabbed = True
-
     def _release_input(self):
-        if not self._input_grabbed:
-            return
-        try:
-            self.releaseKeyboard()
-            self.releaseMouse()
-        except Exception as e:
-            logger.debug(f"Failed to release input grab: {e}")
-        finally:
-            self._input_grabbed = False
+        # Check Qt's actual owners, including its implicit grab during a drag.
+        for grabber, release in (
+            (QWidget.mouseGrabber, self.releaseMouse),
+            (QWidget.keyboardGrabber, self.releaseKeyboard),
+        ):
+            try:
+                if grabber() is self:
+                    release()
+            except Exception:
+                logger.exception("Failed to release screen cropper input")
 
 
 def show_screen_cropper(on_complete=None, transparent_mode=False):
@@ -517,70 +544,11 @@ def show_screen_cropper(on_complete=None, transparent_mode=False):
     """
     global _screen_cropper_instance
 
-    # Get DPI scaling information for all monitors
-    monitors_dpi = get_monitor_dpi_scale()
-
-    if not transparent_mode:
-        # Original mode: capture screen first
-        try:
-            # Capture all monitors - optimized for speed
-            with mss.mss() as sct:
-                all_monitors_bbox = sct.monitors[0]
-                main_monitor = sct.monitors[1]
-
-                # Determine DPI scale - use primary monitor's scale
-                # mss monitor indices start at 1 for actual monitors
-                dpi_scale = monitors_dpi.get(0, 1.0)  # Monitor 0 in our enum is monitor 1 in mss
-
-                monitor_geometry = {
-                    "left": all_monitors_bbox["left"],
-                    "top": all_monitors_bbox["top"],
-                    "width": all_monitors_bbox["width"],
-                    "height": all_monitors_bbox["height"],
-                }
-
-                # mss captures at physical pixel resolution
-                sct_grab = sct.grab(all_monitors_bbox)
-
-                # Convert directly from raw bytes to PIL Image (faster than to_png)
-                # MSS returns BGRA format, convert to RGB
-                captured_image = Image.frombytes("RGB", sct_grab.size, sct_grab.bgra, "raw", "BGRX")
-
-                logger.info(
-                    f"Screen captured: {monitor_geometry['width']}x{monitor_geometry['height']} "
-                    f"(physical pixels), DPI scale: {dpi_scale:.2f}"
-                )
-        except Exception as e:
-            logger.error(f"Error capturing screen: {e}")
-            if on_complete:
-                on_complete(None)
-            return
-    else:
-        # Transparent mode: just get monitor geometry, no screenshot needed yet
-        try:
-            with mss.mss() as sct:
-                all_monitors_bbox = sct.monitors[0]
-                main_monitor = sct.monitors[1]
-
-                # Determine DPI scale
-                dpi_scale = monitors_dpi.get(0, 1.0)
-
-                monitor_geometry = {
-                    "left": all_monitors_bbox["left"],
-                    "top": all_monitors_bbox["top"],
-                    "width": all_monitors_bbox["width"],
-                    "height": all_monitors_bbox["height"],
-                }
-                captured_image = None
-                logger.info(
-                    f"Transparent mode: monitor geometry {monitor_geometry['width']}x{monitor_geometry['height']} "
-                    f"(physical pixels), DPI scale: {dpi_scale:.2f}"
-                )
-        except Exception as e:
-            logger.error(f"Error getting monitor geometry: {e}")
-            if on_complete:
-                on_complete(None)
-            return
+    if _screen_cropper_instance is not None and _screen_cropper_instance._session_active:
+        # Never replace an active caller's callback (or capture the overlay itself).
+        logger.info("Ignoring another screen cropper request while selection is active")
+        _notify_complete(on_complete, None)
+        return _screen_cropper_instance
 
     # Create QApplication if it doesn't exist
     app = QApplication.instance()
@@ -591,24 +559,43 @@ def show_screen_cropper(on_complete=None, transparent_mode=False):
     if _screen_cropper_instance is None:
         _screen_cropper_instance = ScreenCropperWidget()
 
-    # Prepare the widget with the new screenshot data
-    _screen_cropper_instance.prepare_capture(
-        captured_image,
-        monitor_geometry,
-        main_monitor,
-        on_complete,
-        transparent_mode,
-        dpi_scale,
-    )
+    widget = _screen_cropper_instance
+    loop = QEventLoop()
+    completed = False
 
-    # Keep the widget alive by entering event loop until it's hidden
-    if on_complete:
-        # Since we are not using exec_(), we rely on the main loop.
-        # If this is called from a script without a running loop, processEvents is needed.
-        while _screen_cropper_instance.isVisible():
-            app.processEvents()
+    def complete(result):
+        nonlocal completed
+        completed = True
+        loop.quit()
+        _notify_complete(on_complete, result)
 
-    return _screen_cropper_instance
+    try:
+        monitors_dpi = get_monitor_dpi_scale()
+        with mss.mss() as sct:
+            monitor_geometry = dict(sct.monitors[0])
+            main_monitor = dict(sct.monitors[1])
+            dpi_scale = monitors_dpi.get(0, 1.0)
+            captured_image = None
+            if not transparent_mode:
+                grab = sct.grab(monitor_geometry)
+                captured_image = Image.frombytes("RGB", grab.size, grab.bgra, "raw", "BGRX")
+
+        widget.prepare_capture(captured_image, monitor_geometry, main_monitor, complete, transparent_mode, dpi_scale)
+    except Exception:
+        logger.exception("Could not prepare screen cropper")
+        if widget._session_active:
+            widget._cancel("capture setup failed")
+        elif not completed:
+            complete(None)
+        return widget
+
+    # Keep the synchronous API, but sleep in Qt's event loop instead of spinning
+    # processEvents(). Completion belongs to this session, not widget visibility:
+    # another request may open the singleton again before this call returns.
+    if on_complete is not None and not completed:
+        loop.exec()
+
+    return widget
 
 
 # For backwards compatibility

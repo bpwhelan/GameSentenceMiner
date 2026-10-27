@@ -173,7 +173,8 @@ class AudioWaveformWidget(QWidget):
 
     def eventFilter(self, watched, event):
         # Watch the whole dialog so labels follow modifiers even while editing text.
-        if isinstance(watched, QWidget) and watched.window() is self.window():
+        # Other settings widgets store their parent in an attribute named `window`.
+        if isinstance(watched, QWidget) and QWidget.window(watched) is QWidget.window(self):
             event_type = event.type()
             if event_type in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
                 modifiers = event.modifiers()

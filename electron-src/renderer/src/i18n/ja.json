@@ -2,7 +2,7 @@
   "gameBackground": {
     "title": "ゲームフック（実験的）",
     "help": "このシーンでキャプチャするゲーム用の小さな Windows フックです。設定は実行ファイルごとに保存されます。",
-    "enabled": "このゲームに自動適用する",
+    "enabled": "このゲームで有効にする",
     "keepRendering": "フォーカスがなくても描画を続ける",
     "blockGamepad": "フォーカスがないときはゲームパッド入力を遮断する",
     "target": "{name}（PID {pid}）",

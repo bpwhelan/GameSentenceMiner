@@ -2,7 +2,7 @@
   "gameBackground": {
     "title": "Game hook (experimental)",
     "help": "A small Windows hook for the game captured by this scene. Settings are remembered for this executable.",
-    "enabled": "Automatically apply to this game",
+    "enabled": "Enable for this game",
     "keepRendering": "Keep rendering when unfocused",
     "blockGamepad": "Block gamepad input when unfocused",
     "target": "{name} (PID {pid})",

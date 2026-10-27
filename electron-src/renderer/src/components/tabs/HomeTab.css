@@ -620,9 +620,23 @@
 }
 .home-desk .game-background-options {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px 24px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
   margin: 16px 0;
+}
+.home-desk .game-background-suboptions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-inline-size: 0;
+  margin: 0 0 0 7px;
+  padding: 0 0 0 16px;
+  border: 0;
+  border-left: 2px solid var(--gsm-border-subtle);
+}
+.home-desk .game-background-suboptions:disabled {
+  opacity: 0.5;
 }
 .home-desk .game-background-option {
   margin: 0;

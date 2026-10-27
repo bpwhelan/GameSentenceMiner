@@ -26,7 +26,9 @@ function setup() {
 const enabled = { enabled: true, keepRendering: true, blockGamepad: true };
 describe('game background hooks', () => {
     it('defaults to explicit per-game opt-in and refuses ambiguous windows', () => {
-        expect(normalizeGameBackgroundOptions(null).enabled).toBe(false);
+        expect(normalizeGameBackgroundOptions(null)).toEqual({ enabled: false, keepRendering: false, blockGamepad: true });
+        expect(normalizeGameBackgroundOptions({ enabled: true })).toEqual({ enabled: true, keepRendering: false, blockGamepad: true });
+        expect(normalizeGameBackgroundOptions(enabled)).toEqual(enabled);
         expect(normalizeGameBackgroundOptions({ enabled: 'true' }).enabled).toBe(false);
         expect(normalizeGameBackgroundOptions({ ...enabled, keepRendering: false, blockGamepad: false }).enabled).toBe(false);
         expect(chooseGameBackgroundTarget([target, { ...target, pid: 8 }], 'Game')).toBeUndefined();

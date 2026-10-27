@@ -38,7 +38,7 @@ export interface GameBackgroundState {
 
 export function normalizeGameBackgroundOptions(value: unknown): GameBackgroundOptions {
     const input = value && typeof value === 'object' ? value as Partial<GameBackgroundOptions> : {};
-    const keepRendering = input.keepRendering !== false;
+    const keepRendering = input.keepRendering === true;
     const blockGamepad = input.blockGamepad !== false;
     return { enabled: input.enabled === true && (keepRendering || blockGamepad), keepRendering, blockGamepad };
 }

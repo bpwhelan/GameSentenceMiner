@@ -39,9 +39,15 @@ export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; a
         savingRef.current = true;
         setSaving(true);
         setError('');
+        const options = { ...state.options, ...patch };
+        // With no behaviors selected, the backend turns the hook off. Restore
+        // gamepad blocking on explicit opt-in so the sub-options remain reachable.
+        if (patch.enabled && !options.keepRendering && !options.blockGamepad) {
+            options.blockGamepad = true;
+        }
         try {
             const next = await invokeIpc<GameBackgroundState>('game-background.save', {
-                sceneId, target: state.target, options: { ...state.options, ...patch },
+                sceneId, target: state.target, options,
             });
             if (current === revision.current) setState(next);
         } catch (problem) { if (current === revision.current) setError(String(problem)); }
@@ -58,16 +64,19 @@ export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; a
                 onChange={event => void save({ enabled: event.target.checked })} />
             <span>{t('gameBackground.enabled')}</span>
         </label>
-        <label className="game-background-option">
-            <input type="checkbox" checked={state?.options.keepRendering ?? true}
-                onChange={event => void save({ keepRendering: event.target.checked })} />
-            <span>{t('gameBackground.keepRendering')}</span>
-        </label>
-        <label className="game-background-option">
-            <input type="checkbox" checked={state?.options.blockGamepad ?? true}
-                onChange={event => void save({ blockGamepad: event.target.checked })} />
-            <span>{t('gameBackground.blockGamepad')}</span>
-        </label>
+        <fieldset className="game-background-suboptions" disabled={!state?.options.enabled}
+            aria-label={t('gameBackground.enabled')}>
+            <label className="game-background-option">
+                <input type="checkbox" checked={state?.options.keepRendering ?? false}
+                    onChange={event => void save({ keepRendering: event.target.checked })} />
+                <span>{t('gameBackground.keepRendering')}</span>
+            </label>
+            <label className="game-background-option">
+                <input type="checkbox" checked={state?.options.blockGamepad ?? true}
+                    onChange={event => void save({ blockGamepad: event.target.checked })} />
+                <span>{t('gameBackground.blockGamepad')}</span>
+            </label>
+        </fieldset>
         </div>
         <p role="status" className="game-background-help">
             {reason ? t(`gameBackground.reason.${reason}`) :

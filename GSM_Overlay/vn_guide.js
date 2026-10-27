@@ -176,6 +176,7 @@ class GuideTracker {
     this.armed = null;
     this.blockedOptions = null;
     this.pendingLineId = null;
+    this.pendingAhead = null;
     this.suspendedPresenceId = null;
     this.suspendedLineId = null;
     this.suspendedOptions = null;
@@ -190,6 +191,7 @@ class GuideTracker {
     }
     this.armed = null;
     this.pendingLineId = null;
+    this.pendingAhead = null;
   }
   findAheadChoice(data, lines) {
     // An option still present in the current menu, or a save confirmation, must
@@ -248,6 +250,7 @@ class GuideTracker {
       return;
     }
     if (message?.type === 'overlay_clear') {
+      this.pendingAhead = null;
       if (!message.line_id) this.resetDetection();
       else {
         // The backend clears boxes before scanning each new text line. Hide the
@@ -260,6 +263,7 @@ class GuideTracker {
     }
     if (message?.type === 'ocr_text_invalidated') {
       if (this.armed && this.armed.source !== 'text' && (!message.presence_id || message.presence_id === this.armed.presenceId)) {
+        this.pendingAhead = null;
         this.armed.invalidatedAt = now;
         this.detected = false;
       }
@@ -272,7 +276,8 @@ class GuideTracker {
       && message.payload?.presence_id === message.presence_id && message.payload.type === 'word_coordinates') {
       message = message.payload;
     }
-    if (message?.type !== 'word_coordinates' || message.supplemental || !Array.isArray(message.data) || !message.data.length) return;
+    if (message?.type !== 'word_coordinates' || message.supplemental || !Array.isArray(message.data)) return;
+    if (!message.data.length) { this.pendingAhead = null; return; }
     if (this.pendingLineId) {
       const staleLine = message.line_id && message.line_id !== this.pendingLineId;
       const stalePresence = this.armed?.lineId !== this.pendingLineId
@@ -291,26 +296,40 @@ class GuideTracker {
       && normalizeChoice(step.text) === match.observed)) match = null;
     const previousPresence = this.armed?.presenceId || this.suspendedPresenceId;
     const previousLine = this.armed?.lineId || this.suspendedLineId;
-    if (!match && autoAdvance && message.is_final === true && !revalidated
-      && (!previousLine || previousLine !== message.line_id)
-      && (!previousPresence || previousPresence !== message.presence_id)) {
+    let stableAhead = false;
+    if (!match && autoAdvance && !revalidated && (!previousPresence || previousPresence !== message.presence_id)) {
       const ahead = this.findAheadChoice(message.data, lines);
       if (ahead && !containsOption(this.armed?.options || this.suspendedOptions, ahead.match.text)) {
-        const from = this.index;
-        this.jump(ahead.index);
-        this.blockedOptions = null; // This fresh, distinct menu already proves the old one was left.
-        this.tentative = true;
-        this.recoveredFrom = from;
-        match = ahead.match;
-      }
-    }
+        // While skipping, OCR can keep retrying an old hooked sentence for
+        // several seconds, even as another menu appears under the same line ID.
+        // Two consistent scans of the immediate next menu can confirm that
+        // transition, but only after a stable visual menu armed the old choice.
+        const adjacent = this.armed?.source === 'ocr' && this.armed.stable
+          && ahead.index === this.choiceAfterSave(this.index + 1)
+          && (this.armed.invalidatedAt == null || now - this.armed.invalidatedAt <= 15000);
+        const signature = JSON.stringify([ahead.index, [...ahead.match.options].sort()]);
+        if (adjacent) {
+          if (this.pendingAhead?.signature !== signature) this.pendingAhead = { signature, since: now };
+          stableAhead = now - this.pendingAhead.since >= 200;
+        } else this.pendingAhead = null;
+        if (stableAhead || message.is_final === true && (!previousLine || previousLine !== message.line_id)) {
+          const from = this.index;
+          this.jump(ahead.index);
+          this.blockedOptions = null; // This fresh, distinct menu already proves the old one was left.
+          this.tentative = true;
+          this.recoveredFrom = from;
+          match = ahead.match;
+        }
+      } else this.pendingAhead = null;
+    } else this.pendingAhead = null;
     if (match) {
+      this.pendingAhead = null;
       const previous = this.armed;
       this.armed = {
         ...match, source: 'ocr',
         since: previous?.source === 'ocr' && previous.menu === match.menu ? previous.since : now,
         presenceId: message.presence_id, lineId: message.line_id,
-        stable: previous?.stable === true || match.menu && (message.is_final === true || previous?.menu && now - previous.since >= 200),
+        stable: stableAhead || previous?.stable === true || match.menu && (message.is_final === true || previous?.menu && now - previous.since >= 200),
         saveControls: lines.filter(isSaveControl),
       };
       this.detected = true;
@@ -352,6 +371,10 @@ class GuideTracker {
     if (autoAdvance) {
       this.next();
       this.tentative = true; // Always reversible; OCR cannot verify which option was clicked.
+      // This frame may already contain the next menu with a small OCR error,
+      // which exact-only look-ahead cannot recover. Use it once more for the
+      // new instruction so the old confirmation never consumes its only scan.
+      this.observe(message, now, false);
     }
   }
 }
