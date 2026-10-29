@@ -58,6 +58,25 @@ def test_missing_monitor_returns_a_failed_focus_acknowledgement(monkeypatch):
     assert sent == [{"type": "restore-focus-result", "request_id": "gone", "success": False}]
 
 
+def test_unsupported_platform_monitor_reports_a_failed_focus_restore(monkeypatch):
+    from GameSentenceMiner.util.platform.linux_window_monitor import LinuxWindowStateMonitor
+
+    sent, exceptions = [], []
+
+    async def send(_id, payload):
+        sent.append(payload)
+
+    monitor = LinuxWindowStateMonitor()
+    monkeypatch.setattr(
+        overlay_handler_module, "get_overlay_processor", lambda: SimpleNamespace(window_monitor=monitor)
+    )
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    monkeypatch.setattr(overlay_handler_module.logger, "exception", lambda *args, **_kwargs: exceptions.append(args))
+    asyncio.run(overlay_handler_module.OverlayRequestHandler().handle_restore_focus_request({"request_id": "linux"}))
+    assert exceptions == []
+    assert sent == [{"type": "restore-focus-result", "request_id": "linux", "success": False}]
+
+
 def test_new_overlay_interaction_cancels_backend_focus_retries(monkeypatch):
     async def scenario():
         started = asyncio.Event()

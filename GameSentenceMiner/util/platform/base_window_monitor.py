@@ -1783,6 +1783,7 @@ class BaseWindowStateMonitor:
     def __init__(self, overlay_processor=None):
         self.overlay_processor = overlay_processor
         self.target_hwnd: Optional[int] = None
+        self.last_known_target_hwnd: Optional[int] = None
         self.last_state: str = "unknown"
         self.last_game_name: str = ""
         self.last_target_info: Dict[str, str] = {}
