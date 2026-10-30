@@ -536,6 +536,8 @@ export class TextScanner extends EventDispatcher {
                 textSource.setStartOffset(this._scanLength, this._layoutAwareScan, true);
             }
 
+            this._gsmAlignStartToJitenWord(textSource); // GSM_JITENBOUNDS
+
             if (this._textSourceCurrent !== null && this._textSourceCurrent.hasSameStart(textSource)) {
                 return;
             }
@@ -591,6 +593,69 @@ export class TextScanner extends EventDispatcher {
                 inputInfo,
             });
         }
+    }
+
+    // GSM_JITENBOUNDS: read the word marks published by jiten_highlight.js.
+    _gsmBoxOf(node) {
+        const element = node && node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        return element && typeof element.closest === 'function' ? element.closest('.text-box') : null;
+    }
+
+    _gsmJitenContext(textSource) {
+        if (textSource instanceof TextSourceElement) { return null; }
+        const range = /** @type {?Range} */ (textSource.range);
+        const startNode = range?.startContainer;
+        if (!startNode || startNode.nodeType !== Node.TEXT_NODE) { return null; }
+        const startBox = this._gsmBoxOf(startNode);
+        const root = startBox ? startBox.closest('.text-block-container[data-gsm-bounds]') : null;
+        return startBox && root ? {startNode, startBox, root} : null;
+    }
+
+    _gsmAlignStartToJitenWord(textSource) {
+        try {
+            if (document.documentElement.getAttribute('data-gsm-hover-start') === 'cursor') { return; }
+            const context = this._gsmJitenContext(textSource);
+            if (context === null) { return; }
+            const {startNode, startBox, root} = context;
+            const range = /** @type {Range} */ (textSource.range);
+            let back = Array.from((startNode.nodeValue || '').slice(0, range.startOffset)).length;
+            let box = startBox;
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            walker.currentNode = startNode;
+            for (let guard = 0; guard < 64; ++guard) {
+                if (box !== null && box.hasAttribute('data-gsm-ws')) { break; }
+                const node = walker.previousNode();
+                if (node === null) { return; }
+                box = this._gsmBoxOf(node);
+                back += Array.from(node.nodeValue || '').length;
+            }
+            if (back > 0 && back <= 64) textSource.setStartOffset(back, false, false);
+        } catch (e) { /* use Yomitan's normal start */ }
+    }
+
+    _gsmClipToJitenWord(textSource, searchText) {
+        try {
+            const context = this._gsmJitenContext(textSource);
+            if (context === null) { return searchText; }
+            const {startNode, root} = context;
+            const range = /** @type {Range} */ (textSource.range);
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            walker.currentNode = startNode;
+            let node = startNode;
+            let offset = range.startOffset;
+            let walked = '';
+            for (let guard = 0; guard < 64 && node !== null; ++guard) {
+                walked += (node.nodeValue || '').slice(offset);
+                offset = 0;
+                const box = this._gsmBoxOf(node);
+                if (box !== null && box.hasAttribute('data-gsm-we')) {
+                    return walked.length > 0 && walked.length < searchText.length && searchText.startsWith(walked) ? walked : searchText;
+                }
+                if (walked.length >= searchText.length) break;
+                node = walker.nextNode();
+            }
+        } catch (e) { /* use Yomitan's normal search text */ }
+        return searchText;
     }
 
     /**
@@ -1435,8 +1500,9 @@ export class TextScanner extends EventDispatcher {
         const sentenceForwardQuoteMap = this._sentenceForwardQuoteMap;
         const sentenceBackwardQuoteMap = this._sentenceBackwardQuoteMap;
         const layoutAwareScan = this._layoutAwareScan;
-        const searchText = this.getTextSourceContent(textSource, scanLength, layoutAwareScan, optionsContext.pointerType);
+        let searchText = this.getTextSourceContent(textSource, scanLength, layoutAwareScan, optionsContext.pointerType);
         if (searchText.length === 0) { return null; }
+        searchText = this._gsmClipToJitenWord(textSource, searchText); // GSM_JITENBOUNDS
 
         /** @type {import('api').FindTermsDetails} */
         const details = {};

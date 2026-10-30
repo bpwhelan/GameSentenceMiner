@@ -493,7 +493,7 @@ function syncShowMainBoxStartupUi() {
 function syncJitenReaderUi(enabled) {
   const checkbox = document.getElementById("enableJitenReader");
   const isEnabled = enabled !== undefined ? enabled : checkbox?.checked !== false;
-  ["openJitenReaderSettings", "jitenHighlightingEnabled", "jitenHighlightOffsetY", "showJitenGradingButtons"].forEach(
+  ["openJitenReaderSettings", "jitenHighlightingEnabled", "jitenHighlightOffsetY", "showJitenGradingButtons", "jitenGradingButtonsAtBottom"].forEach(
     (id) => {
       const control = document.getElementById(id);
       if (control) {
@@ -1020,8 +1020,12 @@ const SETTING_BINDING_DEFINITIONS = [
   createCheckboxBinding("enableJitenReader", "#enableJitenReader", {
     afterApply: () => syncJitenReaderUi(),
   }),
+  createSelectBinding("wordStateMode", "#wordStateMode", {
+    normalize: (value) => ['jiten', 'local'].includes(String(value)) ? String(value) : 'jiten-anki',
+  }),
   createCheckboxBinding("jitenHighlightingEnabled", "#jitenHighlightingEnabled"),
   createCheckboxBinding("showJitenGradingButtons", "#showJitenGradingButtons"),
+  createCheckboxBinding("jitenGradingButtonsAtBottom", "#jitenGradingButtonsAtBottom"),
   createHotkeyBinding("toggleFuriganaHotkey", "#toggleFuriganaHotkey"),
   createHotkeyBinding("toggleWindowHotkey", "#toggleWindowHotkey"),
   createHotkeyBinding("minimizeHotkey", "#minimizeHotkey"),

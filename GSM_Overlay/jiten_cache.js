@@ -166,6 +166,10 @@ class JitenParseCache {
     this.budgetWindowMs = options.budgetWindowMs ?? 60_000;
     this._entries = new LruCache(options.maxEntries ?? 2000, options.maxBytes ?? 16 * 1024 * 1024);
     this._states = new LruCache(20_000, 4 * 1024 * 1024);
+    // GSM_ANKISTATES_FIXED_V2: Jiten IDs have no spelling fields; recover surfaces from token offsets.
+    this._spellings = new LruCache(20_000, 4 * 1024 * 1024);
+    this.stateOverride = options.stateOverride || null;
+    this.ankiMatch = options.ankiMatch || null;
     this._metadata = new LruCache(64, 2 * 1024 * 1024);
     this._uncertainWrites = new LruCache(512, 128 * 1024);
     this._writeReceipts = new Map();
@@ -241,6 +245,61 @@ class JitenParseCache {
     }
     return null;
   }
+  // GSM_ANKISTATES_FIXED_V2: remember surface forms from Jiten's token offsets.
+  _rememberTokenSpellings(scope, texts, tokenRows) {
+    for (let i = 0; i < (tokenRows || []).length; i++) {
+      const text = typeof texts?.[i] === 'string' ? texts[i] : '';
+      for (const token of tokenRows[i] || []) {
+        if (!Number.isInteger(token?.wordId) || !Number.isInteger(token?.start) || !Number.isInteger(token?.length)
+            || token.start < 0 || token.length <= 0 || token.start + token.length > text.length) continue;
+        const spelling = text.slice(token.start, token.start + token.length).normalize('NFKC').trim();
+        if (!spelling) continue;
+        const key = `${scope.id}:${token.wordId}:${token.readingIndex ?? 0}`;
+        const previous = this._spellings.get(key);
+        // Prefer a surface spelling that exactly exists in Anki, when known; otherwise retain the latest surface.
+        const exactMatch = typeof this.ankiMatch === 'function' && this.ankiMatch(spelling);
+        if (!previous || exactMatch) this._spellings.set(key, { spelling, reading: '' }, this.ttlMs);
+      }
+    }
+  }
+  _applyAnkiStates(scope, vocabulary, tokenRows) {
+    if (typeof this.stateOverride !== 'function') return;
+    const stateByWord = new Map();
+    for (const word of vocabulary || []) {
+      const key = wordKey(word);
+      const remembered = this._spellings.get(`${scope.id}:${key}`);
+      if (!remembered) continue;
+      try {
+        const state = this.stateOverride(remembered.spelling, remembered.reading || '');
+        if (Array.isArray(state) && state.length) {
+          word.knownState = state.slice();
+          stateByWord.set(key, word.knownState);
+        }
+      } catch (err) { console.warn('[AnkiStates] State override failed:', err?.message || err); }
+    }
+    // The renderer styles tokens, not the separate vocabulary metadata. Copy
+    // the resolved Anki state to each token without altering Jiten's boundaries.
+    for (const row of tokenRows || []) {
+      for (const token of row || []) {
+        const state = stateByWord.get(wordKey(token));
+        if (state) token.knownState = state.slice();
+      }
+    }
+  }
+  _overrideLookup(options, words, payload) {
+    if (typeof this.stateOverride !== 'function' || !Array.isArray(payload?.result) || !Array.isArray(words)) return payload;
+    const scope = this._scope(options);
+    payload.result = payload.result.map((state, i) => {
+      const pair = words[i];
+      const known = Array.isArray(pair) ? this._spellings.get(`${scope.id}:${pair[0]}:${pair[1] ?? 0}`) : null;
+      if (!known) return state;
+      try {
+        const next = this.stateOverride(known.spelling, known.reading || '');
+        return Array.isArray(next) && next.length ? next : state;
+      } catch { return state; }
+    });
+    return payload;
+  }
   async parse(args) {
     if (typeof args.text !== 'string') throw error('Jiten text must be a string', 400);
     return this.parseMany({ ...args, texts: [args.text] });
@@ -274,6 +333,8 @@ class JitenParseCache {
       release = this._lease(acquired);
       const payloads = await this._withSignal(Promise.all(promises), signal, release);
       const merged = structuredClone(mergePayloads(payloads));
+      // GSM_ANKISTATES_FIXED_V2: recover surface spellings from Jiten token offsets.
+      this._rememberTokenSpellings(scope, texts, merged.tokens);
       if (merged.vocabulary.length) {
         for (const word of merged.vocabulary) {
           const lastKnown = this._states.get(`${scope.id}:${wordKey(word)}`);
@@ -295,6 +356,8 @@ class JitenParseCache {
           if (signal?.aborted || this._disposed) throw err;
         }
       }
+      // Anki overrides Jiten account state when a matching card is available.
+      this._applyAnkiStates(scope, merged.vocabulary, merged.tokens); // GSM_ANKISTATES_FIXED_V3
       return merged;
     } finally { (release || this._lease(acquired))(); }
   }
@@ -396,7 +459,10 @@ class JitenParseCache {
 
   async _request({ action, body, method = 'POST', signal, ...options }) {
     if (action === 'reader/parse') return this.parseMany({ ...options, texts: body?.text, signal });
-    if (action === 'reader/lookup-vocabulary') return this.lookupVocabulary({ ...options, words: body?.words, signal });
+    if (action === 'reader/lookup-vocabulary') { // GSM_ANKISTATES_FIXED_V2
+      const looked = await this.lookupVocabulary({ ...options, words: body?.words, signal });
+      return this._overrideLookup(options, body?.words, looked);
+    }
     if (typeof action !== 'string' || !/^[a-z0-9/-]+$/i.test(action)) throw error('Invalid Jiten action', 400);
     const scope = this._scope(options);
     if (signal?.aborted) throw abortError();
