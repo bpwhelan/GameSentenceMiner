@@ -6,6 +6,7 @@ const nativeGlobalShortcut = electron.globalShortcut;
 const screen = electron.screen;
 const session = electron.session;
 const fs = require("fs");
+const readline = require("readline");
 const path = require('path');
 const os = require('os');
 const net = require('net');
@@ -870,15 +871,377 @@ const jitenParseCache = new JitenParseCache({
   },
 });
 const jitenFrameRequests = new JitenFrameRequests(jitenParseCache);
+
+// GSM_DOTNET_JITEN_TOKENIZER_FIXED_V3: persistent local .NET Jiten tokenizer worker.
+// Independent of the Rust input server and of the selected dictionary reader.
+const GSM_DOTNET_TOKENIZER_FOLDER = "jiten-tokenizer";
+let gsmDotnetTokenizerChild = null;
+let gsmDotnetTokenizerReader = null;
+let gsmDotnetTokenizerStartPromise = null;
+let gsmDotnetTokenizerSequence = 0;
+const gsmDotnetTokenizerPending = new Map();
+
+function gsmResolveDotnetTokenizerExe() {
+  const appPath = app.getAppPath();
+  const resourcesPath = process.resourcesPath || '';
+  const candidates = [
+    path.join(appPath, GSM_DOTNET_TOKENIZER_FOLDER, "Jiten.TokenizerHelper.exe"),
+    path.join(path.dirname(appPath), GSM_DOTNET_TOKENIZER_FOLDER, "Jiten.TokenizerHelper.exe"),
+    path.join(resourcesPath, GSM_DOTNET_TOKENIZER_FOLDER, "Jiten.TokenizerHelper.exe"),
+  ];
+  // GSM Overlay is installed as an extra nested Electron package in the main
+  // GameSentenceMiner resources directory. When this process is launched by
+  // that host, process.resourcesPath points at the outer resources directory,
+  // while the tokenizer is beside the nested GSM Overlay app.asar.
+  const overlayPackagesPath = path.join(resourcesPath, 'GSM_Overlay');
+  try {
+    for (const entry of fs.readdirSync(overlayPackagesPath, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      candidates.push(path.join(overlayPackagesPath, entry.name, 'resources', GSM_DOTNET_TOKENIZER_FOLDER, 'Jiten.TokenizerHelper.exe'));
+    }
+  } catch { /* The overlay is not nested in this resources directory. */ }
+  const uniqueCandidates = [...new Set(candidates)];
+  const found = uniqueCandidates.find(candidate => fs.existsSync(candidate)) || null;
+  if (found) console.info('[JitenTokenizer] Using helper:', found);
+  return found;
+}
+
+function gsmFailDotnetTokenizerPending(error) {
+  for (const pending of gsmDotnetTokenizerPending.values()) {
+    clearTimeout(pending.timer);
+    pending.reject(error);
+  }
+  gsmDotnetTokenizerPending.clear();
+}
+
+function gsmStopDotnetTokenizer(reason) {
+  const child = gsmDotnetTokenizerChild;
+  gsmDotnetTokenizerChild = null;
+  if (gsmDotnetTokenizerReader) gsmDotnetTokenizerReader.close();
+  gsmDotnetTokenizerReader = null;
+  gsmFailDotnetTokenizerPending(new Error(reason || "Jiten tokenizer worker stopped."));
+  if (child && !child.killed) child.kill();
+}
+
+function gsmStartDotnetTokenizer() {
+  if (gsmDotnetTokenizerChild && !gsmDotnetTokenizerChild.killed && gsmDotnetTokenizerChild.stdin.writable) {
+    return Promise.resolve(gsmDotnetTokenizerChild);
+  }
+  if (gsmDotnetTokenizerStartPromise) return gsmDotnetTokenizerStartPromise;
+  const exe = gsmResolveDotnetTokenizerExe();
+  if (!exe) return Promise.reject(new Error("Jiten.TokenizerHelper.exe not found. Checked: " + [
+    path.join(app.getAppPath(), GSM_DOTNET_TOKENIZER_FOLDER),
+    path.join(path.dirname(app.getAppPath()), GSM_DOTNET_TOKENIZER_FOLDER),
+    path.join(process.resourcesPath || '', GSM_DOTNET_TOKENIZER_FOLDER),
+    path.join(process.resourcesPath || '', 'GSM_Overlay', '*', 'resources', GSM_DOTNET_TOKENIZER_FOLDER),
+  ].join('; ')));
+
+  const startPromise = new Promise((resolve, reject) => {
+    const { spawn } = require("child_process");
+    const child = spawn(exe, [], { cwd: path.dirname(exe), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    gsmDotnetTokenizerChild = child;
+    let spawned = false;
+    const reader = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+    gsmDotnetTokenizerReader = reader;
+
+    reader.on("line", line => {
+      if (!line.trim()) return;
+      let response;
+      try { response = JSON.parse(line); }
+      catch (error) {
+        console.warn("[JitenTokenizer] Invalid helper JSON:", String(error?.message || error));
+        gsmStopDotnetTokenizer("Jiten tokenizer returned invalid JSON; worker restarted.");
+        return;
+      }
+      // Requests are written in order and the helper emits one JSON line per request.
+      const first = gsmDotnetTokenizerPending.keys().next();
+      if (first.done) {
+        console.warn("[JitenTokenizer] Ignoring unsolicited helper output.");
+        return;
+      }
+      const id = first.value;
+      const pending = gsmDotnetTokenizerPending.get(id);
+      gsmDotnetTokenizerPending.delete(id);
+      clearTimeout(pending.timer);
+      if (response && response.error) {
+        console.error("[JitenTokenizer] Helper rejected this exact input line:", pending.requestLine);
+        console.error("[JitenTokenizer] Helper error:", String(response.error));
+        pending.reject(new Error(String(response.error)));
+      }
+      else if (!response || !Array.isArray(response.tokens)) pending.reject(new Error("Helper response did not contain a tokens array."));
+      else pending.resolve(response);
+    });
+
+    child.stderr.on("data", chunk => {
+      const message = String(chunk || "").trim();
+      if (message) console.log("[JitenTokenizer] " + message.slice(0, 500));
+    });
+    child.once("spawn", () => { spawned = true; resolve(child); });
+    child.once("error", error => {
+      if (gsmDotnetTokenizerChild === child) gsmDotnetTokenizerChild = null;
+      if (gsmDotnetTokenizerReader === reader) gsmDotnetTokenizerReader = null;
+      reader.close();
+      const failure = new Error("Could not start Jiten.TokenizerHelper.exe: " + String(error?.message || error));
+      if (!spawned) reject(failure);
+      gsmFailDotnetTokenizerPending(failure);
+    });
+    child.once("exit", (code, signal) => {
+      if (gsmDotnetTokenizerChild === child) gsmDotnetTokenizerChild = null;
+      if (gsmDotnetTokenizerReader === reader) gsmDotnetTokenizerReader = null;
+      reader.close();
+      gsmFailDotnetTokenizerPending(new Error("Jiten tokenizer exited (code " + (code ?? "unknown") + (signal ? ", signal " + signal : "") + ")."));
+    });
+  });
+  gsmDotnetTokenizerStartPromise = startPromise;
+  startPromise.finally(() => { if (gsmDotnetTokenizerStartPromise === startPromise) gsmDotnetTokenizerStartPromise = null; }).catch(() => {});
+  return startPromise;
+}
+
+async function gsmRequestDotnetJitenTokens(text) {
+  const child = await gsmStartDotnetTokenizer();
+  if (child !== gsmDotnetTokenizerChild || child.killed || !child.stdin.writable) throw new Error("Jiten tokenizer worker is not writable.");
+  const id = ++gsmDotnetTokenizerSequence;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { // GSM_JITEN_COLD_START_TIMEOUT_FIX_V1
+      gsmStopDotnetTokenizer("Jiten tokenizer request timed out after 120000 ms; worker restarted.");
+    }, 120000);
+    const requestLine = JSON.stringify({ text }).replace(/[^\x00-\x7F]/g, ch => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0")); // GSM_JITEN_ASCII_JSON_STDIN_FIX_V1
+    gsmDotnetTokenizerPending.set(id, { resolve, reject, timer, requestLine });
+    child.stdin.write(requestLine + "\n", error => {
+      if (!error) return;
+      gsmStopDotnetTokenizer("Could not write to Jiten tokenizer: " + String(error.message || error));
+    });
+  });
+}
+
+app.once("before-quit", () => gsmStopDotnetTokenizer("GSM Overlay is shutting down."));
+
 let uninstallJitenSessionBroker = null;
 
+// GSM_VOCABPORT: MANAGED_INPUT_SERVER_PORT is always truthy (defaults to 7276), so the
+// stock getPort() never used the fallback port the overlay-started server really got.
+function getVocabularyServerPort() {
+  return INPUT_SERVER_MANAGED_BY_GSM ? MANAGED_INPUT_SERVER_PORT : userSettings.gamepadServerPort;
+}
+async function waitForVocabularyServerPort(timeoutMs = 15000) {
+  const net = require('net');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const port = getVocabularyServerPort();
+    const ok = await new Promise((resolve) => {
+      const socket = net.connect({ host: '127.0.0.1', port });
+      socket.setTimeout(1000, () => { socket.destroy(); resolve(false); });
+      socket.once('connect', () => { socket.destroy(); resolve(true); });
+      socket.once('error', () => resolve(false));
+    });
+    if (ok) return;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+}
 const vocabularyConnection = new VocabularyConnection({ WebSocket,
-  ensureServer: () => startGamepadServer('local-vocabulary'),
-  getPort: () => MANAGED_INPUT_SERVER_PORT || userSettings.gamepadServerPort,
+  ensureServer: async () => {
+    await startGamepadServer('local-vocabulary');
+    await waitForVocabularyServerPort();
+  },
+  getPort: getVocabularyServerPort,
 });
 const localVocabulary = new LocalVocabulary({
   request: request => vocabularyConnection.request(request), fetch: fetchJitenUpstream,
 });
+try { fs.unlinkSync(path.join(dataPath, 'unvoiced-tag-cache.json')); } catch { /* GSM_TAGRULES: obsolete cache, may not exist */ }
+// GSM_ANKISTATES_FIXED_V2: Jiten supplies boundaries; Anki supplies study states.
+jitenParseCache.stateOverride = (spelling, reading) => userSettings.wordStateMode === 'jiten' ? null : localVocabulary.ankiOverride(spelling, reading);
+jitenParseCache.ankiMatch = spelling => userSettings.wordStateMode !== 'jiten' && localVocabulary.hasAnkiSpelling(spelling);
+// ---- GSM_TAGRULES: user-defined Anki tag styles + display-state disk cache ----------------------
+const GSM_TAG_RULES_PATH = path.join(dataPath, 'anki-tag-styles.json');
+const GSM_DISPLAY_CACHE_PATH = path.join(dataPath, 'anki-display-states-cache.json');
+const GSM_TAG_LINE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
+const GSM_TAG_POSITIONS = ['underline', 'overline', 'background'];
+const GSM_TAG_DEFAULT_FILE = {
+  _help: [
+    'Each rule styles every word whose Anki note has the given tag. Save this file and the overlay reloads it within ~2 seconds.',
+    'tag: Anki tag name (no spaces). Anki search wildcards work, e.g. "jlpt*". Child tags (tag::sub) also match.',
+    'color: hex like #1e90ff.   style: solid | dashed | dotted | double.   thickness: 1-8 (px).',
+    'position: underline | overline | background.   opacity: 0.05-1, used only by position "background".',
+    'enabled: true/false.   If two rules use the same position on one word, the rule listed FIRST wins.',
+    'Rules with different positions combine (e.g. one underline + one overline + one background).',
+  ],
+  rules: [
+    { tag: 'unvoiced', color: '#1e90ff', style: 'dashed', thickness: 3, position: 'underline', enabled: true },
+  ],
+};
+let gsmTagRules = [];
+let gsmTagRuleErrors = [];
+let gsmTagRulesRevision = 0;
+let gsmTagRulesSignature = '';
+let gsmTagRefreshTimer = null;
+let gsmDisplayCacheTried = false;
+localVocabulary.displayCache.path = GSM_DISPLAY_CACHE_PATH;
+// GSM_ANKI_POPUP_GRADING_V1: popup-only flags are independent of Jiten and Anki tags.
+const GSM_ANKI_POPUP_FLAGS_PATH = path.join(dataPath, 'anki-popup-grading-flags.json');
+localVocabulary.loadPopupGradingFlags(GSM_ANKI_POPUP_FLAGS_PATH);
+
+function gsmNormalizeHexColor(value) {
+  const text = String(value ?? '').trim();
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(text);
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase();
+  return /^#[0-9a-f]{6}$/i.test(text) ? text.toLowerCase() : null;
+}
+function gsmValidateTagRules(raw) {
+  const rules = [];
+  const errors = [];
+  const list = Array.isArray(raw?.rules) ? raw.rules : null;
+  if (!list) return { rules, errors: ['"rules" must be a list'] };
+  if (list.length > 24) errors.push('only the first 24 rules are used');
+  list.slice(0, 24).forEach((item, i) => {
+    const label = `rule ${i + 1}`;
+    if (!item || typeof item !== 'object') { errors.push(`${label}: must be an object`); return; }
+    const tag = String(item.tag ?? '').trim();
+    if (!tag || tag.length > 64 || /[\s"()\\]/.test(tag)) { errors.push(`${label}: invalid tag "${tag.slice(0, 20)}"`); return; }
+    const color = gsmNormalizeHexColor(item.color);
+    if (!color) { errors.push(`${label} (${tag}): color must look like #1e90ff`); return; }
+    const style = String(item.style ?? 'dashed').toLowerCase();
+    if (!GSM_TAG_LINE_STYLES.includes(style)) { errors.push(`${label} (${tag}): style must be ${GSM_TAG_LINE_STYLES.join('/')}`); return; }
+    const position = String(item.position ?? 'underline').toLowerCase();
+    if (!GSM_TAG_POSITIONS.includes(position)) { errors.push(`${label} (${tag}): position must be ${GSM_TAG_POSITIONS.join('/')}`); return; }
+    const thicknessNumber = Number(item.thickness ?? 3);
+    const thickness = Number.isFinite(thicknessNumber) ? Math.min(8, Math.max(1, Math.round(thicknessNumber))) : 3;
+    const opacityNumber = Number(item.opacity ?? 0.3);
+    const opacity = Number.isFinite(opacityNumber) ? Math.min(1, Math.max(0.05, Math.round(opacityNumber * 100) / 100)) : 0.3;
+    rules.push({ tag, color, style, thickness, position, opacity, enabled: item.enabled !== false });
+  });
+  return { rules, errors };
+}
+function gsmLoadTagRules({ initial = false } = {}) {
+  let raw;
+  try {
+    if (!fs.existsSync(GSM_TAG_RULES_PATH)) {
+      fs.mkdirSync(path.dirname(GSM_TAG_RULES_PATH), { recursive: true });
+      fs.writeFileSync(GSM_TAG_RULES_PATH, JSON.stringify(GSM_TAG_DEFAULT_FILE, null, 2) + '\n', 'utf8');
+    }
+    raw = JSON.parse(fs.readFileSync(GSM_TAG_RULES_PATH, 'utf8'));
+  } catch (error) {
+    // Keep the previous good rules (e.g. the file was saved half-edited).
+    gsmTagRuleErrors = [`could not read the file: ${String(error?.message || error).slice(0, 120)}`];
+    return false;
+  }
+  const { rules, errors } = gsmValidateTagRules(raw);
+  gsmTagRuleErrors = errors;
+  const signature = JSON.stringify(rules);
+  if (signature === gsmTagRulesSignature) return false;
+  const previousTags = localVocabulary.activeTags().join('\n');
+  gsmTagRulesSignature = signature;
+  gsmTagRules = rules;
+  gsmTagRulesRevision++;
+  localVocabulary.setTagRules(rules);
+  if (!initial && localVocabulary.activeTags().join('\n') !== previousTags) gsmScheduleTagRefresh();
+  return true;
+}
+function gsmScheduleTagRefresh() {
+  clearTimeout(gsmTagRefreshTimer);
+  gsmTagRefreshTimer = setTimeout(async () => {
+    try {
+      if (ankiStateRefreshInFlight) await ankiStateRefreshInFlight.catch(() => {});
+      await localVocabulary.syncTagRulesOnly(localVocabularyConfig());
+    } catch (error) {
+      console.warn('[AnkiTags] tag refresh failed:', String(error?.message || error).slice(0, 200));
+    }
+    gsmTagRulesRevision++;
+  }, 600);
+}
+function gsmEnsureDisplayCache(config) {
+  if (gsmDisplayCacheTried) return;
+  try {
+    gsmDisplayCacheTried = true;
+    if (localVocabulary.ankiStateMap instanceof Map && localVocabulary.ankiStateMap.size) return;
+    if (localVocabulary.loadDisplayCache(config, GSM_DISPLAY_CACHE_PATH)) {
+      localVocabulary.ankiStatesSource = 'cache';
+      gsmTagRulesRevision++;
+      console.log(`[AnkiStates] loaded ${localVocabulary.ankiStateMap.size} states from cache; ${gsmTagSummaryLine()}`);
+    }
+  } catch { /* the cache is optional */ }
+}
+function gsmTagSummaryLine() {
+  return gsmTagRules.filter(rule => rule.enabled)
+    .map(rule => `${rule.tag}: ${localVocabulary.tagSets.get(rule.tag)?.size ?? 0}`).join(', ') || 'no active tag rules';
+}
+function gsmOpenTagRulesFile() {
+  gsmLoadTagRules();
+  void electron.shell.openPath(GSM_TAG_RULES_PATH);
+}
+gsmLoadTagRules({ initial: true });
+fs.watchFile(GSM_TAG_RULES_PATH, { interval: 2000 }, () => { gsmLoadTagRules(); }).unref?.();
+
+// ---- GSM_HOVERSTART: saved preference for Jiten hover lookup start position --------------------
+const GSM_HOVER_OPTIONS_PATH = path.join(dataPath, 'jiten-hover-options.json');
+let gsmHoverStart = 'word';
+try {
+  const savedHover = JSON.parse(fs.readFileSync(GSM_HOVER_OPTIONS_PATH, 'utf8'));
+  if (savedHover && (savedHover.hoverStart === 'word' || savedHover.hoverStart === 'cursor')) gsmHoverStart = savedHover.hoverStart;
+} catch { /* use default */ }
+ipcMain.handle('gsm-jiten-hover-get', () => ({ hoverStart: gsmHoverStart }));
+ipcMain.handle('gsm-jiten-hover-set', (_event, { hoverStart } = {}) => {
+  if (hoverStart !== 'word' && hoverStart !== 'cursor') return { ok: false };
+  gsmHoverStart = hoverStart;
+  try {
+    const temp = `${GSM_HOVER_OPTIONS_PATH}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify({ hoverStart }, null, 2) + '\n', 'utf8');
+    fs.renameSync(temp, GSM_HOVER_OPTIONS_PATH);
+  } catch { /* applied for this session */ }
+  return { ok: true, hoverStart: gsmHoverStart };
+});
+
+let ankiStateRefreshInFlight = null;
+let ankiPopupTargetedRefreshPending = 0;
+let ankiPopupTargetedRefreshQueue = Promise.resolve();
+
+function refreshAnkiStatesForHighlighting({ afterCurrent = false } = {}) {
+  if (userSettings.wordStateMode === 'jiten') return Promise.resolve(0);
+  if (ankiPopupTargetedRefreshPending > 0) {
+    const pendingTargetedRefreshes = ankiPopupTargetedRefreshQueue;
+    return pendingTargetedRefreshes.then(() => refreshAnkiStatesForHighlighting());
+  }
+  if (ankiStateRefreshInFlight) {
+    const currentRefresh = ankiStateRefreshInFlight;
+    if (!afterCurrent) return currentRefresh;
+
+    // A grade or note-add can happen while a periodic/older refresh is already
+    // reading Anki. That read may have started before the mutation, so wait for
+    // it and then guarantee one newer snapshot. If another caller has already
+    // started that follow-up snapshot, share it instead of issuing a duplicate.
+    return currentRefresh.then(() => {
+      if (ankiStateRefreshInFlight && ankiStateRefreshInFlight !== currentRefresh) {
+        return ankiStateRefreshInFlight;
+      }
+      return refreshAnkiStatesForHighlighting();
+    });
+  }
+
+  let trackedRefresh;
+  trackedRefresh = (async () => {
+    const config = localVocabularyConfig();
+    gsmEnsureDisplayCache(config); // GSM_TAGRULES: cached states are usable right away
+    try {
+      const count = await localVocabulary.syncAnkiStates(config);
+      if (!count) throw new Error('Anki returned zero usable spelling states; check AnkiConnect, search query, and word field');
+      localVocabulary.ankiStatesError = '';
+      localVocabulary.ankiStatesSource = 'anki';
+      gsmTagRulesRevision++; // fresh tag sets: the overlay re-matches visible words
+      console.log(`[AnkiStates] loaded ${count} Anki spelling states; tags -> ${gsmTagSummaryLine()}`);
+    } catch (error) {
+      localVocabulary.ankiStatesError = String(error?.message || error).slice(0, 200);
+      console.error('[AnkiStates] refresh failed:', localVocabulary.ankiStatesError);
+    } finally {
+      if (!localVocabulary.ankiStatesError) localVocabulary.ankiStatesAt = Date.now(); // GSM_TAGRULES: a failed refresh must not look fresh
+    }
+  })().finally(() => {
+    if (ankiStateRefreshInFlight === trackedRefresh) ankiStateRefreshInFlight = null;
+  });
+  ankiStateRefreshInFlight = trackedRefresh;
+  return trackedRefresh;
+}
+setTimeout(() => { void refreshAnkiStatesForHighlighting(); }, 2000);
+setInterval(() => { void refreshAnkiStatesForHighlighting(); }, 10 * 60_000).unref?.();
 let vocabularySyncInterval = null;
 let vocabularySyncTimer = null;
 let lastVocabularySyncAt = 0;
@@ -893,6 +1256,12 @@ function localVocabularyConfig() {
     readingField: userSettings.localVocabularyAnkiReadingField,
   };
 }
+
+function normalizeWordStateMode(value, legacyLocalEnabled = false) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'jiten' || mode === 'local' || mode === 'jiten-anki') return mode;
+  return legacyLocalEnabled ? 'local' : 'jiten-anki';
+}
 function notifyLocalVocabularyChanged() {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('local-vocabulary-changed');
   if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('local-vocabulary-changed');
@@ -904,7 +1273,10 @@ function scheduleLocalVocabularySync(delay = 1000) {
     vocabularySyncTimer = null;
     if (!userSettings.localVocabularyEnabled) return;
     lastVocabularySyncAt = Date.now();
-    try { await localVocabulary.sync(localVocabularyConfig()); } catch { /* Status UI exposes failure; keep offline data. */ }
+    try { await localVocabulary.syncUnvoiced(localVocabularyConfig()); } catch { /* GSM_UNVOICED: optional */ }
+    try { await localVocabulary.sync(localVocabularyConfig()); localVocabulary.lastSyncError = ''; }
+    catch (e) { localVocabulary.lastSyncError = String((e && e.message) || e).slice(0, 200); /* GSM_VOCABDEBUG */ }
+    localVocabulary.lastSyncAt = Date.now();
     notifyLocalVocabularyChanged();
   }, delay);
 }
@@ -933,10 +1305,283 @@ async function refreshLocalJitenState(args) {
   // of downloading that backup for every grade in a study session.
   scheduleLocalVocabularySync(Math.max(2000, 60_000 - (Date.now() - lastVocabularySyncAt)));
 }
-ipcMain.handle('gsm-local-vocabulary-parse', (_event, { texts } = {}) => {
+ipcMain.handle('gsm-local-vocabulary-parse', async (_event, { texts } = {}) => {
   if (!userSettings.localVocabularyEnabled) throw new Error('Local vocabulary is disabled');
-  return localVocabulary.parse(texts, localVocabularyConfig());
+  const result = await localVocabulary.parse(texts, localVocabularyConfig());
+  try { localVocabulary.markUnvoiced(texts, result); } catch { /* GSM_UNVOICED: never break parsing */ }
+  return result;
 });
+// GSM_ANKI_RENDERER_STATES: expose Anki states for Jiten's existing token spans.
+// Jiten owns token boundaries and visible text. Yomitan's local termEntries API
+// supplies deinflected dictionary headwords only when an exact Anki spelling misses.
+const GSM_YOMITAN_DECONJ_CACHE_PATH = path.join(dataPath, 'jiten-yomitan-deconjugation-cache.json');
+const GSM_YOMITAN_DECONJ_CACHE_LIMIT = 20000;
+const gsmYomitanDeconjCache = new Map();
+const gsmYomitanDeconjInflight = new Map();
+let gsmYomitanDeconjCacheWritePending = false;
+let gsmYomitanDeconjLastWarningAt = 0;
+// Cheap eligibility filter for Yomitan's own deinflection engine.
+// Japanese inflected forms normally end in hiragana, but their endings can be
+// arbitrarily composed (including contractions and stacked auxiliaries), so a
+// hand-maintained suffix list will inevitably miss valid forms. Only submit
+// unknown, uncached multi-character tokens ending in hiragana. Yomitan remains
+// the authority on whether a real deinflection exists; non-inflected results
+// are cached too, so each spelling is only looked up once.
+const GSM_HIRAGANA_FINAL_RE = /[\u3041-\u3096\u309D-\u309F]$/u;
+const GSM_HIRAGANA_INFLECTED_FINAL_RE = /(?:なかった|なくて|なければ|ませんでした|ません|ましょう|ました|ます|ている|でいる|ていた|でいた|てる|でる|ちゃう|じゃう|たら|だら|たり|だり|ない|たい|たく|れば|った|いた|いだ|んだ|して|した|って|んで|いて|いで|れて|れた|れてる|くて|かった|くない|て|で|た|だ)$/u;
+function gsmLooksInflectedForLookup(word) {
+  // All-hiragana text is often a lexical match rather than an inflection (でも,
+  // したい, から). Allow longer forms with a recognizable inflection ending;
+  // the candidate extractor still requires Yomitan to report a changed form.
+  const hasDictionaryScript = /[\u30A1-\u30FA\u4E00-\u9FFF\u3005]/u.test(word || '');
+  const isLongHiraganaInflection = typeof word === 'string'
+    && word.length >= 5
+    && !hasDictionaryScript
+    && GSM_HIRAGANA_INFLECTED_FINAL_RE.test(word);
+  return typeof word === 'string'
+    && word.length >= 2
+    && GSM_HIRAGANA_FINAL_RE.test(word)
+    && /[\u3041-\u3096\u309D-\u309F]/u.test(word)
+    && (hasDictionaryScript || isLongHiraganaInflection);
+}
+try {
+  const saved = JSON.parse(fs.readFileSync(GSM_YOMITAN_DECONJ_CACHE_PATH, 'utf8'));
+  if (saved && saved.version === 6 && saved.entries && typeof saved.entries === 'object') { // GSM_DECONJGUARD: older files are rebuilt
+    for (const [word, candidates] of Object.entries(saved.entries)) {
+      // GSM_SURUPREFIX: version-1 files hold "no candidates" answers made before suru prefixes were accepted.
+      if (typeof word === 'string' && Array.isArray(candidates) && candidates.length > 0) {
+        gsmYomitanDeconjCache.set(word, [...new Set(candidates.filter(x => typeof x === 'string' && x))].slice(0, 100));
+      }
+    }
+  }
+} catch { /* First launch or an unreadable cache: start empty. */ }
+
+function gsmScheduleYomitanDeconjCacheWrite() {
+  if (gsmYomitanDeconjCacheWritePending) return;
+  gsmYomitanDeconjCacheWritePending = true;
+  setTimeout(() => {
+    gsmYomitanDeconjCacheWritePending = false;
+    try {
+      while (gsmYomitanDeconjCache.size > GSM_YOMITAN_DECONJ_CACHE_LIMIT) {
+        gsmYomitanDeconjCache.delete(gsmYomitanDeconjCache.keys().next().value);
+      }
+      const entries = Object.create(null);
+      for (const [word, candidates] of gsmYomitanDeconjCache) entries[word] = candidates;
+      fs.writeFile(GSM_YOMITAN_DECONJ_CACHE_PATH, JSON.stringify({ version: 6, entries }), 'utf8', () => {});
+    } catch (error) {
+      console.warn('[AnkiStates] Could not save Yomitan deconjugation cache:', error?.message || error);
+    }
+  }, 250);
+}
+
+// GSM_SURUPREFIX: Yomitan matches "反省" inside "反省し" as a prefix, with no inflection chain.
+const GSM_SURU_REMAINDER_RE = /^(し|して|した|しない|しなかった|しなくて|しなく|します|しました|しません|しましょう|しよう|しろ|しなさい|しながら|したい|したら|しては|してる|している|していた|しており|しつつ|しちゃ|しちゃう|する|すれば|すると|せず|せよ|され|される|された|させ|させる|させた|できる|できた|できない)$/u;
+const GSM_NON_HIRAGANA_FINAL_RE = /[^\u3041-\u3096\u309D-\u309F]$/u;
+// Jiten sometimes keeps an attached sentence particle inside the word span
+// (e.g. 俺さ). Yomitan returns the underlying dictionary entry as a prefix,
+// but correctly reports no conjugation chain for this kind of lookup.
+const GSM_YOMITAN_PARTICLE_REMAINDER_RE = /^(さ|は|も|が|を|に|と|で|へ|の|ね|よ|ぞ|ぜ|って|だけ|まで|から|より|こそ|しか|でも|ってば|なんて)$/u;
+function gsmYomitanParticlePrefixMatch(requested, headword, sources) {
+  const term = String(headword?.term || '').normalize('NFKC');
+  if (!term || term === requested) return false;
+  return sources.some(source => {
+    if (!source || typeof source !== 'object') return false;
+    const original = String(source.originalText || '').normalize('NFKC');
+    return original === term && requested.startsWith(original)
+      && GSM_YOMITAN_PARTICLE_REMAINDER_RE.test(requested.slice(original.length));
+  });
+}
+function gsmIsSuruPrefixMatch(requested, original) {
+  return original.length >= 2 && requested.length > original.length && requested.startsWith(original)
+    && GSM_NON_HIRAGANA_FINAL_RE.test(original) && GSM_SURU_REMAINDER_RE.test(requested.slice(original.length));
+}
+function gsmSuruPrefixHeadword(requested, headword, sources) {
+  const classes = Array.isArray(headword?.wordClasses) ? headword.wordClasses : [];
+  if (classes.length && !classes.some(name => String(name).startsWith('vs'))) return false;
+  return sources.some(source => source && typeof source === 'object'
+    && gsmIsSuruPrefixMatch(requested, String(source.originalText || '').normalize('NFKC')));
+}
+let gsmYomitanMissLogCount = 0;
+function gsmDescribeYomitanMiss(response) {
+  const items = Array.isArray(response) ? response : [response];
+  const parts = [];
+  for (const item of items) {
+    for (const entry of (Array.isArray(item?.dictionaryEntries) ? item.dictionaryEntries : []).slice(0, 3)) {
+      for (const headword of (Array.isArray(entry?.headwords) ? entry.headwords : []).slice(0, 2)) {
+        const source = Array.isArray(headword?.sources) ? headword.sources[0] : null;
+        const chain = Array.isArray(entry?.inflectionRuleChainCandidates) ? entry.inflectionRuleChainCandidates.length : 0;
+        parts.push(`${headword?.term}[from "${source?.originalText}", classes ${JSON.stringify(headword?.wordClasses ?? null)}, inflection chains ${chain}]`);
+      }
+    }
+  }
+  return parts.slice(0, 4).join('; ') || 'no dictionary entries';
+}
+
+let gsmYomitanHitLogCount = 0; // GSM_MATCHTRACE
+function gsmExtractYomitanHeadwords(response, requestedWords) {
+  const responseItems = Array.isArray(response) ? response : [response];
+  const result = new Map();
+  for (let i = 0; i < requestedWords.length; i++) result.set(requestedWords[i], []);
+  for (const item of responseItems) {
+    if (!item || typeof item !== 'object') continue;
+    const index = Number.isInteger(item.index) ? item.index : (responseItems.length === 1 ? 0 : -1);
+    const requested = requestedWords[index];
+    if (!requested) continue;
+    const candidates = result.get(requested) || [];
+    // GSM_EXACTWORD: prevent a shorter prefix from deconjugating a word that exists as-is.
+    const hasExactEntry = (Array.isArray(item.dictionaryEntries) ? item.dictionaryEntries : []).some(entry =>
+      entry && entry.type === 'term' && (Array.isArray(entry.headwords) ? entry.headwords : []).some(headword =>
+        String(headword?.term || '').normalize('NFKC').trim() === requested
+        && (Array.isArray(headword.sources) ? headword.sources : []).some(source => source && typeof source === 'object'
+          && String(source.originalText || '').normalize('NFKC') === requested)));
+    for (const entry of (Array.isArray(item.dictionaryEntries) ? item.dictionaryEntries : [])) {
+      if (!entry || entry.type !== 'term') continue;
+      const headwords = Array.isArray(entry.headwords) ? entry.headwords : [];
+      for (const headword of headwords) {
+        const term = String(headword?.term || '').normalize('NFKC').trim();
+        if (!term || term === requested || candidates.includes(term)) continue;
+        // Require the lookup result to have an actual inflection path. This avoids
+        // treating unrelated fuzzy/reading matches as deconjugation candidates.
+        const sources = Array.isArray(headword.sources) ? headword.sources : [];
+        const coversRequested = sources.some(source => source && typeof source === 'object'
+          && String(source.originalText || '').normalize('NFKC') === requested);
+        const isDeinflected = sources.some(source => {
+          if (!source || typeof source !== 'object') return false;
+          const original = String(source.originalText || '').normalize('NFKC');
+          const deinflected = String(source.deinflectedText || '').normalize('NFKC');
+          // GSM_DECONJGUARD: the text must have been changed by deinflection; an unchanged match is a
+          // reading/orthography match (したい -> 死体), not a deconjugation.
+          return original === requested && deinflected.length > 0 && deinflected !== original;
+        }) || (Array.isArray(entry.inflectionRuleChainCandidates) && entry.inflectionRuleChainCandidates.some(chain =>
+          Array.isArray(chain?.inflectionRules) && chain.inflectionRules.length > 0)
+          && (coversRequested || !hasExactEntry));
+        if (isDeinflected || gsmSuruPrefixHeadword(requested, headword, sources)
+            || gsmYomitanParticlePrefixMatch(requested, headword, sources)) candidates.push(term); // GSM_SURUPREFIX
+      }
+    }
+    result.set(requested, candidates.slice(0, 100));
+  }
+  return result;
+}
+
+// Yomitan is embedded in GSM Overlay. The renderer calls its existing
+// window.gsmYomitanBridge.termEntries() bridge; main.js only persists results
+// and matches the returned dictionary candidates against Anki.
+ipcMain.handle('gsm-anki-deconj-needed', (_event, { spellings } = {}) => {
+  if (userSettings.wordStateMode === 'jiten' || !Array.isArray(spellings)) return [];
+  return [...new Set(spellings.slice(0, 5000)
+    .map(raw => String(raw || '').normalize('NFKC').trim()).filter(Boolean))]
+    .filter(spelling => !localVocabulary.hasAnkiSpelling(spelling)
+      && gsmLooksInflectedForLookup(spelling)
+      && !gsmYomitanDeconjCache.has(spelling));
+});
+
+ipcMain.handle('gsm-anki-cache-yomitan-responses', (_event, { responses } = {}) => {
+  if (!Array.isArray(responses)) return { saved: 0 };
+  let saved = 0;
+  for (const item of responses.slice(0, 100)) {
+    const word = String(item?.word || '').normalize('NFKC').trim();
+    if (!word || !Object.prototype.hasOwnProperty.call(item || {}, 'response')) continue;
+    const extracted = gsmExtractYomitanHeadwords(item.response, [word]);
+    if (!extracted.has(word)) continue;
+    if (!(extracted.get(word) || []).length && gsmYomitanMissLogCount < 15) { // GSM_SURUPREFIX
+      gsmYomitanMissLogCount++;
+      console.log(`[AnkiStates] no deconjugation candidate for ${word}: ${gsmDescribeYomitanMiss(item.response)}`);
+    }
+    if ((extracted.get(word) || []).length && gsmYomitanHitLogCount < 30) { // GSM_MATCHTRACE
+      gsmYomitanHitLogCount++;
+      console.log(`[AnkiStates] Yomitan candidates for ${word}: ${JSON.stringify(extracted.get(word).slice(0, 8))}`);
+    }
+    gsmYomitanDeconjCache.set(word, extracted.get(word) || []);
+    saved++;
+  }
+  if (saved) gsmScheduleYomitanDeconjCacheWrite();
+  return { saved };
+});
+
+// GSM_TAGRULES: renderer fetches the style rules and the per-word tag matches.
+ipcMain.handle('gsm-anki-tag-styles', () => ({ revision: gsmTagRulesRevision, rules: gsmTagRules }));
+ipcMain.handle('gsm-anki-tag-matches', (_event, { spellings } = {}) => {
+  gsmEnsureDisplayCache(localVocabularyConfig());
+  const result = Object.create(null);
+  if (userSettings.wordStateMode === 'jiten' || !Array.isArray(spellings) || !gsmTagRules.length) return result;
+  for (const raw of spellings.slice(0, 5000)) {
+    const spelling = String(raw || '').normalize('NFKC').trim();
+    if (!spelling) continue;
+    let matches = localVocabulary.tagRuleIndexes(spelling);
+    if (!matches.length && !localVocabulary.hasAnkiSpelling(spelling) && gsmLooksInflectedForLookup(spelling)) {
+      // Same rule as display states: the first Yomitan candidate that exists in Anki decides.
+      for (const candidate of (gsmYomitanDeconjCache.get(spelling) || [])) {
+        if (!localVocabulary.hasAnkiSpelling(candidate)) continue;
+        matches = localVocabulary.tagRuleIndexes(candidate);
+        break;
+      }
+    }
+    if (matches.length) result[spelling] = matches;
+  }
+  return result;
+});
+ipcMain.handle('gsm-anki-tag-open-config', () => { gsmOpenTagRulesFile(); return GSM_TAG_RULES_PATH; });
+
+// GSM_TAGUI: settings-window editor for the tag rules
+function gsmTagRulesPayload() {
+  return {
+    rules: gsmTagRules.map(rule => ({ ...rule, words: localVocabulary.tagSets.get(rule.tag)?.size ?? null,
+      error: localVocabulary.tagStatus.get(rule.tag)?.error || '' })),
+    errors: gsmTagRuleErrors,
+    path: GSM_TAG_RULES_PATH,
+    states: localVocabulary.ankiStateMap instanceof Map ? localVocabulary.ankiStateMap.size : 0,
+    source: localVocabulary.ankiStatesSource || 'none',
+    refreshError: localVocabulary.ankiStatesError || '',
+  };
+}
+ipcMain.handle('gsm-anki-tag-rules-get', () => { gsmLoadTagRules(); return gsmTagRulesPayload(); });
+ipcMain.handle('gsm-anki-tag-rules-save', (_event, { rules } = {}) => {
+  if (!Array.isArray(rules)) return { ok: false, errors: ['rules must be a list'] };
+  const { rules: valid, errors } = gsmValidateTagRules({ rules });
+  if (errors.length) return { ok: false, errors };
+  try {
+    const clean = valid.map(({ tag, color, style, thickness, position, opacity, enabled }) =>
+      ({ tag, color, style, thickness, position, opacity, enabled }));
+    const temp = `${GSM_TAG_RULES_PATH}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify({ _help: GSM_TAG_DEFAULT_FILE._help, rules: clean }, null, 2) + '\n', 'utf8');
+    fs.renameSync(temp, GSM_TAG_RULES_PATH);
+  } catch (error) {
+    return { ok: false, errors: [`could not write the rules file: ${String(error?.message || error).slice(0, 120)}`] };
+  }
+  gsmLoadTagRules();
+  return { ok: true, ...gsmTagRulesPayload() };
+});
+
+ipcMain.handle('gsm-anki-display-states', async (_event, { spellings } = {}) => {
+  gsmEnsureDisplayCache(localVocabularyConfig());
+  if (userSettings.wordStateMode === 'jiten' || !Array.isArray(spellings)) return {};
+  const result = Object.create(null);
+  const normalized = [...new Set(spellings.slice(0, 5000).map(raw => String(raw || '').normalize('NFKC').trim()).filter(Boolean))];
+  for (const spelling of normalized) {
+    // Exact visible spelling always wins over a deconjugated candidate.
+    if (localVocabulary.hasAnkiSpelling(spelling)) {
+      const exactState = localVocabulary.ankiOverride(spelling, '');
+      if (Array.isArray(exactState) && exactState.length) result[spelling] = exactState;
+      continue;
+    }
+    if (!gsmLooksInflectedForLookup(spelling)) continue;
+    const matchingCandidates = [];
+    for (const candidate of (gsmYomitanDeconjCache.get(spelling) || [])) {
+      if (!localVocabulary.hasAnkiSpelling(candidate)) continue;
+      const state = localVocabulary.ankiOverride(candidate, '');
+      if (Array.isArray(state) && state.length) matchingCandidates.push({ candidate, state });
+    }
+    // Yomitan orders its deinflected candidates by lookup relevance. Prefer the
+    // first candidate that exists in Anki instead of rejecting a valid match
+    // merely because a broader dictionary form (e.g. 話す) also exists.
+    if (matchingCandidates.length) {
+      result[spelling] = matchingCandidates[0].state;
+    }
+  }
+  return result;
+});
+
 ipcMain.handle('gsm-local-vocabulary-status', () => {
   if (!userSettings.localVocabularyEnabled) return { sources: [], errors: [] };
   return localVocabulary.status(localVocabularyConfig());
@@ -944,6 +1589,7 @@ ipcMain.handle('gsm-local-vocabulary-status', () => {
 ipcMain.handle('gsm-local-vocabulary-sync', async () => {
   if (!userSettings.localVocabularyEnabled) throw new Error('Enable local vocabulary first');
   lastVocabularySyncAt = Date.now();
+  try { await localVocabulary.syncUnvoiced(localVocabularyConfig()); } catch { /* GSM_UNVOICED: optional */ }
   try { return await localVocabulary.sync(localVocabularyConfig()); }
   finally { notifyLocalVocabularyChanged(); }
 });
@@ -951,6 +1597,18 @@ ipcMain.handle('gsm-local-vocabulary-sync', async () => {
 // Renderer-process bridge to the cache. The overlay's gamepad/furigana
 // pipeline calls this instead of fetching directly, so cache hits skip
 // the HTTP round-trip entirely.
+// GSM_DOTNET_JITEN_TOKENIZER_FIXED_V3: renderer bridge used by jiten_highlight.js.
+ipcMain.handle('gsm-dotnet-jiten-parse', async (_event, { texts } = {}) => {
+  if (!Array.isArray(texts) || texts.length > 128 || texts.some(text => typeof text !== "string")) {
+    throw new Error("gsm-dotnet-jiten-parse expects up to 128 text strings.");
+  }
+  const results = await Promise.all(texts.map(text => gsmRequestDotnetJitenTokens(text)));
+  return { tokens: results.map((result, index) => {
+    if (!Array.isArray(result.tokens)) throw new Error("Invalid tokenizer result for text " + index);
+    return result.tokens;
+  }) };
+});
+
 ipcMain.handle('gsm-jiten-parse', async (_event, args = {}) => {
   recordOverlayDiagnostic('parse-ipc-start');
   const { text, apiKey, endpoint, timeout } = args || {};
@@ -974,6 +1632,88 @@ const gradingDiagnosticStages = new Set(['received', 'resolving', 'resolved', 'w
 ipcMain.on('gsm-jiten-grade-stage', (event, stage) => {
   if (gradingDiagnosticStages.has(stage)) recordOverlayDiagnostic(`grade-${stage}`);
   event.returnValue = true;
+});
+
+// GSM_ANKI_POPUP_GRADING_V1: Yomitan popup grading is routed to the active GSM Anki profile.
+// GSM_ANKI_POPUP_TARGETED_REFRESH_V1: update one spelling in the display-state cache.
+// Targeted updates are serialized, and collection-wide refreshes wait for them so
+// an older snapshot cannot overwrite a just-reviewed or just-mined spelling.
+function refreshOneAnkiPopupEntry(args = {}) {
+  ankiPopupTargetedRefreshPending++;
+  const task = ankiPopupTargetedRefreshQueue.catch(() => {}).then(async () => {
+    try {
+      // Targeted refreshes can run alongside a full snapshot. LocalVocabulary's
+      // revisioned overrides ensure an older snapshot cannot overwrite this result.
+      const config = localVocabularyConfig();
+      gsmEnsureDisplayCache(config);
+      const result = await localVocabulary.refreshAnkiStateForPopupWord(config, args || {});
+      if (!result.updated) return { ok: false, ...result };
+      localVocabulary.ankiStatesError = '';
+      localVocabulary.ankiStatesSource = 'anki-targeted';
+      gsmTagRulesRevision++;
+      notifyAnkiPopupGradingStateChanged();
+      return { ok: true, ...result };
+    } catch (error) {
+      const message = String(error?.message || error).slice(0, 200);
+      localVocabulary.ankiStatesError = message;
+      console.warn('[AnkiPopup] Targeted Anki state update failed:', message);
+      return { ok: false, error: message };
+    }
+  });
+  ankiPopupTargetedRefreshQueue = task.finally(() => { ankiPopupTargetedRefreshPending = Math.max(0, ankiPopupTargetedRefreshPending - 1); });
+  return task;
+}
+
+function notifyAnkiPopupGradingStateChanged() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('gsm-anki-popup-state-changed');
+  }
+}
+
+ipcMain.handle('gsm-anki-popup-grade', async (_event, args = {}) => {
+  const result = await localVocabulary.gradePopupWord(localVocabularyConfig(), args || {});
+  // Anki has confirmed the grade. Return now so Yomitan can show its success
+  // tick immediately; reconcile the exact scheduling state in the background.
+  const { matchedCardIds, usedCardIndex, ...publicResult } = result;
+  void refreshOneAnkiPopupEntry({
+    term: result.term,
+    reading: result.reading,
+    cardIds: matchedCardIds,
+  }).then(stateRefresh => {
+    if (!stateRefresh.ok) {
+      console.warn('[AnkiPopup] Background post-grade state refresh did not complete:',
+        stateRefresh.error || 'unknown error');
+    }
+  }).catch(error => {
+    console.warn('[AnkiPopup] Background post-grade state refresh failed:', String(error?.message || error).slice(0, 200));
+  });
+  return { ok: true, ...publicResult, refreshPending: true };
+});
+
+// Yomitan sends gsm-anki-note-added after AnkiConnect successfully adds a note.
+// The renderer supplies that popup's selected headword; refresh only that entry.
+ipcMain.handle('gsm-anki-popup-refresh', async (_event, args = {}) => {
+  const result = await refreshOneAnkiPopupEntry(args || {});
+  return {
+    ...result,
+    stateRefreshError: result.ok ? undefined : (result.error || 'Targeted Anki state refresh did not complete'),
+    refreshedAt: localVocabulary.ankiStatesAt || 0,
+  };
+});
+
+ipcMain.handle('gsm-anki-popup-flags-list', () => ({
+  flags: [...localVocabulary.popupGradingFlags.values()]
+    .map(item => ({ spelling: item.spelling, reading: item.reading || '', flag: item.flag, updatedAt: item.updatedAt || 0 }))
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.spelling.localeCompare(b.spelling)),
+}));
+
+ipcMain.handle('gsm-anki-popup-set-flag', (_event, args = {}) => {
+  const result = localVocabulary.setPopupGradingFlag(
+    args?.term, args?.reading, args?.flag, args?.action || 'add'
+  );
+  gsmTagRulesRevision++;
+  notifyAnkiPopupGradingStateChanged();
+  return { ok: true, ...result };
 });
 
 // Jiten SRS grading bridges (used by the Yomitan popup's grading bar, proxied
@@ -1150,6 +1890,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "enableJitenReader": true,
   // Jiten Reader style SRS highlighting on the overlay text
   "jitenHighlightingEnabled": false,
+  "wordStateMode": "jiten-anki",
   "localVocabularyEnabled": false,
   "localVocabularySource": "jiten",
   "localVocabularyAnkiQuery": "",
@@ -1306,11 +2047,13 @@ function seedOverlayProfileSettings(profileName, sourceSettings = userSettings) 
 
 function normalizeOverlaySettingsProfiles(reason = "unknown") {
   let changed = false;
-  // Local vocabulary is not ready for production, including previously enabled profiles.
-  if (userSettings.localVocabularyEnabled !== false) {
-    userSettings.localVocabularyEnabled = false;
+  const mode = normalizeWordStateMode(userSettings.wordStateMode, userSettings.localVocabularyEnabled === true);
+  if (userSettings.wordStateMode !== mode) {
+    userSettings.wordStateMode = mode;
     changed = true;
   }
+  if (userSettings.localVocabularyEnabled !== (mode === 'local')) changed = true;
+  userSettings.localVocabularyEnabled = mode === 'local';
   userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] = userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] === true;
   userSettings[OVERLAY_ACTIVE_PROFILE_KEY] = normalizeOverlayProfileName(userSettings[OVERLAY_ACTIVE_PROFILE_KEY]);
   const profiles = getOverlayProfileSettingsContainer();
@@ -1336,10 +2079,13 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
         changed = true;
       }
     }
-    if (cleanedSettings.localVocabularyEnabled !== false) {
-      cleanedSettings.localVocabularyEnabled = false;
+    const profileMode = normalizeWordStateMode(cleanedSettings.wordStateMode, cleanedSettings.localVocabularyEnabled === true);
+    if (cleanedSettings.wordStateMode !== profileMode) {
+      cleanedSettings.wordStateMode = profileMode;
       changed = true;
     }
+    if (cleanedSettings.localVocabularyEnabled !== (profileMode === 'local')) changed = true;
+    cleanedSettings.localVocabularyEnabled = profileMode === 'local';
     if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideCompletedGoals")) {
       cleanedSettings.hideCompletedGoals = DEFAULT_USER_SETTINGS.hideCompletedGoals;
       changed = true;
@@ -1395,8 +2141,10 @@ function persistOverlaySettingForActiveProfile(key, value) {
 }
 
 function setOverlaySettingValue(key, value) {
-  if (key === "localVocabularyEnabled") {
-    value = false;
+  if (key === 'wordStateMode') {
+    value = normalizeWordStateMode(value);
+    userSettings.localVocabularyEnabled = value === 'local';
+    persistOverlaySettingForActiveProfile('localVocabularyEnabled', userSettings.localVocabularyEnabled);
   }
   userSettings[key] = value;
   persistOverlaySettingForActiveProfile(key, value);
@@ -6974,6 +7722,10 @@ function updateTrayMenu() {
       label: 'Jiten Reader Settings',
       click: () => openJitenReaderSettings()
     },
+    {
+      label: 'Anki Tag Styles (opens file)', // GSM_TAGRULES
+      click: () => gsmOpenTagRulesFile()
+    },
     ...(isDev ? [
       {
         label: 'Open DevTools',
@@ -8849,6 +9601,12 @@ async function startOverlayAppImpl() {
         registerGamepadKeyboardHotkey(oldValue);
         syncGamepadServerState(`setting-changed:${key}`);
         break;
+    }
+    if (key === 'wordStateMode') {
+      userSettings.localVocabularyEnabled = userSettings.wordStateMode === 'local';
+      syncGamepadServerState('word-state-mode');
+      syncLocalVocabularyRuntime();
+      if (userSettings.wordStateMode !== 'jiten') void refreshAnkiStatesForHighlighting();
     }
     if (key.startsWith('localVocabulary') || key === 'gamepadJitenApiKey') {
       syncGamepadServerState('local-vocabulary-settings');

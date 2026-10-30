@@ -79,14 +79,14 @@
       if (view.busy || view.bar.hidden) return;
       const headword = this.getHeadword(owner);
       if (!headword) return;
-      if (this.config.hasApiKey === false) { view.status.textContent = 'Set Jiten API key'; return; }
+      // GSM grades the active Anki profile locally; no Jiten API key is needed.
       const revision = view.revision;
       const requestId = `gsm-hachidori-grade-${Date.now()}-${++this.sequence}`;
       view.busy = true;
       this.buttons(owner).forEach(button => { button.disabled = true; });
       view.status.textContent = '…';
       const result = await new Promise(resolve => {
-        const timer = setTimeout(() => finish({ ok: false, error: 'Timed out' }), 8000);
+        const timer = setTimeout(() => finish({ ok: false, error: 'Timed out' }), 30000);
         const finish = result => { clearTimeout(timer); this.pending.delete(requestId); resolve(result); };
         this.pending.set(requestId, finish);
         try { this.window.postMessage({ type: 'gsm-jiten-grade', requestId, ...headword, ...fields }, '*'); }
@@ -94,7 +94,11 @@
       });
       view.busy = false;
       this.buttons(owner).forEach(button => { button.disabled = false; });
-      if (view.revision === revision && view.bar.isConnected) view.status.textContent = result.ok ? `${label} ✓` : result.error || 'Failed';
+      if (view.revision === revision && view.bar.isConnected) {
+        const count = Number.isInteger(result.matchedCards) && result.matchedCards > 1
+          ? ` (${result.matchedCards} cards)` : '';
+        view.status.textContent = result.ok ? `${label} ✓${count}` : result.error || 'Failed';
+      }
     }
     destroy() {
       this.window.removeEventListener('message', this.onMessage);

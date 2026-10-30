@@ -38,6 +38,8 @@ export class GsmJitenGrading {
         /** @type {boolean} */
         this._twoGrades = false;
         /** @type {boolean} */
+        this._atBottom = false;
+        /** @type {boolean} */
         this._hasApiKey = true;
         /** @type {string} */
         this._renderedSignature = '';
@@ -80,7 +82,17 @@ export class GsmJitenGrading {
     _onMessage(event) {
         const data = event && event.data;
         if (!data || typeof data !== 'object') { return; }
-        if (data.type === 'gsm-jiten-grading-config') {
+        if (data.type === 'gsm-anki-popup-current-entry-request' && typeof data.requestId === 'string') {
+            const headword = this._getCurrentHeadword();
+            try {
+                window.top.postMessage({
+                    type: 'gsm-anki-popup-current-entry-response',
+                    requestId: data.requestId,
+                    term: headword?.term || '',
+                    reading: headword?.reading || '',
+                }, '*');
+            } catch (e) { /* ignore */ }
+        } else if (data.type === 'gsm-jiten-grading-config') {
             this._applyConfig(data);
         } else if (data.type === 'gsm-jiten-grade-result' && typeof data.requestId === 'string') {
             const resolve = this._pending.get(data.requestId);
@@ -92,12 +104,13 @@ export class GsmJitenGrading {
     }
 
     /**
-     * @param {{enabled?: boolean, showGrading?: boolean, twoGrades?: boolean, hasApiKey?: boolean}} cfg
+     * @param {{enabled?: boolean, showGrading?: boolean, twoGrades?: boolean, hasApiKey?: boolean, position?: string}} cfg
      */
     _applyConfig(cfg) {
         this._enabled = cfg.enabled === true;
         this._showGrading = cfg.showGrading !== false;
         this._twoGrades = cfg.twoGrades === true;
+        this._atBottom = cfg.position === 'bottom';
         this._hasApiKey = cfg.hasApiKey !== false;
         if (!this._enabled) {
             this._renderedSignature = '';
@@ -144,17 +157,31 @@ export class GsmJitenGrading {
     /** */
     _updateVisibility() {
         if (!this._bar) { return; }
-        const hasWord = this._getCurrentHeadword() !== null;
-        this._bar.hidden = !(this._enabled && hasWord);
+        // The popup can have results before Yomitan has selected an entry (so
+        // _getCurrentHeadword() may be null). Keep the controls visible for any
+        // populated result list; the click handler still reports "No word" if
+        // the user acts before a headword is available.
+        const entries = this._display.dictionaryEntries;
+        const hasEntries = Array.isArray(entries) && entries.length > 0;
+        this._bar.hidden = !(this._enabled && hasEntries);
     }
 
     /** */
     _ensureBarAttached() {
-        if (this._bar && this._bar.isConnected) { return; }
         const entries = document.querySelector('#dictionary-entries');
         const parent = entries ? entries.parentElement : (document.querySelector('.content-body-inner') || document.querySelector('#content-body'));
         if (!parent) { return; }
         if (!this._bar) { this._buildBar(); }
+        this._bar.dataset.position = this._atBottom ? 'bottom' : 'top';
+        if (this._atBottom) {
+            // Yomitan's footer sits outside #content-scroll, so the grader stays
+            // visible while dictionary entries scroll independently.
+            const footer = document.querySelector('#content-footer');
+            if (footer) {
+                footer.appendChild(this._bar);
+                return;
+            }
+        }
         if (entries && entries.parentElement === parent) {
             parent.insertBefore(this._bar, entries);
         } else {
@@ -247,7 +274,7 @@ export class GsmJitenGrading {
     async _onButtonClick(btn) {
         const headword = this._getCurrentHeadword();
         if (!headword) { this._setStatus('No word', 'error'); return; }
-        if (!this._hasApiKey) { this._setStatus('Set Jiten API key', 'error'); return; }
+        // GSM now grades the active Anki profile locally; no Jiten API key is needed.
 
         const kind = btn.dataset.kind;
         /** @type {Record<string, unknown>} */
@@ -276,7 +303,9 @@ export class GsmJitenGrading {
         this._setBusy(false);
 
         if (result && result.ok) {
-            this._setStatus(`${btn.textContent} ✓`, 'success');
+            const count = Number.isInteger(result.matchedCards) && result.matchedCards > 1
+                ? ` (${result.matchedCards} cards)` : '';
+            this._setStatus(`${btn.textContent} ✓${count}`, 'success');
         } else {
             this._setStatus(`${(result && result.error) || 'Failed'}`, 'error');
         }
@@ -294,7 +323,7 @@ export class GsmJitenGrading {
                     this._pending.delete(requestId);
                     reject(new Error('timeout'));
                 }
-            }, 8000);
+            }, 30000);
             this._pending.set(requestId, (result) => {
                 clearTimeout(timeout);
                 resolve(result);
@@ -345,6 +374,13 @@ export class GsmJitenGrading {
                 background-color: var(--background-color);
                 border-bottom: var(--thin-border-size, 1px) solid var(--light-border-color, rgba(127,127,127,0.3));
                 font-size: var(--font-size, 14px);
+            }
+            .gsm-jiten-bar[data-position="bottom"] {
+                width: 100%;
+                /* Yomitan disables pointer events on the fixed footer wrapper. */
+                pointer-events: auto;
+                border-top: var(--thin-border-size, 1px) solid var(--light-border-color, rgba(127,127,127,0.3));
+                border-bottom: 0;
             }
             .gsm-jiten-bar[hidden] { display: none; }
             .gsm-jiten-bar-inner {

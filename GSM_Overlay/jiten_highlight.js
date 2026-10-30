@@ -70,6 +70,104 @@
     hideAllSegments();
   }
 
+  // GSM_JITEN_SOURCE_SURFACE_ALIGNMENT_V2:
+  // Jiten.Parser preprocesses text before computing offsets (for example, ellipsis
+  // runs may collapse). Token.start/end therefore are not always indexes into the
+  // original OCR text. Use the returned token surface to re-anchor each word to
+  // the exact display text; keep unmatched normalized words plain instead of
+  // letting one bad offset shift every word that follows.
+  function gsmIsPunctuationOnlySurface(surface) {
+    return !surface || /^[\p{P}\p{S}\s]+$/u.test(surface);
+  }
+
+  function gsmGetLocalTokenSurface(token) {
+    for (const key of ['word', 'surface', 'text']) {
+      if (typeof token?.[key] === 'string' && token[key].length) return token[key];
+    }
+    return '';
+  }
+
+  function gsmFindLocalSurface(text, surface, from, expectedStart) {
+    let bestStart = -1;
+    let bestDistance = Infinity;
+
+    // Prefer an exact surface match. The raw offset is only a hint for choosing
+    // among repeated occurrences; it is never used directly as a DOM coordinate.
+    for (let candidate = text.indexOf(surface, from); candidate !== -1;
+         candidate = text.indexOf(surface, candidate + 1)) {
+      const distance = Math.abs(candidate - expectedStart);
+      if (distance < bestDistance) {
+        bestStart = candidate;
+        bestDistance = distance;
+      }
+      if (candidate > expectedStart && candidate - expectedStart > bestDistance) break;
+    }
+    if (bestStart !== -1) return { start: bestStart, end: bestStart + surface.length };
+
+    // Compatibility-normalized spelling fallback handles equal words represented
+    // as fullwidth/halfwidth forms. Vary the source window length because NFKC can
+    // change the number of UTF-16 code units. Only use this when no exact match exists.
+    const normalizedSurface = surface.normalize('NFKC');
+    const minLength = Math.max(1, surface.length - 3);
+    const maxLength = Math.min(text.length, surface.length + 3);
+    for (let candidate = from; candidate < text.length; candidate++) {
+      for (let length = minLength; length <= maxLength && candidate + length <= text.length; length++) {
+        if (text.slice(candidate, candidate + length).normalize('NFKC') !== normalizedSurface) continue;
+        const distance = Math.abs(candidate - expectedStart);
+        if (distance < bestDistance) {
+          bestStart = candidate;
+          bestDistance = distance;
+          // A candidate beginning after expectedStart cannot improve once its
+          // distance exceeds the best seen and all later candidates are farther.
+        }
+      }
+      if (candidate > expectedStart && candidate - expectedStart > bestDistance) break;
+    }
+    if (bestStart === -1) return null;
+
+    // Recalculate the matching source length, which may differ from surface.length.
+    const normalizedSurfaceForLength = normalizedSurface;
+    const candidateLengths = [];
+    for (let length = minLength; length <= maxLength && bestStart + length <= text.length; length++) {
+      if (text.slice(bestStart, bestStart + length).normalize('NFKC') === normalizedSurfaceForLength) {
+        candidateLengths.push(length);
+      }
+    }
+    if (!candidateLengths.length) return null;
+    candidateLengths.sort((a, b) => Math.abs(a - surface.length) - Math.abs(b - surface.length));
+    return { start: bestStart, end: bestStart + candidateLengths[0] };
+  }
+
+  function gsmAlignLocalTokensToSource(text, tokens) {
+    const aligned = [];
+    let previousSourceEnd = 0;
+    let offsetDelta = 0;
+
+    for (const token of tokens) {
+      if (!token || typeof token !== 'object') continue;
+      const surface = gsmGetLocalTokenSurface(token);
+      // Punctuation (including 「 and 」) remains in the source text between word
+      // spans. It is deliberately not aligned to normalized punctuation tokens.
+      if (gsmIsPunctuationOnlySurface(surface)) continue;
+
+      const rawStart = Number.isInteger(token.start) && token.start >= 0 ? token.start : null;
+      const rawEnd = Number.isInteger(token.end) && token.end > (rawStart ?? -1) ? token.end : null;
+      const expectedStart = rawStart === null ? previousSourceEnd : rawStart + offsetDelta;
+      const match = gsmFindLocalSurface(text, surface, previousSourceEnd, expectedStart);
+      if (!match || match.end <= match.start) {
+        // A parser-normalized spelling may not exist verbatim in the displayed
+        // text. Leave that word unhighlighted; the next exact token can re-anchor.
+        continue;
+      }
+
+      aligned.push({ token, start: match.start, end: match.end, surface });
+      previousSourceEnd = match.end;
+      if (rawEnd !== null) offsetDelta = match.end - rawEnd;
+    }
+
+    return aligned;
+  }
+
   async function parseLocally(blocks) {
     const generation = ++localParseGeneration;
     try {
@@ -81,14 +179,17 @@
         const p = paragraphs[i];
         const text = blocks[i].text;
         const tokens = result.tokens[i];
-        const unknown = new Set(tokens.filter(token => !(token.knownState || []).some(state => [2, 3, 5, 6].includes(state)))
-          .map(token => token.headword));
+        const alignedTokens = gsmAlignLocalTokensToSource(text, tokens);
+        const unknown = new Set(alignedTokens
+          .filter(({ token }) => !(token.knownState || []).some(state => [2, 3, 5, 6].includes(state)))
+          .map(({ token }) => token.headword));
         p.textContent = '';
         let offset = 0;
-        for (const token of tokens) {
-          if (!Number.isInteger(token.start) || !Number.isInteger(token.end) || token.start < offset
-              || token.end <= token.start || token.end > text.length) throw new Error('Invalid local token offsets');
-          p.appendChild(document.createTextNode(text.slice(offset, token.start)));
+        for (const aligned of alignedTokens) {
+          const { token, start, end } = aligned;
+          if (start < offset || end <= start || end > text.length) continue;
+          p.appendChild(document.createTextNode(text.slice(offset, start)));
+
           const span = document.createElement('span');
           span.className = 'jiten-word ' + (token.knownState || [0]).map(state => LOCAL_STATE_CLASSES[state]).filter(Boolean).join(' ');
           if (unknown.size === 1 && unknown.has(token.headword)) span.classList.add('i-plus-one');
@@ -96,9 +197,10 @@
             span.setAttribute('wordId', String(token.wordId));
             span.setAttribute('readingIndex', String(token.readingIndex || 0));
           }
-          span.textContent = text.slice(token.start, token.end);
+          if (token.unvoiced === true) span.classList.add('unvoiced'); // GSM_UNVOICED
+          span.textContent = text.slice(start, end);
           p.appendChild(span);
-          offset = token.end;
+          offset = end;
         }
         p.appendChild(document.createTextNode(text.slice(offset)));
       }
@@ -185,6 +287,115 @@
     }, 200);
   }
 
+  // Apply Anki's display states to Jiten's already-tokenized spans. This changes
+  // only CSS classes; Jiten remains responsible for segmentation and word boundaries.
+  const ANKI_TO_JITEN_STATE = ['new', 'young', 'mature', 'blacklisted', 'due', 'mastered', 'redundant', 'suspended'];
+  const JITEN_STATE_CLASS_SET = new Set(JITEN_STATE_CLASSES);
+
+  function visibleWordSpelling(span) {
+    const clone = span.cloneNode(true);
+    clone.querySelectorAll('rt, rp').forEach(node => node.remove());
+    return String(clone.textContent || '').normalize('NFKC').trim();
+  }
+
+  const gsmYomitanRendererInflight = new Map();
+  let gsmYomitanRendererLastWarningAt = 0;
+
+  function applyAnkiStateMapToSpans(spans, statesBySpelling) {
+    if (!statesBySpelling || typeof statesBySpelling !== 'object') return;
+    for (const span of spans) {
+      const spelling = visibleWordSpelling(span);
+      if (!Object.prototype.hasOwnProperty.call(statesBySpelling, spelling)) continue;
+      const state = statesBySpelling[spelling];
+      if (!Array.isArray(state)) continue;
+      for (const name of JITEN_STATE_CLASSES) span.classList.remove(name);
+      for (const index of state) {
+        const name = Number.isInteger(index) ? ANKI_TO_JITEN_STATE[index] : null;
+        if (name && JITEN_STATE_CLASS_SET.has(name)) span.classList.add(name);
+      }
+      // The Anki override uses state 6 for the special unvoiced-tag marker.
+      if (state.includes(6)) span.classList.add('unvoiced');
+      else span.classList.remove('unvoiced');
+    }
+  }
+
+  async function resolveYomitanDeconjugations(spellings, spans) {
+    const bridge = window.gsmYomitanBridge;
+    if (!bridge || typeof bridge.termEntries !== 'function' || !window.ipcRenderer?.invoke) return;
+    let needed;
+    try {
+      needed = await window.ipcRenderer.invoke('gsm-anki-deconj-needed', { spellings });
+    } catch (error) {
+      if (Date.now() - gsmYomitanRendererLastWarningAt > 60_000) {
+        gsmYomitanRendererLastWarningAt = Date.now();
+        console.warn('[AnkiStates] Could not prepare Yomitan deconjugation lookup:', error?.message || error);
+      }
+      return;
+    }
+    if (!Array.isArray(needed) || !needed.length) return;
+
+    const startLookup = word => {
+      const existing = gsmYomitanRendererInflight.get(word);
+      if (existing) return existing;
+      const promise = (async () => {
+        try {
+          // This uses GSM's embedded Yomitan extension bridge, not the optional
+          // standalone HTTP API at 127.0.0.1:19633.
+          const response = await bridge.termEntries(word, { timeoutMs: 8000 });
+          await window.ipcRenderer.invoke('gsm-anki-cache-yomitan-responses', {
+            responses: [{ word, response }],
+          });
+        } catch (error) {
+          if (Date.now() - gsmYomitanRendererLastWarningAt > 60_000) {
+            gsmYomitanRendererLastWarningAt = Date.now();
+            console.warn('[AnkiStates] Embedded Yomitan deconjugation lookup unavailable:',
+              String(error?.message || error).slice(0, 240));
+          }
+        } finally {
+          gsmYomitanRendererInflight.delete(word);
+        }
+      })();
+      gsmYomitanRendererInflight.set(word, promise);
+      return promise;
+    };
+    // Start only four requests at a time so a long line cannot flood the bridge.
+    for (let i = 0; i < needed.length; i += 4) {
+      await Promise.allSettled(needed.slice(i, i + 4).map(startLookup));
+    }
+    try {
+      const refreshed = await window.ipcRenderer.invoke('gsm-anki-display-states', { spellings });
+      applyAnkiStateMapToSpans(spans, refreshed);
+      await applyTagMatchesToSpans(spans, spellings); // GSM_TAGRULES
+      mirrorHighlights();
+      notifyNavigationTokens();
+    } catch (error) {
+      if (Date.now() - gsmYomitanRendererLastWarningAt > 60_000) {
+        gsmYomitanRendererLastWarningAt = Date.now();
+        console.warn('[AnkiStates] Could not refresh states after Yomitan lookup:', error?.message || error);
+      }
+    }
+  }
+
+  async function applyAnkiStatesToJitenWords() {
+    if (!parseContainer || !window.ipcRenderer?.invoke) return;
+    const spans = Array.from(parseContainer.querySelectorAll('.jiten-word'));
+    if (!spans.length) return;
+    const spellings = [...new Set(spans.map(visibleWordSpelling).filter(Boolean))];
+    if (!spellings.length) return;
+    let statesBySpelling;
+    try {
+      statesBySpelling = await window.ipcRenderer.invoke('gsm-anki-display-states', { spellings });
+    } catch (error) {
+      console.warn('[AnkiStates] Could not apply states to Jiten spans:', error?.message || error);
+      return;
+    }
+    applyAnkiStateMapToSpans(spans, statesBySpelling);
+    await applyTagMatchesToSpans(spans, spellings); // GSM_TAGRULES
+    // Launch deconjugation after exact/cached statuses have been applied. The
+    // initial line draw never waits for Yomitan or the disk cache.
+    void resolveYomitanDeconjugations(spellings, spans);
+  }
+
   function onParseComplete() {
     clearTimeout(runningParseTimer);
     runningParseTimer = null;
@@ -192,9 +403,15 @@
     lastParseFinishedAt = Date.now();
     runningSignature = null;
     restoreOverlayElements(); // defensive; requestParse normally restores synchronously
+    // Never block the initial line draw on Anki/Yomitan lookups. State colours
+    // are refreshed asynchronously once cached/API results arrive.
     mirrorHighlights();
     notifyNavigationTokens();
-    schedulePendingParse();
+    void applyAnkiStatesToJitenWords().finally(() => {
+      mirrorHighlights();
+      notifyNavigationTokens();
+      schedulePendingParse();
+    });
   }
 
   // Temporarily hide overlay text elements so Jiten only parses our container.
@@ -234,6 +451,10 @@
       // Text unchanged, just re-draw over the (possibly re-laid-out) boxes.
       mirrorHighlights();
       notifyNavigationTokens();
+      void applyAnkiStatesToJitenWords().finally(() => {
+        mirrorHighlights();
+        notifyNavigationTokens();
+      });
       return Promise.resolve();
     }
 
@@ -368,6 +589,74 @@
 
   // Read Jiten-parsed spans and draw one overlay box per token over the union
   // rect of its .text-box glyphs.
+  // ---- GSM_JITENBOUNDS ----------------------------------------------------------------
+  // Keep Yomitan's lookup range aligned with Jiten's token boundaries.
+  // Unwrapped characters such as punctuation remain one-character words.
+  // GSM_HOVERSTART: mirror the saved lookup start mode for the bundled Yomitan scanner.
+  async function refreshHoverStartMode() {
+    if (!window.ipcRenderer?.invoke) return;
+    try {
+      const result = await window.ipcRenderer.invoke('gsm-jiten-hover-get');
+      const mode = result && result.hoverStart === 'cursor' ? 'cursor' : 'word';
+      if (document.documentElement.getAttribute('data-gsm-hover-start') !== mode) {
+        document.documentElement.setAttribute('data-gsm-hover-start', mode);
+      }
+    } catch { /* keep the last mode */ }
+  }
+  if (typeof window !== 'undefined') {
+    setTimeout(() => { void refreshHoverStartMode(); }, 1000);
+    setInterval(() => { void refreshHoverStartMode(); }, 3000);
+  }
+
+  let wordBoundsKey = '';
+
+  function clearJitenWordBoundaries() {
+    wordBoundsKey = '';
+    for (const el of document.querySelectorAll('[data-gsm-ws],[data-gsm-we],[data-gsm-bounds]')) {
+      el.removeAttribute('data-gsm-ws');
+      el.removeAttribute('data-gsm-we');
+      el.removeAttribute('data-gsm-bounds');
+    }
+  }
+
+  function publishJitenWordBoundaries(paragraphs) {
+    try {
+      let tokenCount = 0;
+      for (const p of paragraphs) tokenCount += p.querySelectorAll('.jiten-word').length;
+      const key = containerSignature + '|' + tokenCount;
+      if (key === wordBoundsKey && document.querySelector('[data-gsm-bounds]')) return;
+      clearJitenWordBoundaries();
+      for (const p of paragraphs) {
+        const block = containerBlocks.get(Number(p.dataset.lineIndex));
+        if (!block) continue;
+        for (const lineRange of block.lineRanges) {
+          for (const box of getTextBoxesForRange(lineRange.lineIndex, 0, 1e9)) {
+            box.setAttribute('data-gsm-ws', '1');
+            box.setAttribute('data-gsm-we', '1');
+            const container = box.closest('.text-block-container');
+            if (container) container.setAttribute('data-gsm-bounds', '1');
+          }
+        }
+        for (const range of computeJitenSpanRanges(p).values()) {
+          const boxes = [];
+          for (const piece of getLineRangesForSpan(p, range)) {
+            boxes.push(...getTextBoxesForRange(piece.lineIndex, piece.start, piece.end));
+          }
+          if (boxes.length === 0) continue;
+          for (const box of boxes) {
+            box.removeAttribute('data-gsm-ws');
+            box.removeAttribute('data-gsm-we');
+          }
+          boxes[0].setAttribute('data-gsm-ws', '1');
+          boxes[boxes.length - 1].setAttribute('data-gsm-we', '1');
+        }
+      }
+      wordBoundsKey = key;
+    } catch (error) {
+      clearJitenWordBoundaries();
+    }
+  }
+
   function mirrorHighlights() {
     if (!visible || !enabled || !available || !parseContainer || !currentLines || containerSignature !== currentSignature) {
       hideAllSegments();
@@ -405,6 +694,7 @@
     }
 
     renderOverlaySegments(segments);
+    publishJitenWordBoundaries(paragraphs); // GSM_JITENBOUNDS
 
     if (segments.length > 0) {
       console.log('[JitenHighlight] Drew', segments.length, 'token highlight(s) from Jiten Reader');
@@ -472,11 +762,89 @@
 
   // Build the CSS class list for a token's overlay highlight, or null if the span
   // carries no highlightable state.
-  function getSegmentClassesForSpan(span) {
+  // ---- GSM_TAGRULES: user-defined Anki tag styles ---------------------------------------
+  let tagRules = [];
+  let tagRulesRevision = -1;
+  let tagStyleElement = null;
+  const TAG_CLASS_RE = /^anki-tag-(\d+)$/;
+
+  function tagIndexesOnSpan(cl) {
+    const indexes = [];
+    for (const name of cl) {
+      const match = TAG_CLASS_RE.exec(name);
+      if (match) indexes.push(Number(match[1]));
+    }
+    return indexes;
+  }
+
+  function tagRuleCss(rule, index) {
+    if (!rule || !rule.enabled || !/^#[0-9a-f]{6}$/i.test(rule.color)) return '';
+    const selector = '.gsm-jiten-hl.gsm-tag-' + index;
+    if (rule.position === 'background') {
+      const r = parseInt(rule.color.slice(1, 3), 16);
+      const g = parseInt(rule.color.slice(3, 5), 16);
+      const b = parseInt(rule.color.slice(5, 7), 16);
+      return selector + '{background-color:rgba(' + r + ',' + g + ',' + b + ',' + rule.opacity + ') !important;}';
+    }
+    const side = rule.position === 'overline' ? 'top' : 'bottom';
+    return selector + '{border-' + side + ':' + rule.thickness + 'px ' + rule.style + ' ' + rule.color + ' !important;}';
+  }
+
+  function applyTagRulesToStyle() {
+    if (typeof document === 'undefined' || !document.head) return;
+    if (!tagStyleElement || !tagStyleElement.isConnected) {
+      tagStyleElement = document.getElementById('gsm-anki-tag-style') || document.createElement('style');
+      tagStyleElement.id = 'gsm-anki-tag-style';
+      document.head.appendChild(tagStyleElement);
+    }
+    // Emitted in reverse so that, for the same property, the rule listed first wins.
+    tagStyleElement.textContent = tagRules.map(tagRuleCss).filter(Boolean).reverse().join('\n');
+  }
+
+  async function applyTagMatchesToSpans(spans, spellings) {
+    for (const span of spans) {
+      for (const name of [...span.classList]) if (TAG_CLASS_RE.test(name)) span.classList.remove(name);
+    }
+    if (!window.ipcRenderer?.invoke || !tagRules.some(rule => rule.enabled)) return;
+    let matches;
+    try { matches = await window.ipcRenderer.invoke('gsm-anki-tag-matches', { spellings }); } catch { return; }
+    for (const span of spans) {
+      const spelling = visibleWordSpelling(span);
+      const list = matches && Object.prototype.hasOwnProperty.call(matches, spelling) ? matches[spelling] : null;
+      if (!Array.isArray(list)) continue;
+      for (const index of list) {
+        if (Number.isInteger(index) && index >= 0 && index < 64) span.classList.add('anki-tag-' + index);
+      }
+    }
+  }
+
+  async function refreshTagRules(force) {
+    if (!window.ipcRenderer?.invoke) return;
+    let payload;
+    try { payload = await window.ipcRenderer.invoke('gsm-anki-tag-styles'); } catch { return; }
+    if (!payload || !Array.isArray(payload.rules)) return;
+    if (!force && payload.revision === tagRulesRevision) return;
+    tagRulesRevision = payload.revision;
+    tagRules = payload.rules;
+    applyTagRulesToStyle();
+    if (parseContainer) {
+      void applyAnkiStatesToJitenWords().finally(() => { mirrorHighlights(); notifyNavigationTokens(); });
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    setTimeout(() => { void refreshTagRules(true); }, 1500);
+    setInterval(() => { void refreshTagRules(false); }, 3000);
+  }
+
+  function getSegmentClassesForSpan(span, ignoreUnvoiced) {
     const cl = span.classList;
+    // GSM_ANKISTATES_FIXED_V2: Anki state 6 also marks unvoiced notes.
+    const unvoiced = !ignoreUnvoiced && cl.contains('unvoiced'); // GSM_UNVOICED (legacy marker, no longer set by Anki states)
+    const tagIndexes = ignoreUnvoiced ? [] : tagIndexesOnSpan(cl); // GSM_TAGRULES
     if (cl.contains('unparsed') || cl.contains('misparsed')) return null;
 
-    if (!configuredVisibleClasses) {
+    if (!configuredVisibleClasses && !unvoiced && !tagIndexes.length) {
       // Preserve legacy behavior until the Jiten settings bridge supplies the
       // user's style config.
       for (const s of KNOWN_STATE_CLASSES) {
@@ -487,7 +855,7 @@
     const classes = [SEGMENT_CLASS];
     let hasVisibleClass = false;
     for (const s of JITEN_STATE_CLASSES) {
-      if (!cl.contains(s) || !shouldRenderClass(s)) continue;
+      if (!cl.contains(s) || !shouldRenderClass(s) || (unvoiced && s === 'redundant')) continue;
       classes.push(SEGMENT_CLASS + '--' + s);
       hasVisibleClass = true;
     }
@@ -497,6 +865,15 @@
     }
     if (cl.contains('i-plus-one') && shouldRenderClass('i-plus-one')) {
       classes.push(SEGMENT_CLASS + '--iplus1');
+      hasVisibleClass = true;
+    }
+
+    if (unvoiced) {
+      classes.push(SEGMENT_CLASS + '--unvoiced');
+      hasVisibleClass = true;
+    }
+    for (const index of tagIndexes) { // GSM_TAGRULES
+      classes.push('gsm-tag-' + index);
       hasVisibleClass = true;
     }
 
@@ -675,6 +1052,7 @@
   }
 
   function hideAllSegments() {
+    clearJitenWordBoundaries(); // GSM_JITENBOUNDS
     for (const el of overlaySegments) {
       el.style.display = 'none';
     }
@@ -743,6 +1121,17 @@
     }
   }
 
+  // Refresh only the SRS classes on the words that are already tokenized in the
+  // hidden parse container. Popup grades/mines change card state, not the text or
+  // segmentation, so reparsing every visible OCR line is unnecessary and slow.
+  function refreshVisibleStates() {
+    if (!parseContainer || !enabled || !available) return Promise.resolve();
+    return applyAnkiStatesToJitenWords().finally(() => {
+      mirrorHighlights();
+      notifyNavigationTokens();
+    });
+  }
+
   // Reflect a word's new SRS state on existing highlights (e.g. after grading from
   // the Yomitan popup): rewrite the state classes on matching .jiten-word spans and
   // redraw, so a now-known word loses its highlight and a changed state recolors.
@@ -785,13 +1174,28 @@
         for (const { lineIndex, start, end } of getLineRangesForSpan(p, range)) {
           tokens.push({
             lineIndex, text: currentLines[lineIndex].text, start, end,
-            states, highlighted: getSegmentClassesForSpan(span) !== null,
+            states, highlighted: getSegmentClassesForSpan(span, true) !== null,
             iPlusOne: span.classList.contains('i-plus-one'),
           });
         }
       }
     }
     return tokens;
+  }
+
+  // GSM_UNVOICED: keep the tag's underline style without the temporary debug panel.
+  function installUnvoicedStyle() {
+    if (typeof document === 'undefined' || !document.head || document.getElementById('gsm-unvoiced-style')) return;
+    const style = document.createElement('style');
+    style.id = 'gsm-unvoiced-style';
+    style.textContent = '.gsm-jiten-hl.gsm-jiten-hl--unvoiced{'
+      + 'border-bottom:3px dashed #1e90ff !important;box-shadow:none !important;'
+      + 'filter:drop-shadow(0 0 2px rgba(30,144,255,.9));}';
+    document.head.appendChild(style);
+  }
+
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    installUnvoicedStyle();
   }
 
   const api = {
@@ -809,6 +1213,7 @@
     setAvailable,
     setStyleConfig,
     refresh,
+    refreshVisibleStates,
     applyCardState,
   };
 

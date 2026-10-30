@@ -1748,19 +1748,100 @@ background: rgba(202, 12, 12, 0.692);
   let hideYomitanAfterMine = false;
   let usePercentage = false;
 
+  // GSM_ANKI_POPUP_TARGETED_REFRESH_V1: resolve the entry that Yomitan just mined.
+  function extractMinedAnkiHeadword(payload) {
+    const queue = [payload];
+    const seen = new Set();
+    while (queue.length) {
+      const item = queue.shift();
+      if (!item || typeof item !== 'object' || seen.has(item)) continue;
+      seen.add(item);
+      const term = [item.term, item.expression, item.word, item.headword, item.spelling, item.expressionText]
+        .find(value => typeof value === 'string' && value.trim());
+      if (term) {
+        const reading = [item.reading, item.expressionReading, item.wordReading, item.readingText]
+          .find(value => typeof value === 'string' && value.trim()) || '';
+        return { term: term.trim(), reading: reading.trim() };
+      }
+      for (const key of ['data', 'detail', 'entry', 'headword', 'note', 'result', 'fields', 'word']) {
+        if (item[key] && typeof item[key] === 'object') queue.push(item[key]);
+      }
+    }
+    return null;
+  }
+
+  async function requestYomitanCurrentHeadword(sourceHint) {
+    const frames = getYomitanGradingTargetFrames().filter(frame => frame?.contentWindow);
+    if (!frames.length) return null;
+    const preferred = sourceHint && frames.some(frame => frame.contentWindow === sourceHint)
+      ? frames.filter(frame => frame.contentWindow === sourceHint)
+      : frames;
+    const expectedSources = new Set(preferred.map(frame => frame.contentWindow));
+    const requestId = `gsm-mined-entry-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    return new Promise(resolve => {
+      let finished = false;
+      const finish = value => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        window.removeEventListener('message', onResponse);
+        resolve(value);
+      };
+      const onResponse = event => {
+        const data = event?.data;
+        if (!data || data.type !== 'gsm-anki-popup-current-entry-response'
+            || data.requestId !== requestId || !expectedSources.has(event.source)) return;
+        const term = typeof data.term === 'string' ? data.term.trim() : '';
+        finish(term ? { term, reading: String(data.reading || '').trim() } : null);
+      };
+      const timer = setTimeout(() => finish(null), 900);
+      window.addEventListener('message', onResponse);
+      for (const frame of preferred) {
+        try { frame.contentWindow.postMessage({ type: 'gsm-anki-popup-current-entry-request', requestId }, '*'); }
+        catch (_) { /* ignore unavailable popup */ }
+      }
+    });
+  }
+
+  async function refreshMinedAnkiPopupEntry(event) {
+    const detail = event?.detail || {};
+    // Some Yomitan builds include the new note/term in the success event. Prefer
+    // that payload; otherwise ask the originating popup for its selected term.
+    let headword = extractMinedAnkiHeadword(detail);
+    if (!headword && dictionaryReader !== 'hachidori') headword = await requestYomitanCurrentHeadword(detail.source);
+    if (!headword?.term) {
+      console.warn('[AnkiPopup] Could not identify the Yomitan entry that was mined; skipped full-collection refresh.');
+      return;
+    }
+    const result = await ipcRenderer.invoke('gsm-anki-popup-refresh', headword);
+    if (result?.ok !== true) {
+      console.warn('[AnkiPopup] Targeted post-mine refresh did not complete:', result?.error || result?.stateRefreshError || 'unknown error');
+    }
+  }
+
   // Listen for mining success signal from Yomitan extension
   window.addEventListener('gsm-anki-note-added', (event) => {
     console.log('Received mining success signal');
+    // GSM_ANKI_POPUP_TARGETED_REFRESH_V1: update only the word just added in Yomitan.
+    const targetedMineRefresh = refreshMinedAnkiPopupEntry(event).catch(error => {
+      console.warn('[AnkiPopup] Targeted post-mine refresh failed:', error);
+    });
     if (hideYomitanAfterMine === true) {
-      if (dictionaryReader === 'hachidori') void window.gsmHachidoriBridge?.closePopups().catch(console.warn);
-      else void closeYomitanLookups('note-added');
+      // Keep the popup available until GSM has read its selected headword.
+      void targetedMineRefresh.finally(() => {
+        if (dictionaryReader === 'hachidori') void window.gsmHachidoriBridge?.closePopups().catch(console.warn);
+        else void closeYomitanLookups('note-added');
+      });
     }
   });
   // Bridge: listen for postMessage from Yomitan iframe/extension and re-dispatch as CustomEvent
   window.addEventListener('message', (event) => {
     if (event?.data?.type === 'gsm-anki-note-added') {
       console.log('Received mining success via postMessage');
-      window.dispatchEvent(new CustomEvent('gsm-anki-note-added'));
+      window.dispatchEvent(new CustomEvent('gsm-anki-note-added', {
+  detail: { data: event.data, source: event.source },
+}));
     }
   });
   let unHoverTimer = null;
@@ -1820,8 +1901,11 @@ background: rgba(202, 12, 12, 0.692);
   let localVocabularyEnabled = false;
   function setLocalVocabularyEnabled(value) {
     localVocabularyEnabled = value === true;
-    window.GsmJitenHighlight?.setLocalParser(localVocabularyEnabled
-      ? texts => ipcRenderer.invoke('gsm-local-vocabulary-parse', { texts }) : null);
+    // GSM_DOTNET_JITEN_TOKENIZER_FIXED_V3: local Sudachi parser is always authoritative,
+    // independently of whether Jiten Reader or Hachidori is selected.
+    window.GsmJitenHighlight?.setLocalParser(
+      texts => ipcRenderer.invoke('gsm-dotnet-jiten-parse', { texts })
+    );
     if (localVocabularyEnabled) {
       window.GsmJitenHighlight?.setEnabled(jitenHighlightingEnabled);
       window.GsmJitenHighlight?.setAvailable(jitenHighlightingEnabled);
@@ -1832,6 +1916,17 @@ background: rgba(202, 12, 12, 0.692);
     if (!localVocabularyEnabled) return;
     window.GsmJitenHighlight?.refresh();
     applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
+  });
+  ipcRenderer.on('gsm-anki-popup-state-changed', () => {
+    if (!jitenHighlightingEnabled) return;
+    const highlighter = window.GsmJitenHighlight;
+    if (typeof highlighter?.refreshVisibleStates === 'function') {
+      void highlighter.refreshVisibleStates().catch((error) => {
+        console.warn('[AnkiStates] Could not redraw current word states:', error?.message || error);
+      });
+    } else if (Array.isArray(lastJitenHighlightLines) && lastJitenHighlightLines.length > 0) {
+      highlighter?.refresh(lastJitenHighlightLines);
+    }
   });
   // Most recent OCR lines, kept even while highlighting is off so toggling on can
   // re-parse current text instead of waiting for new OCR.
@@ -2068,15 +2163,10 @@ background: rgba(202, 12, 12, 0.692);
   // Ask the Jiten Reader extension to parse the current lines and mirror SRS
   // highlights (the extension's content script does the parsing).
   function applyJitenHighlightingForLines(lines, meta, lineBlocks) {
-    if (!jitenHighlightingEnabled || (!jitenReaderEnabled && !localVocabularyEnabled)) return;
+    if (!jitenHighlightingEnabled) return; // GSM_DOTNET_JITEN_TOKENIZER_FIXED_V3: parsing is local
     // Not verified parseable yet → kick a throttled re-check so a freshly-added
     // key / unpause resumes on its own, then bail.
-    if (!jitenHighlightAvailable && !localVocabularyEnabled) {
-      if (Date.now() - lastJitenSettingsSyncAt > JITEN_SETTINGS_RESYNC_THROTTLE_MS) {
-        syncJitenSettings('lines-while-unavailable');
-      }
-      return;
-    }
+    // GSM_DOTNET_JITEN_TOKENIZER_FIXED_V3: local parser does not depend on Jiten API availability.
     const api = window.GsmJitenHighlight;
     if (!api || typeof api.requestParse !== 'function') {
       console.log('[JitenHighlight] Skipped: jiten_highlight.js not loaded');
@@ -2102,12 +2192,18 @@ background: rgba(202, 12, 12, 0.692);
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       if (window.GsmJitenHighlight) {
+        window.GsmJitenHighlight.setLocalParser(
+          texts => ipcRenderer.invoke('gsm-dotnet-jiten-parse', { texts })
+        );
         window.GsmJitenHighlight.init();
         pushJitenWordStyleConfigToHighlighter();
       }
     }, { once: true });
   } else {
     if (window.GsmJitenHighlight) {
+      window.GsmJitenHighlight.setLocalParser(
+        texts => ipcRenderer.invoke('gsm-dotnet-jiten-parse', { texts })
+      );
       window.GsmJitenHighlight.init();
       pushJitenWordStyleConfigToHighlighter();
     }
@@ -2118,7 +2214,7 @@ background: rgba(202, 12, 12, 0.692);
   // only refreshes when availability actually flips, so a stale `true` would
   // suppress the refresh until an overlay restart.
   function markJitenUnavailable() {
-    if (localVocabularyEnabled && jitenHighlightingEnabled) return;
+    if (jitenHighlightingEnabled) return; // GSM_DOTNET_JITEN_TOKENIZER_FIXED_V3
     jitenHighlightAvailable = false;
     const api = window.GsmJitenHighlight;
     if (!api) return;
@@ -2166,26 +2262,15 @@ background: rgba(202, 12, 12, 0.692);
   // available means highlighting + the reader are on, an API key is present, and
   // parsing isn't paused. When it flips on, re-highlight what's already on screen.
   function applyVerifiedJitenAvailability(hasApiKey, parsingPaused) {
-    if (localVocabularyEnabled) return;
+    // GSM_DOTNET_JITEN_TOKENIZER_FIXED_V3: tokenizer is local; Jiten API/key/pause state is irrelevant.
     const wasAvailable = jitenHighlightAvailable;
-    const nowAvailable = jitenReaderEnabled && jitenHighlightingEnabled && !!hasApiKey && !parsingPaused;
+    const nowAvailable = jitenHighlightingEnabled;
     jitenHighlightAvailable = nowAvailable;
     if (window.GsmJitenHighlight && typeof window.GsmJitenHighlight.setAvailable === 'function') {
       window.GsmJitenHighlight.setAvailable(nowAvailable);
     }
     if (nowAvailable && !wasAvailable) {
-      // Became usable — highlight what's already on screen instead of waiting
-      // for the next OCR update. Preserve its OCR metadata so recovery cannot
-      // bypass the authoritative-final gate and enqueue stale provisional text.
       applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
-    }
-    if (!nowAvailable) {
-      const reason = !jitenReaderEnabled ? 'Jiten Reader disabled'
-        : !jitenHighlightingEnabled ? 'highlighting disabled'
-        : parsingPaused ? 'parsing paused in Jiten Reader'
-        : !hasApiKey ? 'no Jiten API key set'
-        : 'unknown';
-      console.log(`[JitenHighlight] Highlighting unavailable (${reason}); will re-check automatically.`);
     }
   }
 
@@ -2273,49 +2358,39 @@ background: rgba(202, 12, 12, 0.692);
   // listener was attached.
   setTimeout(() => syncJitenSettings('startup'), 1500);
 
-  // ==================== Jiten grading bar bridge (Yomitan popup) ====================
-  // Proxies the Yomitan popup's grading bar to the Jiten SRS API. Shown only when
-  // the reader is enabled and "Show Jiten Grader Buttons" is on. All API specifics
-  // stay here so the popup stays a thin UI shell needing no host permission.
-  let jitenReaderEnabled = true;
-  let showJitenGradingButtons = true;
+  // ==================== Anki grading bar bridge (Yomitan + Hachidori) ====================
+  // GSM_ANKI_POPUP_GRADING_V1: local Anki grading bridge; no Jiten API calls.
+  // The popup keeps its existing button UI and message protocol. GSM resolves the
+  // selected headword against the active profile's Anki fields and owns local flags.
+  let jitenReaderEnabled = true; // Retained for settings compatibility; not a grading prerequisite.
+  let showJitenGradingButtons = false;
+  let jitenGradingButtonsAtBottom = false;
   let jitenGradingReaderSettings = { showGradingActions: true, twoGrades: false, disableReviews: false };
-  let jitenGradingSettingsRequestPending = false;
-  const JITEN_GRADING_PARSE_URL = 'https://api.jiten.moe/api/reader/parse';
-  // Numeric SRS state -> highlight class (mirrors Jiten Reader's CARD_STATE_MAP).
-  const JITEN_CARD_STATE_CLASS_MAP = {
-    0: 'new', 1: 'young', 2: 'mature', 3: 'blacklisted', 4: 'due', 5: 'mastered',
-  };
-  // Session memo of term/reading -> {wordId, readingIndex}. wordIds are stable, so
-  // repeat grades of the same word skip the resolve parse, falling back only on a miss.
-  const jitenWordRefMemo = new Map();
-  const jitenWordRefMemoKey = (term, reading) => `${String(term || '')}${String(reading || '')}`;
-
-  function getJitenGradingApiKey() {
-    try {
-      return (typeof gamepadSettings !== 'undefined' && gamepadSettings && gamepadSettings.jitenApiKey)
-        ? String(gamepadSettings.jitenApiKey).trim()
-        : '';
-    } catch (_) { return ''; }
-  }
 
   function computeJitenGradingEnabled() {
-    return !!(jitenReaderEnabled && showJitenGradingButtons);
+    return showJitenGradingButtons === true;
   }
 
   function getYomitanGradingTargetFrames() {
     return Array.from(document.querySelectorAll('iframe.yomitan-popup'));
   }
 
+  function isAllowedGradingMessageSource(source) {
+    if (!source) return false;
+    if (dictionaryReader === 'hachidori' && source === window) return true;
+    return getYomitanGradingTargetFrames().some(frame => frame.contentWindow === source);
+  }
+
   function buildJitenGradingConfigMessage() {
-    const showGrading = jitenGradingReaderSettings.showGradingActions !== false &&
-      jitenGradingReaderSettings.disableReviews !== true;
     return {
       type: 'gsm-jiten-grading-config',
       enabled: computeJitenGradingEnabled(),
-      showGrading: showGrading,
-      twoGrades: jitenGradingReaderSettings.twoGrades === true,
-      hasApiKey: !!getJitenGradingApiKey(),
+      position: jitenGradingButtonsAtBottom ? 'bottom' : 'top',
+      // Always offer all four Anki ratings; Jiten Reader review preferences do not apply.
+      showGrading: true,
+      twoGrades: false,
+      // The old popup UI uses this field as a gate. Anki grading needs no Jiten API key.
+      hasApiKey: true,
     };
   }
 
@@ -2328,153 +2403,67 @@ background: rgba(202, 12, 12, 0.692);
     for (const frame of getYomitanGradingTargetFrames()) {
       try { if (frame.contentWindow) frame.contentWindow.postMessage(msg, '*'); } catch (_) { /* ignore */ }
     }
-    if (dictionaryReader === 'hachidori') window.postMessage(msg, '*');
-  }
-
-  // Pull the user's grading-related Jiten Reader settings via the content-script
-  // bridge (gsm-settings-bridge.js), so the bar mirrors their two-grade / review
-  // preferences. Falls back to defaults (full grade set) if unavailable.
-  function requestJitenReaderGradingSettings() {
-    if (jitenGradingSettingsRequestPending) return;
-    jitenGradingSettingsRequestPending = true;
-    const requestId = `gsm-grading-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const onResponse = (event) => {
-      const data = event && event.data;
-      if (!data || data.type !== 'gsm-jiten-settings-response' || data.requestId !== requestId) return;
-      window.removeEventListener('message', onResponse);
-      jitenGradingSettingsRequestPending = false;
-      applyJitenReaderSettingsFromBridge(data.data);
-      pushJitenGradingConfig();
-    };
-    window.addEventListener('message', onResponse);
-    try { window.postMessage({ type: 'gsm-jiten-settings-request', requestId }, '*'); } catch (_) { /* ignore */ }
-    setTimeout(() => {
-      if (!jitenGradingSettingsRequestPending) return;
-      window.removeEventListener('message', onResponse);
-      jitenGradingSettingsRequestPending = false;
-      pushJitenGradingConfig();
-    }, 2000);
-  }
-
-  // Resolve a term to a Jiten wordId/readingIndex by parsing it (cached IPC).
-  async function resolveJitenWordRef(term, reading) {
-    const text = String(term || '').trim();
-    if (!text) return null;
-    // Check session memo first — wordIds are stable, so a repeated grade of the
-    // same headword never needs to re-parse.
-    const memoK = jitenWordRefMemoKey(text, reading);
-    const cached = jitenWordRefMemo.get(memoK);
-    if (cached) return cached;
-
-    const apiKey = getJitenGradingApiKey();
-    if (!apiKey) return null;
-    let payload;
-    try {
-      payload = await ipcRenderer.invoke('gsm-jiten-parse', {
-        text, apiKey, endpoint: JITEN_GRADING_PARSE_URL, timeout: 4000,
-      });
-    } catch (_) { return null; }
-    const groups = payload && Array.isArray(payload.tokens) ? payload.tokens : [];
-    const row = Array.isArray(groups[0]) ? groups[0] : [];
-    let best = null;
-    for (const tok of row) {
-      if (!tok || typeof tok !== 'object') continue;
-      const wordId = Number(tok.wordId);
-      if (!Number.isFinite(wordId)) continue;
-      const readingIndex = Number.isFinite(Number(tok.readingIndex)) ? Number(tok.readingIndex) : 0;
-      const span = (Number(tok.end) || 0) - (Number(tok.start) || 0);
-      if (!best || span > best.span) best = { wordId, readingIndex, span };
+    if (dictionaryReader === 'hachidori') {
+      try { window.postMessage(msg, '*'); } catch (_) { /* ignore */ }
     }
-    const result = best ? { wordId: best.wordId, readingIndex: best.readingIndex } : null;
-    if (result) jitenWordRefMemo.set(memoK, result);
-    return result;
   }
 
-  // After a grade, optimistically recolor the overlay highlight based on what the
-  // grade *should* produce, instead of making an extra lookup-vocabulary API call.
-  // rating 1 (Again) → due, rating 2-4 → young/mature (we pick 'young' as safe),
-  // blacklist → blacklisted, neverForget → mastered.
-  function applyOptimisticHighlightState(wordId, readingIndex, gradeKind, rating, deck) {
-    const api = window.GsmJitenHighlight;
-    if (!api || typeof api.applyCardState !== 'function') return;
-    let classes;
-    if (gradeKind === 'state') {
-      if (deck === 'blacklist') {
-        classes = ['blacklisted'];
-      } else if (deck === 'neverForget') {
-        classes = ['mastered'];
-      } else {
-        classes = ['new'];
-      }
-    } else {
-      // review
-      if (rating === 1) {
-        classes = ['due'];
-      } else {
-        classes = ['young'];
-      }
-    }
-    try { api.applyCardState(wordId, readingIndex, classes); } catch (_) { /* ignore */ }
-  }
+  // Kept as a no-op because popup-shown events from older builds still call it.
+  // Grading no longer reads any settings from Jiten Reader.
+  function requestJitenReaderGradingSettings() {}
 
   async function handleJitenGradeRequest(data, source) {
     const trace = (stage) => {
       try { ipcRenderer.sendSync('gsm-jiten-grade-stage', stage); } catch (_) { /* optional diagnostic bridge */ }
     };
-    trace('received');
-    const requestId = data.requestId;
+    const requestId = typeof data?.requestId === 'string' ? data.requestId : '';
     const reply = (payload) => {
-      if (!source || typeof source.postMessage !== 'function') return;
-      try { source.postMessage(Object.assign({ type: 'gsm-jiten-grade-result', requestId }, payload), '*'); } catch (_) { /* ignore */ }
+      if (!source || typeof source.postMessage !== 'function' || !requestId) return;
+      try {
+        source.postMessage(Object.assign({ type: 'gsm-jiten-grade-result', requestId }, payload), '*');
+      } catch (_) { /* ignore */ }
     };
+
+    trace('received');
     try {
-      const apiKey = getJitenGradingApiKey();
-      if (!apiKey) { reply({ ok: false, error: 'JitenAPI key is not set' }); return; }
-      trace('resolving');
-      const ref = await resolveJitenWordRef(data.term, data.reading);
-      trace('resolved');
-      if (!ref) { reply({ ok: false, error: 'Could not resolve word in Jiten' }); return; }
-      const endpoint = JITEN_GRADING_PARSE_URL;
+      const term = String(data?.term || '').trim();
+      const reading = String(data?.reading || '').trim();
+      if (!term) { reply({ ok: false, error: 'No dictionary headword was selected' }); return; }
+
       trace('writing');
       if (data.kind === 'review') {
-        await ipcRenderer.invoke('gsm-jiten-review', {
-          requestId,
-          wordId: ref.wordId, readingIndex: ref.readingIndex, rating: Number(data.rating),
-          apiKey, endpoint, timeout: 5000,
-        });
+        const ease = Number(data.rating);
+        const result = await ipcRenderer.invoke('gsm-anki-popup-grade', { term, reading, ease });
+        trace('written');
+        reply({ ok: true, ...result });
       } else if (data.kind === 'state') {
         const deck = String(data.deck || '');
-        const action = String(data.action || 'add');
-        if (!deck) { reply({ ok: false, error: 'Missing deck' }); return; }
-        await ipcRenderer.invoke('gsm-jiten-set-vocabulary-state', {
-          requestId,
-          wordId: ref.wordId, readingIndex: ref.readingIndex, state: `${deck}-${action}`,
-          apiKey, endpoint, timeout: 5000,
+        const flag = deck === 'blacklist' ? 'blacklist'
+          : deck === 'neverForget' ? 'neverForget' : '';
+        if (!flag) { reply({ ok: false, error: 'Unknown local flag' }); return; }
+        const action = data.action === 'remove' ? 'remove' : 'add';
+        const result = await ipcRenderer.invoke('gsm-anki-popup-set-flag', {
+          term, reading, flag, action,
         });
+        trace('written');
+        reply({ ok: true, ...result });
       } else {
-        reply({ ok: false, error: 'Unknown grade kind' }); return;
+        reply({ ok: false, error: 'Unknown grade kind' });
+        return;
       }
-      trace('written');
-      trace('replying');
-      reply({ ok: true, wordId: ref.wordId, readingIndex: ref.readingIndex });
       trace('replied');
-      // Optimistic highlight update — no extra API call needed. We know the target
-      // state from the grade action itself.
-      trace('highlighting');
-      applyOptimisticHighlightState(ref.wordId, ref.readingIndex, data.kind, Number(data.rating), data.deck);
-      trace('highlighted');
-    } catch (e) {
+    } catch (error) {
       trace('failed');
-      reply({ ok: false, error: String((e && e.message) || e) });
+      reply({ ok: false, error: String((error && error.message) || error) });
     }
   }
 
   window.addEventListener('message', (event) => {
     const data = event && event.data;
     if (!data || typeof data !== 'object') return;
+    if (!isAllowedGradingMessageSource(event.source)) return;
     if (data.type === 'gsm-jiten-grading-config-request') {
-      requestJitenReaderGradingSettings();
-      pushJitenGradingConfig(event.source || undefined);
+      pushJitenGradingConfig(event.source);
       return;
     }
     if (data.type === 'gsm-jiten-grade') {
@@ -4825,7 +4814,9 @@ background: rgba(202, 12, 12, 0.692);
       pinyinTone5Color: newsettings.pinyinTone5Color,
     });
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
-    if (Object.prototype.hasOwnProperty.call(newsettings, "localVocabularyEnabled")) {
+    if (Object.prototype.hasOwnProperty.call(newsettings, "wordStateMode")) {
+      setLocalVocabularyEnabled(newsettings.wordStateMode === 'local');
+    } else if (Object.prototype.hasOwnProperty.call(newsettings, "localVocabularyEnabled")) {
       setLocalVocabularyEnabled(newsettings.localVocabularyEnabled);
     }
     hideFuriganaAfterSeconds = clampNumber(newsettings.hideFuriganaAfterSeconds, 0, 0, 60);
@@ -4837,6 +4828,9 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (Object.prototype.hasOwnProperty.call(newsettings, "showJitenGradingButtons")) {
       showJitenGradingButtons = newsettings.showJitenGradingButtons !== false;
+    }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "jitenGradingButtonsAtBottom")) {
+      jitenGradingButtonsAtBottom = newsettings.jitenGradingButtonsAtBottom === true;
     }
     pushJitenGradingConfig();
     if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightOpacity")) {
@@ -5087,6 +5081,9 @@ background: rgba(202, 12, 12, 0.692);
         case "localVocabularyEnabled":
           setLocalVocabularyEnabled(value);
           break;
+        case "wordStateMode":
+          setLocalVocabularyEnabled(value === 'local');
+          break;
         case "localVocabularySource":
         case "localVocabularyAnkiQuery":
         case "localVocabularyAnkiWordField":
@@ -5110,6 +5107,10 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "showJitenGradingButtons":
           showJitenGradingButtons = value !== false;
+          pushJitenGradingConfig();
+          break;
+        case "jitenGradingButtonsAtBottom":
+          jitenGradingButtonsAtBottom = value === true;
           pushJitenGradingConfig();
           break;
         case "jitenHighlightOpacity":
