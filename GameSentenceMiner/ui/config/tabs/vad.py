@@ -35,10 +35,6 @@ def build_vad_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.backup_vad_model_combo,
     )
     models_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "vad", "use_cpu_for_inference"),
-        window.use_cpu_for_inference_check,
-    )
-    models_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "vad", "use_vad_filter_for_whisper"),
         window.use_vad_filter_for_whisper_check,
     )

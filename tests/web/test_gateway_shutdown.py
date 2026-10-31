@@ -34,7 +34,7 @@ def gateway(monkeypatch):
     ingress_port = upstream.sockets[0].getsockname()[1]
     external_port = texthooking_page._find_free_port("127.0.0.1")
     monkeypatch.setattr(texthooking_page.web.AppRunner, "cleanup", delayed_cleanup)
-    monkeypatch.setattr(texthooking_page, "_run_waitress_server", lambda *_args: None)
+    monkeypatch.setattr(texthooking_page, "_run_waitress_server", lambda *_args, on_ready: on_ready())
     monkeypatch.setattr(texthooking_page, "_wait_for_tcp_port", lambda *_args: True)
     monkeypatch.setattr(texthooking_page, "_legacy_notice_server", None)
     monkeypatch.setattr(texthooking_page, "_legacy_notice_thread", None)

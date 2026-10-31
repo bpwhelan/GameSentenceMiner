@@ -12,7 +12,10 @@ import {
     installPackageNoDeps,
 } from '../services/python_ops.js';
 import { installSessionManager } from '../services/install_session_state.js';
-import { getPythonExtras, setPythonExtraEnabled, setPythonExtras } from '../store.js';
+import { getPythonExtras, setPythonExtras } from '../store.js';
+import { bus } from '../runtime/bus_client.js';
+import { changeGpuRuntime } from '../services/gpu_install.js';
+import { GPU_INSTALL_PROGRESS_CHANNEL } from '../../shared/gpu.js';
 
 let consoleProcess: ChildProcess | null = null;
 
@@ -83,7 +86,7 @@ export async function pipInstallWithLogging(
 
 export function registerPythonIPC() {
     // Install CUDA packages
-    ipcMain.handle('python.installCudaPackage', async () => {
+    ipcMain.handle('python.installCudaPackage', async (_event, options: { bundledLibraries?: boolean } = {}) => {
         if (FeatureFlags.DISABLE_GPU_INSTALLS) {
             await dialog.showMessageBox({
                 type: 'info',
@@ -95,18 +98,13 @@ export function registerPythonIPC() {
         }
         try {
             const pythonPath = await getOrInstallPython();
-            await closeAllPythonProcesses();
-
-            // Wait for processes to fully close
-            await new Promise((resolve) => setTimeout(resolve, 3000));
 
             console.log('Enabling GPU extra and syncing lockfile...');
-            setPythonExtraEnabled('gpu', true);
+            const requestedExtras = [...getPythonExtras(), 'gpu', ...(options.bundledLibraries === true ? ['gpu-libs'] : [])];
             const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                getPythonExtras()
+                requestedExtras
             );
             if (ignoredExtras.length > 0) {
-                setPythonExtras(selectedExtras);
                 console.warn(
                     `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
                         allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
@@ -118,18 +116,22 @@ export function registerPythonIPC() {
                     'The "gpu" extra is not available in the bundled lockfile. Update the app before enabling GPU support.'
                 );
             }
-            await checkAndInstallUV(pythonPath);
-            await syncLockedEnvironment(pythonPath, selectedExtras, false);
-
-            console.log('CUDA installation complete, restarting GSM...');
-            // Give a moment for file system to settle
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            
-            // Import and call ensureAndRunGSM directly
             const { ensureAndRunGSM } = await import('../main.js');
-            await ensureAndRunGSM(pythonPath);
+            await changeGpuRuntime({
+                stop: () => closeAllPythonProcesses(),
+                apply: async () => {
+                    await checkAndInstallUV(pythonPath);
+                    await syncLockedEnvironment(pythonPath, selectedExtras, false);
+                    setPythonExtras(selectedExtras);
+                },
+                launch: (onSpawn) => ensureAndRunGSM(pythonPath, 1, { onSpawn }),
+                bus,
+                onPhase: (phase) => {
+                    if (!_event.sender.isDestroyed()) _event.sender.send(GPU_INSTALL_PROGRESS_CHANNEL, { phase });
+                },
+            });
             
-            return { success: true, message: 'CUDA GPU support installed successfully' };
+            return { success: true, message: 'GPU inference runtime installed and verified successfully' };
         } catch (error: any) {
             console.error('Failed to install CUDA GPU support:', error);
             return {
@@ -142,7 +144,7 @@ export function registerPythonIPC() {
     });
 
     // Uninstall CUDA packages
-    ipcMain.handle('python.uninstallCudaPackage', async () => {
+    ipcMain.handle('python.uninstallCudaPackage', async (event) => {
         if (FeatureFlags.DISABLE_GPU_INSTALLS) {
             await dialog.showMessageBox({
                 type: 'info',
@@ -154,33 +156,34 @@ export function registerPythonIPC() {
         }
         try {
             const pythonPath = await getOrInstallPython();
-            await closeAllPythonProcesses();
-
-            await new Promise((resolve) => setTimeout(resolve, 3000));
 
             console.log('Disabling GPU extra and syncing lockfile...');
-            setPythonExtraEnabled('gpu', false);
             const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                getPythonExtras()
+                getPythonExtras().filter((extra) => extra !== 'gpu' && extra !== 'gpu-libs')
             );
             if (ignoredExtras.length > 0) {
-                setPythonExtras(selectedExtras);
                 console.warn(
                     `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
                         allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
                     }.`
                 );
             }
-            await checkAndInstallUV(pythonPath);
-            await syncLockedEnvironment(pythonPath, selectedExtras, false);
-
-            console.log('CUDA uninstallation complete, restarting GSM...');
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            
             const { ensureAndRunGSM } = await import('../main.js');
-            await ensureAndRunGSM(pythonPath);
+            await changeGpuRuntime({
+                stop: () => closeAllPythonProcesses(),
+                apply: async () => {
+                    await checkAndInstallUV(pythonPath);
+                    await syncLockedEnvironment(pythonPath, selectedExtras, false);
+                    setPythonExtras(selectedExtras);
+                },
+                launch: (onSpawn) => ensureAndRunGSM(pythonPath, 1, { onSpawn }),
+                bus,
+                onPhase: (phase) => {
+                    if (!event.sender.isDestroyed()) event.sender.send(GPU_INSTALL_PROGRESS_CHANNEL, { phase });
+                },
+            });
             
-            return { success: true, message: 'CUDA GPU support uninstalled successfully' };
+            return { success: true, message: 'CPU ONNX Runtime restored successfully' };
         } catch (error: any) {
             console.error('Failed to uninstall CUDA GPU support:', error);
             return {
@@ -228,7 +231,14 @@ export function registerPythonIPC() {
 
             console.log('Restarting GSM...');
             const { ensureAndRunGSM } = await import('../main.js');
-            await ensureAndRunGSM(pythonPath, 1, { origin: 'reset_dependencies' });
+            // The launch promise follows GSM until exit. The install session
+            // tracks startup progress; release this request once it spawns.
+            await new Promise<void>((resolve, reject) => {
+                void ensureAndRunGSM(pythonPath, 1, {
+                    origin: 'reset_dependencies',
+                    onSpawn: resolve,
+                }).catch(reject);
+            });
         };
 
         try {

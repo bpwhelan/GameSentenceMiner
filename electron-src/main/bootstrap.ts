@@ -1,3 +1,4 @@
+import { markStartup } from './services/startup_timing.js';
 import electron from 'electron';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -130,6 +131,7 @@ if (process.argv.includes(AGENT_HOST_ARG)) {
         packaged: app.isPackaged,
         appPath: app.getAppPath(),
     });
+    markStartup('desktop bootstrap');
     app.on('web-contents-created', (_event, contents) => captureRendererDiagnostics(contents));
     traceOverlayBootstrap('main app mode detected');
     void import('./main.js').catch((error) => {

@@ -1,4 +1,12 @@
 {
+  "gamePrivileges": {
+    "title": "{game} is running as administrator",
+    "description": "GSM is running without administrator privileges. This difference may interfere with OBS capture, text hooking, the overlay, or hotkeys. Restarting GSM as administrator is recommended.",
+    "restart": "Restart GSM as administrator",
+    "restarting": "Restarting…",
+    "dismiss": "Dismiss for this game session",
+    "restartError": "Could not restart GSM. You can also close GSM and choose Run as administrator from its shortcut."
+  },
   "gameBackground": {
     "title": "Game hook (experimental)",
     "help": "A small Windows hook for the game captured by this scene. Settings are remembered for this executable.",
@@ -584,6 +592,89 @@
     }
   },
   "settings": {
+    "python": {
+      "title": "Python & debug",
+      "description": "Environment details and recovery tools for troubleshooting GSM.",
+      "environment": "Environment",
+      "openLogs": "Open logs",
+      "version": "Python version",
+      "path": "Executable",
+      "pip": "pip",
+      "recovery": "Dependency recovery",
+      "resetHelp": "Restore GSM dependencies from the bundled lockfile. This stops and restarts the backend.",
+      "customHelp": "Install a specific package for troubleshooting. This changes the GSM Python environment and restarts the backend.",
+      "actionFailed": "Could not complete the request: {error}"
+    },
+    "gpu": {
+      "progress": {
+        "stopping": "Stopping GSM so its runtime can be updated…",
+        "installing": "Downloading and checking the selected runtime…",
+        "starting": "Waiting for GSM to reconnect…"
+      },
+      "unavailable": "GPU status is unavailable. Check that the GSM backend is running.",
+      "title": "GPU & performance",
+      "setup": "NVIDIA CUDA setup",
+      "intro": "Use NVIDIA’s CUDA Toolkit and cuDNN installers first. GSM finds their libraries automatically; Python library bundles are an optional fallback.",
+      "checks": {
+        "driver": "NVIDIA GPU / driver",
+        "cuda": "CUDA 12 runtime",
+        "cudnn": "cuDNN 9",
+        "onnx": "ONNX GPU runtime",
+        "whisper": "Whisper runtime"
+      },
+      "checking": "Checking…",
+      "available": "Available",
+      "missing": "Missing",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "downloadCuda": "Get CUDA Toolkit 12.9",
+      "downloadCudnn": "Get cuDNN 9",
+      "refresh": "Check again",
+      "installHint": "Choose Windows x86_64 for CUDA Toolkit 12.9, and CUDA 12 support in the cuDNN 9 installer. Your driver’s CUDA version alone does not mean these libraries are installed.",
+      "engines": "GPU use by engine",
+      "shared": "Shared across GSM profiles. Changes apply on the next scan or audio operation; an operation already running finishes on its current device.",
+      "names": {
+        "meiki": "MeikiOCR",
+        "firered": "FireRedVAD",
+        "whisper": "Whisper"
+      },
+      "help": {
+        "meiki": "Controls text detection and recognition for main OCR and the overlay.",
+        "firered": "CPU is the default for short clips. Enable GPU to compare on your machine.",
+        "whisper": "Uses CTranslate2 with float16 on GPU and int8 on CPU. Larger models are more likely to benefit."
+      },
+      "notLoaded": "Model not loaded",
+      "pending": "Change pending until next use",
+      "mixed": "Models loaded on both CPU and GPU",
+      "loadedGpu": "Loaded on GPU",
+      "loadedCpu": "Loaded on CPU",
+      "reasons": {
+        "ready": "GPU is ready",
+        "driver": "NVIDIA GPU / driver unavailable; using CPU",
+        "cuda": "CUDA 12 libraries missing or cannot load; using CPU",
+        "cudnn": "cuDNN 9 missing or cannot load; using CPU",
+        "onnx": "Install the ONNX GPU runtime below; using CPU",
+        "whisper": "Whisper runtime unavailable; using CPU",
+        "platform": "This CUDA setup currently supports Windows; using CPU"
+      },
+      "fallback": "GPU fallback: {error}",
+      "otherEngines": "Silero, ScreenAI, OneOCR and VOCR have no GSM CUDA switch. Remote AI, local AI servers and OBS manage their own acceleration.",
+      "enginePackage": "ONNX Runtime for MeikiOCR and FireRed",
+      "enginePackageHelp": "NVIDIA’s installers provide CUDA libraries. MeikiOCR and FireRed also need the GPU edition of ONNX Runtime. Whisper already includes GPU support. Package changes restart GSM’s Python processes.",
+      "installEngine": "Install / repair ONNX GPU runtime",
+      "removeEngine": "Use CPU ONNX Runtime",
+      "fallbackTitle": "Optional Python library fallback",
+      "fallbackHelp": "Use this only if NVIDIA’s system installers cannot be used. Downloads CUDA/cuDNN libraries into GSM’s Python environment as well as the ONNX GPU runtime. System libraries remain the first choice.",
+      "installLibraries": "Install bundled CUDA libraries",
+      "details": "Library locations and diagnostics",
+      "sources": {
+        "system": "NVIDIA / system installation",
+        "python": "Python package fallback"
+      },
+      "working": "Applying changes…",
+      "open": "Open GPU & performance",
+      "pythonHint": "GPU setup, engine switches and device status are in Settings → GPU & performance."
+    },
     "workspace": {
       "brandHint": "Preferences & tools",
       "general": "General",
@@ -635,6 +726,8 @@
       "iconRandom": "Random",
       "iconRandomTray": "Random (Tray Icon Also)",
       "theme": "Theme:",
+      "disableSeasonalEffects": "Disable seasonal effects",
+      "seasonalEffectsHelp": "Turn off seasonal icons, theme accents, and decorations for all holidays. Your chosen theme stays saved.",
       "themeGroupDark": "Dark",
       "themeGroupLight": "Light",
       "themeGroupHighContrast": "High Contrast",
@@ -784,6 +877,14 @@
       }
     },
     "catalog": {
+      "desktopPython": {
+        "label": "Python & debug",
+        "description": "Inspect the Python environment, reset dependencies, or install a package for debugging."
+      },
+      "desktopGpu": {
+        "label": "GPU & performance",
+        "description": "Use NVIDIA’s CUDA Toolkit and cuDNN installers first. GSM finds their libraries automatically; Python library bundles are an optional fallback."
+      },
       "alreadyOnScreen": "Already on this screen",
       "openGSMSettings": "Open Main GSM Settings",
       "openOverlaySettings": "Open Overlay Settings",
@@ -1188,7 +1289,32 @@
       "textAppearsInstantlyQualifier": "only if truly instant",
       "textAppearsInstantlyWarning": "Warning: Only turn this on when the full text appears instantly. If text reveals gradually or animates in, this can get very messy."
     },
+    "meikiModel": {
+      "label": "MeikiOCR detector model",
+      "small": "Small · 320×192 (faster)",
+      "large": "Large · 960×544 (default)",
+      "help": "Small scans faster but may miss small text. Recognition models are the same. Shared by main and overlay OCR across profiles; applies on the next scan.",
+      "preparing": "Downloading and checking model…",
+      "active": "Selected model: {model}. Ready for the next scan.",
+      "unavailable": "MeikiOCR is unavailable. Check the backend and local installation.",
+      "error": "Model settings: {error}",
+      "refresh": "Retry"
+    },
+    "vitaModel": {
+      "label": "VOCR model size",
+      "small": "Small · 0.82 MB",
+      "normal": "Normal · 1.19 MB (default)",
+      "large": "Large · 2.48 MB",
+      "help": "Shared by main and overlay OCR across all profiles. The runtime and model download automatically on first use; no build tools are needed. Model weights are for non-commercial use.",
+      "preparing": "Downloading and checking VOCR runtime and model…",
+      "active": "Selected model: {model}. Ready for the next scan.",
+      "unavailable": "VOCR will download its runtime and model automatically. An internet connection is needed for the first setup.",
+      "error": "Model settings: {error}",
+      "refresh": "Retry"
+    },
     "pipeline": {
+      "vocrDetectorHint": "Finds text lines without recognizing them. Pair with Google Lens or another Main OCR; empty scenes skip recognition.",
+      "vitaOcrHint": "Experimental local OCR for Japanese horizontal dialogue. Select a tight dialogue area for best results.",
       "title": "Recognition Pipeline",
       "twoPassFlow": "Two-pass flow:",
       "singlePassFlow": "Single-pass flow:",
@@ -1430,7 +1556,10 @@
         "stopped": "Stopped",
         "paused": "Paused",
         "manual": "Waiting for a capture",
-        "watching": "Watching for text"
+        "watching": "Watching for text",
+        "blackHole": "Text is in a black hole area",
+        "menu": "All text is menu text",
+        "excluded": "Sentence excluded for this game"
       },
       "events": {
         "captured": "Text captured",
@@ -1439,7 +1568,8 @@
         "menu": "Menu text skipped",
         "ignored": "Text in an ignored area skipped",
         "duplicate": "Repeated text skipped",
-        "error": "OCR needs attention · see the console for details"
+        "error": "OCR needs attention · see the console for details",
+        "excluded": "Exact match skipped"
       },
       "sources": {
         "auto": "Automatic capture",
@@ -1474,6 +1604,8 @@
       "oneocr": "OneOCR",
       "screenai": "ScreenAI OCR",
       "meikiocr": "Meiki OCR",
+      "vitaocr": "VOCR (Japanese only, experimental)",
+      "vocr_detector": "VOCR Line Detector (experimental)",
       "gemini": "Gemini",
       "gvision": "Google Vision",
       "azure": "Azure Image Analysis",
@@ -2036,5 +2168,27 @@
       "previewHint": "Preview uses your current rules, including unsaved changes.",
       "followLatest": "Follow latest game text"
     }
+  },
+  "sentenceExclusions": {
+    "title": "Excluded sentences",
+    "perGame": "Per game",
+    "description": "Block exact captured entries for the selected game before text processing. Matching is case-sensitive, ignores surrounding whitespace, and preserves line breaks. These rules apply to all text sources for this game and are saved separately from settings profiles.",
+    "game": "Game",
+    "noGame": "No game available",
+    "sentence": "Whole sentence or captured entry",
+    "placeholder": "Paste the exact text to exclude…",
+    "add": "Add exclusion",
+    "remove": "Remove",
+    "removeSentence": "Remove exclusion: {sentence}",
+    "empty": "No excluded sentences for this game.",
+    "failed": "Could not load or save sentence exclusions. Please try again.",
+    "lineActions": "Captured text actions",
+    "forGame": "For {game}",
+    "noCaptureGame": "This capture has no associated game. Capture new text with a game selected to add an exclusion.",
+    "exclude": "Exclude this sentence for this game",
+    "unexclude": "Remove sentence exclusion",
+    "added": "Sentence excluded for {game}. Future matches will be blocked.",
+    "removed": "Sentence exclusion removed for {game}.",
+    "excluded": "Excluded"
   }
 }

@@ -355,6 +355,12 @@
                     <input type="checkbox" id="fadeTextIndicators" />
                   </label>
                   <label>
+                    <span class="label-text">Show Text Hitboxes (Debug)
+                      <div class="hotkey-info">Outline individual lookup areas. Some languages use word-sized areas.</div>
+                    </span>
+                    <input type="checkbox" id="showTextHitboxes" />
+                  </label>
+                  <label>
                     <span class="label-text">Show Recycled Line Indicator</span>
                     <input type="checkbox" id="showRecycledIndicator" />
                   </label>
@@ -376,8 +382,41 @@
                       <option value="lens">Google Lens</option>
                       <option value="meikiocr">MeikiOCR</option>
                       <option value="screenai">ScreenAI</option>
+                      <option value="vitaocr">VOCR (Japanese only, experimental)</option>
+                      <option value="vocr_lens">VOCR line detector → Google Lens</option>
                     </select>
                   </label>
+                  <div id="vita-ocr-model-row" hidden>
+                    <label>
+                      <span class="label-text">VOCR model size</span>
+                      <select id="vita-ocr-model" disabled>
+                        <option value="small">Small · 0.82 MB</option>
+                        <option value="normal">Normal · 1.19 MB (default)</option>
+                        <option value="large">Large · 2.48 MB</option>
+                      </select>
+                    </label>
+                    <p class="hotkey-info">Shared by main and overlay OCR across all profiles. Downloads once if needed; applies on the next scan.</p>
+                    <p class="hotkey-info">VOCR downloads its runtime and model automatically on first use. No build tools are needed. Model weights are for non-commercial use.</p>
+                    <p id="vita-ocr-model-status" class="hotkey-info" role="status"></p>
+                    <p id="vita-ocr-model-error" class="hotkey-info" role="alert" hidden></p>
+                    <button type="button" id="vita-ocr-model-refresh" class="secondary" hidden>Retry</button>
+                  </div>
+                  <div id="meiki-ocr-model-row" hidden>
+                    <label>
+                      <span class="label-text">MeikiOCR detector model</span>
+                      <select id="meiki-ocr-model" disabled>
+                        <option value="small">Small · 320×192 (faster)</option>
+                        <option value="large">Large · 960×544 (default)</option>
+                      </select>
+                    </label>
+                    <p class="hotkey-info">Small scans faster but may miss small text. Recognition models are the same. Shared by main and overlay OCR across profiles; applies on the next scan.</p>
+                    <p id="meiki-ocr-model-status" class="hotkey-info" role="status"></p>
+                    <p id="meiki-ocr-model-error" class="hotkey-info" role="alert" hidden></p>
+                    <button type="button" id="meiki-ocr-model-refresh" class="secondary" hidden>Retry</button>
+                  </div>
+                  <p id="vocr-detector-help" class="hotkey-info" hidden>
+                    Finds text lines locally with the 52 KB VOCR detector, then sends those areas to Google Lens. Empty scenes skip Lens. GRAD is the fallback if the detector cannot run.
+                  </p>
                   <label>
                     <span class="label-text">Monitor to Capture</span>
                     <select id="monitor_to_capture">
@@ -1930,10 +1969,11 @@
                 <div class="setting-group full-width" data-tab="interaction">
                   <h4>VN Guide</h4>
                   <p class="hotkey-info">
-                    Follow a route from kanjieater’s VN-Guide at the top left. Only the current step is shown. Guides
-                    are downloaded on demand, cached locally, and checked for updates when opened and hourly. Updates
-                    wait for you to reload the guide. Guides are credited to VN-Guide; your game text stays on your
-                    computer.
+                    Follow a route from kanjieater’s VN-Guide, a GitHub fork, or a local game guide folder at the top
+                    left. Only the current step is shown. Guides are cached locally and checked for changes when opened
+                    and hourly. Updates wait for you to reload the guide. All sources must use the same VN-Guide
+                    format. Your game text stays on your computer. The guide, route, and enable setting are saved per
+                    OBS scene. Appearance and shortcuts follow your overlay profile preferences.
                   </p>
                   <label>
                     <span class="label-text">Enable VN Guide</span>
@@ -1941,19 +1981,49 @@
                   </label>
                   <label>
                     <span class="label-text">
-                      Game guide URL
+                      Catalogue source
                       <div class="hotkey-info">
-                        Paste a specific game page, including its route/step fragment if desired. A GitHub guide.json
-                        URL also works.
+                        Defaults to kanjieater’s VN-Guide. Use a GitHub repository or branch URL, or a local root folder
+                        containing games.json. This source is shared across scenes; choosing a guide saves it to the
+                        current OBS scene.
+                      </div>
+                    </span>
+                    <input type="text" id="vnGuideCatalogueSource" placeholder="https://github.com/kanjieater/VN-Guide" />
+                  </label>
+                  <div class="button-row">
+                    <button type="button" id="vn-guide-catalogue-default" class="guide-button">Use default catalogue</button>
+                    <button type="button" id="vn-guide-catalogue-folder" class="guide-button">Choose catalogue folder</button>
+                    <button type="button" id="vn-guide-catalogue-refresh" class="guide-button">Refresh catalogue</button>
+                  </div>
+                  <label>
+                    <span class="label-text">Search guides</span>
+                    <input type="text" role="searchbox" id="vn-guide-search" placeholder="Game title or folder name" />
+                  </label>
+                  <label>
+                    <span class="label-text">Available guides</span>
+                    <select id="vn-guide-catalogue" disabled="">
+                      <option value="">Loading catalogue…</option>
+                    </select>
+                  </label>
+                  <p id="vn-guide-catalogue-status" class="hotkey-info" role="status"></p>
+                  <label>
+                    <span class="label-text">
+                      Game guide URL or folder
+                      <div class="hotkey-info">
+                        Paste a game page from VN-Guide or a fork, a GitHub game folder or guide.json URL, or a local
+                        game folder path. Local folders must contain guide.json and route_{id}.json files in the
+                        VN-Guide format. URL route/step fragments also work. GitHub Pages URLs use the main branch;
+                        for another branch, paste its GitHub or raw file URL.
                       </div>
                     </span>
                     <input
-                      type="url"
+                      type="text"
                       id="vnGuideUrl"
                       placeholder="https://kanjieater.github.io/VN-Guide/hiiro-no-kakera/"
                     />
                   </label>
                   <div class="button-row">
+                    <button type="button" id="vn-guide-folder" class="guide-button">Choose local folder</button>
                     <button type="button" id="vn-guide-import" class="guide-button">Use current Custom Page</button>
                     <button type="button" id="vn-guide-check-updates" class="guide-button">Check for updates</button>
                     <button type="button" id="vn-guide-refresh" class="guide-button">Reload guide from source</button>
@@ -2369,6 +2439,10 @@
     <script src="./settings/presets.js"></script>
     <script src="./settings/home.js"></script>
     <script src="./settings/bootstrap.js"></script>
+    <script src="./settings/vita-ocr.js"></script>
+    <script>GSMVitaModelSettings.sync();</script>
+    <script src="./settings/meiki-ocr.js"></script>
+    <script>GSMMeikiModelSettings.sync();</script>
     <script src="./components/settings-metadata.js"></script>
     <script src="./vn_guide_settings.js"></script>
     <script src="./components/settings-enhancer.js"></script>

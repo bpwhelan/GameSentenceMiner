@@ -1,32 +1,67 @@
 const { prepareTextLines, detectTextBlocks } = require('./block_detection');
+const path = require('node:path');
+const { fileURLToPath, pathToFileURL } = require('node:url');
 
 const SITE = 'https://kanjieater.github.io/VN-Guide/';
 const RAW = 'https://raw.githubusercontent.com/kanjieater/VN-Guide/main/';
 const safeId = value => typeof value === 'string' && /^[\p{L}\p{N}_-]{1,160}$/u.test(value);
+const guideFile = /^(index\.html|guide\.json|route_[\p{L}\p{N}_-]+\.json)$/u;
 
 // Only the public VN-Guide format is supported. Never execute guide HTML or
 // follow URLs supplied by a manifest to fetch route data.
 function parseGuideUrl(value) {
+  const input = String(value).trim().replace(/^"(.*)"$/, '$1');
   let url;
-  try { url = new URL(String(value).trim()); } catch { throw new Error('Paste a specific game URL from kanjieater’s VN-Guide.'); }
-  if (url.protocol !== 'https:' || url.username || url.password || url.port) throw new Error('Use an official HTTPS VN-Guide URL.');
-  let prefix;
-  if (url.origin === new URL(SITE).origin) prefix = '/VN-Guide/';
-  else if (url.origin === 'https://raw.githubusercontent.com') prefix = '/kanjieater/VN-Guide/main/';
-  else if (url.origin === 'https://github.com') {
-    prefix = /^\/kanjieater\/VN-Guide\/(tree|blob)\/main\//.exec(url.pathname)?.[0];
-  }
-  if (!prefix || !url.pathname.startsWith(prefix)) throw new Error('Only kanjieater’s VN-Guide URLs are supported.');
-  const parts = url.pathname.slice(prefix.length).split('/').filter(Boolean).map(part => decodeURIComponent(part));
-  if (!safeId(parts[0]) || parts.length > 2 || (parts[1] && !/^(index\.html|guide\.json|route_[\p{L}\p{N}_-]+\.json)$/u.test(parts[1]))) {
-    throw new Error('Open a game in VN-Guide, then paste that game’s URL here.');
+  try { url = path.isAbsolute(input) ? pathToFileURL(input) : new URL(input); }
+  catch { throw new Error('Paste a VN-Guide game URL or an absolute path to a game guide folder.'); }
+  let slug, file, baseUrl, pageUrl;
+  if (url.protocol === 'file:') {
+    let directory;
+    try { directory = fileURLToPath(url); }
+    catch { throw new Error('Use a valid local game guide folder or guide.json file.'); }
+    directory = path.normalize(directory);
+    file = path.basename(directory);
+    if (guideFile.test(file)) directory = path.dirname(directory);
+    else file = '';
+    slug = path.basename(directory);
+    baseUrl = pathToFileURL(directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`).href;
+    pageUrl = `${baseUrl}index.html`;
+  } else {
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) throw new Error('Use an HTTPS GitHub VN-Guide URL or a local game guide folder.');
+    let parts;
+    try { parts = url.pathname.replace(/^\//, '').replace(/\/$/, '').split('/').map(part => decodeURIComponent(part)); }
+    catch { throw new Error('The guide URL contains an invalid path.'); }
+    let owner, repo, ref;
+    const pages = /^([a-z\d-]+)\.github\.io$/i.exec(url.hostname);
+    if (pages) {
+      owner = pages[1];
+      [repo, slug, file = ''] = parts;
+      if (parts.length < 2 || parts.length > 3) throw new Error('Open a game in VN-Guide, then paste that game’s URL here.');
+      ref = ['main'];
+    } else if (url.hostname === 'github.com' || url.hostname === 'raw.githubusercontent.com') {
+      [owner, repo] = parts.splice(0, 2);
+      if (url.hostname === 'github.com' && !['tree', 'blob'].includes(parts.shift())) throw new Error('Paste a GitHub game folder or guide.json URL.');
+      file = guideFile.test(parts.at(-1)) ? parts.pop() : '';
+      slug = parts.pop();
+      ref = parts;
+    } else throw new Error('Use a GitHub, raw GitHub, or GitHub Pages VN-Guide URL, or a local game guide folder.');
+    if (!/^[a-z\d-]{1,39}$/i.test(owner || '') || !/^[\w.-]{1,100}$/.test(repo || '') || ['.', '..'].includes(repo)
+      || !ref.length || ref.some(part => !/^[\w.-]+$/.test(part) || ['.', '..'].includes(part))
+      || !safeId(slug) || (file && !guideFile.test(file))) {
+      throw new Error('Open a game in VN-Guide, then paste that game’s URL here.');
+    }
+    owner = owner.toLowerCase();
+    if (repo.toLowerCase() === 'vn-guide') repo = 'VN-Guide';
+    baseUrl = `https://raw.githubusercontent.com/${[owner, repo, ...ref, slug].map(encodeURIComponent).join('/')}/`;
+    pageUrl = `https://${owner}.github.io/${encodeURIComponent(repo)}/${encodeURIComponent(slug)}/`;
   }
   const nav = new URLSearchParams(url.hash.slice(1));
-  const routeId = nav.get('route') || /^route_(.+)\.json$/.exec(parts[1] || '')?.[1] || '';
+  const routeId = nav.get('route') || /^route_(.+)\.json$/.exec(file)?.[1] || '';
   if (routeId && !safeId(routeId)) throw new Error('Invalid route in the guide URL.');
   const step = /^\d+$/.test(nav.get('step') || '') ? Number(nav.get('step')) : null;
-  const slug = parts[0];
-  return { slug, routeId, step: Number.isSafeInteger(step) ? step : null, pageUrl: `${SITE}${encodeURIComponent(slug)}/`, baseUrl: `${RAW}${encodeURIComponent(slug)}/` };
+  // Retain existing official-guide progress; forks and local copies are isolated.
+  const progressId = baseUrl === `${RAW}${encodeURIComponent(slug)}/` ? slug : baseUrl;
+  return { slug, routeId, step: Number.isSafeInteger(step) ? step : null, pageUrl, baseUrl, progressId };
 }
 
 function validateGuide(data) {

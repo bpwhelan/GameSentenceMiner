@@ -4,6 +4,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+import soundfile as sf
 from PyQt6.QtCore import QEvent, QPoint, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QTextEdit, QVBoxLayout, QWidget
@@ -29,6 +30,32 @@ def waveform(app):
     app.processEvents()
     yield widget
     widget.close()
+
+
+def test_waveform_decodes_with_ffmpeg_when_soundfile_cannot_read_original(waveform, monkeypatch, tmp_path):
+    from GameSentenceMiner.util.media import ffmpeg
+
+    original = tmp_path / "audio.opus"
+    original.write_bytes(b"not readable by soundfile")
+    decoded = tmp_path / "decoded.wav"
+    sf.write(decoded, np.ones(4800), 48000)
+    monkeypatch.setattr(ffmpeg, "convert_audio_to_wav_lossless", lambda path: str(decoded))
+
+    assert waveform.load_audio(str(original))
+    assert waveform.duration == pytest.approx(0.1)
+    assert waveform.audio_data is not None
+    assert not decoded.exists()
+
+
+def test_waveform_clears_old_data_when_new_audio_cannot_be_loaded(waveform, monkeypatch, tmp_path):
+    from GameSentenceMiner.util.media import ffmpeg
+
+    monkeypatch.setattr(ffmpeg, "convert_audio_to_wav_lossless", lambda path: str(tmp_path / "missing.wav"))
+
+    assert not waveform.load_audio(str(tmp_path / "bad.opus"))
+    assert waveform.audio_data is None
+    assert waveform.duration == 0
+    assert waveform.get_selection_range() == (0.0, 0.0)
 
 
 def test_clicking_waveform_requests_seek_without_changing_trim(waveform, app):

@@ -1,4 +1,12 @@
 {
+  "gamePrivileges": {
+    "title": "{game} は管理者として実行されています",
+    "description": "GSM は管理者権限なしで実行されています。この権限の違いにより、OBS のキャプチャ、テキストフック、オーバーレイ、ホットキーが正常に動作しない場合があります。GSM を管理者として再起動することをおすすめします。",
+    "restart": "GSM を管理者として再起動",
+    "restarting": "再起動中…",
+    "dismiss": "今回のゲーム起動中は非表示",
+    "restartError": "GSM を再起動できませんでした。GSM を終了し、ショートカットから「管理者として実行」を選ぶこともできます。"
+  },
   "gameBackground": {
     "title": "ゲームフック（実験的）",
     "help": "このシーンでキャプチャするゲーム用の小さな Windows フックです。設定は実行ファイルごとに保存されます。",
@@ -578,6 +586,89 @@
     }
   },
   "settings": {
+    "python": {
+      "title": "Python とデバッグ",
+      "description": "GSM のトラブルシューティングに使う環境情報と復旧ツールです。",
+      "environment": "環境",
+      "openLogs": "ログを開く",
+      "version": "Python バージョン",
+      "path": "実行ファイル",
+      "pip": "pip",
+      "recovery": "依存関係の復旧",
+      "resetHelp": "同梱のロックファイルから GSM の依存関係を復元します。バックエンドは停止して再起動します。",
+      "customHelp": "トラブルシューティング用に特定のパッケージをインストールします。GSM の Python 環境を変更し、バックエンドを再起動します。",
+      "actionFailed": "処理を完了できませんでした: {error}"
+    },
+    "gpu": {
+      "progress": {
+        "stopping": "ランタイムを更新するため GSM を停止中…",
+        "installing": "選択したランタイムをダウンロード・検証中…",
+        "starting": "GSM の再接続を待っています…"
+      },
+      "unavailable": "GPU の状態を取得できません。GSM バックエンドが実行中か確認してください。",
+      "title": "GPU とパフォーマンス",
+      "setup": "NVIDIA CUDA のセットアップ",
+      "intro": "まず NVIDIA の CUDA Toolkit と cuDNN のインストーラーを使用してください。GSM はライブラリを自動検出します。Python 版は必要な場合のみ使用できます。",
+      "checks": {
+        "driver": "NVIDIA GPU / ドライバー",
+        "cuda": "CUDA 12 ランタイム",
+        "cudnn": "cuDNN 9",
+        "onnx": "ONNX GPU ランタイム",
+        "whisper": "Whisper ランタイム"
+      },
+      "checking": "確認中…",
+      "available": "利用可能",
+      "missing": "未検出",
+      "enabled": "有効",
+      "disabled": "無効",
+      "downloadCuda": "CUDA Toolkit 12.9 を入手",
+      "downloadCudnn": "cuDNN 9 を入手",
+      "refresh": "再確認",
+      "installHint": "CUDA Toolkit 12.9 は Windows x86_64 を、cuDNN 9 は CUDA 12 対応版を選択してください。ドライバーに表示される CUDA バージョンだけでは、ライブラリの導入を確認できません。",
+      "engines": "エンジン別の GPU 使用",
+      "shared": "すべての GSM プロファイルで共有されます。変更は次のスキャンまたは音声処理から適用されます。実行中の処理は現在のデバイスで完了します。",
+      "names": {
+        "meiki": "MeikiOCR",
+        "firered": "FireRedVAD",
+        "whisper": "Whisper"
+      },
+      "help": {
+        "meiki": "メイン OCR とオーバーレイの文字検出・認識に適用されます。",
+        "firered": "短い音声では CPU が既定です。GPU を有効にしてお使いの環境で比較できます。",
+        "whisper": "GPU では float16、CPU では int8 の CTranslate2 を使用します。大きなモデルほど効果が期待できます。"
+      },
+      "notLoaded": "モデル未読み込み",
+      "pending": "次の使用時に変更を適用",
+      "mixed": "CPU と GPU の両方で読み込み済み",
+      "loadedGpu": "GPU に読み込み済み",
+      "loadedCpu": "CPU に読み込み済み",
+      "reasons": {
+        "ready": "GPU を利用できます",
+        "driver": "NVIDIA GPU / ドライバーを利用できないため CPU を使用します",
+        "cuda": "CUDA 12 ライブラリを読み込めないため CPU を使用します",
+        "cudnn": "cuDNN 9 を読み込めないため CPU を使用します",
+        "onnx": "下の ONNX GPU ランタイムを導入してください。現在は CPU を使用します",
+        "whisper": "Whisper ランタイムを利用できないため CPU を使用します",
+        "platform": "この CUDA セットアップは現在 Windows のみ対応しています。CPU を使用します"
+      },
+      "fallback": "GPU からのフォールバック：{error}",
+      "otherEngines": "Silero、ScreenAI、OneOCR、VOCR には GSM の CUDA 切り替えはありません。リモート AI、ローカル AI サーバー、OBS の GPU 使用は各アプリで管理します。",
+      "enginePackage": "MeikiOCR と FireRed 用の ONNX Runtime",
+      "enginePackageHelp": "NVIDIA のインストーラーは CUDA ライブラリを導入します。MeikiOCR と FireRed には GPU 版 ONNX Runtime も必要です。Whisper は GPU に対応済みです。パッケージの変更時は GSM の Python プロセスを再起動します。",
+      "installEngine": "ONNX GPU ランタイムを導入・修復",
+      "removeEngine": "CPU 版 ONNX Runtime を使用",
+      "fallbackTitle": "Python ライブラリを代替手段として使用",
+      "fallbackHelp": "NVIDIA のインストーラーを使用できない場合のみ選択してください。CUDA/cuDNN ライブラリと ONNX GPU ランタイムを GSM の Python 環境に導入します。システムのライブラリを優先して使用します。",
+      "installLibraries": "同梱 CUDA ライブラリを導入",
+      "details": "ライブラリの場所と診断",
+      "sources": {
+        "system": "NVIDIA / システムのインストール",
+        "python": "Python パッケージの代替版"
+      },
+      "working": "変更を適用中…",
+      "open": "GPU とパフォーマンスを開く",
+      "pythonHint": "GPU の導入、エンジンの切り替え、デバイスの状態は「設定 → GPU とパフォーマンス」にあります。"
+    },
     "workspace": {
       "brandHint": "設定とツール",
       "general": "一般",
@@ -617,6 +708,8 @@
       "overlayNotAvailable": "オーバーレイ設定を自動的に開けませんでした。まずオーバーレイを起動/接続するか、トレイアイコンを使用してください。"
     },
     "desktop": {
+      "disableSeasonalEffects": "季節の演出を無効にする",
+      "seasonalEffectsHelp": "すべての季節・祝日のアイコン、テーマのアクセント、装飾を無効にします。選択したテーマは保存されたままです。",
       "title": "デスクトップアプリ設定",
       "iconStyle": "アイコンスタイル:",
       "iconDefault": "デフォルト",
@@ -766,6 +859,14 @@
       }
     },
     "catalog": {
+      "desktopPython": {
+        "label": "Python とデバッグ",
+        "description": "Python 環境の確認、依存関係のリセット、デバッグ用パッケージのインストールを行います。"
+      },
+      "desktopGpu": {
+        "label": "GPU とパフォーマンス",
+        "description": "まず NVIDIA の CUDA Toolkit と cuDNN のインストーラーを使用してください。GSM はライブラリを自動検出します。Python 版は必要な場合のみ使用できます。"
+      },
       "alreadyOnScreen": "この画面にいます",
       "openGSMSettings": "GSMのメイン設定を開く",
       "openOverlaySettings": "オーバーレイ設定を開く",
@@ -1166,7 +1267,32 @@
       "textAppearsInstantlyQualifier": "本当に即時の場合のみ",
       "textAppearsInstantlyWarning": "警告: 全文が一度に表示される場合だけオンにしてください。文字が徐々に表示される場合は、OCR結果が非常に乱れることがあります。"
     },
+    "meikiModel": {
+      "label": "MeikiOCR 検出モデル",
+      "small": "Small · 320×192（高速）",
+      "large": "Large · 960×544（既定）",
+      "help": "Small は高速ですが、小さな文字を見逃すことがあります。文字認識モデルは共通です。全プロファイルのメイン OCR とオーバーレイ OCR で共有され、次のスキャンから適用されます。",
+      "preparing": "モデルをダウンロード・検証中…",
+      "active": "選択中のモデル：{model}。次のスキャンで使用します。",
+      "unavailable": "MeikiOCR を利用できません。バックエンドとローカルのインストールを確認してください。",
+      "error": "モデル設定：{error}",
+      "refresh": "再試行"
+    },
+    "vitaModel": {
+      "label": "VOCRのモデルサイズ",
+      "small": "Small · 0.82 MB",
+      "normal": "Normal · 1.19 MB（既定）",
+      "large": "Large · 2.48 MB",
+      "help": "すべてのプロファイルのメインOCRとオーバーレイOCRで共有されます。初回使用時にランタイムとモデルを自動ダウンロードします。ビルドツールは不要です。モデルの重みは非商用利用限定です。",
+      "preparing": "VOCRのランタイムとモデルをダウンロード・確認中…",
+      "active": "選択中のモデル：{model}。次のスキャンから使用します。",
+      "unavailable": "VOCRのランタイムとモデルは自動ダウンロードされます。初回セットアップにはインターネット接続が必要です。",
+      "error": "モデル設定：{error}",
+      "refresh": "再試行"
+    },
     "pipeline": {
+      "vocrDetectorHint": "文字を認識せずにテキスト行を検出します。メインOCRにGoogle Lensなどを選択してください。テキストがない場面では認識を省略します。",
+      "vitaOcrHint": "日本語の横書き会話文に対応した試験的なローカルOCRです。会話文の周囲を狭く選択すると、認識精度が向上します。",
       "title": "認識パイプライン",
       "twoPassFlow": "2パスフロー:",
       "singlePassFlow": "1パスフロー:",
@@ -1402,7 +1528,10 @@
         "stopped": "停止中",
         "paused": "一時停止中",
         "manual": "キャプチャ待機中",
-        "watching": "テキストを監視中"
+        "watching": "テキストを監視中",
+        "blackHole": "テキストがブラックホール領域内にあります",
+        "menu": "すべてメニューテキストです",
+        "excluded": "このゲームで除外された文章です"
       },
       "events": {
         "captured": "テキストを読み取りました",
@@ -1411,7 +1540,8 @@
         "menu": "メニューテキストをスキップしました",
         "ignored": "無視領域内のテキストをスキップしました",
         "duplicate": "重複するテキストをスキップしました",
-        "error": "OCRの確認が必要です · 詳細はコンソールをご覧ください"
+        "error": "OCRの確認が必要です · 詳細はコンソールをご覧ください",
+        "excluded": "完全一致したテキストをスキップしました"
       },
       "sources": {
         "auto": "自動キャプチャ",
@@ -1446,6 +1576,8 @@
       "oneocr": "OneOCR",
       "screenai": "ScreenAI OCR",
       "meikiocr": "Meiki OCR",
+      "vitaocr": "VOCR（日本語専用・試験的）",
+      "vocr_detector": "VOCR行検出（実験的）",
       "gemini": "Gemini",
       "gvision": "Google Vision",
       "azure": "Azure Image Analysis",
@@ -1947,5 +2079,27 @@
       "noExe": "アクティブキャプチャの実行ファイルを検出できません。",
       "textExceededLimit": "テキストフックが {limit} 文字を超えたため、テキストを無視しました。"
     }
+  },
+  "sentenceExclusions": {
+    "title": "除外する文章",
+    "perGame": "ゲームごと",
+    "description": "選択したゲームで、読み取り結果全体が完全一致するテキストを処理前に除外します。大文字と小文字を区別し、前後の空白は無視します。改行は保持されます。このゲームのすべてのテキスト入力元に適用され、設定プロファイルとは別に保存されます。",
+    "game": "ゲーム",
+    "noGame": "利用可能なゲームがありません",
+    "sentence": "文章全体または読み取り結果",
+    "placeholder": "除外するテキストをそのまま貼り付け…",
+    "add": "除外を追加",
+    "remove": "削除",
+    "removeSentence": "除外を削除: {sentence}",
+    "empty": "このゲームの除外する文章はありません。",
+    "failed": "除外する文章の読み込みまたは保存に失敗しました。もう一度お試しください。",
+    "lineActions": "読み取ったテキストの操作",
+    "forGame": "対象: {game}",
+    "noCaptureGame": "この読み取り結果にはゲームが関連付けられていません。ゲームを選択して新しく読み取ると除外を追加できます。",
+    "exclude": "このゲームでこの文章を除外",
+    "unexclude": "文章の除外を解除",
+    "added": "{game}で文章を除外しました。今後、一致するテキストはブロックされます。",
+    "removed": "{game}の文章の除外を解除しました。",
+    "excluded": "除外済み"
   }
 }

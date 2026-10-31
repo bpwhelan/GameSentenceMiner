@@ -1,4 +1,18 @@
 import sys
+import time as _startup_time
+
+_startup_started_at = _startup_time.perf_counter()
+_startup_last_stage_at = _startup_started_at
+
+
+def _log_startup_stage(name: str) -> None:
+    global _startup_last_stage_at
+    now = _startup_time.perf_counter()
+    logger.info(
+        f"[Startup] {name}: {(now - _startup_started_at) * 1000:.0f}ms since backend entry "
+        f"(+{(now - _startup_last_stage_at) * 1000:.0f}ms)"
+    )
+    _startup_last_stage_at = now
 
 
 def handle_error_in_initialization(exc: Exception) -> None:
@@ -1658,6 +1672,9 @@ class GSMApplication:
             source=source,
             source_display_name=source_display_name,
             copy_to_clipboard=copy_to_clipboard,
+            metadata_extra={
+                key: data[key] for key in ("ocr_engine", "ocr_scene", "ocr_model", "ocr_finder") if key in data
+            },
         )
         try:
             # De-duplication against other sources is handled centrally in
@@ -1848,7 +1865,9 @@ class GSMApplication:
             check_output=True,
             healthcheck_enabled=True,
             start_manager=True,
-            initial_connect_delay=2.0,
+            # wait_for_obs_ready already verifies both the websocket handshake
+            # and scene availability. Retrying handles a genuine startup race.
+            initial_connect_delay=0.0,
         )
         if not gsm_status.obs_connected:
             return
@@ -1983,18 +2002,23 @@ class GSMApplication:
         self.state.transport_runtime.start()
         _get_websocket_manager().set_transport_runtime(self.state.transport_runtime)
         self.initialize(reloading)
+        _log_startup_stage("core initialized")
 
         qt_main = _get_qt_main_module()
         qt_main.get_qt_app()
         gsm_state.config_app_factory = self._ensure_settings_window
-        self._ensure_settings_window()
         open_config_on_startup = get_config().general.open_config_on_startup
+        if open_config_on_startup:
+            self._ensure_settings_window()
+        _log_startup_stage("Qt ready")
 
         self.start_background_threads()
         self.register_hotkeys()
+        _log_startup_stage("background services started")
 
         post_init = self.state.transport_runtime.submit(self.post_init_async())
         post_init.result()
+        _log_startup_stage("overlay processing ready")
         self.state.transport_runtime.submit(self.background_tasks_async())
         self.state.transport_runtime.submit(self.start_text_monitor_async())
         self.state.transport_runtime.submit(self.async_loop_stress_test_task())
@@ -2028,12 +2052,14 @@ class GSMApplication:
             "Backend startup complete.",
         )
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
+        _log_startup_stage("backend initialized")
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
         qt_main.start_qt_app(show_config_immediately=open_config_on_startup)
 
 
 def main() -> None:
     logger.info("Starting GSM")
+    _log_startup_stage("imports complete")
     if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
         print(
             """
@@ -2058,6 +2084,7 @@ For more information, see: https://github.com/bpwhelan/GameSentenceMiner
             logger.info("GSM is already running. Exiting duplicate startup.")
             return
         app = GSMApplication()
+        _log_startup_stage("database and application ready")
         if asyncio.run(app.check_if_script_is_running()):
             return
         asyncio.run(app.log_current_pid())

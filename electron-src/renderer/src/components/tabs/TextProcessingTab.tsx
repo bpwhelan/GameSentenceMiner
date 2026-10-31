@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, onIpc } from "../../lib/ipc";
 import { useTranslation } from "../../i18n";
 import { WorkspaceIcon } from "../Workspace";
+import { SentenceExclusions } from "./SentenceExclusions";
 import "./TextProcessingTab.css";
 
 interface TextReplacementRule {
@@ -346,6 +347,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
         </header>
 
         <div className="text-processing-body">
+        <div className="text-processing-main">
         <div className="text-processing-processors">
           <div className="text-processing-section-heading">
             <h2 id="text-processing-pipeline">{t("textProcessing.processorListTitle")}</h2>
@@ -504,6 +506,9 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
               </div>
             ))}
           </div>
+        </div>
+
+        <SentenceExclusions active={active} />
         </div>
 
         {/* Live Preview */}

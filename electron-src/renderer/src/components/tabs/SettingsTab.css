@@ -47,6 +47,15 @@
   display: grid;
   gap: 20px;
 }
+.settings-desk .settings-seasonal-effects {
+  margin-top: 24px;
+}
+.settings-desk .settings-seasonal-effects p {
+  margin: 6px 0 0 27px;
+  color: var(--gsm-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .settings-desk .input-group:has(> input[type="checkbox"]) {
   flex-direction: row-reverse;
   justify-content: flex-end;
@@ -344,5 +353,114 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 14px;
+  }
+}
+.gpu-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 12px; margin: 20px 0; }
+.gpu-check { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--gsm-border); border-radius: 8px; }
+.gpu-ready { color: var(--gsm-success, #70bf9b); }
+.gpu-missing { color: var(--gsm-text-muted); }
+.gpu-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.gpu-engine { padding: 20px 0; border-bottom: 1px solid var(--gsm-border); }
+.gpu-engine-heading, .gpu-engine-state, .gpu-switch { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.gpu-engine-heading { justify-content: space-between; }
+.gpu-engine-heading > label { font-weight: 650; }
+.gpu-engine p { margin: 9px 0; color: var(--gsm-text-muted); line-height: 1.5; }
+.gpu-engine-state { font-size: 12px; }
+.gpu-settings details { margin: 20px 0; }
+.gpu-settings summary { cursor: pointer; }
+.gpu-library-path { overflow-wrap: anywhere; font-size: 12px; }
+
+.settings-desk .python-settings-intro {
+  color: var(--gsm-text-muted);
+  font-size: 12px;
+  line-height: 1.8;
+  margin-bottom: 28px;
+}
+.python-settings-heading,
+.python-settings-recovery,
+.python-settings-actions,
+.python-settings-package-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.python-settings-heading,
+.python-settings-recovery {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.settings-desk .python-settings-heading h2 {
+  margin-bottom: 0;
+}
+.python-settings-actions {
+  flex-wrap: wrap;
+}
+.settings-desk .python-settings button {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.python-settings-info {
+  margin: 22px 0 0;
+}
+.python-settings-info > div {
+  display: grid;
+  grid-template-columns: 115px minmax(0, 1fr);
+  gap: 20px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--gsm-border-subtle);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.python-settings-info dt {
+  color: var(--gsm-text-muted);
+}
+.python-settings-info > div:last-child {
+  border-bottom: 0;
+}
+.python-settings-info dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.python-settings-info code {
+  font-size: 11px;
+}
+.python-settings-recovery > div {
+  flex: 1 1 280px;
+}
+.settings-desk .python-settings-recovery p,
+.settings-desk .python-settings-custom > p {
+  color: var(--gsm-text-muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.python-settings-custom {
+  padding-bottom: 22px;
+}
+.python-settings-custom summary {
+  cursor: pointer;
+  color: var(--gsm-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.python-settings-custom > p {
+  margin: 18px 0;
+}
+.python-settings-custom label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.python-settings-package-row input {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.python-settings-package-row {
+  flex-wrap: wrap;
+}
+@container gsm-workspace-main (max-width: 500px) {
+  .python-settings-info > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
   }
 }

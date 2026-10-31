@@ -70,6 +70,7 @@ test('older overlay profiles start with custom pages disabled instead of inherit
     userSettings: { ...customSettings, overlayProfileSettings: profiles, overlayActiveProfileName: 'VN' },
     DEFAULT_USER_SETTINGS: { ...customDefaults, localVocabularyEnabled: false, hideCompletedGoals: false, hideLiveStatsOnTextOverlap: false },
     DEFAULT_GSM_PROFILE_NAME: 'Default', OVERLAY_NON_PROFILE_SETTING_KEYS: new Set(),
+    VN_GUIDE_SCENE_SETTING_KEYS: require('../vn_guide_scene_settings').VN_GUIDE_SCENE_SETTING_KEYS,
     OVERLAY_SETTINGS_PROFILES_ENABLED_KEY: 'overlaySettingsProfilesEnabled',
     OVERLAY_ACTIVE_PROFILE_KEY: 'overlayActiveProfileName', OVERLAY_PROFILE_SETTINGS_KEY: 'overlayProfileSettings',
   });

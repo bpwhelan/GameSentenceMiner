@@ -17,6 +17,7 @@
     showReadyIndicator: "Show a small dot when the overlay is connected and ready to capture.",
     showTextIndicators:
       "The red boxes/borders drawn around captured text — they show the overlay is working. Turn this off to remove the boxes.",
+    showTextHitboxes: "Show red outlines around individual text lookup areas for debugging. Some languages use word-sized areas.",
     showRecycledIndicator: "Mark lines the overlay has already shown before (recycled text).",
 
     // Behavior / startup
@@ -49,7 +50,7 @@
     hotkeys: "shortcut keybind keyboard hotkey",
     textfeed: "texthooker feed history lines re-read clipboard window",
     "custom page": "vn-guide vnguide kanjieater walkthrough route guide website url browser shortcut",
-    "vn guide": "vn-guide kanjieater walkthrough route choice choices save load step advance undo spoiler",
+    "vn guide": "vn-guide kanjieater catalogue catalog search github fork local folder directory walkthrough route choice choices save load step advance undo spoiler",
     translation: "translate ai deepl machine translation",
     "text offset": "position align nudge calibrate",
     profiles: "per-game scene per profile",

@@ -975,7 +975,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2026.10.1"
+version = "2026.10.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1054,9 +1054,14 @@ dev = [
     { name = "ruff" },
 ]
 gpu = [
-    { name = "nvidia-cublas-cu12", marker = "sys_platform == 'win32'" },
-    { name = "nvidia-cudnn-cu12", marker = "sys_platform == 'win32'" },
     { name = "onnxruntime-gpu" },
+]
+gpu-libs = [
+    { name = "nvidia-cublas-cu12", marker = "sys_platform == 'win32'" },
+    { name = "nvidia-cuda-nvrtc-cu12", marker = "sys_platform == 'win32'" },
+    { name = "nvidia-cuda-runtime-cu12", marker = "sys_platform == 'win32'" },
+    { name = "nvidia-cudnn-cu12", marker = "sys_platform == 'win32'" },
+    { name = "nvidia-cufft-cu12", marker = "sys_platform == 'win32'" },
 ]
 lens = [
     { name = "protobuf" },
@@ -1083,16 +1088,19 @@ requires-dist = [
     { name = "langid", specifier = "~=1.1.6" },
     { name = "loguru", specifier = "~=0.7.3" },
     { name = "matplotlib", marker = "extra == 'dev'", specifier = "~=3.10.9" },
-    { name = "meikiocr", specifier = "~=0.3.4" },
+    { name = "meikiocr", specifier = "~=0.3.5" },
     { name = "mss", specifier = ">=10.2.0,<10.3" },
     { name = "numpy", specifier = "==2.2.6" },
-    { name = "nvidia-cublas-cu12", marker = "sys_platform == 'win32' and extra == 'gpu'", specifier = "==12.9.2.10" },
-    { name = "nvidia-cudnn-cu12", marker = "sys_platform == 'win32' and extra == 'gpu'", specifier = "==9.24.0.43" },
+    { name = "nvidia-cublas-cu12", marker = "sys_platform == 'win32' and extra == 'gpu-libs'", specifier = "==12.9.2.10" },
+    { name = "nvidia-cuda-nvrtc-cu12", marker = "sys_platform == 'win32' and extra == 'gpu-libs'", specifier = ">=12.8,<13" },
+    { name = "nvidia-cuda-runtime-cu12", marker = "sys_platform == 'win32' and extra == 'gpu-libs'", specifier = ">=12.8,<13" },
+    { name = "nvidia-cudnn-cu12", marker = "sys_platform == 'win32' and extra == 'gpu-libs'", specifier = "==9.24.0.43" },
+    { name = "nvidia-cufft-cu12", marker = "sys_platform == 'win32' and extra == 'gpu-libs'", specifier = ">=11.3,<12" },
     { name = "obsws-python", specifier = "~=1.8.0" },
     { name = "ollama", specifier = "~=0.6.2" },
     { name = "oneocr", specifier = "==1.0.12" },
     { name = "onnxruntime", specifier = ">=1.24.3,<1.25.0" },
-    { name = "onnxruntime-gpu", marker = "extra == 'gpu'" },
+    { name = "onnxruntime-gpu", marker = "extra == 'gpu'", specifier = ">=1.24.3,<1.25.0" },
     { name = "openai", specifier = ">=2.45.0,<2.46" },
     { name = "opencv-python", specifier = "==4.13.0.92" },
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
@@ -1139,7 +1147,7 @@ requires-dist = [
     { name = "websockets", specifier = ">=16.1,<16.2.0" },
     { name = "windows-capture", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["lens", "gpu", "dev"]
+provides-extras = ["lens", "gpu", "gpu-libs", "dev"]
 
 [[package]]
 name = "google-auth"
@@ -1786,7 +1794,7 @@ wheels = [
 
 [[package]]
 name = "meikiocr"
-version = "0.3.4"
+version = "0.3.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -1794,9 +1802,9 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "opencv-python-headless" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/08/f8/9a0ca64ebde6c40f215b89c83716156a0c5feca85914afd72185d7c9af08/meikiocr-0.3.4.tar.gz", hash = "sha256:76de1d26c2c4dc141322be7d0e5a54af98e052ca8cfcbaefd2891f372e1344f1", size = 18137, upload-time = "2026-04-11T20:41:40.566Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/11/f670e537b2958509449c75903f62e1cb563b69a11f9c47255d26fcb2760d/meikiocr-0.3.5.tar.gz", hash = "sha256:cb9ed15deb1ff221e75b9cb3212dc8e969e0c9827198fb558d35634db46dad27", size = 18183, upload-time = "2026-09-25T06:41:34.292Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/e3/bd9d1cd5c35998027e04495b3e31688c6f2ce5316f9789bb6d4d34539a1c/meikiocr-0.3.4-py3-none-any.whl", hash = "sha256:95d03291b1b2c84a9ff8607f63fe14688cec5a038f9b30cffdcdab87a3217a07", size = 16009, upload-time = "2026-04-11T20:41:39.328Z" },
+    { url = "https://files.pythonhosted.org/packages/76/16/72e7efb659963993f52ba5660a7b2acd68559c5c50ec17ea62b821b5a640/meikiocr-0.3.5-py3-none-any.whl", hash = "sha256:5d1ede4bcf46ecf17ef9a59db26edbc3e622aa3ed3c27bb64317077abbe2fccb", size = 16059, upload-time = "2026-09-25T06:41:33.16Z" },
 ]
 
 [[package]]
@@ -1993,6 +2001,14 @@ wheels = [
 ]
 
 [[package]]
+name = "nvidia-cuda-runtime-cu12"
+version = "12.9.79"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/59/df/e7c3a360be4f7b93cee39271b792669baeb3846c58a4df6dfcf187a7ffab/nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl", hash = "sha256:8e018af8fa02363876860388bd10ccb89eb9ab8fb0aa749aaf58430a9f7c4891", size = 3591604, upload-time = "2025-06-05T20:11:17.036Z" },
+]
+
+[[package]]
 name = "nvidia-cudnn-cu12"
 version = "9.24.0.43"
 source = { registry = "https://pypi.org/simple" }
@@ -2001,6 +2017,25 @@ dependencies = [
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/29/28/2c9a2a97a8b3fedcf74a14f38fd5edfae12274380a829fdc6b16ce29be4c/nvidia_cudnn_cu12-9.24.0.43-py3-none-win_amd64.whl", hash = "sha256:cbd41a0ab084422c936dc9fb2fc89be5ea9a85bc421c6f23d0243bdfc945fbef", size = 737103728, upload-time = "2026-07-02T16:30:10.901Z" },
+]
+
+[[package]]
+name = "nvidia-cufft-cu12"
+version = "11.4.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nvidia-nvjitlink-cu12" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/ee/29955203338515b940bd4f60ffdbc073428f25ef9bfbce44c9a066aedc5c/nvidia_cufft_cu12-11.4.1.4-py3-none-win_amd64.whl", hash = "sha256:8e5bfaac795e93f80611f807d42844e8e27e340e0cde270dcb6c65386d795b80", size = 200067309, upload-time = "2025-06-05T20:13:59.762Z" },
+]
+
+[[package]]
+name = "nvidia-nvjitlink-cu12"
+version = "12.9.86"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/7e/2eecb277d8a98184d881fb98a738363fd4f14577a4d2d7f8264266e82623/nvidia_nvjitlink_cu12-12.9.86-py3-none-win_amd64.whl", hash = "sha256:cc6fcec260ca843c10e34c936921a1c426b351753587fdd638e8cff7b16bb9db", size = 35584936, upload-time = "2025-06-05T20:16:08.525Z" },
 ]
 
 [[package]]

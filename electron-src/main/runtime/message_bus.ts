@@ -34,7 +34,7 @@ const HELLO_TIMEOUT_MS = 10_000;
 const BUFFER_TTL_MS = 15_000;
 const MAX_BUFFERED_PER_CLIENT = 200;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
-const NON_BUFFERED_TOPICS = new Set(['text.ingress.v2']);
+const NON_BUFFERED_TOPICS = new Set(['text.ingress.v2', 'dev.ocr_benchmark', 'ocr.vita_model', 'ocr.meiki_model', 'gpu.settings']);
 
 type MainHandler = (msg: BusMessage) => void;
 type MainRequestHandler = (msg: BusMessage) => unknown | Promise<unknown>;

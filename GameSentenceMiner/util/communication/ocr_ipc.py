@@ -32,6 +32,7 @@ except ImportError:
     from loguru import logger
 
 from GameSentenceMiner.util.communication import bus_client
+from GameSentenceMiner.util.sentence_exclusions import is_sentence_excluded
 
 # Bus topics for the OCR <-> main channel.
 OCR_EVENT_TOPIC = "ocr.event"
@@ -228,7 +229,17 @@ def announce_ocr_result(text: str, metadata: Optional[Dict[str, Any]] = None):
     data = {"text": text}
     if metadata:
         data.update(metadata)
+    # Keep the capture's game attached to its history entry, even if the user
+    # switches games before opening the line menu. Filter before backend ingress.
+    game = str(data.get("ocr_scene") or data.get("process_path") or "")
+    if game:
+        data["exclusion_game"] = game
+    excluded = is_sentence_excluded(text, game)
+    if excluded:
+        data["excluded"] = True
     if not _use_bus():
+        if excluded:
+            return
         send_event(OCREvent.OCR_RESULT.value, data)
         return
 
@@ -236,6 +247,8 @@ def announce_ocr_result(text: str, metadata: Optional[Dict[str, Any]] = None):
     # unavailable backend cannot cause an old OCR line to be replayed later.
     payload = {"event": OCREvent.OCR_RESULT.value, "data": data}
     bus_client.get_bus().publish(bus_client.MAIN, OCR_EVENT_TOPIC, payload)
+    if excluded:
+        return
     observation_id = str(data.get("observationId") or uuid.uuid4())
     ingress = {
         **data,

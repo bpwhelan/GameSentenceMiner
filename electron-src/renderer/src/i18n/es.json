@@ -1,4 +1,12 @@
 {
+  "gamePrivileges": {
+    "title": "{game} se está ejecutando como administrador",
+    "description": "GSM se está ejecutando sin privilegios de administrador. Esta diferencia puede interferir con la captura de OBS, la extracción de texto, la superposición o los atajos de teclado. Se recomienda reiniciar GSM como administrador.",
+    "restart": "Reiniciar GSM como administrador",
+    "restarting": "Reiniciando…",
+    "dismiss": "Ocultar durante esta sesión del juego",
+    "restartError": "No se pudo reiniciar GSM. También puedes cerrar GSM y elegir «Ejecutar como administrador» en su acceso directo."
+  },
   "gameBackground": {
     "title": "Hook del juego (experimental)"
   },
@@ -554,6 +562,8 @@
       "overlayNotAvailable": "No se pudieron abrir automáticamente los ajustes de superposición. Primero inicia/conecta la superposición, o usa su icono en la bandeja."
     },
     "desktop": {
+      "disableSeasonalEffects": "Desactivar efectos de temporada",
+      "seasonalEffectsHelp": "Desactiva los iconos, los acentos del tema y las decoraciones de todas las festividades. El tema elegido se conserva.",
       "title": "Ajustes de la aplicación de escritorio",
       "iconStyle": "Estilo de icono:",
       "iconDefault": "Predeterminado",
@@ -869,6 +879,17 @@
       "menu": "Menú",
       "areaSelect": "Seleccionar área"
     },
+    "meikiModel": {
+      "label": "Modelo de detección de MeikiOCR",
+      "small": "Pequeño · 320×192 (más rápido)",
+      "large": "Grande · 960×544 (predeterminado)",
+      "help": "El modelo pequeño es más rápido, pero puede omitir texto pequeño. Los modelos de reconocimiento son los mismos. Se comparte entre el OCR principal y la superposición en todos los perfiles; se aplica en el siguiente escaneo.",
+      "preparing": "Descargando y comprobando el modelo…",
+      "active": "Modelo seleccionado: {model}. Listo para el siguiente escaneo.",
+      "unavailable": "MeikiOCR no está disponible. Comprueba el backend y la instalación local.",
+      "error": "Configuración del modelo: {error}",
+      "refresh": "Reintentar"
+    },
     "pipeline": {
       "title": "Pipeline de reconocimiento",
       "twoPassFlow": "Flujo de dos pasadas:",
@@ -1067,7 +1088,10 @@
         "stopped": "Detenido",
         "paused": "En pausa",
         "manual": "Esperando una captura",
-        "watching": "Buscando texto"
+        "watching": "Buscando texto",
+        "blackHole": "El texto está en una zona de agujero negro",
+        "menu": "Todo el texto es de menú",
+        "excluded": "Frase excluida para este juego"
       },
       "events": {
         "captured": "Texto capturado",
@@ -1076,7 +1100,8 @@
         "menu": "Texto de menú omitido",
         "ignored": "Texto en un área ignorada omitido",
         "duplicate": "Texto repetido omitido",
-        "error": "El OCR necesita atención · consulta la consola para más detalles"
+        "error": "El OCR necesita atención · consulta la consola para más detalles",
+        "excluded": "Coincidencia exacta omitida"
       },
       "sources": {
         "auto": "Captura automática",
@@ -1469,5 +1494,27 @@
       "runningHint": "Recognition stops automatically when the OBS scene changes.",
       "idleHint": "Settings are scene-specific. Start recognition when you are ready."
     }
+  },
+  "sentenceExclusions": {
+    "title": "Frases excluidas",
+    "perGame": "Por juego",
+    "description": "Bloquea las entradas capturadas completas que coincidan exactamente para el juego seleccionado antes de procesar el texto. Distingue mayúsculas, ignora espacios al principio y al final y conserva los saltos de línea. Se aplica a todas las fuentes de texto del juego y se guarda aparte de los perfiles de ajustes.",
+    "game": "Juego",
+    "noGame": "No hay juegos disponibles",
+    "sentence": "Frase completa o entrada capturada",
+    "placeholder": "Pega el texto exacto que quieres excluir…",
+    "add": "Añadir exclusión",
+    "remove": "Eliminar",
+    "removeSentence": "Eliminar exclusión: {sentence}",
+    "empty": "No hay frases excluidas para este juego.",
+    "failed": "No se pudieron cargar o guardar las exclusiones. Inténtalo de nuevo.",
+    "lineActions": "Acciones del texto capturado",
+    "forGame": "Para {game}",
+    "noCaptureGame": "Esta captura no tiene un juego asociado. Selecciona un juego y captura texto nuevo para añadir una exclusión.",
+    "exclude": "Excluir esta frase para este juego",
+    "unexclude": "Eliminar exclusión de frase",
+    "added": "Frase excluida para {game}. Se bloquearán las coincidencias futuras.",
+    "removed": "Exclusión de frase eliminada para {game}.",
+    "excluded": "Excluida"
   }
 }

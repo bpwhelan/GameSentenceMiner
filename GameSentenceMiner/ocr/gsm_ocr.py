@@ -17,7 +17,7 @@ import re
 import threading
 import time
 
-from PIL import Image
+from PIL import Image, ImageChops
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -1105,6 +1105,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         self._v2_inflight_detection_crop_coords: tuple | None = None
         self._v2_duplicate_detection_crop_coords: tuple | None = None
         self._v2_last_box_trigger_coords: tuple | None = None
+        self._vocr_last_detection_pixels: Image.Image | None = None
 
     def reset(self) -> None:
         super().reset()
@@ -1117,6 +1118,21 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         self._v2_inflight_detection_crop_coords = None
         self._v2_duplicate_detection_crop_coords = None
         self._v2_last_box_trigger_coords = None
+        self._vocr_last_detection_pixels = None
+
+    def _vocr_detection_pixels(self, img, crop_coords):
+        if self.config.ocr1_engine.strip().lower() != "vocr_detector" or not isinstance(img, Image.Image):
+            return None
+        return img.crop(crop_coords).convert("L").resize((256, 64), Image.Resampling.BILINEAR)
+
+    @staticmethod
+    def _vocr_pixels_changed(previous, current):
+        if previous is None or current is None:
+            return False
+        # Ignore small brightness/capture jitter. A few changed glyph pixels
+        # must still allow another line with identical detector geometry.
+        histogram = ImageChops.difference(previous, current).histogram()
+        return sum(histogram[24:]) >= 8
 
     def handle_ocr_result(
         self,
@@ -1691,7 +1707,23 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             self._v2_duplicate_detection_crop_coords = None
             self._v2_last_detection_crop_coords = None
             self._v2_last_detection_box_list = None
+            self._vocr_last_detection_pixels = None
             return True
+
+        pixels = self._vocr_detection_pixels(img, resolved_crop)
+        if pixels is not None:
+            pending = self._v2_pending_detection
+            if pending is not None and self._vocr_pixels_changed(
+                self._vocr_detection_pixels(pending.img, pending.crop_coords), pixels
+            ):
+                self._v2_pending_detection = None
+            if (
+                self._vocr_pixels_changed(self._vocr_last_detection_pixels, pixels)
+                and not self._v2_inflight_detection_crop_coords
+            ):
+                self._v2_last_detection_crop_coords = None
+                self._v2_last_detection_box_list = None
+                self._v2_duplicate_detection_crop_coords = None
 
         current_box_list = _extract_sorted_box_list(detection_boxes, response_dict)
         self._debug(
@@ -1797,6 +1829,8 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
 
         self._v2_last_detection_crop_coords = resolved_crop
         self._v2_last_detection_box_list = current_box_list if current_box_list else None
+        if pixels is not None:
+            self._vocr_last_detection_pixels = pixels
         self._v2_pending_detection = None
         return True
 
@@ -1868,6 +1902,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
 
         self._v2_last_detection_crop_coords = resolved_crop
         self._v2_last_detection_box_list = box_list if box_list else None
+        self._vocr_last_detection_pixels = self._vocr_detection_pixels(img, resolved_crop)
         self._v2_pending_detection = None
         return True
 
@@ -3345,6 +3380,30 @@ class OCRProcessor:
                 if fallback_payload:
                     final_payload = fallback_payload
                     logger.info("Secondary OCR: using OCR1 geometry fallback for overlay metadata.")
+            # Overlay geometry may come from OCR1 even though OCR2 supplied
+            # the text. Preserve text provenance separately for benchmarking.
+            recognition_pipeline = generated_payload.get("pipeline") if isinstance(generated_payload, dict) else None
+            if isinstance(recognition_pipeline, dict):
+                recognition_capture = recognition_pipeline.get("capture") or {}
+                recognition = {
+                    "engine": recognition_pipeline.get("engine", ""),
+                    "scene": recognition_capture.get("scene_name", ""),
+                }
+                if recognition_pipeline.get("model"):
+                    recognition["model"] = recognition_pipeline["model"]
+                if recognition_pipeline.get("finder"):
+                    recognition["finder"] = recognition_pipeline["finder"]
+                geometry_pipeline = final_payload.get("pipeline") if isinstance(final_payload, dict) else None
+                geometry_pipeline = geometry_pipeline if isinstance(geometry_pipeline, dict) else {}
+                geometry_capture = geometry_pipeline.get("capture") or {}
+                if (
+                    recognition["engine"] != geometry_pipeline.get("engine", "")
+                    or (recognition["scene"] and recognition["scene"] != geometry_capture.get("scene_name", ""))
+                    or recognition.get("model") != geometry_pipeline.get("model")
+                    or recognition.get("finder") != geometry_pipeline.get("finder")
+                ):
+                    final_payload = dict(final_payload) if isinstance(final_payload, dict) else {}
+                    final_payload["recognition"] = recognition
             capture_ocr_metrics_sample(
                 ocr2_input_img,
                 text,
@@ -3462,6 +3521,20 @@ def send_result(text, time, response_dict=None, source=TextSource.OCR):
                 "source": source,
                 "copyToClipboard": get_ocr_send_to_clipboard(source),
             }
+            pipeline = response_dict.get("pipeline") if isinstance(response_dict, dict) else None
+            recognition = response_dict.get("recognition") if isinstance(response_dict, dict) else None
+            if isinstance(pipeline, dict) or isinstance(recognition, dict):
+                pipeline = pipeline if isinstance(pipeline, dict) else {}
+                recognition = recognition if isinstance(recognition, dict) else {}
+                metadata["ocr_engine"] = recognition.get("engine") or pipeline.get("engine", "")
+                capture = pipeline.get("capture") or {}
+                metadata["ocr_scene"] = recognition.get("scene") or capture.get("scene_name", "")
+                model = recognition.get("model") if recognition else pipeline.get("model")
+                if metadata["ocr_engine"] == "vitaocr" and isinstance(model, dict):
+                    metadata["ocr_model"] = model
+                    metadata["ocr_finder"] = (
+                        recognition.get("finder", {}) if recognition else pipeline.get("finder", {})
+                    )
             if overlay_payload:
                 metadata["dict_from_ocr"] = overlay_payload
             ocr_ipc.announce_ocr_result(text, metadata)

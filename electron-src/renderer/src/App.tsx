@@ -7,6 +7,8 @@ import { SetupWizard } from "./components/SetupWizard";
 import { InstallSessionModal } from "./components/InstallSessionModal";
 import { WhatsChangedDialog } from "./components/WhatsChangedDialog";
 import { AppUpdateNotice } from "./components/AppUpdateNotice";
+import { GamePrivilegeNotice } from "./components/GamePrivilegeNotice";
+import { SeasonalDecorations } from "./components/SeasonalDecorations";
 import type { ControlledTab } from "./types/models";
 import { OCRTab } from "./components/tabs/OCRTab";
 import { getDevPreviewTab } from "./lib/devPreview";
@@ -30,7 +32,6 @@ type TabId =
   | "stats"
   | "launcher"
   | "settings"
-  | "python"
   | "console";
 
 type ChangelogDisplayMode = "update" | "manual";
@@ -44,7 +45,6 @@ const TABS: Array<{ id: TabId; labelKey: string }> = [
   { id: "stats", labelKey: "app.tabs.stats" },
   { id: "launcher", labelKey: "app.tabs.gameSettings" },
   { id: "settings", labelKey: "app.tabs.settings" },
-  { id: "python", labelKey: "app.tabs.python" },
   { id: "console", labelKey: "app.tabs.logs" }
 ];
 
@@ -58,13 +58,11 @@ const CONTROLLABLE_TABS: ControlledTab[] = [
   "speech",
   "launcher",
   "stats",
-  "python",
   "console"
 ];
 const DEFAULT_VISIBLE_TABS: ControlledTab[] = [
   "launcher",
   "stats",
-  "python",
   "console"
 ];
 
@@ -645,257 +643,6 @@ function ConsolePanel({
   );
 }
 
-function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
-  const t = useTranslation();
-  const [pythonInfo, setPythonInfo] = useState({
-    pythonVersion: "Loading...",
-    pythonPath: "Loading...",
-    pipVersion: "Loading..."
-  });
-  const [customPackage, setCustomPackage] = useState("");
-  const [status, setStatus] = useState<{ message: string; type: string } | null>(
-    null
-  );
-  const [expandedCards, setExpandedCards] = useState({
-    cuda: true,
-    gsm: true,
-    custom: true,
-    info: true
-  });
-
-  const showStatus = useCallback((message: string, type = "info") => {
-    setStatus({ message, type });
-    if (type === "success" || type === "error") {
-      setTimeout(() => setStatus(null), 10000);
-    }
-  }, []);
-
-  const loadPythonInfo = useCallback(async () => {
-    const info = await window.ipcRenderer.invoke<{
-      success: boolean;
-      pythonVersion?: string;
-      pythonPath?: string;
-      pipVersion?: string;
-    }>("python.getPythonInfo");
-
-    if (info.success) {
-      setPythonInfo({
-        pythonVersion: info.pythonVersion ?? "Unknown",
-        pythonPath: info.pythonPath ?? "Unknown",
-        pipVersion: info.pipVersion ?? "Unknown"
-      });
-      return;
-    }
-
-    setPythonInfo({
-      pythonVersion: "Error loading",
-      pythonPath: "Error loading",
-      pipVersion: "Error loading"
-    });
-  }, []);
-
-  useEffect(() => {
-    void loadPythonInfo();
-  }, [loadPythonInfo]);
-
-  const confirmAction = useCallback(
-    async (options: {
-      title: string;
-      message: string;
-      detail: string;
-      confirmLabel: string;
-    }) => {
-      const response = await window.ipcRenderer.invoke<{ response: number }>(
-        "show-message-box",
-        {
-          type: "warning",
-          title: options.title,
-          message: options.message,
-          detail: options.detail,
-          buttons: [t("app.python.cancel"), options.confirmLabel],
-          defaultId: 0,
-          cancelId: 0
-        }
-      );
-      return response.response === 1;
-    },
-    []
-  );
-
-  const runCudaInstall = useCallback(async () => {
-    const confirmed = await confirmAction({
-      title: t("app.python.cuda.installTitle"),
-      message: t("app.python.cuda.installMessage"),
-      detail: t("app.python.cuda.installDetail"),
-      confirmLabel: t("app.python.cuda.installConfirm")
-    });
-
-    if (!confirmed) {
-      showStatus(t("app.python.cuda.installCancelled"));
-      return;
-    }
-
-    showStatus(t("app.python.cuda.installing"));
-    onRequestConsole();
-
-    const result = await window.ipcRenderer.invoke<{ success: boolean; message: string }>(
-      "python.installCudaPackage"
-    );
-    showStatus(result.message, result.success ? "success" : "error");
-  }, [confirmAction, onRequestConsole, showStatus]);
-
-  const runCudaUninstall = useCallback(async () => {
-    const confirmed = await confirmAction({
-      title: t("app.python.cuda.uninstallTitle"),
-      message: t("app.python.cuda.uninstallMessage"),
-      detail: t("app.python.cuda.uninstallDetail"),
-      confirmLabel: t("app.python.cuda.uninstallConfirm")
-    });
-
-    if (!confirmed) {
-      showStatus(t("app.python.cuda.uninstallCancelled"));
-      return;
-    }
-
-    showStatus(t("app.python.cuda.uninstalling"));
-    onRequestConsole();
-
-    const result = await window.ipcRenderer.invoke<{ success: boolean; message: string }>(
-      "python.uninstallCudaPackage"
-    );
-    showStatus(result.message, result.success ? "success" : "error");
-  }, [confirmAction, onRequestConsole, showStatus]);
-
-  const runResetDependencies = useCallback(async () => {
-    const confirmed = await confirmAction({
-      title: t("app.python.management.resetTitle"),
-      message: t("app.python.management.resetMessage"),
-      detail: t("app.python.management.resetDetail"),
-      confirmLabel: t("app.python.management.resetConfirm")
-    });
-
-    if (!confirmed) {
-      showStatus(t("app.python.management.resetCancelled"));
-      return;
-    }
-
-    showStatus(t("app.python.management.resetting"));
-    onRequestConsole();
-
-    const result = await window.ipcRenderer.invoke<{ success: boolean; message: string }>(
-      "python.resetDependencies"
-    );
-    showStatus(result.message, result.success ? "success" : "error");
-  }, [confirmAction, onRequestConsole, showStatus]);
-
-  const installCustomPackage = useCallback(async () => {
-    if (!customPackage.trim()) {
-      showStatus(t("app.python.customPackage.enterName"), "error");
-      return;
-    }
-
-    showStatus(t("app.python.customPackage.installing", { package: customPackage }));
-    onRequestConsole();
-
-    const result = await window.ipcRenderer.invoke<{ success: boolean; message: string }>(
-      "python.installCustomPackage",
-      customPackage.trim()
-    );
-
-    showStatus(result.message, result.success ? "success" : "error");
-    if (result.success) {
-      setCustomPackage("");
-    }
-  }, [customPackage, onRequestConsole, showStatus]);
-
-  const toggleCard = (key: keyof typeof expandedCards) => {
-    setExpandedCards((current) => ({ ...current, [key]: !current[key] }));
-  };
-
-  return (
-    <div className="python-panel">
-      <div className="python-grid">
-        <div className="card">
-          <button className="card-header" onClick={() => toggleCard("cuda")}>
-            {t("app.python.cuda.title")}
-          </button>
-          {expandedCards.cuda ? (
-            <div className="card-body">
-              <button className="danger" onClick={() => void runCudaInstall()}>
-                {t("app.python.cuda.install")}
-              </button>
-              <button className="danger" onClick={() => void runCudaUninstall()}>
-                {t("app.python.cuda.uninstall")}
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="card">
-          <button className="card-header" onClick={() => toggleCard("gsm")}>
-            {t("app.python.management.title")}
-          </button>
-          {expandedCards.gsm ? (
-            <div className="card-body">
-              <button className="secondary" onClick={() => void runResetDependencies()}>
-                {t("app.python.management.resetDeps")}
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="card">
-          <button className="card-header" onClick={() => toggleCard("custom")}>
-            {t("app.python.customPackage.title")}
-          </button>
-          {expandedCards.custom ? (
-            <div className="card-body">
-              <label htmlFor="custom-package-input">{t("app.python.customPackage.label")}</label>
-              <input
-                id="custom-package-input"
-                type="text"
-                placeholder={t("app.python.customPackage.placeholder")}
-                value={customPackage}
-                onChange={(event) => setCustomPackage(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    void installCustomPackage();
-                  }
-                }}
-              />
-              <button className="danger" onClick={() => void installCustomPackage()}>
-                {t("app.python.customPackage.installBtn")}
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="card">
-          <button className="card-header" onClick={() => toggleCard("info")}>
-            {t("app.python.envInfo.title")}
-          </button>
-          {expandedCards.info ? (
-            <div className="card-body">
-              <p>{t("app.python.envInfo.version", { version: pythonInfo.pythonVersion })}</p>
-              <p>{t("app.python.envInfo.path", { path: pythonInfo.pythonPath })}</p>
-              <p>{t("app.python.envInfo.pipVersion", { version: pythonInfo.pipVersion })}</p>
-              <button className="secondary" onClick={() => void loadPythonInfo()}>
-                {t("app.python.envInfo.refresh")}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {status ? (
-        <div className={`status-card ${status.type}`}>
-          <p>{status.message}</p>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export default function App() {
   const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
@@ -925,7 +672,6 @@ export default function App() {
     speech: false,
     launcher: true,
     stats: true,
-    python: true,
     console: true
   });
 
@@ -937,7 +683,8 @@ export default function App() {
       if (DESKTOP_HOOK_TABS.has(tab) && !canTextHook) {
         return false;
       }
-      if (ALWAYS_VISIBLE_TABS.has(tab)) {
+      // Explicitly opening debug logs should work even when their tab is hidden.
+      if (ALWAYS_VISIBLE_TABS.has(tab) || (tab === "console" && activeTab === "console")) {
         return true;
       }
       if (isControlledTab(tab)) {
@@ -945,7 +692,7 @@ export default function App() {
       }
       return true;
     },
-    [canTextHook, isWindows, visibleControlledTabs]
+    [activeTab, canTextHook, isWindows, visibleControlledTabs]
   );
 
   const visibleTabs = useMemo(
@@ -1008,7 +755,6 @@ export default function App() {
         speech: false,
         launcher: false,
         stats: false,
-        python: false,
         console: false
       };
       for (const tab of configured) {
@@ -1042,6 +788,11 @@ export default function App() {
     const offNavigateToTab = window.ipcRenderer.on(
       "app.navigateToTab",
       (_event, requestedTab) => {
+        if (requestedTab === "python") {
+          setActiveTab("settings");
+          window.dispatchEvent(new Event("gsm-open-python-settings"));
+          return;
+        }
         if (typeof requestedTab === "string" && TAB_IDS.has(requestedTab as TabId)) {
           const tab = requestedTab as TabId;
           if (isTabVisibleRef.current(tab)) {
@@ -1282,6 +1033,7 @@ export default function App() {
         </div>
       </header>
 
+      <GamePrivilegeNotice />
       <main className="tab-content-area">
         <HomeTab active={activeTab === "obs"} onNavigateTab={selectTab} />
         <OCRTab active={activeTab === "ocr"} />
@@ -1295,14 +1047,12 @@ export default function App() {
         {isWindows ? <SpeechRecognitionTab active={activeTab === "speech"} /> : null}
         <StatsPanel active={activeTab === "stats"} />
         <GameAutomationTab active={activeTab === "launcher"} />
-        <SettingsTab active={activeTab === "settings"} />
-        <div className={`tab-panel ${activeTab === "python" ? "active" : ""}`}>
-          <PythonPanel onRequestConsole={switchToConsole} />
-        </div>
+        <SettingsTab active={activeTab === "settings"} onRequestConsole={switchToConsole} />
         <ConsolePanel
           active={activeTab === "console"}
           onRequestConsole={switchToConsole}
         />
+        <SeasonalDecorations />
       </main>
       {shouldShowInstallSessionModal ? (
         <InstallSessionModal

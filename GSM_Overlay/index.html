@@ -106,6 +106,10 @@ background: rgba(202, 12, 12, 0.692);
     overflow: visible;
   }
 
+  body.show-text-hitboxes .text-box {
+    outline: 1px solid rgba(255, 0, 0, 0.75);
+  }
+
   .nav-char-box {
     position: absolute;
     white-space: pre;
@@ -1815,6 +1819,21 @@ background: rgba(202, 12, 12, 0.692);
     jitenFuriganaFrameReady = null;
     ipcRenderer.send('gsm-jiten-cancel-frame');
   }
+  let textIntakePaused = false;
+  let intakePauseGeneration = 0;
+  function setOverlayTextIntakePaused(paused) {
+    if (typeof paused !== 'boolean' || paused === textIntakePaused) return;
+    textIntakePaused = paused;
+    intakePauseGeneration++;
+    window.GsmJitenHighlight?.setEnabled(jitenHighlightingEnabled && !paused);
+    if (paused) {
+      cancelPendingJitenFuriganaFrame();
+      if (gamepadHandler?.isUsingJitenApi()) resetFuriganaRenderState();
+    } else if (Array.isArray(lastJitenHighlightLines) && lastJitenHighlightLines.length) {
+      void renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration,
+        lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
+    }
+  }
   // Jiten SRS Highlighting state (mirror approach)
   let jitenHighlightingEnabled = true;
   let localVocabularyEnabled = false;
@@ -1823,7 +1842,7 @@ background: rgba(202, 12, 12, 0.692);
     window.GsmJitenHighlight?.setLocalParser(localVocabularyEnabled
       ? texts => ipcRenderer.invoke('gsm-local-vocabulary-parse', { texts }) : null);
     if (localVocabularyEnabled) {
-      window.GsmJitenHighlight?.setEnabled(jitenHighlightingEnabled);
+      window.GsmJitenHighlight?.setEnabled(jitenHighlightingEnabled && !textIntakePaused);
       window.GsmJitenHighlight?.setAvailable(jitenHighlightingEnabled);
       applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
     } else syncJitenSettings('local-vocabulary-disabled', true);
@@ -2068,7 +2087,7 @@ background: rgba(202, 12, 12, 0.692);
   // Ask the Jiten Reader extension to parse the current lines and mirror SRS
   // highlights (the extension's content script does the parsing).
   function applyJitenHighlightingForLines(lines, meta, lineBlocks) {
-    if (!jitenHighlightingEnabled || (!jitenReaderEnabled && !localVocabularyEnabled)) return;
+    if (textIntakePaused || !jitenHighlightingEnabled || (!jitenReaderEnabled && !localVocabularyEnabled)) return;
     // Not verified parseable yet → kick a throttled re-check so a freshly-added
     // key / unpause resumes on its own, then bail.
     if (!jitenHighlightAvailable && !localVocabularyEnabled) {
@@ -2131,7 +2150,7 @@ background: rgba(202, 12, 12, 0.692);
   function setJitenHighlightingEnabled(value) {
     const was = jitenHighlightingEnabled;
     jitenHighlightingEnabled = value !== false;
-    if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled && !textIntakePaused);
     if (localVocabularyEnabled) {
       window.GsmJitenHighlight?.setAvailable(jitenHighlightingEnabled);
       if (jitenHighlightingEnabled) applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
@@ -3078,6 +3097,7 @@ background: rgba(202, 12, 12, 0.692);
 
         if (data.type === "live_stats_update") {
           if (typeof data.text_intake_paused === 'boolean') {
+            setOverlayTextIntakePaused(data.text_intake_paused);
             window.gsmQuickActions?.applyState({ paused: data.text_intake_paused });
             window.gsmQuickActions?.render();
           }
@@ -3530,8 +3550,8 @@ background: rgba(202, 12, 12, 0.692);
               indicator.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 165, 0, 0.6)';
               indicator.style.opacity = '0.85';
               indicator.style.userSelect = 'none';
-              indicator.style.left = `${lastBlockBounds.minx}%`;
-              indicator.style.top = `${(lastBlockBounds.miny + lastBlockBounds.maxy) / 2}%`;
+              indicator.style.left = `${lastBlockBounds.minx + offsetX}%`;
+              indicator.style.top = `${(lastBlockBounds.miny + lastBlockBounds.maxy) / 2 + offsetY}%`;
               indicator.style.transform = 'translate(calc(-100% - 10px), -50%)';
 
               document.body.appendChild(indicator);
@@ -4301,6 +4321,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   async function renderFuriganaForFrame(lines, renderGeneration, jitenMeta, lineBlocks) {
+    const pauseGeneration = intakePauseGeneration;
     // Remember the current lines even when highlighting is off, so flipping the
     // toggle on can immediately highlight what's already on screen.
     lastJitenHighlightLines = lines;
@@ -4346,6 +4367,7 @@ background: rgba(202, 12, 12, 0.692);
 
     const usesJiten = !usesLocalReadings && gamepadHandler.isUsingJitenApi();
     if (usesJiten) {
+      if (textIntakePaused || pauseGeneration !== intakePauseGeneration) return;
       // Wait briefly for OCR to settle. Every newer frame replaces the pending
       // timer, and the backend also drops obsolete work already in its queue.
       const signature = JSON.stringify(lines.map((line) => line?.text || ''));
@@ -4363,7 +4385,8 @@ background: rgba(202, 12, 12, 0.692);
         });
       }
       const ready = await jitenFuriganaFrameReady;
-      if (!ready || renderGeneration !== overlayRenderGeneration || !showFurigana) return;
+      if (!ready || renderGeneration !== overlayRenderGeneration || !showFurigana ||
+          textIntakePaused || pauseGeneration !== intakePauseGeneration) return;
     } else {
       cancelPendingJitenFuriganaFrame();
     }
@@ -4372,9 +4395,11 @@ background: rgba(202, 12, 12, 0.692);
     if (usesJiten) {
       jitenResults = await gamepadHandler.requestJitenFuriganaFrame(
         lines.map((line) => ({ text: line?.text || '' })),
-        () => renderGeneration === overlayRenderGeneration && showFurigana
+        () => renderGeneration === overlayRenderGeneration && showFurigana &&
+          !textIntakePaused && pauseGeneration === intakePauseGeneration
       );
-      if (renderGeneration !== overlayRenderGeneration || !showFurigana) return;
+      if (renderGeneration !== overlayRenderGeneration || !showFurigana ||
+          textIntakePaused || pauseGeneration !== intakePauseGeneration) return;
     }
 
     const furiganaRequests = lines.map((line, lineIdx) => {
@@ -4405,7 +4430,8 @@ background: rgba(202, 12, 12, 0.692);
     });
 
     const resolved = await Promise.all(furiganaRequests);
-    if (renderGeneration !== overlayRenderGeneration) {
+    if (renderGeneration !== overlayRenderGeneration ||
+        (usesJiten && (textIntakePaused || pauseGeneration !== intakePauseGeneration))) {
       return;
     }
 
@@ -4807,6 +4833,7 @@ background: rgba(202, 12, 12, 0.692);
       showTextIndicators = true;
       fadeTextIndicators = newsettings.showTextBackground === true;
     }
+    document.body.classList.toggle('show-text-hitboxes', newsettings.showTextHitboxes === true);
     shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
     if (Object.prototype.hasOwnProperty.call(newsettings, "readingLanguage")) {
@@ -4987,8 +5014,7 @@ background: rgba(202, 12, 12, 0.692);
     updateFuriganaVisibilityState();
     
     showRecycledIndicator = newsettings.showRecycledIndicator !== false;
-    offsetX = newsettings.offsetX || 0;
-    offsetY = newsettings.offsetY || 0;
+    updateOverlayTextOffsets(newsettings);
     dismissedRecommendationGames = newsettings.dismissedFullscreenRecommendations || [];
     console.log("Loaded dismissed games:", dismissedRecommendationGames);
 
@@ -5027,8 +5053,36 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   // Unified settings update handler
+  function updateOverlayTextOffsets(settings) {
+    const normalize = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+    const nextX = Object.prototype.hasOwnProperty.call(settings, 'offsetX') ? normalize(settings.offsetX) : offsetX;
+    const nextY = Object.prototype.hasOwnProperty.call(settings, 'offsetY') ? normalize(settings.offsetY) : offsetY;
+    const dx = nextX - offsetX;
+    const dy = nextY - offsetY;
+    if (dx === 0 && dy === 0) return;
+
+    const gamepadSnapshot = prepareGamepadForOverlayTextRender();
+    offsetX = nextX;
+    offsetY = nextY;
+    // A stationary OCR frame may never be sent again. Move its existing boxes
+    // now, preserving the Text nodes and any dictionary Range into them.
+    document.querySelectorAll('.text-box, .nav-char-box, .big-interactive-area, .line-box, .recycled-indicator, .furigana-box').forEach(box => {
+      if (box.style.left.endsWith('%')) box.style.left = `${parseFloat(box.style.left) + dx}%`;
+      if (box.style.top.endsWith('%')) box.style.top = `${parseFloat(box.style.top) + dy}%`;
+    });
+    lastFuriganaRenderSignature = null;
+    window.GsmJitenHighlight?.reposition();
+    window.GSMWindowOcclusion?.refresh();
+    window.GSMLiveStatsWidget?.handleTextBoundsUpdate(
+      Array.from(document.querySelectorAll('.text-box'), box => box.getBoundingClientRect())
+    );
+    completeGamepadOverlayTextRender(gamepadSnapshot, { preserveSelection: true, focusLatestLine: false });
+    textHover.refresh();
+  }
+
   ipcRenderer.on("settings-updated", (event, updatedSettings) => {
     console.log("Settings updated:", updatedSettings);
+    updateOverlayTextOffsets(updatedSettings);
 
     Object.keys(updatedSettings).forEach(key => {
       const value = updatedSettings[key];
@@ -5072,6 +5126,9 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "fadeTextIndicators":
           updateTextIndicators(showTextIndicators, value);
+          break;
+        case "showTextHitboxes":
+          document.body.classList.toggle('show-text-hitboxes', value === true);
           break;
         case "showTextBackground":
           // A full settings snapshot contains this retired key as well as the
@@ -5180,12 +5237,6 @@ background: rgba(202, 12, 12, 0.692);
         case "showRecycledIndicator":
           showRecycledIndicator = value;
           updateImmediateRecycledIndicator();
-          break;
-        case "offsetX":
-          offsetX = value;
-          break;
-        case "offsetY":
-          offsetY = value;
           break;
       }
     });

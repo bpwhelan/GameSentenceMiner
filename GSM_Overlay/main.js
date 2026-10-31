@@ -14,6 +14,8 @@ const https = require('https');
 const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
+const { createVitaModelRequest } = require('./vita_ocr_models');
+const { createMeikiModelRequest } = require('./meiki_ocr_models');
 const { configureYomitan, createSetupHandler } = require('./anki_setup');
 const { createMagpieState } = require('./magpie');
 const { createMagpieNative } = require('./magpie_native');
@@ -25,6 +27,8 @@ const { forceForegroundWindow } = require('./win_foreground');
 const { createCustomPageController, normalizeCustomPageUrl } = require('./custom_page_window');
 const { parseGuideUrl } = require('./vn_guide');
 const { GuideLibrary } = require('./vn_guide_library');
+const { GuideSceneSettings, VN_GUIDE_SCENE_SETTING_KEYS } = require('./vn_guide_scene_settings');
+const { GuideCatalogue, parseCatalogueSource, DEFAULT_CATALOGUE_SOURCE } = require('./vn_guide_catalogue');
 const { createVnGuideController } = require('./vn_guide_controller');
 const { createVnGuideHud } = require('./vn_guide_hud');
 const {
@@ -364,6 +368,7 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "weburl2",
   "texthookerUrl",
   "customPageLastUrls",
+  "vnGuideCatalogueSource",
   "mainBoxStartupWarningAcknowledged",
   "pushToShowEnforcedDialogDismissed",
   "dismissedFullscreenRecommendations",
@@ -1050,6 +1055,17 @@ ipcMain.handle('overlay-get-active-goals', async () => {
   }
 });
 
+const requestVitaModel = createVitaModelRequest(() => getGSMTransportBasePort());
+ipcMain.handle('overlay-vita-model', (event, request) => {
+  if (!settingsWindow || event.sender !== settingsWindow.webContents) throw new Error('Open overlay settings to change the model.');
+  return requestVitaModel(request);
+});
+const requestMeikiModel = createMeikiModelRequest(() => getGSMTransportBasePort());
+ipcMain.handle('overlay-meiki-model', (event, request) => {
+  if (!settingsWindow || event.sender !== settingsWindow.webContents) throw new Error('Open overlay settings to change the model.');
+  return requestMeikiModel(request);
+});
+
 const DEFAULT_USER_SETTINGS = Object.freeze({
   "dictionaryReaderSelection": "yomitan",
   "fontSize": 42,
@@ -1081,6 +1097,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "showReadyIndicator": true,
   "showTextIndicators": true,
   "fadeTextIndicators": false,
+  "showTextHitboxes": false,
   "showLiveStats": true,
   "showLiveGoals": true,
   "hideCompletedGoals": true,
@@ -1139,6 +1156,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "customPageHotkey": "Alt+Shift+U",
   "customPageLastUrls": {},
   "vnGuideEnabled": false,
+  "vnGuideCatalogueSource": DEFAULT_CATALOGUE_SOURCE,
   "vnGuideUrl": "",
   "vnGuideRoute": "",
   "vnGuideMode": "auto",
@@ -1242,6 +1260,7 @@ let userSettings = {
   [OVERLAY_PROFILE_SETTINGS_KEY]: {},
 };
 let shouldMigrateLegacyOverlayActivationScan = false;
+let vnGuideSceneSettings = null;
 let reconfigureOverlayRuntimeForSettingsChange = () => {};
 let liveStatsVisibilityMode = "all";
 let liveGoalsAvailable = false;
@@ -1266,6 +1285,7 @@ function isOverlayProfileScopedSetting(key) {
   return (
     typeof key === "string" &&
     Object.prototype.hasOwnProperty.call(DEFAULT_USER_SETTINGS, key) &&
+    !VN_GUIDE_SCENE_SETTING_KEYS.includes(key) &&
     !OVERLAY_NON_PROFILE_SETTING_KEYS.has(key)
   );
 }
@@ -1348,7 +1368,7 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
       cleanedSettings.hideLiveStatsOnTextOverlap = DEFAULT_USER_SETTINGS.hideLiveStatsOnTextOverlap;
       changed = true;
     }
-    for (const key of ['customPageEnabled', 'customPageUrl', 'customPageHotkey', ...Object.keys(DEFAULT_USER_SETTINGS).filter(key => key.startsWith('vnGuide'))]) {
+    for (const key of ['customPageEnabled', 'customPageUrl', 'customPageHotkey', ...Object.keys(DEFAULT_USER_SETTINGS).filter(key => key.startsWith('vnGuide') && isOverlayProfileScopedSetting(key))]) {
       if (!Object.prototype.hasOwnProperty.call(cleanedSettings, key)) {
         cleanedSettings[key] = DEFAULT_USER_SETTINGS[key];
         changed = true;
@@ -1399,6 +1419,7 @@ function setOverlaySettingValue(key, value) {
     value = false;
   }
   userSettings[key] = value;
+  vnGuideSceneSettings?.record(key);
   persistOverlaySettingForActiveProfile(key, value);
 }
 
@@ -1961,6 +1982,7 @@ function invalidateOverlayCapture(reason = "capture-unavailable") {
 }
 
 function updateOverlayCaptureStatus(message) {
+  if (message.scene_name) applyVnGuideScene(message.scene_name);
   const wasAvailable = hasValidOverlayCapture();
   setTrackedGameWindowState(message.window_state, "capture-status");
   overlayCaptureAvailable = message.available === true;
@@ -2422,6 +2444,7 @@ let texthookerLoadToken = 0;
 let customPageController = null;
 let vnGuideController = null;
 let vnGuideHud = null;
+let vnGuideCatalogue = null;
 let tray = null;
 let platformOverride = null;
 let backend = null;
@@ -4847,6 +4870,8 @@ if (gamepadDeviceBlacklistNormalized) {
 }
 const liveStatsSettingsNormalized = normalizeLiveStatsSettings(userSettings);
 const pomodoroSettingsNormalized = normalizePomodoroSettings(userSettings);
+vnGuideSceneSettings = new GuideSceneSettings(userSettings, DEFAULT_USER_SETTINGS);
+if (vnGuideSceneSettings.created) shouldPersistOverlaySettings = true;
 const overlayProfilesNormalized = normalizeOverlaySettingsProfiles("settings-load");
 const overlayProfileAppliedOnLoad = syncOverlayProfileFromGSM("settings-load", {
   force: true,
@@ -6218,6 +6243,17 @@ function registerTexthookerHotkey(oldHotkey) {
   }
 }
 
+function applyVnGuideScene(sceneName) {
+  if (sceneName === vnGuideSceneSettings?.scene) return false;
+  const previousSettings = { ...userSettings };
+  if (!vnGuideSceneSettings?.select(sceneName, getCurrentGSMProfileName())) return false;
+  vnGuideController?.setAvailable(false, sceneName);
+  reconfigureOverlayRuntimeForSettingsChange(previousSettings, 'vn-guide-scene');
+  saveSettings();
+  publishOverlaySettingsSnapshot('vn-guide-scene');
+  return true;
+}
+
 function refreshVnGuideWindow() {
   // Manual "Hide overlay" controls the lookup window, not the guide companion.
   vnGuideController?.setAvailable(canUseOverlayCapture());
@@ -7104,6 +7140,7 @@ function updateTrayMenu() {
 
 
 async function startOverlayAppImpl() {
+  const startupStartedAt = Date.now();
   isDev = !app.isPackaged;
   // Renderer routing changes only after the selected extension is loaded on restart.
   activeDictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings(), userSettings);
@@ -7388,6 +7425,7 @@ async function startOverlayAppImpl() {
   if (userSettings.enableJitenReader) {
     jitenReaderExt = await loadExtension('jiten.reader');
   }
+  console.log(`[Startup] overlay extensions ready: ${Date.now() - startupStartedAt}ms since overlay initialization`);
 
   // If migration marker exists, update it with the actual ID for debugging
   if (dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad && fs.existsSync(markerPath)) {
@@ -7722,18 +7760,61 @@ async function startOverlayAppImpl() {
   bg.registerTask(() => vnGuideController?.setAvailable(canUseOverlayCapture()), 250);
   ipcMain.handle('vn-guide-state', event => {
     if (!settingsWindow || event.sender !== settingsWindow.webContents) return null;
-    return vnGuideController?.snapshot() || { enabled: false, routes: [] };
+    if (vnGuideController) return vnGuideController.snapshot();
+    let sourceUrl = '';
+    try { sourceUrl = parseGuideUrl(userSettings.vnGuideUrl).baseUrl; } catch {}
+    return { enabled: false, routes: [], sourceUrl };
+  });
+  ipcMain.handle('vn-guide-catalogue', async (event, request = {}) => {
+    if (!settingsWindow || event.sender !== settingsWindow.webContents) return null;
+    let source = userSettings.vnGuideCatalogueSource || DEFAULT_CATALOGUE_SOURCE;
+    try {
+      if (request.chooseFolder === true) {
+        const selected = await dialog.showOpenDialog(settingsWindow, {
+          title: 'Choose a catalogue folder containing games.json', properties: ['openDirectory'],
+        });
+        if (selected.canceled || !selected.filePaths.length) return { cancelled: true };
+        request = { ...request, source: selected.filePaths[0] };
+      }
+      if (typeof request.source === 'string') {
+        source = request.source.trim() || DEFAULT_CATALOGUE_SOURCE;
+        parseCatalogueSource(source);
+        if (source !== userSettings.vnGuideCatalogueSource) {
+          const previous = userSettings.vnGuideCatalogueSource;
+          setOverlaySettingValue('vnGuideCatalogueSource', source);
+          if (!saveSettings()) {
+            setOverlaySettingValue('vnGuideCatalogueSource', previous);
+            throw new Error('Could not save the catalogue source. Check that the GSM data folder is writable.');
+          }
+        }
+      }
+      vnGuideCatalogue ||= new GuideCatalogue(dataPath);
+      return { source, ...await vnGuideCatalogue.list(source, { refresh: request.refresh === true }) };
+    } catch (error) { return { source, guides: [], error: error.message }; }
   });
   ipcMain.handle('vn-guide-command', async (event, { action, value } = {}) => {
     const fromSettings = settingsWindow && event.sender === settingsWindow.webContents;
     const fromHud = vnGuideHud?.owns(event.sender);
     if (!fromSettings && !fromHud) return null;
     if (fromHud && (!canUseOverlayCapture() || !['next', 'back', 'hide'].includes(action))) return null;
-    if (action === 'use-custom-page' && fromSettings) {
-      const configured = normalizeCustomPageUrl(userSettings.customPageUrl);
-      const url = userSettings.customPageLastUrls?.[configured] || configured;
-      let source;
-      try { source = parseGuideUrl(url); } catch (error) { return { ...vnGuideController?.snapshot(), error: error.message }; }
+    if (['use-custom-page', 'choose-local', 'select-guide'].includes(action) && fromSettings) {
+      let source, url;
+      try {
+        if (action === 'choose-local') {
+          const selected = await dialog.showOpenDialog(settingsWindow, {
+            title: 'Choose a game guide folder containing guide.json', properties: ['openDirectory'],
+          });
+          if (selected.canceled || !selected.filePaths.length) return vnGuideController?.snapshot();
+          url = selected.filePaths[0];
+        } else if (action === 'select-guide') {
+          if (typeof value !== 'string' || !value.trim()) throw new Error('Choose a game guide from the catalogue.');
+          url = value;
+        } else {
+          const configured = normalizeCustomPageUrl(userSettings.customPageUrl);
+          url = userSettings.customPageLastUrls?.[configured] || configured;
+        }
+        source = parseGuideUrl(url);
+      } catch (error) { return { ...vnGuideController?.snapshot(), error: error.message }; }
       setOverlaySettingValue('vnGuideUrl', url);
       setOverlaySettingValue('vnGuideRoute', '');
       setOverlaySettingValue('vnGuideEnabled', true);
@@ -8145,6 +8226,7 @@ async function startOverlayAppImpl() {
     startOverlayWebSockets();
   });
   mainWindow.once('ready-to-show', () => {
+    console.log(`[Startup] overlay renderer ready: ${Date.now() - startupStartedAt}ms since overlay initialization`);
     const syncResult = syncOverlayWindowsToCurrentMonitor("ready-to-show", { forceSendDisplayInfo: true });
     display = syncResult.display;
     displayBounds = syncResult.bounds;

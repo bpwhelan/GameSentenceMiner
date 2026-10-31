@@ -54,3 +54,23 @@ export function buildWindowsElevationCommand(executable: string, args: string[])
         : '';
     return `Start-Process -FilePath ${literal(executable)}${argumentsOption} -Verb RunAs`;
 }
+
+/** Elevate a waiting helper first so UAC cancellation leaves GSM and its children running. */
+export function buildWindowsAdminRelaunchCommand(
+    executable: string,
+    args: string[],
+    currentPid: number,
+    powerShellPath: string,
+    workingDirectory: string,
+): string {
+    if (!Number.isSafeInteger(currentPid) || currentPid <= 0) throw new Error('Invalid relaunch process ID.');
+    const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+    const argumentsOption = args.length ? ` -ArgumentList ${literal(args.map(quoteWindowsArgument).join(' '))}` : '';
+    const helper = `$ErrorActionPreference = 'Stop'\n` +
+        `$current = Get-Process -Id ${currentPid} -ErrorAction SilentlyContinue\n` +
+        `if ($current -and !$current.WaitForExit(60000)) { exit 1 }\n` +
+        `Start-Process -FilePath ${literal(executable)}${argumentsOption} -WorkingDirectory ${literal(workingDirectory)}`;
+    const helperArgs = `-NoLogo -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(helper, 'utf16le').toString('base64')}`;
+    return `$ErrorActionPreference = 'Stop'; Start-Process -FilePath ${literal(powerShellPath)}` +
+        ` -ArgumentList ${literal(helperArgs)} -WindowStyle Hidden -Verb RunAs -ErrorAction Stop`;
+}

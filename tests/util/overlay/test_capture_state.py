@@ -37,6 +37,7 @@ def test_live_captured_hwnd_is_available_even_before_obs_output_probe(capture):
         "type": "capture_status",
         "available": True,
         "window_state": "active",
+        "scene_name": "Game",
     }
 
 
@@ -68,6 +69,7 @@ def test_untracked_obs_capture_remains_available_with_window_metadata(capture, t
         "type": "capture_status",
         "available": True,
         "window_state": "background",
+        "scene_name": "Game",
     }
     state.source_output_active = False
     assert capture_state.get_overlay_capture_state(monitor)["available"] is False
@@ -99,6 +101,17 @@ def test_scene_switch_invalidates_old_hwnd(capture):
     monitor, state, _ = capture
     state.current_scene = "Other game"
     assert capture_state.get_overlay_capture_state(monitor)["available"] is False
+    assert capture_state.get_overlay_capture_state(monitor)["scene_name"] == "Other game"
+
+
+def test_scene_is_published_without_a_capture_monitor(capture):
+    assert capture_state.get_overlay_capture_state(None)["scene_name"] == "Game"
+
+
+def test_missing_obs_state_does_not_reuse_a_stale_scene(capture, monkeypatch):
+    monitor, _, _ = capture
+    monkeypatch.setattr(capture_state, "get_obs_state", lambda: None)
+    assert capture_state.get_overlay_capture_state(monitor)["scene_name"] == ""
 
 
 def test_non_hwnd_capture_cannot_reuse_output_from_previous_scene(capture):
@@ -136,6 +149,23 @@ def test_capture_status_heartbeat_repeats_for_reconnected_overlays(capture, monk
     monitor.target_hwnd = None
     asyncio.run(capture_state.publish_overlay_capture_state(monitor))
     assert len(sent) == 3
+
+
+def test_scene_change_publishes_immediately_even_without_capture(capture, monkeypatch):
+    monitor, state, _ = capture
+    monitor.target_hwnd = None
+    monitor.ever_had_target_hwnd = False
+    state.source_output_active = False
+    sent = []
+
+    async def send(_client, data):
+        sent.append(data)
+
+    monkeypatch.setattr(capture_state.websocket_manager, "send", send)
+    asyncio.run(capture_state.publish_overlay_capture_state(monitor))
+    state.current_scene = "Other game"
+    asyncio.run(capture_state.publish_overlay_capture_state(monitor))
+    assert len(sent) == 2
 
 
 def test_manual_scan_and_background_do_not_capture_without_a_target(monkeypatch):

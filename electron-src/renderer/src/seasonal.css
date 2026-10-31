@@ -1,0 +1,45 @@
+/* Small corner details over the existing UI; preserve the selected palette. */
+.seasonal-cobwebs {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  color: var(--gsm-text-primary);
+}
+
+:root[data-season="halloween"]:not([data-theme="high-contrast"]) .seasonal-cobwebs {
+  display: block;
+}
+
+.seasonal-cobweb {
+  position: absolute;
+  display: block;
+  fill: none;
+  pointer-events: none;
+}
+
+.seasonal-cobweb--top {
+  top: 0;
+  right: 0;
+  width: 88px;
+  height: 66px;
+  opacity: .16;
+  transform: scaleX(-1);
+}
+
+.seasonal-cobweb--bottom {
+  bottom: 0;
+  right: 0;
+  width: 64px;
+  height: 48px;
+  opacity: .12;
+  transform: scale(-1);
+}
+
+@media (max-width: 900px) {
+  .seasonal-cobweb--top { width: 64px; height: 48px; }
+  .seasonal-cobweb--bottom { width: 48px; height: 36px; }
+}

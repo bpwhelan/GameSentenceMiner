@@ -711,7 +711,7 @@
   background: var(--gsm-success);
   box-shadow: 0 0 0 3px var(--gsm-success-soft);
 }
-.ocr-desk .desk-text-status.is-paused > i {
+.ocr-desk .desk-text-status:is(.is-paused, .is-menu, .is-blackHole, .is-excluded) > i {
   background: var(--gsm-warning-text);
 }
 .ocr-desk .desk-text-status.has-error > i {
@@ -771,6 +771,28 @@
   width: 14px;
   height: 14px;
 }
+.ocr-desk .desk-text-line-actions {
+  display: flex;
+  margin-left: auto;
+  gap: 2px;
+}
+.ocr-desk .desk-text-line-actions button { margin-left: 0; }
+.desk-exclusion-notice { color: var(--gsm-accent-text); font-size: 11px; margin: 0 0 8px; }
+.ocr-line-menu {
+  position: fixed;
+  z-index: 1200;
+  width: min(280px, calc(100vw - 16px));
+  padding: 6px;
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: 8px;
+  background: var(--gsm-surface-1);
+  color: var(--gsm-text-primary);
+  box-shadow: 0 8px 32px #0005;
+}
+.ocr-line-menu-game { color: var(--gsm-text-muted); padding: 8px; font-size: 11px; overflow-wrap: anywhere; }
+.ocr-line-menu button { display: block; width: 100%; text-align: left; border: 0; padding: 8px; font-size: 12px; }
+.ocr-line-menu button:is(:hover, :focus-visible) { background: var(--gsm-accent-soft); }
+.ocr-line-menu [role="alert"] { color: var(--gsm-danger, #ef7171); font-size: 11px; padding: 0 8px; }
 .ocr-desk .desk-text-content {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

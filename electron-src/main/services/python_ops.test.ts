@@ -23,6 +23,48 @@ vi.mock('../util.js', () => ({
     resolvePreReleaseBackendWheelPath: mockResolvePreReleaseBackendWheelPath,
 }));
 
+describe('package version lookup', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('reads distribution metadata without importing pip or the package', async () => {
+        mockExecFileAsync.mockResolvedValueOnce({ stdout: '2026.10.1.post1\n' });
+        const { getInstalledPackageVersion } = await import('./python_ops.js');
+        await expect(getInstalledPackageVersion('managed-python', 'GameSentenceMiner')).resolves.toBe('2026.10.1.post1');
+        const [executable, args, options] = mockExecFileAsync.mock.calls[0];
+        expect(executable).toBe('managed-python');
+        expect(args[0]).toBe('-c');
+        expect(args[1]).toContain('importlib.metadata');
+        expect(args.at(-1)).toBe('GameSentenceMiner');
+        expect(options).toMatchObject({ windowsHide: true, timeout: 10_000 });
+    });
+
+    it('reports absent or broken distributions as missing', async () => {
+        const { getInstalledPackageVersion } = await import('./python_ops.js');
+        mockExecFileAsync.mockRejectedValueOnce(new Error('PackageNotFoundError'));
+        await expect(getInstalledPackageVersion('managed-python', 'missing')).resolves.toBeNull();
+        mockExecFileAsync.mockResolvedValueOnce({ stdout: '\n' });
+        await expect(getInstalledPackageVersion('managed-python', 'empty')).resolves.toBeNull();
+    });
+});
+
+describe('ONNX runtime distribution verification', () => {
+    beforeEach(() => vi.clearAllMocks());
+    it.each([true, false])('repairs the actual provider flavor for gpu=%s', async (gpu) => {
+        const { ensureOnnxRuntimeFlavor } = await import('./python_ops.js');
+        mockExecFileAsync.mockRejectedValueOnce(new Error('wrong runtime')).mockResolvedValueOnce({ stdout: '' });
+        const repair = vi.fn(async () => {});
+        await ensureOnnxRuntimeFlavor('python', gpu, false, repair);
+        expect(repair).toHaveBeenCalledWith(gpu ? 'onnxruntime-gpu' : 'onnxruntime');
+    });
+    it('keeps availability checks read-only', async () => {
+        const { ensureOnnxRuntimeFlavor } = await import('./python_ops.js');
+        mockExecFileAsync.mockRejectedValueOnce(new Error('wrong runtime'));
+        const repair = vi.fn();
+        await expect(ensureOnnxRuntimeFlavor('python', true, true, repair)).rejects.toThrow('does not match');
+        expect(repair).not.toHaveBeenCalled();
+    });
+});
+
 describe('getBundledBackendSpecifier', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -117,7 +159,7 @@ describe('setup command diagnostics', () => {
     });
 
     it('retains output from buffered uv bootstrap commands', async () => {
-        mockExecFileAsync.mockResolvedValueOnce({ stdout: 'Version: 0.1.0\n', stderr: '' });
+        mockExecFileAsync.mockResolvedValueOnce({ stdout: '0.1.0\n', stderr: '' });
         mockExecFileAsync.mockResolvedValueOnce({ stdout: 'Installed uv==0.13.4', stderr: 'Retrying package download' });
         const { checkAndInstallUV } = await import('./python_ops.js');
         await checkAndInstallUV('python');
@@ -127,7 +169,7 @@ describe('setup command diagnostics', () => {
     });
 
     it('retains buffered failure output that is missing from the exception message', async () => {
-        mockExecFileAsync.mockResolvedValueOnce({ stdout: 'Version: 0.1.0\n', stderr: '' });
+        mockExecFileAsync.mockResolvedValueOnce({ stdout: '0.1.0\n', stderr: '' });
         mockExecFileAsync.mockRejectedValueOnce(Object.assign(new Error('pip failed'), {
             stdout: 'Attempted index mirror', stderr: 'Certificate validation failed',
         }));
@@ -187,7 +229,7 @@ describe('checkAndInstallUV', () => {
 
     it('keeps the exact lock-compatible uv version', async () => {
         mockExecFileAsync.mockResolvedValueOnce({
-            stdout: 'Name: uv\nVersion: 0.13.4\n',
+            stdout: '0.13.4\n',
             stderr: '',
         });
 
@@ -202,7 +244,7 @@ describe('checkAndInstallUV', () => {
         async (installedVersion) => {
             mockExecFileAsync
                 .mockResolvedValueOnce({
-                    stdout: `Name: uv\nVersion: ${installedVersion}\n`,
+                    stdout: `${installedVersion}\n`,
                     stderr: '',
                 })
                 .mockResolvedValueOnce({ stdout: '', stderr: '' });

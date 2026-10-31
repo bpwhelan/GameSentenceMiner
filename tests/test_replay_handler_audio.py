@@ -372,7 +372,10 @@ def test_get_audio_marks_condensed_audio_for_rebased_editing(tmp_path):
 
 @pytest.mark.parametrize("skip_unvoiced", [False, True])
 @pytest.mark.parametrize("add_raw_audio", [False, True])
-def test_get_audio_respects_fallback_when_no_voice_confirmation_is_disabled(tmp_path, skip_unvoiced, add_raw_audio):
+@pytest.mark.parametrize("overlay_only", [False, True])
+def test_get_audio_respects_fallback_when_no_voice_confirmation_is_disabled(
+    tmp_path, skip_unvoiced, add_raw_audio, overlay_only
+):
     source_audio = tmp_path / "source.opus"
     source_audio.write_bytes(b"source")
     trimmed_audio = tmp_path / "trimmed.opus"
@@ -465,12 +468,12 @@ def test_get_audio_respects_fallback_when_no_voice_confirmation_is_disabled(tmp_
         replay_handler = importlib.import_module("GameSentenceMiner.replay_handler")
 
         result = replay_handler.ReplayAudioExtractor.get_audio(
-            game_line=SimpleNamespace(text="line"),
+            game_line=SimpleNamespace(text="line", source="overlay" if overlay_only else "hooker"),
             next_line_time=None,
             video_path="video.mp4",
         )
 
-    assert result.final_audio_output == (str(trimmed_audio) if add_raw_audio else "")
+    assert result.final_audio_output == (str(trimmed_audio) if add_raw_audio or overlay_only else "")
     assert result.vad_result.success is add_raw_audio
     assert result.audio_edit_context == replay_handler.AudioEditContext(
         source_audio_path=str(source_audio),

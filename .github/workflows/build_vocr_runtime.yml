@@ -1,0 +1,49 @@
+name: Build VOCR Runtime
+
+on:
+  push:
+    paths:
+      - native/vita-ocr/**
+      - scripts/build_vocr_runtime.py
+      - .github/workflows/build_vocr_runtime.yml
+  pull_request:
+    paths:
+      - native/vita-ocr/**
+      - scripts/build_vocr_runtime.py
+      - .github/workflows/build_vocr_runtime.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: win32-x64
+          - runner: ubuntu-22.04
+            platform: linux-x64
+          - runner: ubuntu-22.04-arm
+            platform: linux-arm64
+          - runner: macos-15
+            platform: darwin-arm64
+          - runner: macos-15-intel
+            platform: darwin-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build verified source with static Windows CRT
+        run: python scripts/build_vocr_runtime.py --output runtime-assets
+      - name: Upload libraries and corresponding source
+        uses: actions/upload-artifact@v4
+        with:
+          name: vocr-runtime-${{ matrix.platform }}
+          path: runtime-assets/*
+          if-no-files-found: error

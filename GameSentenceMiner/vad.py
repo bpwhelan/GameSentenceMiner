@@ -5,6 +5,7 @@ import shutil
 import struct
 import tempfile
 import threading
+import time
 import wave
 import warnings
 from abc import abstractmethod, ABC
@@ -14,17 +15,18 @@ from importlib import resources
 from typing import Optional
 
 from GameSentenceMiner.tokenizer import tokenizer
+from GameSentenceMiner.util import vad_debug
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
     get_config,
     get_temporary_directory,
-    is_cuda_available,
     logger,
     FIRERED,
     SILERO,
     WHISPER,
 )
 from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
+from GameSentenceMiner.util.gpu_runtime import create_onnx_session, gpu_enabled, record_runtime, should_use_gpu
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length
 from GameSentenceMiner.util.models.model import VADResult
@@ -53,10 +55,6 @@ FIRERED_MAX_SPEECH_FRAME_DEFAULT = 2000
 FIRERED_MIN_SILENCE_FRAME_DEFAULT = 20
 FIRERED_MERGE_SILENCE_FRAME_DEFAULT = 0
 FIRERED_EXTEND_SPEECH_FRAME_DEFAULT = 0
-FIRERED_TRAILING_GUARD_BOUNDARY_TOLERANCE_SECONDS_DEFAULT = 0.05
-FIRERED_TRAILING_GUARD_MIN_DISAGREEMENT_SECONDS_DEFAULT = 1.0
-FIRERED_TRAILING_GUARD_HIGH_CONFIDENCE_DEFAULT = 0.9
-FIRERED_TRAILING_GUARD_HIGH_CONFIDENCE_FRAMES_DEFAULT = 20
 CLEAN_PREROLL_WINDOW_SECONDS = 0.03
 CLEAN_PREROLL_MIN_LEAD_SECONDS = 0.06
 CLEAN_PREROLL_MAX_QUIET_RMS = 0.01
@@ -263,8 +261,9 @@ class DetectionResult:
 
 # Convert the audio to 16kHz mono WAV, evidence https://discord.com/channels/1286409772383342664/1286518821913362445/1407017127529152533
 class TempWav:
-    def __init__(self, input_audio: str):
+    def __init__(self, input_audio: str, *, use_filters: bool = True):
         self.input_audio = input_audio
+        self.use_filters = use_filters
         self.path = None
 
     def __enter__(self):
@@ -279,7 +278,7 @@ class TempWav:
         if input_size <= 0:
             raise RuntimeError(f"Input audio is empty: '{self.input_audio}'")
 
-        result = ffmpeg.convert_audio_to_wav(self.input_audio, self.path, use_filters=True)
+        result = ffmpeg.convert_audio_to_wav(self.input_audio, self.path, use_filters=self.use_filters)
         if result.returncode != 0:
             raise RuntimeError(f"FFmpeg failed to convert audio to wav: {result.stderr}")
         if not os.path.exists(self.path) or os.path.getsize(self.path) <= 44:
@@ -375,6 +374,28 @@ class VADSystem:
         #         self.groq = GroqVADProcessor()
 
     def trim_audio_with_vad(self, input_audio, output_audio, game_line, full_text):
+        if not vad_debug.recorder.enabled:
+            return self._trim_audio_with_vad(input_audio, output_audio, game_line, full_text)
+        with vad_debug.recorder.capture(input_audio, get_config(), game_line, full_text) as capture:
+            result = self._trim_audio_with_vad(input_audio, output_audio, game_line, full_text)
+            if capture:
+                capture.result = result
+                if not capture.firered_attempted:
+                    # Collect FireRed evidence while the selected model continues
+                    # to own the actual card audio and fallback decisions.
+                    capture.analysis_only = True
+                    started = time.perf_counter()
+                    try:
+                        detection = self._get_processor(FIRERED)._detect_voice_activity(input_audio, full_text)
+                        if capture.report["firered"] is None:
+                            capture.report["firered"] = {"segments": [asdict(s) for s in detection.segments]}
+                    except Exception as error:  # noqa: BLE001 - Reference analysis must not fail mining.
+                        capture.report["firered"] = {"error": str(error)}
+                    capture.report["firered"]["analysis_only"] = True
+                    capture.report["firered"]["detection_seconds"] = time.perf_counter() - started
+            return result
+
+    def _trim_audio_with_vad(self, input_audio, output_audio, game_line, full_text):
         if get_config().vad.do_vad_postprocessing:
             self.ensure_initialized()
             result = self._do_vad_processing(
@@ -525,9 +546,37 @@ class VADProcessor(ABC):
             shutil.move(valid_files[0], output_audio)
 
     def process_audio(self, input_audio, output_audio, game_line, text_mined):
-        detection = self._detect_voice_activity(input_audio, text_mined)
-        decision = self._validate_detection(detection, game_line, input_audio)
-        return self._render_decision(decision, detection, input_audio, output_audio)
+        capture = vad_debug.current_capture()
+        if capture is None:
+            detection = self._detect_voice_activity(input_audio, text_mined)
+            decision = self._validate_detection(detection, game_line, input_audio)
+            return self._render_decision(decision, detection, input_audio, output_audio)
+        detection = decision = result = None
+        timings = {}
+        error = None
+        started = time.perf_counter()
+        try:
+            detection = self._detect_voice_activity(input_audio, text_mined)
+            detected = time.perf_counter()
+            decision = self._validate_detection(detection, game_line, input_audio)
+            validated = time.perf_counter()
+            result = self._render_decision(decision, detection, input_audio, output_audio)
+            timings = {
+                "detection": detected - started,
+                "validation": validated - detected,
+                "render": time.perf_counter() - validated,
+            }
+            return result
+        except Exception as exc:
+            error = str(exc)
+            raise
+        finally:
+            if capture:
+                timings["total"] = time.perf_counter() - started
+                try:
+                    capture.attempt(self.vad_system_name, detection, decision, result, timings, error)
+                except Exception as exc:  # noqa: BLE001 - Debug capture must not affect card creation.
+                    capture.owner.fail(exc)
 
     def _validate_detection(self, detection: DetectionResult, game_line, input_audio):
         if not detection or not detection.segments:
@@ -825,19 +874,28 @@ class FireRedVADProcessor(VADProcessor):
         self.vad_system_name = FIRERED
 
     def _ensure_model(self):
-        if self.vad_model and self._feature_extractor and self._postprocessor:
+        preference = gpu_enabled("firered")
+        if (
+            self.vad_model
+            and self._feature_extractor
+            and self._postprocessor
+            and getattr(self, "_gpu_enabled", preference) == preference
+        ):
             return
         with self._load_lock:
-            if self.vad_model and self._feature_extractor and self._postprocessor:
+            if (
+                self.vad_model
+                and self._feature_extractor
+                and self._postprocessor
+                and getattr(self, "_gpu_enabled", preference) == preference
+            ):
                 return
 
             import onnxruntime as ort
 
             model_path = _get_firered_asset_path("fireredvad_vad.onnx")
-            # FireRedVAD is already fast enough for GSM's short clips on CPU.
-            # Avoid probing CUDA here: missing CUDA/cuDNN DLLs produce noisy
-            # native ONNX Runtime errors before Python can fall back to CPU.
-            self.vad_model = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+            self.vad_model = create_onnx_session(model_path, "firered", ort_module=ort)
+            self._gpu_enabled = preference
 
             self._feature_extractor = FireRedFeatureExtractor(_get_firered_asset_path("cmvn.ark"))
             self._postprocessor = FireRedVADPostprocessor(
@@ -865,101 +923,34 @@ class FireRedVADProcessor(VADProcessor):
             )
             logger.info(f"FireRedVAD ONNX model loaded with providers: {self.vad_model.get_providers()}")
 
-    def _corroborate_trailing_boundary(
-        self,
-        segments: list[Segment],
-        probabilities,
-        wav_duration: float,
-        decoded_audio,
-    ) -> list[Segment]:
-        if not segments:
-            return segments
-
-        boundary_tolerance = float(
-            _get_vad_config_value(
-                "firered_trailing_guard_boundary_tolerance_seconds",
-                FIRERED_TRAILING_GUARD_BOUNDARY_TOLERANCE_SECONDS_DEFAULT,
-            )
-        )
-        firered_end = segments[-1].end
-        if wav_duration - firered_end > boundary_tolerance:
-            return segments
-
-        try:
-            silero_segments = _detect_silero_segments_from_audio(decoded_audio)
-        except Exception as e:
-            logger.warning(f"FireRedVAD trailing-boundary corroboration failed; keeping FireRed result: {e}")
-            return segments
-        if not silero_segments:
-            return segments
-
-        silero_end = silero_segments[-1].end
-        min_disagreement = float(
-            _get_vad_config_value(
-                "firered_trailing_guard_min_disagreement_seconds",
-                FIRERED_TRAILING_GUARD_MIN_DISAGREEMENT_SECONDS_DEFAULT,
-            )
-        )
-        if firered_end - silero_end < min_disagreement:
-            return segments
-
-        high_confidence = float(
-            _get_vad_config_value(
-                "firered_trailing_guard_high_confidence",
-                FIRERED_TRAILING_GUARD_HIGH_CONFIDENCE_DEFAULT,
-            )
-        )
-        high_confidence_frames = int(
-            _get_vad_config_value(
-                "firered_trailing_guard_high_confidence_frames",
-                FIRERED_TRAILING_GUARD_HIGH_CONFIDENCE_FRAMES_DEFAULT,
-            )
-        )
-        smoothed_probabilities = self._postprocessor._smooth_prob(probabilities)
-        first_trailing_frame = max(0, int(silero_end / FIRERED_FRAME_SHIFT_S))
-        consecutive_high_confidence = 0
-        for probability in smoothed_probabilities[first_trailing_frame:]:
-            if probability >= high_confidence:
-                consecutive_high_confidence += 1
-                if consecutive_high_confidence >= high_confidence_frames:
-                    return segments
-            else:
-                consecutive_high_confidence = 0
-
-        corroborated_segments = []
-        for segment in segments:
-            if segment.start >= silero_end:
-                break
-            corroborated_end = min(segment.end, silero_end)
-            if corroborated_end > segment.start:
-                corroborated_segments.append(
-                    Segment(
-                        start=segment.start,
-                        end=corroborated_end,
-                        text=segment.text,
-                        confidence=segment.confidence,
-                    )
-                )
-
-        if not corroborated_segments:
-            return segments
-
-        logger.info(
-            f"FireRedVAD reached the clip boundary at {firered_end:.2f}s with no later high-confidence speech; "
-            f"using Silero's corroborated end at {silero_end:.2f}s."
-        )
-        return corroborated_segments
-
     def _detect_voice_activity(self, input_audio, text_mined) -> DetectionResult:
         import numpy as np
 
         self._ensure_model()
-        with TempWav(input_audio) as temp_wav:
+        # Dialogue enhancement can turn long stretches of background audio into
+        # speech-like artifacts. Feed FireRed the original waveform, resampled
+        # to its required PCM format, without altering speech probabilities.
+        with TempWav(input_audio, use_filters=False) as temp_wav:
             features, duration = self._feature_extractor.extract(temp_wav)
             if features.shape[0] <= 0:
+                vad_debug.record_firered(temp_wav, duration, self, [], [], [])
                 return DetectionResult(segments=[])
 
-            outputs = self.vad_model.run(None, {"feat": features[np.newaxis, :, :].astype(np.float32, copy=False)})
+            feeds = {"feat": features[np.newaxis, :, :].astype(np.float32, copy=False)}
+            try:
+                outputs = self.vad_model.run(None, feeds)
+            except Exception as error:  # noqa: BLE001 - ONNX provider errors have multiple exception classes.
+                if "CUDAExecutionProvider" not in self.vad_model.get_providers():
+                    raise
+                import onnxruntime as ort
+
+                logger.warning(f"FireRed GPU inference failed; retrying on CPU: {error}")
+                with self._load_lock:
+                    self.vad_model = ort.InferenceSession(
+                        _get_firered_asset_path("fireredvad_vad.onnx"), providers=["CPUExecutionProvider"]
+                    )
+                    record_runtime("firered", "cpu", error=str(error))
+                outputs = self.vad_model.run(None, feeds)
             probabilities = np.asarray(outputs[0], dtype=np.float32).squeeze()
             if probabilities.ndim == 0:
                 probabilities = probabilities.reshape(1)
@@ -967,27 +958,8 @@ class FireRedVADProcessor(VADProcessor):
             decisions = self._postprocessor.process(probabilities.tolist())
             timestamps = self._postprocessor.decision_to_segment(decisions, duration)
             segments = [Segment(start=float(start), end=float(end)) for start, end in timestamps if end > start]
+            vad_debug.record_firered(temp_wav, duration, self, probabilities, decisions, segments)
 
-            boundary_tolerance = float(
-                _get_vad_config_value(
-                    "firered_trailing_guard_boundary_tolerance_seconds",
-                    FIRERED_TRAILING_GUARD_BOUNDARY_TOLERANCE_SECONDS_DEFAULT,
-                )
-            )
-            min_disagreement = float(
-                _get_vad_config_value(
-                    "firered_trailing_guard_min_disagreement_seconds",
-                    FIRERED_TRAILING_GUARD_MIN_DISAGREEMENT_SECONDS_DEFAULT,
-                )
-            )
-            if segments and duration >= min_disagreement and duration - segments[-1].end <= boundary_tolerance:
-                decoded_audio = _load_whisper_audio_from_wav(temp_wav)
-                segments = self._corroborate_trailing_boundary(
-                    segments,
-                    probabilities,
-                    wav_duration=duration,
-                    decoded_audio=decoded_audio,
-                )
         logger.debug(segments)
         return DetectionResult(segments=segments)
 
@@ -1034,10 +1006,8 @@ class WhisperVADProcessor(VADProcessor):
         if not self.vad_model:
             model_name = get_config().vad.whisper_model
 
-            # Default to trying GPU with float16 (fastest on most modern GPUs)
-            use_cpu = get_config().vad.use_cpu_for_inference_v2
-            device = "cuda" if is_cuda_available() and not use_cpu else "cpu"
-            # device = "cpu"
+            self._gpu_enabled = gpu_enabled("whisper")
+            device = "cuda" if should_use_gpu("whisper") else "cpu"
             compute_type = "float16" if device == "cuda" else "int8"  # int8 is fastest/lowest memory on CPU
 
             logger.info(
@@ -1046,6 +1016,7 @@ class WhisperVADProcessor(VADProcessor):
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
+                gpu_error = ""
                 try:
                     self.vad_model = WhisperModel(
                         model_name,
@@ -1056,6 +1027,9 @@ class WhisperVADProcessor(VADProcessor):
                         f"Whisper model '{model_name}' loaded successfully on {device} (compute_type='{compute_type}')."
                     )
                 except Exception as e:  # Catches CUDA library errors, unsupported device, etc.
+                    if device != "cuda":
+                        raise
+                    gpu_error = str(e)
                     logger.warning(f"GPU loading failed ({str(e)}), falling back to CPU with int8 quantization...")
                     device = "cpu"
                     compute_type = "int8"  # Fastest/lowest memory on CPU
@@ -1065,8 +1039,38 @@ class WhisperVADProcessor(VADProcessor):
                         compute_type=compute_type,
                     )
                     logger.info(f"Whisper model '{model_name}' loaded on {device} (compute_type='{compute_type}').")
+                self._active_device = device
+                record_runtime("whisper", device, error=gpu_error)
 
         return self.vad_model
+
+    def _transcribe_audio(self, audio):
+        def transcribe():
+            segments, _info = self.vad_model.transcribe(
+                audio,
+                language=get_config().general.target_language,
+                vad_filter=get_config().vad.use_vad_filter_for_whisper,
+                temperature=0.0,
+                chunk_length=30,
+                condition_on_previous_text=False,
+                word_timestamps=True,
+            )
+            # CTranslate2 can fail lazily, after model construction succeeded.
+            return list(segments)
+
+        try:
+            return transcribe()
+        except RuntimeError as error:
+            if getattr(self, "_active_device", "cpu") != "cuda":
+                raise
+            from faster_whisper import WhisperModel
+
+            logger.warning(f"Whisper GPU transcription failed; retrying on CPU: {error}")
+            with self._load_lock:
+                self.vad_model = WhisperModel(get_config().vad.whisper_model, device="cpu", compute_type="int8")
+                self._active_device = "cpu"
+                record_runtime("whisper", "cpu", error=str(error))
+            return transcribe()
 
     @staticmethod
     def _calculate_similarity(text_mined: str, transcript: str) -> float:
@@ -1101,11 +1105,13 @@ class WhisperVADProcessor(VADProcessor):
         return re.search(pattern, text) is not None
 
     def _ensure_model(self):
-        if self.vad_model:
+        preference = gpu_enabled("whisper")
+        if self.vad_model and getattr(self, "_gpu_enabled", preference) == preference:
             return
         with self._load_lock:
-            if self.vad_model:
+            if self.vad_model and getattr(self, "_gpu_enabled", preference) == preference:
                 return
+            self.vad_model = None
             self.vad_model = self.load_whisper_model()
 
     def _detect_voice_activity(self, input_audio, text_mined) -> DetectionResult:
@@ -1118,18 +1124,7 @@ class WhisperVADProcessor(VADProcessor):
             whisper_audio = _load_whisper_audio_from_wav(temp_wav)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                segments_iter, _info = self.vad_model.transcribe(
-                    whisper_audio,
-                    language=get_config().general.target_language,
-                    vad_filter=get_config().vad.use_vad_filter_for_whisper,
-                    temperature=0.0,
-                    chunk_length=30,
-                    condition_on_previous_text=False,
-                    word_timestamps=True,  # populates segment.words (used by the unique-words filter below)
-                )
-                # faster-whisper yields segments lazily; materialize now to force transcription
-                # before the similarity gate, which needs the full transcript.
-                result_segments = list(segments_iter)
+                result_segments = self._transcribe_audio(whisper_audio)
 
         segments = []
 

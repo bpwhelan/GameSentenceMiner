@@ -269,9 +269,12 @@ export async function getInstalledPackageVersion(
     packageName: string
 ): Promise<string | null> {
     try {
-        const { stdout } = await execFileAsync(pythonPath, ['-m', 'pip', 'show', packageName]);
-        const match = stdout.match(/^Version:\s*(.+)$/im);
-        return match ? match[1].trim() : null;
+        const { stdout } = await execFileAsync(pythonPath, [
+            '-c',
+            'import sys; from importlib.metadata import version; print(version(sys.argv[1]))',
+            packageName,
+        ], { windowsHide: true, timeout: 10_000, env: getSanitizedPythonEnv() });
+        return stdout.trim() || null;
     } catch {
         return null;
     }
@@ -597,9 +600,34 @@ export async function syncLockedEnvironment(
         onProgress,
     };
     await runCommand(pythonPath, args, true, true, 'Sync: ', commandOptions);
+    await ensureOnnxRuntimeFlavor(pythonPath, normalizedExtras.includes('gpu'), checkOnly, async (packageName) => {
+        // Both distributions share onnxruntime's files. Reinstall only the
+        // selected locked distribution after the ordinary dependency sync.
+        await runCommand(pythonPath, [...args.filter((arg) => arg !== '--check'), '--reinstall-package', packageName],
+            true, true, 'GPU runtime: ', commandOptions);
+    });
 
     if (!options.deferValidation) {
         await validateLockedEnvironment(pythonPath, normalizedExtras, onProgress);
+    }
+}
+
+export async function ensureOnnxRuntimeFlavor(
+    pythonPath: string,
+    gpu: boolean,
+    checkOnly: boolean,
+    repair: (packageName: string) => Promise<void>,
+): Promise<void> {
+    const probe = () => execFileAsync(pythonPath, ['-c',
+        'import sys, onnxruntime as ort; actual = "CUDAExecutionProvider" in ort.get_available_providers(); '
+        + `sys.exit(0 if actual == ${gpu ? 'True' : 'False'} else 2)`,
+    ], { windowsHide: true, timeout: 15_000, env: getSanitizedPythonEnv() });
+    try {
+        await probe();
+    } catch (error) {
+        if (checkOnly) throw new Error(`The installed ONNX Runtime does not match the selected ${gpu ? 'GPU' : 'CPU'} runtime.`, { cause: error });
+        await repair(gpu ? 'onnxruntime-gpu' : 'onnxruntime');
+        await probe();
     }
 }
 

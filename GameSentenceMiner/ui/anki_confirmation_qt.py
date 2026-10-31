@@ -376,11 +376,10 @@ class AnkiConfirmationDialog(QDialog):
         dialog_layout.setSpacing(4)
 
         self.overlay_source_warning_label = QLabel(
-            "<b>Warning: this card was created without a conventional text source.</b><br>"
-            "GSM is using overlay text with best-guess audio and screenshot timing. "
-            "GSM strongly recommends receiving text separately through text hooking or an OCR tab "
-            "for overlay speed and consistency, accurate statistics, reliable voice and screenshot timing, "
-            "and other features."
+            "<b>Warning: no matching line was found within the replay buffer.</b><br>"
+            "The original line may have expired, or GSM may not have received it through text hooking or OCR. "
+            "GSM is using overlay text with estimated audio and screenshot timing; review both before saving. "
+            "For expired lines, mine sooner or increase the replay buffer length."
         )
         self.overlay_source_warning_label.setWordWrap(True)
         self.overlay_source_warning_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -1556,13 +1555,21 @@ class AnkiConfirmationDialog(QDialog):
         has_audio_file = bool(self.audio_path and os.path.isfile(self.audio_path))
 
         vad_ran = self.vad_result is not None and hasattr(self.vad_result, "success")
-        vad_detected_voice = vad_ran and bool(self.vad_result.success)
+        vad_detected_voice = vad_ran and bool(getattr(self.vad_result, "voice_detected", self.vad_result.success))
 
         status_text = "No audio"
         status_style = ""
 
         if has_audio_file:
-            if vad_ran:
+            if (self._audio_edit_context or {}).get("timing_fallback"):
+                status_text = (
+                    "⚠️ The estimated audio range was empty. Showing nearby replay audio; "
+                    "listen and adjust it before keeping."
+                )
+                status_style = (
+                    "color: #ff6b00; font-weight: bold; background-color: #fff3cd; padding: 5px; border-radius: 3px;"
+                )
+            elif vad_ran:
                 if vad_detected_voice:
                     status_text = "✔ Voice audio detected"
                     status_style = "color: green;"
@@ -1599,17 +1606,25 @@ class AnkiConfirmationDialog(QDialog):
                 self._update_audio_expand_buttons(allow_buttons=False)
             else:
                 self.codec_info_label.setVisible(False)
-                self.waveform_widget.load_audio(self.audio_path)
-                self.waveform_widget.setVisible(True)
+                waveform_loaded = self.waveform_widget.load_audio(self.audio_path)
+                self.waveform_widget.setVisible(waveform_loaded)
                 self._playback_resume_position = None
                 self._playing_full_audio = False
-                self.audio_button.setVisible(True)
-                self.play_original_button.setVisible(True)
-                self.reset_audio_button.setVisible(True)
-                AnkiConfirmationDialog._set_audio_cut_controls_visible(self, True)
+                self.audio_button.setVisible(waveform_loaded)
+                self.play_original_button.setVisible(waveform_loaded)
+                self.reset_audio_button.setVisible(waveform_loaded)
+                AnkiConfirmationDialog._set_audio_cut_controls_visible(self, waveform_loaded)
                 self.audio_button.setText("▶ Play Range")
                 self.audio_button.setStyleSheet("")
-                self._update_audio_expand_buttons(allow_buttons=True)
+                self._update_audio_expand_buttons(allow_buttons=waveform_loaded)
+                if not waveform_loaded:
+                    self.audio_status_label.setText(
+                        "⚠️ Could not load this audio for trimming; it may not play. Choose Keep Audio or No Audio."
+                    )
+                    self.audio_status_label.setStyleSheet(
+                        "color: #ff6b00; font-weight: bold; background-color: #fff3cd; "
+                        "padding: 5px; border-radius: 3px;"
+                    )
         else:
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
@@ -1975,6 +1990,9 @@ class AnkiConfirmationDialog(QDialog):
                 AnkiConfirmationDialog._audio_edit_context_value(context, "rebase_on_selection_trim", False)
             ),
             "timeline": AnkiConfirmationDialog._audio_edit_context_value(context, "timeline"),
+            "timing_fallback": bool(
+                AnkiConfirmationDialog._audio_edit_context_value(context, "timing_fallback", False)
+            ),
         }
 
     def _load_audio_edit_context(self, context):
@@ -2256,6 +2274,15 @@ class AnkiConfirmationDialog(QDialog):
                     subprocess.run(["xdg-open", audio_path])
             else:
                 success = self.audio_player.play_audio_file(audio_path)
+                if (
+                    not success
+                    and audio_path == self.audio_path
+                    and self.waveform_widget.audio_data is not None
+                    and self.waveform_widget.samplerate > 0
+                ):
+                    success = self.audio_player.play_audio_data(
+                        self.waveform_widget.audio_data, self.waveform_widget.samplerate
+                    )
                 if success:
                     self.waveform_widget.set_playback_position(self._playback_start_offset)
                     self._update_audio_buttons()
@@ -2452,7 +2479,7 @@ class AnkiConfirmationDialog(QDialog):
             return new_path
         except Exception as e:
             logger.error(f"Failed to save trimmed audio: {e}")
-            return self.audio_path
+            raise
 
     def _audio_finished(self):
         self.playback_timer.stop()
@@ -2568,10 +2595,13 @@ class AnkiConfirmationDialog(QDialog):
         }
 
     def _on_voice(self):
+        try:
+            final_audio_path = self._save_trimmed_audio()
+        except Exception as e:  # noqa: BLE001 - Keep the dialog open for any encoder failure.
+            QMessageBox.critical(self, "Audio Trim Error", f"Could not save the audio edits: {e}")
+            return
         self._stop_dialogue_watchers()
         self._cleanup_audio()
-
-        final_audio_path = self._save_trimmed_audio()
 
         # UPDATE 3: Comment out access to missing checkbox
         # if self.disable_dialog_checkbox.isChecked():

@@ -281,6 +281,22 @@ def start_ipc_listener_in_thread(
         client.subscribe(BACKEND_COMMAND_TOPIC, _on_backend_command)
         client.subscribe(OCR_EVENT_TOPIC, _on_ocr_event)
         client.handle(TEXT_INGRESS_TOPIC, _on_text_ingress_request)
+        from GameSentenceMiner.ocr.benchmark import BENCHMARK_TOPIC, handle_benchmark_request
+
+        client.handle(BENCHMARK_TOPIC, handle_benchmark_request)
+        from GameSentenceMiner.util.vad_debug import VAD_DEBUG_TOPIC, handle_debug_request
+
+        client.handle(VAD_DEBUG_TOPIC, handle_debug_request)
+        from GameSentenceMiner.ocr.vita_model_manager import MODEL_TOPIC, handle_model_request
+
+        client.handle(MODEL_TOPIC, handle_model_request, concurrent=True)
+        from GameSentenceMiner.ocr.meiki_model_manager import MODEL_TOPIC as MEIKI_MODEL_TOPIC
+        from GameSentenceMiner.ocr.meiki_model_manager import handle_model_request as handle_meiki_model_request
+
+        client.handle(MEIKI_MODEL_TOPIC, handle_meiki_model_request, concurrent=True)
+        from GameSentenceMiner.util.gpu_runtime import SETTINGS_TOPIC, handle_settings_request
+
+        client.handle(SETTINGS_TOPIC, handle_settings_request, concurrent=True)
         logger.debug("Backend IPC listener started (message bus)")
         return None
 

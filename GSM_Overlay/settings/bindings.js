@@ -736,9 +736,15 @@ const SETTING_BINDING_DEFINITIONS = [
     afterApply: () => updateFadeTextIndicatorsState(),
   }),
   createCheckboxBinding("fadeTextIndicators", "#fadeTextIndicators"),
+  createCheckboxBinding("showTextHitboxes", "#showTextHitboxes"),
   createCheckboxBinding("showRecycledIndicator", "#showRecycledIndicator"),
   // GSM-owned OCR/Capture settings (persisted by the backend per GSM profile).
-  createSelectBinding("engine_v2", "#engine_v2"),
+  createSelectBinding("engine_v2", "#engine_v2", {
+    afterApply: () => {
+      window.GSMVitaModelSettings?.sync();
+      window.GSMMeikiModelSettings?.sync();
+    },
+  }),
   {
     key: "monitor_to_capture",
     selectors: ["#monitor_to_capture"],

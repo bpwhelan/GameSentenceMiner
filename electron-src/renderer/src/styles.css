@@ -119,6 +119,57 @@ body {
   min-height: 0;
 }
 
+.game-privilege-notice {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gsm-warning, #dca94c);
+  background: color-mix(in srgb, var(--gsm-warning, #dca94c) 12%, var(--gsm-surface-1, #2a2a2a));
+}
+
+.game-privilege-notice__body {
+  flex: 1 1 420px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.game-privilege-notice p {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.game-privilege-notice__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.game-privilege-notice__actions button {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--gsm-accent, #7da2ff);
+  color: var(--gsm-text-on-accent, #10131a);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.game-privilege-notice__actions button.secondary {
+  border-color: var(--gsm-border-default, #4a4a4a);
+  background: var(--gsm-surface-1, #2a2a2a);
+  color: var(--gsm-text-primary, #eee);
+}
+
+.game-privilege-notice__actions button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .tab-panel {
   position: absolute;
   inset: 0;
@@ -230,21 +281,6 @@ body {
   padding: 0;
 }
 
-.python-panel {
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 15px;
-}
-
-.python-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 15px;
-  align-items: start;
-}
-
 .card {
   background: var(--gsm-surface-1, #2c2c2c);
   border: 1px solid var(--gsm-border-default, #444);
@@ -286,8 +322,7 @@ body {
 
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.home-profile-help-btn),
-.python-panel button:not(.card-header) {
+  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.home-profile-help-btn) {
   border: 1px solid var(--gsm-accent, #5f88cc);
   border-radius: 999px;
   padding: 7px 12px;
@@ -305,8 +340,7 @@ body {
     .launcher-card-toggle
   ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.home-profile-help-btn):hover:not(
     :disabled
-  ),
-.python-panel button:not(.card-header):hover:not(:disabled) {
+  ) {
   background: var(--gsm-accent, #4a78bf);
   border-color: var(--gsm-accent, #79a2e8);
 }
@@ -314,7 +348,6 @@ body {
 .modern-tab button.secondary:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
   ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill),
-.python-panel button.secondary:not(.card-header),
 button.secondary {
   background: var(--gsm-border-default, #334055);
   border-color: var(--gsm-text-muted, #596d8f);
@@ -326,7 +359,6 @@ button.secondary {
   ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):hover:not(
     :disabled
   ),
-.python-panel button.secondary:not(.card-header):hover:not(:disabled),
 button.secondary:hover:not(:disabled) {
   background: var(--gsm-border-default, #44536d);
   border-color: var(--gsm-accent, #7d98c4);
@@ -335,7 +367,6 @@ button.secondary:hover:not(:disabled) {
 .modern-tab button.danger:not(.launcher-info-icon):not(.launcher-card-toggle):not(
     .launcher-script-option
   ):not(.status-button):not(.card-header),
-.python-panel button.danger:not(.card-header),
 button.danger {
   background: var(--gsm-danger-border, #7f332f);
   border-color: var(--gsm-danger, #bf625c);
@@ -345,7 +376,6 @@ button.danger {
 .modern-tab button.danger:not(.launcher-info-icon):not(.launcher-card-toggle):not(
     .launcher-script-option
   ):not(.status-button):not(.card-header):hover:not(:disabled),
-.python-panel button.danger:not(.card-header):hover:not(:disabled),
 button.danger:hover:not(:disabled) {
   background: var(--gsm-danger, #96403b);
   border-color: var(--gsm-danger, #dc7b74);
@@ -1287,9 +1317,6 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
-  .python-grid {
-    grid-template-columns: 1fr;
-  }
 
   .home-scene-row,
   .home-window-row {
@@ -5643,12 +5670,8 @@ body {
   }
 }
 
-/* ---- Modern tab + python panel surface (background only) ---- */
+/* ---- Modern tab surface (background only) ---- */
 .modern-tab,
-.python-panel {
-  background: var(--gsm-surface-0);
-}
-
 .legacy-frame,
 .stats-panel {
   background: var(--gsm-surface-0);
@@ -5665,15 +5688,13 @@ body {
 }
 
 /* ---- Generic cards (visual only, no layout changes) ---- */
-.modern-tab .card,
-.python-panel .card {
+.modern-tab .card {
   background: var(--gsm-surface-1);
   border-color: var(--gsm-border-subtle);
   border-radius: var(--gsm-radius-md);
 }
 
-.modern-tab .card-header,
-.python-panel .card-header {
+.modern-tab .card-header {
   background: transparent;
   color: var(--gsm-text-primary);
   border-bottom-color: var(--gsm-border-subtle);
@@ -5681,8 +5702,7 @@ body {
 
 /* Inputs inside the legacy card-body (visual only — preserve width:100%) */
 .modern-tab .card-body input[type="text"],
-.modern-tab .card-body input[type="number"],
-.python-panel .card-body input[type="text"] {
+.modern-tab .card-body input[type="number"] {
   background: var(--gsm-surface-2);
   border-color: var(--gsm-border-default);
   color: var(--gsm-text-primary);
@@ -5691,8 +5711,7 @@ body {
 }
 
 .modern-tab .card-body input[type="text"]:focus,
-.modern-tab .card-body input[type="number"]:focus,
-.python-panel .card-body input[type="text"]:focus {
+.modern-tab .card-body input[type="number"]:focus {
   border-color: var(--gsm-accent);
   box-shadow: 0 0 0 3px var(--gsm-accent-soft);
   outline: none;
@@ -5734,8 +5753,7 @@ body {
    specificity without changing layout (padding/border-radius stay). */
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn):not(.home-profile-help-btn),
-.python-panel button:not(.card-header) {
+  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn):not(.home-profile-help-btn) {
   background: var(--gsm-accent-soft);
   border-color: var(--gsm-accent-border);
   color: var(--gsm-accent-strong);
@@ -5743,8 +5761,7 @@ body {
 
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn):not(.home-profile-help-btn):hover:not(:disabled),
-.python-panel button:not(.card-header):hover:not(:disabled) {
+  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn):not(.home-profile-help-btn):hover:not(:disabled) {
   background: rgba(122, 162, 255, 0.22);
   border-color: var(--gsm-accent);
   color: var(--gsm-text-on-accent, #ffffff);
@@ -5771,7 +5788,6 @@ button.secondary:hover:not(:disabled) {
 .modern-tab button.danger:not(.launcher-info-icon):not(.launcher-card-toggle):not(
     .launcher-script-option
   ):not(.status-button):not(.card-header),
-.python-panel button.danger:not(.card-header),
 button.danger {
   background: var(--gsm-danger-soft);
   border-color: rgba(224, 122, 122, 0.36);
@@ -5781,7 +5797,6 @@ button.danger {
 .modern-tab button.danger:not(.launcher-info-icon):not(.launcher-card-toggle):not(
     .launcher-script-option
   ):not(.status-button):not(.card-header):hover:not(:disabled),
-.python-panel button.danger:not(.card-header):hover:not(:disabled),
 button.danger:hover:not(:disabled) {
   background: rgba(224, 122, 122, 0.22);
   border-color: var(--gsm-danger);
@@ -5789,8 +5804,7 @@ button.danger:hover:not(:disabled) {
 }
 
 /* Muted text helper */
-.modern-tab .muted,
-.python-panel .muted {
+.modern-tab .muted {
   color: var(--gsm-text-muted);
 }
 
@@ -6006,23 +6020,6 @@ button.danger:hover:not(:disabled) {
   border-left-color: var(--gsm-accent);
   background: var(--gsm-accent-soft);
   border-radius: var(--gsm-radius-sm);
-}
-
-/* ---- Python tab (collapsible card-headers — visual only) ---- */
-.python-panel .card .card-header {
-  cursor: pointer;
-  background: transparent;
-  color: var(--gsm-text-primary);
-  border-bottom-color: var(--gsm-border-subtle);
-  transition: background 120ms ease;
-}
-
-.python-panel .card .card-header:hover {
-  background: var(--gsm-surface-2);
-}
-
-.python-panel .card-body label {
-  color: var(--gsm-text-secondary);
 }
 
 /* ---- Console (logs) tab (visual only) ---- */

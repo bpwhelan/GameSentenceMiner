@@ -7,7 +7,9 @@ import sharp from "sharp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "electron-src", "assets");
-const BASE_ICON_PATH = path.join(ASSETS_DIR, "gsm.png");
+// Seasonal generation reuses the same status badges and leaves the normal set alone.
+const ICON_NAME = process.argv.includes("--seasonal") ? "gsm-halloween" : "gsm";
+const BASE_ICON_PATH = path.join(ASSETS_DIR, `${ICON_NAME}.png`);
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 
 const BADGE_SCALE = 0.34;
@@ -188,9 +190,17 @@ async function main() {
   }
 
   const generated = [];
+  if (ICON_NAME !== "gsm") {
+    const icoPath = path.join(ASSETS_DIR, `${ICON_NAME}.ico`);
+    const baseBuffers = await Promise.all(ICO_SIZES.map((size) =>
+      sharp(BASE_ICON_PATH).resize(size, size, { fit: "contain" }).png().toBuffer()
+    ));
+    await fs.writeFile(icoPath, await pngToIco(baseBuffers));
+    generated.push(icoPath);
+  }
   for (const variant of VARIANTS) {
-    const pngPath = path.join(ASSETS_DIR, `gsm-${variant.name}.png`);
-    const icoPath = path.join(ASSETS_DIR, `gsm-${variant.name}.ico`);
+    const pngPath = path.join(ASSETS_DIR, `${ICON_NAME}-${variant.name}.png`);
+    const icoPath = path.join(ASSETS_DIR, `${ICON_NAME}-${variant.name}.ico`);
 
     const pngBuffer = await renderVariantBuffer(fullSize, variant.name);
     await fs.writeFile(pngPath, pngBuffer);

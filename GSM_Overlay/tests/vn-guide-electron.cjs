@@ -285,6 +285,30 @@ app.whenReady().then(async () => {
   assert.equal(rendered.footerVisible, true);
   assert.equal(rendered.overflowing, false);
   assert.equal(guide.snapshot().loggedChoice, null);
+  for (const displayStyle of ['card', 'text']) {
+    await guide.configure({ vnGuideEnabled: true, vnGuideUrl: 'https://kanjieater.github.io/VN-Guide/test/', vnGuideMode: 'always', vnGuideDisplayStyle: displayStyle });
+    guide.command('jump', 0);
+    guide.observe({ ...guideMenu('大丈夫'), line_id: `always-choice-${displayStyle}` });
+    guideTime += 1500;
+    guide.observe({ ...guideDialogue('選択肢の後の会話'), line_id: `always-dialogue-${displayStyle}` });
+    rendered = await read();
+    assert.equal(rendered.text, 'Choice 大丈夫 logged');
+    guideTime += 3999;
+    guide.setAvailable(true);
+    rendered = await read();
+    assert.equal(rendered.text, 'Choice 大丈夫 logged');
+    guideTime += 1;
+    guide.setAvailable(true);
+    await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    rendered = await read();
+    assert.equal(window.isVisible(), true, 'Always mode must keep the real HUD visible after confirmation');
+    assert.equal(rendered.text, '進む', 'the timer must replace the confirmation with the next step');
+    assert.equal(rendered.footerVisible, displayStyle === 'card');
+    assert.equal(rendered.overflowing, false);
+    assert.equal(guide.snapshot().index, 1);
+    guide.command('next');
+    assert.equal(guide.snapshot().index, 2, 'Next must advance the instruction already revealed by the timer');
+  }
   guide.dispose();
   assert.equal(window.isDestroyed(), true);
   console.log(JSON.stringify({ result: 'VN guide render, sandbox, focus, buttons and layout passed', screenshots: directory }));

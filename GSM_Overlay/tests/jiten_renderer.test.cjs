@@ -216,6 +216,7 @@ test('OCR highlighting reserves Jiten parsing for the authoritative final payloa
   const calls = [];
   const context = vm.createContext({
     jitenHighlightingEnabled: true,
+    textIntakePaused: false,
     jitenReaderEnabled: true,
     jitenHighlightAvailable: true,
     lastJitenSettingsSyncAt: Date.now(),
@@ -241,6 +242,9 @@ test('OCR highlighting reserves Jiten parsing for the authoritative final payloa
   assert.equal(calls[0].lineBlocks, lineBlocks);
   context.applyHighlight([{ text: '単発' }], { lineId: null, isFinal: false });
   assert.equal(calls.length, 2);
+  context.textIntakePaused = true;
+  context.applyHighlight([{ text: '停止中' }], null);
+  assert.equal(calls.length, 2);
 });
 
 test('Jiten availability recovery preserves authoritative OCR metadata', () => {
@@ -250,6 +254,7 @@ test('Jiten availability recovery preserves authoritative OCR metadata', () => {
   const calls = [];
   const context = vm.createContext({
     jitenHighlightAvailable: false,
+    textIntakePaused: false,
     localVocabularyEnabled: false,
     jitenReaderEnabled: true,
     jitenHighlightingEnabled: true,
@@ -274,6 +279,68 @@ test('Jiten availability recovery preserves authoritative OCR metadata', () => {
     meta: context.lastJitenHighlightMeta,
     lineBlocks: context.lastJitenHighlightLineBlocks,
   }]);
+});
+
+test('intake pause suppresses automatic highlighting and Jiten furigana until resumed', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const start = html.indexOf('function setOverlayTextIntakePaused');
+  const end = html.indexOf('// Jiten SRS Highlighting state', start);
+  assert.ok(start >= 0 && end > start, 'pause handling is present');
+  const calls = [];
+  const context = vm.createContext({
+    textIntakePaused: false, intakePauseGeneration: 0,
+    jitenHighlightingEnabled: true, localVocabularyEnabled: false,
+    lastJitenHighlightLines: [{ text: '猫' }], lastJitenHighlightMeta: { isFinal: true },
+    lastJitenHighlightLineBlocks: null, overlayRenderGeneration: 3,
+    gamepadHandler: { isUsingJitenApi: () => true },
+    window: { GsmJitenHighlight: { setEnabled: value => calls.push(['enabled', value]) } },
+    cancelPendingJitenFuriganaFrame: () => calls.push(['cancel']),
+    resetFuriganaRenderState: () => calls.push(['clear']),
+    renderFuriganaForFrame: (...args) => { calls.push(['render', ...args]); return Promise.resolve(); },
+  });
+  vm.runInContext(`${html.slice(start, end)}\nglobalThis.setPaused = setOverlayTextIntakePaused;`, context);
+  context.setPaused(true);
+  context.setPaused(true);
+  assert.deepEqual(calls, [['enabled', false], ['cancel'], ['clear']]);
+  context.setPaused(false);
+  assert.equal(calls[3][0], 'enabled');
+  assert.equal(calls[3][1], true);
+  assert.equal(calls[4][0], 'render');
+  assert.equal(context.intakePauseGeneration, 2);
+});
+
+test('paused Jiten furigana is not requested and an in-flight response is discarded', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const start = html.indexOf('async function renderFuriganaForFrame');
+  const end = html.indexOf('function isTextInMainBox', start);
+  let resolveRequest;
+  let calls = 0;
+  const context = vm.createContext({
+    intakePauseGeneration: 0, textIntakePaused: true,
+    lastJitenHighlightLines: null, lastJitenHighlightMeta: null, lastJitenHighlightLineBlocks: null,
+    jitenHighlightingEnabled: false, showFurigana: true, overlayRenderGeneration: 1,
+    ReadingOverlay: null, readingLanguage: 'ja',
+    gamepadHandler: {
+      canRequestFurigana: () => true, isUsingJitenApi: () => true,
+      requestJitenFuriganaFrame: () => { calls++; return new Promise(resolve => { resolveRequest = resolve; }); },
+    },
+    jitenFuriganaFrameSignature: null, jitenFuriganaFrameTimer: null,
+    jitenFuriganaFrameReady: null, releaseJitenFuriganaFrame: null,
+    setTimeout: fn => { queueMicrotask(fn); return 1; }, clearTimeout() {},
+    window: {}, document: { createDocumentFragment: () => assert.fail('stale result rendered') },
+  });
+  vm.runInContext(`${html.slice(start, end)}\nglobalThis.render = renderFuriganaForFrame;`, context);
+  const lines = [{ text: '猫' }];
+  await context.render(lines, 1, null, null);
+  assert.equal(calls, 0);
+  context.textIntakePaused = false;
+  const pending = context.render(lines, 1, null, null);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+  context.textIntakePaused = true;
+  context.intakePauseGeneration++;
+  resolveRequest([{ segments: [] }]);
+  await pending;
 });
 
 test('all overlay inline scripts remain syntactically valid', () => {

@@ -47,6 +47,7 @@ import {
     type PreparedTexthookUpdate,
 } from './texthook_downloader.js';
 import { TextHookUpdateManager } from '../services/texthook_updates.js';
+import { gamePrivilegeMonitor } from '../services/game_privileges.js';
 import {
     getCurrentScene,
     getExecutableNameFromSource,
@@ -778,6 +779,8 @@ export async function getActiveCapture(): Promise<ActiveCaptureInfo> {
             }
         }
     }
+    gamePrivilegeMonitor.setTarget('capture', exeName ? { exeName } : null);
+    void gamePrivilegeMonitor.check();
     return {
         sceneName: scene?.name ?? '',
         sceneId: scene?.id ?? '',
@@ -1581,6 +1584,10 @@ async function startHookSessionInternal(options: StartHookOptions): Promise<Star
         };
     }
 
+    // Keep this independent of attachment success: elevation can be why attaching fails.
+    gamePrivilegeMonitor.setTarget('texthook', { exeName: target.exeName, pid: target.pid });
+    void gamePrivilegeMonitor.check();
+
     let wineConnectionError = '';
     const connectWineTarget = async (): Promise<WineProcessConnection | null> => {
         if (!onLinux || !wineLaunch) return null;
@@ -1899,12 +1906,14 @@ function teardownSession(): void {
 }
 
 export function stopHookSession(): void {
+    gamePrivilegeMonitor.setTarget('texthook', null);
     teardownSession();
     stopEngineHookSession();
     stopAgentHookSession();
 }
 
 export async function stopHookSessionAndWait(): Promise<{ success: boolean; error?: string }> {
+    gamePrivilegeMonitor.setTarget('texthook', null);
     teardownSession();
     stopEngineHookSession();
     return stopAgentHookSessionAndWait();

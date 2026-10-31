@@ -18,6 +18,9 @@ import { WorkspaceIcon, WorkspaceNavigation } from "../Workspace";
 import "./SettingsTab.css";
 import type { SettingsCatalogEntry, SettingsCatalogOwner } from "../../types/settings";
 import { applyTheme, DEFAULT_THEME, THEME_GROUPS } from "../../lib/theme";
+import { setSeasonalEffectsDisabled } from "../../lib/seasonal";
+import { GpuSettings } from "./GpuSettings";
+import { PythonSettings } from "./PythonSettings";
 import {
   SETTINGS_BACKUP_CATEGORY_IDS,
   type SettingsBackupCategoryId,
@@ -48,7 +51,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   runOverlayWithActiveGame: false,
   quitOnWindowClose: false,
   textCaptureWizardEnabled: true,
-  visibleTabs: ["launcher", "stats", "python", "console"],
+  visibleTabs: ["launcher", "stats", "console"],
   statsEndpoint: "overview",
   databaseBackupEnabled: false,
   databaseBackupDirectory: "",
@@ -56,6 +59,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   singlePort: 7275,
   locale: "en",
   theme: DEFAULT_THEME,
+  seasonalEffectsDisabled: false,
 };
 
 const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
@@ -83,7 +87,6 @@ const VISIBLE_TAB_OPTIONS: Array<{ id: ControlledTab; labelKey: string }> = [
   { id: "speech", labelKey: "settings.visibility.tabSpeech" },
   { id: "launcher", labelKey: "settings.visibility.tabGameSettings" },
   { id: "stats", labelKey: "settings.visibility.tabStats" },
-  { id: "python", labelKey: "settings.visibility.tabPython" },
   { id: "console", labelKey: "settings.visibility.tabConsole" },
 ];
 
@@ -95,15 +98,17 @@ const STATS_ENDPOINT_OPTIONS = [
   { value: "search", labelKey: "settings.workspace.statsSearch" },
 ];
 
-type SettingsView = "general" | "layout" | "updates" | "backups" | "storage";
+type SettingsView = "general" | "gpu" | "python" | "layout" | "updates" | "backups" | "storage";
 const SETTINGS_VIEWS = [
   {
     id: "general",
     labelKey: "settings.workspace.general",
   },
   { id: "layout", labelKey: "settings.workspace.layout" },
+  { id: "gpu", labelKey: "settings.gpu.title" },
   { id: "updates", labelKey: "settings.updates.title" },
   { id: "backups", labelKey: "settings.backup.title" },
+  { id: "python", labelKey: "settings.python.title" },
   {
     id: "storage",
     labelKey: "settings.dataFolder.title",
@@ -114,6 +119,8 @@ const LOCAL_SETTINGS_TARGETS: Record<string, { view: SettingsView; focusId: stri
   "desktop-tabs-and-stats": { view: "layout", focusId: "settings-view-layout" },
   "desktop-transparency": { view: "layout", focusId: "window-transparency-hotkey" },
   "desktop-updates": { view: "updates", focusId: "auto-update-gsm" },
+  "desktop-gpu": { view: "gpu", focusId: "settings-view-gpu" },
+  "desktop-python": { view: "python", focusId: "settings-view-python" },
   "desktop-backups": { view: "backups", focusId: "settings-view-backups" },
   "desktop-data-folder": { view: "storage", focusId: "settings-view-storage" },
 };
@@ -132,6 +139,7 @@ const DATA_RELOCATE_PROGRESS_CHANNEL = "data.relocate.progress";
 
 interface SettingsTabProps {
   active: boolean;
+  onRequestConsole?: () => void;
 }
 
 interface SettingsBackupResult {
@@ -369,7 +377,7 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
 
   const visibleTabs = Array.isArray(value.visibleTabs)
     ? value.visibleTabs.filter((tab): tab is ControlledTab =>
-        ["speech", "launcher", "stats", "python", "console"].includes(tab),
+        ["speech", "launcher", "stats", "console"].includes(tab),
       )
     : DEFAULT_SETTINGS.visibleTabs;
 
@@ -394,6 +402,7 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
         : DEFAULT_SETTINGS.databaseBackupRetentionCount,
     locale: value.locale || DEFAULT_SETTINGS.locale,
     theme: value.theme || DEFAULT_SETTINGS.theme,
+    seasonalEffectsDisabled: value.seasonalEffectsDisabled === true,
   };
 }
 
@@ -493,7 +502,7 @@ function normalizeSettingsBackupProgress(value: unknown): SettingsBackupProgress
   };
 }
 
-export function SettingsTab({ active }: SettingsTabProps) {
+export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
   const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
@@ -501,6 +510,14 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const [currentLocale, setCurrentLocale] = useLocale();
 
   const [workspaceView, setWorkspaceView] = useState<SettingsView>("general");
+  useEffect(() => {
+    const openPython = () => {
+      setWorkspaceView("python");
+      setSettingsSearchQuery("");
+    };
+    window.addEventListener("gsm-open-python-settings", openPython);
+    return () => window.removeEventListener("gsm-open-python-settings", openPython);
+  }, []);
   const pendingFocusRef = useRef<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [customPackageDraft, setCustomPackageDraft] = useState(
@@ -1126,6 +1143,23 @@ export function SettingsTab({ active }: SettingsTabProps) {
             ) : null}
           </header>
           <div className="ws-pages">
+            <section id="settings-view-gpu" className="ws-view" role="tabpanel" aria-labelledby="settings-nav-gpu"
+              hidden={hasSearchQuery || workspaceView !== "gpu"} tabIndex={0}>
+              <GpuSettings active={active && !hasSearchQuery && workspaceView === "gpu"} />
+            </section>
+            <section
+              id="settings-view-python"
+              className="ws-view"
+              role="tabpanel"
+              aria-labelledby="settings-nav-python"
+              hidden={hasSearchQuery || workspaceView !== "python"}
+              tabIndex={0}
+            >
+              <PythonSettings
+                active={active && !hasSearchQuery && workspaceView === "python"}
+                onRequestConsole={onRequestConsole}
+              />
+            </section>
             <section
               id="settings-view-general"
               className="ws-view"
@@ -1218,6 +1252,25 @@ export function SettingsTab({ active }: SettingsTabProps) {
                         ))}
                       </select>
                     </div>
+                  </div>
+                  <div className="settings-seasonal-effects">
+                    <div className="input-group">
+                      <label htmlFor="disable-seasonal-effects">
+                        {t("settings.desktop.disableSeasonalEffects")}
+                      </label>
+                      <input
+                        id="disable-seasonal-effects"
+                        type="checkbox"
+                        checked={settings.seasonalEffectsDisabled}
+                        aria-describedby="seasonal-effects-help"
+                        onChange={(event) => {
+                          const disabled = event.target.checked;
+                          setSeasonalEffectsDisabled(disabled);
+                          patchSettings({ seasonalEffectsDisabled: disabled });
+                        }}
+                      />
+                    </div>
+                    <p id="seasonal-effects-help">{t("settings.desktop.seasonalEffectsHelp")}</p>
                   </div>
                 </section>
                 <section className="ws-section">

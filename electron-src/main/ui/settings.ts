@@ -49,6 +49,8 @@ import {
     getLocale,
     getTheme,
     setTheme,
+    getSeasonalEffectsDisabled,
+    setSeasonalEffectsDisabled,
     getTextractorPath32,
     getTextractorPath64,
     getUiMode,
@@ -96,6 +98,8 @@ import {
 import type { SceneLaunchProfile } from '../store.js';
 import { APP_NAME, BASE_DIR, getSanitizedPythonEnv } from '../util.js';
 import { syncPythonDisplayLocale } from '../python_locale.js';
+import { createGpuService } from '../services/gpu.js';
+import { bus } from '../runtime/bus_client.js';
 import { getConfiguredSinglePort, getGsmProfileNames } from '../gsm_config.js';
 // Replaced WebSocket usage with stdout IPC helpers
 import {
@@ -984,6 +988,7 @@ function getSettingsSnapshot() {
         iconStyle: store.get('iconStyle') || 'gsm',
         locale: getLocale(),
         theme: getTheme(),
+        seasonalEffectsDisabled: getSeasonalEffectsDisabled(),
         consoleMode: getConsoleMode(),
         setupWizardVersion: getSetupWizardVersion(),
         uiMode: getUiMode(),
@@ -1027,6 +1032,7 @@ async function showOpenDialog(options: OpenDialogOptions) {
 }
 
 interface SettingsIPCDependencies {
+    refreshSeasonalEffects?: () => void;
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
@@ -1041,6 +1047,7 @@ interface SettingsIPCDependencies {
 }
 
 export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
+    ipcMain.handle('settings.gpu', (_event, request) => createGpuService(bus)(request));
     syncPythonDisplayLocale(getLocale());
     void ensureManagedAgentScriptsCurrent().catch((error) => {
         console.warn('Failed to update managed Agent scripts:', error);
@@ -1225,6 +1232,10 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
         if (typeof payload.theme === 'string') {
             setTheme(payload.theme || 'gsm-dark');
+        }
+        if (typeof payload.seasonalEffectsDisabled === 'boolean') {
+            setSeasonalEffectsDisabled(payload.seasonalEffectsDisabled);
+            deps?.refreshSeasonalEffects?.();
         }
         if (typeof payload.locale === 'string') {
             const nextLocale = payload.locale || 'en';

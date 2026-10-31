@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslation } from "../../i18n";
 import { onIpc } from "../../lib/ipc";
 import { useBufferedState } from "../../lib/useBufferedState";
 import { DEBUG_TEXT_HISTORY_LIMIT as HISTORY_LIMIT } from "../../lib/debugHistory";
+import { OCRLineMenu } from "./OCRLineMenu";
 
 const SOURCE_KEYS = new Map([
   ["ocr", "ocr.activity.sources.auto"],
@@ -24,6 +25,8 @@ interface Capture {
   text: string;
   time: number;
   source: string;
+  game: string;
+  excluded: boolean;
 }
 
 type Activity =
@@ -33,17 +36,23 @@ type Activity =
   | "menu"
   | "ignored"
   | "duplicate"
+  | "excluded"
   | "error";
+
+function isRecognitionLog(payload: unknown): boolean {
+  return typeof payload === "string" && /OCR Run [12](?:\s*\(bypassed\))?: Text recognized|\d+ text boxes recognized in [\d.]+s using/i.test(payload);
+}
 
 function activityFromLog(payload: unknown): Activity | null {
   if (typeof payload !== "string") return null;
   const line = payload.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").trim();
   // Recognition logs include provisional text. Only the result event belongs
   // in the history; never interpret recognized text as an activity message.
-  if (/OCR Run [12](?:\s*\(bypassed\))?: Text recognized/i.test(line)) return null;
+  if (isRecognitionLog(line)) return null;
   if (line.includes("Text is identified as all menu items, skipping further processing.")) return "menu";
   if (line.includes("Text is inside a black hole OCR box, skipping further processing.")) return "ignored";
   if (line.includes("Seems like Text we already sent")) return "duplicate";
+  if (line.includes("Image is empty (all pixels same)") || line.includes("Screen Capture Didn't get Capturing anything")) return "noText";
   if (/No text detected, sleeping\.$/i.test(line)) return "noText";
   if (/sleeping\.$/i.test(line)) return "unchanged";
   return null;
@@ -56,7 +65,17 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
   const [activity, setActivity] = useBufferedState<Activity | null>(null, active);
   const [starting, setStarting] = useBufferedState(false, active);
   const nextId = useRef(0);
+  const [lineMenu, setLineMenu] = useState<{ capture: Capture; anchor: HTMLButtonElement } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const closeMenu = useCallback(() => setLineMenu(null), []);
   const timeLocale = locale === "ukr" ? "uk" : locale;
+
+  useEffect(() => { if (!active) setLineMenu(null); }, [active]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     const offResult = onIpc("ocr-ipc-message", (_event, payload) => {
@@ -78,6 +97,10 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
         id: ++nextId.current,
         deliveryId,
         text,
+        game: "exclusion_game" in data && typeof data.exclusion_game === "string" ? data.exclusion_game
+          : "ocr_scene" in data && typeof data.ocr_scene === "string" && data.ocr_scene ? data.ocr_scene
+          : "process_path" in data && typeof data.process_path === "string" ? data.process_path : "",
+        excluded: "excluded" in data && data.excluded === true,
         time: Number.isFinite(timestamp) ? timestamp : Date.now(),
         source: "source" in data && typeof data.source === "string" ? data.source : ""
       };
@@ -86,11 +109,20 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
         if (deliveryId && current.some((item) => item.deliveryId === deliveryId)) return current;
         return [capture, ...current].slice(0, HISTORY_LIMIT);
       });
-      setActivity("captured");
+      setActivity(capture.excluded ? "excluded" : "captured");
     });
     const offLog = onIpc("ocr-log", (_event, payload) => {
       const next = activityFromLog(payload);
-      if (next) setActivity(next);
+      if (!next && !isRecognitionLog(payload)) return;
+      setActivity(current => {
+        const blocked = current === "menu" || current === "ignored" || current === "excluded";
+        // Area filters also produce an empty result and a generic idle log.
+        // Keep their reason until recognition proceeds or the frame is blank.
+        const blankFrame = typeof payload === "string" && /Image is empty \(all pixels same\)|Screen Capture Didn't get Capturing anything/.test(payload);
+        if (isRecognitionLog(payload) && blocked) return null;
+        if (blocked && !blankFrame && (next === "unchanged" || next === "noText")) return current;
+        return next ?? current;
+      });
     });
     const offStarted = onIpc("ocr-started", () => {
       setActivity(null);
@@ -117,6 +149,9 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
   const state = !running ? "stopped"
     : paused ? "paused"
     : starting ? "starting"
+    : activity === "ignored" ? "blackHole"
+    : activity === "menu" ? "menu"
+    : activity === "excluded" ? "excluded"
     : manual ? "manual"
     : "watching";
 
@@ -135,11 +170,13 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
           onClick={() => {
             setCaptures([]);
             setActivity(null);
+            setLineMenu(null);
           }}
         >
           {t("ocr.activity.clearButton")}
         </button>
       </div>
+      {notice && <p className="desk-exclusion-notice" role="status">{notice}</p>}
       <div className="desk-text-panel">
         <div
           className={`desk-text-status is-${state}${activity === "error" ? " has-error" : ""}`}
@@ -171,6 +208,8 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
                   })}
                 </time>
                 <span>{t(SOURCE_KEYS.get(capture.source) ?? "ocr.activity.sources.capture")}</span>
+                {capture.excluded && <span>{t("sentenceExclusions.excluded")}</span>}
+                <div className="desk-text-line-actions">
                 <button
                   type="button"
                   aria-label={t("ocr.activity.copy")}
@@ -182,6 +221,14 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
                     <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
                   </svg>
                 </button>
+                <button type="button" aria-label={t("sentenceExclusions.lineActions")}
+                  title={t("sentenceExclusions.lineActions")} aria-haspopup="menu"
+                  aria-expanded={lineMenu?.capture.id === capture.id}
+                  aria-controls={lineMenu?.capture.id === capture.id ? "ocr-line-menu" : undefined}
+                  onClick={event => setLineMenu(lineMenu?.capture.id === capture.id ? null : { capture, anchor: event.currentTarget })}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
+                </button>
+                </div>
               </div>
               <div className="desk-text-content" dir="auto">{capture.text}</div>
             </article>
@@ -196,6 +243,9 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
           )}
         </div>
       </div>
+      {active && lineMenu && <OCRLineMenu key={lineMenu.capture.id} anchor={lineMenu.anchor}
+        text={lineMenu.capture.text} game={lineMenu.capture.game} onClose={closeMenu}
+        onSaved={removed => setNotice(t(removed ? "sentenceExclusions.removed" : "sentenceExclusions.added", { game: lineMenu.capture.game }))} />}
     </section>
   );
 }

@@ -10,6 +10,7 @@ import time
 import webbrowser
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 
 import flask
 from flask import jsonify, render_template, request, send_file, send_from_directory
@@ -43,6 +44,8 @@ from GameSentenceMiner.web.gsm_websocket import (
     websocket_manager,
 )
 from GameSentenceMiner.web.websocket_proxy import build_upstream_websocket_headers
+from GameSentenceMiner.web.vita_ocr_api import vita_ocr_api
+from GameSentenceMiner.web.meiki_ocr_api import meiki_ocr_api
 
 # aiohttp creates its process-wide default SSLContext objects while importing
 # ``aiohttp.connector``.  python-build-standalone has a known OpenSSL issue on
@@ -79,6 +82,8 @@ _ws_invalid_upgrade_filter_installed = False
 AI_TRANSLATION_SETUP_DOCS_URL = AI_SETUP_DOCS_URL
 
 app = flask.Flask(__name__, static_folder="static", static_url_path="/static")
+app.register_blueprint(vita_ocr_api)
+app.register_blueprint(meiki_ocr_api)
 
 # Local development/desktop renderer origins that may call this Flask server.
 _LOCAL_CORS_ORIGINS = {
@@ -277,17 +282,33 @@ def _try_start_single_port_gateway(
         f"Internal HTTP: {upstream_host}:{internal_http_port}, websocket ingress: {upstream_host}:{ingress_ws_port}."
     )
 
-    # Run waitress behind the gateway.
+    # Wait for Waitress to bind, not for a speculative TCP connection to fail
+    # and retry. A refused loopback connection can take a full second on Windows.
+    http_ready = threading.Event()
+    http_start_finished = threading.Event()
+
+    def mark_http_ready():
+        http_ready.set()
+        http_start_finished.set()
+
+    def run_internal_http():
+        try:
+            _run_waitress_server(host, internal_http_port, on_ready=mark_http_ready)
+        except Exception:
+            # _run_waitress_server logs the actual bind/start failure.
+            pass
+        finally:
+            http_start_finished.set()
+
     waitress_thread = threading.Thread(
-        target=_run_waitress_server,
-        args=(host, internal_http_port),
+        target=run_internal_http,
         name="GSM-Waitress-Internal",
         daemon=False,
     )
     with _waitress_lock:
         _waitress_threads.append(waitress_thread)
     waitress_thread.start()
-    if not _wait_for_tcp_port(upstream_host, internal_http_port):
+    if not http_start_finished.wait(timeout=6) or not http_ready.is_set():
         logger.warning(
             f"Single-port mode could not reach internal waitress on "
             f"{upstream_host}:{internal_http_port}. Falling back to default waitress mode."
@@ -1786,6 +1807,15 @@ class _LegacyMovedPageHandler(BaseHTTPRequestHandler):
         return
 
 
+class _LegacyMovedPageServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer.server_bind does a reverse DNS lookup just to populate
+        # server_name. This local redirect uses a fixed localhost URL and needs
+        # no hostname resolution (which can stall startup on offline systems).
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def _start_legacy_moved_page_server():
     global _legacy_notice_server, _legacy_notice_thread
     if _legacy_notice_server is not None:
@@ -1801,7 +1831,7 @@ def _start_legacy_moved_page_server():
 
     host = get_config().advanced.localhost_bind_address
     try:
-        _legacy_notice_server = ThreadingHTTPServer((host, legacy_port), _LegacyMovedPageHandler)
+        _legacy_notice_server = _LegacyMovedPageServer((host, legacy_port), _LegacyMovedPageHandler)
     except OSError as error:
         logger.warning(f"Could not start legacy moved-page server on {host}:{legacy_port}: {error}")
         _legacy_notice_server = None

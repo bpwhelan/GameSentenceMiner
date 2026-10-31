@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2026.10.1"
+version = "2026.10.2"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.11, <3.14"
@@ -57,7 +57,7 @@ dependencies = [
   "pillow>=13.0.0,<14",
   "openai>=2.45.0,<2.46",
   "flask-compress~=1.15",
-  "meikiocr~=0.3.4",
+  "meikiocr~=0.3.5",
   "jaconv>=0.5.0,<0.6",
   "loguru~=0.7.3",
   "pyperclipfix>=1.9.4",
@@ -104,11 +104,17 @@ lens = [
 ]
 
 gpu = [
-  "onnxruntime-gpu",
-  # GPU whisper: CTranslate2 needs cuBLAS + cuDNN at runtime. These used to arrive transitively
-  # via torch's CUDA wheel; torch is gone, so the gpu extra pulls them directly (win32 only).
+  "onnxruntime-gpu>=1.24.3,<1.25.0",
+]
+
+# Optional fallback when NVIDIA's system CUDA Toolkit/cuDNN installers cannot be used.
+# Whisper's CTranslate2 already supports CUDA; it does not require the gpu extra.
+gpu-libs = [
   "nvidia-cublas-cu12==12.9.2.10 ; sys_platform == 'win32'",
   "nvidia-cudnn-cu12==9.24.0.43 ; sys_platform == 'win32'",
+  "nvidia-cuda-runtime-cu12>=12.8,<13 ; sys_platform == 'win32'",
+  "nvidia-cuda-nvrtc-cu12>=12.8,<13 ; sys_platform == 'win32'",
+  "nvidia-cufft-cu12>=11.3,<12 ; sys_platform == 'win32'",
 ]
 
 dev = [

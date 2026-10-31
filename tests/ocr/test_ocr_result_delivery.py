@@ -52,6 +52,38 @@ def delivery(monkeypatch):
     return state
 
 
+def test_benchmark_engine_identifies_text_when_geometry_falls_back(monkeypatch, delivery):
+    ctrl = SimpleNamespace(last_sent_result="", last_ocr2_result=[], config=gsm_ocr.TwoPassConfig())
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: ctrl)
+    monkeypatch.setattr(gsm_ocr, "TextFiltering", lambda lang: object())
+    monkeypatch.setattr(gsm_ocr, "build_overlay_coordinate_payload", lambda _payload: None)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "process_and_write_results",
+        lambda *_args, **_kwargs: ([delivery.text], delivery.text, delivery.payload),
+    )
+    first_pass = {"pipeline": {"engine": "screenai"}}
+    gsm_ocr.OCRProcessor().do_second_ocr(
+        "", delivery.time, Image.new("RGB", (100, 50)), filtering=None, response_dict=first_pass
+    )
+    assert delivery.sent[0][1]["ocr_engine"] == "glens"
+
+
+def test_delivery_preserves_vita_model_provenance(delivery):
+    model = {"size": "large", "revision": "pinned"}
+    payload = {"pipeline": {"engine": "vitaocr", "model": model}}
+    gsm_ocr.send_result(delivery.text, delivery.time, response_dict=payload, source=gsm_ocr.TextSource.MANUAL)
+    assert delivery.sent[0][1]["ocr_model"] == model
+    # OCR2 may supply text while OCR1 supplies geometry. Never attribute the
+    # geometry model to text recognized by another engine.
+    payload["recognition"] = {"engine": "glens"}
+    gsm_ocr.send_result(delivery.text, delivery.time, response_dict=payload, source=gsm_ocr.TextSource.MANUAL)
+    assert "ocr_model" not in delivery.sent[1][1]
+
+
 @pytest.mark.parametrize("obs_capture", [True, False], ids=["obs", "screen"])
 def test_whole_window_command_delivers_result(monkeypatch, run_delivery, delivery, obs_capture):
     image = Image.new("RGB", (100, 50), "white")
@@ -94,6 +126,8 @@ def test_whole_window_command_delivers_result(monkeypatch, run_delivery, deliver
                 "process_path": "game.exe",
                 "source": gsm_ocr.TextSource.MANUAL,
                 "copyToClipboard": True,
+                "ocr_engine": "glens",
+                "ocr_scene": "",
                 "dict_from_ocr": delivery.overlay_payload,
             },
         )

@@ -118,6 +118,81 @@ describe("OCRTab", () => {
     ).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  it("offers VOCR and persists it as the main engine", async () => {
+    invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
+      advancedMode: true, twoPassOCR: true,
+      ocr1: "screenai", ocr2: "screenai",
+      ocr1_advanced: "screenai", ocr2_advanced: "screenai"
+    } : null);
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    const main = container.querySelector<HTMLSelectElement>("#ocr-main-engine")!;
+    const stability = container.querySelector<HTMLSelectElement>("#ocr-stability-engine")!;
+    expect(main.querySelector('option[value="vitaocr"]')?.textContent).toBe("VOCR (Japanese only, experimental)");
+    expect(stability.querySelector('option[value="vitaocr"]')).not.toBeNull();
+    await act(async () => {
+      main.value = "vitaocr";
+      main.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+    expect(container.textContent).toContain("Japanese horizontal dialogue");
+    expect(sendMock).toHaveBeenLastCalledWith("ocr.save-ocr-config", expect.objectContaining({
+      ocr2: "vitaocr", ocr2_advanced: "vitaocr"
+    }));
+  });
+
+  it.each(["meikiocr", "meiki_text_detector"])("shows the Meiki model selector for %s stability OCR", async (engine) => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") return {
+        advancedMode: true, twoPassOCR: true,
+        ocr1: engine, ocr2: "glens", ocr1_advanced: engine, ocr2_advanced: "glens"
+      };
+      if (channel === "ocr.meiki-model") return { model: "large", available: true, busy: false };
+      return null;
+    });
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    expect(container.querySelector<HTMLSelectElement>("#ocr-meiki-model")?.value).toBe("large");
+    await act(async () => {
+      const stability = container.querySelector<HTMLSelectElement>("#ocr-stability-engine")!;
+      stability.value = "screenai";
+      stability.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+    });
+    expect(container.querySelector("#ocr-meiki-model")).toBeNull();
+  });
+
+  it("offers detector-only VOCR before Lens and saves that pipeline", async () => {
+    invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
+      advancedMode: true, twoPassOCR: true,
+      ocr1: "oneocr", ocr2: "glens", ocr1_advanced: "oneocr", ocr2_advanced: "glens"
+    } : null);
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    const stability = container.querySelector<HTMLSelectElement>("#ocr-stability-engine")!;
+    expect(stability.querySelector('option[value="vocr_detector"]')?.textContent).toContain("VOCR Line Detector");
+    await act(async () => {
+      stability.value = "vocr_detector";
+      stability.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+    expect(container.textContent).toContain("without recognizing");
+    expect(container.querySelector("#ocr-vita-model")).toBeNull();
+    expect(sendMock).toHaveBeenLastCalledWith("ocr.save-ocr-config", expect.objectContaining({
+      ocr1: "vocr_detector", ocr1_advanced: "vocr_detector", ocr2: "glens"
+    }));
+  });
+
   it("switches workspace views and sub-tabs without losing configured controls", async () => {
     await act(async () => {
       root.render(<OCRTab active={false} />);

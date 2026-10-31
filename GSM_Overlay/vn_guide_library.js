@@ -8,6 +8,17 @@ const UPDATE_INTERVAL_MS = 60 * 60 * 1000;
 const fingerprintSteps = steps => createHash('sha256').update(JSON.stringify(steps)).digest('hex');
 
 async function fetchGuideJson(url) {
+  if (url.startsWith('file:')) {
+    const chunks = [];
+    let bytes = 0;
+    for await (const chunk of fs.createReadStream(new URL(url))) {
+      bytes += chunk.length;
+      if (bytes > MAX_JSON_BYTES) throw new Error('The guide file is too large.');
+      chunks.push(chunk);
+    }
+    try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+    catch { throw new Error('VN-Guide contains an invalid JSON file.'); }
+  }
   const response = await fetch(url, { signal: AbortSignal.timeout(12000), redirect: 'error', credentials: 'omit', cache: 'no-store' });
   if (!response.ok) throw new Error(`VN-Guide could not be downloaded (HTTP ${response.status}).`);
   const reader = response.body.getReader();
@@ -41,11 +52,11 @@ function writeStore(file, value) {
 }
 
 class GuideLibrary {
-  constructor(directory, { fetchJson = fetchGuideJson, now = Date.now } = {}) {
+  constructor(directory, { fetchJson = fetchGuideJson, now = Date.now, cacheFileName = 'vn-guide-cache.json' } = {}) {
     this.fetchJson = fetchJson;
     this.now = now;
     this.fetchedAt = new Map();
-    this.cacheFile = path.join(directory, 'vn-guide-cache.json');
+    this.cacheFile = path.join(directory, cacheFileName);
     this.progressFile = path.join(directory, 'vn-guide-progress.json');
     this.cache = readStore(this.cacheFile);
     this.progress = readStore(this.progressFile);
@@ -78,7 +89,7 @@ class GuideLibrary {
     const route = guide.routes.find(item => item.id === routeId);
     if (!route) throw new Error('That route is not in this guide. Clear the route selection and load again.');
     const steps = await this.get(`${source.baseUrl}route_${encodeURIComponent(routeId)}.json`, validateRoute, refresh);
-    const key = `${source.slug}/${routeId}`;
+    const key = `${source.progressId}/${routeId}`;
     const fingerprint = fingerprintSteps(steps);
     const saved = this.progress[key];
     const changed = !!saved && saved.fingerprint !== fingerprint;

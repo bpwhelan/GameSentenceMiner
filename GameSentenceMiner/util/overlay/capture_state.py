@@ -10,8 +10,13 @@ from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
 
 
 def get_overlay_capture_state(monitor):
-    payload = {"type": "capture_status", "available": False, "window_state": "unknown"}
     state = get_obs_state()
+    payload = {
+        "type": "capture_status",
+        "available": False,
+        "window_state": "unknown",
+        "scene_name": state.current_scene if state else "",
+    }
     if monitor is None or state is None:
         return payload
 

@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { resolveSeasonalIconStyle, type SeasonalEvent } from '../shared/seasonal.js';
 
 export type TrayVisualState = 'loading' | 'ready' | 'paused' | 'normal';
 
@@ -22,20 +23,24 @@ export function getTrayBaseIconPath(options: {
     configuredIconStyle: string;
     resolvedRandomStyle: string;
     extension: 'ico' | 'png';
+    seasonalEvent?: SeasonalEvent | null;
 }): string {
     const trayStyleName = resolveTrayStyleName(
         options.configuredIconStyle,
         options.resolvedRandomStyle
     );
-    return path.join(options.assetsDir, `${trayStyleName}.${options.extension}`);
+    const style = resolveSeasonalIconStyle(trayStyleName, options.seasonalEvent ?? null);
+    return path.join(options.assetsDir, `${style}.${options.extension}`);
 }
 
 export function getStatusTrayIconPath(options: {
     assetsDir: string;
     state: Exclude<TrayVisualState, 'normal'>;
     extension: 'ico' | 'png';
+    seasonalEvent?: SeasonalEvent | null;
 }): string {
-    return path.join(options.assetsDir, `gsm-${options.state}.${options.extension}`);
+    const style = resolveSeasonalIconStyle('gsm', options.seasonalEvent ?? null);
+    return path.join(options.assetsDir, `${style}-${options.state}.${options.extension}`);
 }
 
 export function resolveTrayVisualState(options: {

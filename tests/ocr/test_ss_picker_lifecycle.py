@@ -6,7 +6,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PIL import Image
-from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer
+from PyQt6.QtCore import QElapsedTimer, QEvent, QPoint, Qt, QTimer
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -29,6 +29,15 @@ def cropper(monkeypatch):
 def prepare(widget, callback, *, transparent=False):
     geometry = {"left": -20, "top": 10, "width": 100, "height": 80}
     widget.prepare_capture(Image.new("RGB", (100, 80), "white"), geometry, geometry, callback, transparent)
+
+
+def wait_until(predicate):
+    # Native focus events and Qt timers can arrive late on busy CI runners.
+    timer = QElapsedTimer()
+    timer.start()
+    while not predicate() and timer.elapsed() < 2000:
+        QTest.qWait(10)
+    assert predicate(), "Qt condition did not settle within two seconds"
 
 
 @pytest.fixture
@@ -62,7 +71,7 @@ def test_interrupted_picker_cancels_once_and_can_be_reopened(cropper, monkeypatc
     QApplication.processEvents()
     monkeypatch.setattr(cropper, "isActiveWindow", lambda: False)
     QApplication.sendEvent(cropper, QEvent(event_type))
-    QTest.qWait(80)
+    wait_until(lambda: bool(results))
     assert results == [None]
     assert not cropper.isVisible()
     cropper.close()
@@ -190,16 +199,17 @@ def test_application_deactivation_cancels_picker(cropper, monkeypatch):
     QApplication.processEvents()
     monkeypatch.setattr(QApplication, "applicationState", lambda: Qt.ApplicationState.ApplicationInactive)
     QApplication.instance().applicationStateChanged.emit(Qt.ApplicationState.ApplicationInactive)
-    QTest.qWait(80)
+    wait_until(lambda: bool(results))
     assert results == [None]
     assert not cropper.isVisible()
 
 
-def test_session_timeout_releases_waiting_caller(cropper):
+@pytest.mark.parametrize("timeout_ms", [1, 150])
+def test_session_timeout_releases_waiting_caller(cropper, timeout_ms):
     results = []
     prepare(cropper, results.append)
-    cropper._session_timeout.setInterval(1)
-    QTest.qWait(20)
+    cropper._session_timeout.setInterval(timeout_ms)
+    wait_until(lambda: bool(results))
     assert results == [None]
     assert not cropper.isVisible()
 
@@ -296,14 +306,14 @@ def test_rapid_window_switches_cancel_drag_and_leave_picker_reusable(cropper):
         other.show()
         for index in range(10):
             prepare(cropper, results.append)
-            QTest.qWait(20)
+            wait_until(cropper.isActiveWindow)
             assert cropper.isActiveWindow()
             # There must be no session-long grabs before a drag starts.
             assert QWidget.mouseGrabber() is not cropper
             assert QWidget.keyboardGrabber() is not cropper
             QTest.mousePress(cropper, Qt.MouseButton.LeftButton, pos=QPoint(10, 10))
             other.activateWindow()
-            QTest.qWait(80)
+            wait_until(lambda: len(results) >= index + 1)
             assert results == [None] * (index + 1)
             assert not cropper.isVisible()
             assert QWidget.mouseGrabber() is not cropper

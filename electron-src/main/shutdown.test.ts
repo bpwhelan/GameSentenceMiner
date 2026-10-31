@@ -40,6 +40,7 @@ function loadShutdown() {
         quitCleanupComplete: false,
         quitPromise: null,
         agentControl: { dispose: vi.fn(), fail: vi.fn() },
+        stopGamePrivilegeChecks: vi.fn(),
         autoLauncher: { stopPolling: vi.fn() },
         shutdownWindowSceneSwitcher: vi.fn(),
         hideUserFacingShutdownSurfaces: vi.fn(() => { context.isQuitting = true; }),
@@ -75,6 +76,7 @@ describe('application shutdown', () => {
         stopping.resolve();
         await result;
         expect(context.stopBus.mock.invocationCallOrder[0]).toBeLessThan(app.relaunch.mock.invocationCallOrder[0]);
+        expect(context.stopGamePrivilegeChecks).toHaveBeenCalledOnce();
         expect(app.relaunch).toHaveBeenCalledExactlyOnceWith({ args: ['.', '--gsm-agent-restarted=test-request'] });
         expect(app.quit).toHaveBeenCalledOnce();
     });

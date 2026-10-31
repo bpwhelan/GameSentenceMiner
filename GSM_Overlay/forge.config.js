@@ -35,6 +35,12 @@ function normalizePackagerPath(filePath) {
   }
 
   const normalizedPath = filePath.replaceAll('\\', '/');
+  const checkoutPath = __dirname.replaceAll('\\', '/');
+  // Forge also passes absolute checkout paths. Resolve those before treating
+  // a leading slash as an entry relative to the package root on POSIX.
+  if (normalizedPath === checkoutPath || normalizedPath.startsWith(`${checkoutPath}/`)) {
+    return path.relative(__dirname, filePath).replaceAll('\\', '/');
+  }
   if (/^\/(?!\/)/.test(normalizedPath)) {
     return normalizedPath.replace(/^\/+/, '');
   }

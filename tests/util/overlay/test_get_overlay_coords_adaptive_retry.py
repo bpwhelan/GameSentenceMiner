@@ -479,6 +479,16 @@ def test_initial_scan_delay_resets_when_the_game_or_hook_changes(scan_workflow, 
     assert scan.reads[-1] == started_at
 
 
+def test_initial_scan_delay_survives_overlay_ocr_engine_change(scan_workflow, monkeypatch):
+    scan = scan_workflow
+    learn_initial_delay(scan)
+    monkeypatch.setattr(scan.processor, "_get_effective_engine", lambda: "screenai")
+    started_at = scan.clock.now
+    scan.run(lambda _at, _index: "expected sentence", reference="expected sentence")
+
+    assert scan.reads[-1] - started_at == pytest.approx(0.05)
+
+
 def test_initial_scan_delay_is_cancellable_before_capturing(scan_workflow, monkeypatch):
     scan = scan_workflow
     learn_initial_delay(scan)
@@ -625,3 +635,102 @@ def test_substantial_partial_text_does_not_delay_the_next_line(scan_workflow):
 
     assert scan.reads[-1] == started_at
     assert len(scan.reads) == 3
+
+
+@pytest.fixture
+def overlay_benchmark(monkeypatch, tmp_path):
+    import csv
+
+    from GameSentenceMiner.ocr import benchmark
+
+    recorder = benchmark.OCRBenchmarkRecorder(tmp_path)
+    monkeypatch.setattr(benchmark, "recorder", recorder)
+    recorder.set_enabled(True)
+
+    def rows():
+        with open(recorder.status()["csv_path"], encoding="utf-8-sig", newline="") as stream:
+            return list(csv.DictReader(stream))
+
+    yield SimpleNamespace(recorder=recorder, rows=rows)
+    recorder.set_enabled(False)
+
+
+def test_overlay_benchmark_records_uncorrected_text_and_keeps_sending_boxes(
+    scan_workflow, overlay_benchmark, monkeypatch
+):
+    scan = scan_workflow
+
+    def correct(lines, _reference):
+        return [{**line, "text": "hooked reference"} for line in lines]
+
+    monkeypatch.setattr(scan.processor, "_correct_ocr_with_backlog", correct)
+    scan.run(lambda _at, _index: "raw misread", reference="hooked reference", retries=1)
+    rows = overlay_benchmark.rows()
+    assert len(rows) == 1
+    assert rows[0]["source"] == "overlay"
+    assert rows[0]["engine"] == "oneocr"
+    assert rows[0]["text"] == "raw misread"
+    assert rows[0]["suppressed"] == "true"
+    assert scan.payloads[-1]["data"][0]["text"] == "hooked reference"
+
+
+def test_overlay_benchmark_includes_blank_and_failed_attempts(scan_workflow, overlay_benchmark):
+    import json
+
+    scan_workflow.run(lambda _at, index: None if index == 1 else "", retries=2)
+    rows = overlay_benchmark.rows()
+    assert len(rows) == len(scan_workflow.reads) >= 2
+    assert all(row["text"] == "" for row in rows)
+    assert all(row["source"] == "overlay" for row in rows)
+    assert json.loads(rows[0]["metadata_json"])["success"] is False
+    assert json.loads(rows[-1]["metadata_json"])["success"] is True
+
+
+def test_manual_overlay_benchmark_results_are_tagged_without_suppression(scan_workflow, overlay_benchmark):
+    scan_workflow.run(lambda _at, _index: "manual text", source=TextSource.HOTKEY, retries=1)
+    rows = overlay_benchmark.rows()
+    assert len(rows) == 1
+    assert rows[0]["text"] == "manual text"
+    assert rows[0]["suppressed"] == "false"
+
+
+def test_overlay_benchmark_records_lens_and_its_local_preliminary_pass(scan_workflow, overlay_benchmark, monkeypatch):
+    import json
+
+    scan = scan_workflow
+    monkeypatch.setattr(scan.processor, "_get_effective_engine", lambda: "lens")
+    monkeypatch.setattr(scan.processor, "_matches_overlay_language_filter", lambda *_args: True)
+    monkeypatch.setattr(scan.processor, "_extract_text_with_pixel_boxes", lambda **_kwargs: [])
+    scan.processor.lens = lambda *_args, **_kwargs: (True, ["raw Lens text"], [], [], None, {"lens": True})
+    scan.run(lambda _at, _index: "raw local text", retries=1)
+    rows = overlay_benchmark.rows()
+    assert [row["engine"] for row in rows] == ["oneocr", "glens"]
+    assert [row["text"] for row in rows] == ["raw local text", "raw Lens text"]
+    metadata = [json.loads(row["metadata_json"]) for row in rows]
+    assert [item["overlay_phase"] for item in metadata] == ["local_preliminary", "lens"]
+    assert metadata[0]["workflow_id"] == metadata[1]["workflow_id"]
+
+
+def test_overlay_benchmark_does_not_count_precomputed_hook_coordinates(scan_workflow, overlay_benchmark, monkeypatch):
+    scan = scan_workflow
+    monkeypatch.setattr(scan.processor, "_should_use_precomputed_overlay_payload", lambda _payload: True)
+    monkeypatch.setattr(scan.processor, "_should_skip_precomputed_payload_for_magpie", lambda _payload: False)
+    monkeypatch.setattr(scan.processor, "_try_send_precomputed_overlay_payload", AsyncMock(return_value=True))
+    asyncio.run(scan.processor._do_work(dict_from_ocr={"precomputed": True}))
+    assert overlay_benchmark.rows() == []
+
+
+def test_vita_overlay_sends_a_final_local_result_without_lens(scan_workflow, monkeypatch):
+    scan = scan_workflow
+    original = scan.processor._do_work
+
+    async def run_vita(**kwargs):
+        scan.processor.vitaocr = scan.processor.oneocr
+        scan.processor.oneocr = None
+        return await original(**kwargs)
+
+    monkeypatch.setattr(scan.processor, "_get_effective_engine", lambda: "vitaocr")
+    monkeypatch.setattr(scan.processor, "_do_work", run_vita)
+    scan.run(lambda _at, _index: "Vita dialogue", source=TextSource.HOTKEY, retries=1)
+    assert scan.payloads[-1]["is_final"] is True
+    assert scan.payloads[-1]["data"][0]["text"] == "Vita dialogue"

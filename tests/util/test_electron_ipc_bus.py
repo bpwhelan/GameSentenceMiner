@@ -49,6 +49,43 @@ def test_send_message_emits_backend_event(backend_over_bus):
     assert frame["data"]["data"] == {"ready": True}
 
 
+def test_vad_debug_switch_is_available_over_the_backend_bus(backend_over_bus, monkeypatch, tmp_path):
+    from GameSentenceMiner.util import vad_debug
+    from GameSentenceMiner.util.config import configuration
+
+    recorder = vad_debug.VADDebugRecorder(tmp_path / "vad-debug")
+    monkeypatch.setattr(vad_debug, "recorder", recorder)
+    monkeypatch.setattr(configuration, "is_dev", True)
+    e.start_ipc_listener_in_thread()
+    assert bc.get_bus().wait_connected(5)
+
+    def request(request_id, payload, ok=True):
+        backend_over_bus.send(
+            {
+                "v": 1,
+                "id": request_id,
+                "src": "main",
+                "dst": "backend",
+                "kind": "request",
+                "topic": vad_debug.VAD_DEBUG_TOPIC,
+                "data": payload,
+            }
+        )
+        response = backend_over_bus.wait_for(lambda frame: frame.get("corr") == request_id)
+        assert response["ok"] is ok
+        return response.get("data", {})
+
+    assert request("vad-debug-initial", {})["enabled"] is False
+    assert request("vad-debug-start", {"enabled": True})["enabled"] is True
+    assert recorder.root.is_dir()
+    request("vad-debug-invalid", {"enabled": "false"}, ok=False)
+    assert recorder.enabled is True
+    assert request("vad-debug-stop", {"enabled": False})["enabled"] is False
+    monkeypatch.setattr(configuration, "is_dev", False)
+    request("vad-debug-packaged", {"enabled": True}, ok=False)
+    assert recorder.enabled is False
+
+
 def test_backend_command_dispatched(backend_over_bus):
     received = []
     e.register_command_handler(lambda c: received.append(c))
@@ -120,3 +157,85 @@ def test_capture_preview_request_returns_a_frame_without_dispatching_an_ocr_comm
     assert response["ok"] is True
     assert response["data"] == {"sceneId": "scene", "imageData": "jpeg-frame"}
     assert commands == []
+
+
+def test_benchmark_switch_controls_real_bus_ingress(backend_over_bus, monkeypatch, tmp_path):
+    import csv
+    from types import SimpleNamespace
+
+    from GameSentenceMiner import gametext
+    from GameSentenceMiner.ocr import benchmark
+    from GameSentenceMiner.text_pipeline.models import IngressAck, IngressStatus
+    from GameSentenceMiner.util.config import configuration
+
+    recorder = benchmark.OCRBenchmarkRecorder(tmp_path)
+    monkeypatch.setattr(benchmark, "recorder", recorder)
+    monkeypatch.setattr(configuration, "is_dev", True)
+    monkeypatch.setattr(gametext, "is_message_rate_limited", lambda _source: False)
+    accepted = []
+
+    def ingest(observation):
+        accepted.append(observation.source_kind.value)
+        return SimpleNamespace(ack=IngressAck(IngressStatus.ACCEPTED, observation.observation_id))
+
+    monkeypatch.setattr(gametext, "get_authoritative_text_runtime", lambda: SimpleNamespace(ingest=ingest))
+    e.register_text_ingress_handler(gametext.ingest_text_v2_payload)
+    e.start_ipc_listener_in_thread()
+    assert bc.get_bus().wait_connected(5)
+
+    def request(request_id, topic, data):
+        backend_over_bus.send(
+            {"v": 1, "id": request_id, "src": "main", "dst": "backend", "kind": "request", "topic": topic, "data": data}
+        )
+        response = backend_over_bus.wait_for(lambda frame: frame.get("corr") == request_id)
+        assert response["ok"] is True
+        return response["data"]
+
+    try:
+        started = request("benchmark-start", benchmark.BENCHMARK_TOPIC, {"enabled": True})
+        assert started["enabled"] is True
+        for index, source in enumerate(("ocr", "texthook", "ocr_manual", "screen_cropper")):
+            ack = request(
+                f"benchmark-text-{index}",
+                e.TEXT_INGRESS_TOPIC,
+                {"source": source, "text": "日本語の台詞", "ocr_engine": "vitaocr"},
+            )
+            assert ack["status"] == ("rejected" if source == "ocr" else "accepted")
+        stopped = request("benchmark-stop", benchmark.BENCHMARK_TOPIC, {"enabled": False})
+        assert stopped["enabled"] is False
+        assert accepted == ["texthook", "ocr_manual", "screen_cropper"]
+        resumed = request("benchmark-resumed", e.TEXT_INGRESS_TOPIC, {"source": "ocr", "text": "通常のOCR"})
+        assert resumed["status"] == "accepted"
+        with open(started["csv_path"], encoding="utf-8-sig", newline="") as stream:
+            assert [row["source"] for row in csv.DictReader(stream)] == [
+                "ocr",
+                "texthook",
+                "ocr_manual",
+                "screen_cropper",
+            ]
+    finally:
+        recorder.set_enabled(False)
+
+
+def test_vita_model_selection_is_available_over_the_backend_bus(backend_over_bus, monkeypatch):
+    from GameSentenceMiner.ocr import vita_model_manager
+
+    requested = []
+    monkeypatch.setattr(vita_model_manager, "select_model", lambda model: requested.append(model) or {"model": model})
+    e.start_ipc_listener_in_thread()
+    assert bc.get_bus().wait_connected(5)
+    backend_over_bus.send(
+        {
+            "v": 1,
+            "id": "model-request",
+            "src": "main",
+            "dst": "backend",
+            "kind": "request",
+            "topic": vita_model_manager.MODEL_TOPIC,
+            "data": {"model": "large"},
+        }
+    )
+    response = backend_over_bus.wait_for(lambda frame: frame.get("corr") == "model-request")
+    assert response["ok"] is True
+    assert response["data"] == {"model": "large"}
+    assert requested == ["large"]

@@ -396,7 +396,7 @@ class OverlayRequestHandler:
             if not activated:
                 logger.warning(
                     f"Focus restore failed (target_hwnd={monitor.target_hwnd}, "
-                    f"last_known={monitor.last_known_target_hwnd})."
+                    f"last_known={getattr(monitor, 'last_known_target_hwnd', None)})."
                 )
 
         except Exception as e:

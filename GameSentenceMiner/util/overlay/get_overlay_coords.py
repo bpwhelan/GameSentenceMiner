@@ -9,12 +9,13 @@ import threading
 import time
 import uuid
 from PIL import Image
-from datetime import datetime
+from datetime import UTC, datetime
 from itertools import count
 from rapidfuzz import fuzz
 from typing import Dict, Any, List, Tuple, Optional
 
 from GameSentenceMiner.text_pipeline.models import SourceKind
+from GameSentenceMiner.ocr import benchmark as ocr_benchmark
 
 # Updated imports to include window info helpers
 from GameSentenceMiner.obs import get_current_game, get_current_scene, get_screenshot_PIL
@@ -83,6 +84,7 @@ SAVE_DEBUG_IMAGES = False
 CONVERT_TO_GRAYSCALE = False
 OCR_ENGINE_INACTIVITY_TIMEOUT_SECONDS = 5 * 60
 LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS = 0.35
+OVERLAY_SCAN_MAX_FIRST_SEEN_AGE_SECONDS = 30
 OVERLAY_VISIBLE_TEXT_REGEX = regex.compile(r"\S")
 OVERLAY_EXTENDED_CJK_MARK_REGEX = regex.compile(r"[々〆〇〻ヶヵ]")
 LOG_RESULTS_TO_JSON = False  # Set to True to log OCR results to JSON files for debugging
@@ -125,11 +127,13 @@ try:
         get_regex,
         MeikiOCR,
         ScreenAIOCR,
+        VitaOCR,
+        VOCRTextDetector,
     )
 except ImportError:
-    GoogleLens, get_regex, MeikiOCR, ScreenAIOCR = None, None, None, None
+    GoogleLens, get_regex, MeikiOCR, ScreenAIOCR, VitaOCR, VOCRTextDetector = None, None, None, None, None, None
 except Exception as e:
-    GoogleLens, get_regex, MeikiOCR, ScreenAIOCR = None, None, None, None
+    GoogleLens, get_regex, MeikiOCR, ScreenAIOCR, VitaOCR, VOCRTextDetector = None, None, None, None, None, None
     logger.exception(f"Error importing OCR engines: {e}")
 
 # Conditionally import screenshot library
@@ -336,6 +340,8 @@ class OverlayProcessor:
         self.oneocr = None
         self.meikiocr = None
         self.screenai = None
+        self.vitaocr = None
+        self.vocr_detector = None
         self.lens = None
         self.regex = None
         self.ready = False
@@ -494,6 +500,8 @@ class OverlayProcessor:
             self.oneocr = None
             self.meikiocr = None
             self.screenai = None
+            self.vitaocr = None
+            self.vocr_detector = None
             self.lens = None
             self.regex = None
 
@@ -1061,7 +1069,7 @@ class OverlayProcessor:
 
     def _close_ocr_engines(self) -> None:
         """Close and release every overlay OCR engine instance."""
-        for engine in [self.oneocr, self.meikiocr, self.screenai, self.lens]:
+        for engine in [self.oneocr, self.meikiocr, self.screenai, self.vitaocr, self.vocr_detector, self.lens]:
             if engine:
                 try:
                     if hasattr(engine, "close"):
@@ -1072,6 +1080,8 @@ class OverlayProcessor:
         self.oneocr = None
         self.meikiocr = None
         self.screenai = None
+        self.vitaocr = None
+        self.vocr_detector = None
         self.lens = None
 
     def _mark_ocr_engine_active(self) -> int:
@@ -1109,7 +1119,7 @@ class OverlayProcessor:
         if activity_generation != self._ocr_engine_activity_generation:
             return
         self._ocr_engine_unload_handle = None
-        if any([self.oneocr, self.meikiocr, self.screenai, self.lens]):
+        if any([self.oneocr, self.meikiocr, self.screenai, self.vitaocr, self.vocr_detector, self.lens]):
             logger.info("Unloading overlay OCR engine after 5 minutes of inactivity")
         self._close_ocr_engines()
         try:
@@ -1149,7 +1159,11 @@ class OverlayProcessor:
             self.meikiocr = MeikiOCR(lang=get_config().general.target_language, get_furigana_sens_from_file=False)
         elif effective_engine == OverlayEngine.SCREENAI.value and ScreenAIOCR and not self.screenai:
             self.screenai = ScreenAIOCR(lang=get_config().general.target_language)
-        return self.oneocr or self.meikiocr or self.screenai
+        elif effective_engine == OverlayEngine.VITAOCR.value and VitaOCR and not self.vitaocr:
+            self.vitaocr = VitaOCR(lang=get_config().general.target_language, get_furigana_sens_from_file=False)
+        elif effective_engine == OverlayEngine.VOCR_LENS.value and VOCRTextDetector and not self.vocr_detector:
+            self.vocr_detector = VOCRTextDetector(lang=get_config().general.target_language)
+        return self.oneocr or self.meikiocr or self.screenai or self.vitaocr
 
     @staticmethod
     def _is_precomputed_overlay_payload(dict_from_ocr: Any) -> bool:
@@ -1468,7 +1482,65 @@ class OverlayProcessor:
 
         return filtered
 
-    async def _record_overlay_scan(self, text: Optional[str], line: "GameLine" = None) -> None:
+    @staticmethod
+    def _is_manual_overlay_source(source) -> bool:
+        return getattr(source, "value", source) in (
+            TextSource.HOTKEY,
+            TextSource.MANUAL,
+            TextSource.OCR_MANUAL,
+            TextSource.SCREEN_CROPPER,
+            TextSource.SECONDARY,
+        )
+
+    def _record_overlay_ocr_benchmark(
+        self,
+        success,
+        text,
+        *,
+        engine,
+        captured_at,
+        workflow_id,
+        source=None,
+        line=None,
+        phase="local",
+        attempt=1,
+        duration_ms=0,
+        crop_box=None,
+        response_dict=None,
+    ):
+        if not ocr_benchmark.recorder.enabled:
+            return
+        if success:
+            raw_text = "\n".join(str(part) for part in text) if isinstance(text, (list, tuple)) else str(text or "")
+        else:
+            raw_text = ""
+        ocr_benchmark.recorder.observe(
+            SourceKind.OVERLAY,
+            raw_text,
+            captured_at=captured_at,
+            source_instance=f"overlay-ocr:{engine}",
+            scene=str(getattr(line, "scene", None) or gsm_state.current_game or ""),
+            observation_id=f"{workflow_id}:{phase}:{attempt}",
+            metadata={
+                "ocr_engine": engine,
+                "ocr_model": response_dict.get("gsm_model", {}) if isinstance(response_dict, dict) else {},
+                "ocr_finder": response_dict.get("gsm_finder", {}) if isinstance(response_dict, dict) else {},
+                "detection_boxes": response_dict.get("boxes", []) if isinstance(response_dict, dict) else [],
+                "overlay_stage": "raw",
+                "overlay_phase": phase,
+                "overlay_manual": self._is_manual_overlay_source(source),
+                "overlay_trigger": getattr(source, "value", source) or "periodic",
+                "workflow_id": workflow_id,
+                "attempt": attempt,
+                "success": bool(success),
+                "duration_ms": round(duration_ms, 3),
+                "crop_box": crop_box,
+                "reference_line_id": str(getattr(line, "id", "") or ""),
+                "error": str(text or "")[:1000] if not success else "",
+            },
+        )
+
+    async def _record_overlay_scan(self, text: Optional[str], line: "GameLine" = None, *, source=None) -> None:
         """Remember a distinct overlay scan (no backing text event) so Yomitan overlay mining can
         attach audio/screenshot to it. The scan is kept as a transient (non-logged) GameLine; it is
         only written to the text log when the user opts into the not-recommended
@@ -1478,14 +1550,31 @@ class OverlayProcessor:
         try:
             from GameSentenceMiner.gametext import _build_transient_output_line
 
-            gsm_state.last_overlay_scan_line = _build_transient_output_line(
-                text, datetime.now(), source=TextSource.OVERLAY
-            )
+            scan_time = datetime.now()
+            previous = gsm_state.last_overlay_scan_line
+            normalized = normalize_text_for_comparison(text)
+            if (
+                previous
+                and previous.scene == (gsm_state.current_game or "")
+                and normalized
+                and normalized == normalize_text_for_comparison(previous.text)
+                and 0 <= (scan_time - previous.time).total_seconds() <= OVERLAY_SCAN_MAX_FIRST_SEEN_AGE_SECONDS
+            ):
+                scan_time = previous.time
+            gsm_state.last_overlay_scan_line = _build_transient_output_line(text, scan_time, source=TextSource.OVERLAY)
             if get_overlay_config().inject_scanned_lines:
                 from GameSentenceMiner.gametext import add_line_to_text_log
 
                 # skip_overlay avoids re-triggering this scan; OVERLAY source carries best-guess audio padding.
-                await add_line_to_text_log(text, source=TextSource.OVERLAY, skip_overlay=True)
+                await add_line_to_text_log(
+                    text,
+                    source=TextSource.OVERLAY,
+                    skip_overlay=True,
+                    metadata_extra={
+                        "overlay_stage": "injection",
+                        "overlay_manual": OverlayProcessor._is_manual_overlay_source(source),
+                    },
+                )
         except Exception as e:
             logger.debug(f"Failed to record overlay scan: {e}")
 
@@ -1540,7 +1629,7 @@ class OverlayProcessor:
             self._ensure_correct_engine_loaded()
             effective_engine = self._get_effective_engine()
 
-            if effective_engine == OverlayEngine.LENS.value:
+            if effective_engine in (OverlayEngine.LENS.value, OverlayEngine.VOCR_LENS.value):
                 if GoogleLens and not self.lens:
                     self.lens = GoogleLens(lang=get_config().general.target_language, get_furigana_sens_from_file=False)
             self._load_local_ocr_engine()
@@ -2874,6 +2963,7 @@ class OverlayProcessor:
         start_time = datetime.now()
         timing_start = time.time()
         scan_requested_at = time.monotonic()
+        benchmark_workflow_id = uuid.uuid4().hex
         effective_engine = self._get_effective_engine()
 
         if self.ENABLE_DETAILED_TIMING:
@@ -2919,12 +3009,12 @@ class OverlayProcessor:
                 # Store the percentage-converted data for overlap filtering later
                 precomputed_percentage_data = self._last_precomputed_percentage_data
 
-        if not self.lens and not self.oneocr and not self.meikiocr and not self.screenai:
+        if not self.lens and not self.oneocr and not self.meikiocr and not self.screenai and not self.vitaocr:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
             self.init()
             return []
 
-        local_ocr_engine = self.oneocr or self.meikiocr or self.screenai
+        local_ocr_engine = self.oneocr or self.meikiocr or self.screenai or self.vitaocr
         source = line.source if line and line.source else source
         scan_timing = None
         initial_scan_delay = 0.0
@@ -2940,13 +3030,13 @@ class OverlayProcessor:
             and not precomputed_sent
         ):
             # Use cached context only: learning must not query the game, take a
-            # screenshot, or run any OCR beyond the existing workflow.
+            # screenshot, or run any OCR beyond the existing workflow. Reveal
+            # timing belongs to the game and hook, not the selected OCR engine.
             self._initial_scan_delay.use_context(
                 (
                     getattr(line, "scene", None) or gsm_state.current_game,
                     getattr(line, "source_instance", None),
                     getattr(self.window_monitor, "target_hwnd", None),
-                    effective_engine,
                     getattr(self, "ocr_language", None),
                 )
             )
@@ -2962,6 +3052,7 @@ class OverlayProcessor:
 
         op_start = time.time()
         captured_at = time.monotonic()
+        scan_captured_at = datetime.now(UTC)
         full_screenshot, off_x, off_y, monitor_width, monitor_height = self.get_image_to_ocr()
         if not full_screenshot:
             return []
@@ -2972,8 +3063,52 @@ class OverlayProcessor:
 
         crop_coords_list = []
         oneocr_final = []
+        composite_image = None
         minimum_character_size = self._get_overlay_minimum_character_size()
+        if effective_engine == OverlayEngine.VOCR_LENS.value:
+            if self.vocr_detector is None:
+                return []
+            detector_start = time.time()
+            result = self.vocr_detector(full_screenshot, furigana_filter_sensitivity=minimum_character_size)
+            success, error, _, crop_coords_list, _, detector_response = (list(result) + [None] * 6)[:6]
+            self._record_overlay_ocr_benchmark(
+                success,
+                error,
+                engine="vocr_detector",
+                captured_at=scan_captured_at,
+                workflow_id=benchmark_workflow_id,
+                source=source,
+                line=line,
+                phase="local_detection",
+                duration_ms=(time.time() - detector_start) * 1000,
+                response_dict=detector_response,
+            )
+            if not success:
+                logger.warning(f"VOCR detection failed; overlay Lens scan skipped: {error}")
+                return []
+            if not crop_coords_list:
+                await self._send_word_coordinates_with_presence(
+                    self._build_overlay_word_coordinates_payload(
+                        [],
+                        line_id=line_id,
+                        latest_text=sentence_to_check,
+                        is_final=True,
+                    )
+                )
+                return []
+            composite_image = self._create_composite_image(
+                full_screenshot, crop_coords_list, monitor_width, monitor_height
+            )
         if local_ocr_engine:
+            local_engine_name = (
+                "oneocr"
+                if local_ocr_engine is self.oneocr
+                else "meikiocr"
+                if local_ocr_engine is self.meikiocr
+                else "screenai"
+                if local_ocr_engine is self.screenai
+                else "vitaocr"
+            )
             # Assume Text from Source is already Stable
             overlay_config = get_overlay_config()
             text_appears_instantly = overlay_config.text_appears_instantly
@@ -3014,6 +3149,7 @@ class OverlayProcessor:
                 OverlayEngine.ONEOCR.value,
                 OverlayEngine.MEIKIOCR.value,
                 OverlayEngine.SCREENAI.value,
+                OverlayEngine.VITAOCR.value,
             ]
             # logger.background(f"Using local OCR engine '{local_ocr_engine.readable_name}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
             last_result_flattened = ""
@@ -3046,6 +3182,7 @@ class OverlayProcessor:
 
                         # Re-capture if retrying, otherwise we are OCRing the same static image
                         captured_at = time.monotonic()
+                        scan_captured_at = datetime.now(UTC)
                         full_screenshot, off_x, off_y, monitor_width, monitor_height = self.get_image_to_ocr()
                         if not full_screenshot:
                             break
@@ -3100,6 +3237,20 @@ class OverlayProcessor:
                     response_dict,
                 ) = (list(result) + [None] * 6)[:6]
                 self._log_timing(op_start, "OCR result unpacking")
+                self._record_overlay_ocr_benchmark(
+                    res,
+                    text,
+                    engine=getattr(local_ocr_engine, "name", local_engine_name),
+                    captured_at=scan_captured_at,
+                    workflow_id=benchmark_workflow_id,
+                    source=source,
+                    line=line,
+                    phase="local" if local_is_final_engine else "local_preliminary",
+                    attempt=i + 1,
+                    duration_ms=(ocr_end - ocr_start) * 1000,
+                    crop_box=scan_box,
+                    response_dict=response_dict,
+                )
 
                 crop_lines = None
                 if scan_box and adaptive_crop:
@@ -3114,7 +3265,8 @@ class OverlayProcessor:
                         # Reacquire on this same captured frame so the event is not lost.
                         fallback_start = time.time()
                         result = local_ocr_engine(full_screenshot, **ocr_kwargs)
-                        total_ocr_time += time.time() - fallback_start
+                        fallback_duration = time.time() - fallback_start
+                        total_ocr_time += fallback_duration
                         attempts_completed += 1
                         last_scan_time = time.monotonic()
                         scan_box = None
@@ -3126,6 +3278,19 @@ class OverlayProcessor:
                             crop_coords,
                             response_dict,
                         ) = (list(result) + [None] * 6)[:6]
+                        self._record_overlay_ocr_benchmark(
+                            res,
+                            text,
+                            engine=getattr(local_ocr_engine, "name", local_engine_name),
+                            captured_at=scan_captured_at,
+                            workflow_id=benchmark_workflow_id,
+                            source=source,
+                            line=line,
+                            phase="local_reacquire",
+                            attempt=i + 1,
+                            duration_ms=fallback_duration * 1000,
+                            response_dict=response_dict,
+                        )
                         crop_lines = None
 
                 if not res or not text or not crop_coords_list:
@@ -3353,6 +3518,7 @@ class OverlayProcessor:
                 OverlayEngine.ONEOCR.value,
                 OverlayEngine.MEIKIOCR.value,
                 OverlayEngine.SCREENAI.value,
+                OverlayEngine.VITAOCR.value,
             ]:
                 if not oneocr_final:
                     logger.background(
@@ -3383,7 +3549,7 @@ class OverlayProcessor:
                     scan_timing_summary,
                 )
 
-                await self._record_overlay_scan(last_result_flattened, line)
+                await self._record_overlay_scan(last_result_flattened, line, source=source)
                 return
 
             if crop_coords_list:
@@ -3399,7 +3565,7 @@ class OverlayProcessor:
                 composite_image = None
 
         op_start = time.time()
-        if SAVE_DEBUG_IMAGES:
+        if SAVE_DEBUG_IMAGES and composite_image is not None:
             composite_image.save(
                 os.path.join(
                     get_temporary_directory(),
@@ -3431,6 +3597,17 @@ class OverlayProcessor:
 
         op_start = time.time()
         success, text_list, coords, crop_coords_list, crop_coords, response_dict = (list(result) + [None] * 6)[:6]
+        self._record_overlay_ocr_benchmark(
+            success,
+            text_list,
+            engine=getattr(self.lens, "name", "glens"),
+            captured_at=scan_captured_at,
+            workflow_id=benchmark_workflow_id,
+            source=source,
+            line=line,
+            phase="lens",
+            duration_ms=lens_ocr_time * 1000,
+        )
         self._log_timing(op_start, "Lens result unpacking")
 
         if not response_dict:
@@ -3516,7 +3693,7 @@ class OverlayProcessor:
         await self._send_word_coordinates_with_presence(data)
         self._log_timing(op_start, f"Send {len(extracted_data)} Lens word coordinates to overlay")
 
-        await self._record_overlay_scan(text_str, line)
+        await self._record_overlay_scan(text_str, line, source=source)
 
         # Log completion with comprehensive details
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000

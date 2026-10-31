@@ -100,6 +100,7 @@ out/
 *.ts~
 test.py
 *.opus
+!tests/assets/firered/*.opus
 .vscode/settings.json
 GameSentenceMiner.wiki/
 /test

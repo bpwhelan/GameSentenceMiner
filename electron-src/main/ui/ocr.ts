@@ -32,6 +32,8 @@ import {
 } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
 import { createOcrPreviewService } from './ocr-preview.js';
+import { createVitaModelService } from './vita-ocr.js';
+import { createMeikiModelService } from './meiki-ocr.js';
 import { createOcrAreaSaver } from './ocr-areas.js';
 import { bus } from '../runtime/bus_client.js';
 import { getProcessManager } from '../runtime/process_supervisor.js';
@@ -784,6 +786,10 @@ function writeOCRReplacements(replacements: Record<string, string>) {
 }
 
 export function registerOCRUtilsIPC() {
+    const vitaModel = createVitaModelService(bus);
+    ipcMain.handle('ocr.vita-model', (_event, request) => vitaModel(request));
+    const meikiModel = createMeikiModelService(bus);
+    ipcMain.handle('ocr.meiki-model', (_event, request) => meikiModel(request));
     const getPreview = createOcrPreviewService(bus);
     ipcMain.handle('ocr.get-preview', (_event, request) => getPreview(request));
     const saveAreas = createOcrAreaSaver({

@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+import soundfile as sf
 from PyQt6.QtCore import QElapsedTimer, Qt, QTimer
 from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication
@@ -140,9 +141,10 @@ def test_overlay_source_warning_is_shown_on_every_overlay_only_card(monkeypatch)
     warning = dialog.overlay_source_warning_label.text()
     assert "text hooking" in warning.lower()
     assert "ocr" in warning.lower()
-    assert "speed" in warning.lower()
-    assert "statistics" in warning.lower()
+    assert "replay buffer" in warning.lower()
+    assert "expired" in warning.lower()
     assert "timing" in warning.lower()
+    assert "without a conventional text source" not in warning.lower()
 
     dialog.deleteLater()
     app.processEvents()
@@ -901,6 +903,100 @@ def gamepad_confirmation_dialog(monkeypatch):
         app.processEvents()
 
 
+def test_audio_controls_explain_when_nearby_audio_was_recovered(gamepad_confirmation_dialog, tmp_path):
+    dialog = gamepad_confirmation_dialog
+    audio_path = tmp_path / "audio.wav"
+    sf.write(audio_path, np.ones(4800), 48000)
+    dialog.audio_player = SimpleNamespace(audio_available=True)
+    dialog.audio_path = str(audio_path)
+    dialog.reusing_audio = False
+    dialog.vad_result = SimpleNamespace(success=False)
+    dialog._audio_edit_context = {"timing_fallback": True}
+
+    dialog._refresh_audio_controls("sentence")
+
+    assert "nearby replay audio" in dialog.audio_status_label.text()
+    assert "listen and adjust" in dialog.audio_status_label.text()
+    assert dialog.waveform_widget.audio_data is not None
+    assert not dialog.voice_button.isHidden()
+
+
+def test_audio_controls_do_not_offer_waveform_controls_when_loading_fails(
+    gamepad_confirmation_dialog, tmp_path, monkeypatch
+):
+    dialog = gamepad_confirmation_dialog
+    audio_path = tmp_path / "invalid.opus"
+    audio_path.write_bytes(b"not audio")
+    dialog.audio_player = SimpleNamespace(audio_available=True)
+    dialog.audio_path = str(audio_path)
+    dialog.reusing_audio = False
+    dialog.vad_result = SimpleNamespace(success=False)
+    dialog._audio_edit_context = None
+    monkeypatch.setattr(dialog.waveform_widget, "load_audio", lambda path: False)
+
+    dialog._refresh_audio_controls("sentence")
+
+    assert "Could not load" in dialog.audio_status_label.text()
+    assert dialog.waveform_widget.isHidden()
+    assert dialog.audio_button.isHidden()
+    assert not dialog.voice_button.isHidden()
+
+
+def test_audio_controls_do_not_report_voice_for_an_unvoiced_fallback(gamepad_confirmation_dialog, tmp_path):
+    dialog = gamepad_confirmation_dialog
+    audio_path = tmp_path / "audio.wav"
+    sf.write(audio_path, np.ones(4800), 48000)
+    dialog.audio_player = SimpleNamespace(audio_available=True)
+    dialog.audio_path = str(audio_path)
+    dialog.reusing_audio = False
+    dialog.vad_result = SimpleNamespace(success=True, voice_detected=False, tts_used=False)
+    dialog._audio_edit_context = None
+
+    dialog._refresh_audio_controls("sentence")
+
+    assert "found no voice" in dialog.audio_status_label.text()
+
+
+def test_failed_audio_save_keeps_confirmation_open(gamepad_confirmation_dialog, monkeypatch):
+    dialog = gamepad_confirmation_dialog
+    errors = []
+    monkeypatch.setattr(dialog, "_save_trimmed_audio", lambda: (_ for _ in ()).throw(RuntimeError("save failed")))
+    monkeypatch.setattr(anki_confirmation_qt.QMessageBox, "critical", lambda *args: errors.append(args))
+
+    dialog._on_voice()
+
+    assert dialog.isVisible()
+    assert dialog.result is None
+    assert "save failed" in errors[0][2]
+
+
+def test_play_full_uses_decoded_waveform_if_audio_player_cannot_open_file(monkeypatch):
+    data = np.arange(100, dtype=np.float32)
+    calls = []
+    monkeypatch.setattr(anki_confirmation_qt.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(
+        anki_confirmation_qt, "get_config", lambda: SimpleNamespace(advanced=SimpleNamespace(audio_player_path=""))
+    )
+    player = SimpleNamespace(
+        is_playing=False,
+        play_audio_file=lambda path: False,
+        play_audio_data=lambda samples, rate: calls.append((samples, rate)) or True,
+    )
+    probe = SimpleNamespace(
+        audio_path="audio.opus",
+        audio_player=player,
+        waveform_widget=SimpleNamespace(audio_data=data, samplerate=48000, set_playback_position=lambda position: None),
+        playback_timer=SimpleNamespace(start=lambda: None),
+        _update_audio_buttons=lambda: None,
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._play_audio(probe, probe.audio_path, full=True)
+
+    assert len(calls) == 1
+    assert calls[0][0] is data
+    assert calls[0][1] == 48000
+
+
 @pytest.mark.parametrize(
     ("button_code", "expected"),
     [
@@ -1223,6 +1319,26 @@ def test_save_trimmed_audio_splices_around_middle_cuts(monkeypatch):
     ]
 
 
+def test_save_trimmed_audio_propagates_a_failed_trim(monkeypatch):
+    monkeypatch.setattr(anki_confirmation_qt, "get_temporary_directory", lambda: "temp")
+    monkeypatch.setattr(
+        anki_confirmation_qt, "trim_audio", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("ffmpeg failed"))
+    )
+    probe = SimpleNamespace(
+        waveform_widget=SimpleNamespace(
+            audio_data=np.arange(10),
+            duration=10.0,
+            get_selection_range=lambda: (1.0, 9.0),
+            get_cut_ranges=list,
+        ),
+        audio_path="source.opus",
+        _sync_audio_edit_selection_to_current_clip=lambda _start, _end: None,
+    )
+
+    with pytest.raises(RuntimeError, match="ffmpeg failed"):
+        anki_confirmation_qt.AnkiConfirmationDialog._save_trimmed_audio(probe)
+
+
 def test_normalize_audio_edit_context_uses_provided_duration(monkeypatch):
     monkeypatch.setattr(anki_confirmation_qt.os.path, "isfile", lambda path: path == "source.opus")
 
@@ -1242,6 +1358,7 @@ def test_normalize_audio_edit_context_uses_provided_duration(monkeypatch):
         "range_end": 11.0,
         "rebase_on_selection_trim": False,
         "timeline": None,
+        "timing_fallback": False,
     }
 
 
@@ -1264,6 +1381,7 @@ def test_normalize_audio_edit_context_falls_back_to_probe_duration(monkeypatch):
         "range_end": 42.0,
         "rebase_on_selection_trim": False,
         "timeline": None,
+        "timing_fallback": False,
     }
 
 

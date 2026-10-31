@@ -34,6 +34,7 @@ function loadLifecycle() {
     const context = vm.createContext({
         console: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
         setTimeout, clearTimeout,
+        markStartup: vi.fn(),
         pyProc: proc,
         pythonPath: 'python.exe',
         restartingGSM: false,

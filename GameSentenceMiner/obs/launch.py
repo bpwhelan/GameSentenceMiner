@@ -399,6 +399,39 @@ async def wait_for_obs_websocket_ready(
         await asyncio.sleep(interval)
 
 
+def _probe_obs_ready(
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    password: Optional[str] = None,
+):
+    import obsws_python as obs
+
+    # Electron may choose a free port while Python is already starting. Refresh
+    # defaults on each attempt instead of waiting forever on the old port.
+    if configuration.is_windows():
+        get_obs_websocket_config_values()
+    config = get_config().obs
+    host = host or config.host
+    port = port or config.port
+    password = password if password is not None else config.password
+    client = None
+    try:
+        if not is_obs_websocket_reachable(host=host, port=port):
+            return False
+        client = obs.ReqClient(host=host, port=port, password=password, timeout=1)
+        client.get_version()
+        scene_response = client.get_scene_list()
+        return bool(scene_response and scene_response.scenes is not None)
+    except Exception:
+        return False
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+
 async def wait_for_obs_ready(
     timeout: Optional[float] = None,
     interval: float = 2.0,
@@ -406,34 +439,16 @@ async def wait_for_obs_ready(
     port: Optional[int] = None,
     password: Optional[str] = None,
 ):
-    import obsws_python as obs
-
-    start = time.time()
-    host = host or get_config().obs.host
-    port = port or get_config().obs.port
-    password = password if password is not None else get_config().obs.password
-    while True:
-        if is_obs_websocket_reachable(host=host, port=port):
-            client = None
-            try:
-                client = obs.ReqClient(host=host, port=port, password=password, timeout=1)
-                client.get_version()
-                scene_response = client.get_scene_list()
-                if scene_response and scene_response.scenes is not None:
-                    return True
-            except Exception:
-                pass
-            finally:
-                if client:
-                    try:
-                        client.disconnect()
-                    except Exception:
-                        pass
-        if timeout is not None and (time.time() - start) >= timeout:
-            return False
-        if not gsm_state.keep_running:
+    start = time.monotonic()
+    while gsm_state.keep_running:
+        # obsws-python is synchronous; a slow OBS must not hold up the shared
+        # HTTP/websocket event loop while it finishes loading its scenes.
+        if await asyncio.to_thread(_probe_obs_ready, host, port, password):
+            return gsm_state.keep_running
+        if timeout is not None and (time.monotonic() - start) >= timeout:
             return False
         await asyncio.sleep(interval)
+    return False
 
 
 # ---------------------------------------------------------------------------

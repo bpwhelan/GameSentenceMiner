@@ -25,6 +25,46 @@
 .text-processing-desk .text-processing-processors {
   min-width: 0;
 }
+.text-processing-main { min-width: 0; }
+.sentence-exclusions {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--gsm-border-subtle);
+}
+.sentence-exclusions label {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 11px;
+}
+.sentence-exclusions :is(select, textarea) { width: 100%; }
+.sentence-exclusions textarea {
+  min-height: 70px;
+  resize: vertical;
+  margin-bottom: 8px;
+}
+.sentence-exclusions .btn-secondary { font-size: 11px; }
+.sentence-exclusions-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.sentence-exclusions-list li {
+  display: flex;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--gsm-border-subtle);
+}
+.sentence-exclusions-list span {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.sentence-exclusions [role="alert"] { color: var(--gsm-danger, #ef7171); font-size: 12px; }
 .text-processing-desk .text-processing-section-heading {
   display: flex;
   justify-content: space-between;

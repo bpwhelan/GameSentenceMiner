@@ -14,7 +14,7 @@ test('accepts official page, GitHub and raw guide URLs, including Japanese slugs
   for (const url of ['https://github.com/kanjieater/VN-Guide/tree/main/yuno', 'https://raw.githubusercontent.com/kanjieater/VN-Guide/main/yuno/guide.json']) {
     assert.equal(parseGuideUrl(url).slug, 'yuno');
   }
-  for (const url of ['https://evil.test/yuno', 'file:///yuno', 'https://kanjieater.github.io/VN-Guide/', 'https://kanjieater.github.io/VN-Guide/yuno/extra/file', 'https://user:pass@kanjieater.github.io/VN-Guide/yuno/', 'https://kanjieater.github.io/VN-Guide/%2e%2e%2fyuno/']) {
+  for (const url of ['https://evil.test/yuno', 'javascript:alert(1)', 'https://kanjieater.github.io/VN-Guide/', 'https://kanjieater.github.io/VN-Guide/yuno/extra/file', 'https://user:pass@kanjieater.github.io/VN-Guide/yuno/', 'https://kanjieater.github.io/VN-Guide/%2e%2e%2fyuno/']) {
     assert.throws(() => parseGuideUrl(url));
   }
 });

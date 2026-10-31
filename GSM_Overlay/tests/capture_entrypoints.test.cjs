@@ -35,6 +35,7 @@ function setup(t) {
       webContents: { send: (...args) => messages.push(args), focus: () => effects.push('focus') },
     },
     userSettings: { gamepadEnabled: true },
+    applyVnGuideScene() {},
     backend: { connected: true, send: data => effects.push(data.type) },
     gamepadNavigationActive: false, gamepadKeyboardToggleSuppressedUntil: 0,
     overlayFocusRequestVersion: 0,

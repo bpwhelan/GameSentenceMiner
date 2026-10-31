@@ -195,14 +195,14 @@ describe('MessageBroker', () => {
         expect(second.data).toEqual({ seq: 2 });
     });
 
-    it('never replays stale text ingress to a backend that connects later', async () => {
-        broker.publish('backend', 'text.ingress.v2', { observationId: 'old', text: 'old text' }, 'command');
+    it.each(['text.ingress.v2', 'dev.ocr_benchmark', 'ocr.vita_model', 'ocr.meiki_model', 'gpu.settings'])('never replays stale %s to a backend that connects later', async (topic) => {
+        broker.publish('backend', topic, { observationId: 'old', text: 'old text' }, 'command');
 
         const backend = await connectClient('backend');
         await backend.waitTopic('bus.welcome');
         await new Promise((resolve) => setTimeout(resolve, 25));
 
-        expect(backend.inbox.some((message) => message.topic === 'text.ingress.v2')).toBe(false);
+        expect(backend.inbox.some((message) => message.topic === topic)).toBe(false);
     });
 
     it('re-associates a client id on reconnect', async () => {

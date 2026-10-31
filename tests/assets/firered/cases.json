@@ -1,0 +1,18 @@
+[
+  {
+    "file": "long_background_169s.opus",
+    "source_capture": "20261030T184623_687552Z_1ed83309",
+    "input_sha256": "0086c95ca6d8f55ba1a1e6ee372b0cf00c800b64c2701635726e1cab8d2c90b5",
+    "duration_seconds": 169.4823125,
+    "expected_unfiltered_end_seconds": 2.65,
+    "previous_filtered_end_seconds": 165.59
+  },
+  {
+    "file": "long_background_139s.opus",
+    "source_capture": "20261030T184906_039297Z_f031d0c3",
+    "input_sha256": "ab8abad86697d5c433c7e49ce605e60efc2c8902fb8e854c08abc20755301756",
+    "duration_seconds": 139.919,
+    "expected_unfiltered_end_seconds": 3.57,
+    "previous_filtered_end_seconds": 85.59
+  }
+]

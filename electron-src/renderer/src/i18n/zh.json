@@ -1,4 +1,12 @@
 {
+  "gamePrivileges": {
+    "title": "{game} 正在以管理员身份运行",
+    "description": "GSM 当前未以管理员身份运行。权限差异可能影响 OBS 捕获、文本钩取、悬浮层或快捷键。建议以管理员身份重启 GSM。",
+    "restart": "以管理员身份重启 GSM",
+    "restarting": "正在重启…",
+    "dismiss": "本次游戏运行期间不再提示",
+    "restartError": "无法重启 GSM。你也可以关闭 GSM，然后右键点击其快捷方式并选择“以管理员身份运行”。"
+  },
   "gameBackground": {
     "title": "游戏钩子（实验性）"
   },
@@ -554,6 +562,8 @@
       "overlayNotAvailable": "无法自动打开覆盖层设置。请先启动/连接覆盖层，或使用其托盘图标。"
     },
     "desktop": {
+      "disableSeasonalEffects": "禁用季节效果",
+      "seasonalEffectsHelp": "关闭所有节日的季节图标、主题点缀和装饰。您选择的主题会保留。",
       "title": "桌面应用设置",
       "iconStyle": "图标样式：",
       "iconDefault": "默认",
@@ -869,6 +879,17 @@
       "menu": "菜单",
       "areaSelect": "区域选择"
     },
+    "meikiModel": {
+      "label": "MeikiOCR 检测模型",
+      "small": "小型 · 320×192（更快）",
+      "large": "大型 · 960×544（默认）",
+      "help": "小型模型扫描更快，但可能漏掉小字。文字识别模型相同。此设置由所有配置中的主 OCR 和叠加层 OCR 共用，下次扫描时生效。",
+      "preparing": "正在下载并校验模型…",
+      "active": "已选择模型：{model}。将在下次扫描时使用。",
+      "unavailable": "MeikiOCR 不可用。请检查后端和本地安装。",
+      "error": "模型设置：{error}",
+      "refresh": "重试"
+    },
     "pipeline": {
       "title": "识别管线",
       "twoPassFlow": "两遍流程：",
@@ -1067,7 +1088,10 @@
         "stopped": "已停止",
         "paused": "已暂停",
         "manual": "等待捕获",
-        "watching": "正在监测文本"
+        "watching": "正在监测文本",
+        "blackHole": "文本位于黑洞区域内",
+        "menu": "所有文本均为菜单文本",
+        "excluded": "此句已为该游戏排除"
       },
       "events": {
         "captured": "已捕获文本",
@@ -1076,7 +1100,8 @@
         "menu": "已跳过菜单文本",
         "ignored": "已跳过忽略区域中的文本",
         "duplicate": "已跳过重复文本",
-        "error": "OCR 需要处理 · 请查看控制台了解详情"
+        "error": "OCR 需要处理 · 请查看控制台了解详情",
+        "excluded": "已跳过完全匹配的文本"
       },
       "sources": {
         "auto": "自动捕获",
@@ -1469,5 +1494,27 @@
       "runningHint": "Recognition stops automatically when the OBS scene changes.",
       "idleHint": "Settings are scene-specific. Start recognition when you are ready."
     }
+  },
+  "sentenceExclusions": {
+    "title": "排除的句子",
+    "perGame": "按游戏保存",
+    "description": "在文本处理前，屏蔽所选游戏中完全匹配的整条捕获文本。区分大小写，忽略首尾空白，保留换行。这些规则适用于该游戏的所有文本来源，并独立于设置配置保存。",
+    "game": "游戏",
+    "noGame": "没有可用的游戏",
+    "sentence": "完整句子或捕获记录",
+    "placeholder": "粘贴要排除的原始文本…",
+    "add": "添加排除项",
+    "remove": "移除",
+    "removeSentence": "移除排除项：{sentence}",
+    "empty": "此游戏没有排除的句子。",
+    "failed": "无法加载或保存排除项。请重试。",
+    "lineActions": "捕获文本操作",
+    "forGame": "适用于 {game}",
+    "noCaptureGame": "此记录未关联游戏。请选择游戏并重新捕获文本以添加排除项。",
+    "exclude": "为此游戏排除此句",
+    "unexclude": "移除句子排除项",
+    "added": "已为 {game} 排除此句。之后匹配的文本将被屏蔽。",
+    "removed": "已移除 {game} 的句子排除项。",
+    "excluded": "已排除"
   }
 }

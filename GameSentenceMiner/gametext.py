@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import websockets
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.ocr import benchmark as ocr_benchmark
 from GameSentenceMiner.text_pipeline.models import (
     IngressAck,
     IngressStatus,
@@ -53,6 +54,7 @@ from GameSentenceMiner.util.text_log import (
     to_local_naive_datetime,
 )
 from GameSentenceMiner.util.text_processing import apply_text_processing
+from GameSentenceMiner.util.sentence_exclusions import is_sentence_excluded
 
 pyperclip = None
 try:
@@ -172,6 +174,7 @@ def stop_authoritative_text_runtime() -> bool:
     overlay = _overlay_dispatcher
     _overlay_dispatcher = None
     overlay_stopped = True if overlay is None else overlay.stop()
+    ocr_benchmark.stop_benchmark()
     return text_stopped and overlay_stopped
 
 
@@ -862,7 +865,20 @@ def _ingest_line_sync(
             f"to {len(guarded_line)} characters."
         )
 
+    if is_sentence_excluded(guarded_line, str(getattr(gsm_state, "current_game", "") or "")):
+        return IngressAck(IngressStatus.REJECTED, observation_id, reason="sentence excluded for this game")
+
     source_kind = SourceKind.normalize(source, source_display_name)
+    if ocr_benchmark.recorder.observe(
+        source_kind,
+        guarded_line,
+        captured_at=line_time,
+        source_instance=source_instance or source_display_name or source or source_kind.value,
+        scene=str(getattr(gsm_state, "current_game", "") or ""),
+        observation_id=observation_id,
+        metadata=metadata_extra,
+    ):
+        return IngressAck(IngressStatus.REJECTED, observation_id, reason="automatic OCR recorded for benchmark")
     if is_message_rate_limited(source_kind.value):
         return IngressAck(IngressStatus.REJECTED, observation_id, reason="skip spam detected")
 
@@ -989,7 +1005,20 @@ def ingest_text_v2_payload(payload: dict) -> dict[str, object]:
         merge_fragments=bool(payload.get("merge_fragments", payload.get("mergeFragments", False))),
         wait_projected=False,
         source_sequence=payload.get("source_sequence", payload.get("sourceSequence")),
-        metadata_extra={key: payload[key] for key in ("hookId", "hookFunction", "engine", "exeName") if key in payload},
+        metadata_extra={
+            key: payload[key]
+            for key in (
+                "hookId",
+                "hookFunction",
+                "engine",
+                "exeName",
+                "ocr_engine",
+                "ocr_scene",
+                "ocr_model",
+                "ocr_finder",
+            )
+            if key in payload
+        },
     )
     return ack.to_dict()
 

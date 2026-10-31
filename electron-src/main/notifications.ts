@@ -247,6 +247,26 @@ export function sendGSMReadyNotification(message: string) {
     sendNotification(NotificationType.GSMReady, message, 5000);
 }
 
+/** Keep this available in Windows Notification Center until the warning is resolved. */
+export function sendGamePrivilegeWarningNotification(exeName: string, openGSM: () => void): () => void {
+    if (process.platform !== 'win32' || !Notification.isSupported()) return () => {};
+    const notification = new Notification({
+        icon: getIconPath(),
+        title: 'Restart GSM as administrator',
+        body: `${exeName} is running as administrator, but GSM is not. Capture, text hooks, the overlay, or hotkeys may be affected. Click to open GSM.`,
+        silent: false,
+    });
+    notification.once('click', openGSM);
+    notification.once('failed', (_event, message) => {
+        console.warn('Game administrator notification failed:', message);
+    });
+    notification.show();
+    return () => {
+        notification.removeAllListeners('click');
+        notification.close();
+    };
+}
+
 /** Confirm OS delivery before the restart countdown begins. */
 export async function sendAgentRestartNotification(
     reason: string,

@@ -668,27 +668,83 @@ test('a logged choice hides upcoming ending labels and route completion after it
   }
 });
 
-test('Always mode retains the logged choice until the next detected menu or explicit navigation', async t => {
-  const { controller, settings, advance } = setup(t);
+test('Always mode reveals the next step when the four-second choice confirmation expires', async t => {
+  const { controller, settings, advance, updates, library } = setup(t);
   await controller.configure({ ...settings, vnGuideMode: 'always' });
   controller.setAvailable(true);
   controller.observe(menu);
   advance(1500);
   controller.observe(dialogue);
   assert.equal(controller.snapshot().loggedChoice, '大丈夫');
-  advance(60000);
+  const saved = [];
+  library.save = (_loaded, index) => saved.push(index);
+  advance(3999);
   controller.setAvailable(true);
   assert.equal(controller.snapshot().visible, true);
   assert.equal(controller.snapshot().loggedChoice, '大丈夫');
-  controller.observe(nextMenu);
+  advance(1);
+  controller.setAvailable(true);
   assert.equal(controller.snapshot().loggedChoice, null);
-  assert.equal(controller.snapshot().detected, true);
-  advance(1500);
-  controller.observe(dialogue);
-  assert.equal(controller.snapshot().loggedChoice, '進む');
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().index, 2);
+  assert.equal(controller.snapshot().text, '進む');
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+  assert.equal(updates.at(-1).loggedChoice, null, 'the visible HUD must receive the replacement instruction');
+  assert.equal(updates.at(-1).text, '進む');
+  assert.deepEqual(saved, [], 'the timeout must not advance or save progress again');
+  controller.command('next');
+  assert.equal(controller.snapshot().index, 3, 'Next confirms the instruction already revealed by the timer');
+  assert.deepEqual(saved, [3]);
   controller.command('back');
   assert.equal(controller.snapshot().loggedChoice, null);
   assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ1']);
+});
+
+test('Always mode reveals load instructions, ending labels and completion after the confirmation timeout', async t => {
+  for (const next of ['セーブ1にロード', 'Bad End「雫」 (ED4)', null]) {
+    const steps = next ? ['大丈夫', next] : ['大丈夫'];
+    const { controller, settings, advance, updates } = setup(t, {
+      fetchJson: async source => source.endsWith('/guide.json') ? manifest : steps.map(simpleJp => ({ simpleJp })),
+    });
+    await controller.configure({ ...settings, vnGuideMode: 'always' });
+    controller.setAvailable(true);
+    controller.observe(menu);
+    advance(1500);
+    controller.observe(dialogue);
+    advance(4000);
+    controller.setAvailable(true);
+    assert.equal(updates.at(-1).loggedChoice, null);
+    assert.equal(updates.at(-1).visible, true);
+    assert.equal(updates.at(-1).text, next || '');
+    assert.equal(updates.at(-1).complete, next === null);
+    assert.equal(controller.snapshot().routeId, 'one', 'the timer must not continue to another route');
+  }
+});
+
+test('Always mode pauses the confirmation without capture and respects an explicit hide when it expires', async t => {
+  for (const hidden of [false, true]) {
+    const { controller, settings, advance, updates } = setup(t);
+    await controller.configure({ ...settings, vnGuideMode: 'always' });
+    controller.setAvailable(true);
+    controller.observe(menu);
+    advance(1500);
+    controller.observe(dialogue);
+    if (hidden) controller.command('hide');
+    advance(2000);
+    controller.setAvailable(false);
+    advance(30000);
+    controller.setAvailable(false);
+    assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+    controller.setAvailable(true);
+    assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+    advance(2000);
+    controller.setAvailable(true);
+    assert.equal(updates.at(-1).loggedChoice, null);
+    assert.equal(updates.at(-1).visible, !hidden);
+    if (hidden) controller.command('toggle');
+    assert.equal(controller.snapshot().visible, true);
+    assert.equal(controller.snapshot().text, '進む');
+  }
 });
 
 test('manual Next shows the next instruction without a logged confirmation', async t => {
@@ -713,7 +769,7 @@ test('manual Next shows the next instruction without a logged confirmation', asy
 
 test('Right after automatic progress reveals the pending choice without consuming it or saving again', async t => {
   for (const mode of ['auto', 'always', 'hotkey']) {
-    for (const delay of [0, 5000]) {
+    for (const delay of mode === 'always' ? [0, 3999] : [0, 5000]) {
       const { controller, settings, advance, library } = setup(t);
       await controller.configure({ ...settings, vnGuideMode: mode });
       controller.setAvailable(true);

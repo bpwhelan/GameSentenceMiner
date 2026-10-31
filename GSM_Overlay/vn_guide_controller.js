@@ -1,4 +1,4 @@
-const { GuideTracker, normalizeChoice } = require('./vn_guide');
+const { GuideTracker, normalizeChoice, parseGuideUrl } = require('./vn_guide');
 const { prepareTextLines } = require('./block_detection');
 const { UPDATE_INTERVAL_MS } = require('./vn_guide_library');
 
@@ -17,6 +17,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
   let dismissedAtChoice = false;
   let lastActivity = null;
   let sourceKey = '';
+  let sourceUrl = '';
   let game = null;
   let loggedChoice = null;
   let loggedUntil = 0;
@@ -40,13 +41,14 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
     const saveInstructions = tracker?.saveInstructions || [];
     const saveNotice = loggedChoice === null && saveInstructions.length > 0 && mode === 'auto' && peek !== true && !tracker.detected && saveNoticeUntil > now();
     const automatic = tracker && (mode === 'always' || mode === 'auto' && (tracker.detected || tracker.current?.kind !== 'choice' || saveNotice));
-    // Keep the confirmation state after its timer expires so the upcoming step
-    // (including ending labels and completion) cannot replace it automatically.
+    // Auto and hotkey modes retain the expired confirmation so the upcoming
+    // step stays hidden. Always mode clears it on the availability tick.
     const showing = loggedChoice !== null
       ? mode === 'always' || (mode === 'auto' || peek === true) && now() < loggedUntil
       : peek ?? !!automatic;
     return {
       enabled: settings.vnGuideEnabled === true, loading, error, mode,
+      sourceUrl,
       checkingUpdates, updateAvailable, updateError, lastCheckedAt,
       displayStyle: settings.vnGuideDisplayStyle === 'text' ? 'text' : 'card',
       visible: !disposed && available && settings.vnGuideEnabled === true && !!tracker && !dismissed && showing,
@@ -168,6 +170,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
   async function configure(nextSettings, { refresh = false } = {}) {
     if (nextSettings.vnGuideMode !== settings.vnGuideMode) resetVisibility();
     settings = { ...nextSettings };
+    try { sourceUrl = parseGuideUrl(settings.vnGuideUrl).baseUrl; } catch { sourceUrl = ''; }
     const key = JSON.stringify([settings.vnGuideEnabled === true, settings.vnGuideUrl || '', settings.vnGuideRoute || '']);
     if (!refresh && key === sourceKey) { publish(); return snapshot(); }
     sourceKey = key;
@@ -250,7 +253,10 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
     }
     if (changedGame) { tracker?.resetDetection(); resetVisibility(); clearLoggedChoice(); lastActivity = null; }
     if (next && saveNoticeUntil === null) saveNoticeUntil = now() + 8000;
-    if (next !== available || changedGame || snapshot().visible !== lastVisible) {
+    const showNextStep = next && settings.vnGuideMode === 'always' && loggedChoice !== null && now() >= loggedUntil;
+    if (showNextStep) clearLoggedChoice();
+    // Publish the replacement even though Always mode keeps the HUD visible.
+    if (next !== available || changedGame || showNextStep || snapshot().visible !== lastVisible) {
       available = next;
       publish();
     }
