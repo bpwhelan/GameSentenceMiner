@@ -1213,6 +1213,39 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         expect(launcher.handleLunaAutomation).not.toHaveBeenCalled();
     });
 
+    it('prefers the configured executable over the Xcomposite window class on Linux', async () => {
+        Object.defineProperty(process, 'platform', {
+            value: 'linux',
+            configurable: true,
+        });
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Danganronpa' };
+
+        getSceneLaunchProfileForSceneMock.mockReturnValue({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'luna',
+            ocrMode: 'none',
+            launchOverlay: false,
+            agentScriptPath: '',
+            launchDelaySeconds: 0,
+        });
+        // Proton windows report steam_app_<appid> as their X11 window class.
+        getExecutableNameFromSourceMock.mockResolvedValue('steam_app_413410');
+        getGameExePathForSceneMock.mockReturnValue('/games/Danganronpa/DR1_us.exe');
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(70686);
+        launcher.handleLunaAutomation = vi.fn().mockResolvedValue(undefined);
+
+        await launcher.runTextHookAutomation(scene);
+
+        expect(launcher.getPidByProcessName).toHaveBeenCalledWith('DR1_us.exe');
+        expect(launcher.getPidByProcessName).not.toHaveBeenCalledWith('steam_app_413410');
+        expect(startHookSessionMock).toHaveBeenCalledWith(
+            expect.objectContaining({ exeName: 'DR1_us.exe', pidOverride: 70686 })
+        );
+    });
+
     it('resolves Linux target PIDs through procfs instead of a shell command', async () => {
         Object.defineProperty(process, 'platform', {
             value: 'linux',
