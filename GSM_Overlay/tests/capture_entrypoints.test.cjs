@@ -434,7 +434,7 @@ test('renderer capture state suppresses controller and keyboard entry and clears
     const dictionaryReader = 'yomitan', showFurigana = false, pendingManualRevealForBackground = false;
     const isManualInteractionSuppressed = () => false;
     window.popupCloseRequests = 0;
-    const cancelDeferredManualReveal = () => {}, closeYomitanLookups = () => { window.popupCloseRequests++; };
+    const cancelDeferredManualReveal = () => {}, closeDictionaryLookups = () => { window.popupCloseRequests++; };
     const updateGamepadStatusIndicator = () => {};
     const gamepadSettings = { enabled: true, controllerEnabled: true, keyboardEnabled: true };
     ${between(renderer, '  function shouldUseGamepadHandler()', '  async function ensureGamepadModuleLoaded()')}

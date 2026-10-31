@@ -10,7 +10,7 @@ function setup(enabled = false, reader = 'yomitan') {
   const listeners = new Map(), closed = [];
   const context = vm.createContext({
     hideYomitanAfterMine: enabled, dictionaryReader: reader, console: { log() {} },
-    closeYomitanLookups: reason => { closed.push(reason); return Promise.resolve(); },
+    closeDictionaryLookups: reason => { closed.push(reason); return Promise.resolve(); },
     OverlayUtils: { hideYomitan: () => { throw new Error('Mining must not simulate a click'); } },
     CustomEvent: class { constructor(type) { this.type = type; } },
     window: {
@@ -45,5 +45,5 @@ test('opt-in closes Yomitan through its bridge only after mining success', () =>
 test('the same opt-in continues to close Hachidori after mining', () => {
   const fixture = setup(true, 'hachidori');
   fixture.saved();
-  assert.deepEqual(fixture.closed, ['hachidori']);
+  assert.deepEqual(fixture.closed, ['note-added']);
 });

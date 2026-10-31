@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
-const { loadOverlayStartup, rendererGamepadConfigSource } = require('./helpers/overlay-startup.cjs');
+const { between, loadOverlayStartup, rendererGamepadConfigSource } = require('./helpers/overlay-startup.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-hachidori-smoke-'));
 app.setPath('userData', path.join(root, 'profile'));
 app.commandLine.appendSwitch('disable-gpu');
@@ -252,6 +252,64 @@ app.whenReady().then(async () => {
   await win.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   await win.capturePage().then(image => fs.writeFileSync(path.join(root, 'smoke.png'), image.toPNG()));
   console.log('Screenshot:', path.join(root, 'smoke.png'));
+  const renderer = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  // Exercise the production manual-release handler across Chromium's extension
+  // isolation, using real popup lifecycle events rather than host-attention events.
+  await win.webContents.executeJavaScript(`(async () => {
+    const assert = (condition, message) => { if (!condition) throw new Error(message); };
+    const wait = async (check, label) => {
+      for (let attempt = 0; attempt < 150; attempt++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 20)); }
+      throw new Error('Timed out: ' + label);
+    };
+    await gsmHachidoriBridge.closePopups();
+    const listeners = new Map();
+    const ipcRenderer = { on: (channel, callback) => listeners.set(channel, callback), send() {} };
+    const dictionaryReader = 'hachidori', pinned = false, isMagpieActive = false;
+    let manualModeType = 'toggle', manualHotkeyPressed = true, manualModeActivatedOnce = true;
+    let yomitanShowing = false, yomitanPopupCount = 0, hideOnYomitanClose = false;
+    const yomitanPopupIds = new Set();
+    let lastPopupCount = 0, lastPopupChangeTime = 0, releaseFinished = false;
+    const textHover = { reset() {} };
+    const cancelDeferredManualReveal = () => {}, clearManualDesktopBackground = () => {};
+    const setManualInteractionSuppressed = () => {}, shouldHideOverlayWhenManualInactive = () => true;
+    const applyManualInactivePresentation = () => { releaseFinished = true; };
+    const requestJitenReaderGradingSettings = () => {}, pushJitenGradingConfig = () => {};
+    ${between(renderer, '  async function closeDictionaryLookups', '  function getGsmDictionaryUrls')}
+    ${between(renderer, '  function handleDictionaryPopupShown', '  const HACHIDORI_EXTERNAL_LINK_RESULT_EVENT')}
+    ${between(renderer, "  ipcRenderer.on('show-overlay-hotkey'", '  // Dedicated AFK hide channel')}
+    for (const mode of ['toggle', 'hold']) {
+      manualModeType = mode;
+      manualHotkeyPressed = true;
+      releaseFinished = false;
+      window.fixtureHandler.triggerDictionaryLookup({ targetChar: document.querySelector('.text-box'), centerX: 95, centerY: 100 });
+      await wait(() => yomitanPopupCount === 1, mode + ' tracked root popup');
+      document.querySelector('hachidori-host').shadowRoot.querySelector('[data-hoshidicts-query="犬"]').click();
+      await wait(() => yomitanPopupCount === 2, mode + ' tracked nested popup');
+      listeners.get('show-overlay-hotkey')({}, false);
+      if (mode === 'hold') {
+        assert(yomitanShowing && hideOnYomitanClose, 'Hold release must preserve the popup');
+        assert((await gsmHachidoriBridge.state()).popups.length === 2, 'Hold release preserves real nested popups');
+        await gsmHachidoriBridge.closePopups();
+      }
+      await wait(() => !yomitanShowing && releaseFinished, mode + ' release completed');
+      assert((await gsmHachidoriBridge.state()).popups.length === 0, mode + ' real popups closed');
+    }
+    manualModeType = 'toggle';
+    manualHotkeyPressed = true;
+    releaseFinished = false;
+    const lateTarget = document.querySelectorAll('.text-box')[2];
+    lateTarget.setAttribute('data-gsm-hachidori-lookup-target', 'manual-late');
+    await gsmHachidoriBridge.control('lookup-point', { targetId: 'manual-late' });
+    listeners.get('show-overlay-hotkey')({}, false);
+    await wait(() => releaseFinished, 'pending lookup release');
+    await new Promise(resolve => setTimeout(resolve, 400));
+    assert((await gsmHachidoriBridge.state()).popups.length === 0, 'Late lookup must not reopen after toggle-off');
+    window.removeEventListener('yomitan-popup-shown', handleDictionaryPopupShown);
+    window.removeEventListener('yomitan-popup-hidden', handleDictionaryPopupHidden);
+    window.removeEventListener('gsm-hachidori-popup-shown', handleDictionaryPopupShown);
+    window.removeEventListener('gsm-hachidori-popup-hidden', handleDictionaryPopupHidden);
+  })()`);
+  console.log('Hachidori manual toggle, hold, nested-popup, and late-lookup smoke passed.');
   await win.webContents.executeJavaScript('window.fixtureHandler.destroy();');
   win.destroy(); clearTimeout(timeout); app.exit(0);
 }).catch(error => { console.error(error); clearTimeout(timeout); app.exit(1); });

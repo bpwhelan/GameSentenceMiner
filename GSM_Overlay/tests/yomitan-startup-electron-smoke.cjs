@@ -53,7 +53,7 @@ app.whenReady().then(async () => {
     window.addEventListener('yomitan-popup-shown', () => { yomitanShowing = true; });
     window.addEventListener('yomitan-popup-hidden', () => { yomitanShowing = false; window.popupHideCount++; });
     window.addEventListener('gsm-anki-note-added', () => { window.minedNotes++; });
-    ${between(renderer, '  async function closeYomitanLookups(', '  function getGsmDictionaryUrls(')}
+    ${between(renderer, '  async function closeDictionaryLookups(', '  function getGsmDictionaryUrls(')}
     ${between(renderer, '  // Listen for mining success signal', '  let unHoverTimer')}
   </script>` : '';
   // Like index.html, install hover routing before Yomitan's document_idle script.

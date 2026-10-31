@@ -1231,25 +1231,25 @@ background: rgba(202, 12, 12, 0.692);
   let gsmCharacterDictionaryEnsureTimeoutId = null;
   let gsmCharacterDictionaryEnsureInProgress = false;
 
-  async function closeYomitanLookups(reason = 'manual-hide') {
-    if (!yomitanShowing) {
-      return false;
-    }
-
+  async function closeDictionaryLookups(reason = 'manual-hide') {
+    // Close through the loaded reader, including lookups that have not reported
+    // a visible popup yet, so a late result cannot reopen it after deactivation.
     hideOnYomitanClose = false;
 
-    const bridge = window.gsmYomitanBridge;
+    const isHachidori = dictionaryReader === 'hachidori';
+    const readerName = isHachidori ? 'Hachidori' : 'Yomitan';
+    const bridge = isHachidori ? window.gsmHachidoriBridge : window.gsmYomitanBridge;
     if (!bridge || typeof bridge.closePopups !== 'function') {
-      console.warn(`[Yomitan] closePopups bridge unavailable (${reason})`);
+      console.warn(`[${readerName}] closePopups bridge unavailable (${reason})`);
       return false;
     }
 
     try {
       await bridge.closePopups({ timeoutMs: 1500 });
-      console.log(`[Yomitan] Requested popup close (${reason})`);
+      console.log(`[${readerName}] Requested popup close (${reason})`);
       return true;
     } catch (error) {
-      console.warn(`[Yomitan] Failed to close popups via bridge (${reason}):`, error);
+      console.warn(`[${readerName}] Failed to close popups via bridge (${reason}):`, error);
       return false;
     }
   }
@@ -1428,7 +1428,7 @@ background: rgba(202, 12, 12, 0.692);
   // });
 
   function handleDictionaryPopupShown(event) {
-    const isHachidori = event.type === 'hachidori-popup-shown';
+    const isHachidori = event.type === 'gsm-hachidori-popup-shown';
     const readerName = isHachidori ? 'Hachidori' : 'Yomitan';
     const popupId = event.detail?.popupId
       || (isHachidori ? 'hachidori-root' : `popup-${Date.now()}-${Math.random()}`);
@@ -1452,7 +1452,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function handleDictionaryPopupHidden(event) {
-    const isHachidori = event.type === 'hachidori-popup-hidden';
+    const isHachidori = event.type === 'gsm-hachidori-popup-hidden';
     const readerName = isHachidori ? 'Hachidori' : 'Yomitan';
     const popupId = event.detail?.popupId || (isHachidori ? 'hachidori-root' : null);
 
@@ -1490,8 +1490,10 @@ background: rgba(202, 12, 12, 0.692);
 
   window.addEventListener('yomitan-popup-shown', handleDictionaryPopupShown);
   window.addEventListener('yomitan-popup-hidden', handleDictionaryPopupHidden);
-  window.addEventListener('hachidori-popup-shown', handleDictionaryPopupShown);
-  window.addEventListener('hachidori-popup-hidden', handleDictionaryPopupHidden);
+  // Native host-attention events also fire for text selection. Only the GSM
+  // bridge's lifecycle events describe actual root and nested popup visibility.
+  window.addEventListener('gsm-hachidori-popup-shown', handleDictionaryPopupShown);
+  window.addEventListener('gsm-hachidori-popup-hidden', handleDictionaryPopupHidden);
 
   const HACHIDORI_EXTERNAL_LINK_RESULT_EVENT = 'hachidori-open-external-result';
   window.addEventListener('hachidori-open-external', async (event) => {
@@ -1756,8 +1758,7 @@ background: rgba(202, 12, 12, 0.692);
   window.addEventListener('gsm-anki-note-added', (event) => {
     console.log('Received mining success signal');
     if (hideYomitanAfterMine === true) {
-      if (dictionaryReader === 'hachidori') void window.gsmHachidoriBridge?.closePopups().catch(console.warn);
-      else void closeYomitanLookups('note-added');
+      void closeDictionaryLookups('note-added');
     }
   });
   // Bridge: listen for postMessage from Yomitan iframe/extension and re-dispatch as CustomEvent
@@ -5338,23 +5339,19 @@ background: rgba(202, 12, 12, 0.692);
         applyManualInactivePresentation('manual-hotkey-release');
       };
 
-      if (yomitanShowing) {
-        if (manualModeType === "hold") {
-          hideOnYomitanClose = true;
-          setManualInteractionSuppressed(true);
-          if (shouldHideOverlayWhenManualInactive() && !pinned) {
-            document.body.classList.remove('force-visible');
-          } else {
-            document.body.classList.add('force-visible');
-          }
-          return;
+      if (yomitanShowing && manualModeType === "hold") {
+        hideOnYomitanClose = true;
+        setManualInteractionSuppressed(true);
+        if (shouldHideOverlayWhenManualInactive() && !pinned) {
+          document.body.classList.remove('force-visible');
+        } else {
+          document.body.classList.add('force-visible');
         }
-        void closeYomitanLookups('manual-hotkey-release').finally(() => {
-          finishManualHotkeyRelease();
-        });
         return;
       }
-      finishManualHotkeyRelease();
+      void closeDictionaryLookups('manual-hotkey-release').finally(() => {
+        finishManualHotkeyRelease();
+      });
     }
   });
 
@@ -6160,8 +6157,7 @@ background: rgba(202, 12, 12, 0.692);
     gamepadHandler?.setInputSuppressed(gamepadInputSuppressed || !overlayCaptureAvailable);
     if (!overlayCaptureAvailable) {
       cancelDeferredManualReveal();
-      void closeYomitanLookups('capture-unavailable');
-      if (dictionaryReader === 'hachidori') void window.gsmHachidoriBridge?.closePopups().catch(console.warn);
+      void closeDictionaryLookups('capture-unavailable');
     }
     updateGamepadStatusIndicator();
   });
