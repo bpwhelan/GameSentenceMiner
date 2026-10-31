@@ -90,7 +90,7 @@ def build(output):
             str(package / "source"),
             "-B",
             str(work / "build"),
-            f"-DVOCR_SOURCE_DIR={source / 'runtime'}",
+            f"-DVOCR_SOURCE_DIR={(source / 'runtime').as_posix()}",
             "-DCMAKE_BUILD_TYPE=Release",
         ]
         if sys.platform == "win32":
