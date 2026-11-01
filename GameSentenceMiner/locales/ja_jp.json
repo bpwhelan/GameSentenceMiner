@@ -2,6 +2,7 @@
   "python": {
     "config": {
       "app": {
+        "settings_heading": "設定",
         "title": "GameSentenceMiner 設定",
         "title_with_profile": "GameSentenceMiner 設定 - {profile_name}"
       },

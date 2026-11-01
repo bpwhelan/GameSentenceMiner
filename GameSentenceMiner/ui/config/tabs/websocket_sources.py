@@ -52,21 +52,8 @@ class WebsocketSourcesEditor(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.table.setFixedHeight(200)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #333;
-                border-radius: 4px;
-                gridline-color: #2a2a2a;
-            }
-            QHeaderView::section {
-                background-color: #1e1e1e;
-                color: #ccc;
-                border: none;
-                padding: 4px;
-                font-size: 11px;
-            }
-        """)
+        self.table.setFixedHeight(148)
+        self.table.setAlternatingRowColors(True)
         layout.addWidget(self.table)
 
         # Buttons row
@@ -86,7 +73,7 @@ class WebsocketSourcesEditor(QWidget):
         btn_layout.addWidget(self.reset_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
-        self.setFixedHeight(240)
+        self.setFixedHeight(188)
 
     # ---- Data <-> UI ----
     def set_sources(self, sources: List[WebsocketInputSource]) -> None:
