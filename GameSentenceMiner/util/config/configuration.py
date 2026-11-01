@@ -1280,12 +1280,13 @@ class VAD:
     whisper_model: str = WHISPER_BASE
     do_vad_postprocessing: bool = True
     # vosk_url: str = VOSK_BASE
-    selected_vad_model: str = SILERO
-    selected_vad_model_v2: str = SILERO
+    selected_vad_model: str = FIRERED
+    selected_vad_model_v2: str = FIRERED
     backup_vad_model: str = OFF
-    # New profiles and later explicit model choices have already adopted the
-    # current default. Older saved profiles are migrated before deserialization.
+    # Retained for compatibility with profiles written during the Silero-default release.
     silero_default_migrated: bool = True
+    # New profiles and later explicit model choices have adopted the current default.
+    firered_default_migrated: bool = True
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     adaptive_preroll: bool = False
@@ -2131,15 +2132,15 @@ class Config:
         if not isinstance(profile_data, dict):
             return
         vad = profile_data.get("vad")
-        if not isinstance(vad, dict) or vad.get("silero_default_migrated"):
+        if not isinstance(vad, dict) or vad.get("firered_default_migrated"):
             return
 
-        # FireRed can classify background audio as speech through the end of a
-        # clip. Replace only the former default pair, once per saved profile.
-        # Mark other pairs too so later intentional FireRed/OFF choices survive.
-        if vad.get("selected_vad_model_v2") == FIRERED and vad.get("backup_vad_model", OFF) == OFF:
-            vad["selected_vad_model_v2"] = SILERO
-        vad["silero_default_migrated"] = True
+        # Move profiles using Silero or no VAD to the FireRed default once.
+        # Fall back to the legacy setting when the v2 setting is absent.
+        selected_model = vad.get("selected_vad_model_v2", vad.get("selected_vad_model", OFF))
+        if selected_model in (SILERO, OFF, None):
+            vad["selected_vad_model_v2"] = FIRERED
+        vad["firered_default_migrated"] = True
 
     @staticmethod
     def _migrate_process_pausing_data(profile_data: Dict[str, Any]) -> None:
