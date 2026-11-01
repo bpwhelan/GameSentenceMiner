@@ -203,6 +203,21 @@
             "label": "Omitir confirmación en líneas sin voz:",
             "tooltip": "Advertencia: omite la confirmación cuando VAD no detecta voz. La ventana de confirmación se creó originalmente para comprobar los resultados de VAD en líneas sin voz detectada. Omitirla puede dejar pasar voz no detectada y crear tarjetas sin audio de voz."
           },
+          "confirmation_focus_behavior": {
+            "label": "Comportamiento del foco"
+          },
+          "confirmation_always_on_top": {
+            "label": "Siempre visible:",
+            "tooltip": "Mantener el diálogo de confirmación de Anki por encima de otras ventanas mientras esté abierto."
+          },
+          "confirmation_focus_on_show": {
+            "label": "Enfocar al abrir:",
+            "tooltip": "Intentar dar el foco al diálogo de confirmación de Anki cuando se abre."
+          },
+          "confirmation_restore_focus": {
+            "label": "Devolver el foco al cerrar:",
+            "tooltip": "Devolver el foco a la ventana de destino o a la ventana que lo tenía antes al cerrar el diálogo de confirmación. Desactiva esta opción para no cambiar el foco."
+          },
           "confirmation_audio_step": {
             "label": "Paso de ampliación del audio:",
             "tooltip": "Segundos añadidos con cada clic en un botón de ampliación del audio en el diálogo de confirmación."

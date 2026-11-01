@@ -2746,7 +2746,8 @@ class AnkiConfirmationDialog(QDialog):
         finally:
             if pause_requested:
                 request_anki_confirmation_process_pause(False)
-        _request_game_focus_restore(previous_foreground_hwnd)
+        if getattr(get_config().anki, "confirmation_restore_focus", True):
+            _request_game_focus_restore(previous_foreground_hwnd)
         return result
 
 

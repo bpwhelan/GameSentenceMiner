@@ -848,6 +848,7 @@ class Anki:
     auto_accept_timer: int = 10
     confirmation_always_on_top: bool = True
     confirmation_focus_on_show: bool = True
+    confirmation_restore_focus: bool = True
     confirmation_audio_step: float = 0.25
     confirmation_gamepad_enabled: bool = False
     confirmation_gamepad_focus_up: str = "12"
@@ -2386,6 +2387,7 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "auto_accept_timer")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_restore_focus")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_audio_step")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_enabled")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_up")

@@ -351,11 +351,13 @@ def test_confirmation_logs_first_paint_once_per_card(focus_confirmation_dialog, 
 @pytest.mark.parametrize("focus_on_show", [False, True])
 @pytest.mark.parametrize("finish", ["accept", "reject", "close"])
 @pytest.mark.parametrize("pause_succeeded", [False, True])
+@pytest.mark.parametrize("restore_focus_enabled", [False, True])
 def test_confirmation_game_pause_lasts_until_dialog_finishes(
-    focus_confirmation_dialog, monkeypatch, focus_on_show, finish, pause_succeeded
+    focus_confirmation_dialog, monkeypatch, focus_on_show, finish, pause_succeeded, restore_focus_enabled
 ):
     dialog, config = focus_confirmation_dialog
     config.anki.confirmation_focus_on_show = focus_on_show
+    config.anki.confirmation_restore_focus = restore_focus_enabled
     calls = []
     visible_when_finished = []
     monkeypatch.setattr(anki_confirmation_qt, "activate_window", lambda _window: True)
@@ -382,8 +384,13 @@ def test_confirmation_game_pause_lasts_until_dialog_finishes(
     dialog.exec()
 
     assert visible_when_finished == [True]
-    assert focus_restore_visibility == [False]
-    assert calls == [True, "finish", *([False] if pause_succeeded else []), "restore"]
+    assert focus_restore_visibility == ([False] if restore_focus_enabled else [])
+    assert calls == [
+        True,
+        "finish",
+        *([False] if pause_succeeded else []),
+        *(["restore"] if restore_focus_enabled else []),
+    ]
 
 
 @pytest.mark.parametrize("finish", ["reject", "close"])
