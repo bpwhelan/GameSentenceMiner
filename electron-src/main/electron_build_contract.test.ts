@@ -5,6 +5,13 @@ import { validateConfiguration } from 'app-builder-lib/out/util/config/config.js
 import { describe, expect, it } from 'vitest';
 
 describe('Electron build configuration', () => {
+    it('starts normal and watched development sessions through the branded launcher', () => {
+        const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+        expect(packageJson.scripts.start).toBe('npm run build && node scripts/electron-start.cjs');
+        expect(fs.readFileSync('scripts/electron-dev-once.cjs', 'utf8')).toContain("require('./electron-start.cjs')");
+        expect(fs.readFileSync('scripts/run-update-chaos.cjs', 'utf8')).toContain("require('./electron-start.cjs')");
+    });
+
     it('compiles and packages shared modules used by the main process', () => {
         const repoRoot = process.cwd();
         const electronTsconfig = JSON.parse(

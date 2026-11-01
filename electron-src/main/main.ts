@@ -52,6 +52,7 @@ import {
     writeDataDirRegistry,
 } from './data_dir.js';
 import { performDataMove, validateTargetDir, type RelocateProgress } from './services/data_relocate.js';
+import { getWindowsAppDetails, getWindowsAppId } from './windows_app_identity.js';
 import { fileURLToPath } from 'node:url';
 
 import log from 'electron-log/main.js';
@@ -152,10 +153,7 @@ import {
     DesktopChangelogManager,
     getDesktopUpdateChangelogTarget,
 } from './services/desktop_changelog.js';
-import {
-    registerChangelogProtocolHandler,
-    registerChangelogProtocolScheme,
-} from './services/changelog_protocol.js';
+import { registerChangelogProtocolHandler } from './services/changelog_protocol.js';
 import { startInputServer, stopInputServer } from './services/input_server.js';
 import { getConfiguredSinglePort } from './gsm_config.js';
 import {
@@ -193,8 +191,6 @@ import type {
 import { INSTALL_STAGE_IDS } from '../shared/install_session.js';
 import { requiresBackendStartupPreparation } from './services/backend_version.js';
 
-registerChangelogProtocolScheme();
-
 export class FeatureFlags {
     /**
      * Controls whether the Agent auto-launcher is enabled by default.
@@ -213,7 +209,6 @@ export class FeatureFlags {
     static DISABLE_GPU_INSTALLS = false;
 }
 
-const APP_USER_MODEL_ID = 'com.beangate.gamesentenceminer';
 const YOUTUBE_EMBED_REFERER = 'https://github.com/bpwhelan/GameSentenceMiner/';
 let cachedPreReleaseBranch: string | null | undefined = undefined;
 
@@ -978,12 +973,25 @@ export function applyIconStyle(nextIconStyle?: string): void {
     refreshIconPresentation();
 }
 
+function applyMainWindowAppDetails(): void {
+    if (!isWindows() || !mainWindow || mainWindow.isDestroyed()) return;
+    // Windows taskbar groups/pinned entries also need shell metadata; setIcon
+    // alone only changes the native window icon.
+    mainWindow.setAppDetails(getWindowsAppDetails({
+        isPackaged: app.isPackaged,
+        executable: process.execPath,
+        appPath: app.getAppPath(),
+        iconPath: getIconPath(),
+    }));
+}
+
 function refreshIconPresentation(): void {
     const windowIconPath = getIconPath();
 
     if (mainWindow && !mainWindow.isDestroyed()) {
         try {
             mainWindow.setIcon(windowIconPath);
+            applyMainWindowAppDetails();
         } catch (error) {
             console.warn('Failed to update main window icon:', error);
         }
@@ -1773,6 +1781,7 @@ async function createWindow() {
         }),
         title: windowTitle,
     });
+    applyMainWindowAppDetails();
     configureYouTubeEmbedHeaders(mainWindow);
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -2841,18 +2850,18 @@ async function startDesktopDependencies(): Promise<void> {
     ]);
 }
 
+app.setName(APP_NAME);
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 // Expose the resolved data dir to every spawned child (overlay binary, python) via inherited env.
 process.env.GSM_DATA_DIR = BASE_DIR;
 // Keep the legacy registry mirror current for Windows integrations and diagnostics.
 writeDataDirRegistry(BASE_DIR);
 if (isWindows()) {
-    app.setAppUserModelId(APP_USER_MODEL_ID);
+    app.setAppUserModelId(getWindowsAppId(app.isPackaged));
 }
 
-// Fix for name and icon on macOS
+// macOS uses a separate dock icon.
 if (process.platform === 'darwin') {
-    app.setName(APP_NAME);
     app.dock?.setIcon(getIconPath());
 }
 

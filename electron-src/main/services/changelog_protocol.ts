@@ -1,4 +1,4 @@
-import { net, protocol } from 'electron';
+import { net, protocol, type CustomScheme } from 'electron';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -14,18 +14,15 @@ const MEDIA_EXTENSIONS = new Set([
     '.webp',
 ]);
 
-export function registerChangelogProtocolScheme(): void {
-    protocol.registerSchemesAsPrivileged([
-        {
-            scheme: CHANGELOG_SCHEME,
-            privileges: {
-                standard: true,
-                secure: true,
-                supportFetchAPI: true,
-            },
-        },
-    ]);
-}
+// Bootstrap registers these privileges synchronously, before any dev-runtime I/O.
+export const CHANGELOG_PROTOCOL_SCHEME: CustomScheme = {
+    scheme: CHANGELOG_SCHEME,
+    privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+    },
+};
 
 export function registerChangelogProtocolHandler(assetsDir: string): void {
     const changelogRoot = path.resolve(assetsDir, 'changelog');
