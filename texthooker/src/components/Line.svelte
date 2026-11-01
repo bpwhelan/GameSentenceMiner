@@ -505,7 +505,7 @@
 			{#if line.excludedFromStats}
 				<div
 					class="line-badge unselectable"
-					title="This line was relayed while GSM text intake was paused, so GSM did not count it toward stats or trigger overlay processing."
+					title="GSM did not count this line toward stats because collection was paused or the line was excluded by spam detection or another explicit exclusion."
 					tabindex="-1"
 				>
 					Not in GSM stats
