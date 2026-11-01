@@ -27,7 +27,7 @@ from urllib.parse import quote
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
-from GameSentenceMiner.ui.qt_theme import MUTED, SUCCESS, WARNING_STYLE, apply_compact_theme
+from GameSentenceMiner.ui.qt_theme import apply_compact_theme, set_status_style
 from GameSentenceMiner.ui.window_activation import activate_window, get_foreground_window_handle
 from GameSentenceMiner.replay_handler import request_dialogue_replay_refresh
 from GameSentenceMiner.util.config.configuration import (
@@ -366,13 +366,13 @@ class AnkiConfirmationDialog(QDialog):
         self._dialogue_replay_poll_timer.timeout.connect(self._poll_dialogue_replay_refresh)
 
         self.setWindowTitle("Confirm Anki Card Details")
-        apply_compact_theme(self)
         self._apply_window_behavior_preferences()
         self.setModal(True)
         self.setMinimumSize(560, 480)
         self.resize(680, 720)
 
         self._init_ui()
+        apply_compact_theme(self)
 
     def _init_ui(self):
         # Top-level layout
@@ -401,12 +401,12 @@ class AnkiConfirmationDialog(QDialog):
         self.overlay_source_warning_label.setWordWrap(True)
         self.overlay_source_warning_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.overlay_source_warning_label.setTextFormat(Qt.TextFormat.RichText)
-        self.overlay_source_warning_label.setStyleSheet(WARNING_STYLE)
+        set_status_style(self.overlay_source_warning_label, "warning", boxed=True)
         self.overlay_source_warning_label.setVisible(False)
         review_layout.addWidget(self.overlay_source_warning_label)
 
         self.auto_accept_label = QLabel()
-        self.auto_accept_label.setStyleSheet("color: #b6d2f4; font-weight: 600; padding: 4px;")
+        set_status_style(self.auto_accept_label, "accent")
         self.auto_accept_label.setVisible(False)
         review_layout.addWidget(self.auto_accept_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -458,9 +458,7 @@ class AnkiConfirmationDialog(QDialog):
         self.dialogue_timeline = QLabel()
         self.dialogue_timeline.setWordWrap(True)
         self.dialogue_timeline.setTextFormat(Qt.TextFormat.RichText)
-        self.dialogue_timeline.setStyleSheet(
-            "background: #1c2027; border: 1px solid #363e4b; border-radius: 4px; padding: 7px;"
-        )
+        self.dialogue_timeline.setProperty("role", "timeline")
         self.grid_layout.addWidget(self.dialogue_timeline, row, 1)
         row += 1
 
@@ -553,7 +551,7 @@ class AnkiConfirmationDialog(QDialog):
         self.animated_audio_notice_label = QLabel(
             "Heads up: adding audio padding regenerates the AVIF; trimming shorter reuses the background render."
         )
-        self.animated_audio_notice_label.setStyleSheet(WARNING_STYLE)
+        set_status_style(self.animated_audio_notice_label, "warning", boxed=True)
         self.animated_audio_notice_label.setWordWrap(True)
         self.animated_audio_notice_label.setVisible(False)
         review_layout.addWidget(self.animated_audio_notice_label)
@@ -600,7 +598,7 @@ class AnkiConfirmationDialog(QDialog):
 
         # Codec compatibility info label
         self.codec_info_label = QLabel()
-        self.codec_info_label.setStyleSheet(WARNING_STYLE)
+        set_status_style(self.codec_info_label, "warning", boxed=True)
         self.codec_info_label.setWordWrap(True)
         self.codec_info_label.setVisible(False)
         audio_layout.addWidget(self.codec_info_label)
@@ -660,7 +658,7 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout.addLayout(audio_controls)
 
         self.cut_status_label = QLabel()
-        self.cut_status_label.setStyleSheet("color: #ffb3ad;")
+        set_status_style(self.cut_status_label, "danger")
         self.cut_status_label.setVisible(False)
         audio_layout.addWidget(self.cut_status_label)
 
@@ -842,22 +840,22 @@ class AnkiConfirmationDialog(QDialog):
         if self.reusing_screenshot:
             self.image_label.setPixmap(QPixmap())
             self.image_label.setText("Reusing screenshot from the previous mining operation.")
-            self.image_label.setStyleSheet(f"color: {SUCCESS}; font-weight: 600;")
+            set_status_style(self.image_label, "success")
         else:
             self._load_image_to_label(self.screenshot_path, self.image_label)
 
         # Show animated screenshot status if pending
         if self.reusing_screenshot:
             self.screenshot_button.setText("Change reused screenshot")
-            self.screenshot_button.setStyleSheet(f"color: {SUCCESS}; font-weight: 600;")
+            set_status_style(self.screenshot_button, "success")
             self.screenshot_button.setEnabled(True)
         elif pending_animated:
             self.screenshot_button.setText("Replace animation with screenshot(s)")
-            self.screenshot_button.setStyleSheet("color: #ff8c00; font-weight: bold;")
+            set_status_style(self.screenshot_button, "warning")
             self.screenshot_button.setEnabled(True)
         else:
             self.screenshot_button.setText("Change screenshot")
-            self.screenshot_button.setStyleSheet("")
+            set_status_style(self.screenshot_button, "")
             self.screenshot_button.setEnabled(True)
         animated_extension = getattr(get_config().screenshot.animated_settings, "extension", "").lower()
         self.animated_audio_notice_label.setVisible(bool(pending_animated and animated_extension == "avif"))
@@ -925,7 +923,7 @@ class AnkiConfirmationDialog(QDialog):
 
         if isinstance(path, ScreenshotSelectionResult):
             path = path.items[0].path
-        label_widget.setStyleSheet("")
+        set_status_style(label_widget, "")
         if not path or not os.path.exists(path):
             label_widget.setPixmap(QPixmap())
             label_widget.setText("Image not found")
@@ -955,7 +953,7 @@ class AnkiConfirmationDialog(QDialog):
         except Exception as e:
             label_widget.setPixmap(QPixmap())
             label_widget.setText(f"Could not load image:\n{e}")
-            label_widget.setStyleSheet("color: red;")
+            set_status_style(label_widget, "danger")
 
     def _apply_window_behavior_preferences(self):
         anki_config = get_config().anki
@@ -1362,7 +1360,7 @@ class AnkiConfirmationDialog(QDialog):
         self._load_image_to_label(selected, label_widget)
         if not previous:
             self.screenshot_button.setText("Change selected screenshot(s)")
-            self.screenshot_button.setStyleSheet("color: green; font-weight: bold;")
+            set_status_style(self.screenshot_button, "success")
             self.animated_audio_notice_label.setVisible(False)
         if len(selected.items) > 1:
             label_widget.setToolTip(f"{len(selected.items)} screenshots selected in order")
@@ -1536,7 +1534,7 @@ class AnkiConfirmationDialog(QDialog):
     def _refresh_audio_controls(self, sentence_text):
         if not self.audio_player.audio_available:
             self.audio_status_label.setText("⚠ No audio player available on this platform.")
-            self.audio_status_label.setStyleSheet(f"color: {MUTED};")
+            set_status_style(self.audio_status_label, "muted")
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
             self.audio_button.setVisible(False)
@@ -1553,7 +1551,7 @@ class AnkiConfirmationDialog(QDialog):
 
         if self.reusing_audio:
             self.audio_status_label.setText("Reusing audio from the previous mining operation.")
-            self.audio_status_label.setStyleSheet(f"color: {SUCCESS};")
+            set_status_style(self.audio_status_label, "success")
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
             self.audio_button.setVisible(False)
@@ -1574,7 +1572,8 @@ class AnkiConfirmationDialog(QDialog):
         vad_detected_voice = vad_ran and bool(getattr(self.vad_result, "voice_detected", self.vad_result.success))
 
         status_text = "No audio"
-        status_style = ""
+        status_tone = ""
+        status_boxed = False
 
         if has_audio_file:
             if (self._audio_edit_context or {}).get("timing_fallback"):
@@ -1582,23 +1581,25 @@ class AnkiConfirmationDialog(QDialog):
                     "⚠️ The estimated audio range was empty. Showing nearby replay audio; "
                     "listen and adjust it before keeping."
                 )
-                status_style = WARNING_STYLE
+                status_tone = "warning"
+                status_boxed = True
             elif vad_ran:
                 if vad_detected_voice:
                     status_text = "✔ Voice audio detected"
-                    status_style = f"color: {SUCCESS};"
+                    status_tone = "success"
                 elif getattr(self.vad_result, "tts_used", False):
                     status_text = "✔ TTS audio generated"
-                    status_style = f"color: {SUCCESS};"
+                    status_tone = "success"
                 else:
                     status_text = "⚠️ VAD ran and found no voice.\n Keep audio by choosing 'Keep Audio'."
-                    status_style = WARNING_STYLE
+                    status_tone = "warning"
+                    status_boxed = True
             elif not get_config().vad.do_vad_postprocessing:
                 status_text = "✔ Audio file available (VAD disabled)"
-                status_style = f"color: {SUCCESS};"
+                status_tone = "success"
 
         self.audio_status_label.setText(status_text)
-        self.audio_status_label.setStyleSheet(status_style)
+        set_status_style(self.audio_status_label, status_tone, boxed=status_boxed)
 
         is_unsupported, codec_name = self._is_unsupported_audio_codec(self.audio_path)
 
@@ -1626,16 +1627,13 @@ class AnkiConfirmationDialog(QDialog):
                 self.reset_audio_button.setVisible(waveform_loaded)
                 AnkiConfirmationDialog._set_audio_cut_controls_visible(self, waveform_loaded)
                 self.audio_button.setText("▶ Play Range")
-                self.audio_button.setStyleSheet("")
+                set_status_style(self.audio_button, "")
                 self._update_audio_expand_buttons(allow_buttons=waveform_loaded)
                 if not waveform_loaded:
                     self.audio_status_label.setText(
                         "⚠️ Could not load this audio for trimming; it may not play. Choose Keep Audio or No Audio."
                     )
-                    self.audio_status_label.setStyleSheet(
-                        "color: #ff6b00; font-weight: bold; background-color: #fff3cd; "
-                        "padding: 5px; border-radius: 3px;"
-                    )
+                    set_status_style(self.audio_status_label, "warning", boxed=True)
         else:
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
@@ -2506,18 +2504,18 @@ class AnkiConfirmationDialog(QDialog):
         if self.audio_button:
             if is_playing:
                 self.audio_button.setText("⏹ Stop")
-                self.audio_button.setStyleSheet("background-color: #ffc107; color: black;")
+                set_status_style(self.audio_button, "warning", boxed=True)
             else:
                 self.audio_button.setText("▶ Play Range")
-                self.audio_button.setStyleSheet("")
+                set_status_style(self.audio_button, "")
 
         if self.play_original_button:
             if is_playing:
                 self.play_original_button.setText("⏹ Stop")
-                self.play_original_button.setStyleSheet("background-color: #ffc107; color: black;")
+                set_status_style(self.play_original_button, "warning", boxed=True)
             else:
                 self.play_original_button.setText("▶ Play Full")
-                self.play_original_button.setStyleSheet("")
+                set_status_style(self.play_original_button, "")
 
     def _generate_tts_audio(self):
         try:
@@ -2565,13 +2563,13 @@ class AnkiConfirmationDialog(QDialog):
             self._update_audio_expand_buttons(allow_buttons=False)
 
             self.audio_status_label.setText("✔ TTS audio generated")
-            self.audio_status_label.setStyleSheet("color: green;")
+            set_status_style(self.audio_status_label, "success")
             self.audio_button.setVisible(True)
             self.voice_button.setVisible(True)
             self.no_voice_button.setVisible(True)
             self.confirm_button.setVisible(False)
             self.tts_status_label.setText("✓ TTS Audio Generated")
-            self.tts_status_label.setStyleSheet("color: green;")
+            set_status_style(self.tts_status_label, "success")
             self.tts_button.setText("🔊 Regenerate TTS Audio")
             if getattr(get_config().anki, "replay_audio_on_tts_generation", True):
                 QTimer.singleShot(100, self._play_range)

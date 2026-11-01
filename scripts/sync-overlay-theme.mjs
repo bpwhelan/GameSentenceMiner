@@ -2,10 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compile } from 'tailwindcss';
+import { buildQtThemePalettes } from './qt-theme-palettes.mjs';
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 const sourcePath = path.join(repoRoot, 'electron-src/renderer/src/theme.css');
 const targetPath = path.join(repoRoot, 'GSM_Overlay/settings/app-theme.css');
+const qtTargetPath = path.join(repoRoot, 'GameSentenceMiner/assets/qt_themes.json');
 
 // Compile the same palette definitions and --gsm-* tokens imported by the app.
 // No utility candidates: the overlay keeps its own layout and controls.
@@ -24,13 +26,18 @@ export async function buildOverlayTheme() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const css = await buildOverlayTheme();
+  const qtPalettes = JSON.stringify(buildQtThemePalettes(css), null, 2) + '\n';
   if (process.argv.includes('--check')) {
     if (await fs.readFile(targetPath, 'utf8') !== css) {
       throw new Error('Overlay theme is out of date. Run npm run sync:theme.');
     }
-    console.log('Overlay theme matches the desktop theme.');
+    if (await fs.readFile(qtTargetPath, 'utf8') !== qtPalettes) {
+      throw new Error('Qt themes are out of date. Run npm run sync:theme.');
+    }
+    console.log('Overlay and Qt themes match the desktop theme.');
   } else {
     await fs.writeFile(targetPath, css, 'utf8');
-    console.log('Synced the desktop theme to overlay settings.');
+    await fs.writeFile(qtTargetPath, qtPalettes, 'utf8');
+    console.log('Synced the desktop theme to overlay settings and Qt.');
   }
 }

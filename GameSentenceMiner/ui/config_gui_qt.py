@@ -54,10 +54,10 @@ from GameSentenceMiner.ui.config.binding import BindingManager, ValueTransform
 from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
 from GameSentenceMiner.ui.config.search import ConfigSearchController, SearchLineEdit
-from GameSentenceMiner.ui.config.labels import LabelColor, build_label
+from GameSentenceMiner.ui.config.labels import LabelColor, build_label, style_label
 from GameSentenceMiner.ui.config.prompt_help import PromptHelpDialog
 from GameSentenceMiner.ui.config.safety import safe_config_callback, safe_config_methods
-from GameSentenceMiner.ui.qt_theme import SUCCESS, apply_compact_theme
+from GameSentenceMiner.ui.qt_theme import apply_compact_theme, set_status_style
 from GameSentenceMiner.ui.config.services.ai_models import (
     AIModelFetcher,
     RECOMMENDED_GEMINI_MODELS,
@@ -259,7 +259,6 @@ class ConfigWindow(QWidget):
         self.binder = BindingManager(self.editor)
 
         # --- Window Setup ---
-        apply_compact_theme(self)
         self._update_window_title()
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)  # Ensure it's a standalone window
         self.resize(820, 740)
@@ -321,6 +320,7 @@ class ConfigWindow(QWidget):
         self.obs_scene_refresh_timer = QTimer(self)
         self.obs_scene_refresh_timer.timeout.connect(self._auto_refresh_obs_scenes)
         self.obs_scene_refresh_timer.start(2000)  # Start with 2 seconds
+        apply_compact_theme(self)
 
     # --- Public Methods (API for other parts of the app) ---
     def show_window(self, root_tab_key: str = "", subtab_key: str = ""):
@@ -515,14 +515,14 @@ class ConfigWindow(QWidget):
     def show_save_success_indicator(self):
         """Shows a temporary success indicator that fades out after a few seconds."""
         success_text = self.i18n.get("buttons", {}).get("save_success", "Settings Saved Successfully!")
-        self.save_status_label.setStyleSheet(f"color: {SUCCESS}; padding: 4px;")
+        set_status_style(self.save_status_label, "success")
         self.save_status_label.setText(success_text)
         self.save_status_label.show()
         QTimer.singleShot(3000, self.save_status_label.hide)
 
     def show_autosave_pending_indicator(self):
         pending_text = self.i18n.get("buttons", {}).get("autosave_pending", "Unsaved changes...")
-        self.save_status_label.setStyleSheet("color: #ebcd95; padding: 4px;")
+        set_status_style(self.save_status_label, "warning")
         self.save_status_label.setText(pending_text)
         self.save_status_label.show()
 
@@ -533,14 +533,14 @@ class ConfigWindow(QWidget):
             success_text = template.format(time=current_time)
         except Exception:
             success_text = f"Auto-saved at {current_time}"
-        self.save_status_label.setStyleSheet(f"color: {SUCCESS}; padding: 4px;")
+        set_status_style(self.save_status_label, "success")
         self.save_status_label.setText(success_text)
         self.save_status_label.show()
         QTimer.singleShot(4000, self.save_status_label.hide)
 
     def show_save_error_indicator(self):
         error_text = self.i18n.get("buttons", {}).get("save_error", "Failed to save settings")
-        self.save_status_label.setStyleSheet("color: #f2aaa8; padding: 4px;")
+        set_status_style(self.save_status_label, "danger")
         self.save_status_label.setText(error_text)
         self.save_status_label.show()
 
@@ -2625,7 +2625,6 @@ class ConfigWindow(QWidget):
         root_tab_bar.setDrawBase(False)
         self.tab_widget.setTabBar(root_tab_bar)
         self.tab_widget.setDocumentMode(True)
-        self.tab_widget.setStyleSheet(self._get_root_tabs_style())
 
     def _create_subtab_widget(self, tabs, root_key=None):
         sub_tab_widget = QTabWidget()
@@ -2694,12 +2693,14 @@ class ConfigWindow(QWidget):
         self.main_layout.addWidget(self.button_bar_widget)
 
         self.save_status_label = QLabel("")
-        self.save_status_label.setStyleSheet(f"color: {SUCCESS}; padding: 4px;")
+        set_status_style(self.save_status_label, "success")
         self.save_status_label.hide()
         self.save_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Add save status label in its own row above buttons
         self.main_layout.addWidget(self.save_status_label)
+        if getattr(self, "_gsm_theme_controller", None) is not None:
+            self._gsm_theme_controller.refresh(force=True)
 
     def _connect_signals(self):
         try:
@@ -3756,13 +3757,7 @@ class ConfigWindow(QWidget):
             label_text = " ".join(word.capitalize() for word in key1.split("_"))
         label = QLabel(label_text)
         label.setToolTip(data.get("tooltip", default_tooltip))
-        style_parts = []
-        if color != LabelColor.DEFAULT:
-            style_parts.append(f"color: {color.get_qt_color()};")
-        if bold:
-            style_parts.append("font-weight: bold;")
-        if style_parts:
-            label.setStyleSheet(" ".join(style_parts))
+        style_label(label, color, bold)
         return label
 
     def _create_group_box(self, title, tooltip=None):
@@ -3820,73 +3815,8 @@ class ConfigWindow(QWidget):
         self.string_replacement_rules_count_label.setText(text)
         self.string_replacement_edit_button.setEnabled(self.string_replacement_enabled_check.isChecked())
 
-    def _get_root_tabs_style(self):
-        """Returns stylesheet for the left-side primary navigation tabs."""
-        return """
-            QTabWidget#ConfigRootTabs::pane {
-                border: 0;
-                border-left: 1px solid #363e4b;
-                background: transparent;
-                margin-left: 8px;
-            }
-            QTabBar#ConfigRootTabBar {
-                background: transparent;
-            }
-            QTabBar#ConfigRootTabBar::tab {
-                background-color: transparent;
-                color: #a2adbd;
-                border: 0px;
-                border-radius: 4px;
-                padding: 7px 8px;
-                margin: 2px 6px 2px 0;
-                min-width: 132px;
-                font-size: 12px;
-            }
-            QTabBar#ConfigRootTabBar::tab:hover {
-                background-color: #2a313c;
-                color: #e4e9f0;
-            }
-            QTabBar#ConfigRootTabBar::tab:selected {
-                background-color: #2e4058;
-                color: #c9dfff;
-                border-left: 2px solid #91b8e8;
-                font-weight: 600;
-            }
-        """
-
     def _get_sub_tabs_style(self, min_width: int = 0, horizontal_padding: int = 10):
-        """Returns stylesheet for horizontal sub-tab groups."""
-        style = """
-            QTabWidget#ConfigSubTabs::pane {
-                border: 0;
-                border-top: 1px solid #363e4b;
-                background: transparent;
-            }
-            QTabBar#ConfigSubTabBar {
-                background: transparent;
-            }
-            QTabBar#ConfigSubTabBar::tab {
-                background: transparent;
-                color: #a2adbd;
-                border: 0;
-                border-bottom: 2px solid transparent;
-                padding: 8px 10px;
-                margin: 0 4px 0 0;
-                min-width: 0px;
-            }
-            QTabBar#ConfigSubTabBar::tab:hover {
-                background-color: #2a313c;
-                color: #e4e9f0;
-            }
-            QTabBar#ConfigSubTabBar::tab:selected {
-                color: #c9dfff;
-                border-bottom: 2px solid #91b8e8;
-                font-weight: 600;
-            }
-        """
-        return style.replace("padding: 8px 10px", f"padding: 8px {horizontal_padding}px").replace(
-            "min-width: 0px", f"min-width: {min_width}px"
-        )
+        return f"QTabBar#ConfigSubTabBar::tab {{padding: 8px {horizontal_padding}px; min-width: {min_width}px;}}"
 
     def _update_ai_provider_visibility(self):
         """Shows/hides AI provider settings based on selected provider."""

@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import QLabel
 from enum import Enum
 from typing import Any
 
+from GameSentenceMiner.ui.qt_theme import get_theme_palette
+
 
 class LabelColor(Enum):
     """Enum for different label color styles to indicate importance/category."""
@@ -17,15 +19,27 @@ class LabelColor(Enum):
 
     def get_qt_color(self) -> str:
         """Return the Qt color string for this label type."""
-        color_map = {
-            LabelColor.DEFAULT: "white",
-            LabelColor.IMPORTANT: "white",  # Remove old orange emphasis.
-            LabelColor.ADVANCED: "#cc7a7a",  # Softer red.
-            LabelColor.RECOMMENDED: "#7fbf7f",  # Slightly softer green.
-            LabelColor.WARNING: "#e05050",
-            LabelColor.DEPRECATED: "#e05050",  # Red to flag deprecated options.
-        }
-        return color_map.get(self, "white")
+        colors = get_theme_palette()
+        return colors[LABEL_COLOR_TOKENS[self.value]]
+
+
+LABEL_COLOR_TOKENS = {
+    "default": "text-primary",
+    "important": "text-primary",
+    "advanced": "danger-text",
+    "recommended": "success-text",
+    "warning": "danger-text",
+    "deprecated": "danger-text",
+}
+
+
+def style_label(label: QLabel, color: LabelColor, bold: bool) -> None:
+    label.setProperty("gsmLabelColor", color.value)
+    label.setProperty("gsmLabelBold", bold)
+    style = f"color: {color.get_qt_color()};"
+    if bold:
+        style += " font-weight: bold;"
+    label.setStyleSheet(style)
 
 
 def build_label(
@@ -47,11 +61,5 @@ def build_label(
     label = QLabel(label_text)
     label.setToolTip(data.get("tooltip", default_tooltip))
 
-    style_parts = []
-    if color != LabelColor.DEFAULT:
-        style_parts.append(f"color: {color.get_qt_color()};")
-    if bold:
-        style_parts.append("font-weight: bold;")
-    if style_parts:
-        label.setStyleSheet(" ".join(style_parts))
+    style_label(label, color, bold)
     return label
