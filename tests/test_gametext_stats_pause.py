@@ -127,7 +127,7 @@ def test_stats_pause_controls_stats_discord_and_database_only(text_pipeline, pau
         TextEventKind.FROZEN,
     ]
     assert len(outputs.overlay) == 2
-    assert [command.line.excluded_from_stats for command in outputs.overlay] == [True, True]
+    assert [command.line.excluded_from_stats for command in outputs.overlay] == [paused, paused]
     assert len(outputs.subtitles) == 1
     assert outputs.subtitles[0].text == "そんな音を聞きながら、わたしは眠りに落ちていく。"
     assert outputs.stats == []

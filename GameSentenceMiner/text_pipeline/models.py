@@ -175,7 +175,8 @@ class TextRecordSnapshot:
             "first_seen_at": self.first_seen_at_utc.isoformat(),
             "finalized_at": self.finalized_at_utc.isoformat() if self.finalized_at_utc else None,
             "scene": self.scene,
-            "excluded_from_stats": self.excluded_from_stats or self.stats_status != "accepted",
+            # Pending spam checks do not mean the line has been excluded.
+            "excluded_from_stats": self.excluded_from_stats or self.stats_status == "skipped",
             "stats_status": self.stats_status,
             "relay_only": self.relay_only,
         }
