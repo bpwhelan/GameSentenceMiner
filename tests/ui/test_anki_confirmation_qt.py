@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 import soundfile as sf
-from PyQt6.QtCore import QElapsedTimer, Qt, QTimer
+from PyQt6.QtCore import QElapsedTimer, QPoint, QRect, Qt, QTimer
 from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -318,6 +318,41 @@ def focus_confirmation_dialog(monkeypatch):
         dialog.hide()
         dialog.deleteLater()
         app.processEvents()
+
+
+def test_compact_confirmation_keeps_choices_reachable_with_long_content(focus_confirmation_dialog, monkeypatch):
+    dialog, config = focus_confirmation_dialog
+    config.anki.confirmation_focus_on_show = False
+    config.anki.previous_image_field = "Previous Picture"
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    monkeypatch.setattr(anki_confirmation_qt.window_state_manager, "restore_geometry", lambda *args: True)
+    sentence = "A long sentence that still needs to be editable. " * 100
+    dialog.populate_ui("word", sentence, None, "previous.png", None, sentence, 0, 0, overlay_only=True)
+    dialog.resize(560, 480)
+    dialog.show()
+    app = QApplication.instance()
+    app.processEvents()
+
+    assert dialog.size().width() == 560
+    assert dialog.size().height() == 480
+    assert dialog.sentence_text.toPlainText() == sentence
+    assert dialog.sentence_text.verticalScrollBar().maximum() > 0
+    assert dialog.review_scroll.verticalScrollBar().maximum() > 0
+    assert dialog.previous_screenshot_card.isVisible()
+    dialog.review_scroll.ensureWidgetVisible(dialog.audio_status_label)
+    app.processEvents()
+    assert dialog.review_scroll.verticalScrollBar().value() > 0
+    assert dialog.confirm_button.isVisible()
+    choice_rect = QRect(dialog.confirm_button.mapTo(dialog, QPoint()), dialog.confirm_button.size())
+    assert dialog.contentsRect().contains(choice_rect)
+
+    # This dialog is reused for later cards; an absent previous image must not
+    # leave an empty card taking up half of the screenshot section.
+    dialog.populate_ui("word", "next card", None, None, None, "", 0, 0)
+    assert dialog.previous_screenshot_card.isHidden()
+    assert dialog.review_scroll.verticalScrollBar().value() == 0
 
 
 def test_confirmation_logs_first_paint_once_per_card(focus_confirmation_dialog, monkeypatch):
@@ -1902,6 +1937,7 @@ def test_next_line_control_stays_visible_and_disabled_while_waiting():
         _dialog_line_selection_changed=False,
         _dialogue_replay_future=None,
         dialogue_tools_title=title,
+        dialogue_tools_container=_WidgetProbe(),
         add_prev_line_button=previous_button,
         add_next_line_button=next_button,
         regen_translation_checkbox=regenerate,
