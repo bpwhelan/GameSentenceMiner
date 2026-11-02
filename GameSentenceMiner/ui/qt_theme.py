@@ -111,6 +111,38 @@ QTabBar#ConfigSubTabBar, QTabBar#ConfigSubTabBar::tab { background: transparent;
 QTabBar#ConfigSubTabBar::tab { border: 0; border-bottom: 2px solid transparent; margin: 0 4px 0 0; }
 QTabBar#ConfigSubTabBar::tab:hover { background: @surface-1@; color: @text-primary@; }
 QTabBar#ConfigSubTabBar::tab:selected { color: @accent-text@; border-bottom: 2px solid @accent@; font-weight: 600; }
+QDialog[reviewLayout="split"] QFrame#ConfirmationHeader {
+    background: transparent; border: 0; border-bottom: 1px solid @border-subtle@;
+}
+QDialog[reviewLayout="split"] QLabel[role="expression"] { font-size: 24px; font-weight: 600; }
+QDialog[reviewLayout="split"] QLabel#ConfirmationExpressionTitle {
+    color: @text-muted@; font-size: 10px;
+}
+QDialog[reviewLayout="split"] QFrame#ConfirmationTextPanel,
+QDialog[reviewLayout="split"] QWidget#ConfirmationMediaPanel,
+QDialog[reviewLayout="split"] QFrame#ConfirmationAudioPanel {
+    background: @surface-1@; border: 1px solid @border-subtle@; border-radius: 8px;
+}
+QDialog[reviewLayout="split"] QWidget#ConfirmationSplitBody,
+QDialog[reviewLayout="split"] QWidget#ConfirmationDialogueTools,
+QDialog[reviewLayout="split"] QFrame#ConfirmationScreenshotCard,
+QDialog[reviewLayout="split"] QFrame#ConfirmationPreviousScreenshotCard {
+    background: transparent; border: 0;
+}
+QDialog[reviewLayout="split"] QLabel[role="sectionHeading"],
+QDialog[reviewLayout="split"] QLabel#ConfirmationAudioTitle {
+    color: @text-secondary@; font-size: 11px; font-weight: 600;
+}
+QDialog[reviewLayout="split"] QTextEdit {
+    background: @surface-0@; border: 1px solid @border-default@; border-radius: 5px; font-size: 14px;
+}
+QDialog[reviewLayout="split"] QLabel[role="timeline"] {
+    background: @surface-0@; border: 0; padding: 4px 6px;
+}
+QDialog[reviewLayout="split"] QLabel#ConfirmationScreenshot,
+QDialog[reviewLayout="split"] QLabel#ConfirmationPreviousScreenshot {
+    background: @surface-0@; border: 1px solid @border-subtle@; border-radius: 4px;
+}
 """
 
 

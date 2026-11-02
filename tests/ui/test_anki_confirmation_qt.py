@@ -4,6 +4,7 @@ import os
 from concurrent.futures import Future
 from copy import deepcopy
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -12,8 +13,9 @@ import numpy as np
 import pytest
 import soundfile as sf
 from PyQt6.QtCore import QElapsedTimer, QPoint, QRect, Qt, QTimer
+from PyQt6.QtGui import QFontDatabase, QPixmap
 from PyQt6.QtTest import QSignalSpy, QTest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QScrollArea
 
 from GameSentenceMiner.ui import anki_confirmation_qt
 from GameSentenceMiner.util.config.configuration import Anki
@@ -320,39 +322,106 @@ def focus_confirmation_dialog(monkeypatch):
         app.processEvents()
 
 
-def test_compact_confirmation_keeps_choices_reachable_with_long_content(focus_confirmation_dialog, monkeypatch):
+@pytest.mark.parametrize("previous_image", [False, True])
+@pytest.mark.parametrize("overlay_only", [False, True])
+def test_confirmation_shows_dialogue_animation_and_audio_without_scrolling(
+    focus_confirmation_dialog, monkeypatch, tmp_path, previous_image, overlay_only
+):
     dialog, config = focus_confirmation_dialog
     config.anki.confirmation_focus_on_show = False
     config.anki.previous_image_field = "Previous Picture"
+    config.screenshot.animated_settings.extension = "avif"
+    config.vad.tts_url = ""
+    # The Windows offscreen plugin has no font database until fonts are loaded.
+    # Real font metrics are essential to catch layout overflow in this test.
+    if not QFontDatabase.families() and os.name == "nt":
+        font_dir = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
+        for name in ("segoeui.ttf", "seguisb.ttf"):
+            QFontDatabase.addApplicationFont(str(font_dir / name))
     monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", None)
     monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
     monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
     monkeypatch.setattr(anki_confirmation_qt.window_state_manager, "restore_geometry", lambda *args: True)
+    monkeypatch.setattr(anki_confirmation_qt, "save_current_config", lambda *args: None)
+    dialog.audio_player = SimpleNamespace(audio_available=True)
+    audio = tmp_path / "audio.wav"
+    sf.write(audio, np.sin(np.linspace(0, 80, 48000)) * 0.1, 48000)
+    screenshot = tmp_path / "screenshot.png"
+    image = QPixmap(640, 360)
+    image.fill(Qt.GlobalColor.darkGray)
+    image.save(str(screenshot))
     sentence = "A long sentence that still needs to be editable. " * 100
-    dialog.populate_ui("word", sentence, None, "previous.png", None, sentence, 0, 0, overlay_only=True)
-    dialog.resize(560, 480)
+    dialog.populate_ui(
+        "word",
+        sentence,
+        str(screenshot),
+        str(screenshot) if previous_image else None,
+        str(audio),
+        sentence,
+        0,
+        0,
+        pending_animated=True,
+        overlay_only=overlay_only,
+    )
+    line = SimpleNamespace(id="mined", text=sentence)
+    dialog._dialog_selected_lines = [line]
+    dialog._replay_context = SimpleNamespace(mined_line=line)
+    monkeypatch.setattr(dialog, "_dialogue_line_expansion_enabled", lambda: bool(dialog._dialog_selected_lines))
+    monkeypatch.setattr(
+        dialog, "_previous_dialogue_line", lambda: SimpleNamespace(text="The preparations are complete.")
+    )
+    monkeypatch.setattr(dialog, "_next_dialogue_line", lambda: SimpleNamespace(text="Let's go to the next room."))
+    dialog._update_dialogue_line_controls(has_translation=True)
+    dialog.resize(760, 720)
     dialog.show()
+    dialog.auto_accept_label.setText("Auto accept cancelled.")
+    dialog.auto_accept_label.show()
     app = QApplication.instance()
     app.processEvents()
 
-    assert dialog.size().width() == 560
-    assert dialog.size().height() == 480
+    assert not dialog.findChildren(QScrollArea)
+    assert dialog.width() <= 760
+    assert dialog.height() <= (820 if overlay_only else 720)
     assert dialog.sentence_text.toPlainText() == sentence
     assert dialog.sentence_text.verticalScrollBar().maximum() > 0
-    assert dialog.review_scroll.verticalScrollBar().maximum() > 0
-    assert dialog.previous_screenshot_card.isVisible()
-    dialog.review_scroll.ensureWidgetVisible(dialog.audio_status_label)
+    assert dialog.dialogue_timeline.height() <= 76
+    assert sentence in dialog.dialogue_timeline.toolTip()
+    dialog.resize(760, 200)
     app.processEvents()
-    assert dialog.review_scroll.verticalScrollBar().value() > 0
-    assert dialog.confirm_button.isVisible()
-    choice_rect = QRect(dialog.confirm_button.mapTo(dialog, QPoint()), dialog.confirm_button.size())
-    assert dialog.contentsRect().contains(choice_rect)
+    assert dialog.height() >= dialog.minimumHeight()
+    controls = [
+        dialog.sentence_text,
+        dialog.translation_text,
+        dialog.dialogue_timeline,
+        dialog.add_prev_line_button,
+        dialog.add_next_line_button,
+        dialog.regen_translation_checkbox,
+        dialog.image_label,
+        dialog.screenshot_button,
+        dialog.animated_audio_notice_label,
+        dialog.waveform_widget,
+        dialog.audio_button,
+        dialog.play_original_button,
+        dialog.cut_audio_button,
+        dialog.undo_audio_cut_button,
+        dialog.reset_audio_button,
+        dialog.voice_button,
+        dialog.no_voice_button,
+    ]
+    if previous_image:
+        controls.extend([dialog.prev_image_label, dialog.prev_screenshot_button])
+    for control in controls:
+        assert control.isVisible(), control
+        ancestor = control.parentWidget()
+        while ancestor is not None:
+            rect = QRect(control.mapTo(ancestor, QPoint()), control.size())
+            assert ancestor.rect().contains(rect), f"{control} is clipped by {ancestor}"
+            if ancestor is dialog:
+                break
+            ancestor = ancestor.parentWidget()
 
-    # This dialog is reused for later cards; an absent previous image must not
-    # leave an empty card taking up half of the screenshot section.
-    dialog.populate_ui("word", "next card", None, None, None, "", 0, 0)
+    dialog.populate_ui("word", "next card", str(screenshot), None, None, "", 0, 0)
     assert dialog.previous_screenshot_card.isHidden()
-    assert dialog.review_scroll.verticalScrollBar().value() == 0
 
 
 def test_confirmation_logs_first_paint_once_per_card(focus_confirmation_dialog, monkeypatch):

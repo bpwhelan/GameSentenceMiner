@@ -793,7 +793,6 @@
 	}
 
 	.actions-menu {
-		position: relative;
 		display: inline-flex;
 	}
 
