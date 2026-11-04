@@ -1964,7 +1964,7 @@ async function createWindow() {
                 { role: 'hideOthers' },
                 { role: 'unhide' },
                 { type: 'separator' },
-                { label: 'Quit', click: async () => await quit() },
+                { label: 'Quit', accelerator: 'Command+Q', click: async () => await quit() },
             ],
         });
     }
