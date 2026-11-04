@@ -255,6 +255,29 @@ function processWasLaunchedByUmu(procRoot: string, linuxPid: number): boolean {
     return false;
 }
 
+// Steam Linux Runtime and UMU run the game inside a pressure-vessel container,
+// so some inherited variables point at container-only paths
+// (/run/pressure-vessel/bus, /run/pressure-vessel/Xauthority, ...). A helper
+// started from the host with them fails: umu-run's bwrap aborts on the missing
+// D-Bus socket path. Take the host value from GSM's own environment for the
+// session variables and drop the rest.
+const CONTAINER_PATH_RE = /\/run\/pressure-vessel\b|\/usr\/lib\/pressure-vessel\b|\/run\/host\b/;
+const HOST_SESSION_ENV_KEYS = new Set([
+    'DBUS_SESSION_BUS_ADDRESS', 'XAUTHORITY', 'XDG_RUNTIME_DIR', 'XDG_DATA_DIRS', 'XDG_CONFIG_DIRS',
+]);
+
+function replaceContainerOnlyEnv(env: Record<string, string>, hostEnv: NodeJS.ProcessEnv): void {
+    for (const [key, value] of Object.entries(env)) {
+        if (!key.startsWith('PRESSURE_VESSEL_') && !CONTAINER_PATH_RE.test(value)) continue;
+        const hostValue = hostEnv[key];
+        if (HOST_SESSION_ENV_KEYS.has(key) && hostValue && !CONTAINER_PATH_RE.test(hostValue)) {
+            env[key] = hostValue;
+        } else {
+            delete env[key];
+        }
+    }
+}
+
 /**
  * Resolve the environment and Windows launcher for a running Wine/Proton game.
  * `linuxPidOverride` is used by the auto-launcher so it does not race a second
@@ -265,6 +288,7 @@ export function resolveWineLaunch(
     procRoot = '/proc',
     selfPid = process.pid,
     linuxPidOverride?: number,
+    hostEnv: NodeJS.ProcessEnv = process.env,
 ): WineLaunchContext {
     const linuxPid = linuxPidOverride && linuxPidOverride > 0
         ? linuxPidOverride
@@ -279,6 +303,7 @@ export function resolveWineLaunch(
     for (const [key, value] of Object.entries(gameEnv)) {
         if (/^LC_/.test(key) && value) env[key] = value;
     }
+    replaceContainerOnlyEnv(env, hostEnv);
 
     let winePrefix = env.WINEPREFIX || '';
     if (!winePrefix && env.STEAM_COMPAT_DATA_PATH) winePrefix = path.join(env.STEAM_COMPAT_DATA_PATH, 'pfx');

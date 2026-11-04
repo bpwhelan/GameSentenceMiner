@@ -1532,9 +1532,10 @@ async function startHookSessionInternal(options: StartHookOptions): Promise<Star
                 error: 'Set the game executable for this scene first (Home tab → Game executable).',
             };
         }
-        if (!exeName) {
-            exeName = path.basename(exePath.replace(/\\/g, '/'));
-        }
+        // The capture's "executable" on Linux is the X11 window class, which
+        // Proton sets to steam_app_<appid>. Frida inside Wine and the procfs
+        // lookup need the Windows image name, so always take it from the path.
+        exeName = path.basename(exePath.replace(/\\/g, '/'));
         wineLaunch = resolveWineLaunch(exePath, '/proc', process.pid, options.pidOverride);
         if (wineLaunch.linuxPid <= 0) {
             return {
