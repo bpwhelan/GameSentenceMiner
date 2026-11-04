@@ -23,6 +23,8 @@ type ProcessPriority =
   | "above_normal"
   | "high";
 
+type MenuAreaOcrEngine = "main" | "glens" | "bing";
+
 type ComparisonFieldKey =
   | "duplicate_similarity_threshold"
   | "change_detection_threshold"
@@ -46,6 +48,7 @@ interface OcrStoredConfig {
   useOnlineOcr?: boolean;
   ocr1?: string;
   ocr2?: string;
+  menuAreaOcrEngine?: string;
   ocr1_advanced?: string;
   ocr2_advanced?: string;
   twoPassOCR?: boolean;
@@ -99,6 +102,7 @@ interface OcrUiConfig {
   basicScanRate: number;
   advancedScanRate: number;
   mainOcr: string;
+  menuAreaOcrEngine: MenuAreaOcrEngine;
   stabilityOcr: string;
   twoPassOCR: boolean;
   optimizeSecondScan: boolean;
@@ -738,6 +742,10 @@ function normalizeOcrConfig(
   return {
     advancedMode: Boolean(value?.advancedMode),
     useOnlineOcr: value?.useOnlineOcr === true,
+    menuAreaOcrEngine:
+      value?.menuAreaOcrEngine === "glens" || value?.menuAreaOcrEngine === "bing"
+        ? value.menuAreaOcrEngine
+        : "main",
     basicScanRate: numericValue(value?.scanRate_basic, scanRate),
     advancedScanRate: numericValue(value?.scanRate_advanced, scanRate),
     mainOcr:
@@ -853,6 +861,7 @@ function buildPersistedConfig(
   const next: OcrStoredConfig = {
     ...baseConfig,
     useOnlineOcr: config.useOnlineOcr,
+    menuAreaOcrEngine: config.menuAreaOcrEngine,
     twoPassOCR: config.twoPassOCR,
     optimize_second_scan: config.optimizeSecondScan,
     text_appears_instantly: config.textAppearsInstantly,
@@ -2786,6 +2795,28 @@ export function OCRTab({ active }: OcrTabProps) {
                 ) : null}
 
                 <div className="desk-recognition-tuning">
+                  <div className="input-group ocr-menu-area-engine">
+                    <label htmlFor="ocr-menu-area-engine">
+                      {t("ocr.settings.menuAreaEngine")}
+                    </label>
+                    <select
+                      id="ocr-menu-area-engine"
+                      value={config.menuAreaOcrEngine}
+                      aria-describedby="ocr-menu-area-engine-help"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setConfig((current) => ({
+                          ...current,
+                          menuAreaOcrEngine: value === "glens" || value === "bing" ? value : "main"
+                        }));
+                      }}
+                    >
+                      <option value="main">{t("ocr.settings.useMainOcr")}</option>
+                      <option value="glens">{t("ocr.engines.glens")}</option>
+                      <option value="bing">{t("ocr.engines.bing")}</option>
+                    </select>
+                    <small id="ocr-menu-area-engine-help">{t("ocr.settings.menuAreaEngineHelp")}</small>
+                  </div>
                   <div className="desk-field-grid">
                     <div className="ocr-slider-field">
                       <div className="ocr-slider-header">

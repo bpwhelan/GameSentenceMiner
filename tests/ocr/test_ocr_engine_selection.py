@@ -61,6 +61,7 @@ def engine_runtime(monkeypatch):
     monkeypatch.setattr(ocr_runtime, "get_ocr_keep_newline", lambda _source: False)
     monkeypatch.setattr(ocr_runtime, "get_ocr_advanced_debug_logging", lambda: False)
     monkeypatch.setattr(ocr_runtime, "do_configured_ocr_replacements", lambda text: text)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_menu_area_engine", lambda: "main")
     return state
 
 
@@ -145,3 +146,52 @@ def test_area_select_delivers_text_after_engine_change(monkeypatch, engine_runti
     assert text == "Text from secondocr"
     assert metadata["source"] == gsm_ocr.TextSource.SCREEN_CROPPER
     assert metadata["response_dict"]["pipeline"]["engine"] == "secondocr"
+
+
+@pytest.mark.parametrize("override", ["main", "glens", "bing"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        gsm_ocr.TextSource.SECONDARY,
+        gsm_ocr.TextSource.SCREEN_CROPPER,
+        gsm_ocr.TextSource.OCR,
+        gsm_ocr.TextSource.OCR_MANUAL,
+        gsm_ocr.TextSource.MANUAL,
+    ],
+)
+def test_menu_area_override_routes_only_selected_region_actions(monkeypatch, engine_runtime, override, source):
+    state = engine_runtime
+    state.second_class.name = override if override != "main" else "secondocr"
+    if override in ("glens", "bing"):
+        monkeypatch.setattr(ocr_runtime, "GoogleLens" if override == "glens" else "Bing", state.second_class)
+    delivered = []
+    controller = SimpleNamespace(last_ocr2_result=[], last_sent_result="", config=gsm_ocr.TwoPassConfig())
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: controller)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "firstocr")
+    monkeypatch.setattr(gsm_ocr, "get_ocr_menu_area_engine", lambda: override)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_advanced_debug_logging", lambda: False)
+    monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(gsm_ocr, "send_result", lambda text, _time, **kwargs: delivered.append((text, kwargs)))
+    processor = object.__new__(gsm_ocr.OCRProcessor)
+    processor.filtering = state.filtering
+
+    processor.do_second_ocr(
+        "",
+        datetime(2026, 11, 2, tzinfo=UTC),
+        state.image,
+        state.filtering,
+        ignore_previous_result=True,
+        ignore_furigana_filter=True,
+        source=source,
+    )
+
+    expected = (
+        override
+        if override != "main" and source in (gsm_ocr.TextSource.SECONDARY, gsm_ocr.TextSource.SCREEN_CROPPER)
+        else "firstocr"
+    )
+    assert [name for name, *_ in state.calls] == [expected]
+    assert delivered[0][0] == f"Text from {expected}"
+    assert delivered[0][1]["response_dict"]["pipeline"]["engine"] == expected
+    assert ocr_runtime.engine_index == 0

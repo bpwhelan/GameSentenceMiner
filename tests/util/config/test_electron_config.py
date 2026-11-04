@@ -3,6 +3,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 from GameSentenceMiner.util.config import electron_config
 
 
@@ -157,6 +159,14 @@ def test_basic_online_ocr_requires_explicit_opt_in_and_preserves_advanced_engine
     assert electron_config.get_ocr_ocr2() == "bing"
     store.data["OCR"].update(advancedMode=False, useOnlineOcr=False)
     assert electron_config.get_ocr_ocr2() == "screenai"
+
+
+@pytest.mark.parametrize("advanced_mode", [False, True])
+@pytest.mark.parametrize("setting", [None, "main", "glens", "bing", "vitaocr", "oneocr", "screenai", "unknown"])
+def test_menu_area_engine_only_allows_online_overrides(monkeypatch, advanced_mode, setting):
+    store = _DummyStore({"OCR": {"advancedMode": advanced_mode, "menuAreaOcrEngine": setting}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+    assert electron_config.get_ocr_menu_area_engine() == (setting if setting in ("glens", "bing") else "main")
 
 
 def test_get_ocr_values_advanced_mode(monkeypatch):

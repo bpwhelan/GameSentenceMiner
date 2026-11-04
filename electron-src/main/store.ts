@@ -62,6 +62,7 @@ interface OCRConfig {
     useOnlineOcr?: boolean;
     ocr1: string;
     ocr2: string;
+    menuAreaOcrEngine?: "main" | "glens" | "bing";
     scanRate: number;
     language: string;
     ocr_screenshots: boolean;
@@ -277,6 +278,7 @@ export const store = new Store<StoreConfig>({
             useOnlineOcr: false,
             ocr1: DEFAULT_STABILITY_OCR,
             ocr2: DEFAULT_STABILITY_OCR,
+            menuAreaOcrEngine: "main",
             language: "ja",
             ocr_screenshots: false,
             furigana_filter_sensitivity: 0,

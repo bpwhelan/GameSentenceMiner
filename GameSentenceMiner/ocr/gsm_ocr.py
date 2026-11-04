@@ -70,6 +70,7 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.config.electron_config import (
     get_default_stability_ocr,
     get_ocr_ocr2,
+    get_ocr_menu_area_engine,
     get_ocr_send_to_clipboard,
     get_ocr_scan_rate,
     get_ocr_wgc_capture_fps,
@@ -3187,7 +3188,7 @@ class OCRProcessor:
         metadata["ocr_area_crop_offset"] = layout.translate_dest(-int(add_x), -int(add_y)).to_metadata()
         return metadata
 
-    def _prepare_beangate_secondary_ocr2_image(self, img, ignore_furigana_filter=False):
+    def _prepare_beangate_secondary_ocr2_image(self, img, ignore_furigana_filter=False, ocr2_engine=None):
         """
         Beangate-only local->trim->ocr2 flow for secondary OCR.
         Runs configured OCR1 locally, then trims to detected crop coords for OCR2.
@@ -3230,7 +3231,7 @@ class OCRProcessor:
             if not effective_crop:
                 return local_img, (0, 0)
             x1, y1, _, _ = effective_crop
-            return get_ocr2_image(crop_coords, og_image=local_img, ocr2_engine=get_ocr_ocr2()), (x1, y1)
+            return get_ocr2_image(crop_coords, og_image=local_img, ocr2_engine=ocr2_engine or get_ocr_ocr2()), (x1, y1)
         except Exception as e:
             logger.debug(f"Beangate secondary OCR pre-pass failed; using untrimmed image: {e}")
             return local_img, (0, 0)
@@ -3250,12 +3251,17 @@ class OCRProcessor:
     ):
         ctrl = get_controller()
         debug_enabled = get_ocr_advanced_debug_logging()
+        ocr2_engine = get_ocr_ocr2()
+        if source in (TextSource.SECONDARY, TextSource.SCREEN_CROPPER):
+            menu_area_engine = get_ocr_menu_area_engine()
+            if menu_area_engine != "main":
+                ocr2_engine = menu_area_engine
         ocr2_started = perf_counter()
         emit_ocr_debug(
             debug_enabled,
             "ocr2.execution_runtime",
             outcome="started",
-            engine=get_ocr_ocr2(),
+            engine=ocr2_engine,
             ocr1_text=text_preview(ocr1_text),
             source=source,
             image_size=getattr(img, "size", None),
@@ -3273,7 +3279,7 @@ class OCRProcessor:
             working_image_metadata = image_metadata
             if source == TextSource.SECONDARY and is_beangate:
                 ocr2_input_img, beangate_offset = self._prepare_beangate_secondary_ocr2_image(
-                    img, ignore_furigana_filter=ignore_furigana_filter
+                    img, ignore_furigana_filter=ignore_furigana_filter, ocr2_engine=ocr2_engine
                 )
                 if beangate_offset != (0, 0):
                     working_image_metadata = self._accumulate_crop_offset_metadata(
@@ -3286,7 +3292,7 @@ class OCRProcessor:
                 ctrl.last_ocr2_result if not ignore_previous_result else None,
                 self.filtering,
                 None,
-                engine=get_ocr_ocr2(),
+                engine=ocr2_engine,
                 furigana_filter_sensitivity=furigana_filter_sensitivity if not ignore_furigana_filter else 0,
                 image_metadata=working_image_metadata,
                 return_payload=True,
@@ -3310,7 +3316,7 @@ class OCRProcessor:
                 emit_ocr_debug(
                     debug_enabled,
                     "ocr2.formula_fallback",
-                    engine=get_ocr_ocr2(),
+                    engine=ocr2_engine,
                     ocr1_text=text_preview(ocr1_text),
                 )
             orig_text = final_result.orig_text
@@ -3320,7 +3326,7 @@ class OCRProcessor:
                 debug_enabled,
                 "ocr2.execution_runtime",
                 outcome="recognized",
-                engine=get_ocr_ocr2(),
+                engine=ocr2_engine,
                 duration_ms=round((perf_counter() - ocr2_started) * 1000, 3),
                 filtered_text=text_preview(text),
                 chunks=[text_preview(item) for item in (orig_text or [])],

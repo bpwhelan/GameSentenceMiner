@@ -118,6 +118,46 @@ describe("OCRTab", () => {
     ).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  it.each([false, true])("offers only main OCR, Lens, and Bing for menu/area-select (advanced: %s)", async (advancedMode) => {
+    invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
+      advancedMode, ocr1: "screenai", ocr2: "screenai",
+      ocr1_advanced: "screenai", ocr2_advanced: "screenai"
+    } : null);
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    const select = container.querySelector<HTMLSelectElement>("#ocr-menu-area-engine")!;
+    expect(select).not.toBeNull();
+    expect(select.value).toBe("main");
+    expect(Array.from(select.options, (option) => option.value)).toEqual(["main", "glens", "bing"]);
+    for (const value of ["glens", "bing", "main"]) {
+      await act(async () => {
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        await flushAsyncWork();
+        vi.advanceTimersByTime(200);
+        await flushAsyncWork();
+      });
+      expect(sendMock).toHaveBeenLastCalledWith("ocr.save-ocr-config", expect.objectContaining({
+        menuAreaOcrEngine: value, ocr1: "screenai", ocr2: "screenai"
+      }));
+    }
+  });
+
+  it.each(["glens", "bing", "vitaocr"])("loads the menu/area-select engine safely (%s)", async (engine) => {
+    invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
+      menuAreaOcrEngine: engine
+    } : null);
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+    expect(container.querySelector<HTMLSelectElement>("#ocr-menu-area-engine")?.value).toBe(
+      engine === "vitaocr" ? "main" : engine
+    );
+  });
+
   it("offers VOCR and persists it as the main engine", async () => {
     invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
       advancedMode: true, twoPassOCR: true,

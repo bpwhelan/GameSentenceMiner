@@ -920,6 +920,11 @@
   padding-top: 24px;
   border-top: 1px solid var(--gsm-border-subtle);
 }
+.ocr-desk .ocr-menu-area-engine small {
+  color: var(--gsm-text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
 .ocr-desk .desk-field-grid,
 .ocr-desk .ocr-pipeline-grid {
   display: grid;
