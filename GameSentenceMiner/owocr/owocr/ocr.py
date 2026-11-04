@@ -2960,6 +2960,7 @@ class ScreenAIOCR:
         paragraph_bounding_boxes=False,
     )
     _shared_runtime = None
+    _runtime_init_lock = threading.Lock()
 
     @staticmethod
     def _library_names_for_platform(config):
@@ -2983,6 +2984,7 @@ class ScreenAIOCR:
 
     def __init__(self, config={}, lang="ja"):
         self.lang = lang
+        self.available = False
         self._resource_cache = {}
         self._parser = str(config.get("parser", "generated")).strip().lower()
         self._pad_to_multiple_32 = bool(config.get("pad_to_multiple_32", False))
@@ -2993,6 +2995,12 @@ class ScreenAIOCR:
         self._retry_modes = self._parse_retry_modes(config.get("retry_modes", "accurate,grayscale"))
         self._screen_ai_pb2 = _load_screen_ai_pb2()
 
+        # ctypes releases the GIL during native initialization. Startup and IPC
+        # config reloads can otherwise initialize the same DLL concurrently.
+        with ScreenAIOCR._runtime_init_lock:
+            self._initialize_runtime(config)
+
+    def _initialize_runtime(self, config):
         if ScreenAIOCR._shared_runtime is not None:
             shared = ScreenAIOCR._shared_runtime
             self.model = shared["model"]
@@ -3003,8 +3011,11 @@ class ScreenAIOCR:
             self._size_callback = shared["size_callback"]
             self._data_callback = shared["data_callback"]
             self._resource_cache = shared["resource_cache"]
-            self.available = True
-            logger.info(f"ScreenAI OCR reusing initialized runtime ({self.resources_dir})")
+            self.available = shared["available"]
+            if self.available:
+                logger.info(f"ScreenAI OCR reusing initialized runtime ({self.resources_dir})")
+            else:
+                logger.warning("ScreenAI OCR initialization previously failed; restart GSM before retrying.")
             return
 
         library_names = self._library_names_for_platform(config)
@@ -3048,12 +3059,28 @@ class ScreenAIOCR:
             self._get_file_content
         )
 
-        self.model.SetFileContentFunctions(
-            ctypes.cast(self._size_callback, ctypes.c_void_p),
-            ctypes.cast(self._data_callback, ctypes.c_void_p),
-        )
+        # Keep the DLL, callbacks and cached model bytes alive even if native
+        # initialization fails partway through. ScreenAI retains global state
+        # and may still have background work using these callbacks. Retrying
+        # InitOCRUsingCallback in that process can fatally fail its !pipeline_
+        # check, so leave this shared runtime unavailable until process exit.
+        shared = ScreenAIOCR._shared_runtime = {
+            "available": False,
+            "model": self.model,
+            "resources_dir": self.resources_dir,
+            "library_path": self.library_path,
+            "dll_path": self.dll_path,
+            "library_name": self._library_name,
+            "size_callback": self._size_callback,
+            "data_callback": self._data_callback,
+            "resource_cache": self._resource_cache,
+        }
 
         try:
+            self.model.SetFileContentFunctions(
+                ctypes.cast(self._size_callback, ctypes.c_void_p),
+                ctypes.cast(self._data_callback, ctypes.c_void_p),
+            )
             init_ok = bool(self.model.InitOCRUsingCallback())
         except Exception as e:
             logger.warning(f"ScreenAI OCR initialization failed: {e}")
@@ -3078,16 +3105,7 @@ class ScreenAIOCR:
             logger.info("ScreenAI OCR using manual parser fallback.")
 
         self.available = True
-        ScreenAIOCR._shared_runtime = {
-            "model": self.model,
-            "resources_dir": self.resources_dir,
-            "library_path": self.library_path,
-            "dll_path": self.dll_path,
-            "library_name": self._library_name,
-            "size_callback": self._size_callback,
-            "data_callback": self._data_callback,
-            "resource_cache": self._resource_cache,
-        }
+        shared["available"] = True
         logger.info(f"ScreenAI OCR ready ({self.resources_dir}, {self._library_name})")
 
     @staticmethod
