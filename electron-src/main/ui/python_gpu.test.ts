@@ -75,6 +75,30 @@ describe('GPU package IPC completion', () => {
 });
 
 describe('Python dependency recovery IPC completion', () => {
+    it('replaces dependency files during an explicit GSM repair', async () => {
+        const sync = vi.fn(async () => {});
+        const install = vi.fn(async () => {});
+        const handler = registerHandler('python.repairGSM', {
+            setTimeout: (callback: () => void) => { callback(); return 0; },
+            getOrInstallPython: async () => 'managed-python',
+            closeAllPythonProcesses: async () => {},
+            pyProc: null,
+            getPythonExtras: () => ['gpu'],
+            resolveRequestedExtras: (extras: string[]) => ({ selectedExtras: extras, ignoredExtras: [] }),
+            checkAndInstallUV: async () => {},
+            syncLockedEnvironment: sync,
+            getBundledBackendSpecifier: () => 'GameSentenceMiner==2026.10.3',
+            installPackageNoDeps: install,
+            startManualInstallSession: vi.fn(),
+            updateInstallStage: vi.fn(),
+            installSessionManager: { finishActive: vi.fn() },
+            require: () => ({ ensureAndRunGSM: vi.fn(async () => {}) }),
+        });
+        expect(await handler()).toMatchObject({ success: true });
+        expect(sync).toHaveBeenCalledWith('managed-python', ['gpu'], false, expect.any(Function), { deferValidation: true, reinstall: true });
+        expect(install).toHaveBeenCalledWith('managed-python', 'GameSentenceMiner==2026.10.3', true, expect.any(Function), ['gpu']);
+    });
+
     it.each([false, true])('finishes on launch or reports a launch error (failure: %s)', async (failLaunch) => {
         const launch = vi.fn((_python, _retry, options) => {
             if (failLaunch) return Promise.reject(new Error('Launch failed'));
@@ -98,7 +122,7 @@ describe('Python dependency recovery IPC completion', () => {
             require: () => ({ ensureAndRunGSM: launch }),
         });
         const result = await handler();
-        expect(sync).toHaveBeenCalledWith('managed-python', ['gpu'], false, expect.any(Function));
+        expect(sync).toHaveBeenCalledWith('managed-python', ['gpu'], false, expect.any(Function), { reinstall: true });
         expect(result.success).toBe(!failLaunch);
         if (failLaunch) {
             expect(result.message).toContain('Launch failed');

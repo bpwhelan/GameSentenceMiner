@@ -225,7 +225,7 @@ export function registerPythonIPC() {
             updateInstallStage('lock_sync', 'running', 'estimated', 0.1, 'Resetting Python dependencies from the lockfile...');
             await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
                 updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
-            });
+            }, { reinstall: true });
             updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Python dependencies reset successfully.');
             console.log('Python dependencies reset successfully.');
 
@@ -293,7 +293,7 @@ export function registerPythonIPC() {
             updateInstallStage('lock_sync', 'running', 'estimated', 0.1, 'Syncing dependencies from the lockfile...');
             await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
                 updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
-            }, { deferValidation: true });
+            }, { deferValidation: true, reinstall: true });
             updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Dependencies synced from the lockfile.');
             const packageSpecifier = getBundledBackendSpecifier();
             updateInstallStage('gsm_package', 'running', 'estimated', 0.1, `Reinstalling ${packageSpecifier}...`);

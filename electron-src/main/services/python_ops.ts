@@ -560,13 +560,15 @@ export function resolveRequestedExtras(
  * @param checkOnly  When true adds `--check` (dry-run, throws on mismatch).
  * @param options.deferValidation  When replacing the backend next, validate and
  * stamp only after installPackageNoDeps replaces its old dependency metadata.
+ * @param options.reinstall  Replace installed dependency files during recovery,
+ * even when their distribution metadata already matches the lockfile.
  */
 export async function syncLockedEnvironment(
     pythonPath: string,
     extras: string[] = [],
     checkOnly: boolean = false,
     onProgress?: (event: UvCommandProgressEvent) => void,
-    options: { deferValidation?: boolean } = {}
+    options: { deferValidation?: boolean; reinstall?: boolean } = {}
 ): Promise<void> {
     const projectPath = getProjectPath();
     const normalizedExtras = normalizeExtras(extras);
@@ -586,6 +588,8 @@ export async function syncLockedEnvironment(
 
     if (checkOnly) {
         args.push('--check');
+    } else if (options.reinstall) {
+        args.push('--reinstall');
     }
 
     for (const extra of normalizedExtras) {

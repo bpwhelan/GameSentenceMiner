@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BackendProcessError } from './services/managed_python_repair.js';
 
 function child() {
     return Object.assign(new EventEmitter(), {
@@ -32,6 +33,7 @@ function loadLifecycle() {
         options?.onSpawn?.();
     });
     const context = vm.createContext({
+        BackendProcessError,
         console: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
         setTimeout, clearTimeout,
         markStartup: vi.fn(),
@@ -69,6 +71,7 @@ function loadLifecycle() {
         startBackendStatusPolling: vi.fn(),
         attachBackendLogForwarding: vi.fn(),
         backendExitRequestedFromPython: false,
+        backendInitialized: false,
         updateManager: { anyUpdateInProgress: false },
         formatBackendExitCode: String,
     });
@@ -191,6 +194,16 @@ describe('Python backend restart', () => {
 });
 
 describe('backend process lifetime', () => {
+    it.each([false, true])('preserves initialization state on failure before resetting it (initialized=%s)', async (initialized) => {
+        const { context, proc } = loadLifecycle();
+        context.resetStartupTrayState.mockImplementation(() => { context.backendInitialized = false; });
+        const run = context.runGSM('python.exe', []);
+        context.backendInitialized = initialized;
+        proc.exitCode = 1;
+        proc.emit('exit', 1);
+        await expect(run).rejects.toMatchObject({ beforeInitialization: !initialized });
+    });
+
     it('isolates the Linux backend and its workers in an owned process group', async () => {
         const { context, proc } = loadLifecycle();
         context.isWindows = () => false;

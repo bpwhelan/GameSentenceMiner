@@ -326,4 +326,23 @@ describe('locked environment validation', () => {
         await expect(syncLockedEnvironment(pythonPath)).rejects.toThrow('failed with exit code 1');
         expect(mockMarkSynced).not.toHaveBeenCalled();
     });
+
+    it('reinstalls locked dependencies only when explicitly repairing corruption', async () => {
+        const { syncLockedEnvironment } = await import('./python_ops.js');
+        await syncLockedEnvironment(pythonPath, [], false, undefined, { deferValidation: true, reinstall: true });
+        expect(mockSpawn.mock.calls[0][1]).toContain('--reinstall');
+        expect(mockSpawn.mock.calls[0][1]).toContain('--frozen');
+    });
+
+    it.each([false, true])('does not reinstall dependencies during an ordinary sync (checkOnly=%s)', async (checkOnly) => {
+        const { syncLockedEnvironment } = await import('./python_ops.js');
+        await syncLockedEnvironment(pythonPath, [], checkOnly, undefined, { deferValidation: true });
+        expect(mockSpawn.mock.calls[0][1]).not.toContain('--reinstall');
+    });
+
+    it('never reinstalls dependencies during a read-only check', async () => {
+        const { syncLockedEnvironment } = await import('./python_ops.js');
+        await syncLockedEnvironment(pythonPath, [], true, undefined, { deferValidation: true, reinstall: true });
+        expect(mockSpawn.mock.calls[0][1]).not.toContain('--reinstall');
+    });
 });

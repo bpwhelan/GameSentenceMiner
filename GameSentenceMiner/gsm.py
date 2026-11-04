@@ -36,27 +36,12 @@ def handle_error_in_initialization(exc: Exception) -> None:
         else:
             print(f"Error during initialization: {exc}")
 
-        try:
-            from GameSentenceMiner.util.communication import electron_ipc
-        except Exception:
-            electron_ipc = None
-
-        try:
-            for raw in sys.stdin:
-                line = raw.strip()
-                if "quit" in line.lower():
-                    if boot_logger is not None:
-                        boot_logger.info("Exiting due to quit command.")
-                    if electron_ipc is not None:
-                        electron_ipc.send_message("cleanup_complete")
-                    sys.exit(1)
-        except KeyboardInterrupt:
-            if boot_logger is not None:
-                boot_logger.info("Exiting due to initialization error.")
-            sys.exit(1)
-    except Exception:
+    except Exception:  # noqa: BLE001 - Broken logging must not prevent the startup failure exit.
         print(f"Error during initialization: {exc}")
-        raise
+    finally:
+        # Electron detects startup failures through process exit. Waiting for a
+        # stdin command here leaves a failed backend alive and prevents repair.
+        raise SystemExit(1)
 
 
 try:

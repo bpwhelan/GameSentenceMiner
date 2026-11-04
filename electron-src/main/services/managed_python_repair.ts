@@ -1,3 +1,11 @@
+/** A failed backend lifetime, with its initialization state captured at exit. */
+export class BackendProcessError extends Error {
+    constructor(message: string, readonly beforeInitialization: boolean, options?: ErrorOptions) {
+        super(message, options);
+        this.name = 'BackendProcessError';
+    }
+}
+
 function collectErrorText(error: unknown): string {
     if (error instanceof Error) {
         return `${error.message}\n${error.stack ?? ''}`;

@@ -179,6 +179,7 @@ import {
     resolveRequestedExtras,
     syncLockedEnvironment,
 } from './services/python_ops.js';
+import { BackendProcessError } from './services/managed_python_repair.js';
 import {
     getDevPyprojectSyncState,
     type DevPyprojectSyncState,
@@ -1704,12 +1705,15 @@ function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<
         });
 
         proc.on('exit', async (code) => {
+            // resetStartupTrayState clears this flag; preserve it before any
+            // cleanup so slow initialization failures remain eligible for repair.
+            const beforeInitialization = !backendInitialized;
             try {
                 // A worker holding an inherited stdout/stderr pipe can prevent
                 // 'close' forever. Reap the owned tree as soon as the parent exits.
                 await terminateProcessTree(proc);
             } catch (error) {
-                reject(error);
+                reject(new BackendProcessError('Failed to clean up the exited backend.', beforeInitialization, { cause: error }));
                 return;
             }
             const intentionallyStopped = intentionalBackendStops.has(proc);
@@ -1740,7 +1744,7 @@ function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<
                     }, 0);
                 }
             } else {
-                reject(new Error(`Command failed with exit code ${formatBackendExitCode(code)}`));
+                reject(new BackendProcessError(`Command failed with exit code ${formatBackendExitCode(code)}`, beforeInitialization));
             }
         });
 
@@ -1750,7 +1754,7 @@ function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<
                 resetStartupTrayState();
                 setTextIntakePausedState(false);
             }
-            reject(err);
+            reject(new BackendProcessError(err.message, true, { cause: err }));
         });
     });
 }
@@ -2661,10 +2665,12 @@ async function ensureAndRunGSM(
         console.log(`[Startup] Failed to start GameSentenceMiner: ${formatConsoleArg(err)}`);
         const backendRuntimeMs = Date.now() - backendLaunchStartedAt;
         const failedSoonAfterLaunch = backendRuntimeMs <= STARTUP_REPAIR_WINDOW_MS;
-        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, pythonPath=${runtimePythonPath}`;
+        const failedBeforeInitialization = err instanceof BackendProcessError && err.beforeInitialization;
+        const eligibleForRepair = failedBeforeInitialization || failedSoonAfterLaunch;
+        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, beforeInitialization=${failedBeforeInitialization}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, pythonPath=${runtimePythonPath}`;
         console.error(startupFailureDetails);
         console.log(startupFailureDetails);
-        if (retry > 0 && failedSoonAfterLaunch) {
+        if (retry > 0 && eligibleForRepair) {
             const repairStartedAt = Date.now();
             const repairSpecifier = getBundledBackendSpecifier();
             console.log(
@@ -2709,7 +2715,7 @@ async function ensureAndRunGSM(
                         event.progress,
                         event.message
                     );
-                }, { deferValidation: true });
+                }, { deferValidation: true, reinstall: true });
                 updateInstallStage(
                     'lock_sync',
                     'completed',
@@ -2764,7 +2770,13 @@ async function ensureAndRunGSM(
                         error: repairError instanceof Error ? repairError.message : String(repairError),
                     }
                 );
-                throw repairError;
+                const failure = new BackendProcessError(
+                    `Backend repair failed: ${repairError instanceof Error ? repairError.message : String(repairError)}`,
+                    true,
+                    { cause: repairError }
+                );
+                finishInstallSession('failed', 'Backend repair failed.', failure.message);
+                throw failure;
             }
 
             const repairDurationMs = Date.now() - repairStartedAt;
@@ -2774,7 +2786,7 @@ async function ensureAndRunGSM(
             );
             return await ensureAndRunGSM(runtimePythonPath, retry - 1, options);
         }
-        if (retry > 0 && !failedSoonAfterLaunch) {
+        if (retry > 0 && !eligibleForRepair) {
             console.warn(
                 `Skipping automatic repair because backend failed after ${backendRuntimeMs}ms (threshold ${STARTUP_REPAIR_WINDOW_MS}ms).`
             );
@@ -2795,8 +2807,22 @@ async function ensureAndRunGSM(
             'Failed to start the GSM backend process.',
             err instanceof Error ? err.message : String(err)
         );
-        throw err instanceof Error ? err : new Error(String(err));
+        throw err instanceof BackendProcessError
+            ? err
+            : new BackendProcessError(err instanceof Error ? err.message : String(err), true, { cause: err });
     }
+}
+
+async function handleBackendStartupFailure(error: unknown): Promise<void> {
+    if (error instanceof BackendProcessError) {
+        // ensureAndRunGSM has already handled the bounded startup repair.
+        // A forced update here would start it all over again.
+        console.error('GSM backend process failed:', error);
+        finishInstallSession('failed', 'Failed to start the GSM backend process.', error.message);
+        return;
+    }
+    console.log('Failed to run GSM, attempting repair of python package...', error);
+    await updateGSM(true, true);
 }
 
 async function processArgsAndStartSettings() {
@@ -3011,10 +3037,7 @@ if (!app.requestSingleInstanceLock()) {
                 knownInstalledVersion: updateManager.checkedBackendVersion,
                 origin: 'startup',
                 trackInstallSession: trackStartupInstallSession,
-            }).catch(async (err) => {
-                console.log('Failed to run GSM, attempting repair of python package...', err);
-                await updateGSM(true, true);
-            });
+            }).catch(handleBackendStartupFailure);
         } catch (error) {
             console.error('Failed to initialize Python runtime on startup:', error);
             finishInstallSession(
