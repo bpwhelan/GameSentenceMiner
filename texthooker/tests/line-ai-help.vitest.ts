@@ -1,11 +1,80 @@
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, expect, test, vi } from 'vitest';
 import Line from '../src/components/Line.svelte';
-import type { LineItem } from '../src/types';
+import Presets from '../src/components/Presets.svelte';
+import type { LineItem, Settings } from '../src/types';
+import { showMenuButton$, showExpiredIcon$ } from '../src/stores/stores';
 
 afterEach(() => {
+	showMenuButton$.next(true);
+	showExpiredIcon$.next(true);
 	vi.unstubAllGlobals();
 	document.body.replaceChildren();
+});
+
+test('menu visibility updates immediately and persists without hiding the expired indicator', async () => {
+	const component = await mountLine('timed_out');
+	expect(document.querySelector('[aria-label="More line actions"]')).not.toBeNull();
+	(document.querySelector('[aria-label="More line actions"]') as HTMLButtonElement).click();
+	await tick();
+	expect(document.querySelector('.actions-menu-popover')).not.toBeNull();
+	showMenuButton$.next(false);
+	await tick();
+	expect(document.querySelector('[aria-label="More line actions"]')).toBeNull();
+	expect(document.querySelector('.actions-menu-popover')).toBeNull();
+	expect(document.querySelector('[title="Line is outside replay buffer"]')).not.toBeNull();
+	expect(localStorage.getItem('bannou-texthooker-showMenuButton')).toBe('0');
+	showMenuButton$.next(true);
+	await tick();
+	expect(document.querySelector('[aria-label="More line actions"]')).not.toBeNull();
+	await unmount(component);
+});
+
+test('expired icon visibility leaves translation and the line menu available', async () => {
+	const component = await mountLine('timed_out');
+	showExpiredIcon$.next(false);
+	await tick();
+	expect(document.querySelector('[title="Line is outside replay buffer"]')).toBeNull();
+	expect(document.querySelector('[title="Translate"]')).not.toBeNull();
+	expect(document.querySelector('[aria-label="More line actions"]')).not.toBeNull();
+	expect(localStorage.getItem('bannou-texthooker-showExpiredIcon')).toBe('0');
+	showExpiredIcon$.next(true);
+	await tick();
+	expect(document.querySelector('[title="Line is outside replay buffer"]')).not.toBeNull();
+	await unmount(component);
+});
+
+test('the expired icon toggle also hides lines from before GSM started', async () => {
+	const component = await mountLine(undefined);
+	const indicator = '[title="Line is from before GSM was started"]';
+	expect(document.querySelector(indicator)).not.toBeNull();
+	showExpiredIcon$.next(false);
+	await tick();
+	expect(document.querySelector(indicator)).toBeNull();
+	showExpiredIcon$.next(true);
+	await tick();
+	expect(document.querySelector(indicator)).not.toBeNull();
+	await unmount(component);
+});
+
+test('presets retain visibility choices and older presets default to visible', async () => {
+	const component = mount(Presets, { target: document.body });
+	showMenuButton$.next(false);
+	showExpiredIcon$.next(false);
+	await tick();
+	const settings = component.getCurrentSettings();
+	expect(settings.showMenuButton$).toBe(false);
+	expect(settings.showExpiredIcon$).toBe(false);
+	showMenuButton$.next(true);
+	showExpiredIcon$.next(true);
+	component.updateSettingsWithPreset({ name: 'Hidden controls', settings });
+	expect(showMenuButton$.getValue()).toBe(false);
+	expect(showExpiredIcon$.getValue()).toBe(false);
+	const { showMenuButton$: _menu, showExpiredIcon$: _expired, ...legacySettings } = settings;
+	component.updateSettingsWithPreset({ name: 'Older preset', settings: legacySettings as Settings });
+	expect(showMenuButton$.getValue()).toBe(true);
+	expect(showExpiredIcon$.getValue()).toBe(true);
+	await unmount(component);
 });
 
 async function mountLine(gsmStatus: LineItem['gsmStatus']) {

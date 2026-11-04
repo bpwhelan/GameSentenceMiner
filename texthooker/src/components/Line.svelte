@@ -26,6 +26,8 @@
 		timedOutIDs$,
 		unblurTLTimer$,
 		showGSMCheckboxes$,
+		showMenuButton$,
+		showExpiredIcon$,
 		showScreenshotButton$,
 		showAudioButton$,
 		showTrimVideoButton$,
@@ -93,6 +95,7 @@
 	let actionsMenuStyle = 'visibility: hidden;';
 	let aiError = '';
 	$: actionsMenuOpen = openMenu === 'actions';
+	$: if (!$showMenuButton$ && openMenu === 'actions') closeActionsMenu();
 	$: isAudioLine = audioLineId === line.id;
 	$: isAudioPending = audioPendingLineId === line.id;
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
@@ -582,14 +585,16 @@
 					{/if}
 				</div>
 			{:else if isTimedOutGSMLine}
-				<div
-					class="line-indicator unselectable"
-					title="Line is outside replay buffer"
-					tabindex="-1"
-					style="color: #666;"
-				>
-					<Icon path={mdiClockOutline} width="32px" height="32px" />
-				</div>
+				{#if $showExpiredIcon$}
+					<div
+						class="line-indicator unselectable"
+						title="Line is outside replay buffer"
+						tabindex="-1"
+						style="color: #666;"
+					>
+						<Icon path={mdiClockOutline} width="32px" height="32px" />
+					</div>
+				{/if}
 				{#if $showTranslateButton$}
 					<button
 						class="action-button"
@@ -612,7 +617,7 @@
 						🌐
 					</button>
 				{/if}
-			{:else}
+			{:else if $showExpiredIcon$}
 				<!-- Show different icon for lines that are from before GSM was started. -->
 				<div
 					class="line-indicator unselectable"
@@ -623,7 +628,7 @@
 					<Icon path={mdiHistory} width="32px" height="32px" />
 				</div>
 			{/if}
-			{#if canAskAI}
+			{#if canAskAI && $showMenuButton$}
 				<div class="actions-menu">
 					<button
 						class="action-button menu-toggle"
