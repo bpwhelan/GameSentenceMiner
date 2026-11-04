@@ -1,5 +1,13 @@
 # VOCR local OCR
 
+**Current desktop default:** faithful ONNX models are bundled and work offline;
+see [VOCR_ONNX.md](VOCR_ONNX.md). The original native downloader below remains
+available with `GSM_VOCR_BACKEND=c`. Maintainers can now build and activate the
+verified AVX2 native trial described in
+[the November 2 comparison](benchmarks/vocr-native-2026-11-02.md). It uses the
+same model weights and model-size selection. The trial is local; new native
+release assets have not yet been published.
+
 GSM can use [bee-san/vita-vn-ocr](https://github.com/bee-san/vita-vn-ocr) as the
 experimental `vitaocr` engine for Japanese visual-novel dialogue. GSM downloads
 and installs the prebuilt runtime and selected model automatically on first use.
@@ -80,6 +88,40 @@ are serialized across main and overlay processes; the previous choice is only
 replaced after the new runtime and model load successfully.
 
 ## Building from source (developers)
+
+The desktop-native build uses the separately pinned Mansive `desktop-avx2`
+sources, retaining the original model and ABI pin. To produce a distributable
+archive and activate it locally on an AVX2 x64 machine:
+
+```powershell
+.venv/Scripts/python.exe scripts/build_vocr_runtime.py --avx2 --install-local
+```
+
+This builds both libraries, includes their complete corresponding source,
+checks the compiled feature flags and loads all three model sizes in a separate
+process before atomically activating the package. Existing packages are retained
+and loaded DLLs are never overwritten. `--directory PATH` selects an isolated
+installation; `--source PATH` uses an existing checkout while still checking
+every pinned file hash. Omit `--avx2` for a portable build. Close/restart the OCR
+workers after activation so their existing model instances can be replaced.
+
+To restore the bundled default without deleting any native assets or changing
+the selected size:
+
+```powershell
+.venv/Scripts/python.exe scripts/build_vocr_runtime.py --restore-onnx
+```
+
+The **Build VOCR Runtime** workflow now builds separate portable and AVX2 x64
+artifacts, and portable arm64 artifacts. AVX2 is checked against CPU and OS
+support before loading. In `auto` mode, unsupported CPU requirements select the
+bundled ONNX implementation without changing model size or loading native code.
+Explicit `GSM_VOCR_BACKEND=c` still reports the unsupported CPU instead of
+overriding the requested backend. These candidates are not wired into the public download
+pins until every target has been built and validated. The source lock for these
+builds is `native/vita-ocr/desktop-source-lock.json`.
+
+### Legacy source installer
 
 The optional developer installer still supports building locally with CMake
 and a C compiler. From the repository root:

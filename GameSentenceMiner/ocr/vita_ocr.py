@@ -1,8 +1,8 @@
-"""VOCR model selection, bundled ONNX factory and opt-in native C99 binding.
+"""VOCR model selection, bundled ONNX factory and verified native C99 trials.
 
 Importing this module never downloads, compiles, or loads native code.
-The C backend is retained for comparison. Its ABI declarations follow
-vocr.h, vocr_lines.h and vocr_charbox.h at UPSTREAM_REVISION.
+The model/ABI pin stays independent of the native kernel build pin. Declarations
+follow vocr.h, vocr_lines.h and vocr_charbox.h at UPSTREAM_REVISION.
 """
 
 import ctypes as C
@@ -89,14 +89,14 @@ def read_model_selection(directory=None):
 
 
 def create_runtime(directory=None, *, model=None):
-    """Use bundled FP32 faithful ONNX on CPU, preserving the selected size.
+    """Use a verified local native trial or bundled faithful ONNX on CPU.
 
     The native class remains directly constructible for reproducible benchmarks.
-    GSM_VOCR_BACKEND=c explicitly opts into the original C backend.
+    GSM_VOCR_BACKEND=c explicitly opts into C; onnx overrides a local trial.
     """
     from GameSentenceMiner.ocr.vocr_onnx import ONNXRuntime, selected_directory
 
-    assets = selected_directory()
+    assets = selected_directory(directory=directory)
     if assets is not None:
         installation = Path(directory) if directory is not None else get_install_directory()
         tier = model if model is not None else read_model_selection(installation)
@@ -186,11 +186,21 @@ class VitaOCRRuntime:
         self.directory = directory
         self.model = tier
         filename, expected_hash = MODELS[tier]
-        self.metadata = {"size": tier, "file": filename, "revision": UPSTREAM_REVISION, "release": RELEASE}
+        self.metadata = {
+            "size": tier,
+            "file": filename,
+            "revision": UPSTREAM_REVISION,
+            "release": RELEASE,
+            "backend": "c",
+        }
         data = (directory / filename).read_bytes()
         if hashlib.sha256(data).hexdigest() != expected_hash:
             raise ValueError(f"VOCR model checksum failed. {SETUP_HELP}")
-        self.lib = C.CDLL(str(get_runtime_directory(directory) / library_name()))
+        runtime_directory = get_runtime_directory(directory)
+        if (runtime_directory / "runtime.json").is_file():
+            build = json.loads((runtime_directory / "runtime.json").read_text(encoding="utf-8"))
+            self.metadata.update(runtime_revision=build.get("revision"), runtime_build=build.get("build"))
+        self.lib = C.CDLL(str(runtime_directory / library_name()))
         self._bind()
         self._lock = threading.Lock()
         self._blob = _aligned(len(data))

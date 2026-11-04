@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/Mansive/vita-vn-ocr",
+  "revision": "b02e81205fa4bba87726a34f9c7a8cd1469a06ce",
+  "files": {
+    "runtime/vocr.c": "ba03d4ee8e3b753c39fc7ff30eec450bd7891a513a9b1d27242d61a662a6fdae",
+    "runtime/vocr.h": "4e867a009697bd6f1735653e0d60a50335034618b8255aae3d4643045f07c8a6",
+    "runtime/vocr_lines.c": "eba00efff3386c51efb2476e91192c908390866ce379c789e01426c4014129ff",
+    "runtime/vocr_lines.h": "469bfbff7b078829dadc68dd089d4398a0ccbae07d8acf3bec4692fa1b5ee3b6",
+    "runtime/vocr_lines_rows.h": "101e22ac1048a108b0e0aec5691dcdd1e0bce23efdc02db33ddbbeb23532ae14",
+    "runtime/vocr_lines_fix.c": "0dee2113f321d418350f9465f273c8dfd998eed105fb2b4598a3455c0bf3d456",
+    "runtime/vocr_lines_fix.h": "5a77e638c7093a6e60d6a12c8de1254bcd37c461ff83ca01919fc36a1a6bf1b0",
+    "runtime/vocr_charbox.c": "7d80ad6067344cf644b642e3799ace66772b6228ec8b8db76c43f2928edef3d5",
+    "runtime/vocr_charbox.h": "872bb83db9ac5211cd06c449ce5b36779f23a235970c153dd2b575d192d8913d",
+    "LICENSE": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+    "runtime/vocr_lines_rows.c": "8e04cd2716543d2dc60ca793f03226108f2b1a47cd3b652f446d5d22133f822a",
+    "runtime/vocr_textspot.h": "51e8d7a9d263034e21ca8488bf5addae03172f5ae0ff06d3c04c36095afed655",
+    "runtime/vocr_textspot6.h": "3c730c0dd8ed05fbbbb0eb21c772322055d0e04b77bbe34ea2631c00d008ce43",
+    "runtime/vocr_textspot6.c": "74aa14ff3fe033d5eff054e192f779104a81242e4035a7bd55ba07c7a0f164fc"
+  },
+  "abi_revision": "205f47ec4e56ca87c00e7dba0a61c9aaec726707",
+  "build": "b02e81205fa4-1"
+}

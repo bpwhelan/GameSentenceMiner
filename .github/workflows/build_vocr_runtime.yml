@@ -24,14 +24,36 @@ jobs:
         include:
           - runner: windows-2022
             platform: win32-x64
+            flavor: portable
+            flags: ''
+          - runner: windows-2022
+            platform: win32-x64
+            flavor: avx2
+            flags: --avx2
           - runner: ubuntu-22.04
             platform: linux-x64
+            flavor: portable
+            flags: ''
+          - runner: ubuntu-22.04
+            platform: linux-x64
+            flavor: avx2
+            flags: --avx2
           - runner: ubuntu-22.04-arm
             platform: linux-arm64
+            flavor: portable
+            flags: ''
           - runner: macos-15
             platform: darwin-arm64
+            flavor: portable
+            flags: ''
           - runner: macos-15-intel
             platform: darwin-x64
+            flavor: portable
+            flags: ''
+          - runner: macos-15-intel
+            platform: darwin-x64
+            flavor: avx2
+            flags: --avx2
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -39,11 +61,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Install the CPU and OS vector-state probe
+        run: python -m pip install numpy==2.2.6
       - name: Build verified source with static Windows CRT
-        run: python scripts/build_vocr_runtime.py --output runtime-assets
+        run: python scripts/build_vocr_runtime.py --output runtime-assets ${{ matrix.flags }}
       - name: Upload libraries and corresponding source
         uses: actions/upload-artifact@v4
         with:
-          name: vocr-runtime-${{ matrix.platform }}
+          name: vocr-runtime-${{ matrix.platform }}-${{ matrix.flavor }}
           path: runtime-assets/*
           if-no-files-found: error

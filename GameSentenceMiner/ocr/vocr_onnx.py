@@ -27,12 +27,24 @@ def bundled_directory():
     return Path(__file__).resolve().parents[1] / "assets" / "vocr"
 
 
-def selected_directory(*, backend=None):
-    backend = (backend or os.environ.get("GSM_VOCR_BACKEND", "onnx")).lower()
+def selected_directory(*, backend=None, directory=None):
+    backend = (backend or os.environ.get("GSM_VOCR_BACKEND", "auto")).lower()
     if backend not in ("auto", "c", "onnx"):
         raise ValueError("GSM_VOCR_BACKEND must be auto, c or onnx")
     if backend == "c":
         return None
+    if backend == "auto":
+        from GameSentenceMiner.ocr.vita_ocr import get_install_directory
+        from GameSentenceMiner.ocr.vocr_native import UnsupportedCPUError, local_runtime_directory
+
+        try:
+            native = local_runtime_directory(directory if directory is not None else get_install_directory())
+        except UnsupportedCPUError:
+            # The bundled graphs are the portable fallback. Do not hide corrupt
+            # packages or invalid selections by catching other validation errors.
+            native = None
+        if native is not None:
+            return None
     assets = bundled_directory()
     if not (assets / "manifest.json").is_file():
         raise FileNotFoundError(f"VOCR bundled models are missing. {BUNDLE_HELP}")

@@ -228,6 +228,9 @@ def test_spotter_only_installation_needs_no_recognition_model(runtime, monkeypat
     native_directory = vocr_runtime.get_runtime_directory(runtime.directory)
     if native_directory != runtime.directory:
         shutil.copytree(native_directory, tmp_path / native_directory.relative_to(runtime.directory))
+        marker = runtime.directory / "native-runtime.json"
+        if marker.is_file():
+            shutil.copy2(marker, tmp_path / marker.name)
     else:
         # Source-built fixtures may contain only the standalone spotter.
         shutil.copy2(native_directory / spotter_library_name(), tmp_path / spotter_library_name())
@@ -254,3 +257,35 @@ def test_spotter_only_installation_needs_no_recognition_model(runtime, monkeypat
     assert metadata["finder"] == "grad"
     assert "checksum" in metadata["fallback_reason"]
     assert len(boxes) == 2
+
+
+def test_local_native_trial_uses_native_factories_across_size_changes(runtime, monkeypatch, tmp_path):
+    import shutil
+
+    from GameSentenceMiner.ocr import vita_model_manager, vita_ocr, vocr_line_finder, vocr_runtime
+    from GameSentenceMiner.owocr.owocr.ocr import VitaOCR, VOCRTextDetector
+
+    if not (runtime.directory / "native-runtime.json").is_file():
+        pytest.skip("Requires an activated local native trial")
+    shutil.copytree(runtime.directory, tmp_path, dirs_exist_ok=True)
+    monkeypatch.setenv("GSM_VITA_OCR_DIR", str(tmp_path))
+    monkeypatch.setenv("GSM_VOCR_BACKEND", "auto")
+    monkeypatch.setattr(vocr_runtime.urllib.request, "urlopen", lambda *a, **k: pytest.fail("Unexpected download"))
+    marker = (tmp_path / "native-runtime.json").read_bytes()
+    assert isinstance(vita_ocr.create_runtime(), VitaOCRRuntime)
+    assert isinstance(vocr_line_finder.create_line_finder(), vocr_line_finder.VOCRLineFinder)
+    engine, detector = VitaOCR(get_furigana_sens_from_file=False), VOCRTextDetector()
+    image = dialogue("black", "white")
+    try:
+        assert detector(image)[0]
+        for tier in ("small", "large", "normal"):
+            status = vita_model_manager.select_model(tier)
+            assert status["backend"] == "c" and status["available"] and status["model"] == tier
+            result = engine(image)
+            assert result[0] and result[5]["gsm_model"]["backend"] == "c"
+            assert result[5]["gsm_model"]["size"] == tier
+            assert result[5]["gsm_model"]["runtime_build"] == runtime.metadata["runtime_build"]
+            assert (tmp_path / "native-runtime.json").read_bytes() == marker
+    finally:
+        engine.close()
+        detector.close()

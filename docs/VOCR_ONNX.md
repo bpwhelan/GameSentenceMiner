@@ -1,8 +1,13 @@
 # Bundled VOCR ONNX
 
-GSM uses the bundled **FP32 faithful ONNX** versions of all three VOCR 6.2
+Unconfigured GSM uses the bundled **FP32 faithful ONNX** versions of all three VOCR 6.2
 recognizers and the textspot8 detector by default, on CPU with one inference
 thread. A fresh installation works offline without either VOCR native library.
+An explicitly installed, verified local native trial takes precedence in `auto`
+mode when its CPU requirements are supported. Otherwise `auto` uses this bundled
+ONNX fallback, preserving the selected model size. `GSM_VOCR_BACKEND=onnx` always
+selects this bundle; explicitly forced `c` still refuses unsupported CPUs. See
+[the native benchmark and build notes](benchmarks/vocr-native-2026-11-02.md).
 The recognizer's blank-frame
 gate and two-level output head are included in the exported graphs. Textspot
 decoding, reading order, polarity, the structural GRAD fallback, and calibrated
@@ -37,7 +42,8 @@ preserved. Main OCR and overlay OCR use the same selection on their next scan.
 
 Older trial exports in the user's `onnx/` directory and `GSM_VOCR_ONNX_MODE` are
 no longer used by GSM. Production recognition and detection are always faithful.
-`GSM_VOCR_BACKEND=auto` and `onnx` both select the bundled implementation.
+`GSM_VOCR_BACKEND=auto` selects the bundle unless a local native trial was
+explicitly activated; `onnx` always selects the bundled implementation.
 
 ```powershell
 npm run verify:vocr-package

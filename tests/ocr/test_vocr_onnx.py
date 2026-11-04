@@ -9,6 +9,7 @@ from GameSentenceMiner.ocr import vocr_onnx
 
 def test_backend_selection_keeps_native_available(monkeypatch, tmp_path):
     monkeypatch.setenv("GSM_VOCR_BACKEND", "auto")
+    monkeypatch.setenv("GSM_VITA_OCR_DIR", str(tmp_path))
     assets = tmp_path / "onnx"
     assets.mkdir()
     (assets / "manifest.json").write_text("{}", encoding="utf-8")

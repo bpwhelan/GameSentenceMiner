@@ -25,7 +25,7 @@ SPOTTER_ATTRIBUTION = "SPOTTER-ATTRIBUTION.md"
 def create_line_finder(directory=None):
     from GameSentenceMiner.ocr.vocr_onnx import ONNXLineFinder, selected_directory
 
-    assets = selected_directory()
+    assets = selected_directory(directory=directory)
     if assets is not None:
         return ONNXLineFinder(assets)
     return VOCRLineFinder() if directory is None else VOCRLineFinder(directory)

@@ -67,11 +67,20 @@ def _prebuilt_directory(directory):
 
 
 def get_runtime_directory(directory):
+    from GameSentenceMiner.ocr.vocr_native import local_runtime_directory
+
+    local = local_runtime_directory(directory)
+    if local is not None:
+        return local
     candidate = _prebuilt_directory(directory)
     return candidate if (candidate / "runtime.json").is_file() else Path(directory)
 
 
 def runtime_installed(directory):
+    from GameSentenceMiner.ocr.vocr_native import local_runtime_directory
+
+    if local_runtime_directory(directory) is not None:
+        return True
     runtime = get_runtime_directory(directory)
     names = (vita_ocr.library_name(), spotter_library_name())
     try:
@@ -223,7 +232,7 @@ def ensure_installation(directory=None, *, model=None, detector_only=False, back
     directory = Path(directory) if directory is not None else vita_ocr.get_install_directory()
     if model is not None and (not isinstance(model, str) or model not in vita_ocr.MODELS):
         raise ValueError("Choose a VOCR model: small, normal or large")
-    assets = selected_directory(backend=backend)
+    assets = selected_directory(backend=backend, directory=directory)
     directory.mkdir(parents=True, exist_ok=True)
     with _install_lock, _process_lock(directory):
         try:
