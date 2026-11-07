@@ -5,13 +5,13 @@ import os
 import threading
 import time
 import uuid
-from collections import defaultdict, deque
 from dataclasses import replace
 from datetime import datetime, timedelta
 
 import websockets
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.ocr import benchmark as ocr_benchmark
 from GameSentenceMiner.text_pipeline.models import (
     IngressAck,
     IngressStatus,
@@ -26,7 +26,7 @@ from GameSentenceMiner.text_pipeline.models import (
 from GameSentenceMiner.text_pipeline.runtime import AuthoritativeTextRuntime
 from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
 from GameSentenceMiner.util.communication.electron_ipc import send_message
-from GameSentenceMiner.util.concurrency.actor import MailboxFull
+from GameSentenceMiner.util.concurrency.actor import ActorStopped, MailboxFull
 from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
 from GameSentenceMiner.util.config.configuration import (
     get_config,
@@ -45,6 +45,7 @@ from GameSentenceMiner.util.platform.notification import (
     send_text_intake_resumed_notification,
 )
 from GameSentenceMiner.util.platform.windows_clipboard import WindowsClipboardListener
+from GameSentenceMiner.util.sentence_exclusions import is_sentence_excluded
 from GameSentenceMiner.util.stats.live_stats import live_stats_tracker, publish_live_stats_update
 from GameSentenceMiner.util.text_log import (
     GameLine,
@@ -81,15 +82,6 @@ text_monitor_initialized = False
 # In-house text sources (OCR, texthook). Like a connected websocket, an active
 # in-house source pauses clipboard intake so the same line isn't ingested twice.
 inhouse_sources_active = {}
-
-# Skip-spam detection is enforced at the shared ingress boundary so clipboard,
-# websocket, OCR, and integrated hooks all take the same path.
-message_timestamps = defaultdict(lambda: deque(maxlen=60))
-rate_limit_active = defaultdict(bool)
-_rate_limit_lock = threading.Lock()
-SKIP_SPAM_WINDOW_SECONDS = 1.0
-SKIP_SPAM_EVENT_THRESHOLD = 5
-SKIP_SPAM_RECOVERY_SECONDS = 0.3
 
 # When stats collection is disabled in advanced config, remind the user on the
 # first few received lines each startup so it's obvious nothing is being stored.
@@ -153,6 +145,21 @@ def freeze_authoritative_text_line(line_id: str) -> bool:
     return bool(events)
 
 
+def recover_skip_landing(text: str, scene: str) -> bool:
+    """Accept visual evidence only while the existing intake runtime is alive."""
+    if is_text_intake_paused():
+        return False
+    with _text_runtime_lock:
+        runtime = _text_runtime
+    if runtime is None:
+        return False
+    try:
+        runtime.recover_skip_landing(text, scene)
+        return True
+    except (ActorStopped, MailboxFull):
+        return False
+
+
 def get_text_runtime_health() -> dict[str, object]:
     with _text_runtime_lock:
         if _text_runtime is None:
@@ -172,6 +179,7 @@ def stop_authoritative_text_runtime() -> bool:
     overlay = _overlay_dispatcher
     _overlay_dispatcher = None
     overlay_stopped = True if overlay is None else overlay.stop()
+    ocr_benchmark.stop_benchmark()
     return text_stopped and overlay_stopped
 
 
@@ -312,57 +320,6 @@ def should_relay_outputs_when_text_intake_paused() -> bool:
 
 def should_drop_text_input_completely() -> bool:
     return is_text_intake_paused() and not should_relay_outputs_when_text_intake_paused()
-
-
-# ---------------------------------------------------------------------------
-# Rate limiting
-# ---------------------------------------------------------------------------
-
-
-def is_message_rate_limited(source="clipboard"):
-    """Drop skip-spam bursts while resuming quickly after the source goes quiet.
-
-    Args:
-        source (str): The source of the message (clipboard, websocket, etc.)
-
-    Returns:
-        bool: True if message should be dropped due to rate limiting
-    """
-    source_key = str(source or "unknown").strip().lower() or "unknown"
-    current_time = time.monotonic()
-    activated = False
-    recovered = False
-
-    with _rate_limit_lock:
-        timestamps = message_timestamps[source_key]
-
-        if rate_limit_active[source_key]:
-            quiet_for = current_time - timestamps[-1] if timestamps else SKIP_SPAM_RECOVERY_SECONDS
-            if quiet_for >= SKIP_SPAM_RECOVERY_SECONDS:
-                timestamps.clear()
-                rate_limit_active[source_key] = False
-                recovered = True
-            else:
-                timestamps.append(current_time)
-                return True
-
-        cutoff = current_time - SKIP_SPAM_WINDOW_SECONDS
-        while timestamps and timestamps[0] <= cutoff:
-            timestamps.popleft()
-        timestamps.append(current_time)
-
-        if len(timestamps) >= SKIP_SPAM_EVENT_THRESHOLD:
-            rate_limit_active[source_key] = True
-            activated = True
-
-    if recovered:
-        logger.info(f"Skip-spam filtering deactivated for {source_key}; text intake resumed.")
-    if activated:
-        logger.warning(
-            f"Skip-spam filtering activated for {source_key}: "
-            f"{SKIP_SPAM_EVENT_THRESHOLD} events within {SKIP_SPAM_WINDOW_SECONDS:g} second."
-        )
-    return activated
 
 
 # ---------------------------------------------------------------------------
@@ -862,10 +819,20 @@ def _ingest_line_sync(
             f"to {len(guarded_line)} characters."
         )
 
-    source_kind = SourceKind.normalize(source, source_display_name)
-    if is_message_rate_limited(source_kind.value):
-        return IngressAck(IngressStatus.REJECTED, observation_id, reason="skip spam detected")
+    if is_sentence_excluded(guarded_line, str(getattr(gsm_state, "current_game", "") or "")):
+        return IngressAck(IngressStatus.REJECTED, observation_id, reason="sentence excluded for this game")
 
+    source_kind = SourceKind.normalize(source, source_display_name)
+    if ocr_benchmark.recorder.observe(
+        source_kind,
+        guarded_line,
+        captured_at=line_time,
+        source_instance=source_instance or source_display_name or source or source_kind.value,
+        scene=str(getattr(gsm_state, "current_game", "") or ""),
+        observation_id=observation_id,
+        metadata=metadata_extra,
+    ):
+        return IngressAck(IngressStatus.REJECTED, observation_id, reason="automatic OCR recorded for benchmark")
     current_line_after_regex = apply_text_processing(guarded_line, get_config().text_processing)
     general_config = getattr(get_config(), "general", None)
     remove_matching_prefix = (
@@ -887,6 +854,10 @@ def _ingest_line_sync(
     }
     if isinstance(metadata_extra, dict):
         metadata.update(metadata_extra)
+    if source_kind in (SourceKind.TEXTHOOK, SourceKind.OCR, SourceKind.CLIPBOARD, SourceKind.WEBSOCKET):
+        from GameSentenceMiner.util.platform.skip_control import game_skip_control_held
+
+        metadata["skip_control_active"] = game_skip_control_held()
     observation = TextObservation(
         observation_id=observation_id,
         source_kind=source_kind,
@@ -989,19 +960,55 @@ def ingest_text_v2_payload(payload: dict) -> dict[str, object]:
         merge_fragments=bool(payload.get("merge_fragments", payload.get("mergeFragments", False))),
         wait_projected=False,
         source_sequence=payload.get("source_sequence", payload.get("sourceSequence")),
-        metadata_extra={key: payload[key] for key in ("hookId", "hookFunction", "engine", "exeName") if key in payload},
+        metadata_extra={
+            key: payload[key]
+            for key in (
+                "hookId",
+                "hookFunction",
+                "engine",
+                "exeName",
+                "ocr_engine",
+                "ocr_scene",
+                "ocr_model",
+                "ocr_finder",
+            )
+            if key in payload
+        },
     )
     return ack.to_dict()
 
 
+_skip_break_recorded = False
+
+
 def _project_text_domain_event(event: TextDomainEvent) -> None:
-    global current_line_time, _dont_collect_stats_notice_count
+    global current_line_time, _dont_collect_stats_notice_count, _skip_break_recorded
     record = event.record
+    if event.kind in (TextEventKind.SKIP_STARTED, TextEventKind.SKIP_ENDED):
+        starting = event.kind is TextEventKind.SKIP_STARTED
+        _skip_break_recorded = False
+        _get_overlay_dispatcher().set_skipping(
+            starting,
+            scene=record.scene,
+            recover=not record.metadata.get("skip_context_reset", False),
+        )
+        return
+    if event.kind is TextEventKind.STATS_EXCLUDED and not _skip_break_recorded:
+        from GameSentenceMiner.util.database.reading_breaks_table import ReadingBreaksTable
+
+        _skip_break_recorded = True
+        skipped_at = record.first_seen_at_utc.timestamp()
+        if not get_config().advanced.dont_collect_stats:
+            live_stats_tracker.mark_reading_break(skipped_at)
+            gsm_db.run_transaction(
+                lambda _conn: ReadingBreaksTable.record(skipped_at), priority=DB_PRIORITY_HIGH, wait=False
+            )
+        logger.info("Fast-forward detected for {}; excluding buffered text and deferring overlay scans.", record.scene)
     # Stats-paused text still needs linked, timestamped history for Anki mining
     # and replay media. Exclusion controls stats/persistence, not this history.
     line = game_log.upsert_authoritative_line(record)
     source_label = record.source_display_name or record.source_kind.value
-    current_line_time = to_local_naive_datetime(record.captured_at_utc)
+    projected_time = to_local_naive_datetime(record.captured_at_utc)
 
     from GameSentenceMiner.web.texthooking_page import project_text_domain_event
 
@@ -1010,6 +1017,7 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
         game_log.remove_by_id(record.line_id)
         return
     if event.kind in (TextEventKind.APPENDED, TextEventKind.UPDATED):
+        current_line_time = projected_time
         if event.kind is TextEventKind.APPENDED:
             log_message = f"<cyan>Line Received from [{source_label}]: {record.text}</cyan>"
         else:
@@ -1026,7 +1034,12 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
             source_label,
         )
         gsm_status.last_line_received = record.first_seen_at_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-        if event.kind is TextEventKind.APPENDED and record.copy_to_clipboard and record.text:
+        if (
+            event.kind is TextEventKind.APPENDED
+            and record.copy_to_clipboard
+            and record.text
+            and record.stats_status != "skipped"
+        ):
             from GameSentenceMiner.util.clipboard import copy as clipboard_copy
 
             clipboard_copy(record.text)
@@ -1038,7 +1051,7 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
             ):
                 _dont_collect_stats_notice_count += 1
                 logger.info("stats is disabled in advanced config, skipping DB")
-        elif not record.excluded_from_stats:
+        elif not record.excluded_from_stats and record.stats_status == "accepted":
             # The tracker has a revision ledger, so provisional text can update
             # stats immediately without double-counting later corrections.
             live_stats_tracker.add_line(
@@ -1048,17 +1061,33 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
                 revision=record.revision,
                 game_name=record.scene,
             )
-        if not record.relay_only:
+        if not record.relay_only and record.stats_status != "skipped":
             _notify_discord_activity(record.scene)
         return
 
-    if event.kind is not TextEventKind.FROZEN:
+    if (
+        event.kind is TextEventKind.STATS_READY
+        and not record.excluded_from_stats
+        and not get_config().advanced.dont_collect_stats
+    ):
+        live_stats_tracker.add_line(
+            record.text,
+            record.first_seen_at_utc.timestamp(),
+            line_id=record.line_id,
+            revision=record.revision,
+            game_name=record.scene,
+        )
+
+    if event.kind not in (TextEventKind.FROZEN, TextEventKind.STATS_READY):
         return
 
-    obs.add_longplay_srt_line(current_line_time, line)
+    if event.kind is TextEventKind.FROZEN:
+        obs.add_longplay_srt_line(projected_time, line)
     if (
         not get_config().advanced.dont_collect_stats
         and not record.excluded_from_stats
+        and record.stats_status == "accepted"
+        and record.state.value == "frozen"
         and "nostatspls" not in line.scene.lower()
     ):
         _persist_game_line_async(replace(line, prev=None, next=None))
@@ -1069,8 +1098,10 @@ def _project_overlay_event(record: TextRecordSnapshot, line: GameLine) -> None:
 
     # The compatibility GameLine may be revised again immediately; detach the
     # visual command so the actor never observes cross-thread mutation.
+    if record.stats_status == "skipped":
+        return
     detached_line = replace(line, prev=None, next=None)
-    _get_overlay_dispatcher().submit(OverlayCommand(record, detached_line))
+    _get_overlay_dispatcher().submit(OverlayCommand(record, detached_line, source=record.source_kind.value))
 
 
 def _notify_discord_activity(scene: str) -> None:
@@ -1090,11 +1121,12 @@ def _notify_discord_activity(scene: str) -> None:
 
 def _get_overlay_dispatcher():
     global _overlay_dispatcher
-    if _overlay_dispatcher is None:
-        from GameSentenceMiner.util.communication.overlay_dispatch import OverlayDispatcher
+    with _text_runtime_lock:
+        if _overlay_dispatcher is None:
+            from GameSentenceMiner.util.communication.overlay_dispatch import OverlayDispatcher
 
-        _overlay_dispatcher = OverlayDispatcher()
-    return _overlay_dispatcher
+            _overlay_dispatcher = OverlayDispatcher()
+        return _overlay_dispatcher
 
 
 def trigger_manual_overlay_scan() -> bool:

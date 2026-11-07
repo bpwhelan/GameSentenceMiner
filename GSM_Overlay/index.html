@@ -109,6 +109,10 @@ background: rgba(202, 12, 12, 0.692);
     overflow: visible;
   }
 
+  body.show-text-hitboxes .text-box {
+    outline: 1px solid rgba(255, 0, 0, 0.75);
+  }
+
   .nav-char-box {
     position: absolute;
     white-space: pre;
@@ -1230,25 +1234,25 @@ background: rgba(202, 12, 12, 0.692);
   let gsmCharacterDictionaryEnsureTimeoutId = null;
   let gsmCharacterDictionaryEnsureInProgress = false;
 
-  async function closeYomitanLookups(reason = 'manual-hide') {
-    if (!yomitanShowing) {
-      return false;
-    }
-
+  async function closeDictionaryLookups(reason = 'manual-hide') {
+    // Close through the loaded reader, including lookups that have not reported
+    // a visible popup yet, so a late result cannot reopen it after deactivation.
     hideOnYomitanClose = false;
 
-    const bridge = window.gsmYomitanBridge;
+    const isHachidori = dictionaryReader === 'hachidori';
+    const readerName = isHachidori ? 'Hachidori' : 'Yomitan';
+    const bridge = isHachidori ? window.gsmHachidoriBridge : window.gsmYomitanBridge;
     if (!bridge || typeof bridge.closePopups !== 'function') {
-      console.warn(`[Yomitan] closePopups bridge unavailable (${reason})`);
+      console.warn(`[${readerName}] closePopups bridge unavailable (${reason})`);
       return false;
     }
 
     try {
       await bridge.closePopups({ timeoutMs: 1500 });
-      console.log(`[Yomitan] Requested popup close (${reason})`);
+      console.log(`[${readerName}] Requested popup close (${reason})`);
       return true;
     } catch (error) {
-      console.warn(`[Yomitan] Failed to close popups via bridge (${reason}):`, error);
+      console.warn(`[${readerName}] Failed to close popups via bridge (${reason}):`, error);
       return false;
     }
   }
@@ -1427,7 +1431,7 @@ background: rgba(202, 12, 12, 0.692);
   // });
 
   function handleDictionaryPopupShown(event) {
-    const isHachidori = event.type === 'hachidori-popup-shown';
+    const isHachidori = event.type === 'gsm-hachidori-popup-shown';
     const readerName = isHachidori ? 'Hachidori' : 'Yomitan';
     const popupId = event.detail?.popupId
       || (isHachidori ? 'hachidori-root' : `popup-${Date.now()}-${Math.random()}`);
@@ -1451,7 +1455,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function handleDictionaryPopupHidden(event) {
-    const isHachidori = event.type === 'hachidori-popup-hidden';
+    const isHachidori = event.type === 'gsm-hachidori-popup-hidden';
     const readerName = isHachidori ? 'Hachidori' : 'Yomitan';
     const popupId = event.detail?.popupId || (isHachidori ? 'hachidori-root' : null);
 
@@ -1489,8 +1493,10 @@ background: rgba(202, 12, 12, 0.692);
 
   window.addEventListener('yomitan-popup-shown', handleDictionaryPopupShown);
   window.addEventListener('yomitan-popup-hidden', handleDictionaryPopupHidden);
-  window.addEventListener('hachidori-popup-shown', handleDictionaryPopupShown);
-  window.addEventListener('hachidori-popup-hidden', handleDictionaryPopupHidden);
+  // Native host-attention events also fire for text selection. Only the GSM
+  // bridge's lifecycle events describe actual root and nested popup visibility.
+  window.addEventListener('gsm-hachidori-popup-shown', handleDictionaryPopupShown);
+  window.addEventListener('gsm-hachidori-popup-hidden', handleDictionaryPopupHidden);
 
   const HACHIDORI_EXTERNAL_LINK_RESULT_EVENT = 'hachidori-open-external-result';
   window.addEventListener('hachidori-open-external', async (event) => {
@@ -1832,10 +1838,7 @@ background: rgba(202, 12, 12, 0.692);
     });
     if (hideYomitanAfterMine === true) {
       // Keep the popup available until GSM has read its selected headword.
-      void targetedMineRefresh.finally(() => {
-        if (dictionaryReader === 'hachidori') void window.gsmHachidoriBridge?.closePopups().catch(console.warn);
-        else void closeYomitanLookups('note-added');
-      });
+      void targetedMineRefresh.finally(() => closeDictionaryLookups('note-added'));
     }
   });
   // Bridge: listen for postMessage from Yomitan iframe/extension and re-dispatch as CustomEvent
@@ -1899,6 +1902,21 @@ background: rgba(202, 12, 12, 0.692);
     jitenFuriganaFrameReady = null;
     ipcRenderer.send('gsm-jiten-cancel-frame');
   }
+  let textIntakePaused = false;
+  let intakePauseGeneration = 0;
+  function setOverlayTextIntakePaused(paused) {
+    if (typeof paused !== 'boolean' || paused === textIntakePaused) return;
+    textIntakePaused = paused;
+    intakePauseGeneration++;
+    window.GsmJitenHighlight?.setEnabled(jitenHighlightingEnabled && !paused);
+    if (paused) {
+      cancelPendingJitenFuriganaFrame();
+      if (gamepadHandler?.isUsingJitenApi()) resetFuriganaRenderState();
+    } else if (Array.isArray(lastJitenHighlightLines) && lastJitenHighlightLines.length) {
+      void renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration,
+        lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
+    }
+  }
   // Jiten SRS Highlighting state (mirror approach)
   let jitenHighlightingEnabled = true;
   let localVocabularyEnabled = false;
@@ -1910,7 +1928,7 @@ background: rgba(202, 12, 12, 0.692);
       texts => ipcRenderer.invoke('gsm-dotnet-jiten-parse', { texts })
     );
     if (localVocabularyEnabled) {
-      window.GsmJitenHighlight?.setEnabled(jitenHighlightingEnabled);
+      window.GsmJitenHighlight?.setEnabled(jitenHighlightingEnabled && !textIntakePaused);
       window.GsmJitenHighlight?.setAvailable(jitenHighlightingEnabled);
       applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
     } else syncJitenSettings('local-vocabulary-disabled', true);
@@ -2184,7 +2202,7 @@ background: rgba(202, 12, 12, 0.692);
   // Ask the Jiten Reader extension to parse the current lines and mirror SRS
   // highlights (the extension's content script does the parsing).
   function applyJitenHighlightingForLines(lines, meta, lineBlocks) {
-    if (!jitenHighlightingEnabled) return; // GSM_DOTNET_JITEN_TOKENIZER_FIXED_V3: parsing is local
+    if (textIntakePaused || !jitenHighlightingEnabled) return;
     // Not verified parseable yet → kick a throttled re-check so a freshly-added
     // key / unpause resumes on its own, then bail.
     // GSM_DOTNET_JITEN_TOKENIZER_FIXED_V3: local parser does not depend on Jiten API availability.
@@ -2248,7 +2266,7 @@ background: rgba(202, 12, 12, 0.692);
   function setJitenHighlightingEnabled(value) {
     const was = jitenHighlightingEnabled;
     jitenHighlightingEnabled = value !== false;
-    if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled && !textIntakePaused);
     if (localVocabularyEnabled) {
       window.GsmJitenHighlight?.setAvailable(jitenHighlightingEnabled);
       if (jitenHighlightingEnabled) applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
@@ -3164,6 +3182,7 @@ background: rgba(202, 12, 12, 0.692);
 
         if (data.type === "live_stats_update") {
           if (typeof data.text_intake_paused === 'boolean') {
+            setOverlayTextIntakePaused(data.text_intake_paused);
             window.gsmQuickActions?.applyState({ paused: data.text_intake_paused });
             window.gsmQuickActions?.render();
           }
@@ -3616,8 +3635,8 @@ background: rgba(202, 12, 12, 0.692);
               indicator.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 165, 0, 0.6)';
               indicator.style.opacity = '0.85';
               indicator.style.userSelect = 'none';
-              indicator.style.left = `${lastBlockBounds.minx}%`;
-              indicator.style.top = `${(lastBlockBounds.miny + lastBlockBounds.maxy) / 2}%`;
+              indicator.style.left = `${lastBlockBounds.minx + offsetX}%`;
+              indicator.style.top = `${(lastBlockBounds.miny + lastBlockBounds.maxy) / 2 + offsetY}%`;
               indicator.style.transform = 'translate(calc(-100% - 10px), -50%)';
 
               document.body.appendChild(indicator);
@@ -4387,6 +4406,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   async function renderFuriganaForFrame(lines, renderGeneration, jitenMeta, lineBlocks) {
+    const pauseGeneration = intakePauseGeneration;
     // Remember the current lines even when highlighting is off, so flipping the
     // toggle on can immediately highlight what's already on screen.
     lastJitenHighlightLines = lines;
@@ -4432,6 +4452,7 @@ background: rgba(202, 12, 12, 0.692);
 
     const usesJiten = !usesLocalReadings && gamepadHandler.isUsingJitenApi();
     if (usesJiten) {
+      if (textIntakePaused || pauseGeneration !== intakePauseGeneration) return;
       // Wait briefly for OCR to settle. Every newer frame replaces the pending
       // timer, and the backend also drops obsolete work already in its queue.
       const signature = JSON.stringify(lines.map((line) => line?.text || ''));
@@ -4449,7 +4470,8 @@ background: rgba(202, 12, 12, 0.692);
         });
       }
       const ready = await jitenFuriganaFrameReady;
-      if (!ready || renderGeneration !== overlayRenderGeneration || !showFurigana) return;
+      if (!ready || renderGeneration !== overlayRenderGeneration || !showFurigana ||
+          textIntakePaused || pauseGeneration !== intakePauseGeneration) return;
     } else {
       cancelPendingJitenFuriganaFrame();
     }
@@ -4458,9 +4480,11 @@ background: rgba(202, 12, 12, 0.692);
     if (usesJiten) {
       jitenResults = await gamepadHandler.requestJitenFuriganaFrame(
         lines.map((line) => ({ text: line?.text || '' })),
-        () => renderGeneration === overlayRenderGeneration && showFurigana
+        () => renderGeneration === overlayRenderGeneration && showFurigana &&
+          !textIntakePaused && pauseGeneration === intakePauseGeneration
       );
-      if (renderGeneration !== overlayRenderGeneration || !showFurigana) return;
+      if (renderGeneration !== overlayRenderGeneration || !showFurigana ||
+          textIntakePaused || pauseGeneration !== intakePauseGeneration) return;
     }
 
     const furiganaRequests = lines.map((line, lineIdx) => {
@@ -4491,7 +4515,8 @@ background: rgba(202, 12, 12, 0.692);
     });
 
     const resolved = await Promise.all(furiganaRequests);
-    if (renderGeneration !== overlayRenderGeneration) {
+    if (renderGeneration !== overlayRenderGeneration ||
+        (usesJiten && (textIntakePaused || pauseGeneration !== intakePauseGeneration))) {
       return;
     }
 
@@ -4893,6 +4918,7 @@ background: rgba(202, 12, 12, 0.692);
       showTextIndicators = true;
       fadeTextIndicators = newsettings.showTextBackground === true;
     }
+    document.body.classList.toggle('show-text-hitboxes', newsettings.showTextHitboxes === true);
     shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
     if (Object.prototype.hasOwnProperty.call(newsettings, "readingLanguage")) {
@@ -5078,8 +5104,7 @@ background: rgba(202, 12, 12, 0.692);
     updateFuriganaVisibilityState();
     
     showRecycledIndicator = newsettings.showRecycledIndicator !== false;
-    offsetX = newsettings.offsetX || 0;
-    offsetY = newsettings.offsetY || 0;
+    updateOverlayTextOffsets(newsettings);
     dismissedRecommendationGames = newsettings.dismissedFullscreenRecommendations || [];
     console.log("Loaded dismissed games:", dismissedRecommendationGames);
 
@@ -5118,8 +5143,36 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   // Unified settings update handler
+  function updateOverlayTextOffsets(settings) {
+    const normalize = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+    const nextX = Object.prototype.hasOwnProperty.call(settings, 'offsetX') ? normalize(settings.offsetX) : offsetX;
+    const nextY = Object.prototype.hasOwnProperty.call(settings, 'offsetY') ? normalize(settings.offsetY) : offsetY;
+    const dx = nextX - offsetX;
+    const dy = nextY - offsetY;
+    if (dx === 0 && dy === 0) return;
+
+    const gamepadSnapshot = prepareGamepadForOverlayTextRender();
+    offsetX = nextX;
+    offsetY = nextY;
+    // A stationary OCR frame may never be sent again. Move its existing boxes
+    // now, preserving the Text nodes and any dictionary Range into them.
+    document.querySelectorAll('.text-box, .nav-char-box, .big-interactive-area, .line-box, .recycled-indicator, .furigana-box').forEach(box => {
+      if (box.style.left.endsWith('%')) box.style.left = `${parseFloat(box.style.left) + dx}%`;
+      if (box.style.top.endsWith('%')) box.style.top = `${parseFloat(box.style.top) + dy}%`;
+    });
+    lastFuriganaRenderSignature = null;
+    window.GsmJitenHighlight?.reposition();
+    window.GSMWindowOcclusion?.refresh();
+    window.GSMLiveStatsWidget?.handleTextBoundsUpdate(
+      Array.from(document.querySelectorAll('.text-box'), box => box.getBoundingClientRect())
+    );
+    completeGamepadOverlayTextRender(gamepadSnapshot, { preserveSelection: true, focusLatestLine: false });
+    textHover.refresh();
+  }
+
   ipcRenderer.on("settings-updated", (event, updatedSettings) => {
     console.log("Settings updated:", updatedSettings);
+    updateOverlayTextOffsets(updatedSettings);
 
     Object.keys(updatedSettings).forEach(key => {
       const value = updatedSettings[key];
@@ -5163,6 +5216,9 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "fadeTextIndicators":
           updateTextIndicators(showTextIndicators, value);
+          break;
+        case "showTextHitboxes":
+          document.body.classList.toggle('show-text-hitboxes', value === true);
           break;
         case "showTextBackground":
           // A full settings snapshot contains this retired key as well as the
@@ -5279,12 +5335,6 @@ background: rgba(202, 12, 12, 0.692);
           showRecycledIndicator = value;
           updateImmediateRecycledIndicator();
           break;
-        case "offsetX":
-          offsetX = value;
-          break;
-        case "offsetY":
-          offsetY = value;
-          break;
       }
     });
   });
@@ -5385,23 +5435,19 @@ background: rgba(202, 12, 12, 0.692);
         applyManualInactivePresentation('manual-hotkey-release');
       };
 
-      if (yomitanShowing) {
-        if (manualModeType === "hold") {
-          hideOnYomitanClose = true;
-          setManualInteractionSuppressed(true);
-          if (shouldHideOverlayWhenManualInactive() && !pinned) {
-            document.body.classList.remove('force-visible');
-          } else {
-            document.body.classList.add('force-visible');
-          }
-          return;
+      if (yomitanShowing && manualModeType === "hold") {
+        hideOnYomitanClose = true;
+        setManualInteractionSuppressed(true);
+        if (shouldHideOverlayWhenManualInactive() && !pinned) {
+          document.body.classList.remove('force-visible');
+        } else {
+          document.body.classList.add('force-visible');
         }
-        void closeYomitanLookups('manual-hotkey-release').finally(() => {
-          finishManualHotkeyRelease();
-        });
         return;
       }
-      finishManualHotkeyRelease();
+      void closeDictionaryLookups('manual-hotkey-release').finally(() => {
+        finishManualHotkeyRelease();
+      });
     }
   });
 
@@ -6207,8 +6253,7 @@ background: rgba(202, 12, 12, 0.692);
     gamepadHandler?.setInputSuppressed(gamepadInputSuppressed || !overlayCaptureAvailable);
     if (!overlayCaptureAvailable) {
       cancelDeferredManualReveal();
-      void closeYomitanLookups('capture-unavailable');
-      if (dictionaryReader === 'hachidori') void window.gsmHachidoriBridge?.closePopups().catch(console.warn);
+      void closeDictionaryLookups('capture-unavailable');
     }
     updateGamepadStatusIndicator();
   });

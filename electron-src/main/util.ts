@@ -7,7 +7,8 @@ import {execFile, spawn, execSync} from "child_process";
 import { app, type WebPreferences } from "electron";
 import {__dirname} from "./main.js";
 import { getBaseDir } from "./data_dir.js";
-import { buildWindowsElevationCommand } from './windows_command_line.js';
+import { buildWindowsAdminRelaunchCommand } from './windows_command_line.js';
+import { getWindowsSystemExecutable } from './runtime/windows_tools.js';
 
 export type SupportedPlatform = 'linux' | 'darwin' | 'win32';
 export const isMac = process.platform === 'darwin';
@@ -380,29 +381,29 @@ export function isRunningAsAdmin(): boolean {
  * On Windows this invokes `Start-Process -Verb RunAs` which triggers the
  * standard UAC prompt. On other platforms it falls back to `pkexec`.
  *
- * After the elevated instance launches the current instance exits.
+ * On Windows an elevated helper waits for the normal shutdown to finish before
+ * launching the replacement. Cancelling UAC leaves the current app untouched.
  */
-export function restartAsAdmin(): void {
+export function restartAsAdmin(): Promise<boolean> {
     const appPath = app.getPath('exe');
     const args = process.argv.slice(1);
 
     if (isWindows()) {
-        // Use PowerShell Start-Process with -Verb RunAs to trigger UAC.
-        const psCommand = buildWindowsElevationCommand(appPath, args);
-
-        execFile(
-            'powershell.exe',
-            ['-NoProfile', '-NonInteractive', '-Command', psCommand],
-            (error) => {
-                if (error) {
-                    // User probably declined UAC — stay running.
-                    console.warn('UAC elevation cancelled or failed:', error.message);
-                    return;
-                }
-                // Elevated instance is starting; quit the current one.
-                app.exit(0);
-            },
-        );
+        const powerShellPath = getWindowsSystemExecutable('WindowsPowerShell\\v1.0\\powershell.exe');
+        const psCommand = buildWindowsAdminRelaunchCommand(appPath, args, process.pid, powerShellPath, process.cwd());
+        return new Promise(resolve => {
+            execFile(powerShellPath, ['-NoProfile', '-NonInteractive', '-Command', psCommand],
+                { windowsHide: true }, (error) => {
+                    if (error) {
+                        console.warn('UAC elevation cancelled or failed:', error.message);
+                        resolve(false);
+                        return;
+                    }
+                    // before-quit owns cleanup, including OBS, hooks, overlay, and backend.
+                    app.quit();
+                    resolve(true);
+                });
+        });
     } else {
         // Linux / macOS — use pkexec as a best-effort graphical sudo.
         const child = spawn('pkexec', [appPath, ...args], {
@@ -410,11 +411,15 @@ export function restartAsAdmin(): void {
             stdio: 'ignore',
         });
         child.unref();
-        child.on('error', (err) => {
-            console.warn('pkexec elevation failed:', err.message);
-        });
-        child.on('spawn', () => {
-            app.exit(0);
+        return new Promise(resolve => {
+            child.on('error', (err) => {
+                console.warn('pkexec elevation failed:', err.message);
+                resolve(false);
+            });
+            child.on('spawn', () => {
+                app.exit(0);
+                resolve(true);
+            });
         });
     }
 }

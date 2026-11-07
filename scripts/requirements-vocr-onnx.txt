@@ -1,0 +1,2 @@
+# Export-time only. Inference uses GSM's existing numpy/OpenCV/onnxruntime dependencies.
+onnx==1.20.1

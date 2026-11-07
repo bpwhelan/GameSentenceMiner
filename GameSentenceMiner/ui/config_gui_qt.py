@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QScrollArea,
     QFrame,
+    QFormLayout,
     QLayout,
     QTabBar,
     QStyle,
@@ -53,9 +54,10 @@ from GameSentenceMiner.ui.config.binding import BindingManager, ValueTransform
 from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
 from GameSentenceMiner.ui.config.search import ConfigSearchController, SearchLineEdit
-from GameSentenceMiner.ui.config.labels import LabelColor, build_label
+from GameSentenceMiner.ui.config.labels import LabelColor, build_label, style_label
 from GameSentenceMiner.ui.config.prompt_help import PromptHelpDialog
 from GameSentenceMiner.ui.config.safety import safe_config_callback, safe_config_methods
+from GameSentenceMiner.ui.qt_theme import apply_compact_theme, set_status_style
 from GameSentenceMiner.ui.config.services.ai_models import (
     AIModelFetcher,
     RECOMMENDED_GEMINI_MODELS,
@@ -170,7 +172,8 @@ class HorizontalTextTabBar(QTabBar):
 
     def tabSizeHint(self, index):
         base_size = super().tabSizeHint(index)
-        return QSize(max(190, base_size.height() + 36), 48)
+        # West-facing tabs report their text width as height before rotation.
+        return QSize(max(148, base_size.height() + 20), 36)
 
     def paintEvent(self, event):
         painter = QStylePainter(self)
@@ -258,7 +261,7 @@ class ConfigWindow(QWidget):
         # --- Window Setup ---
         self._update_window_title()
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)  # Ensure it's a standalone window
-        self.resize(800, 800)
+        self.resize(820, 740)
         self.setMinimumSize(640, 480)
 
         # Set window icon explicitly
@@ -274,6 +277,8 @@ class ConfigWindow(QWidget):
 
         # --- Main Layout ---
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(12, 12, 12, 8)
+        self.main_layout.setSpacing(10)
         self.main_layout.addWidget(self._create_search_bar())
         self.tab_widget = QTabWidget()
         self._configure_tab_widgets()
@@ -315,6 +320,7 @@ class ConfigWindow(QWidget):
         self.obs_scene_refresh_timer = QTimer(self)
         self.obs_scene_refresh_timer.timeout.connect(self._auto_refresh_obs_scenes)
         self.obs_scene_refresh_timer.start(2000)  # Start with 2 seconds
+        apply_compact_theme(self)
 
     # --- Public Methods (API for other parts of the app) ---
     def show_window(self, root_tab_key: str = "", subtab_key: str = ""):
@@ -509,14 +515,14 @@ class ConfigWindow(QWidget):
     def show_save_success_indicator(self):
         """Shows a temporary success indicator that fades out after a few seconds."""
         success_text = self.i18n.get("buttons", {}).get("save_success", "Settings Saved Successfully!")
-        self.save_status_label.setStyleSheet("color: #28a745; font-weight: bold; padding: 5px;")
+        set_status_style(self.save_status_label, "success")
         self.save_status_label.setText(success_text)
         self.save_status_label.show()
         QTimer.singleShot(3000, self.save_status_label.hide)
 
     def show_autosave_pending_indicator(self):
         pending_text = self.i18n.get("buttons", {}).get("autosave_pending", "Unsaved changes...")
-        self.save_status_label.setStyleSheet("color: #d39e00; font-weight: bold; padding: 5px;")
+        set_status_style(self.save_status_label, "warning")
         self.save_status_label.setText(pending_text)
         self.save_status_label.show()
 
@@ -527,14 +533,14 @@ class ConfigWindow(QWidget):
             success_text = template.format(time=current_time)
         except Exception:
             success_text = f"Auto-saved at {current_time}"
-        self.save_status_label.setStyleSheet("color: #28a745; font-weight: bold; padding: 5px;")
+        set_status_style(self.save_status_label, "success")
         self.save_status_label.setText(success_text)
         self.save_status_label.show()
         QTimer.singleShot(4000, self.save_status_label.hide)
 
     def show_save_error_indicator(self):
         error_text = self.i18n.get("buttons", {}).get("save_error", "Failed to save settings")
-        self.save_status_label.setStyleSheet("color: #dc3545; font-weight: bold; padding: 5px;")
+        set_status_style(self.save_status_label, "danger")
         self.save_status_label.setText(error_text)
         self.save_status_label.show()
 
@@ -890,6 +896,7 @@ class ConfigWindow(QWidget):
                     remove_overlay_tag=self.remove_overlay_tag_check.isChecked(),
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
+                    confirmation_restore_focus=self.anki_confirmation_restore_focus_check.isChecked(),
                     confirmation_audio_step=self.anki_confirmation_audio_step_combo.currentData(),
                     confirmation_gamepad_enabled=self.anki_confirmation_gamepad_enabled_check.isChecked(),
                     confirmation_gamepad_focus_up=str(
@@ -1534,6 +1541,7 @@ class ConfigWindow(QWidget):
         self.auto_accept_timer_edit.setValidator(QTGui.QIntValidator())
         self.anki_confirmation_always_on_top_check = QCheckBox()
         self.anki_confirmation_focus_on_show_check = QCheckBox()
+        self.anki_confirmation_restore_focus_check = QCheckBox()
         self.anki_confirmation_audio_step_combo = QComboBox()
         for seconds in Anki.CONFIRMATION_AUDIO_STEPS:
             self.anki_confirmation_audio_step_combo.addItem(f"{seconds:g}s", seconds)
@@ -2596,12 +2604,16 @@ class ConfigWindow(QWidget):
         search_i18n = self.i18n.get("search", {})
         bar = QWidget()
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(4, 4, 4, 0)
+        layout.setContentsMargins(2, 0, 0, 2)
+        layout.setSpacing(16)
+        self.settings_heading = QLabel(self.i18n.get("app", {}).get("settings_heading", "Settings"))
+        self.settings_heading.setProperty("role", "heading")
+        layout.addWidget(self.settings_heading)
         self.search_input = SearchLineEdit()
         self.search_input.setClearButtonEnabled(True)
         self.search_input.setPlaceholderText(search_i18n.get("placeholder", "Search all settings…"))
         self.search_count_label = QLabel()
-        self.search_count_label.setStyleSheet("color: #888;")
+        self.search_count_label.setProperty("role", "muted")
         layout.addWidget(self.search_input, 1)
         layout.addWidget(self.search_count_label)
         return bar
@@ -2613,7 +2625,6 @@ class ConfigWindow(QWidget):
         root_tab_bar.setDrawBase(False)
         self.tab_widget.setTabBar(root_tab_bar)
         self.tab_widget.setDocumentMode(True)
-        self.tab_widget.setStyleSheet(self._get_root_tabs_style())
 
     def _create_subtab_widget(self, tabs, root_key=None):
         sub_tab_widget = QTabWidget()
@@ -2638,6 +2649,11 @@ class ConfigWindow(QWidget):
         return sub_tab_widget
 
     def _wrap_tab_in_scroll_area(self, widget):
+        for form in widget.findChildren(QFormLayout):
+            form.setHorizontalSpacing(14)
+            form.setVerticalSpacing(9)
+            form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         if widget.layout():
             widget.layout().setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -2652,15 +2668,20 @@ class ConfigWindow(QWidget):
         if hasattr(self, "button_bar_widget") and self.button_bar_widget:
             self.main_layout.removeWidget(self.button_bar_widget)
             self.button_bar_widget.deleteLater()
+        if hasattr(self, "save_status_label"):
+            self.main_layout.removeWidget(self.save_status_label)
+            self.save_status_label.deleteLater()
 
         self.button_bar_widget = QWidget()
+        self.button_bar_widget.setProperty("role", "footer")
         button_layout = QHBoxLayout(self.button_bar_widget)
-        button_layout.addStretch(1)
+        button_layout.setContentsMargins(2, 9, 2, 0)
 
         buttons_i18n = self.i18n.get("buttons", {})
         autosave_label = QLabel(buttons_i18n.get("autosave", "Changes are saved automatically."))
-        autosave_label.setStyleSheet("color: #9ca7ba;")
+        autosave_label.setProperty("role", "muted")
         button_layout.addWidget(autosave_label)
+        button_layout.addStretch(1)
         self.sync_changes_check = None
 
         if len(self.master_config.configs) > 1:
@@ -2669,16 +2690,17 @@ class ConfigWindow(QWidget):
             self.sync_changes_check.setToolTip(sync_btn_i18n.get("tooltip", "Syncs CHANGED SETTINGS to all profiles."))
             button_layout.addWidget(self.sync_changes_check)
 
-        button_layout.addStretch(1)
         self.main_layout.addWidget(self.button_bar_widget)
 
         self.save_status_label = QLabel("")
-        self.save_status_label.setStyleSheet("color: #28a745; font-weight: bold; padding: 5px;")
+        set_status_style(self.save_status_label, "success")
         self.save_status_label.hide()
         self.save_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Add save status label in its own row above buttons
         self.main_layout.addWidget(self.save_status_label)
+        if getattr(self, "_gsm_theme_controller", None) is not None:
+            self._gsm_theme_controller.refresh(force=True)
 
     def _connect_signals(self):
         try:
@@ -3173,6 +3195,7 @@ class ConfigWindow(QWidget):
         self._sync_auto_accept_timer_controls()
         self.anki_confirmation_always_on_top_check.setChecked(bool(getattr(s.anki, "confirmation_always_on_top", True)))
         self.anki_confirmation_focus_on_show_check.setChecked(bool(getattr(s.anki, "confirmation_focus_on_show", True)))
+        self.anki_confirmation_restore_focus_check.setChecked(bool(getattr(s.anki, "confirmation_restore_focus", True)))
         self.anki_confirmation_audio_step_combo.setCurrentIndex(
             self.anki_confirmation_audio_step_combo.findData(s.anki.confirmation_audio_step)
         )
@@ -3676,6 +3699,8 @@ class ConfigWindow(QWidget):
     def _update_window_title(self):
         title_template = self.i18n.get("app", {}).get("title_with_profile", "GameSentenceMiner Config - {profile_name}")
         self.setWindowTitle(title_template.format(profile_name=self.settings.name))
+        if hasattr(self, "settings_heading"):
+            self.settings_heading.setText(self.i18n.get("app", {}).get("settings_heading", "Settings"))
 
     def _on_ffmpeg_preset_changed(self, preset_name):
         """Updates the FFmpeg options line edit when the preset combo box changes."""
@@ -3732,19 +3757,12 @@ class ConfigWindow(QWidget):
             label_text = " ".join(word.capitalize() for word in key1.split("_"))
         label = QLabel(label_text)
         label.setToolTip(data.get("tooltip", default_tooltip))
-        style_parts = []
-        if color != LabelColor.DEFAULT:
-            style_parts.append(f"color: {color.get_qt_color()};")
-        if bold:
-            style_parts.append("font-weight: bold;")
-        if style_parts:
-            label.setStyleSheet(" ".join(style_parts))
+        style_label(label, color, bold)
         return label
 
     def _create_group_box(self, title, tooltip=None):
         """Helper to create a styled QGroupBox with consistent styling."""
         group = QGroupBox(title)
-        group.setStyleSheet(self._get_group_box_style())
         if tooltip:
             group.setToolTip(tooltip)
         return group
@@ -3771,22 +3789,6 @@ class ConfigWindow(QWidget):
             button = QPushButton(label)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setToolTip(f"Open documentation: {url}")
-            button.setStyleSheet(
-                """
-                QPushButton {
-                    background-color: #2c4d7f;
-                    color: #f4f8ff;
-                    border: 1px solid #5f88cc;
-                    border-radius: 999px;
-                    padding: 6px 12px;
-                    font-weight: 600;
-                }
-                QPushButton:hover {
-                    background-color: #3965a3;
-                    border-color: #82a8ff;
-                }
-                """
-            )
             button.clicked.connect(
                 safe_config_callback(
                     lambda _checked=False, target=url: self._open_documentation_link(target),
@@ -3813,96 +3815,8 @@ class ConfigWindow(QWidget):
         self.string_replacement_rules_count_label.setText(text)
         self.string_replacement_edit_button.setEnabled(self.string_replacement_enabled_check.isChecked())
 
-    def _get_group_box_style(self):
-        """Returns the consistent group box stylesheet."""
-        return """
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid #555;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }
-        """
-
-    def _get_root_tabs_style(self):
-        """Returns stylesheet for the left-side primary navigation tabs."""
-        return """
-            QTabWidget#ConfigRootTabs::pane {
-                border: 1px solid #3a4049;
-                border-radius: 0px;
-                background-color: transparent;
-                margin-left: 10px;
-            }
-            QTabBar#ConfigRootTabBar {
-                background: transparent;
-                border-right: 1px solid #3a4049;
-            }
-            QTabBar#ConfigRootTabBar::tab {
-                background-color: transparent;
-                color: #d7deea;
-                border: 0px;
-                border-radius: 0px;
-                padding: 9px 12px;
-                margin: 4px 12px 4px 4px;
-                text-align: center;
-                min-width: 190px;
-                font-size: 12pt;
-                font-weight: 600;
-            }
-            QTabBar#ConfigRootTabBar::tab:hover {
-                background-color: #262d38;
-                color: #f1f5ff;
-            }
-            QTabBar#ConfigRootTabBar::tab:selected {
-                background-color: rgba(42, 100, 214, 0.28);
-                color: #ffffff;
-                border-left: 3px solid #82a8ff;
-                font-weight: 700;
-            }
-        """
-
-    def _get_sub_tabs_style(self, min_width: int = 120, horizontal_padding: int = 12):
-        """Returns stylesheet for horizontal sub-tab groups."""
-        style = """
-            QTabWidget#ConfigSubTabs::pane {
-                border: 1px solid #333943;
-                border-radius: 10px;
-                background-color: rgba(16, 18, 22, 0.72);
-                margin-top: 0px;
-            }
-            QTabBar#ConfigSubTabBar {
-                border-bottom: 1px solid #333943;
-            }
-            QTabBar#ConfigSubTabBar::tab {
-                background-color: #1d2229;
-                color: #b8bfcc;
-                border: 1px solid #333943;
-                border-radius: 8px;
-                padding: 8px 12px;
-                margin: 0 6px 6px 0;
-                min-width: 120px;
-            }
-            QTabBar#ConfigSubTabBar::tab:hover {
-                background-color: #272d36;
-                color: #e3e8f2;
-                border-color: #4a5564;
-            }
-            QTabBar#ConfigSubTabBar::tab:selected {
-                background-color: #285ec7;
-                color: #ffffff;
-                border-color: #5a84d9;
-                font-weight: 600;
-            }
-        """
-        return style.replace("padding: 8px 12px", f"padding: 8px {horizontal_padding}px").replace(
-            "min-width: 120px", f"min-width: {min_width}px"
-        )
+    def _get_sub_tabs_style(self, min_width: int = 0, horizontal_padding: int = 10):
+        return f"QTabBar#ConfigSubTabBar::tab {{padding: 8px {horizontal_padding}px; min-width: {min_width}px;}}"
 
     def _update_ai_provider_visibility(self):
         """Shows/hides AI provider settings based on selected provider."""

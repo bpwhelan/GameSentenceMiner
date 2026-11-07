@@ -5,6 +5,9 @@ class BackendConnector {
     this.ws = null;
     this.url = null;
     this.reconnectInterval = null;
+    this.reconnectAttempts = 0;
+    this.startedAt = Date.now();
+    this.hasConnected = false;
     this.queue = [];
     this.reliableOutbox = new Map();
     this.connected = false;
@@ -20,6 +23,7 @@ class BackendConnector {
   connect(url) {
     if (this.destroyed) return;
     if (this.url === url && this.connected) return;
+    if (this.url !== url) this.reconnectAttempts = 0;
     this.url = url;
     this.connected = false;
 
@@ -45,6 +49,11 @@ class BackendConnector {
       socket.on('open', () => {
         if (this.ws !== socket) return;
         console.log('BackendConnector: Connected');
+        if (!this.hasConnected) {
+          console.log(`[Startup] overlay backend connected: ${Date.now() - this.startedAt}ms since connector initialization`);
+          this.hasConnected = true;
+        }
+        this.reconnectAttempts = 0;
         this.connected = true;
         this.flushQueue();
         this.flushReliableOutbox();
@@ -117,12 +126,17 @@ class BackendConnector {
 
   scheduleReconnect() {
     if (this.destroyed || this.reconnectInterval) return;
+    // Overlay and Python start concurrently. Keep the initial retry gap below
+    // a second, then return to the quiet steady-state interval if Python stays
+    // unavailable. Reset on open so backend restarts recover promptly too.
+    const attempt = this.reconnectAttempts++;
+    const delay = attempt < 20 ? Math.min(250 * (2 ** Math.min(attempt, 2)), 1000) : 5000;
     this.reconnectInterval = setTimeout(() => {
       this.reconnectInterval = null;
       if (this.url) {
         this.connect(this.url);
       }
-    }, 5000);
+    }, delay);
   }
 
   tryFallbackOrReconnect(socket) {

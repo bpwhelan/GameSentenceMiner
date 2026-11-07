@@ -1,0 +1,2626 @@
+{
+  "date": "2026-10-31",
+  "scope": "CPU only; isolated models and benchmark; no GSM integration",
+  "environment": {
+    "cpu": "AMD Ryzen 7 5800X",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "python": "3.13.2",
+    "numpy": "2.2.6",
+    "onnx": "1.20.1",
+    "onnxruntime": "1.24.4",
+    "onnxruntime_path": "C:\\Users\\Beangate\\GSM\\GameSentenceMiner\\.venv\\Lib\\site-packages\\onnxruntime\\__init__.py",
+    "available_providers": [
+      "AzureExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "selected_provider": "CPUExecutionProvider",
+    "intra_threads": 1,
+    "inter_threads": 1,
+    "busy_spinning": false
+  },
+  "repeats": 9,
+  "warmup": 2,
+  "timing_method": "Median of mean milliseconds per item in each pass; shuffled backend order, seed 130; warm runs; CPU preprocessing/inference/decoding included",
+  "pipeline_detector": "Unchanged FP32 faithful CPU detector for every recognition variant",
+  "frames": [
+    {
+      "name": "steins-window.png",
+      "size": [
+        1936,
+        1119
+      ],
+      "kind": "real",
+      "sha256": "93c94b85bcaa58a238d58fdb91151d6fba4077c5cdbe84ba0cec0f5721a9a35f"
+    },
+    {
+      "name": "steins-window-restarted.png",
+      "size": [
+        1936,
+        1119
+      ],
+      "kind": "real",
+      "sha256": "74ab53748b1261539d59ba1c33930b34235d4a0450caa7825a8c52e5297cb6fb"
+    },
+    {
+      "name": "steins-after-enter.png",
+      "size": [
+        1296,
+        759
+      ],
+      "kind": "real",
+      "sha256": "bbf83c5264886b014dc5945cd831c0c44c30c0c56a3be8bbb6f133d5f6a7ddef"
+    },
+    {
+      "name": "example.jpg",
+      "size": [
+        1920,
+        1080
+      ],
+      "kind": "real",
+      "sha256": "f3e99582c5e34263d36d85a8553038dd7a6602bdbca1c7f2f6a2bffbc20c5e7b"
+    },
+    {
+      "name": "synthetic-18-light",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "a71284bb80f5e54382da5961faa92af8a9e05dc7b9e58c08016e6db204260b51"
+    },
+    {
+      "name": "synthetic-18-dark",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "7e89f396fb635a02f77e671ec58e04465cafa4efca92dbe94ee5fe862e89ba9b"
+    },
+    {
+      "name": "synthetic-26-light",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "a2ef1b2308bfa071296628e30a7b0945e624cd6d4a1778bea76f80800c4e8e46"
+    },
+    {
+      "name": "synthetic-26-dark",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "680d78f0836c8a0dc82466e5516fc8eba9bfda9b4339809e6e2d60baa5fa5f06"
+    },
+    {
+      "name": "synthetic-38-light",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "e62b6266414994179a8f62e5b6a72dbbb569a20efa385b738787f5a787238f28"
+    },
+    {
+      "name": "synthetic-38-dark",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "6f5232e54788f410ea392d780896bb16b66e7147e79aba927ac099f874f2a3f6"
+    },
+    {
+      "name": "empty-black",
+      "size": [
+        960,
+        544
+      ],
+      "kind": "empty",
+      "sha256": "865ed4355d89339003f3a2736e98b6bbb415ec4d8d37142b5ccccb6873d56f80"
+    },
+    {
+      "name": "empty-white",
+      "size": [
+        960,
+        544
+      ],
+      "kind": "empty",
+      "sha256": "c60c696fe7f998f1c7745172cfc8d88f686d785a580b6459ce4aaefb670b29a8"
+    }
+  ],
+  "recognition_crops": 38,
+  "validation_lines_per_model": 115,
+  "recognition": {
+    "small": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 12.295131578947368,
+        "min_repeat_ms": 11.321592105263157,
+        "max_repeat_ms": 12.500052631578948,
+        "speedup_over_c": 1.0
+      },
+      "fp32-faithful-cpu": {
+        "mean_ms_per_item_median_across_repeats": 3.8205,
+        "min_repeat_ms": 3.5567815789473682,
+        "max_repeat_ms": 4.162765789473684,
+        "speedup_over_c": 3.218199601870794
+      },
+      "fp32-fast-cpu": {
+        "mean_ms_per_item_median_across_repeats": 1.4690763157894737,
+        "min_repeat_ms": 1.3312473684210526,
+        "max_repeat_ms": 1.624907894736842,
+        "speedup_over_c": 8.369293988883097
+      },
+      "fp16-full-cpu": {
+        "mean_ms_per_item_median_across_repeats": 5.366665789473684,
+        "min_repeat_ms": 4.9248315789473684,
+        "max_repeat_ms": 5.650692105263158,
+        "speedup_over_c": 2.29101868110799
+      },
+      "fp16-mixed-cpu": {
+        "mean_ms_per_item_median_across_repeats": 1.4319394736842106,
+        "min_repeat_ms": 1.3452052631578948,
+        "max_repeat_ms": 1.698328947368421,
+        "speedup_over_c": 8.586348658517982
+      },
+      "fp16-conv-cpu": {
+        "mean_ms_per_item_median_across_repeats": 3.7201263157894737,
+        "min_repeat_ms": 3.498447368421053,
+        "max_repeat_ms": 3.8614,
+        "speedup_over_c": 3.3050306724163296
+      },
+      "int8-exact-cpu": {
+        "mean_ms_per_item_median_across_repeats": 3.2683999999999997,
+        "min_repeat_ms": 3.1314184210526315,
+        "max_repeat_ms": 3.663086842105263,
+        "speedup_over_c": 3.7618197218661633
+      },
+      "int8-a8-cpu": {
+        "mean_ms_per_item_median_across_repeats": 2.6342131578947368,
+        "min_repeat_ms": 2.3714263157894737,
+        "max_repeat_ms": 3.149744736842105,
+        "speedup_over_c": 4.667477854667478
+      },
+      "int8-static-cpu": {
+        "mean_ms_per_item_median_across_repeats": 1.5677973684210527,
+        "min_repeat_ms": 1.4499552631578947,
+        "max_repeat_ms": 1.9602447368421052,
+        "speedup_over_c": 7.842296349387256
+      }
+    },
+    "normal": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 13.769894736842105,
+        "min_repeat_ms": 12.954523684210526,
+        "max_repeat_ms": 14.455965789473684,
+        "speedup_over_c": 1.0
+      },
+      "fp32-faithful-cpu": {
+        "mean_ms_per_item_median_across_repeats": 5.607339473684211,
+        "min_repeat_ms": 5.310118421052632,
+        "max_repeat_ms": 5.968592105263158,
+        "speedup_over_c": 2.455691295571734
+      },
+      "fp32-fast-cpu": {
+        "mean_ms_per_item_median_across_repeats": 2.305455263157895,
+        "min_repeat_ms": 2.137936842105263,
+        "max_repeat_ms": 2.463571052631579,
+        "speedup_over_c": 5.972744280442383
+      },
+      "fp16-full-cpu": {
+        "mean_ms_per_item_median_across_repeats": 8.01233947368421,
+        "min_repeat_ms": 7.623373684210526,
+        "max_repeat_ms": 8.661773684210527,
+        "speedup_over_c": 1.718586036209281
+      },
+      "fp16-mixed-cpu": {
+        "mean_ms_per_item_median_across_repeats": 2.1675184210526317,
+        "min_repeat_ms": 2.097773684210526,
+        "max_repeat_ms": 2.5879736842105263,
+        "speedup_over_c": 6.352838620930799
+      },
+      "fp16-conv-cpu": {
+        "mean_ms_per_item_median_across_repeats": 5.410192105263158,
+        "min_repeat_ms": 5.195181578947368,
+        "max_repeat_ms": 6.150652631578947,
+        "speedup_over_c": 2.5451766719053173
+      },
+      "int8-exact-cpu": {
+        "mean_ms_per_item_median_across_repeats": 5.059281578947369,
+        "min_repeat_ms": 4.807492105263158,
+        "max_repeat_ms": 5.506831578947368,
+        "speedup_over_c": 2.7217095000486338
+      },
+      "int8-a8-cpu": {
+        "mean_ms_per_item_median_across_repeats": 3.7709105263157894,
+        "min_repeat_ms": 3.552044736842105,
+        "max_repeat_ms": 3.9864052631578946,
+        "speedup_over_c": 3.6516100397363194
+      },
+      "int8-static-cpu": {
+        "mean_ms_per_item_median_across_repeats": 2.3763973684210526,
+        "min_repeat_ms": 2.2457736842105263,
+        "max_repeat_ms": 3.0130473684210526,
+        "speedup_over_c": 5.7944411653642005
+      }
+    },
+    "large": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 34.053581578947366,
+        "min_repeat_ms": 33.40582105263158,
+        "max_repeat_ms": 39.4410447368421,
+        "speedup_over_c": 1.0
+      },
+      "fp32-faithful-cpu": {
+        "mean_ms_per_item_median_across_repeats": 8.994544736842105,
+        "min_repeat_ms": 8.518486842105263,
+        "max_repeat_ms": 9.45371052631579,
+        "speedup_over_c": 3.7860261497685586
+      },
+      "fp32-fast-cpu": {
+        "mean_ms_per_item_median_across_repeats": 3.5753657894736843,
+        "min_repeat_ms": 3.2537210526315787,
+        "max_repeat_ms": 4.052863157894737,
+        "speedup_over_c": 9.524502829669984
+      },
+      "fp16-full-cpu": {
+        "mean_ms_per_item_median_across_repeats": 11.515705263157894,
+        "min_repeat_ms": 10.983160526315789,
+        "max_repeat_ms": 12.803918421052632,
+        "speedup_over_c": 2.9571425110969733
+      },
+      "fp16-mixed-cpu": {
+        "mean_ms_per_item_median_across_repeats": 3.4738,
+        "min_repeat_ms": 3.3025447368421053,
+        "max_repeat_ms": 4.301178947368421,
+        "speedup_over_c": 9.802977021978053
+      },
+      "fp16-conv-cpu": {
+        "mean_ms_per_item_median_across_repeats": 9.092902631578948,
+        "min_repeat_ms": 8.391826315789473,
+        "max_repeat_ms": 10.13835,
+        "speedup_over_c": 3.745072718658826
+      },
+      "int8-exact-cpu": {
+        "mean_ms_per_item_median_across_repeats": 7.4256,
+        "min_repeat_ms": 7.054371052631579,
+        "max_repeat_ms": 8.116913157894738,
+        "speedup_over_c": 4.585970369929348
+      },
+      "int8-a8-cpu": {
+        "mean_ms_per_item_median_across_repeats": 5.698005263157895,
+        "min_repeat_ms": 5.163905263157894,
+        "max_repeat_ms": 6.689813157894736,
+        "speedup_over_c": 5.976404023199254
+      },
+      "int8-static-cpu": {
+        "mean_ms_per_item_median_across_repeats": 3.2221078947368422,
+        "min_repeat_ms": 3.0267578947368423,
+        "max_repeat_ms": 3.9183421052631577,
+        "speedup_over_c": 10.568727892250985
+      }
+    }
+  },
+  "end_to_end": {
+    "small": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 78.62490833333334,
+        "min_repeat_ms": 77.11976666666666,
+        "max_repeat_ms": 83.3192,
+        "speedup_over_c": 1.0
+      },
+      "fp32-faithful-cpu": {
+        "mean_ms_per_item_median_across_repeats": 34.84395833333333,
+        "min_repeat_ms": 33.65683333333333,
+        "max_repeat_ms": 40.85559166666667,
+        "speedup_over_c": 2.2564861196644563
+      },
+      "fp32-fast-cpu": {
+        "mean_ms_per_item_median_across_repeats": 28.722458333333332,
+        "min_repeat_ms": 26.430025,
+        "max_repeat_ms": 31.999966666666666,
+        "speedup_over_c": 2.7374017718423014
+      },
+      "fp16-full-cpu": {
+        "mean_ms_per_item_median_across_repeats": 40.460633333333334,
+        "min_repeat_ms": 38.332575,
+        "max_repeat_ms": 45.662333333333336,
+        "speedup_over_c": 1.943244627081962
+      },
+      "fp16-mixed-cpu": {
+        "mean_ms_per_item_median_across_repeats": 28.247258333333335,
+        "min_repeat_ms": 27.171441666666666,
+        "max_repeat_ms": 30.91985,
+        "speedup_over_c": 2.7834527303682273
+      },
+      "fp16-conv-cpu": {
+        "mean_ms_per_item_median_across_repeats": 35.462241666666664,
+        "min_repeat_ms": 34.144975,
+        "max_repeat_ms": 38.91390833333333,
+        "speedup_over_c": 2.2171443382621283
+      },
+      "int8-exact-cpu": {
+        "mean_ms_per_item_median_across_repeats": 33.704908333333336,
+        "min_repeat_ms": 32.926316666666665,
+        "max_repeat_ms": 35.558033333333334,
+        "speedup_over_c": 2.3327435741925817
+      },
+      "int8-a8-cpu": {
+        "mean_ms_per_item_median_across_repeats": 32.086841666666665,
+        "min_repeat_ms": 29.797625,
+        "max_repeat_ms": 38.57803333333333,
+        "speedup_over_c": 2.4503785430216594
+      },
+      "int8-static-cpu": {
+        "mean_ms_per_item_median_across_repeats": 27.926766666666666,
+        "min_repeat_ms": 26.5843,
+        "max_repeat_ms": 28.992266666666666,
+        "speedup_over_c": 2.815396041790254
+      }
+    },
+    "normal": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 84.35758333333334,
+        "min_repeat_ms": 81.66035,
+        "max_repeat_ms": 85.85934999999999,
+        "speedup_over_c": 1.0
+      },
+      "fp32-faithful-cpu": {
+        "mean_ms_per_item_median_across_repeats": 41.24039166666667,
+        "min_repeat_ms": 40.05376666666667,
+        "max_repeat_ms": 45.173716666666664,
+        "speedup_over_c": 2.0455087821466296
+      },
+      "fp32-fast-cpu": {
+        "mean_ms_per_item_median_across_repeats": 31.730208333333334,
+        "min_repeat_ms": 29.776325,
+        "max_repeat_ms": 32.65626666666667,
+        "speedup_over_c": 2.6585890154623946
+      },
+      "fp16-full-cpu": {
+        "mean_ms_per_item_median_across_repeats": 48.638875,
+        "min_repeat_ms": 47.37329166666667,
+        "max_repeat_ms": 50.839483333333334,
+        "speedup_over_c": 1.7343654295732238
+      },
+      "fp16-mixed-cpu": {
+        "mean_ms_per_item_median_across_repeats": 30.943,
+        "min_repeat_ms": 29.648108333333333,
+        "max_repeat_ms": 32.363575,
+        "speedup_over_c": 2.7262251020693964
+      },
+      "fp16-conv-cpu": {
+        "mean_ms_per_item_median_across_repeats": 41.90560833333333,
+        "min_repeat_ms": 40.495158333333336,
+        "max_repeat_ms": 44.200275,
+        "speedup_over_c": 2.013038032101113
+      },
+      "int8-exact-cpu": {
+        "mean_ms_per_item_median_across_repeats": 38.44933333333333,
+        "min_repeat_ms": 38.228175,
+        "max_repeat_ms": 42.74825833333333,
+        "speedup_over_c": 2.193993393903666
+      },
+      "int8-a8-cpu": {
+        "mean_ms_per_item_median_across_repeats": 36.820766666666664,
+        "min_repeat_ms": 34.51419166666667,
+        "max_repeat_ms": 38.95045833333333,
+        "speedup_over_c": 2.291032777698817
+      },
+      "int8-static-cpu": {
+        "mean_ms_per_item_median_across_repeats": 31.478466666666666,
+        "min_repeat_ms": 30.574741666666668,
+        "max_repeat_ms": 33.90286666666667,
+        "speedup_over_c": 2.6798504586203906
+      }
+    },
+    "large": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 148.166325,
+        "min_repeat_ms": 146.219375,
+        "max_repeat_ms": 181.34691666666666,
+        "speedup_over_c": 1.0
+      },
+      "fp32-faithful-cpu": {
+        "mean_ms_per_item_median_across_repeats": 51.05126666666666,
+        "min_repeat_ms": 49.69006666666667,
+        "max_repeat_ms": 53.449975,
+        "speedup_over_c": 2.9023045787959556
+      },
+      "fp32-fast-cpu": {
+        "mean_ms_per_item_median_across_repeats": 34.6773,
+        "min_repeat_ms": 33.10149166666667,
+        "max_repeat_ms": 35.86244166666667,
+        "speedup_over_c": 4.272718031680667
+      },
+      "fp16-full-cpu": {
+        "mean_ms_per_item_median_across_repeats": 60.636358333333334,
+        "min_repeat_ms": 58.53306666666666,
+        "max_repeat_ms": 66.522075,
+        "speedup_over_c": 2.443522814900796
+      },
+      "fp16-mixed-cpu": {
+        "mean_ms_per_item_median_across_repeats": 34.13914166666667,
+        "min_repeat_ms": 32.96393333333333,
+        "max_repeat_ms": 43.19801666666667,
+        "speedup_over_c": 4.340071770013745
+      },
+      "fp16-conv-cpu": {
+        "mean_ms_per_item_median_across_repeats": 50.744225,
+        "min_repeat_ms": 48.82425,
+        "max_repeat_ms": 52.14814166666667,
+        "speedup_over_c": 2.919865758123215
+      },
+      "int8-exact-cpu": {
+        "mean_ms_per_item_median_across_repeats": 47.82533333333333,
+        "min_repeat_ms": 44.1265,
+        "max_repeat_ms": 48.79311666666667,
+        "speedup_over_c": 3.098071977194792
+      },
+      "int8-a8-cpu": {
+        "mean_ms_per_item_median_across_repeats": 41.2062,
+        "min_repeat_ms": 38.565558333333335,
+        "max_repeat_ms": 43.248775,
+        "speedup_over_c": 3.5957289194344537
+      },
+      "int8-static-cpu": {
+        "mean_ms_per_item_median_across_repeats": 34.24154166666666,
+        "min_repeat_ms": 32.46086666666667,
+        "max_repeat_ms": 41.177625,
+        "speedup_over_c": 4.327092700508763
+      }
+    }
+  },
+  "recognition_agreement": {
+    "small": {
+      "fp32-faithful-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp32-fast-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp16-full-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 2,
+        "frames": 4064,
+        "frame_mismatches": 4
+      },
+      "fp16-mixed-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 2,
+        "frames": 4064,
+        "frame_mismatches": 2
+      },
+      "fp16-conv-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 2,
+        "frames": 4064,
+        "frame_mismatches": 2
+      },
+      "int8-exact-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "int8-a8-cpu": {
+        "cases": 115,
+        "text_mismatches": 38,
+        "character_mismatches": 63,
+        "frames": 4064,
+        "frame_mismatches": 248
+      },
+      "int8-static-cpu": {
+        "cases": 115,
+        "text_mismatches": 21,
+        "character_mismatches": 42,
+        "frames": 4064,
+        "frame_mismatches": 107
+      }
+    },
+    "normal": {
+      "fp32-faithful-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp32-fast-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp16-full-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp16-mixed-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp16-conv-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "int8-exact-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "int8-a8-cpu": {
+        "cases": 115,
+        "text_mismatches": 24,
+        "character_mismatches": 61,
+        "frames": 4064,
+        "frame_mismatches": 215
+      },
+      "int8-static-cpu": {
+        "cases": 115,
+        "text_mismatches": 17,
+        "character_mismatches": 32,
+        "frames": 4064,
+        "frame_mismatches": 85
+      }
+    },
+    "large": {
+      "fp32-faithful-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp32-fast-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp16-full-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp16-mixed-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "fp16-conv-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "int8-exact-cpu": {
+        "cases": 115,
+        "text_mismatches": 0,
+        "character_mismatches": 0,
+        "frames": 4064,
+        "frame_mismatches": 0
+      },
+      "int8-a8-cpu": {
+        "cases": 115,
+        "text_mismatches": 31,
+        "character_mismatches": 70,
+        "frames": 4064,
+        "frame_mismatches": 319
+      },
+      "int8-static-cpu": {
+        "cases": 115,
+        "text_mismatches": 12,
+        "character_mismatches": 34,
+        "frames": 4064,
+        "frame_mismatches": 77
+      }
+    }
+  },
+  "recognition_agreement_total": {
+    "fp32-faithful-cpu": {
+      "cases": 345,
+      "text_mismatches": 0,
+      "character_mismatches": 0,
+      "frames": 12192,
+      "frame_mismatches": 0
+    },
+    "fp32-fast-cpu": {
+      "cases": 345,
+      "text_mismatches": 0,
+      "character_mismatches": 0,
+      "frames": 12192,
+      "frame_mismatches": 0
+    },
+    "fp16-full-cpu": {
+      "cases": 345,
+      "text_mismatches": 0,
+      "character_mismatches": 2,
+      "frames": 12192,
+      "frame_mismatches": 4
+    },
+    "fp16-mixed-cpu": {
+      "cases": 345,
+      "text_mismatches": 0,
+      "character_mismatches": 2,
+      "frames": 12192,
+      "frame_mismatches": 2
+    },
+    "fp16-conv-cpu": {
+      "cases": 345,
+      "text_mismatches": 0,
+      "character_mismatches": 2,
+      "frames": 12192,
+      "frame_mismatches": 2
+    },
+    "int8-exact-cpu": {
+      "cases": 345,
+      "text_mismatches": 0,
+      "character_mismatches": 0,
+      "frames": 12192,
+      "frame_mismatches": 0
+    },
+    "int8-a8-cpu": {
+      "cases": 345,
+      "text_mismatches": 93,
+      "character_mismatches": 194,
+      "frames": 12192,
+      "frame_mismatches": 782
+    },
+    "int8-static-cpu": {
+      "cases": 345,
+      "text_mismatches": 50,
+      "character_mismatches": 108,
+      "frames": 12192,
+      "frame_mismatches": 269
+    }
+  },
+  "end_to_end_agreement": {
+    "fp32-faithful-cpu": {
+      "images": 36,
+      "result_mismatches": 0,
+      "text_mismatches": 0
+    },
+    "fp32-fast-cpu": {
+      "images": 36,
+      "result_mismatches": 0,
+      "text_mismatches": 0
+    },
+    "fp16-full-cpu": {
+      "images": 36,
+      "result_mismatches": 2,
+      "text_mismatches": 0
+    },
+    "fp16-mixed-cpu": {
+      "images": 36,
+      "result_mismatches": 2,
+      "text_mismatches": 0
+    },
+    "fp16-conv-cpu": {
+      "images": 36,
+      "result_mismatches": 2,
+      "text_mismatches": 0
+    },
+    "int8-exact-cpu": {
+      "images": 36,
+      "result_mismatches": 0,
+      "text_mismatches": 0
+    },
+    "int8-a8-cpu": {
+      "images": 36,
+      "result_mismatches": 29,
+      "text_mismatches": 22
+    },
+    "int8-static-cpu": {
+      "images": 36,
+      "result_mismatches": 24,
+      "text_mismatches": 13
+    }
+  },
+  "detector_timing": {
+    "c": {
+      "mean_ms_per_item_median_across_repeats": 38.441125,
+      "min_repeat_ms": 37.506566666666664,
+      "max_repeat_ms": 39.545433333333335,
+      "speedup_over_c": 1.0
+    },
+    "fp32": {
+      "mean_ms_per_item_median_across_repeats": 23.006116666666667,
+      "min_repeat_ms": 21.798808333333334,
+      "max_repeat_ms": 24.228925,
+      "speedup_over_c": 1.6709088959675216
+    },
+    "fp16-conv": {
+      "mean_ms_per_item_median_across_repeats": 23.061625,
+      "min_repeat_ms": 22.071225,
+      "max_repeat_ms": 25.147383333333334,
+      "speedup_over_c": 1.6668870905671218
+    },
+    "int8-exact": {
+      "mean_ms_per_item_median_across_repeats": 25.526991666666667,
+      "min_repeat_ms": 24.839691666666667,
+      "max_repeat_ms": 27.723566666666667,
+      "speedup_over_c": 1.5059011066390835
+    }
+  },
+  "detector_agreement": {
+    "fp32": {
+      "images": 17,
+      "map_values": 675280,
+      "map_mismatches": 0,
+      "box_mismatches": 0
+    },
+    "fp16-conv": {
+      "images": 17,
+      "map_values": 675280,
+      "map_mismatches": 330283,
+      "box_mismatches": 11
+    },
+    "int8-exact": {
+      "images": 17,
+      "map_values": 675280,
+      "map_mismatches": 0,
+      "box_mismatches": 0
+    }
+  },
+  "profiles": {
+    "small": {
+      "fp16-full-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 268
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 18,
+            "Max": 36,
+            "ReorderInput": 16,
+            "Cast": 92,
+            "Transpose": 30,
+            "MatMul": 20,
+            "Add": 28,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 2,
+            "Gemm": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 32, 16, 60]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 64, 8, 30]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 4,
+              "[{\"float\": [1, 128, 4, 15]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 160, 2, 15]}, {\"float\": [160, 1, 3, 3]}, {\"float\": [160]}]": 2,
+              "[{\"float\": [1, 192, 1, 15]}, {\"float\": [192, 1, 1, 5]}, {\"float\": [192]}]": 4
+            },
+            "MatMul": {
+              "[{\"float\": [1, 8, 30, 32]}]": 2,
+              "[{\"float\": [1, 8, 30, 64]}]": 2,
+              "[{\"float\": [1, 4, 15, 64]}]": 2,
+              "[{\"float\": [1, 4, 15, 128]}]": 2,
+              "[{\"float\": [1, 2, 15, 128]}]": 2,
+              "[{\"float\": [1, 2, 15, 160]}]": 2,
+              "[{\"float\": [1, 1, 15, 320]}]": 2,
+              "[{\"float\": [1, 1, 15, 192]}]": 6
+            },
+            "Gemm": {
+              "[{\"float\": [15, 96]}, {\"float\": [4987]}]": 2
+            }
+          }
+        }
+      },
+      "fp16-mixed-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 126
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 16,
+            "MatMul": 20,
+            "Add": 28,
+            "Relu": 18,
+            "ReorderInput": 14,
+            "Transpose": 2,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 2,
+            "Gemm": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 32, 16, 60]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 64, 8, 30]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 4,
+              "[{\"float\": [1, 128, 4, 15]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 160, 2, 15]}, {\"float\": [160, 1, 3, 3]}, {\"float\": [160]}]": 2,
+              "[{\"float\": [1, 192, 1, 15]}, {\"float\": [192, 1, 1, 5]}, {\"float\": [192]}]": 4
+            },
+            "MatMul": {
+              "[{\"float\": [1, 8, 30, 32]}]": 2,
+              "[{\"float\": [1, 8, 30, 64]}]": 2,
+              "[{\"float\": [1, 4, 15, 64]}]": 2,
+              "[{\"float\": [1, 4, 15, 128]}]": 2,
+              "[{\"float\": [1, 2, 15, 128]}]": 2,
+              "[{\"float\": [1, 2, 15, 160]}]": 2,
+              "[{\"float\": [1, 1, 15, 320]}]": 2,
+              "[{\"float\": [1, 1, 15, 192]}]": 6
+            },
+            "Gemm": {
+              "[{\"float\": [15, 96]}, {\"float\": [4987]}]": 2
+            }
+          }
+        }
+      },
+      "fp16-conv-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 792
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 32,
+            "Abs": 44,
+            "ReduceMax": 22,
+            "Div": 66,
+            "Mul": 132,
+            "Transpose": 34,
+            "Greater": 22,
+            "Where": 22,
+            "Add": 74,
+            "Floor": 22,
+            "Sign": 22,
+            "Clip": 22,
+            "Cast": 110,
+            "Sub": 22,
+            "Slice": 44,
+            "MatMul": 44,
+            "Relu": 18,
+            "ReorderInput": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 32, 16, 60]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 64, 8, 30]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 4,
+              "[{\"float\": [1, 128, 4, 15]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 160, 2, 15]}, {\"float\": [160, 1, 3, 3]}, {\"float\": [160]}]": 2,
+              "[{\"float\": [1, 192, 1, 15]}, {\"float\": [192, 1, 1, 5]}, {\"float\": [192]}]": 4
+            },
+            "MatMul": {
+              "[{\"float\": [1, 8, 30, 32]}]": 4,
+              "[{\"float\": [1, 8, 30, 64]}]": 4,
+              "[{\"float\": [1, 4, 15, 64]}]": 4,
+              "[{\"float\": [1, 4, 15, 128]}]": 4,
+              "[{\"float\": [1, 2, 15, 128]}]": 4,
+              "[{\"float\": [1, 2, 15, 160]}]": 4,
+              "[{\"float\": [1, 1, 15, 320]}]": 4,
+              "[{\"float\": [1, 1, 15, 192]}]": 12,
+              "[{\"float\": [15, 96]}]": 4
+            }
+          }
+        }
+      },
+      "int8-exact-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 800
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 32,
+            "Abs": 44,
+            "ReduceMax": 22,
+            "Div": 66,
+            "Mul": 132,
+            "Transpose": 42,
+            "Greater": 22,
+            "Where": 22,
+            "Add": 96,
+            "Floor": 44,
+            "Sign": 22,
+            "Clip": 22,
+            "Cast": 66,
+            "Slice": 44,
+            "MatMulInteger": 44,
+            "Sub": 22,
+            "Relu": 18,
+            "ReorderInput": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 32, 16, 60]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 64, 8, 30]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 4,
+              "[{\"float\": [1, 128, 4, 15]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 160, 2, 15]}, {\"float\": [160, 1, 3, 3]}, {\"float\": [160]}]": 2,
+              "[{\"float\": [1, 192, 1, 15]}, {\"float\": [192, 1, 1, 5]}, {\"float\": [192]}]": 4
+            },
+            "MatMulInteger": {
+              "[{\"uint8\": [1, 8, 30, 32]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 8, 30, 64]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 4, 15, 64]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 4, 15, 128]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 2, 15, 128]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 2, 15, 160]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 1, 15, 320]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 1, 15, 192]}, {\"uint8\": []}, {\"uint8\": []}]": 12,
+              "[{\"uint8\": [15, 96]}, {\"uint8\": []}, {\"uint8\": []}]": 4
+            }
+          }
+        }
+      },
+      "int8-a8-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 558
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 32,
+            "Abs": 44,
+            "ReduceMax": 22,
+            "Div": 44,
+            "Mul": 76,
+            "Transpose": 42,
+            "Greater": 22,
+            "Where": 22,
+            "Add": 70,
+            "Floor": 22,
+            "Sign": 22,
+            "Clip": 22,
+            "Cast": 38,
+            "MatMulInteger": 16,
+            "Relu": 18,
+            "ReorderInput": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "MatMulIntegerToFloat": 6,
+            "Squeeze": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 32, 16, 60]}, {\"float\": [32, 1, 3, 3]}, {\"float\": [32]}]": 2,
+              "[{\"float\": [1, 64, 8, 30]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 4,
+              "[{\"float\": [1, 128, 4, 15]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 160, 2, 15]}, {\"float\": [160, 1, 3, 3]}, {\"float\": [160]}]": 2,
+              "[{\"float\": [1, 192, 1, 15]}, {\"float\": [192, 1, 1, 5]}, {\"float\": [192]}]": 4
+            },
+            "MatMulInteger": {
+              "[{\"uint8\": [1, 8, 30, 32]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 8, 30, 64]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 64]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 128]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 128]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 160]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 1, 15, 192]}, {\"uint8\": []}, {\"uint8\": []}]": 4
+            },
+            "MatMulIntegerToFloat": {
+              "[{\"uint8\": [1, 1, 15, 320]}, {\"float\": [1, 1, 15, 1]}, {\"float\": [192]}, {\"uint8\": []}, {\"uint8\": []}, {\"float\": [192]}]": 2,
+              "[{\"uint8\": [1, 1, 15, 192]}, {\"float\": [1, 1, 15, 1]}, {\"float\": [96]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [15, 96]}, {\"float\": [15, 1]}, {\"float\": [4987]}, {\"uint8\": []}, {\"uint8\": []}, {\"float\": [4987]}]": 2
+            }
+          }
+        }
+      },
+      "int8-static-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 186
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "QuantizeLinear": 42,
+            "Transpose": 4,
+            "QLinearConv": 18,
+            "DequantizeLinear": 52,
+            "QLinearMatMul": 22,
+            "Add": 30,
+            "Relu": 10,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "QLinearConv": {
+              "[{\"uint8\": [1, 32, 120, 1]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [32]}, {\"uint8\": [32]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [32]}]": 2,
+              "[{\"uint8\": [1, 16, 60, 32]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [32]}, {\"uint8\": [32]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [32]}]": 2,
+              "[{\"uint8\": [1, 8, 30, 64]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [64]}, {\"uint8\": [64]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [64]}]": 4,
+              "[{\"uint8\": [1, 4, 15, 128]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [128]}, {\"uint8\": [128]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [128]}]": 4,
+              "[{\"uint8\": [1, 2, 15, 160]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [160]}, {\"uint8\": [160]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [160]}]": 2,
+              "[{\"uint8\": [1, 1, 15, 192]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [192]}, {\"uint8\": [192]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [192]}]": 4
+            },
+            "QLinearMatMul": {
+              "[{\"uint8\": [1, 8, 30, 32]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [64]}, {\"uint8\": [64]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 8, 30, 64]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [64]}, {\"uint8\": [64]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 64]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [128]}, {\"uint8\": [128]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 128]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [128]}, {\"uint8\": [128]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 128]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [160]}, {\"uint8\": [160]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 160]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [160]}, {\"uint8\": [160]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 1, 15, 320]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [192]}, {\"uint8\": [192]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 1, 15, 192]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [192]}, {\"uint8\": [192]}, {\"float\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 1, 15, 192]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [96]}, {\"uint8\": [96]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [15, 96]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [4987]}, {\"uint8\": [4987]}, {\"float\": []}, {\"uint8\": []}]": 2
+            }
+          }
+        }
+      }
+    },
+    "normal": {
+      "fp16-full-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 594
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 18,
+            "Max": 40,
+            "ReorderInput": 16,
+            "Cast": 192,
+            "Transpose": 30,
+            "MatMul": 28,
+            "Add": 106,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 4,
+            "Gemm": 2,
+            "Abs": 4,
+            "ReduceMax": 4,
+            "Greater": 6,
+            "Where": 6,
+            "Div": 6,
+            "Mul": 86,
+            "Floor": 2,
+            "Sign": 2,
+            "Clip": 2,
+            "Sub": 2,
+            "Slice": 8,
+            "Split": 4,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 48, 16, 60]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 96, 8, 30]}, {\"float\": [96, 1, 3, 3]}, {\"float\": [96]}]": 4,
+              "[{\"float\": [1, 192, 4, 15]}, {\"float\": [192, 1, 3, 3]}, {\"float\": [192]}]": 4,
+              "[{\"float\": [1, 240, 2, 15]}, {\"float\": [240, 1, 3, 3]}, {\"float\": [240]}]": 2,
+              "[{\"float\": [1, 288, 1, 15]}, {\"float\": [288, 1, 1, 5]}, {\"float\": [288]}]": 4
+            },
+            "MatMul": {
+              "[{\"float\": [1, 8, 30, 48]}]": 2,
+              "[{\"float\": [1, 8, 30, 96]}]": 2,
+              "[{\"float\": [1, 4, 15, 96]}]": 2,
+              "[{\"float\": [1, 4, 15, 192]}]": 2,
+              "[{\"float\": [1, 2, 15, 192]}]": 2,
+              "[{\"float\": [1, 2, 15, 240]}]": 2,
+              "[{\"float\": [1, 1, 15, 480]}]": 2,
+              "[{\"float\": [1, 1, 15, 288]}]": 6,
+              "[{\"float\": [15, 96]}, {\"float\": [96, 16]}]": 8
+            },
+            "Gemm": {
+              "[{\"float\": [15, 96]}, {\"float\": [5631]}]": 2
+            }
+          }
+        }
+      },
+      "fp16-mixed-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 368
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 16,
+            "MatMul": 28,
+            "Add": 106,
+            "Relu": 22,
+            "ReorderInput": 14,
+            "Transpose": 2,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 4,
+            "Gemm": 2,
+            "Abs": 4,
+            "ReduceMax": 4,
+            "Greater": 6,
+            "Where": 6,
+            "Div": 6,
+            "Mul": 86,
+            "Floor": 2,
+            "Sign": 2,
+            "Clip": 2,
+            "Cast": 16,
+            "Sub": 2,
+            "Slice": 8,
+            "Split": 4,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 48, 16, 60]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 96, 8, 30]}, {\"float\": [96, 1, 3, 3]}, {\"float\": [96]}]": 4,
+              "[{\"float\": [1, 192, 4, 15]}, {\"float\": [192, 1, 3, 3]}, {\"float\": [192]}]": 4,
+              "[{\"float\": [1, 240, 2, 15]}, {\"float\": [240, 1, 3, 3]}, {\"float\": [240]}]": 2,
+              "[{\"float\": [1, 288, 1, 15]}, {\"float\": [288, 1, 1, 5]}, {\"float\": [288]}]": 4
+            },
+            "MatMul": {
+              "[{\"float\": [1, 8, 30, 48]}]": 2,
+              "[{\"float\": [1, 8, 30, 96]}]": 2,
+              "[{\"float\": [1, 4, 15, 96]}]": 2,
+              "[{\"float\": [1, 4, 15, 192]}]": 2,
+              "[{\"float\": [1, 2, 15, 192]}]": 2,
+              "[{\"float\": [1, 2, 15, 240]}]": 2,
+              "[{\"float\": [1, 1, 15, 480]}]": 2,
+              "[{\"float\": [1, 1, 15, 288]}]": 6,
+              "[{\"float\": [15, 96]}]": 8
+            },
+            "Gemm": {
+              "[{\"float\": [15, 96]}, {\"float\": [5631]}]": 2
+            }
+          }
+        }
+      },
+      "fp16-conv-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 994
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 32,
+            "Abs": 44,
+            "ReduceMax": 24,
+            "Div": 66,
+            "Mul": 212,
+            "Transpose": 34,
+            "Greater": 26,
+            "Where": 26,
+            "Add": 150,
+            "Floor": 22,
+            "Sign": 22,
+            "Clip": 22,
+            "Cast": 122,
+            "Sub": 22,
+            "Slice": 48,
+            "MatMul": 52,
+            "Relu": 22,
+            "ReorderInput": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 4,
+            "Split": 4,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 48, 16, 60]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 96, 8, 30]}, {\"float\": [96, 1, 3, 3]}, {\"float\": [96]}]": 4,
+              "[{\"float\": [1, 192, 4, 15]}, {\"float\": [192, 1, 3, 3]}, {\"float\": [192]}]": 4,
+              "[{\"float\": [1, 240, 2, 15]}, {\"float\": [240, 1, 3, 3]}, {\"float\": [240]}]": 2,
+              "[{\"float\": [1, 288, 1, 15]}, {\"float\": [288, 1, 1, 5]}, {\"float\": [288]}]": 4
+            },
+            "MatMul": {
+              "[{\"float\": [1, 8, 30, 48]}]": 4,
+              "[{\"float\": [1, 8, 30, 96]}]": 4,
+              "[{\"float\": [1, 4, 15, 96]}]": 4,
+              "[{\"float\": [1, 4, 15, 192]}]": 4,
+              "[{\"float\": [1, 2, 15, 192]}]": 4,
+              "[{\"float\": [1, 2, 15, 240]}]": 4,
+              "[{\"float\": [1, 1, 15, 480]}]": 4,
+              "[{\"float\": [1, 1, 15, 288]}]": 12,
+              "[{\"float\": [15, 96]}]": 12
+            }
+          }
+        }
+      },
+      "int8-exact-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 994
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 32,
+            "Abs": 44,
+            "ReduceMax": 24,
+            "Div": 66,
+            "Mul": 212,
+            "Transpose": 42,
+            "Greater": 26,
+            "Where": 26,
+            "Add": 172,
+            "Floor": 44,
+            "Sign": 22,
+            "Clip": 22,
+            "Cast": 70,
+            "Slice": 48,
+            "MatMulInteger": 52,
+            "Sub": 22,
+            "Relu": 22,
+            "ReorderInput": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 4,
+            "Split": 4,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 48, 16, 60]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 96, 8, 30]}, {\"float\": [96, 1, 3, 3]}, {\"float\": [96]}]": 4,
+              "[{\"float\": [1, 192, 4, 15]}, {\"float\": [192, 1, 3, 3]}, {\"float\": [192]}]": 4,
+              "[{\"float\": [1, 240, 2, 15]}, {\"float\": [240, 1, 3, 3]}, {\"float\": [240]}]": 2,
+              "[{\"float\": [1, 288, 1, 15]}, {\"float\": [288, 1, 1, 5]}, {\"float\": [288]}]": 4
+            },
+            "MatMulInteger": {
+              "[{\"uint8\": [1, 8, 30, 48]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 8, 30, 96]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 4, 15, 96]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 4, 15, 192]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 2, 15, 192]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 2, 15, 240]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 1, 15, 480]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 1, 15, 288]}, {\"uint8\": []}, {\"uint8\": []}]": 12,
+              "[{\"uint8\": [15, 96]}, {\"uint8\": []}, {\"uint8\": []}]": 12
+            }
+          }
+        }
+      },
+      "int8-a8-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 788
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 32,
+            "Abs": 46,
+            "ReduceMax": 24,
+            "Div": 50,
+            "Mul": 162,
+            "Transpose": 42,
+            "Greater": 26,
+            "Where": 26,
+            "Add": 150,
+            "Floor": 26,
+            "Sign": 24,
+            "Clip": 24,
+            "Cast": 46,
+            "MatMulInteger": 24,
+            "Relu": 22,
+            "ReorderInput": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "MatMulIntegerToFloat": 6,
+            "Squeeze": 4,
+            "Slice": 8,
+            "Sub": 2,
+            "Split": 4,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 48, 16, 60]}, {\"float\": [48, 1, 3, 3]}, {\"float\": [48]}]": 2,
+              "[{\"float\": [1, 96, 8, 30]}, {\"float\": [96, 1, 3, 3]}, {\"float\": [96]}]": 4,
+              "[{\"float\": [1, 192, 4, 15]}, {\"float\": [192, 1, 3, 3]}, {\"float\": [192]}]": 4,
+              "[{\"float\": [1, 240, 2, 15]}, {\"float\": [240, 1, 3, 3]}, {\"float\": [240]}]": 2,
+              "[{\"float\": [1, 288, 1, 15]}, {\"float\": [288, 1, 1, 5]}, {\"float\": [288]}]": 4
+            },
+            "MatMulInteger": {
+              "[{\"uint8\": [1, 8, 30, 48]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 8, 30, 96]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 96]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 192]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 192]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 240]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 1, 15, 288]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [15, 96]}, {\"uint8\": []}, {\"uint8\": []}]": 8
+            },
+            "MatMulIntegerToFloat": {
+              "[{\"uint8\": [1, 1, 15, 480]}, {\"float\": [1, 1, 15, 1]}, {\"float\": [288]}, {\"uint8\": []}, {\"uint8\": []}, {\"float\": [288]}]": 2,
+              "[{\"uint8\": [1, 1, 15, 288]}, {\"float\": [1, 1, 15, 1]}, {\"float\": [96]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [15, 96]}, {\"float\": [15, 1]}, {\"float\": [5631]}, {\"uint8\": []}, {\"uint8\": []}, {\"float\": [5631]}]": 2
+            }
+          }
+        }
+      },
+      "int8-static-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 476
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "QuantizeLinear": 42,
+            "Transpose": 4,
+            "QLinearConv": 18,
+            "DequantizeLinear": 60,
+            "QLinearMatMul": 22,
+            "Add": 110,
+            "Relu": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 4,
+            "Abs": 8,
+            "ReduceMax": 6,
+            "Greater": 8,
+            "Where": 8,
+            "Div": 12,
+            "Mul": 92,
+            "Floor": 4,
+            "Sign": 4,
+            "Clip": 4,
+            "Cast": 20,
+            "Sub": 4,
+            "Slice": 12,
+            "MatMul": 8,
+            "Split": 4,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "QLinearConv": {
+              "[{\"uint8\": [1, 32, 120, 1]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [48]}, {\"uint8\": [48]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [48]}]": 2,
+              "[{\"uint8\": [1, 16, 60, 48]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [48]}, {\"uint8\": [48]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [48]}]": 2,
+              "[{\"uint8\": [1, 8, 30, 96]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [96]}, {\"uint8\": [96]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [96]}]": 4,
+              "[{\"uint8\": [1, 4, 15, 192]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [192]}, {\"uint8\": [192]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [192]}]": 4,
+              "[{\"uint8\": [1, 2, 15, 240]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [240]}, {\"uint8\": [240]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [240]}]": 2,
+              "[{\"uint8\": [1, 1, 15, 288]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [288]}, {\"uint8\": [288]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [288]}]": 4
+            },
+            "QLinearMatMul": {
+              "[{\"uint8\": [1, 8, 30, 48]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [96]}, {\"uint8\": [96]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 8, 30, 96]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [96]}, {\"uint8\": [96]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 96]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [192]}, {\"uint8\": [192]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 192]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [192]}, {\"uint8\": [192]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 192]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [240]}, {\"uint8\": [240]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 240]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [240]}, {\"uint8\": [240]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 1, 15, 480]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [288]}, {\"uint8\": [288]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 1, 15, 288]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [288]}, {\"uint8\": [288]}, {\"float\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 1, 15, 288]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [96]}, {\"uint8\": [96]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [15, 96]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [5631]}, {\"uint8\": [5631]}, {\"float\": []}, {\"uint8\": []}]": 2
+            },
+            "MatMul": {
+              "[{\"float\": [15, 96]}]": 8
+            }
+          }
+        }
+      }
+    },
+    "large": {
+      "fp16-full-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 462
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 18,
+            "Max": 38,
+            "ReorderInput": 16,
+            "Cast": 148,
+            "Transpose": 30,
+            "MatMul": 24,
+            "Add": 70,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 2,
+            "Gemm": 2,
+            "Abs": 4,
+            "ReduceMax": 4,
+            "Greater": 4,
+            "Where": 4,
+            "Div": 6,
+            "Mul": 48,
+            "Floor": 2,
+            "Sign": 2,
+            "Clip": 2,
+            "Sub": 2,
+            "Slice": 8,
+            "Split": 2,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 64, 16, 60]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 128, 8, 30]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 256, 4, 15]}, {\"float\": [256, 1, 3, 3]}, {\"float\": [256]}]": 4,
+              "[{\"float\": [1, 480, 2, 15]}, {\"float\": [480, 1, 3, 3]}, {\"float\": [480]}]": 2,
+              "[{\"float\": [1, 576, 1, 15]}, {\"float\": [576, 1, 1, 5]}, {\"float\": [576]}]": 4
+            },
+            "MatMul": {
+              "[{\"float\": [1, 8, 30, 64]}]": 2,
+              "[{\"float\": [1, 8, 30, 128]}]": 2,
+              "[{\"float\": [1, 4, 15, 128]}]": 2,
+              "[{\"float\": [1, 4, 15, 256]}]": 2,
+              "[{\"float\": [1, 2, 15, 256]}]": 2,
+              "[{\"float\": [1, 2, 15, 480]}]": 2,
+              "[{\"float\": [1, 1, 15, 960]}]": 2,
+              "[{\"float\": [1, 1, 15, 576]}]": 6,
+              "[{\"float\": [15, 96]}, {\"float\": [96, 16]}]": 4
+            },
+            "Gemm": {
+              "[{\"float\": [15, 96]}, {\"float\": [5631]}]": 2
+            }
+          }
+        }
+      },
+      "fp16-mixed-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 274
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 16,
+            "MatMul": 24,
+            "Add": 70,
+            "Relu": 20,
+            "ReorderInput": 14,
+            "Transpose": 2,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 2,
+            "Gemm": 2,
+            "Abs": 4,
+            "ReduceMax": 4,
+            "Greater": 4,
+            "Where": 4,
+            "Div": 6,
+            "Mul": 48,
+            "Floor": 2,
+            "Sign": 2,
+            "Clip": 2,
+            "Cast": 10,
+            "Sub": 2,
+            "Slice": 8,
+            "Split": 2,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 64, 16, 60]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 128, 8, 30]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 256, 4, 15]}, {\"float\": [256, 1, 3, 3]}, {\"float\": [256]}]": 4,
+              "[{\"float\": [1, 480, 2, 15]}, {\"float\": [480, 1, 3, 3]}, {\"float\": [480]}]": 2,
+              "[{\"float\": [1, 576, 1, 15]}, {\"float\": [576, 1, 1, 5]}, {\"float\": [576]}]": 4
+            },
+            "MatMul": {
+              "[{\"float\": [1, 8, 30, 64]}]": 2,
+              "[{\"float\": [1, 8, 30, 128]}]": 2,
+              "[{\"float\": [1, 4, 15, 128]}]": 2,
+              "[{\"float\": [1, 4, 15, 256]}]": 2,
+              "[{\"float\": [1, 2, 15, 256]}]": 2,
+              "[{\"float\": [1, 2, 15, 480]}]": 2,
+              "[{\"float\": [1, 1, 15, 960]}]": 2,
+              "[{\"float\": [1, 1, 15, 576]}]": 6,
+              "[{\"float\": [15, 96]}]": 4
+            },
+            "Gemm": {
+              "[{\"float\": [15, 96]}, {\"float\": [5631]}]": 2
+            }
+          }
+        }
+      },
+      "fp16-conv-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 964
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 32,
+            "Abs": 44,
+            "ReduceMax": 24,
+            "Div": 66,
+            "Mul": 182,
+            "Transpose": 34,
+            "Greater": 24,
+            "Where": 24,
+            "Add": 130,
+            "Floor": 22,
+            "Sign": 22,
+            "Clip": 22,
+            "Cast": 140,
+            "Sub": 22,
+            "Slice": 32,
+            "MatMul": 64,
+            "Relu": 20,
+            "ReorderInput": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Split": 18,
+            "Squeeze": 2,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 64, 16, 60]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 128, 8, 30]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 256, 4, 15]}, {\"float\": [256, 1, 3, 3]}, {\"float\": [256]}]": 4,
+              "[{\"float\": [1, 480, 2, 15]}, {\"float\": [480, 1, 3, 3]}, {\"float\": [480]}]": 2,
+              "[{\"float\": [1, 576, 1, 15]}, {\"float\": [576, 1, 1, 5]}, {\"float\": [576]}]": 4
+            },
+            "MatMul": {
+              "[{\"float\": [1, 8, 30, 64]}]": 4,
+              "[{\"float\": [1, 8, 30, 128]}]": 4,
+              "[{\"float\": [1, 4, 15, 128]}]": 4,
+              "[{\"float\": [1, 4, 15, 256]}]": 4,
+              "[{\"float\": [1, 2, 15, 256]}]": 4,
+              "[{\"float\": [1, 2, 15, 480]}]": 4,
+              "[{\"float\": [1, 1, 15, 448]}]": 4,
+              "[{\"float\": [1, 1, 15, 512]}]": 16,
+              "[{\"float\": [1, 1, 15, 64]}]": 12,
+              "[{\"float\": [15, 96]}]": 8
+            }
+          }
+        }
+      },
+      "int8-exact-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 952
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 32,
+            "Abs": 44,
+            "ReduceMax": 24,
+            "Div": 66,
+            "Mul": 182,
+            "Transpose": 42,
+            "Greater": 24,
+            "Where": 24,
+            "Add": 152,
+            "Floor": 44,
+            "Sign": 22,
+            "Clip": 22,
+            "Cast": 76,
+            "Slice": 32,
+            "MatMulInteger": 64,
+            "Sub": 22,
+            "Relu": 20,
+            "ReorderInput": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Split": 18,
+            "Squeeze": 2,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 64, 16, 60]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 128, 8, 30]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 256, 4, 15]}, {\"float\": [256, 1, 3, 3]}, {\"float\": [256]}]": 4,
+              "[{\"float\": [1, 480, 2, 15]}, {\"float\": [480, 1, 3, 3]}, {\"float\": [480]}]": 2,
+              "[{\"float\": [1, 576, 1, 15]}, {\"float\": [576, 1, 1, 5]}, {\"float\": [576]}]": 4
+            },
+            "MatMulInteger": {
+              "[{\"uint8\": [1, 8, 30, 64]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 8, 30, 128]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 4, 15, 128]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 4, 15, 256]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 2, 15, 256]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 2, 15, 480]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 1, 15, 448]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 1, 15, 512]}, {\"uint8\": []}, {\"uint8\": []}]": 16,
+              "[{\"uint8\": [1, 1, 15, 64]}, {\"uint8\": []}, {\"uint8\": []}]": 12,
+              "[{\"uint8\": [15, 96]}, {\"uint8\": []}, {\"uint8\": []}]": 8
+            }
+          }
+        }
+      },
+      "int8-a8-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 698
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "Conv": 18,
+            "ReorderOutput": 32,
+            "Abs": 46,
+            "ReduceMax": 24,
+            "Div": 50,
+            "Mul": 124,
+            "Transpose": 42,
+            "Greater": 24,
+            "Where": 24,
+            "Add": 114,
+            "Floor": 26,
+            "Sign": 24,
+            "Clip": 24,
+            "Cast": 44,
+            "MatMulInteger": 20,
+            "Relu": 20,
+            "ReorderInput": 14,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "MatMulIntegerToFloat": 6,
+            "Squeeze": 2,
+            "Slice": 8,
+            "Sub": 2,
+            "Split": 2,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "Conv": {
+              "[{\"float\": [1, 1, 32, 120]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 64, 16, 60]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 2,
+              "[{\"float\": [1, 128, 8, 30]}, {\"float\": [128, 1, 3, 3]}, {\"float\": [128]}]": 4,
+              "[{\"float\": [1, 256, 4, 15]}, {\"float\": [256, 1, 3, 3]}, {\"float\": [256]}]": 4,
+              "[{\"float\": [1, 480, 2, 15]}, {\"float\": [480, 1, 3, 3]}, {\"float\": [480]}]": 2,
+              "[{\"float\": [1, 576, 1, 15]}, {\"float\": [576, 1, 1, 5]}, {\"float\": [576]}]": 4
+            },
+            "MatMulInteger": {
+              "[{\"uint8\": [1, 8, 30, 64]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 8, 30, 128]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 128]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 256]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 256]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 480]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 1, 15, 576]}, {\"uint8\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [15, 96]}, {\"uint8\": []}, {\"uint8\": []}]": 4
+            },
+            "MatMulIntegerToFloat": {
+              "[{\"uint8\": [1, 1, 15, 960]}, {\"float\": [1, 1, 15, 1]}, {\"float\": [576]}, {\"uint8\": []}, {\"uint8\": []}, {\"float\": [576]}]": 2,
+              "[{\"uint8\": [1, 1, 15, 576]}, {\"float\": [1, 1, 15, 1]}, {\"float\": [96]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [15, 96]}, {\"float\": [15, 1]}, {\"float\": [5631]}, {\"uint8\": []}, {\"uint8\": []}, {\"float\": [5631]}]": 2
+            }
+          }
+        }
+      },
+      "int8-static-cpu": {
+        "providers": {
+          "CPUExecutionProvider": 338
+        },
+        "ops": {
+          "CPUExecutionProvider": {
+            "QuantizeLinear": 42,
+            "Transpose": 4,
+            "QLinearConv": 18,
+            "DequantizeLinear": 56,
+            "QLinearMatMul": 22,
+            "Add": 72,
+            "Relu": 12,
+            "Reshape": 2,
+            "Unsqueeze": 2,
+            "Squeeze": 2,
+            "Abs": 4,
+            "ReduceMax": 4,
+            "Greater": 4,
+            "Where": 4,
+            "Div": 6,
+            "Mul": 48,
+            "Floor": 2,
+            "Sign": 2,
+            "Clip": 2,
+            "Cast": 10,
+            "Sub": 2,
+            "Slice": 8,
+            "MatMul": 4,
+            "Split": 2,
+            "Or": 2,
+            "ArgMax": 2
+          }
+        },
+        "compute_input_types": {
+          "CPUExecutionProvider": {
+            "QLinearConv": {
+              "[{\"uint8\": [1, 32, 120, 1]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [64]}, {\"uint8\": [64]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [64]}]": 2,
+              "[{\"uint8\": [1, 16, 60, 64]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [64]}, {\"uint8\": [64]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [64]}]": 2,
+              "[{\"uint8\": [1, 8, 30, 128]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [128]}, {\"uint8\": [128]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [128]}]": 4,
+              "[{\"uint8\": [1, 4, 15, 256]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [256]}, {\"uint8\": [256]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [256]}]": 4,
+              "[{\"uint8\": [1, 2, 15, 480]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [480]}, {\"uint8\": [480]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [480]}]": 2,
+              "[{\"uint8\": [1, 1, 15, 576]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [576]}, {\"uint8\": [576]}, {\"float\": []}, {\"uint8\": []}, {\"int32\": [576]}]": 4
+            },
+            "QLinearMatMul": {
+              "[{\"uint8\": [1, 8, 30, 64]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [128]}, {\"uint8\": [128]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 8, 30, 128]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [128]}, {\"uint8\": [128]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 128]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [256]}, {\"uint8\": [256]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 4, 15, 256]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [256]}, {\"uint8\": [256]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 256]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [480]}, {\"uint8\": [480]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 2, 15, 480]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [480]}, {\"uint8\": [480]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 1, 15, 960]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [576]}, {\"uint8\": [576]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [1, 1, 15, 576]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [576]}, {\"uint8\": [576]}, {\"float\": []}, {\"uint8\": []}]": 4,
+              "[{\"uint8\": [1, 1, 15, 576]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [96]}, {\"uint8\": [96]}, {\"float\": []}, {\"uint8\": []}]": 2,
+              "[{\"uint8\": [15, 96]}, {\"float\": []}, {\"uint8\": []}, {\"float\": [5631]}, {\"uint8\": [5631]}, {\"float\": []}, {\"uint8\": []}]": 2
+            },
+            "MatMul": {
+              "[{\"float\": [15, 96]}]": 4
+            }
+          }
+        }
+      }
+    }
+  },
+  "detector_profiles": {
+    "fp32": {
+      "providers": {
+        "CPUExecutionProvider": 526
+      },
+      "ops": {
+        "CPUExecutionProvider": {
+          "Conv": 44,
+          "ReorderOutput": 44,
+          "Cast": 88,
+          "Mul": 88,
+          "Sign": 44,
+          "Abs": 44,
+          "Add": 44,
+          "Floor": 44,
+          "Clip": 44,
+          "ReorderInput": 42
+        }
+      },
+      "compute_input_types": {
+        "CPUExecutionProvider": {
+          "Conv": {
+            "[{\"float\": [1, 1, 272, 465]}, {\"float\": [8, 1, 3, 3]}, {\"float\": [8]}]": 2,
+            "[{\"float\": [1, 8, 136, 233]}, {\"float\": [8, 1, 3, 3]}, {\"float\": [8]}]": 2,
+            "[{\"float\": [1, 8, 68, 117]}, {\"float\": [16, 8, 1, 1]}, {\"float\": [16]}]": 2,
+            "[{\"float\": [1, 16, 68, 117]}, {\"float\": [16, 1, 3, 3]}, {\"float\": [16]}]": 2,
+            "[{\"float\": [1, 16, 34, 59]}, {\"float\": [64, 16, 1, 1]}, {\"float\": [64]}]": 2,
+            "[{\"float\": [1, 64, 34, 59]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 16,
+            "[{\"float\": [1, 64, 34, 59]}, {\"float\": [64, 64, 1, 1]}, {\"float\": [64]}]": 16,
+            "[{\"float\": [1, 64, 34, 59]}, {\"float\": [32, 64, 1, 1]}, {\"float\": [32]}]": 2
+          }
+        }
+      }
+    },
+    "fp16-conv": {
+      "providers": {
+        "CPUExecutionProvider": 526
+      },
+      "ops": {
+        "CPUExecutionProvider": {
+          "Conv": 44,
+          "ReorderOutput": 44,
+          "Cast": 88,
+          "Mul": 88,
+          "Abs": 44,
+          "Add": 44,
+          "Floor": 44,
+          "Sign": 44,
+          "Clip": 44,
+          "ReorderInput": 42
+        }
+      },
+      "compute_input_types": {
+        "CPUExecutionProvider": {
+          "Conv": {
+            "[{\"float\": [1, 1, 272, 465]}, {\"float\": [8, 1, 3, 3]}, {\"float\": [8]}]": 2,
+            "[{\"float\": [1, 8, 136, 233]}, {\"float\": [8, 1, 3, 3]}, {\"float\": [8]}]": 2,
+            "[{\"float\": [1, 8, 68, 117]}, {\"float\": [16, 8, 1, 1]}, {\"float\": [16]}]": 2,
+            "[{\"float\": [1, 16, 68, 117]}, {\"float\": [16, 1, 3, 3]}, {\"float\": [16]}]": 2,
+            "[{\"float\": [1, 16, 34, 59]}, {\"float\": [64, 16, 1, 1]}, {\"float\": [64]}]": 2,
+            "[{\"float\": [1, 64, 34, 59]}, {\"float\": [64, 1, 3, 3]}, {\"float\": [64]}]": 16,
+            "[{\"float\": [1, 64, 34, 59]}, {\"float\": [64, 64, 1, 1]}, {\"float\": [64]}]": 16,
+            "[{\"float\": [1, 64, 34, 59]}, {\"float\": [32, 64, 1, 1]}, {\"float\": [32]}]": 2
+          }
+        }
+      }
+    },
+    "int8-exact": {
+      "providers": {
+        "CPUExecutionProvider": 616
+      },
+      "ops": {
+        "CPUExecutionProvider": {
+          "Add": 132,
+          "Cast": 176,
+          "ConvInteger": 44,
+          "Mul": 88,
+          "Sign": 44,
+          "Abs": 44,
+          "Floor": 44,
+          "Clip": 44
+        }
+      },
+      "compute_input_types": {
+        "CPUExecutionProvider": {
+          "ConvInteger": {
+            "[{\"uint8\": [1, 1, 272, 465]}, {\"uint8\": [8, 1, 3, 3]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+            "[{\"uint8\": [1, 8, 136, 233]}, {\"uint8\": [8, 1, 3, 3]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+            "[{\"uint8\": [1, 8, 68, 117]}, {\"uint8\": [16, 8, 1, 1]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+            "[{\"uint8\": [1, 16, 68, 117]}, {\"uint8\": [16, 1, 3, 3]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+            "[{\"uint8\": [1, 16, 34, 59]}, {\"uint8\": [64, 16, 1, 1]}, {\"uint8\": []}, {\"uint8\": []}]": 2,
+            "[{\"uint8\": [1, 64, 34, 59]}, {\"uint8\": [64, 1, 3, 3]}, {\"uint8\": []}, {\"uint8\": []}]": 16,
+            "[{\"uint8\": [1, 64, 34, 59]}, {\"uint8\": [64, 64, 1, 1]}, {\"uint8\": []}, {\"uint8\": []}]": 16,
+            "[{\"uint8\": [1, 64, 34, 59]}, {\"uint8\": [32, 64, 1, 1]}, {\"uint8\": []}, {\"uint8\": []}]": 2
+          }
+        }
+      }
+    }
+  },
+  "calibration": {
+    "samples": 48,
+    "distinct_tensors": 24,
+    "method": "MinMax; 48 synthetic lines disjoint from validation inputs/texts",
+    "sha256": "d2bcbd3cc127f3b8f7d736425d98dc38ca9c5255a9dbba9ab1a49e09ad8deaee"
+  },
+  "original_model_manifest": {
+    "export_version": 1,
+    "revision": "205f47ec4e56ca87c00e7dba0a61c9aaec726707",
+    "release": "v0.5.0",
+    "files": {
+      "normal-fast.onnx": "730622ec74a584a3ae0be95ee8a657f64f888541acf7752c1841f92b5485efbc",
+      "normal-faithful.onnx": "8e067c0e2ea895813367d84f492a268618ef2885dc01c536e95ef90ede28c9ac",
+      "small-fast.onnx": "f263f96e84cddc141db53e2f7aa0c28fa36679f0e205f489d346121cd447b937",
+      "small-faithful.onnx": "b8a7207d8323c9468833676fdf09199bf793644b126db9038862d2d7b41ee36e",
+      "large-fast.onnx": "c1a36ae7313d3ff39a2100bbd6aa88509836fb22e947d08c2b5d8fe06e47c4bc",
+      "large-faithful.onnx": "b67831a53fef77510d931fb00f4b05bd0b4ee588692cf1f4ca2da695c04eb0a2",
+      "textspot8-fast.onnx": "b640bc3125f322ecc2ebf23d7a8e187843411120dd666700558281ea4313d8a2",
+      "textspot8-faithful.onnx": "030c4a7441b5bd92cb0812a86cb00ada19ee0cade8b48af602552fc8fcb9ed28"
+    }
+  },
+  "experimental_models": {
+    "large-fp16-conv.onnx": {
+      "sha256": "56696048bd6deebfb8d67b76562764eb7ed83af9a6fd4ed1b39a43ba93b2e9f4",
+      "bytes": 9360433,
+      "ops": {
+        "Cast": 90,
+        "Conv": 9,
+        "Relu": 19,
+        "Transpose": 21,
+        "Abs": 24,
+        "ReduceMax": 13,
+        "Greater": 13,
+        "Div": 36,
+        "Where": 13,
+        "Mul": 94,
+        "Sign": 12,
+        "Add": 66,
+        "Floor": 12,
+        "Clip": 12,
+        "Slice": 50,
+        "Sub": 12,
+        "MatMul": 32,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "INT64": 166,
+        "FLOAT": 168,
+        "INT32": 16,
+        "BOOL": 1,
+        "FLOAT16": 18
+      }
+    },
+    "large-fp16-full.onnx": {
+      "sha256": "8fdf8751f449be29cd27baaf4d9c75643b661f44241d9aad399bed4e1500aad8",
+      "bytes": 4705348,
+      "ops": {
+        "Cast": 6,
+        "Conv": 9,
+        "Relu": 19,
+        "Transpose": 21,
+        "MatMul": 13,
+        "Add": 36,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "Abs": 2,
+        "ReduceMax": 2,
+        "Slice": 20,
+        "Greater": 2,
+        "Div": 3,
+        "Mul": 24,
+        "Where": 2,
+        "Sign": 1,
+        "Floor": 1,
+        "Clip": 1,
+        "Sub": 1,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT16": 72,
+        "INT64": 65,
+        "INT32": 1,
+        "BOOL": 1
+      }
+    },
+    "large-fp16-mixed.onnx": {
+      "sha256": "207919956856a4a9815093c0c727c1fde12f29246776e5e6ab1cdb4e32142d7a",
+      "bytes": 4724019,
+      "ops": {
+        "Cast": 45,
+        "Conv": 9,
+        "Relu": 19,
+        "Transpose": 21,
+        "MatMul": 13,
+        "Add": 36,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "Abs": 2,
+        "ReduceMax": 2,
+        "Greater": 2,
+        "Div": 3,
+        "Where": 2,
+        "Mul": 24,
+        "Slice": 20,
+        "Sign": 1,
+        "Floor": 1,
+        "Clip": 1,
+        "Sub": 1,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 43,
+        "INT64": 65,
+        "INT32": 1,
+        "BOOL": 1,
+        "FLOAT16": 29
+      }
+    },
+    "large-int8-a8-cpu.onnx": {
+      "sha256": "4765f49162ecf421bf48657318128872aa519df94ebf688427ba621545d68344",
+      "bytes": 2518932,
+      "ops": {
+        "Conv": 9,
+        "Relu": 19,
+        "Transpose": 21,
+        "Abs": 24,
+        "ReduceMax": 13,
+        "Greater": 13,
+        "Where": 13,
+        "Div": 25,
+        "Mul": 68,
+        "Sign": 12,
+        "Add": 59,
+        "Floor": 13,
+        "Clip": 12,
+        "Cast": 25,
+        "MatMulInteger": 13,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "Slice": 20,
+        "Sub": 1,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 160,
+        "INT64": 76,
+        "UINT8": 26,
+        "INT32": 1,
+        "BOOL": 1
+      }
+    },
+    "large-int8-exact-cpu.onnx": {
+      "sha256": "1dae317ce6151c89650e9e0ceb7849583d1ef9ec34d068097e5b3233f9b948b1",
+      "bytes": 2532122,
+      "ops": {
+        "Conv": 9,
+        "Relu": 19,
+        "Transpose": 21,
+        "Abs": 24,
+        "ReduceMax": 13,
+        "Greater": 13,
+        "Where": 13,
+        "Div": 36,
+        "Mul": 94,
+        "Sign": 12,
+        "Add": 78,
+        "Floor": 24,
+        "Clip": 12,
+        "Sub": 12,
+        "Cast": 40,
+        "Slice": 50,
+        "MatMulInteger": 32,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 182,
+        "INT64": 166,
+        "UINT8": 52,
+        "INT32": 16,
+        "BOOL": 1
+      }
+    },
+    "normal-fp16-conv.onnx": {
+      "sha256": "c25718dac8baff45a0d755a6b4db5beb2a9f896b84a40d9316b4450b502cf45a",
+      "bytes": 4368519,
+      "ops": {
+        "Cast": 83,
+        "Conv": 9,
+        "Relu": 20,
+        "Transpose": 21,
+        "Abs": 26,
+        "ReduceMax": 14,
+        "Greater": 15,
+        "Div": 39,
+        "Where": 15,
+        "Mul": 112,
+        "Sign": 13,
+        "Add": 77,
+        "Floor": 13,
+        "Clip": 13,
+        "Slice": 60,
+        "Sub": 13,
+        "MatMul": 26,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 2,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "INT64": 199,
+        "FLOAT": 194,
+        "INT32": 13,
+        "BOOL": 1,
+        "FLOAT16": 18
+      }
+    },
+    "normal-fp16-full.onnx": {
+      "sha256": "d2a0f1602fe3ac2501c30013beaefb28be8b5b264fff247aa46c7fb8ab285312",
+      "bytes": 2212295,
+      "ops": {
+        "Cast": 11,
+        "Conv": 9,
+        "Relu": 20,
+        "Transpose": 21,
+        "MatMul": 15,
+        "Add": 55,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 2,
+        "Abs": 4,
+        "ReduceMax": 3,
+        "Slice": 38,
+        "Greater": 4,
+        "Div": 6,
+        "Mul": 46,
+        "Where": 4,
+        "Sign": 2,
+        "Floor": 2,
+        "Clip": 2,
+        "Sub": 2,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT16": 102,
+        "INT64": 122,
+        "INT32": 2,
+        "BOOL": 1
+      }
+    },
+    "normal-fp16-mixed.onnx": {
+      "sha256": "f1d805b9d8217781566b29675636259520e5dd65f52ca37eedd74df628634055",
+      "bytes": 2228245,
+      "ops": {
+        "Cast": 50,
+        "Conv": 9,
+        "Relu": 20,
+        "Transpose": 21,
+        "MatMul": 15,
+        "Add": 55,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 2,
+        "Abs": 4,
+        "ReduceMax": 3,
+        "Greater": 4,
+        "Div": 6,
+        "Where": 4,
+        "Mul": 46,
+        "Slice": 38,
+        "Sign": 2,
+        "Floor": 2,
+        "Clip": 2,
+        "Sub": 2,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 73,
+        "INT64": 122,
+        "INT32": 2,
+        "BOOL": 1,
+        "FLOAT16": 29
+      }
+    },
+    "normal-int8-a8-cpu.onnx": {
+      "sha256": "ba00d067e997b94dd51eb7ad1ef448a74de71c8ce672067aed6a487a6a7d8649",
+      "bytes": 1239796,
+      "ops": {
+        "Conv": 9,
+        "Relu": 20,
+        "Transpose": 21,
+        "Abs": 26,
+        "ReduceMax": 14,
+        "Greater": 15,
+        "Where": 15,
+        "Div": 28,
+        "Mul": 90,
+        "Sign": 13,
+        "Add": 79,
+        "Floor": 15,
+        "Clip": 13,
+        "Cast": 28,
+        "MatMulInteger": 15,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 2,
+        "Slice": 38,
+        "Sub": 2,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 190,
+        "INT64": 133,
+        "UINT8": 30,
+        "INT32": 2,
+        "BOOL": 1
+      }
+    },
+    "normal-int8-exact-cpu.onnx": {
+      "sha256": "e55d1427a32deafa5a8424dcc3bf74910e726bee4ff38a6537612c212e9b030a",
+      "bytes": 1249802,
+      "ops": {
+        "Conv": 9,
+        "Relu": 20,
+        "Transpose": 21,
+        "Abs": 26,
+        "ReduceMax": 14,
+        "Greater": 15,
+        "Where": 15,
+        "Div": 39,
+        "Mul": 112,
+        "Sign": 13,
+        "Add": 90,
+        "Floor": 26,
+        "Clip": 13,
+        "Sub": 13,
+        "Cast": 39,
+        "Slice": 60,
+        "MatMulInteger": 26,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 2,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 212,
+        "INT64": 199,
+        "UINT8": 52,
+        "INT32": 13,
+        "BOOL": 1
+      }
+    },
+    "small-fp16-conv.onnx": {
+      "sha256": "f11c73c840006daddda72cdf4f276593bb5dff4211871c11d9328633d5f4e8a9",
+      "bytes": 2968202,
+      "ops": {
+        "Cast": 73,
+        "Conv": 9,
+        "Relu": 18,
+        "Transpose": 21,
+        "Abs": 22,
+        "ReduceMax": 11,
+        "Greater": 11,
+        "Div": 33,
+        "Where": 11,
+        "Mul": 66,
+        "Sign": 11,
+        "Add": 37,
+        "Floor": 11,
+        "Clip": 11,
+        "Slice": 22,
+        "Sub": 11,
+        "MatMul": 22,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "INT64": 80,
+        "FLOAT": 131,
+        "INT32": 11,
+        "FLOAT16": 18
+      }
+    },
+    "small-fp16-full.onnx": {
+      "sha256": "09150e24266aa12375cdda0f6be82aa45ccace15c93c04bcf11637c3aaccbd00",
+      "bytes": 1492167,
+      "ops": {
+        "Cast": 1,
+        "Conv": 9,
+        "Relu": 18,
+        "Transpose": 21,
+        "MatMul": 11,
+        "Add": 15,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT16": 39,
+        "INT64": 3
+      }
+    },
+    "small-fp16-mixed.onnx": {
+      "sha256": "7e1a84dcd6ff9e05028910732299259ec027c62c818e901801e90028b5d41f8e",
+      "bytes": 1505065,
+      "ops": {
+        "Cast": 40,
+        "Conv": 9,
+        "Relu": 18,
+        "Transpose": 21,
+        "MatMul": 11,
+        "Add": 15,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 10,
+        "INT64": 3,
+        "FLOAT16": 29
+      }
+    },
+    "small-int8-a8-cpu.onnx": {
+      "sha256": "ae38a94fb98c4a23aa7984442145b7274693fe60cbac8c94b9adaeab9d2741da",
+      "bytes": 847931,
+      "ops": {
+        "Conv": 9,
+        "Relu": 18,
+        "Transpose": 21,
+        "Abs": 22,
+        "ReduceMax": 11,
+        "Greater": 11,
+        "Where": 11,
+        "Div": 22,
+        "Mul": 44,
+        "Sign": 11,
+        "Add": 37,
+        "Floor": 11,
+        "Clip": 11,
+        "Cast": 22,
+        "MatMulInteger": 11,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 127,
+        "INT64": 14,
+        "UINT8": 22
+      }
+    },
+    "small-int8-exact-cpu.onnx": {
+      "sha256": "8cafafcfcc8c5cb5567184ebfa42e75f2f206fed7350cf98c33419f13fba6083",
+      "bytes": 857851,
+      "ops": {
+        "Conv": 9,
+        "Relu": 18,
+        "Transpose": 21,
+        "Abs": 22,
+        "ReduceMax": 11,
+        "Greater": 11,
+        "Where": 11,
+        "Div": 33,
+        "Mul": 66,
+        "Sign": 11,
+        "Add": 48,
+        "Floor": 22,
+        "Clip": 11,
+        "Sub": 11,
+        "Cast": 33,
+        "Slice": 22,
+        "MatMulInteger": 22,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 149,
+        "INT64": 80,
+        "UINT8": 44,
+        "INT32": 11
+      }
+    },
+    "textspot8-fp16-conv.onnx": {
+      "sha256": "0f88ec2c2c0cb11ca1cb02554198456b88dbf50a6e0592ce9983553f351dd60e",
+      "bytes": 113639,
+      "ops": {
+        "Cast": 88,
+        "Conv": 22,
+        "Mul": 44,
+        "Abs": 22,
+        "Sign": 22,
+        "Add": 22,
+        "Floor": 22,
+        "Clip": 22,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "DOUBLE": 44,
+        "FLOAT": 44,
+        "FLOAT16": 44
+      }
+    },
+    "textspot8-int8-exact.onnx": {
+      "sha256": "4c32afc48ec8f102f4356cdbe5046c393c58b9d5710327704d080639223dc51d",
+      "bytes": 81753,
+      "ops": {
+        "Add": 66,
+        "Cast": 88,
+        "ConvInteger": 22,
+        "Mul": 44,
+        "Abs": 22,
+        "Floor": 22,
+        "Sign": 22,
+        "Clip": 22,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "DOUBLE": 44,
+        "FLOAT": 66,
+        "UINT8": 44,
+        "INT32": 22
+      }
+    },
+    "large-int8-static-cpu.onnx": {
+      "sha256": "4a8550b46f1270da1ac42345cf723a01ec346bbd7f17e2ec2f9537f02996d6a8",
+      "bytes": 2538079,
+      "ops": {
+        "DequantizeLinear": 69,
+        "QuantizeLinear": 40,
+        "Conv": 9,
+        "Relu": 19,
+        "Transpose": 21,
+        "MatMul": 13,
+        "Add": 36,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "Abs": 2,
+        "ReduceMax": 2,
+        "Greater": 2,
+        "Div": 3,
+        "Where": 2,
+        "Mul": 24,
+        "Slice": 20,
+        "Sign": 1,
+        "Floor": 1,
+        "Clip": 1,
+        "Cast": 5,
+        "Sub": 1,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 112,
+        "INT64": 65,
+        "INT32": 19,
+        "BOOL": 1,
+        "UINT8": 80
+      }
+    },
+    "normal-int8-static-cpu.onnx": {
+      "sha256": "5ea6d8cb251238d2beed9de5bb9800cc80792f299b22824e4f729ff536576a11",
+      "bytes": 1269766,
+      "ops": {
+        "DequantizeLinear": 69,
+        "QuantizeLinear": 40,
+        "Conv": 9,
+        "Relu": 20,
+        "Transpose": 21,
+        "MatMul": 15,
+        "Add": 55,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 2,
+        "Abs": 4,
+        "ReduceMax": 3,
+        "Greater": 4,
+        "Div": 6,
+        "Where": 4,
+        "Mul": 46,
+        "Slice": 38,
+        "Sign": 2,
+        "Floor": 2,
+        "Clip": 2,
+        "Cast": 10,
+        "Sub": 2,
+        "Or": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 142,
+        "INT64": 122,
+        "INT32": 20,
+        "BOOL": 1,
+        "UINT8": 80
+      }
+    },
+    "small-int8-static-cpu.onnx": {
+      "sha256": "ea71582a6b086f4bf23126035c54f7a0dd162a7922e8e84223c1434866c13a62",
+      "bytes": 864574,
+      "ops": {
+        "DequantizeLinear": 69,
+        "QuantizeLinear": 40,
+        "Conv": 9,
+        "Relu": 18,
+        "Transpose": 21,
+        "MatMul": 11,
+        "Add": 15,
+        "Reshape": 1,
+        "Unsqueeze": 1,
+        "Squeeze": 1,
+        "ArgMax": 1,
+        "Identity": 1
+      },
+      "initializer_types": {
+        "FLOAT": 79,
+        "INT64": 3,
+        "UINT8": 80,
+        "INT32": 18
+      }
+    }
+  },
+  "protected_files_unchanged": true,
+  "local_artifacts": {
+    "temp/vocr-precision/cpu-results.json": {
+      "sha256": "ef2878eea377a0df568fb157199696d402375411c0e73d099a8c3c2b6c58dd74",
+      "bytes": 4361897
+    },
+    "temp/vocr-precision/cpu-detectors.json": {
+      "sha256": "10d13bc8dff9d635f48dfd5749649f183d9bb486b083d4bd5794858b7d3be840",
+      "bytes": 57660
+    },
+    "temp/vocr-precision/cpu-smoke.json": {
+      "sha256": "cb3f7096d1153dfa6f1b349704abff0f9a2c12b934424b69019db93c48bba466",
+      "bytes": 22413
+    },
+    "temp/vocr-precision/calibration.json": {
+      "sha256": "d2bcbd3cc127f3b8f7d736425d98dc38ca9c5255a9dbba9ab1a49e09ad8deaee",
+      "bytes": 11449
+    }
+  },
+  "validation": {
+    "arithmetic_tests_passed": 6,
+    "experiment_ruff_check": "passed",
+    "required_repo_formatter_run": true,
+    "protected_files_unchanged_at_final_check": true
+  },
+  "reproduction_sources": {
+    "temp/vocr-precision/experiment.py": "86fac8fe711e918d63348582c9f5ff594ea34dc030bba6b9db455d80cde91008",
+    "temp/vocr-precision/cpu_benchmark.py": "85ee2003ceca0d6a8703fde32710d941d20a51597cf1a6ce28981ae6991d30e8",
+    "temp/vocr-precision/test_integer.py": "f76d48e5e60d59df226008c676fe00ce351d218282fa238d9c895e1ef0c26dc5"
+  }
+}

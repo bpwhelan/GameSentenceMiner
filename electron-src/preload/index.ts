@@ -39,6 +39,8 @@ const sendExactChannels = new Set<string>([
 ]);
 
 const onExactChannels = new Set<string>([
+  "obs.runtime.progress",
+  "settings.seasonalEffectsChanged",
   "installing",
   "install-session.snapshot",
   "install-session.finished",
@@ -62,6 +64,7 @@ const onExactChannels = new Set<string>([
 ]);
 
 const invokePrefixes = [
+  "game-privileges.",
   "game-background.",
   "docs.",
   "data.",
@@ -99,6 +102,7 @@ const sendPrefixes = [
 ];
 
 const onPrefixes = [
+  "game-privileges.",
   "data.",
   "terminal-",
   "ocr-",

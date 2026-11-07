@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import "./OCRTab.css";
 import { OCRCaptureMap, type CaptureMapConfig } from "./OCRCaptureMap";
 import { OCRTextFeed } from "./OCRTextFeed";
+import { VitaOcrModel } from "./VitaOcrModel";
+import { MeikiOcrModel } from "./MeikiOcrModel";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { DOCS_URLS } from "../../../../shared/docs";
@@ -20,6 +22,8 @@ type ProcessPriority =
   | "normal"
   | "above_normal"
   | "high";
+
+type MenuAreaOcrEngine = "main" | "glens" | "bing";
 
 type ComparisonFieldKey =
   | "duplicate_similarity_threshold"
@@ -44,6 +48,7 @@ interface OcrStoredConfig {
   useOnlineOcr?: boolean;
   ocr1?: string;
   ocr2?: string;
+  menuAreaOcrEngine?: string;
   ocr1_advanced?: string;
   ocr2_advanced?: string;
   twoPassOCR?: boolean;
@@ -97,6 +102,7 @@ interface OcrUiConfig {
   basicScanRate: number;
   advancedScanRate: number;
   mainOcr: string;
+  menuAreaOcrEngine: MenuAreaOcrEngine;
   stabilityOcr: string;
   twoPassOCR: boolean;
   optimizeSecondScan: boolean;
@@ -205,6 +211,7 @@ interface HotkeyActionDefinition {
 interface Option {
   value: string;
   label: string;
+  labelKey?: string;
 }
 
 const GAMEPAD_HOTKEY_OPTIONS: Array<{ value: string; labelKey: string }> = [
@@ -255,6 +262,7 @@ const MAIN_OCR_OPTIONS: Option[] = [
   { value: "oneocr", label: "OneOCR" },
   { value: "screenai", label: "ScreenAI OCR" },
   { value: "meikiocr", label: "Meiki OCR" },
+  { value: "vitaocr", label: "VOCR", labelKey: "ocr.engines.vitaocr" },
   { value: "gemini", label: "Gemini" },
   { value: "gvision", label: "Google Vision" },
   { value: "azure", label: "Azure Image Analysis" },
@@ -265,10 +273,12 @@ const MAIN_OCR_OPTIONS: Option[] = [
 ];
 
 const STABILITY_OCR_OPTIONS: Option[] = [
+  { value: "vocr_detector", label: "VOCR Line Detector", labelKey: "ocr.engines.vocr_detector" },
   { value: "oneocr", label: "OneOCR" },
   { value: "screenai", label: "ScreenAI OCR" },
   { value: "meiki_text_detector", label: "Meiki Text Detector" },
   { value: "meikiocr", label: "Meiki OCR" },
+  { value: "vitaocr", label: "VOCR", labelKey: "ocr.engines.vitaocr" },
   { value: "alivetext", label: "Apple Live Text" },
   { value: "local_llm_ocr", label: "Local LLM OCR" },
   { value: "mlkitocr", label: "MLKit OCR" }
@@ -543,6 +553,8 @@ const ENGINE_COLORS: Record<string, string> = {
   local_llm_ocr: "\x1b[95m",
   meiki_text_detector: "\x1b[95m",
   meikiocr: "\x1b[95m",
+  vitaocr: "\x1b[94m",
+  vocr_detector: "\x1b[94m",
   mlkitocr: "\x1b[94m",
   alivetext: "\x1b[96m"
 };
@@ -730,6 +742,10 @@ function normalizeOcrConfig(
   return {
     advancedMode: Boolean(value?.advancedMode),
     useOnlineOcr: value?.useOnlineOcr === true,
+    menuAreaOcrEngine:
+      value?.menuAreaOcrEngine === "glens" || value?.menuAreaOcrEngine === "bing"
+        ? value.menuAreaOcrEngine
+        : "main",
     basicScanRate: numericValue(value?.scanRate_basic, scanRate),
     advancedScanRate: numericValue(value?.scanRate_advanced, scanRate),
     mainOcr:
@@ -845,6 +861,7 @@ function buildPersistedConfig(
   const next: OcrStoredConfig = {
     ...baseConfig,
     useOnlineOcr: config.useOnlineOcr,
+    menuAreaOcrEngine: config.menuAreaOcrEngine,
     twoPassOCR: config.twoPassOCR,
     optimize_second_scan: config.optimizeSecondScan,
     text_appears_instantly: config.textAppearsInstantly,
@@ -2688,10 +2705,11 @@ export function OCRTab({ active }: OcrTabProps) {
                                 key={option.value}
                                 value={option.value}
                               >
-                                {t("ocr.engines." + option.value)}
+                                {t(option.labelKey ?? "ocr.engines." + option.value)}
                               </option>
                             ))}
                           </select>
+                          {config.stabilityOcr === "vocr_detector" ? <small>{t("ocr.pipeline.vocrDetectorHint")}</small> : null}
                         </div>
                       ) : null}
 
@@ -2717,10 +2735,13 @@ export function OCRTab({ active }: OcrTabProps) {
                               key={option.value}
                               value={option.value}
                             >
-                              {t("ocr.engines." + option.value)}
+                              {t(option.labelKey ?? "ocr.engines." + option.value)}
                             </option>
                           ))}
                         </select>
+                        {config.mainOcr === "vitaocr" ? (
+                          <small>{t("ocr.pipeline.vitaOcrHint")}</small>
+                        ) : null}
                       </div>
 
                       {config.twoPassOCR ? (
@@ -2744,6 +2765,11 @@ export function OCRTab({ active }: OcrTabProps) {
                           />
                         </div>
                       ) : null}
+
+                      {config.mainOcr === "vitaocr" || (config.twoPassOCR && config.stabilityOcr === "vitaocr")
+                        ? <VitaOcrModel /> : null}
+                      {config.mainOcr === "meikiocr" || (config.twoPassOCR && ["meikiocr", "meiki_text_detector"].includes(config.stabilityOcr))
+                        ? <MeikiOcrModel /> : null}
 
                       <div className="input-group ocr-pipeline-control ocr-pipeline-control--toggle">
                         <label
@@ -2769,6 +2795,28 @@ export function OCRTab({ active }: OcrTabProps) {
                 ) : null}
 
                 <div className="desk-recognition-tuning">
+                  <div className="input-group ocr-menu-area-engine">
+                    <label htmlFor="ocr-menu-area-engine">
+                      {t("ocr.settings.menuAreaEngine")}
+                    </label>
+                    <select
+                      id="ocr-menu-area-engine"
+                      value={config.menuAreaOcrEngine}
+                      aria-describedby="ocr-menu-area-engine-help"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setConfig((current) => ({
+                          ...current,
+                          menuAreaOcrEngine: value === "glens" || value === "bing" ? value : "main"
+                        }));
+                      }}
+                    >
+                      <option value="main">{t("ocr.settings.useMainOcr")}</option>
+                      <option value="glens">{t("ocr.engines.glens")}</option>
+                      <option value="bing">{t("ocr.engines.bing")}</option>
+                    </select>
+                    <small id="ocr-menu-area-engine-help">{t("ocr.settings.menuAreaEngineHelp")}</small>
+                  </div>
                   <div className="desk-field-grid">
                     <div className="ocr-slider-field">
                       <div className="ocr-slider-header">

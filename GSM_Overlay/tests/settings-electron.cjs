@@ -21,6 +21,31 @@ ipcMain.handle("get-effective-platform", () => process.platform);
 ipcMain.handle("settings.getTheme", () => "gsm-dark");
 ipcMain.handle("overlay-get-active-goals", () => ({ goals: [] }));
 ipcMain.handle("vn-guide-state", () => null);
+let vitaModel = 'normal';
+let vitaFailure = false;
+const vitaRequests = [];
+ipcMain.handle('overlay-vita-model', (_event, request = {}) => {
+  vitaRequests.push(request);
+  if (request.model && !vitaFailure) vitaModel = request.model;
+  return { model: vitaModel, available: true, busy: false, installed: ['normal', 'large'],
+    ...(vitaFailure ? { error: 'Download failed: offline' } : {}) };
+});
+let meikiModel = 'large';
+let meikiFailure = false;
+const meikiRequests = [];
+ipcMain.handle('overlay-meiki-model', (_event, request = {}) => {
+  meikiRequests.push(request);
+  if (request.model && !meikiFailure) meikiModel = request.model;
+  return { model: meikiModel, available: true, busy: false,
+    ...(meikiFailure ? { error: 'Download failed: offline' } : {}) };
+});
+ipcMain.handle("vn-guide-catalogue", () => ({
+  source: 'https://github.com/kanjieater/VN-Guide',
+  guides: [
+    { slug: 'one', title: 'One', alttitle: '一', url: 'https://raw.githubusercontent.com/kanjieater/VN-Guide/main/one/' },
+    { slug: 'hakuouki', title: 'Hakuouki ~Shinsengumi Kitan~', alttitle: '薄桜鬼 新選組奇譚', target: '薄桜鬼 真改 風華伝（Nintendo Switch）', url: 'https://raw.githubusercontent.com/kanjieater/VN-Guide/main/hakuouki/' },
+  ],
+}));
 
 app
   .whenReady()
@@ -47,6 +72,61 @@ app
       runtimeSettings: {},
     });
     await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await run("document.getElementById('vnGuideCatalogueSource').value"), 'https://github.com/kanjieater/VN-Guide');
+    assert.equal(await run("document.getElementById('vn-guide-catalogue').options.length"), 3);
+    await run("document.getElementById('vn-guide-search').value = '薄桜鬼'; document.getElementById('vn-guide-search').dispatchEvent(new Event('input'))");
+    assert.equal(await run("document.getElementById('vn-guide-catalogue').options.length"), 2);
+    assert.match(await run("document.getElementById('vn-guide-catalogue').options[1].text"), /Hakuouki/);
+    await run("document.getElementById('vn-guide-search').value = ''; document.getElementById('vn-guide-search').dispatchEvent(new Event('input'))");
+    assert.equal(await run("document.querySelector('#engine_v2 option[value=vitaocr]').textContent"),
+      'VOCR (Japanese only, experimental)');
+    await run("document.getElementById('engine_v2').value = 'vitaocr'; document.getElementById('engine_v2').dispatchEvent(new Event('change', { bubbles: true }))");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.ok(saved.some(({ key, value }) => key === 'engine_v2' && value === 'vitaocr'),
+      'VOCR selection must be sent to the backend');
+    assert.equal(await run("document.getElementById('vita-ocr-model-row').hidden"), false);
+    assert.equal(await run("document.getElementById('vita-ocr-model').value"), 'normal');
+    assert.equal(await run("document.getElementById('vita-ocr-model').disabled"), false);
+    await run("document.getElementById('vita-ocr-model').value = 'large'; document.getElementById('vita-ocr-model').dispatchEvent(new Event('change', { bubbles: true }))");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run("document.getElementById('vita-ocr-model').value"), 'large');
+    assert.ok(vitaRequests.some(request => request.model === 'large'));
+    vitaFailure = true;
+    await run("document.getElementById('vita-ocr-model').value = 'small'; document.getElementById('vita-ocr-model').dispatchEvent(new Event('change', { bubbles: true }))");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run("document.getElementById('vita-ocr-model').value"), 'large');
+    assert.match(await run("document.getElementById('vita-ocr-model-error').textContent"), /offline/);
+    vitaFailure = false;
+    // Leave the selected model visible during the capture-page layout checks.
+    await run("document.getElementById('vita-ocr-model-refresh').click()");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    await run("document.getElementById('engine_v2').value = 'vocr_lens'; document.getElementById('engine_v2').dispatchEvent(new Event('change', { bubbles: true }))");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.ok(saved.some(({ key, value }) => key === 'engine_v2' && value === 'vocr_lens'));
+    assert.equal(await run("document.getElementById('vocr-detector-help').hidden"), false);
+    assert.equal(await run("document.getElementById('vita-ocr-model-row').hidden"), true);
+    await run("document.getElementById('engine_v2').value = 'meikiocr'; document.getElementById('engine_v2').dispatchEvent(new Event('change', { bubbles: true }))");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run("document.getElementById('meiki-ocr-model-row').hidden"), false);
+    assert.equal(await run("document.getElementById('meiki-ocr-model').value"), 'large');
+    assert.equal(await run("document.getElementById('meiki-ocr-model').disabled"), false);
+    await run("document.getElementById('meiki-ocr-model').value = 'small'; document.getElementById('meiki-ocr-model').dispatchEvent(new Event('change', { bubbles: true }))");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run("document.getElementById('meiki-ocr-model').value"), 'small');
+    assert.ok(meikiRequests.some(request => request.model === 'small'));
+    meikiFailure = true;
+    await run("document.getElementById('meiki-ocr-model').value = 'large'; document.getElementById('meiki-ocr-model').dispatchEvent(new Event('change', { bubbles: true }))");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run("document.getElementById('meiki-ocr-model').value"), 'small');
+    assert.match(await run("document.getElementById('meiki-ocr-model-error').textContent"), /offline/);
+    meikiFailure = false;
+    await run("document.getElementById('meiki-ocr-model-refresh').click(); GSMSettingsNavigation.navigate('capture-source')");
+    await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    fs.writeFileSync(path.join(directory, 'meiki-model-1200.png'), (await view.webContents.capturePage()).toPNG());
+    await run("document.getElementById('engine_v2').value = 'vitaocr'; document.getElementById('engine_v2').dispatchEvent(new Event('change', { bubbles: true }))");
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run("document.getElementById('meiki-ocr-model-row').hidden"), true);
+    await run("GSMSettingsNavigation.navigate('overview-start')");
     assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), true);
     assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), true);
     assert.equal(await run("document.getElementById('home-textHoverClickThrough').getClientRects().length > 0"), true,
@@ -258,6 +338,13 @@ app
     view.webContents.send("settings-updated", { showTextIndicators: true });
     await run("new Promise(resolve => setTimeout(resolve, 0))");
     assert.equal(await run(`document.getElementById('showTextIndicators').checked`), true);
+    saved.length = 0;
+    await run(`document.getElementById('showTextHitboxes').click()`);
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.deepEqual(saved, [{ key: "showTextHitboxes", value: true }]);
+    view.webContents.send("settings-updated", { showTextHitboxes: false });
+    await run("new Promise(resolve => setTimeout(resolve, 0))");
+    assert.equal(await run(`document.getElementById('showTextHitboxes').checked`), false);
     await run(
       `document.querySelector('[data-settings-page="reading-readings"]').click(); document.getElementById('readingLanguage').value = 'chinese'; document.getElementById('readingLanguage').dispatchEvent(new Event('change', { bubbles: true }))`,
     );

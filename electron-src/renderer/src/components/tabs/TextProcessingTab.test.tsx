@@ -22,6 +22,9 @@ describe("TextProcessingTab workspace", () => {
     };
     invoke.mockReset().mockImplementation(async (channel: string, payload: any) => {
       if (channel === "textprocess.load") return storedConfig;
+      if (channel === "textprocess.exclusions.list") return { success: true, games: {} };
+      if (channel === "obs.getScenes") return [{ name: "Game", id: "game" }];
+      if (channel === "obs.getActiveScene") return { name: "Game", id: "game" };
       if (channel === "textprocess.save") storedConfig = payload;
       if (channel === "textprocess.latestText") return { text: "latest game text" };
       if (channel === "textprocess.preview") {
@@ -100,7 +103,7 @@ describe("TextProcessingTab workspace", () => {
     await render();
     expect(container.querySelectorAll('[role="list"] > [role="listitem"]')).toHaveLength(13);
     expect(container.querySelector<HTMLInputElement>(".rule-find-input")?.value).toBe("old");
-    expect(container.querySelectorAll("textarea")).toHaveLength(2);
+    expect(container.querySelectorAll("textarea")).toHaveLength(3);
     expect(container.querySelector('[role="tablist"]')).toBeNull();
     expect(container.querySelector<HTMLTextAreaElement>("#text-preview-output")?.value).toBe("latest game text");
     expect(container.querySelector(".text-processing-header button")).toBeNull();

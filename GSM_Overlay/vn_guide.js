@@ -1,32 +1,67 @@
 const { prepareTextLines, detectTextBlocks } = require('./block_detection');
+const path = require('node:path');
+const { fileURLToPath, pathToFileURL } = require('node:url');
 
 const SITE = 'https://kanjieater.github.io/VN-Guide/';
 const RAW = 'https://raw.githubusercontent.com/kanjieater/VN-Guide/main/';
 const safeId = value => typeof value === 'string' && /^[\p{L}\p{N}_-]{1,160}$/u.test(value);
+const guideFile = /^(index\.html|guide\.json|route_[\p{L}\p{N}_-]+\.json)$/u;
 
 // Only the public VN-Guide format is supported. Never execute guide HTML or
 // follow URLs supplied by a manifest to fetch route data.
 function parseGuideUrl(value) {
+  const input = String(value).trim().replace(/^"(.*)"$/, '$1');
   let url;
-  try { url = new URL(String(value).trim()); } catch { throw new Error('Paste a specific game URL from kanjieater’s VN-Guide.'); }
-  if (url.protocol !== 'https:' || url.username || url.password || url.port) throw new Error('Use an official HTTPS VN-Guide URL.');
-  let prefix;
-  if (url.origin === new URL(SITE).origin) prefix = '/VN-Guide/';
-  else if (url.origin === 'https://raw.githubusercontent.com') prefix = '/kanjieater/VN-Guide/main/';
-  else if (url.origin === 'https://github.com') {
-    prefix = /^\/kanjieater\/VN-Guide\/(tree|blob)\/main\//.exec(url.pathname)?.[0];
-  }
-  if (!prefix || !url.pathname.startsWith(prefix)) throw new Error('Only kanjieater’s VN-Guide URLs are supported.');
-  const parts = url.pathname.slice(prefix.length).split('/').filter(Boolean).map(part => decodeURIComponent(part));
-  if (!safeId(parts[0]) || parts.length > 2 || (parts[1] && !/^(index\.html|guide\.json|route_[\p{L}\p{N}_-]+\.json)$/u.test(parts[1]))) {
-    throw new Error('Open a game in VN-Guide, then paste that game’s URL here.');
+  try { url = path.isAbsolute(input) ? pathToFileURL(input) : new URL(input); }
+  catch { throw new Error('Paste a VN-Guide game URL or an absolute path to a game guide folder.'); }
+  let slug, file, baseUrl, pageUrl;
+  if (url.protocol === 'file:') {
+    let directory;
+    try { directory = fileURLToPath(url); }
+    catch { throw new Error('Use a valid local game guide folder or guide.json file.'); }
+    directory = path.normalize(directory);
+    file = path.basename(directory);
+    if (guideFile.test(file)) directory = path.dirname(directory);
+    else file = '';
+    slug = path.basename(directory);
+    baseUrl = pathToFileURL(directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`).href;
+    pageUrl = `${baseUrl}index.html`;
+  } else {
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) throw new Error('Use an HTTPS GitHub VN-Guide URL or a local game guide folder.');
+    let parts;
+    try { parts = url.pathname.replace(/^\//, '').replace(/\/$/, '').split('/').map(part => decodeURIComponent(part)); }
+    catch { throw new Error('The guide URL contains an invalid path.'); }
+    let owner, repo, ref;
+    const pages = /^([a-z\d-]+)\.github\.io$/i.exec(url.hostname);
+    if (pages) {
+      owner = pages[1];
+      [repo, slug, file = ''] = parts;
+      if (parts.length < 2 || parts.length > 3) throw new Error('Open a game in VN-Guide, then paste that game’s URL here.');
+      ref = ['main'];
+    } else if (url.hostname === 'github.com' || url.hostname === 'raw.githubusercontent.com') {
+      [owner, repo] = parts.splice(0, 2);
+      if (url.hostname === 'github.com' && !['tree', 'blob'].includes(parts.shift())) throw new Error('Paste a GitHub game folder or guide.json URL.');
+      file = guideFile.test(parts.at(-1)) ? parts.pop() : '';
+      slug = parts.pop();
+      ref = parts;
+    } else throw new Error('Use a GitHub, raw GitHub, or GitHub Pages VN-Guide URL, or a local game guide folder.');
+    if (!/^[a-z\d-]{1,39}$/i.test(owner || '') || !/^[\w.-]{1,100}$/.test(repo || '') || ['.', '..'].includes(repo)
+      || !ref.length || ref.some(part => !/^[\w.-]+$/.test(part) || ['.', '..'].includes(part))
+      || !safeId(slug) || (file && !guideFile.test(file))) {
+      throw new Error('Open a game in VN-Guide, then paste that game’s URL here.');
+    }
+    owner = owner.toLowerCase();
+    if (repo.toLowerCase() === 'vn-guide') repo = 'VN-Guide';
+    baseUrl = `https://raw.githubusercontent.com/${[owner, repo, ...ref, slug].map(encodeURIComponent).join('/')}/`;
+    pageUrl = `https://${owner}.github.io/${encodeURIComponent(repo)}/${encodeURIComponent(slug)}/`;
   }
   const nav = new URLSearchParams(url.hash.slice(1));
-  const routeId = nav.get('route') || /^route_(.+)\.json$/.exec(parts[1] || '')?.[1] || '';
+  const routeId = nav.get('route') || /^route_(.+)\.json$/.exec(file)?.[1] || '';
   if (routeId && !safeId(routeId)) throw new Error('Invalid route in the guide URL.');
   const step = /^\d+$/.test(nav.get('step') || '') ? Number(nav.get('step')) : null;
-  const slug = parts[0];
-  return { slug, routeId, step: Number.isSafeInteger(step) ? step : null, pageUrl: `${SITE}${encodeURIComponent(slug)}/`, baseUrl: `${RAW}${encodeURIComponent(slug)}/` };
+  // Retain existing official-guide progress; forks and local copies are isolated.
+  const progressId = baseUrl === `${RAW}${encodeURIComponent(slug)}/` ? slug : baseUrl;
+  return { slug, routeId, step: Number.isSafeInteger(step) ? step : null, pageUrl, baseUrl, progressId };
 }
 
 function validateGuide(data) {
@@ -146,6 +181,40 @@ function findChoice(data, expected, { allowFuzzy = true, requireMenu = false } =
 
 const isSaveControl = line => /セーブ|ロード|上書き|保存先|^(?:(?:quick|auto)?(?:save|load)(?:game|data|slot)?|overwrite)$/iu.test(line.text);
 const LOOK_AHEAD_CHOICES = 3;
+const HOOK_MENU_MAX_AGE_MS = 10000;
+
+function findHookedChoice(lines, expected, recentText, now) {
+  // Some games dim unselected answers enough that OCR reads only the selected
+  // option. Corroborate a compact hook batch with an exact, isolated option in
+  // the fresh scan. Never use dialogue-position text or an unanchored substring.
+  if (!recentText || now < recentText.at || now - recentText.at > HOOK_MENU_MAX_AGE_MS) return null;
+  const { text, options } = recentText;
+  const target = normalizeChoice(expected);
+  if (target.length < 6 || options.some(option => isSaveControl({ text: option }))
+    || lines.some(line => isSaveControl(line) && line.y3 <= 0.74)) return null;
+  const anchors = lines.filter(line => line.isolated && line.text.length >= 6 && line.text.length <= 100
+    && line.y3 <= 0.72 && Math.abs(line.center - 0.5) <= 0.3
+    && (options.length > 1 ? options.includes(line.text) : text.startsWith(line.text)));
+  if (!anchors.length) return null;
+  for (const anchor of anchors) {
+    let menuOptions;
+    if (options.length > 1) {
+      if (options.length < 2 || options.length > 6 || options.some(option => option.length < 2 || option.length > 100)
+        || options.filter(option => option === target).length !== 1) continue;
+      menuOptions = options;
+    } else {
+      // Without separators, only the visible first option and a complete final
+      // answer have known boundaries. Do not guess where a middle answer ends.
+      const tail = text.slice(anchor.text.length);
+      if (tail.length < 6 || tail.length > 100
+        || target !== anchor.text && (!tail.endsWith(target) || tail.indexOf(target) !== tail.lastIndexOf(target))) continue;
+      menuOptions = [anchor.text, target];
+    }
+    return { text: target, observed: target, exact: true, menu: true,
+      options: [...new Set(menuOptions)], hookText: text };
+  }
+  return null;
+}
 
 class GuideTracker {
   constructor(steps, index = 0) {
@@ -171,7 +240,8 @@ class GuideTracker {
     return this.steps[next]?.kind === 'choice' ? next : index;
   }
   get rememberedChoice() { return this.detected && !this.armed; }
-  resetDetection() {
+  resetDetection({ preserveText = false } = {}) {
+    if (!preserveText) this.recentText = null;
     this.detected = false;
     this.armed = null;
     this.blockedOptions = null;
@@ -190,27 +260,37 @@ class GuideTracker {
       this.suspendedOptions = this.armed.options;
     }
     this.armed = null;
+    this.recentText = null;
     this.pendingLineId = null;
     this.pendingAhead = null;
   }
-  findAheadChoice(data, lines) {
+  findAheadChoice(data, lines, recentText = null, now = Date.now()) {
     // An option still present in the current menu, or a save confirmation, must
     // not be interpreted as a later guide step merely because its text matches.
     if (lines.some(line => line.text === normalizeChoice(this.current.text) || isSaveControl(line) && line.y3 <= 0.74)) return null;
     const matches = [];
+    const candidates = [this.current];
     const limit = this.saveInstructions.length ? 1 : LOOK_AHEAD_CHOICES;
     let index = this.index + 1;
     for (let count = 0; count < limit && index < this.steps.length; count += 1) {
       const carriesSave = this.steps[index].kind === 'save';
       if (carriesSave) index = this.choiceAfterSave(index);
       if (this.steps[index]?.kind !== 'choice') break;
-      const match = findChoice(data, this.steps[index].text, { allowFuzzy: false, requireMenu: true });
+      candidates.push(this.steps[index]);
+      const match = findChoice(data, this.steps[index].text, { allowFuzzy: false, requireMenu: true })
+        || findHookedChoice(lines, this.steps[index].text, recentText, now);
       if (match) matches.push({ index, match });
       // The save can be shown with its next choice, but never skipped past it.
       if (carriesSave) break;
       index += 1;
     }
-    return matches.length === 1 ? matches[0] : null;
+    if (matches.length !== 1) return null;
+    const result = matches[0];
+    // A batched hook may contain multiple route answers from the same menu,
+    // including a dim current answer. That cannot prove a later guide position.
+    if (result.match.hookText && candidates.some(step => step !== this.steps[result.index]
+      && result.match.hookText.includes(normalizeChoice(step.text)))) return null;
+    return result;
   }
   jump(index) {
     if (!Number.isInteger(index) || index < 0 || index > this.steps.length) throw new Error('Choose a step within this route.');
@@ -227,8 +307,11 @@ class GuideTracker {
   observe(message, now = Date.now(), autoAdvance = true) {
     if (!this.current || this.current.kind !== 'choice') return;
     if (message?.type === 'game_text') {
-      if (typeof message.text !== 'string' || message.text.length > 20000) return;
+      if (typeof message.text !== 'string' || message.text.length > 20000) { this.recentText = null; return; }
       const options = message.text.split(/\r?\n/u).map(normalizeChoice).filter(Boolean);
+      const text = options.join('');
+      if (!text || text.length > 300 || options.length > 6) this.recentText = null;
+      else this.recentText = { text, options, at: text === this.recentText?.text ? this.recentText.at : now };
       if (!options.length) return;
       if (this.blockedOptions) {
         if (options.some(text => containsOption(this.blockedOptions, text))) return;
@@ -251,7 +334,9 @@ class GuideTracker {
     }
     if (message?.type === 'overlay_clear') {
       this.pendingAhead = null;
-      if (!message.line_id) this.resetDetection();
+      // Skip recovery clears old coordinates before scanning, but the latest
+      // hook batch can still corroborate that fresh scan within its short TTL.
+      if (!message.line_id) this.resetDetection({ preserveText: true });
       else {
         // The backend clears boxes before scanning each new text line. Hide the
         // old hint, but keep its evidence until that scan confirms the menu left.
@@ -292,13 +377,15 @@ class GuideTracker {
       else return;
     }
     let match = findChoice(message.data, this.current.text);
+    const recentText = message.is_final === true && !revalidated ? this.recentText : null;
+    if (!match?.menu) match = findHookedChoice(lines, this.current.text, recentText, now) || match;
     if (match && !match.exact && this.steps.some(step => step.kind === 'choice'
       && normalizeChoice(step.text) === match.observed)) match = null;
     const previousPresence = this.armed?.presenceId || this.suspendedPresenceId;
     const previousLine = this.armed?.lineId || this.suspendedLineId;
     let stableAhead = false;
     if (!match && autoAdvance && !revalidated && (!previousPresence || previousPresence !== message.presence_id)) {
-      const ahead = this.findAheadChoice(message.data, lines);
+      const ahead = this.findAheadChoice(message.data, lines, recentText, now);
       if (ahead && !containsOption(this.armed?.options || this.suspendedOptions, ahead.match.text)) {
         // While skipping, OCR can keep retrying an old hooked sentence for
         // several seconds, even as another menu appears under the same line ID.

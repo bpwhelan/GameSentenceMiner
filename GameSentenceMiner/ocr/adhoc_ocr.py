@@ -4,7 +4,8 @@ Runs a one-shot screen-crop OCR without requiring the ``gsm_ocr`` subprocess, so
 area-select OCR works whether or not continuous OCR is running.
 
 Engine selection (constraint: never load a second copy of a local model):
-  * Default to Google Lens (network, no local model).
+  * Honor the menu/area-select online override (Google Lens or Bing).
+  * Otherwise default to Google Lens (network, no local model).
   * Reuse the overlay processor's already-loaded engine instance when the
     configured ``ocr2`` engine matches the overlay's effective engine.
   * If the Lens pass can't connect, fall back to the overlay's loaded local
@@ -27,6 +28,7 @@ from GameSentenceMiner.util.config.configuration import OverlayEngine
 from GameSentenceMiner.util.config.electron_config import (
     get_ocr_keep_newline,
     get_ocr_language,
+    get_ocr_menu_area_engine,
     get_ocr_ocr2,
     get_ocr_send_to_clipboard,
 )
@@ -40,6 +42,7 @@ _OVERLAY_ATTR_BY_ENGINE = {
     OverlayEngine.ONEOCR.value: "oneocr",
     OverlayEngine.MEIKIOCR.value: "meikiocr",
     OverlayEngine.SCREENAI.value: "screenai",
+    OverlayEngine.VITAOCR.value: "vitaocr",
 }
 
 # Map a configured ocr2 engine name (OCR tab values) -> overlay engine enum value.
@@ -49,10 +52,12 @@ _OCR2_TO_OVERLAY = {
     "oneocr": OverlayEngine.ONEOCR.value,
     "meikiocr": OverlayEngine.MEIKIOCR.value,
     "screenai": OverlayEngine.SCREENAI.value,
+    "vitaocr": OverlayEngine.VITAOCR.value,
 }
 
 _lens_lock = threading.Lock()
 _lens_engine = None
+_bing_engine = None
 
 
 def _get_default_lens():
@@ -66,6 +71,17 @@ def _get_default_lens():
         return _lens_engine
 
 
+def _get_bing():
+    """Lazily create a standalone Bing engine without loading a local model."""
+    global _bing_engine
+    with _lens_lock:
+        if _bing_engine is None:
+            from GameSentenceMiner.owocr.owocr.ocr import Bing
+
+            _bing_engine = Bing(lang=get_ocr_language())
+        return _bing_engine
+
+
 def _get_overlay_processor():
     try:
         from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
@@ -77,13 +93,14 @@ def _get_overlay_processor():
 
 
 def _overlay_local_engine(overlay) -> tuple[Any, Optional[str]]:
-    """Return the overlay's loaded local engine (oneocr/meiki/screenai), if any."""
+    """Return the overlay's loaded local engine, if any."""
     if not overlay:
         return None, None
     for value in (
         OverlayEngine.ONEOCR.value,
         OverlayEngine.MEIKIOCR.value,
         OverlayEngine.SCREENAI.value,
+        OverlayEngine.VITAOCR.value,
     ):
         inst = getattr(overlay, _OVERLAY_ATTR_BY_ENGINE[value], None)
         if inst is not None:
@@ -94,14 +111,17 @@ def _overlay_local_engine(overlay) -> tuple[Any, Optional[str]]:
 def _resolve_engines() -> tuple[tuple[Any, str], tuple[Any, Optional[str]]]:
     """Resolve (primary_engine, primary_name), (fallback_engine, fallback_name).
 
-    Primary defaults to Lens, but reuses the overlay's already-loaded instance
-    when the configured ocr2 engine matches the overlay's effective engine.
+    Use the selected online override, or reuse the main OCR engine when already
+    loaded in the overlay. If the main local engine is unavailable, use Lens.
     Fallback is the overlay's loaded local engine (used if the Lens pass fails).
     """
     overlay = _get_overlay_processor()
     fallback = _overlay_local_engine(overlay)
 
-    ocr2 = (get_ocr_ocr2() or "").strip().lower()
+    engine = get_ocr_menu_area_engine()
+    ocr2 = ((get_ocr_ocr2() if engine == "main" else engine) or "").strip().lower()
+    if ocr2 == "bing":
+        return (_get_bing(), "bing"), fallback
     desired = _OCR2_TO_OVERLAY.get(ocr2)
     overlay_engine_value = None
     if overlay is not None:

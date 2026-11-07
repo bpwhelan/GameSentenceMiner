@@ -12,6 +12,7 @@ describe("OCR captured text", () => {
   let root: Root;
   let listeners: Map<string, Set<(event: IpcEventLike, ...args: unknown[]) => void>>;
   const writeText = vi.fn();
+  const invoke = vi.fn();
 
   const emit = (channel: string, payload?: unknown) => {
     for (const listener of listeners.get(channel) ?? []) listener({ sender: null }, payload);
@@ -29,9 +30,11 @@ describe("OCR captured text", () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     listeners = new Map();
     writeText.mockReset();
+    invoke.mockReset().mockResolvedValue({ success: true, games: {} });
     Object.defineProperty(window, "ipcRenderer", {
       configurable: true,
       value: {
+        invoke,
         on: (channel: string, listener: (event: IpcEventLike, ...args: unknown[]) => void) => {
           const callbacks = listeners.get(channel) ?? new Set();
           callbacks.add(listener);
@@ -134,6 +137,49 @@ describe("OCR captured text", () => {
     expect(container.querySelector(".desk-text-content")?.textContent).toBe("Keep this capture");
   });
 
+  it.each([
+    ["Text is identified as all menu items, skipping further processing.", "All text is menu text"],
+    ["Text is inside a black hole OCR box, skipping further processing.", "Text is in a black hole area"]
+  ])("uses the blocking reason as the main status: %s", async (message, headline) => {
+    await render();
+    const heading = () => container.querySelector(".desk-text-status strong")?.textContent;
+    await act(async () => emit("ocr-log", message));
+    expect(heading()).toBe(headline);
+    await act(async () => emit("ocr-log", "Unchanged image, sleeping."));
+    expect(heading()).toBe(headline);
+    await act(async () => emit("ocr-log", "No text detected, sleeping."));
+    expect(heading()).toBe(headline);
+    await render(true, true);
+    expect(heading()).toBe("Paused");
+    await render(false);
+    expect(heading()).toBe("Stopped");
+    await render();
+    await act(async () => result("New dialogue"));
+    expect(heading()).toBe("Watching for text");
+    expect(container.querySelectorAll(".desk-text-entry")).toHaveLength(1);
+  });
+
+  it.each([
+    "OCR Run 1: Text recognized in 0.030s using OneOCR: ",
+    "0 text boxes recognized in 0.030s using VOCR Line Detector:",
+    "Image is empty (all pixels same), sleeping."
+  ])("clears a stale blocked status when recognition proceeds or the frame is blank: %s", async message => {
+    await render();
+    await act(async () => emit("ocr-log", "Text is inside a black hole OCR box, skipping further processing."));
+    await act(async () => emit("ocr-log", message));
+    expect(container.querySelector(".desk-text-status strong")?.textContent).toBe("Watching for text");
+    expect(container.querySelectorAll(".desk-text-entry")).toHaveLength(0);
+  });
+
+  it("shows sentence exclusion as the main status and clears it when scanning resumes", async () => {
+    await render();
+    const heading = () => container.querySelector(".desk-text-status strong")?.textContent;
+    await act(async () => result("Excluded", { exclusion_game: "Game", excluded: true }));
+    expect(heading()).toBe("Sentence excluded for this game");
+    await act(async () => emit("ocr-ipc-unpaused"));
+    expect(heading()).toBe("Watching for text");
+  });
+
   it("shows errors as brief activity and clears them on the next successful capture", async () => {
     await render();
     await act(async () => emit("ocr-ipc-error", "Very long technical error"));
@@ -152,6 +198,53 @@ describe("OCR captured text", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Clear captured text"]')!.click());
     expect(container.querySelectorAll(".desk-text-entry")).toHaveLength(0);
     expect(container.textContent).toContain("Your captured text appears here");
+  });
+
+  it("excludes the full capture for its original game and can undo it from the menu", async () => {
+    let games = {};
+    invoke.mockImplementation(async (channel, payload) => {
+      if (channel === "textprocess.exclusions.add") games = { "Game A": [payload.text] };
+      if (channel === "textprocess.exclusions.remove") games = {};
+      return { success: true, games };
+    });
+    await render();
+    await act(async () => result("Menu\ntext", { exclusion_game: "Game A" }));
+    const anchor = container.querySelector<HTMLButtonElement>('[aria-label="Captured text actions"]')!;
+    await act(async () => anchor.click());
+    const menu = () => document.querySelector('[role="menu"]')!;
+    expect(menu().textContent).toContain("For Game A");
+    await act(async () => menu().querySelectorAll<HTMLButtonElement>("button")[1].click());
+    expect(invoke).toHaveBeenCalledWith("textprocess.exclusions.add", { game: "Game A", text: "Menu\ntext" });
+    expect(menu()).toBeNull();
+    expect(container.textContent).toContain("Sentence excluded for Game A");
+    expect(document.activeElement).toBe(anchor);
+    await act(async () => anchor.click());
+    expect(menu().textContent).toContain("Remove sentence exclusion");
+    await act(async () => menu().querySelectorAll<HTMLButtonElement>("button")[1].click());
+    expect(invoke).toHaveBeenCalledWith("textprocess.exclusions.remove", { game: "Game A", text: "Menu\ntext" });
+  });
+
+  it("keeps the menu open on save failure and closes on Escape", async () => {
+    await render();
+    await act(async () => result("text", { process_path: "Game" }));
+    const anchor = container.querySelector<HTMLButtonElement>('[aria-label="Captured text actions"]')!;
+    await act(async () => anchor.click());
+    invoke.mockResolvedValue({ success: false });
+    await act(async () => document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')[1].click());
+    expect(document.querySelector('[role="menu"] [role="alert"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Future matches will be blocked");
+    await act(async () => document.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(anchor);
+  });
+
+  it("requires the capture's game before allowing an exclusion", async () => {
+    await render();
+    await act(async () => result("unassociated text"));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Captured text actions"]')!.click());
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("no associated game");
+    expect(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')[1].disabled).toBe(true);
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("buffers captured text while its view is hidden", async () => {

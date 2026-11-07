@@ -88,10 +88,21 @@ vi.mock('../services/obs_settings_snapshot.js', () => ({
     createObsSettingsSnapshot: createObsSettingsSnapshotMock,
 }));
 
+vi.mock('../services/obs_runtime.js', () => ({
+    ObsRuntimeManager: class {
+        busy = false;
+        async recover() {}
+        async status() { return { installedVersion: '32.2.2', automatic: false, managed: true }; }
+    },
+    pruneObsRuntime: vi.fn(async () => {}),
+    readObsPinnedVersion: vi.fn(async () => null),
+}));
+
 vi.mock('../util.js', () => ({
     BASE_DIR: TEST_BASE_DIR,
     execFileAsync: execFileAsyncMock,
     getAssetsDir: () => 'C:\\test-gsm\\assets',
+    getGSMBaseDir: () => TEST_BASE_DIR,
     isMacOS: () => false,
     isLinux: isLinuxMock,
     isWindows: isWindowsMock,
@@ -156,6 +167,21 @@ async function flushPromises() {
     await Promise.resolve();
     await Promise.resolve();
 }
+
+describe('OBS frontend readiness', () => {
+    it('waits through the initializing response before validating an update', async () => {
+        let sceneRequests = 0;
+        obsCallMock.mockImplementation(async (request: string) => {
+            if (request === 'GetSceneList' && sceneRequests++ === 0) {
+                throw Object.assign(new Error('OBS is not ready'), { code: 207 });
+            }
+            return {};
+        });
+        const { waitForOBSFrontend } = await loadObsModule();
+        await waitForOBSFrontend();
+        expect(sceneRequests).toBe(2);
+    });
+});
 
 beforeEach(() => {
     isLinuxMock.mockReturnValue(false);

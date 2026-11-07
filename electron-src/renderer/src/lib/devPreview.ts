@@ -44,7 +44,7 @@ function previewInvokeResult(channel: string): unknown {
       return {
         locale: params.get("locale") ?? "en",
         theme: params.get("theme") ?? "gsm-dark",
-        visibleTabs: ["speech", "launcher", "stats", "python", "console"],
+        visibleTabs: ["speech", "launcher", "stats", "console"],
         runOverlayWithActiveGame: homePreview,
       };
     case "obs.getScenes":
@@ -133,9 +133,9 @@ function previewInvokeResult(channel: string): unknown {
     case "python.getPythonInfo":
       return {
         success: true,
-        pythonVersion: "Preview",
-        pythonPath: "Preview",
-        pipVersion: "Preview",
+        pythonVersion: "Python 3.13.7",
+        pythonPath: "C:\\Users\\Preview\\AppData\\Roaming\\GameSentenceMiner\\python_venv\\Scripts\\python.exe",
+        pipVersion: "pip 25.2 from C:\\Users\\Preview\\AppData\\Roaming\\GameSentenceMiner\\python_venv\\Lib\\site-packages\\pip (python 3.13)",
       };
     case "data.getCurrentDir":
     case "data.getDefaultDir":

@@ -99,6 +99,8 @@ export interface Settings {
 	trimVideoWithVAD$: boolean;
 	showTrimmedVideoInExplorer$: boolean;
 	showGSMCheckboxes$: boolean;
+	showMenuButton$: boolean;
+	showExpiredIcon$: boolean;
 }
 
 export interface ExportedData {

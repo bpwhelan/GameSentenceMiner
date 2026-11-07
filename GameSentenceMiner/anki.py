@@ -104,9 +104,11 @@ def _animated_screenshot_codec(settings) -> str:
 
 
 def _should_show_confirmation_dialog(config, vad_result, use_existing_files=False, *, overlay_only=False) -> bool:
+    if not getattr(config.anki, "show_update_confirmation_dialog_v2", True):
+        return False
     if overlay_only:
         return True
-    if not getattr(config.anki, "show_update_confirmation_dialog_v2", True) or use_existing_files:
+    if use_existing_files:
         return False
     if not getattr(config.anki, "skip_confirmation_for_unvoiced", False):
         return True
@@ -3720,9 +3722,9 @@ def _resolve_mined_line_for_card(card, lines):
         return get_mined_line(card, matching_lines, **match_kwargs)
     if getattr(matched, "source", None) == getattr(TextSource, "OVERLAY", "overlay"):
         logger.warning(
-            f"Anki note {getattr(card, 'noteId', 'unknown')} was mined using overlay text without a conventional "
-            "text source. Using best-guess audio and screenshot timing. Configure text hooking or an OCR tab "
-            "for overlay speed and consistency, accurate statistics, and reliable media timing."
+            f"Anki note {getattr(card, 'noteId', 'unknown')}: no matching line was found within the replay buffer. "
+            "The original line may have expired or may not have reached GSM through text hooking or OCR. "
+            "Using overlay text with estimated audio and screenshot timing; review both before saving."
         )
     return matched
 

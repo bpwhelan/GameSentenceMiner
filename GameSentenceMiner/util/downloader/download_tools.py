@@ -342,7 +342,7 @@ def download_scene_switcher_plugin(obs_path, stage_id: Optional[str] = None):
 def prune_obs_directory(obs_path):
     """Trim a downloaded OBS install down to what GSM uses.
 
-    Drops all debug symbols (*.pdb) and the obs-browser source's bundled CEF
+    Drops all debug symbols (*.pdb) and the legacy obs-browser source's bundled CEF
     runtime (~275MB), neither of which GSM ever loads.
     """
     removed_bytes = 0
@@ -381,10 +381,22 @@ def prune_obs_directory(obs_path):
                 _rm_file(os.path.join(plugins_64bit, name))
     _rm_tree(os.path.join(plugins_64bit, "locales"))  # CEF localized resources
     _rm_tree(os.path.join(obs_path, "data", "obs-plugins", "obs-browser"))
+    # Keep OBS 33's core/obs-browser: a missing core module aborts loading later
+    # modules, including obs-websocket. Only the legacy shared CEF is optional.
 
     if removed_bytes:
         logger.info(f"Pruned OBS install, freed {removed_bytes / (1024 * 1024):.0f} MB.")
     return removed_bytes
+
+
+def get_obs_release_api_url(policy_path=None):
+    policy_path = policy_path or os.path.join(script_dir, "..", "..", "assets", "obs-release-policy.json")
+    with open(policy_path, encoding="utf-8") as policy_file:
+        version = json.load(policy_file)["version"]
+    if version is not None and (not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version)):
+        raise ValueError("Invalid OBS release policy.")
+    suffix = f"tags/{version}" if version else "latest"
+    return f"https://api.github.com/repos/obsproject/obs-studio/releases/{suffix}"
 
 
 def download_obs_if_needed(stage_id: Optional[str] = "obs"):
@@ -402,7 +414,7 @@ def download_obs_if_needed(stage_id: Optional[str] = "obs"):
         logger.info("OBS directory exists but executable is missing. Re-downloading OBS...")
         shutil.rmtree(obs_path)
 
-    latest_release_url = "https://api.github.com/repos/obsproject/obs-studio/releases/latest"
+    latest_release_url = get_obs_release_api_url()
     latest_release = get_json_from_url(latest_release_url)
 
     if not latest_release:

@@ -127,9 +127,9 @@ export function packObsVersion(versionString: string | null | undefined): number
 }
 
 /**
- * obs-browser ships a full CEF runtime in obs-plugins/64bit (libcef.dll alone is
- * ~200MB). GSM never uses browser sources, so the plugin + CEF is dead weight and
- * gets pruned after extraction. Mirrors OBS_BROWSER_CEF_FILES in download_tools.py.
+ * OBS 32 and earlier ship optional CEF files in obs-plugins/64bit. OBS 33's
+ * core/obs-browser must remain intact because a missing core module stops the
+ * loading of later modules. Mirrors OBS_BROWSER_CEF_FILES in download_tools.py.
  */
 export const OBS_BROWSER_CEF_FILES: ReadonlySet<string> = new Set([
     'obs-browser.dll',

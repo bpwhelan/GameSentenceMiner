@@ -86,6 +86,8 @@
 		showSaveClipButton$,
 		trimVideoWithVAD$,
 		showGSMCheckboxes$,
+		showMenuButton$,
+		showExpiredIcon$,
 		unblurTLTimer$,
 		settingsOpen$,
 	} from '../stores/stores';
@@ -1186,26 +1188,38 @@
 			/>
 		</div>
 
-		<!-- UI Customizability Subsection -->
-		<div class="col-span-4 mt-2 mb-1 flex items-center gap-2">
-			<Icon path={mdiWhiteBalanceSunny} class="text-accent w-5 h-5" />
-			<h3 class="font-semibold text-base tracking-wide">UI Customizability</h3>
+		<div class="col-span-4 mt-2 mb-1">
+			<h3 class="font-semibold text-base tracking-wide">Audio &amp; Video</h3>
 		</div>
 		<div class="col-span-4 grid grid-cols-4 gap-x-2 gap-y-1 mb-2">
-			<span class="label-text col-span-2">Pin Screenshot Button</span>
-			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showScreenshotButton$} />
-			<span class="label-text col-span-2">Pin Translate Button</span>
-			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTranslateButton$} />
-			<span class="label-text col-span-2">Pin Audio Button</span>
-			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showAudioButton$} />
 			<span class="label-text col-span-2">Trim Audio With VAD</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimAudioWithVAD$} />
-			<span class="label-text col-span-2">Pin Save Cropped Replay Button</span>
-			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimVideoButton$} />
-			<span class="label-text col-span-2">Pin Save Clip Button</span>
-			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showSaveClipButton$} />
 			<span class="label-text col-span-2">Trim Video With VAD</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimVideoWithVAD$} />
+		</div>
+
+		<div class="col-span-4 mt-6 mb-2 flex items-center gap-2">
+			<Icon path={mdiWhiteBalanceSunny} class="text-accent w-5 h-5" />
+			<h2 class="text-lg font-bold tracking-wide">Buttons &amp; UI</h2>
+		</div>
+		<div class="col-span-4 mb-4">
+			<div class="h-1 w-full bg-gradient-to-r from-primary to-secondary rounded"></div>
+		</div>
+		<div class="col-span-4 grid grid-cols-4 gap-x-2 gap-y-1 mb-2">
+			<span class="label-text col-span-2">Show Screenshot Button</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showScreenshotButton$} />
+			<span class="label-text col-span-2">Show Translate Button</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTranslateButton$} />
+			<span class="label-text col-span-2">Show Audio Button</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showAudioButton$} />
+			<span class="label-text col-span-2">Show Save Cropped Replay Button</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimVideoButton$} />
+			<span class="label-text col-span-2">Show Save Clip Button</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showSaveClipButton$} />
+			<label class="label-text col-span-2" for="show-menu-button">Show Menu Button</label>
+			<input id="show-menu-button" type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showMenuButton$} />
+			<label class="label-text col-span-2" for="show-expired-icon" title="Show indicators for lines outside the replay buffer or from before GSM started">Show Expired / History Icons</label>
+			<input id="show-expired-icon" type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showExpiredIcon$} />
 			<span class="label-text col-span-2">Show Checkboxes</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showGSMCheckboxes$} />
 		</div>

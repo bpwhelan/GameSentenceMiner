@@ -27,6 +27,7 @@ from .models import (
     normalize_utc,
     utc_now,
 )
+from .skip_detection import AUTOMATIC_SOURCES, WINDOW_NS, SkipDetector, compact_text
 
 SOURCE_PRIORITY = {
     SourceKind.UNKNOWN: 0,
@@ -75,6 +76,7 @@ class TextCoordinatorState:
         cross_source_similarity: int = 70,
         same_source_dedup_window: timedelta = timedelta(seconds=2),
         max_observation_ids: int = 20_000,
+        skip_detection: bool = False,
     ) -> None:
         self.session_id = session_id or str(uuid.uuid4())
         self.cross_source_window = cross_source_window
@@ -93,8 +95,183 @@ class TextCoordinatorState:
             OrderedDict()
         )
         self._max_prefix_sources = 512
+        self._skip_detector = SkipDetector() if skip_detection else None
+        self._stats_pending: dict[str, int] = {}
+        self._skip_scene: str | None = None
+        self._skip_record_id: str | None = None
+        self._landing_record_id: str | None = None
+        self._landing_deadline_ns = 0
+
+    def _uses_skip_detection(self, observation: TextObservation) -> bool:
+        return bool(
+            self._skip_detector is not None
+            and observation.source_kind in AUTOMATIC_SOURCES
+            and not observation.excluded_from_stats
+            and not observation.relay_only
+            and not observation.metadata.get("skip_landing_confirmed")
+        )
+
+    def _classify_stats(self, line_id: str, skipped: bool) -> TextDomainEvent:
+        record = self._by_id[line_id]
+        record = replace(
+            record,
+            revision=record.revision + 1,
+            stats_status="skipped" if skipped else "accepted",
+            excluded_from_stats=record.excluded_from_stats or skipped,
+        )
+        self._replace(record)
+        self._stats_pending.pop(line_id, None)
+        return TextDomainEvent(TextEventKind.STATS_EXCLUDED if skipped else TextEventKind.STATS_READY, record)
+
+    def poll_skip_detection(self, now_monotonic_ns: int | None = None) -> tuple[TextDomainEvent, ...]:
+        detector = self._skip_detector
+        if detector is None:
+            return ()
+        now_ns = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
+        events = []
+        if detector.quiet(now_ns):
+            last = self._by_id.get(self._skip_record_id)
+            if last is not None:
+                # Close a long fragment window before normal text resumes.
+                events.extend(self.freeze(last.line_id))
+                events.append(TextDomainEvent(TextEventKind.SKIP_ENDED, self._by_id[last.line_id]))
+                if detector.confirmed and self._records[-1].line_id == last.line_id:
+                    self._landing_record_id = last.line_id
+                    self._landing_deadline_ns = now_ns + 10_000_000_000
+            detector.reset()
+        for line_id, changed_ns in list(self._stats_pending.items()):
+            record = self._by_id.get(line_id)
+            if record is None:
+                self._stats_pending.pop(line_id, None)
+            elif (
+                now_ns - changed_ns > WINDOW_NS or record.stats_status == "pending_manual"
+            ) and record.state is TextRecordState.FROZEN:
+                events.append(self._classify_stats(line_id, False))
+            else:
+                # Preserve first-seen order when a manual observation arrives
+                # behind automatic text that is still being classified.
+                break
+        return tuple(events)
+
+    def finish_stats(self) -> tuple[TextDomainEvent, ...]:
+        """Drain undecided normal text on clean shutdown, without a recovery scan."""
+        events = []
+        for line_id in list(self._stats_pending):
+            events.extend(self.freeze(line_id))
+            skipped = self._skip_detector.confirmed and self._by_id[line_id].stats_status == "pending"
+            events.append(self._classify_stats(line_id, bool(skipped)))
+        return tuple(events)
+
+    def recover_skip_landing(self, text: str, scene: str, *, now=None, now_monotonic_ns=None):
+        """Admit only a visually verified suffix, never the entire skipped batch."""
+        now_ns = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
+        record = self._by_id.get(self._landing_record_id)
+        visible = compact_text(text)
+        if (
+            record is None
+            or scene != record.scene
+            or self._skip_detector.suspended
+            or now_ns > self._landing_deadline_ns
+            or not 8 <= len(visible) <= 500
+            or not compact_text(record.text).endswith(visible)
+        ):
+            return ()
+        self._landing_record_id = None
+        stamp = normalize_utc(now or utc_now())
+        if compact_text(record.text) == visible:
+            restored = replace(
+                record,
+                revision=record.revision + 1,
+                stats_status="accepted",
+                excluded_from_stats=False,
+                source_kind=SourceKind.OVERLAY,
+                source_instance="skip-recovery",
+                captured_at_utc=stamp,
+                first_seen_at_utc=stamp,
+                first_seen_monotonic_ns=now_ns,
+            )
+            self._replace(restored)
+            return (TextDomainEvent(TextEventKind.STATS_READY, restored),)
+        observation = TextObservation(
+            observation_id=str(uuid.uuid4()),
+            source_kind=SourceKind.OVERLAY,
+            source_instance="skip-recovery",
+            raw_text=text,
+            captured_at_utc=stamp,
+            emitted_at_utc=stamp,
+            received_at_utc=stamp,
+            received_monotonic_ns=now_ns,
+            skip_overlay=True,
+            metadata={"scene": scene, "skip_landing_confirmed": True},
+        )
+        result = self._ingest(observation, now=stamp, now_monotonic_ns=now_ns)
+        return result.events + self.freeze(result.ack.line_id, now=stamp) if result.ack.line_id else ()
 
     def ingest(
+        self,
+        observation: TextObservation,
+        *,
+        now: datetime | None = None,
+        now_monotonic_ns: int | None = None,
+    ) -> IngressResult:
+        now_ns = now_monotonic_ns if now_monotonic_ns is not None else observation.received_monotonic_ns
+        now_ns = now_ns or time.monotonic_ns()
+        events = list(self.poll_skip_detection(now_ns))
+        detector = self._skip_detector
+        scene = str(observation.metadata.get("scene", "") or "")
+        if detector is not None and scene != self._skip_scene:
+            self._landing_record_id = None
+            if detector.suspended and self._skip_record_id in self._by_id:
+                old = self._by_id[self._skip_record_id]
+                events.append(
+                    TextDomainEvent(
+                        TextEventKind.SKIP_ENDED,
+                        replace(
+                            old,
+                            metadata={**old.metadata, "skip_context_reset": True},
+                        ),
+                    )
+                )
+            for line_id in list(self._stats_pending):
+                events.extend(self.freeze(line_id, now=now))
+                events.append(self._classify_stats(line_id, False))
+            detector.reset()
+            self._skip_scene = scene
+        result = self._ingest(observation, now=now, now_monotonic_ns=now_ns)
+        if result.ack.status is IngressStatus.ACCEPTED:
+            self._landing_record_id = None
+            record = self._by_id[result.ack.line_id]
+            if record.stats_status in ("pending", "pending_manual"):
+                self._stats_pending[record.line_id] = now_ns
+        events.extend(result.events)
+        if self._uses_skip_detection(observation) and result.ack.status is IngressStatus.ACCEPTED:
+            record = self._by_id[result.ack.line_id]
+            if record.stats_status == "pending":
+                self._stats_pending[record.line_id] = now_ns
+            was_suspended = detector.suspended
+            detector.observe(
+                (observation.source_kind, observation.source_instance),
+                observation.processed_text if observation.processed_text is not None else observation.raw_text,
+                now_ns,
+                skip_control=bool(observation.metadata.get("skip_control_active", False)),
+            )
+            self._skip_record_id = record.line_id
+            if detector.suspended and not was_suspended:
+                events.append(TextDomainEvent(TextEventKind.SKIP_STARTED, record))
+            if detector.confirmed:
+                for line_id in list(self._stats_pending):
+                    if self._by_id[line_id].stats_status == "pending":
+                        events.append(self._classify_stats(line_id, True))
+            # Bound pending history even for pathological fragmented input.
+            elif len(self._stats_pending) > 512:
+                automatic = next(
+                    (line_id for line_id in self._stats_pending if self._by_id[line_id].stats_status == "pending"), None
+                )
+                if automatic is not None:
+                    events.append(self._classify_stats(automatic, True))
+        return IngressResult(result.ack, tuple(events))
+
+    def _ingest(
         self,
         observation: TextObservation,
         *,
@@ -242,6 +419,11 @@ class TextCoordinatorState:
                 updated = replace(
                     current,
                     revision=current.revision + 1,
+                    stats_status=(
+                        "pending_manual"
+                        if current.stats_status == "pending" and observation.source_kind not in AUTOMATIC_SOURCES
+                        else current.stats_status
+                    ),
                     raw_text=updated_raw_text,
                     text=updated_text,
                     source_kind=observation.source_kind,
@@ -277,12 +459,18 @@ class TextCoordinatorState:
             events.extend(self.freeze(current.line_id, now=now))
 
         self._stream_sequence += 1
+        stats_status = "accepted"
+        if self._uses_skip_detection(observation):
+            stats_status = "skipped" if self._skip_detector.confirmed else "pending"
+        elif self._stats_pending and not observation.excluded_from_stats and not observation.relay_only:
+            stats_status = "pending_manual"
         record = TextRecordSnapshot(
             line_id=str(uuid.uuid4()),
             session_id=self.session_id,
             stream_sequence=self._stream_sequence,
             revision=1,
             state=TextRecordState.PROVISIONAL,
+            stats_status=stats_status,
             raw_text=observation.raw_text,
             text=processed,
             source_kind=observation.source_kind,
@@ -293,7 +481,7 @@ class TextCoordinatorState:
             first_seen_at_utc=now,
             first_seen_monotonic_ns=observation.received_monotonic_ns,
             copy_to_clipboard=observation.copy_to_clipboard,
-            excluded_from_stats=observation.excluded_from_stats,
+            excluded_from_stats=observation.excluded_from_stats or stats_status == "skipped",
             relay_only=observation.relay_only,
             skip_overlay=observation.skip_overlay,
             metadata=observation.metadata,
@@ -328,6 +516,8 @@ class TextCoordinatorState:
         current_text = _compact(current.text)
         incoming_text = _compact(processed)
         if not current_text or not incoming_text:
+            return False
+        if current.stats_status == "skipped":
             return False
         if current.relay_only != observation.relay_only:
             return False
@@ -364,7 +554,12 @@ class TextCoordinatorState:
         processed: str,
         now_monotonic_ns: int,
     ) -> bool:
-        if newest.state is not TextRecordState.FROZEN or newest.relay_only != observation.relay_only:
+        if (
+            newest.state is not TextRecordState.FROZEN
+            or newest.relay_only != observation.relay_only
+            or newest.stats_status == "skipped"
+            and observation.metadata.get("skip_landing_confirmed")
+        ):
             return False
         current_text = _compact(newest.text)
         incoming_text = _compact(processed)
@@ -459,7 +654,11 @@ class TextCoordinatorState:
         events = []
         remove_count = 0
         for record in self._records:
-            if record.first_seen_at_utc >= cutoff or record.state is TextRecordState.PROVISIONAL:
+            if (
+                record.first_seen_at_utc >= cutoff
+                or record.state is TextRecordState.PROVISIONAL
+                or record.stats_status in ("pending", "pending_manual")
+            ):
                 break
             remove_count += 1
             if record.state is TextRecordState.FROZEN:
@@ -503,7 +702,18 @@ class SnapshotCommand:
     pass
 
 
-TextCommand = IngestCommand | FreezeCommand | SnapshotCommand
+@dataclass(frozen=True)
+class FinishStatsCommand:
+    pass
+
+
+@dataclass(frozen=True)
+class RecoverLandingCommand:
+    text: str
+    scene: str
+
+
+TextCommand = IngestCommand | FreezeCommand | SnapshotCommand | FinishStatsCommand | RecoverLandingCommand
 TextCommandResult = IngressResult | tuple[TextDomainEvent, ...] | TextStreamSnapshot
 
 
@@ -570,6 +780,14 @@ class TextCoordinatorActor(Actor[TextCommand, TextCommandResult]):
             return events
         if isinstance(message, SnapshotCommand):
             return self.state.snapshot()
+        if isinstance(message, (FinishStatsCommand, RecoverLandingCommand)):
+            events = (
+                self.state.finish_stats()
+                if isinstance(message, FinishStatsCommand)
+                else self.state.recover_skip_landing(message.text, message.scene)
+            )
+            self._publish(events)
+            return events
         raise TypeError(f"Unsupported text command: {type(message)!r}")
 
     def on_idle(self) -> None:
@@ -578,6 +796,7 @@ class TextCoordinatorActor(Actor[TextCommand, TextCommandResult]):
             return
         if self._schedule_freeze is None:
             self._publish(self.state.freeze_due())
+        self._publish(self.state.poll_skip_detection())
         if self._retention_provider is not None:
             retention = self._retention_provider()
             if retention is not None:

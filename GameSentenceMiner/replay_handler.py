@@ -39,6 +39,8 @@ from GameSentenceMiner.util.media.ffmpeg import get_audio_and_trim, get_audio_le
 from GameSentenceMiner.util.models.model import VADResult
 from GameSentenceMiner.vad import vad_processor
 
+OVERLAY_RECOVERY_AUDIO_SECONDS = 10.0
+
 if TYPE_CHECKING:
     from GameSentenceMiner.util.media.pause_gaps import AudioTimeline
 
@@ -77,6 +79,7 @@ class AudioEditContext:
     rebase_on_selection_trim: bool = False
     # Maps the video timeline to positions in source_audio_path (pause silence removed).
     timeline: "AudioTimeline | None" = None
+    timing_fallback: bool = False
 
 
 @dataclass
@@ -264,6 +267,46 @@ class ReplayAudioExtractor:
             rebase_on_selection_trim=ReplayAudioExtractor._should_rebase_audio_edit_context(vad_result),
             timeline=timeline,
         )
+
+    @staticmethod
+    def _recover_overlay_audio(source_audio_path, start_time, end_time, timeline):
+        """Provide nearby audio for manual review when the guessed selection is empty."""
+        try:
+            source_duration = get_audio_length(source_audio_path) if os.path.isfile(source_audio_path) else 0.0
+            if source_duration <= 0:
+                return None
+
+            estimated_start = timeline.to_audio(start_time) if timeline else start_time
+            if end_time and end_time > 0:
+                audio_end = timeline.to_audio(end_time) if timeline else end_time
+                audio_end = min(source_duration, max(0.0, audio_end))
+            else:
+                audio_end = min(source_duration, max(0.0, estimated_start) + OVERLAY_RECOVERY_AUDIO_SECONDS)
+            audio_start = max(0.0, audio_end - OVERLAY_RECOVERY_AUDIO_SECONDS)
+            if audio_end <= audio_start:
+                return None
+            with tempfile.NamedTemporaryFile(
+                dir=get_temporary_directory(), suffix=f"_overlay_recovery.{get_config().audio.extension}"
+            ) as temporary_file:
+                recovered_path = temporary_file.name
+            ffmpeg.trim_audio(
+                input_audio=source_audio_path,
+                start_time=audio_start,
+                end_time=audio_end,
+                output_audio=recovered_path,
+                trim_beginning=True,
+                fade_in_duration=0,
+                fade_out_duration=0,
+            )
+            if not os.path.isfile(recovered_path) or get_audio_length(recovered_path) <= 0:
+                return None
+            source_start = timeline.to_source(audio_start) if timeline else audio_start
+            source_end = timeline.to_source(audio_end, before_cut=True) if timeline else audio_end
+            logger.warning("The overlay audio estimate was empty; offering nearby replay audio for manual review.")
+            return recovered_path, source_start, source_end
+        except Exception as exc:  # noqa: BLE001 - Recovery is optional; preserve the normal no-audio outcome.
+            logger.warning(f"Could not recover nearby overlay audio for manual review: {exc}")
+            return None
 
     @staticmethod
     def _build_selected_lines_sentence(selected_lines) -> str:
@@ -641,6 +684,38 @@ class ReplayAudioExtractor:
             source_audio_path, trimmed_audio, start_time, end_time, timeline = get_audio_and_trim(
                 video_path, game_line, next_line_time, anki_card_creation_time
             )
+        overlay_source = getattr(getattr(anki, "TextSource", None), "OVERLAY", "overlay")
+        overlay_only = getattr(mined_line or game_line, "source", None) == overlay_source
+        if overlay_only and not temporary and not timing_only:
+            try:
+                has_audio = bool(
+                    trimmed_audio and os.path.isfile(trimmed_audio) and get_audio_length(trimmed_audio) > 0
+                )
+            except Exception:  # noqa: BLE001 - An unreadable or invalid clip needs the recovery path.
+                has_audio = False
+            if not has_audio:
+                recovery = ReplayAudioExtractor._recover_overlay_audio(
+                    source_audio_path, start_time, end_time, timeline
+                )
+                if recovery:
+                    recovered_path, start_time, end_time = recovery
+                    edit_context = ReplayAudioExtractor._build_audio_edit_context(
+                        source_audio_path, start_time, end_time, None, timeline
+                    )
+                    if edit_context:
+                        edit_context.timing_fallback = True
+                    return ReplayAudioResult(
+                        final_audio_output=recovered_path,
+                        vad_result=VADResult(
+                            False, 0, 0, "No VAD", output_audio=recovered_path, trimmed_audio_path=recovered_path
+                        ),
+                        vad_trimmed_audio=recovered_path,
+                        start_time=start_time,
+                        end_time=end_time,
+                        audio_edit_context=edit_context,
+                    )
+                logger.warning("The overlay audio estimate was empty and no usable replay audio could be recovered.")
+                return ReplayAudioResult("", VADResult(False, 0, 0, "No VAD"), "", start_time, end_time)
         if temporary:
             with time_anki_card_block(timing_context, "replay.audio.convert_temporary_wav"):
                 temporary_audio = ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
@@ -722,8 +797,9 @@ class ReplayAudioExtractor:
 
         if not vad_result.success:
             # Store the trimmed audio path so it can be offered to the user in the confirmation dialog
-            if get_config().anki.show_update_confirmation_dialog_v2 and not getattr(
-                get_config().anki, "skip_confirmation_for_unvoiced", False
+            if overlay_only or (
+                get_config().anki.show_update_confirmation_dialog_v2
+                and not getattr(get_config().anki, "skip_confirmation_for_unvoiced", False)
             ):
                 vad_result.trimmed_audio_path = trimmed_audio
                 if os.path.exists(trimmed_audio):

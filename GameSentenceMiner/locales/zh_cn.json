@@ -2,6 +2,7 @@
   "python": {
     "config": {
       "app": {
+        "settings_heading": "设置",
         "title": "GameSentenceMiner 配置",
         "title_with_profile": "GameSentenceMiner 配置 - {profile_name}"
       },
@@ -202,6 +203,21 @@
           "skip_confirmation_for_unvoiced": {
             "label": "跳过未检测到语音行的确认：",
             "tooltip": "警告：VAD 未检测到语音时跳过确认窗口。确认窗口最初是为了让用户复查未检测到语音行的 VAD 结果。跳过确认可能使漏检的语音无法被发现，并生成没有语音音频的卡片。"
+          },
+          "confirmation_focus_behavior": {
+            "label": "焦点行为"
+          },
+          "confirmation_always_on_top": {
+            "label": "始终置顶:",
+            "tooltip": "Anki 确认对话框打开时，将其显示在其他窗口上方。"
+          },
+          "confirmation_focus_on_show": {
+            "label": "打开时获取焦点:",
+            "tooltip": "打开 Anki 确认对话框时，尝试将焦点切换到该对话框。"
+          },
+          "confirmation_restore_focus": {
+            "label": "关闭后恢复焦点:",
+            "tooltip": "确认对话框关闭后，将焦点返回目标窗口或之前获得焦点的窗口。禁用后将不主动更改焦点。"
           },
           "confirmation_audio_step": {
             "label": "音频扩展步长：",

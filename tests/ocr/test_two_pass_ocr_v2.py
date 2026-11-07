@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
 from PIL import Image, ImageDraw
 
 from GameSentenceMiner.ocr.gsm_ocr import SecondPassResult, TwoPassConfig, TwoPassOCRControllerV2
@@ -58,6 +59,33 @@ def _image_with_light_capture_noise(text: str) -> Image.Image:
     draw = ImageDraw.Draw(img)
     draw.rectangle((125, 20, 170, 42), fill=(248, 248, 248))
     return img
+
+
+@pytest.mark.parametrize("instant", [False, True])
+def test_vocr_detector_recognizes_changed_text_in_identical_boxes(instant):
+    sent, calls = [], []
+    ctrl = _make_controller(sent, calls, ["first-refined", "second-refined"], text_appears_instantly=instant)
+    ctrl.config.ocr1_engine = "vocr_detector"
+    coords = (10, 10, 180, 60)
+    for index, text in enumerate(["first", "first", "first", "second", "second", "second"]):
+        ctrl.handle_ocr_result(
+            "", [], _make_time(index), _image_with_text(text), detection_boxes=[{"box": coords}], crop_coords=coords
+        )
+    assert len(calls) == 2
+    assert [item["text"] for item in sent] == ["first-refined", "second-refined"]
+
+
+def test_vocr_detector_waits_for_stable_pixels_and_ignores_small_capture_noise():
+    sent, calls = [], []
+    ctrl = _make_controller(sent, calls, ["first-refined", "second-refined"])
+    ctrl.config.ocr1_engine = "vocr_detector"
+    coords = (10, 10, 180, 60)
+    for index, image in enumerate([_image_with_text("first"), _image_with_text("second")]):
+        ctrl.handle_ocr_result("", [], _make_time(index), image, detection_boxes=[{"box": coords}], crop_coords=coords)
+    assert calls == []
+    for index, image in enumerate([_image_with_text("second"), _image_with_light_capture_noise("second")], start=2):
+        ctrl.handle_ocr_result("", [], _make_time(index), image, detection_boxes=[{"box": coords}], crop_coords=coords)
+    assert len(calls) == 1
 
 
 def _make_controller(

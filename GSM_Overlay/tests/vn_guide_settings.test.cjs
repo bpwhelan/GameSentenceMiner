@@ -4,10 +4,77 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
+const os = require('node:os');
 const { JSDOM } = require('jsdom');
-const { validateRoute } = require('../vn_guide');
+const { parseGuideUrl, validateRoute } = require('../vn_guide');
+const { GuideLibrary } = require('../vn_guide_library');
+const { GuideCatalogue, parseCatalogueSource, DEFAULT_CATALOGUE_SOURCE } = require('../vn_guide_catalogue');
 const { createVnGuideController } = require('../vn_guide_controller');
 const { between } = require('./helpers/overlay-startup.cjs');
+const catalogueContext = () => ({ DEFAULT_CATALOGUE_SOURCE, parseCatalogueSource,
+  vnGuideCatalogue: { list: async () => ({ guides: [], warning: '' }) } });
+
+test('local folder picker imports through settings, preserves cancellation, and rejects other senders', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-vn-picker-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const game = path.join(directory, 'Game 日本語');
+  fs.mkdirSync(game);
+  fs.writeFileSync(path.join(game, 'guide.json'), JSON.stringify({ title: 'Local Game', routes: [{ id: 'one', title: 'Route One' }] }));
+  fs.writeFileSync(path.join(game, 'route_one.json'), JSON.stringify([{ simpleJp: '大丈夫' }]));
+  const read = filename => fs.readFileSync(path.join(__dirname, '..', filename), 'utf8');
+  const dom = new JSDOM(read('settings.html'), { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  const ipcRenderer = new EventEmitter();
+  const handlers = new Map();
+  const dialogs = [];
+  const saves = [];
+  let selection = { canceled: true, filePaths: [] };
+  const controller = createVnGuideController({ library: new GuideLibrary(path.join(directory, 'cache')), hud: { update() {}, dispose() {} } });
+  t.after(() => controller.dispose());
+  const context = vm.createContext({
+    ...catalogueContext(),
+    settingsWindow: { webContents: {} }, vnGuideController: controller, vnGuideHud: { owns: sender => sender === 'hud' },
+    canUseOverlayCapture: () => true, parseGuideUrl,
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    dialog: { showOpenDialog: async (owner, options) => { dialogs.push({ owner, options }); return selection; } },
+    userSettings: { vnGuideEnabled: false, vnGuideUrl: 'previous', vnGuideRoute: 'previous-route' },
+    setOverlaySettingValue: (key, value) => { context.userSettings[key] = value; },
+    saveSettings: () => { saves.push({ ...context.userSettings }); return true; },
+    registerVnGuideHotkeys: () => controller.configure(context.userSettings),
+    publishOverlaySettingsSnapshot() {},
+  });
+  vm.runInContext(between(read('main.js'), "  ipcMain.handle('vn-guide-state'", '  registerManualShowHotkey();'), context);
+  let pending;
+  ipcRenderer.invoke = (channel, payload) => {
+    pending = Promise.resolve(handlers.get(channel)({ sender: context.settingsWindow.webContents }, payload));
+    return pending;
+  };
+  dom.window.require = () => ({ ipcRenderer });
+  dom.window.eval(read('vn_guide_settings.js'));
+  const settle = async () => { await pending; await new Promise(resolve => setImmediate(resolve)); };
+  await settle();
+  const button = dom.window.document.getElementById('vn-guide-folder');
+  assert.ok(button, 'settings exposes a local folder picker');
+  assert.equal(dom.window.document.getElementById('vnGuideUrl').type, 'text');
+  const command = handlers.get('vn-guide-command');
+  for (const sender of [{}, 'hud']) assert.equal(await command({ sender }, { action: 'choose-local' }), null);
+  assert.equal(dialogs.length, 0);
+  button.click();
+  await settle();
+  assert.equal(saves.length, 0);
+  assert.equal(context.userSettings.vnGuideUrl, 'previous');
+  assert.equal(dialogs[0].owner, context.settingsWindow);
+  assert.deepEqual(Array.from(dialogs[0].options.properties), ['openDirectory']);
+  selection = { canceled: false, filePaths: [game] };
+  button.click();
+  await settle();
+  assert.equal(saves.length, 1);
+  assert.equal(context.userSettings.vnGuideUrl, game);
+  assert.equal(context.userSettings.vnGuideRoute, '');
+  assert.equal(context.userSettings.vnGuideEnabled, true);
+  assert.equal(dom.window.document.getElementById('vn-guide-current').textContent, '大丈夫');
+  assert.equal(controller.snapshot().title, 'Local Game');
+});
 
 test('settings Go button jumps to the entered step through the main IPC handler', async t => {
   const read = filename => fs.readFileSync(path.join(__dirname, '..', filename), 'utf8');
@@ -32,6 +99,7 @@ test('settings Go button jumps to the entered step through the main IPC handler'
   t.after(() => controller.dispose());
   await controller.configure({ vnGuideEnabled: true, vnGuideUrl: 'https://kanjieater.github.io/VN-Guide/test-game/' });
   vm.runInNewContext(between(read('main.js'), "  ipcMain.handle('vn-guide-state'", '  registerManualShowHotkey();'), {
+    ...catalogueContext(), userSettings: {},
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     settingsWindow, vnGuideController: controller, vnGuideHud: null,
   });
@@ -76,6 +144,7 @@ test('Continue in settings and the Next hotkey persist the new route through the
   const routes = ['one', 'two', 'three'].map(id => ({ id, title: `Route ${id}`, reviewed: true }));
   let canSave = true;
   const context = vm.createContext({
+    ...catalogueContext(),
     vnGuideController: null, vnGuideHud: null, BrowserWindow: {}, dataPath: '',
     userSettings: { vnGuideEnabled: true, vnGuideUrl: 'https://kanjieater.github.io/VN-Guide/test-game/', vnGuideNextHotkey: 'Alt+Shift+Right' },
     createVnGuideController,

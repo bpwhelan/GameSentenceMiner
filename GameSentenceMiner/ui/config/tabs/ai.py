@@ -43,7 +43,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
 
     window.gemini_settings_group.setTitle("Google Gemini Settings")
-    window.gemini_settings_group.setStyleSheet(window._get_group_box_style())
     gemini_layout = QFormLayout()
     gemini_i18n = tabs_i18n.get("ai", {})
     recommendations = QLabel(
@@ -97,7 +96,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.gemini_settings_group)
 
     window.groq_settings_group.setTitle("Groq Settings")
-    window.groq_settings_group.setStyleSheet(window._get_group_box_style())
     groq_layout = QFormLayout()
 
     groq_model_widget = QWidget()
@@ -129,7 +127,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.groq_settings_group)
 
     window.zai_settings_group.setTitle("Z.ai Settings")
-    window.zai_settings_group.setStyleSheet(window._get_group_box_style())
     zai_layout = QFormLayout()
     zai_layout.addRow("Model", window.zai_model_combo)
     zai_layout.addRow("Backup model (optional)", window.zai_backup_model_combo)
@@ -145,7 +142,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.zai_settings_group)
 
     window.openai_settings_group.setTitle("OpenAI-Compatible API Settings")
-    window.openai_settings_group.setStyleSheet(window._get_group_box_style())
     openai_layout = QFormLayout()
 
     openai_model_widget = QWidget()
@@ -184,7 +180,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.openai_settings_group)
 
     window.gsm_cloud_settings_group.setTitle("GSM Cloud Settings")
-    window.gsm_cloud_settings_group.setStyleSheet(window._get_group_box_style())
     gsm_cloud_layout = QFormLayout()
     gsm_cloud_layout.addRow(
         window._create_labeled_widget(
@@ -202,7 +197,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.gsm_cloud_settings_group)
 
     window.deepl_settings_group.setTitle("DeepL Settings")
-    window.deepl_settings_group.setStyleSheet(window._get_group_box_style())
     deepl_layout = QFormLayout()
 
     deepl_layout.addRow(
@@ -225,7 +219,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.deepl_settings_group)
 
     window.ollama_settings_group.setTitle("Ollama Settings")
-    window.ollama_settings_group.setStyleSheet(window._get_group_box_style())
     ollama_layout = QFormLayout()
     window.ollama_model_combo.setEditable(True)
     window.ollama_backup_model_combo.setEditable(True)
@@ -261,7 +254,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.ollama_settings_group)
 
     window.lm_studio_settings_group.setTitle("LM Studio Settings")
-    window.lm_studio_settings_group.setStyleSheet(window._get_group_box_style())
     lm_studio_layout = QFormLayout()
 
     lm_studio_model_widget = QWidget()

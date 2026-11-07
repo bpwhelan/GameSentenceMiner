@@ -30,6 +30,7 @@ from urllib.parse import urlparse, parse_qs, urlencode
 from tzlocal import get_localzone_name
 
 from GameSentenceMiner.ocr import SharedMeikiOCRModel
+from GameSentenceMiner.util.gpu_runtime import gpu_enabled
 from GameSentenceMiner.ocr.debug_logging import emit_ocr_debug
 from .screen_ai_downloader import ensure_screen_ai_resources
 from GameSentenceMiner.util.config.electron_config import (
@@ -2959,6 +2960,7 @@ class ScreenAIOCR:
         paragraph_bounding_boxes=False,
     )
     _shared_runtime = None
+    _runtime_init_lock = threading.Lock()
 
     @staticmethod
     def _library_names_for_platform(config):
@@ -2982,6 +2984,7 @@ class ScreenAIOCR:
 
     def __init__(self, config={}, lang="ja"):
         self.lang = lang
+        self.available = False
         self._resource_cache = {}
         self._parser = str(config.get("parser", "generated")).strip().lower()
         self._pad_to_multiple_32 = bool(config.get("pad_to_multiple_32", False))
@@ -2992,6 +2995,12 @@ class ScreenAIOCR:
         self._retry_modes = self._parse_retry_modes(config.get("retry_modes", "accurate,grayscale"))
         self._screen_ai_pb2 = _load_screen_ai_pb2()
 
+        # ctypes releases the GIL during native initialization. Startup and IPC
+        # config reloads can otherwise initialize the same DLL concurrently.
+        with ScreenAIOCR._runtime_init_lock:
+            self._initialize_runtime(config)
+
+    def _initialize_runtime(self, config):
         if ScreenAIOCR._shared_runtime is not None:
             shared = ScreenAIOCR._shared_runtime
             self.model = shared["model"]
@@ -3002,8 +3011,11 @@ class ScreenAIOCR:
             self._size_callback = shared["size_callback"]
             self._data_callback = shared["data_callback"]
             self._resource_cache = shared["resource_cache"]
-            self.available = True
-            logger.info(f"ScreenAI OCR reusing initialized runtime ({self.resources_dir})")
+            self.available = shared["available"]
+            if self.available:
+                logger.info(f"ScreenAI OCR reusing initialized runtime ({self.resources_dir})")
+            else:
+                logger.warning("ScreenAI OCR initialization previously failed; restart GSM before retrying.")
             return
 
         library_names = self._library_names_for_platform(config)
@@ -3047,12 +3059,28 @@ class ScreenAIOCR:
             self._get_file_content
         )
 
-        self.model.SetFileContentFunctions(
-            ctypes.cast(self._size_callback, ctypes.c_void_p),
-            ctypes.cast(self._data_callback, ctypes.c_void_p),
-        )
+        # Keep the DLL, callbacks and cached model bytes alive even if native
+        # initialization fails partway through. ScreenAI retains global state
+        # and may still have background work using these callbacks. Retrying
+        # InitOCRUsingCallback in that process can fatally fail its !pipeline_
+        # check, so leave this shared runtime unavailable until process exit.
+        shared = ScreenAIOCR._shared_runtime = {
+            "available": False,
+            "model": self.model,
+            "resources_dir": self.resources_dir,
+            "library_path": self.library_path,
+            "dll_path": self.dll_path,
+            "library_name": self._library_name,
+            "size_callback": self._size_callback,
+            "data_callback": self._data_callback,
+            "resource_cache": self._resource_cache,
+        }
 
         try:
+            self.model.SetFileContentFunctions(
+                ctypes.cast(self._size_callback, ctypes.c_void_p),
+                ctypes.cast(self._data_callback, ctypes.c_void_p),
+            )
             init_ok = bool(self.model.InitOCRUsingCallback())
         except Exception as e:
             logger.warning(f"ScreenAI OCR initialization failed: {e}")
@@ -3077,16 +3105,7 @@ class ScreenAIOCR:
             logger.info("ScreenAI OCR using manual parser fallback.")
 
         self.available = True
-        ScreenAIOCR._shared_runtime = {
-            "model": self.model,
-            "resources_dir": self.resources_dir,
-            "library_path": self.library_path,
-            "dll_path": self.dll_path,
-            "library_name": self._library_name,
-            "size_callback": self._size_callback,
-            "data_callback": self._data_callback,
-            "resource_cache": self._resource_cache,
-        }
+        shared["available"] = True
         logger.info(f"ScreenAI OCR ready ({self.resources_dir}, {self._library_name})")
 
     @staticmethod
@@ -4249,6 +4268,130 @@ class MLKitOCR:
                 source_img_to_close.close()
 
 
+class VitaOCR:
+    name = "vitaocr"
+    readable_name = "VOCR"
+    key = "u"
+    config_entry = None
+    local = True
+    manual_language = False
+    coordinate_support = True
+    threading_support = True
+    capabilities = EngineCapabilities(
+        words=True,
+        word_bounding_boxes=True,
+        lines=True,
+        line_bounding_boxes=True,
+        paragraphs=False,
+        paragraph_bounding_boxes=False,
+    )
+
+    def __init__(self, config=None, lang="ja", get_furigana_sens_from_file=True):
+        from GameSentenceMiner.ocr.vita_ocr import create_runtime as VitaOCRRuntime
+
+        self.available = False
+        self.runtime = None
+        self._runtime_lock = threading.Lock()
+        self.init_error = None
+        self.get_furigana_sens_from_file = get_furigana_sens_from_file
+        try:
+            self.runtime = VitaOCRRuntime()
+            self.available = True
+            finder = getattr(self.runtime, "finder", None)
+            logger.info(
+                f"VOCR ready (experimental, Japanese horizontal dialogue; finder={getattr(finder, 'kind', 'unknown')})"
+            )
+        except (OSError, ValueError, RuntimeError, AttributeError) as error:
+            self.init_error = str(error)
+            logger.warning(f"VOCR unavailable: {error}")
+
+    def close(self):
+        with self._runtime_lock:
+            self.available = False
+            self.runtime = None
+
+    def __call__(
+        self,
+        img,
+        furigana_filter_sensitivity=0,
+        return_coords=False,
+        multiple_crop_coords=False,
+        return_one_box=True,
+        return_dict=False,
+        *,
+        language=None,
+    ):
+        # Keep an in-flight read alive if an idle overlay releases its instance.
+        from GameSentenceMiner.ocr.vita_ocr import create_runtime as VitaOCRRuntime, read_model_selection
+
+        with self._runtime_lock:
+            if not self.available and self.init_error:
+                from GameSentenceMiner.ocr.vita_model_manager import get_model_status
+
+                if get_model_status()["available"]:
+                    try:
+                        self.runtime = VitaOCRRuntime()
+                        self.available, self.init_error = True, None
+                    except (OSError, ValueError, RuntimeError, AttributeError) as error:
+                        self.init_error = str(error)
+            runtime = self.runtime
+            if self.available and runtime is not None and hasattr(runtime, "model"):
+                try:
+                    if read_model_selection(runtime.directory) != runtime.model:
+                        runtime = VitaOCRRuntime(runtime.directory)
+                        self.runtime = runtime
+                        logger.info(f"VOCR switched to {runtime.model}")
+                except (OSError, ValueError, RuntimeError) as error:
+                    return False, f"VOCR model change failed: {error}"
+        if not self.available or runtime is None:
+            return False, self.init_error or "VOCR is unavailable"
+        try:
+            img, is_path = input_to_pil_image(img)
+        except (TypeError, ValueError):
+            return False, "Invalid image provided"
+        if img is None:
+            return False, "Invalid image provided"
+        try:
+
+            def bbox(box):
+                x, y, width, height = box
+                return BoundingBox(
+                    center_x=(x + width / 2) / img.width,
+                    center_y=(y + height / 2) / img.height,
+                    width=width / img.width,
+                    height=height / img.height,
+                )
+
+            lines = []
+            recognized = runtime.recognize(img)
+            for item in recognized:
+                lines.append(
+                    Line(
+                        text=item["text"],
+                        bounding_box=bbox(item["box"]),
+                        words=[Word(text=char["text"], bounding_box=bbox(char["box"])) for char in item["characters"]],
+                    )
+                )
+            result = OcrResult(
+                image_properties=ImageProperties(width=img.width, height=img.height),
+                engine_capabilities=self.capabilities,
+                paragraphs=[Paragraph(bounding_box=BoundingBox(0.5, 0.5, 1, 1), lines=lines)] if lines else [],
+            )
+            sensitivity = (
+                get_furigana_filter_sensitivity() if self.get_furigana_sens_from_file else furigana_filter_sensitivity
+            )
+            converted = ocr_result_to_oneocr_tuple((True, result), sensitivity, language="ja")
+            if isinstance(converted[5], dict) and hasattr(runtime, "metadata"):
+                converted[5]["gsm_model"] = dict(runtime.metadata)
+                converted[5]["gsm_finder"] = dict(getattr(recognized, "finder_metadata", {}))
+            return converted
+        except (OSError, ValueError, RuntimeError) as error:
+            return False, f"VOCR error: {error}"
+        finally:
+            if is_path:
+                img.close()
+
+
 class MeikiOCR:
     name = "meikiocr"
     readable_name = "MeikiOCR"
@@ -4277,7 +4420,7 @@ class MeikiOCR:
         self.get_furigana_sens_from_file = get_furigana_sens_from_file
         self.debug_dump_response = bool(config.get("debug_dump_response", False))
         self.debug_response_path = Path.home() / "GSM" / "temp" / "meikiocr_response.json"
-        self.model = SharedMeikiOCRModel.get_model(force_cpu=get_config().vad.use_cpu_for_inference_v2)
+        self.model = SharedMeikiOCRModel.get_model(force_cpu=not gpu_enabled("meiki"))
         self.available = self.model is not None
         if self.available:
             logger.info("MeikiOCR ready")
@@ -4350,7 +4493,12 @@ class MeikiOCR:
             #         new_img.save(os.path.join(os.path.expanduser("~/GSM/temp"), 'meikiocr_input.png'))
 
             # Run meikiocr
-            read_results = self.model.run_ocr(image_np, punct_conf_factor=0.2)
+            model = SharedMeikiOCRModel.get_model(force_cpu=not gpu_enabled("meiki"))
+            if model is None:
+                return False, f"MeikiOCR model unavailable: {SharedMeikiOCRModel.get_init_error()}"
+            self.model = model
+            self.available = True
+            read_results = SharedMeikiOCRModel.run(model, "run_ocr", image_np, punct_conf_factor=0.2)
 
             # Convert meikiocr response to OneOCR format
             ocr_resp = self._convert_meikiocr_to_oneocr_format(read_results, img.width, img.height)
@@ -5672,6 +5820,74 @@ class BaseTextDetector:
         )
 
 
+class VOCRTextDetector(BaseTextDetector):
+    """VOCR line finding without loading or running a text recognizer."""
+
+    name = "vocr_detector"
+    readable_name = "VOCR Line Detector"
+    key = "{"
+    config_entry = None
+    local = True
+    manual_language = False
+    coordinate_support = True
+    threading_support = True
+    capabilities = EngineCapabilities(
+        words=False,
+        word_bounding_boxes=False,
+        lines=False,
+        line_bounding_boxes=False,
+        paragraphs=False,
+        paragraph_bounding_boxes=False,
+    )
+
+    def __init__(self, config=None, lang="ja", **kwargs):
+        from GameSentenceMiner.ocr.vocr_line_finder import create_line_finder as VOCRLineFinder
+
+        self.finder = None
+        self.available = False
+        self.init_error = ""
+        self.crop_padding = 0  # The upstream spotter already pads its line boxes.
+        try:
+            self.finder = VOCRLineFinder()
+            self.available = True
+        except (OSError, ValueError, RuntimeError, AttributeError) as error:
+            self.init_error = str(error)
+
+    def close(self):
+        self.available = False
+        self.finder = None
+
+    def __call__(self, img, furigana_filter_sensitivity=0, **kwargs):
+        finder = self.finder
+        if finder is None:
+            return False, self.init_error or "VOCR line detector is unavailable"
+        image, is_path = None, False
+        try:
+            image, is_path = input_to_pil_image(img)
+            if image is None:
+                return False, "Invalid image provided"
+            boxes, metadata = finder.detect(image)
+            sensitivity = max(0, int(furigana_filter_sensitivity or 0))
+            boxes = [
+                item
+                for item in boxes
+                if min(item["box"][2] - item["box"][0], item["box"][3] - item["box"][1]) > sensitivity
+            ]
+            result = self._as_detection_result(boxes, image.width, image.height)
+            result[5]["gsm_finder"] = metadata
+            result[5]["gsm_model"] = {
+                "size": metadata["finder"],
+                "file": metadata.get("file", ""),
+                "revision": metadata["revision"],
+            }
+            return result
+        except (OSError, ValueError, RuntimeError, TypeError) as error:
+            return False, f"VOCR line detector error: {error}"
+        finally:
+            if image is not None and is_path:
+                image.close()
+
+
 class MeikiTextDetector(BaseTextDetector):
     """Text detector that wraps ``SharedMeikiOCRModel.run_detection``."""
 
@@ -5692,11 +5908,11 @@ class MeikiTextDetector(BaseTextDetector):
         paragraph_bounding_boxes=False,
     )
 
-    def __init__(self, config=None, lang="ja", model_name: str = "small"):
+    def __init__(self, config=None, lang="ja", model_name: str = None):
         config = config or {}
         self.default_confidence_threshold = float(config.get("confidence_threshold", 0.4))
         self.crop_padding = int(config.get("crop_padding", 5))
-        self.model = SharedMeikiOCRModel.get_model(force_cpu=get_config().vad.use_cpu_for_inference_v2)
+        self.model = SharedMeikiOCRModel.get_model(force_cpu=not gpu_enabled("meiki"))
         self.available = self.model is not None
         if self.available:
             logger.info("MeikiTextDetector ready")
@@ -5714,11 +5930,14 @@ class MeikiTextDetector(BaseTextDetector):
         confidence_threshold: float = None,
         **kwargs,
     ):
-        if not self.available:
+        model = SharedMeikiOCRModel.get_model(force_cpu=not gpu_enabled("meiki"))
+        if model is None:
             return (
                 False,
                 "MeikiTextDetector is not available due to an initialization error.",
             )
+        self.model = model
+        self.available = True
 
         threshold = self._resolve_confidence_threshold(confidence_threshold)
         img_pil, is_path = input_to_pil_image(img)
@@ -5727,7 +5946,7 @@ class MeikiTextDetector(BaseTextDetector):
 
         input_image = pil_image_to_rgb_numpy_array(img_pil)
         try:
-            text_boxes = self.model.run_detection(input_image, conf_threshold=threshold)
+            text_boxes = SharedMeikiOCRModel.run(model, "run_detection", input_image, conf_threshold=threshold)
             detections = []
             for text_box in text_boxes:
                 bbox = text_box.get("bbox", [0, 0, 0, 0])

@@ -70,6 +70,25 @@ def test_confirmation_audio_step_defaults_for_existing_configs():
     assert Anki.from_dict({}).confirmation_audio_step == 0.25
 
 
+def test_confirmation_restore_focus_defaults_on_for_existing_configs():
+    assert Anki().confirmation_restore_focus is True
+    assert Anki.from_dict({}).confirmation_restore_focus is True
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_confirmation_restore_focus_round_trips_and_syncs_across_profiles(enabled):
+    config = Config(
+        current_profile="active",
+        configs={
+            "active": ProfileConfig(anki=Anki(confirmation_restore_focus=enabled)),
+            "other": ProfileConfig(anki=Anki(confirmation_restore_focus=not enabled)),
+        },
+    )
+    config.sync_shared_fields()
+    restored = Config.from_dict(config.to_dict())
+    assert all(profile.anki.confirmation_restore_focus is enabled for profile in restored.configs.values())
+
+
 @pytest.mark.parametrize("step", [0.1, 0.25, 0.5, 1, 2, 3, 4, 5])
 def test_confirmation_audio_step_round_trips_and_syncs_across_profiles(step):
     config = Config(

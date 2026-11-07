@@ -614,15 +614,15 @@ def start_qt_app(show_config_immediately=False):
 
 def shutdown_qt_app():
     """Thread-safe shutdown."""
-    global _config_window
-    if _config_window is not None:
-        # We can use the manager to safely close the window from any thread
+    if _qt_app is not None and _dialog_manager is not None:
+        # Settings are created on demand. The Qt loop still needs to stop when
+        # the user has never opened that window during this session.
         def close_logic():
-            _config_window.close_window()
-            _config_window._quit_app_signal.emit()
+            if _config_window is not None:
+                _config_window.close_window()
+            _qt_app.quit()
 
-        if _dialog_manager:
-            _dialog_manager._execute_on_gui_thread.emit(close_logic)
+        _dialog_manager._execute_on_gui_thread.emit(close_logic)
 
 
 def launch_anki_confirmation(

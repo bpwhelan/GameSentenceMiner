@@ -146,6 +146,11 @@ def test_startup_browser_can_load_textfeed_on_its_first_request(monkeypatch, mod
     monkeypatch.setattr(texthooking_page, "_waitress_threads", [])
     monkeypatch.setattr(texthooking_page, "_open_texthooker_on_startup", ready)
     monkeypatch.setattr(
+        texthooking_page,
+        "_wait_for_tcp_port",
+        Mock(side_effect=AssertionError("Use the listener's bound event instead of racing TCP probes")),
+    )
+    monkeypatch.setattr(
         texthooking_page, "websocket_manager", SimpleNamespace(_transport_runtime=runtime, get_ingress_port=lambda: 0)
     )
     if mode == "waitress":
@@ -170,3 +175,35 @@ def test_startup_browser_can_load_textfeed_on_its_first_request(monkeypatch, mod
         if runtime is not None:
             runtime.stop(timeout=3)
     assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("bind_host", ["127.0.0.1", "0.0.0.0"])
+def test_legacy_redirect_listener_does_not_wait_for_reverse_dns(monkeypatch, bind_host):
+    port = texthooking_page._find_free_port(bind_host)
+    monkeypatch.setattr(texthooking_page, "_get_single_port", lambda: 7275)
+    monkeypatch.setattr(texthooking_page, "_get_legacy_texthooker_port", lambda: port)
+    monkeypatch.setattr(
+        texthooking_page,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(localhost_bind_address=bind_host)),
+    )
+    monkeypatch.setattr(texthooking_page, "_legacy_notice_server", None)
+    monkeypatch.setattr(texthooking_page, "_legacy_notice_thread", None)
+    monkeypatch.setattr(
+        texthooking_page.socket, "getfqdn", Mock(side_effect=AssertionError("A local redirect needs no DNS lookup"))
+    )
+
+    texthooking_page._start_legacy_moved_page_server()
+    server = texthooking_page._legacy_notice_server
+    connection = HTTPConnection("127.0.0.1", port, timeout=2)
+    try:
+        connection.request("GET", "/stats?day=today")
+        response = connection.getresponse()
+        assert response.status == 301
+        assert response.getheader("Location") == "http://localhost:7275/stats?day=today"
+        response.read()
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
+        texthooking_page._legacy_notice_thread.join(timeout=2)

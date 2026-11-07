@@ -94,6 +94,7 @@ For full setup guides and configuration details, check the [Wiki](https://docs.g
 ## ❤️ Acknowledgements
 
 *   [OwOCR](https://github.com/AuroraWright/owocr) & [MeikiOCR](https://github.com/rtr46/meikiocr) for the OCR backend.
+*   [vita-vn-ocr (VOCR)](https://github.com/bee-san/vita-vn-ocr) by [bee-san](https://github.com/bee-san) for the lightweight Japanese OCR models, line detector, and C runtime.
 *   [Renji's Texthooker](https://github.com/Renji-XD/texthooker-ui) & [Saplling](https://github.com/Saplling/transparent-texthooker-overlay).
 *   [exSTATic](https://github.com/KamWithK/exSTATic) for the stats design inspiration.
 *   [Jiten](https://jiten.moe/), [VNDB](https://vndb.org/), [Anilist](https://anilist.co/), and [IGDB](https://www.igdb.com/) for stats metadata.

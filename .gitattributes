@@ -17,3 +17,4 @@ GSM_Overlay/yomitan/** text eol=lf
 *.ttf binary
 *.png binary
 *.wasm binary
+*.onnx binary

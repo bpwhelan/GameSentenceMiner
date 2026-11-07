@@ -26,6 +26,7 @@ import { registerWindowSceneSwitcherIPC } from './window_scene_switcher.js';
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
     applyIconStyle: (iconStyle: string) => void;
+    refreshSeasonalEffects?: () => void;
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
@@ -102,6 +103,7 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerOBSIPC();
     registerSteamIPC();
     registerSettingsIPC({
+        refreshSeasonalEffects: deps.refreshSeasonalEffects,
         getUpdateStatus: deps.getUpdateStatus,
         checkForUpdates: deps.checkForUpdates,
         updateNow: deps.updateNow,

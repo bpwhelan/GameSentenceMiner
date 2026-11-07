@@ -45,4 +45,16 @@ describe('shared desktop theme', () => {
         expect(settings.getTheme()).toBe('gsm-dark');
         expect(send).toHaveBeenCalledExactlyOnceWith('settings.themeChanged', 'gsm-dark');
     });
+
+    it('persists the blanket seasonal opt out and broadcasts only actual changes', async () => {
+        const settings = await import('./store.js');
+        expect(settings.getSeasonalEffectsDisabled()).toBe(false);
+        settings.setSeasonalEffectsDisabled(false);
+        expect(send).not.toHaveBeenCalled();
+        settings.setSeasonalEffectsDisabled(true);
+        expect(settings.getSeasonalEffectsDisabled()).toBe(true);
+        expect(values.get('theme')).toBe('gsm-dark');
+        expect(send).toHaveBeenCalledExactlyOnceWith('settings.seasonalEffectsChanged', true);
+        expect(destroyedSend).not.toHaveBeenCalled();
+    });
 });

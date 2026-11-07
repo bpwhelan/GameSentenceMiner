@@ -35,6 +35,7 @@ function setup(t) {
       webContents: { send: (...args) => messages.push(args), focus: () => effects.push('focus') },
     },
     userSettings: { gamepadEnabled: true },
+    applyVnGuideScene() {},
     backend: { connected: true, send: data => effects.push(data.type) },
     gamepadNavigationActive: false, gamepadKeyboardToggleSuppressedUntil: 0,
     overlayFocusRequestVersion: 0,
@@ -433,7 +434,7 @@ test('renderer capture state suppresses controller and keyboard entry and clears
     const dictionaryReader = 'yomitan', showFurigana = false, pendingManualRevealForBackground = false;
     const isManualInteractionSuppressed = () => false;
     window.popupCloseRequests = 0;
-    const cancelDeferredManualReveal = () => {}, closeYomitanLookups = () => { window.popupCloseRequests++; };
+    const cancelDeferredManualReveal = () => {}, closeDictionaryLookups = () => { window.popupCloseRequests++; };
     const updateGamepadStatusIndicator = () => {};
     const gamepadSettings = { enabled: true, controllerEnabled: true, keyboardEnabled: true };
     ${between(renderer, '  function shouldUseGamepadHandler()', '  async function ensureGamepadModuleLoaded()')}

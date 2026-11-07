@@ -6,6 +6,7 @@ import { BASE_DIR, getGSMBaseDir, getSanitizedPythonEnv } from '../util.js';
 import { sendReloadSettings } from '../main.js';
 import { getLatestTextProcessingInput } from '../services/latest_text.js';
 import { getOrInstallPython } from '../python/python_downloader.js';
+import { SentenceExclusionStore } from '../services/sentence_exclusions.js';
 
 const CONFIG_PATH = path.join(BASE_DIR, 'config.json');
 const PREVIEW_TIMEOUT_MS = 10000;
@@ -72,6 +73,27 @@ function getActiveProfileConfig(gsmConfig: Record<string, any>): Record<string, 
 }
 
 export function registerTextProcessIPC(): void {
+    const exclusions = new SentenceExclusionStore(path.join(BASE_DIR, 'sentence_exclusions.json'));
+    ipcMain.handle('textprocess.exclusions.list', async () => {
+        try { return { success: true, games: await exclusions.snapshot() }; }
+        catch (error) {
+            console.error('Failed to load sentence exclusions:', error);
+            return { success: false };
+        }
+    });
+    for (const action of ['add', 'remove'] as const) {
+        ipcMain.handle(`textprocess.exclusions.${action}`, async (event, payload: { game: string; text: string }) => {
+            try {
+                const games = await exclusions.change(payload?.game, payload?.text, action);
+                try { event.sender.send('textprocess-exclusions-changed', { success: true, games }); }
+                catch { /* The renderer may have closed after the save completed. */ }
+                return { success: true, games };
+            } catch (error) {
+                console.error('Failed to save sentence exclusions:', error);
+                return { success: false };
+            }
+        });
+    }
     ipcMain.handle('textprocess.load', async () => {
         try {
             const gsmConfig = readGSMConfig();

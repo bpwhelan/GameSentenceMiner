@@ -1,0 +1,915 @@
+{
+  "date": "2026-10-31",
+  "scope": "Isolated CUDA experiment only; no GSM GPU integration or configuration changes",
+  "cpu": "AMD Ryzen 7 5800X",
+  "environment": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "python": "3.13.2",
+    "numpy": "2.2.6",
+    "ort_version": "1.24.4",
+    "ort_path": "C:\\Users\\Beangate\\GSM\\GameSentenceMiner\\temp\\gpu-validation\\onnxruntime\\onnxruntime\\__init__.py",
+    "available_providers": [
+      "TensorrtExecutionProvider",
+      "CUDAExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "driver": {
+      "available": true,
+      "name": "NVIDIA GeForce RTX 5070"
+    },
+    "libraries": {
+      "cublasLt": {
+        "available": true,
+        "path": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.9\\bin\\cublasLt64_12.dll",
+        "source": "system",
+        "error": ""
+      },
+      "cublas": {
+        "available": true,
+        "path": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.9\\bin\\cublas64_12.dll",
+        "source": "system",
+        "error": ""
+      },
+      "cudart": {
+        "available": true,
+        "path": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.9\\bin\\cudart64_12.dll",
+        "source": "system",
+        "error": ""
+      },
+      "cufft": {
+        "available": true,
+        "path": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.9\\bin\\cufft64_11.dll",
+        "source": "system",
+        "error": ""
+      },
+      "cudnn": {
+        "available": true,
+        "path": "C:\\Program Files\\NVIDIA\\CUDNN\\v9.27\\bin\\12.9\\x64\\cudnn64_9.dll",
+        "source": "system",
+        "error": ""
+      }
+    },
+    "gpu": "NVIDIA GeForce RTX 5070, 617.14, 12227 MiB, 5370 MiB, 7 %",
+    "cuda_options": {
+      "device_id": "0",
+      "use_tf32": "0",
+      "cudnn_conv_algo_search": "EXHAUSTIVE",
+      "gpu_mem_limit": "2147483648"
+    },
+    "onnx_manifest": {
+      "export_version": 1,
+      "revision": "205f47ec4e56ca87c00e7dba0a61c9aaec726707",
+      "release": "v0.5.0",
+      "files": {
+        "normal-fast.onnx": "730622ec74a584a3ae0be95ee8a657f64f888541acf7752c1841f92b5485efbc",
+        "normal-faithful.onnx": "8e067c0e2ea895813367d84f492a268618ef2885dc01c536e95ef90ede28c9ac",
+        "small-fast.onnx": "f263f96e84cddc141db53e2f7aa0c28fa36679f0e205f489d346121cd447b937",
+        "small-faithful.onnx": "b8a7207d8323c9468833676fdf09199bf793644b126db9038862d2d7b41ee36e",
+        "large-fast.onnx": "c1a36ae7313d3ff39a2100bbd6aa88509836fb22e947d08c2b5d8fe06e47c4bc",
+        "large-faithful.onnx": "b67831a53fef77510d931fb00f4b05bd0b4ee588692cf1f4ca2da695c04eb0a2",
+        "textspot8-fast.onnx": "b640bc3125f322ecc2ebf23d7a8e187843411120dd666700558281ea4313d8a2",
+        "textspot8-faithful.onnx": "030c4a7441b5bd92cb0812a86cb00ada19ee0cade8b48af602552fc8fcb9ed28"
+      }
+    },
+    "native_manifest": {
+      "revision": "205f47ec4e56ca87c00e7dba0a61c9aaec726707",
+      "build": "205f47ec4e56-1",
+      "platform": "win32-x64",
+      "libraries": {
+        "gsm_vita_ocr.dll": "e4d4f7d7a4f6a4c9addb0eaec9ba18d2f84e78fe82823256dcd5415328f38e95",
+        "gsm_vocr_spotter.dll": "581c81dd56716c22ef17060584a25a3d4d60cd752ba6f48d84d11252b5671653"
+      }
+    }
+  },
+  "gpu_observation_end": "NVIDIA GeForce RTX 5070, 617.14, 12227 MiB, 5374 MiB, 24 %",
+  "timing_method": "Median of mean ms/item in each pass, random backend order seed 130; synchronous CPU outputs; no profiling",
+  "repeats": 9,
+  "warmup_full_passes": 2,
+  "threads": 1,
+  "c_build": "Shipped GSM MSVC /O2 /fp:strict",
+  "frames": [
+    {
+      "name": "steins-window.png",
+      "size": [
+        1936,
+        1119
+      ],
+      "kind": "real",
+      "sha256": "93c94b85bcaa58a238d58fdb91151d6fba4077c5cdbe84ba0cec0f5721a9a35f"
+    },
+    {
+      "name": "steins-window-restarted.png",
+      "size": [
+        1936,
+        1119
+      ],
+      "kind": "real",
+      "sha256": "74ab53748b1261539d59ba1c33930b34235d4a0450caa7825a8c52e5297cb6fb"
+    },
+    {
+      "name": "steins-after-enter.png",
+      "size": [
+        1296,
+        759
+      ],
+      "kind": "real",
+      "sha256": "bbf83c5264886b014dc5945cd831c0c44c30c0c56a3be8bbb6f133d5f6a7ddef"
+    },
+    {
+      "name": "example.jpg",
+      "size": [
+        1920,
+        1080
+      ],
+      "kind": "real",
+      "sha256": "f3e99582c5e34263d36d85a8553038dd7a6602bdbca1c7f2f6a2bffbc20c5e7b"
+    },
+    {
+      "name": "synthetic-18-light",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "a71284bb80f5e54382da5961faa92af8a9e05dc7b9e58c08016e6db204260b51"
+    },
+    {
+      "name": "synthetic-18-dark",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "7e89f396fb635a02f77e671ec58e04465cafa4efca92dbe94ee5fe862e89ba9b"
+    },
+    {
+      "name": "synthetic-26-light",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "a2ef1b2308bfa071296628e30a7b0945e624cd6d4a1778bea76f80800c4e8e46"
+    },
+    {
+      "name": "synthetic-26-dark",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "680d78f0836c8a0dc82466e5516fc8eba9bfda9b4339809e6e2d60baa5fa5f06"
+    },
+    {
+      "name": "synthetic-38-light",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "e62b6266414994179a8f62e5b6a72dbbb569a20efa385b738787f5a787238f28"
+    },
+    {
+      "name": "synthetic-38-dark",
+      "size": [
+        901,
+        220
+      ],
+      "kind": "synthetic",
+      "sha256": "6f5232e54788f410ea392d780896bb16b66e7147e79aba927ac099f874f2a3f6"
+    },
+    {
+      "name": "empty-black",
+      "size": [
+        960,
+        544
+      ],
+      "kind": "empty",
+      "sha256": "865ed4355d89339003f3a2736e98b6bbb415ec4d8d37142b5ccccb6873d56f80"
+    },
+    {
+      "name": "empty-white",
+      "size": [
+        960,
+        544
+      ],
+      "kind": "empty",
+      "sha256": "c60c696fe7f998f1c7745172cfc8d88f686d785a580b6459ce4aaefb670b29a8"
+    }
+  ],
+  "recognition_crops": 38,
+  "detection": {
+    "c": {
+      "mean_ms_per_item_median_across_repeats": 39.614466666666665,
+      "min_repeat_ms": 38.38891666666667,
+      "max_repeat_ms": 40.724333333333334,
+      "speedup_over_c": 1.0
+    },
+    "cpu": {
+      "mean_ms_per_item_median_across_repeats": 23.787158333333334,
+      "min_repeat_ms": 22.609591666666667,
+      "max_repeat_ms": 25.026116666666667,
+      "speedup_over_c": 1.665371967157349
+    },
+    "cuda": {
+      "mean_ms_per_item_median_across_repeats": 22.423808333333334,
+      "min_repeat_ms": 21.138258333333333,
+      "max_repeat_ms": 23.705966666666665,
+      "speedup_over_c": 1.76662527960423
+    },
+    "cuda_tf32": {
+      "mean_ms_per_item_median_across_repeats": 23.46075,
+      "min_repeat_ms": 21.084183333333332,
+      "max_repeat_ms": 25.053,
+      "speedup_over_c": 1.6885422105715573
+    }
+  },
+  "recognition": {
+    "small": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 12.26783947368421,
+        "min_repeat_ms": 11.732247368421053,
+        "max_repeat_ms": 13.209834210526315,
+        "speedup_over_c": 1.0
+      },
+      "cpu_faithful": {
+        "mean_ms_per_item_median_across_repeats": 4.202281578947368,
+        "min_repeat_ms": 3.5101894736842105,
+        "max_repeat_ms": 4.44928947368421,
+        "speedup_over_c": 2.9193282846974733
+      },
+      "cuda_faithful": {
+        "mean_ms_per_item_median_across_repeats": 9.162605263157895,
+        "min_repeat_ms": 8.1897,
+        "max_repeat_ms": 11.13241052631579,
+        "speedup_over_c": 1.3389029780658799
+      },
+      "cpu_fast": {
+        "mean_ms_per_item_median_across_repeats": 1.6159184210526316,
+        "min_repeat_ms": 1.474978947368421,
+        "max_repeat_ms": 1.9448657894736843,
+        "speedup_over_c": 7.591868075674743
+      },
+      "cuda_fast": {
+        "mean_ms_per_item_median_across_repeats": 4.677171052631579,
+        "min_repeat_ms": 4.036613157894736,
+        "max_repeat_ms": 5.406355263157895,
+        "speedup_over_c": 2.6229187121094903
+      }
+    },
+    "normal": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 13.809018421052631,
+        "min_repeat_ms": 13.192023684210525,
+        "max_repeat_ms": 15.590305263157894,
+        "speedup_over_c": 1.0
+      },
+      "cpu_faithful": {
+        "mean_ms_per_item_median_across_repeats": 5.827036842105263,
+        "min_repeat_ms": 5.613086842105263,
+        "max_repeat_ms": 7.263607894736842,
+        "speedup_over_c": 2.3698182790386375
+      },
+      "cuda_faithful": {
+        "mean_ms_per_item_median_across_repeats": 10.596797368421052,
+        "min_repeat_ms": 10.161936842105263,
+        "max_repeat_ms": 13.657615789473684,
+        "speedup_over_c": 1.3031313085408376
+      },
+      "cpu_fast": {
+        "mean_ms_per_item_median_across_repeats": 2.4621263157894737,
+        "min_repeat_ms": 2.3198684210526315,
+        "max_repeat_ms": 2.8938684210526318,
+        "speedup_over_c": 5.608574317449188
+      },
+      "cuda_fast": {
+        "mean_ms_per_item_median_across_repeats": 6.196315789473684,
+        "min_repeat_ms": 5.745902631578947,
+        "max_repeat_ms": 6.6584,
+        "speedup_over_c": 2.2285853223477448
+      }
+    },
+    "large": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 32.71459210526316,
+        "min_repeat_ms": 31.655676315789474,
+        "max_repeat_ms": 34.64412368421053,
+        "speedup_over_c": 1.0
+      },
+      "cpu_faithful": {
+        "mean_ms_per_item_median_across_repeats": 8.458905263157895,
+        "min_repeat_ms": 8.283102631578947,
+        "max_repeat_ms": 12.055465789473685,
+        "speedup_over_c": 3.867473519031951
+      },
+      "cuda_faithful": {
+        "mean_ms_per_item_median_across_repeats": 10.84766052631579,
+        "min_repeat_ms": 10.03033947368421,
+        "max_repeat_ms": 11.948181578947368,
+        "speedup_over_c": 3.0158200494843537
+      },
+      "cpu_fast": {
+        "mean_ms_per_item_median_across_repeats": 3.588218421052632,
+        "min_repeat_ms": 3.211934210526316,
+        "max_repeat_ms": 4.720692105263158,
+        "speedup_over_c": 9.117224278578359
+      },
+      "cuda_fast": {
+        "mean_ms_per_item_median_across_repeats": 5.646168421052631,
+        "min_repeat_ms": 5.167586842105263,
+        "max_repeat_ms": 7.3138736842105265,
+        "speedup_over_c": 5.79412260946408
+      }
+    }
+  },
+  "end_to_end": {
+    "small": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 81.84389166666666,
+        "min_repeat_ms": 79.397575,
+        "max_repeat_ms": 83.04334166666666,
+        "speedup_over_c": 1.0
+      },
+      "cpu_faithful": {
+        "mean_ms_per_item_median_across_repeats": 38.43295,
+        "min_repeat_ms": 34.94785,
+        "max_repeat_ms": 43.28301666666667,
+        "speedup_over_c": 2.1295240585660657
+      },
+      "cuda_faithful": {
+        "mean_ms_per_item_median_across_repeats": 54.06435,
+        "min_repeat_ms": 48.667833333333334,
+        "max_repeat_ms": 61.39485833333333,
+        "speedup_over_c": 1.5138236502735476
+      },
+      "cpu_fast": {
+        "mean_ms_per_item_median_across_repeats": 30.405783333333332,
+        "min_repeat_ms": 29.059841666666667,
+        "max_repeat_ms": 33.30110833333333,
+        "speedup_over_c": 2.6917212021616503
+      },
+      "cuda_fast": {
+        "mean_ms_per_item_median_across_repeats": 37.96365,
+        "min_repeat_ms": 34.78778333333334,
+        "max_repeat_ms": 43.248725,
+        "speedup_over_c": 2.155848862442538
+      }
+    },
+    "normal": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 83.40591666666667,
+        "min_repeat_ms": 81.669825,
+        "max_repeat_ms": 89.18696666666666,
+        "speedup_over_c": 1.0
+      },
+      "cpu_faithful": {
+        "mean_ms_per_item_median_across_repeats": 42.03179166666667,
+        "min_repeat_ms": 40.893100000000004,
+        "max_repeat_ms": 45.3406,
+        "speedup_over_c": 1.984353113664954
+      },
+      "cuda_faithful": {
+        "mean_ms_per_item_median_across_repeats": 55.835725000000004,
+        "min_repeat_ms": 52.79915833333333,
+        "max_repeat_ms": 58.43901666666667,
+        "speedup_over_c": 1.4937733264261666
+      },
+      "cpu_fast": {
+        "mean_ms_per_item_median_across_repeats": 31.635191666666667,
+        "min_repeat_ms": 29.354683333333334,
+        "max_repeat_ms": 37.199108333333335,
+        "speedup_over_c": 2.636491586505851
+      },
+      "cuda_fast": {
+        "mean_ms_per_item_median_across_repeats": 43.38196666666666,
+        "min_repeat_ms": 40.88130833333334,
+        "max_repeat_ms": 44.666575,
+        "speedup_over_c": 1.9225941808385822
+      }
+    },
+    "large": {
+      "c": {
+        "mean_ms_per_item_median_across_repeats": 149.97944166666667,
+        "min_repeat_ms": 139.05986666666666,
+        "max_repeat_ms": 158.258775,
+        "speedup_over_c": 1.0
+      },
+      "cpu_faithful": {
+        "mean_ms_per_item_median_across_repeats": 52.587824999999995,
+        "min_repeat_ms": 50.753458333333334,
+        "max_repeat_ms": 54.30075,
+        "speedup_over_c": 2.8519803142013704
+      },
+      "cuda_faithful": {
+        "mean_ms_per_item_median_across_repeats": 60.031275,
+        "min_repeat_ms": 55.68535,
+        "max_repeat_ms": 64.33895,
+        "speedup_over_c": 2.4983550935186147
+      },
+      "cpu_fast": {
+        "mean_ms_per_item_median_across_repeats": 34.59970833333333,
+        "min_repeat_ms": 33.16085833333333,
+        "max_repeat_ms": 37.00835,
+        "speedup_over_c": 4.334702484245412
+      },
+      "cuda_fast": {
+        "mean_ms_per_item_median_across_repeats": 41.167741666666664,
+        "min_repeat_ms": 39.20474166666666,
+        "max_repeat_ms": 45.16506666666667,
+        "speedup_over_c": 3.643130169272908
+      }
+    }
+  },
+  "detector_agreement": {
+    "cpu": {
+      "images": 17,
+      "boxes_mismatches_c": 0,
+      "map_values": 675280,
+      "map_mismatches_c": 0,
+      "maps_mismatches_cpu": 0
+    },
+    "cuda": {
+      "images": 17,
+      "boxes_mismatches_c": 0,
+      "map_values": 675280,
+      "map_mismatches_c": 0,
+      "maps_mismatches_cpu": 0
+    },
+    "cuda_tf32": {
+      "images": 17,
+      "boxes_mismatches_c": 0,
+      "map_values": 675280,
+      "map_mismatches_c": 0,
+      "maps_mismatches_cpu": 0
+    }
+  },
+  "recognition_agreement": {
+    "small": {
+      "cpu_faithful": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      },
+      "cuda_faithful": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      },
+      "cpu_fast": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      },
+      "cuda_fast": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      }
+    },
+    "normal": {
+      "cpu_faithful": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      },
+      "cuda_faithful": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      },
+      "cpu_fast": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      },
+      "cuda_fast": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      }
+    },
+    "large": {
+      "cpu_faithful": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      },
+      "cuda_faithful": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      },
+      "cpu_fast": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      },
+      "cuda_fast": {
+        "cases": 115,
+        "text_mismatches_c": 0,
+        "character_mismatches_c": 0,
+        "frame_values": 4064,
+        "frame_mismatches_c": 0,
+        "result_mismatches_cpu": 0,
+        "frame_mismatches_cpu": 0
+      }
+    }
+  },
+  "end_to_end_agreement": {
+    "small": {
+      "cpu_faithful": {
+        "cases": 12,
+        "mismatches": 0
+      },
+      "cuda_faithful": {
+        "cases": 12,
+        "mismatches": 0
+      },
+      "cpu_fast": {
+        "cases": 12,
+        "mismatches": 0
+      },
+      "cuda_fast": {
+        "cases": 12,
+        "mismatches": 0
+      }
+    },
+    "normal": {
+      "cpu_faithful": {
+        "cases": 12,
+        "mismatches": 0
+      },
+      "cuda_faithful": {
+        "cases": 12,
+        "mismatches": 0
+      },
+      "cpu_fast": {
+        "cases": 12,
+        "mismatches": 0
+      },
+      "cuda_fast": {
+        "cases": 12,
+        "mismatches": 0
+      }
+    },
+    "large": {
+      "cpu_faithful": {
+        "cases": 12,
+        "mismatches": 0
+      },
+      "cuda_faithful": {
+        "cases": 12,
+        "mismatches": 0
+      },
+      "cpu_fast": {
+        "cases": 12,
+        "mismatches": 0
+      },
+      "cuda_fast": {
+        "cases": 12,
+        "mismatches": 0
+      }
+    }
+  },
+  "tf32_agreement": {
+    "small_faithful": {
+      "cases": 115,
+      "text_mismatches_c": 0,
+      "character_mismatches_c": 0,
+      "frame_values": 4064,
+      "frame_mismatches_c": 0,
+      "result_mismatches_cpu": 0,
+      "frame_mismatches_cpu": 0
+    },
+    "small_fast": {
+      "cases": 115,
+      "text_mismatches_c": 0,
+      "character_mismatches_c": 2,
+      "frame_values": 4064,
+      "frame_mismatches_c": 2,
+      "result_mismatches_cpu": 2,
+      "frame_mismatches_cpu": 2
+    },
+    "normal_faithful": {
+      "cases": 115,
+      "text_mismatches_c": 0,
+      "character_mismatches_c": 0,
+      "frame_values": 4064,
+      "frame_mismatches_c": 0,
+      "result_mismatches_cpu": 0,
+      "frame_mismatches_cpu": 0
+    },
+    "normal_fast": {
+      "cases": 115,
+      "text_mismatches_c": 0,
+      "character_mismatches_c": 0,
+      "frame_values": 4064,
+      "frame_mismatches_c": 0,
+      "result_mismatches_cpu": 0,
+      "frame_mismatches_cpu": 0
+    },
+    "large_faithful": {
+      "cases": 115,
+      "text_mismatches_c": 0,
+      "character_mismatches_c": 0,
+      "frame_values": 4064,
+      "frame_mismatches_c": 0,
+      "result_mismatches_cpu": 0,
+      "frame_mismatches_cpu": 0
+    },
+    "large_fast": {
+      "cases": 115,
+      "text_mismatches_c": 0,
+      "character_mismatches_c": 0,
+      "frame_values": 4064,
+      "frame_mismatches_c": 0,
+      "result_mismatches_cpu": 0,
+      "frame_mismatches_cpu": 0
+    }
+  },
+  "fast_detector_agreement": {
+    "images": 12,
+    "map_values": 539744,
+    "map_mismatches_cpu": 0,
+    "map_mismatches_c": 12320,
+    "box_mismatches_cpu": 0,
+    "box_mismatches_c": 1
+  },
+  "profile": {
+    "detector_faithful": {
+      "node_executions": {
+        "CUDAExecutionProvider": 440
+      },
+      "operators": {
+        "CUDAExecutionProvider": {
+          "Conv": 44,
+          "Cast": 88,
+          "Mul": 88,
+          "Sign": 44,
+          "Abs": 44,
+          "Add": 44,
+          "Floor": 44,
+          "Clip": 44
+        }
+      }
+    },
+    "small_faithful": {
+      "node_executions": {
+        "CUDAExecutionProvider": 794
+      },
+      "operators": {
+        "CUDAExecutionProvider": {
+          "Conv": 18,
+          "Relu": 36,
+          "Abs": 44,
+          "ReduceMax": 22,
+          "Div": 66,
+          "Mul": 132,
+          "Transpose": 64,
+          "Greater": 22,
+          "Where": 22,
+          "Add": 74,
+          "Floor": 22,
+          "Sign": 22,
+          "Clip": 22,
+          "Cast": 110,
+          "Slice": 44,
+          "MatMul": 44,
+          "Sub": 22,
+          "Reshape": 2,
+          "Unsqueeze": 2,
+          "Squeeze": 2,
+          "ArgMax": 2
+        }
+      }
+    },
+    "small_fast": {
+      "node_executions": {
+        "CUDAExecutionProvider": 144
+      },
+      "operators": {
+        "CUDAExecutionProvider": {
+          "Conv": 18,
+          "Relu": 36,
+          "Transpose": 32,
+          "MatMul": 20,
+          "Add": 28,
+          "Reshape": 2,
+          "Unsqueeze": 2,
+          "Squeeze": 2,
+          "Gemm": 2,
+          "ArgMax": 2
+        }
+      }
+    },
+    "normal_faithful": {
+      "node_executions": {
+        "CUDAExecutionProvider": 996
+      },
+      "operators": {
+        "CUDAExecutionProvider": {
+          "Conv": 18,
+          "Relu": 40,
+          "Abs": 44,
+          "ReduceMax": 24,
+          "Div": 66,
+          "Mul": 212,
+          "Transpose": 64,
+          "Greater": 26,
+          "Where": 26,
+          "Add": 150,
+          "Floor": 22,
+          "Sign": 22,
+          "Clip": 22,
+          "Cast": 122,
+          "Slice": 48,
+          "MatMul": 52,
+          "Sub": 22,
+          "Reshape": 2,
+          "Unsqueeze": 2,
+          "Squeeze": 4,
+          "Split": 4,
+          "Or": 2,
+          "ArgMax": 2
+        }
+      }
+    },
+    "normal_fast": {
+      "node_executions": {
+        "CUDAExecutionProvider": 386
+      },
+      "operators": {
+        "CUDAExecutionProvider": {
+          "Conv": 18,
+          "Relu": 40,
+          "Transpose": 32,
+          "MatMul": 28,
+          "Add": 106,
+          "Reshape": 2,
+          "Unsqueeze": 2,
+          "Squeeze": 4,
+          "Abs": 4,
+          "ReduceMax": 4,
+          "Div": 6,
+          "Mul": 86,
+          "Greater": 6,
+          "Where": 6,
+          "Floor": 2,
+          "Sign": 2,
+          "Clip": 2,
+          "Cast": 16,
+          "Slice": 8,
+          "Sub": 2,
+          "Split": 4,
+          "Gemm": 2,
+          "Or": 2,
+          "ArgMax": 2
+        }
+      }
+    },
+    "large_faithful": {
+      "node_executions": {
+        "CUDAExecutionProvider": 966
+      },
+      "operators": {
+        "CUDAExecutionProvider": {
+          "Conv": 18,
+          "Relu": 38,
+          "Abs": 44,
+          "ReduceMax": 24,
+          "Div": 66,
+          "Mul": 182,
+          "Transpose": 64,
+          "Greater": 24,
+          "Where": 24,
+          "Add": 130,
+          "Floor": 22,
+          "Sign": 22,
+          "Clip": 22,
+          "Cast": 140,
+          "Slice": 32,
+          "MatMul": 64,
+          "Sub": 22,
+          "Reshape": 2,
+          "Unsqueeze": 2,
+          "Split": 18,
+          "Squeeze": 2,
+          "Or": 2,
+          "ArgMax": 2
+        }
+      }
+    },
+    "large_fast": {
+      "node_executions": {
+        "CUDAExecutionProvider": 292
+      },
+      "operators": {
+        "CUDAExecutionProvider": {
+          "Conv": 18,
+          "Relu": 38,
+          "Transpose": 32,
+          "MatMul": 24,
+          "Add": 70,
+          "Reshape": 2,
+          "Unsqueeze": 2,
+          "Squeeze": 2,
+          "Gemm": 2,
+          "Slice": 8,
+          "Mul": 48,
+          "ReduceMax": 4,
+          "Abs": 4,
+          "Div": 6,
+          "Greater": 4,
+          "Where": 4,
+          "Floor": 2,
+          "Sign": 2,
+          "Clip": 2,
+          "Cast": 10,
+          "Sub": 2,
+          "Split": 2,
+          "Or": 2,
+          "ArgMax": 2
+        }
+      }
+    },
+    "detector_fast": {
+      "node_executions": {
+        "CUDAExecutionProvider": 5544
+      },
+      "operators": {
+        "CUDAExecutionProvider": {
+          "Conv": 792,
+          "Abs": 792,
+          "Add": 792,
+          "Floor": 792,
+          "Sign": 792,
+          "Mul": 792,
+          "Clip": 792
+        }
+      }
+    }
+  },
+  "protected_files_unchanged": true,
+  "local_artifacts": {
+    "temp/vocr-onnx-gpu/benchmark.py": {
+      "sha256": "4a3fb8136fd0d22071aee3692a7df370008ca39975cad9f9a0aa1dc628885abf",
+      "bytes": 20068
+    },
+    "temp/vocr-onnx-gpu/results.json": {
+      "sha256": "685f50687a3142dfb56d569cfc447ff9b6cec5d1064797a180495e83f82be82a",
+      "bytes": 970098
+    },
+    "temp/vocr-onnx-gpu/kernel-profiles.json": {
+      "sha256": "9558b886b693f0dd29d8883e9b711ce435e94a55b4a7d5277d6d77f4fd9eb917",
+      "bytes": 12210
+    },
+    "temp/vocr-onnx-gpu/smoke.json": {
+      "sha256": "88cc15d8ee652157a60477b2c637e01c0257d2b7b1d61ef5290633647eb4dae5",
+      "bytes": 8450
+    }
+  }
+}

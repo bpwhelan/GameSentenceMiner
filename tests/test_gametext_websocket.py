@@ -271,7 +271,6 @@ def test_monitor_clipboard_uses_native_change_notification(monkeypatch):
     monkeypatch.setattr(gametext, "WindowsClipboardListener", FakeNativeListener)
     monkeypatch.setattr(gametext, "get_config", lambda: SimpleNamespace(general=SimpleNamespace(use_clipboard=True)))
     monkeypatch.setattr(gametext, "should_pause_clipboard_for_other_source", lambda: False)
-    monkeypatch.setattr(gametext, "is_message_rate_limited", lambda _source: False)
     monkeypatch.setattr(gametext, "handle_new_text_event", fake_handle_new_text_event)
     monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(clipboard_enabled=False))
     monkeypatch.setattr(gametext, "last_clipboard", "")

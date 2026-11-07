@@ -1,0 +1,2853 @@
+{
+  "environment": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "processor": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+    "python": "3.13.2",
+    "numpy": "2.2.6",
+    "onnxruntime": "1.24.4",
+    "logical_cpus": 16,
+    "physical_cores": 8,
+    "inference_threads": 1,
+    "seed": 20261102
+  },
+  "corpus": {
+    "frames": [
+      {
+        "name": "steins-window.png",
+        "file": "frames-000.png",
+        "size": [
+          1936,
+          1119
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "d1440ea4197a1608b1b4a189cbaba4f7874dcc15c1f66f0f0288a19ce3835918"
+      },
+      {
+        "name": "steins-window-restarted.png",
+        "file": "frames-001.png",
+        "size": [
+          1936,
+          1119
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "c58ccf5c26451e348fa5f9fe17420aaea27619a240241bbd2a271351705d4d11"
+      },
+      {
+        "name": "steins-after-enter.png",
+        "file": "frames-002.png",
+        "size": [
+          1296,
+          759
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "a22c0146dadf970d7d6e40de846ef6b641fafdf2f49c531a8320d7ca32b0e561"
+      },
+      {
+        "name": "example.jpg",
+        "file": "frames-003.png",
+        "size": [
+          1920,
+          1080
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "0b3643c20ac602021568b9c7f67c505646d92fe56f0316efb6d288901a8144a4"
+      },
+      {
+        "name": "synthetic-18-light",
+        "file": "frames-004.png",
+        "size": [
+          901,
+          220
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "547cec650d8f1f79f2b12a5cb5a08827191fdb7651c82badc0095ca9c0a12ec9"
+      },
+      {
+        "name": "synthetic-18-dark",
+        "file": "frames-005.png",
+        "size": [
+          901,
+          220
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "be7c702255f0abb6f2c940d3bd2ab168f5c15214b7b8f41f7360c621e3e05642"
+      },
+      {
+        "name": "synthetic-26-light",
+        "file": "frames-006.png",
+        "size": [
+          901,
+          220
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "911f70d64d89b45b7db54268761ecf93d7c1f435ce20d1621bcdfa99ad29cad7"
+      },
+      {
+        "name": "synthetic-26-dark",
+        "file": "frames-007.png",
+        "size": [
+          901,
+          220
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "7e3dff534a0025535aa28b2132aadcceea9bec5d46f9e36da2d5d02661b04b16"
+      },
+      {
+        "name": "synthetic-38-light",
+        "file": "frames-008.png",
+        "size": [
+          901,
+          220
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "3d293257008dcce235ee07fd23835878444a8c733ea9dbe4c7c2800fe23146c5"
+      },
+      {
+        "name": "synthetic-38-dark",
+        "file": "frames-009.png",
+        "size": [
+          901,
+          220
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "dde277ae10bd4028da59630df5904a09ff12a848a5dbaec4c9c04b4ba5b7bcd9"
+      },
+      {
+        "name": "empty-black",
+        "file": "frames-010.png",
+        "size": [
+          960,
+          544
+        ],
+        "kind": "empty",
+        "dark": false,
+        "sha256": "46bde562dfc039106fb2007b0100ff36b41cc47e341bb5ff3bd4adf306055e44"
+      },
+      {
+        "name": "empty-white",
+        "file": "frames-011.png",
+        "size": [
+          960,
+          544
+        ],
+        "kind": "empty",
+        "dark": false,
+        "sha256": "e5a21e6ac835f708d41e726e37793e0d5bfba7f0e295d19695bb89ac0723cd08"
+      }
+    ],
+    "lines": [
+      {
+        "name": "steins-window.png:0",
+        "file": "lines-000.png",
+        "size": [
+          269,
+          76
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "c2c58db9452a11815f4965ec4fe2fc020953c1e43488e3083e54769e459a2e01"
+      },
+      {
+        "name": "steins-window.png:1",
+        "file": "lines-001.png",
+        "size": [
+          1450,
+          67
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "5a090975e71d7fa23a419a22c10f8c40e7abb0e443c21ae72b94910f56e41fdf"
+      },
+      {
+        "name": "steins-window.png:2",
+        "file": "lines-002.png",
+        "size": [
+          347,
+          65
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "9fbd9c5d646d2fc06504b939005115a76366c3fbf7d3b4a2c761aaade8b10614"
+      },
+      {
+        "name": "steins-window.png:3",
+        "file": "lines-003.png",
+        "size": [
+          227,
+          50
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "6d9db0237acc36c4b763f5679a0b428ca5d8b0445227a1ccc095a6c22487ed06"
+      },
+      {
+        "name": "steins-window-restarted.png:0",
+        "file": "lines-004.png",
+        "size": [
+          248,
+          59
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "655a12e20bebbe6b9e08888ee64d50221e825f5bb589ec1834c88eb0ce22318c"
+      },
+      {
+        "name": "steins-after-enter.png:0",
+        "file": "lines-005.png",
+        "size": [
+          162,
+          68
+        ],
+        "kind": "real",
+        "dark": true,
+        "sha256": "5daf223e2e879d1482943cd1d75de8237b0d2dd3d28fc08bc0fd0afe719cbf4d"
+      },
+      {
+        "name": "steins-after-enter.png:1",
+        "file": "lines-006.png",
+        "size": [
+          87,
+          32
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "c76ccd4704ac43ed9350eb27dc1a5566e9cf4643cca73a5e00f4e152ba539e27"
+      },
+      {
+        "name": "steins-after-enter.png:2",
+        "file": "lines-007.png",
+        "size": [
+          941,
+          51
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "b7f6a579b432c87bf39100cb60c2a0438b0b9d1e62fb4aab0a4bfa3a92f638cd"
+      },
+      {
+        "name": "steins-after-enter.png:3",
+        "file": "lines-008.png",
+        "size": [
+          102,
+          44
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "4b1347eeec6dbe8fb72902f32ad9a2db473426edbbefcb711c611e6997998140"
+      },
+      {
+        "name": "steins-after-enter.png:4",
+        "file": "lines-009.png",
+        "size": [
+          146,
+          42
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "0c6196b5a8b15430fc91929e8dd80f391fccd3f359f41e1644556abd15fd75a5"
+      },
+      {
+        "name": "example.jpg:0",
+        "file": "lines-010.png",
+        "size": [
+          176,
+          60
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "3c96dc042fe091e8867753a2b1de2a3abb3d7b487117dbcfe228c6bbc5a5f507"
+      },
+      {
+        "name": "example.jpg:1",
+        "file": "lines-011.png",
+        "size": [
+          884,
+          80
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "12cc7ef7bf0cb7171c2ad27aa5e1b97d554c1b8cca49d390460216e13c74b1bb"
+      },
+      {
+        "name": "example.jpg:2",
+        "file": "lines-012.png",
+        "size": [
+          1000,
+          86
+        ],
+        "kind": "real",
+        "dark": false,
+        "sha256": "f217f9051ebe4fd428e2672c53d1570b82effd81e913f93e0fb9ea4ce8db50ca"
+      },
+      {
+        "name": "example.jpg:3",
+        "file": "lines-013.png",
+        "size": [
+          332,
+          42
+        ],
+        "kind": "real",
+        "dark": true,
+        "sha256": "030fe52cf2ef2e728ceec2d6559060ad5929d39b7cc396d1b27f2727e4845ce4"
+      },
+      {
+        "name": "synthetic-18-light:0",
+        "file": "lines-014.png",
+        "size": [
+          200,
+          30
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "c12f01674cd70b30044c73d46e61f28acd04f8b42ad01182de467c0613242361"
+      },
+      {
+        "name": "synthetic-18-light:1",
+        "file": "lines-015.png",
+        "size": [
+          224,
+          32
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "cead8fe86c7d74eb908b2ad4134c936fde9319978bbe2730c809faf5486ba954"
+      },
+      {
+        "name": "synthetic-18-light:2",
+        "file": "lines-016.png",
+        "size": [
+          224,
+          30
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "1e4b6a7881bf6c512cbaebc5356110cb18654a06d58b43cf8f92ed4f25a096c8"
+      },
+      {
+        "name": "synthetic-18-light:3",
+        "file": "lines-017.png",
+        "size": [
+          248,
+          31
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "b9c63d0046f164682762f076e7137f8cae2bfe603caafc66dcc1bb5ce3c101d9"
+      },
+      {
+        "name": "synthetic-18-dark:0",
+        "file": "lines-018.png",
+        "size": [
+          200,
+          31
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "03a278e78fab957b1c8eab620b89cdcfccecdd352efb6d2e6ba7a3053a341b36"
+      },
+      {
+        "name": "synthetic-18-dark:1",
+        "file": "lines-019.png",
+        "size": [
+          232,
+          32
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "3e1dfe33568a3d52a8828df30147a0f626b5fdcb1e4bba227e1afea549344d13"
+      },
+      {
+        "name": "synthetic-18-dark:2",
+        "file": "lines-020.png",
+        "size": [
+          232,
+          32
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "5514d008f4a8f1f44a06b4e34b369feb9ef77883d64f2d962bbbd28a7232ee57"
+      },
+      {
+        "name": "synthetic-18-dark:3",
+        "file": "lines-021.png",
+        "size": [
+          256,
+          32
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "ba1904632f7a9ded6efe70a5967505ae4ce4a9a632ff79be755c260216a06131"
+      },
+      {
+        "name": "synthetic-26-light:0",
+        "file": "lines-022.png",
+        "size": [
+          282,
+          36
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "538c0daf268b12f105015803cf92160eedeef6e6fe1a51758cf71ec6767903b6"
+      },
+      {
+        "name": "synthetic-26-light:1",
+        "file": "lines-023.png",
+        "size": [
+          330,
+          40
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "3e53d8ab2eb5eadcabf580122ed1b0a9b3cf6526c5b2b8871c48bce0bc4ba5d1"
+      },
+      {
+        "name": "synthetic-26-light:2",
+        "file": "lines-024.png",
+        "size": [
+          330,
+          38
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "abcb0bb2acfb60b714e30d4c4f824af9a932aa2181bdb718b565927c7e189509"
+      },
+      {
+        "name": "synthetic-26-light:3",
+        "file": "lines-025.png",
+        "size": [
+          362,
+          38
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "858184f2a705eec6eeac11fa15d2f2df9c4950412a558ed01255a395ee67c6a8"
+      },
+      {
+        "name": "synthetic-26-dark:0",
+        "file": "lines-026.png",
+        "size": [
+          282,
+          36
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "588cf6eb4772971583062bce927f3f7ed73f0395c680686e711fcc33c1e4f61b"
+      },
+      {
+        "name": "synthetic-26-dark:1",
+        "file": "lines-027.png",
+        "size": [
+          330,
+          40
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "516eeb0d09c39952a91d2abbeab8f24bef34e70b3c8bd8b65c7c3628e6e4c883"
+      },
+      {
+        "name": "synthetic-26-dark:2",
+        "file": "lines-028.png",
+        "size": [
+          330,
+          39
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "146200bf66200981b38d3b47f15b321047334173c48803c0fcedd6c4769579c2"
+      },
+      {
+        "name": "synthetic-26-dark:3",
+        "file": "lines-029.png",
+        "size": [
+          370,
+          39
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "ce840e70ebf6d8418325dced011c009ee1b4b6b2135d7c087d3e1162fa1270f6"
+      },
+      {
+        "name": "synthetic-38-light:0",
+        "file": "lines-030.png",
+        "size": [
+          414,
+          51
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "eef312645c8ce98208db32f5c3ba0cde0b5c69dbf236c5718b41eac4321da530"
+      },
+      {
+        "name": "synthetic-38-light:1",
+        "file": "lines-031.png",
+        "size": [
+          470,
+          51
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "7af3c4383419ece41250a55a45ea795f705724cd3631ea7dd0ba2e4bf3aa055e"
+      },
+      {
+        "name": "synthetic-38-light:2",
+        "file": "lines-032.png",
+        "size": [
+          470,
+          52
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "8a9cf26465b83076a5b9ca3872167c11c72268729e20c0a520da71874dae04da"
+      },
+      {
+        "name": "synthetic-38-light:3",
+        "file": "lines-033.png",
+        "size": [
+          534,
+          51
+        ],
+        "kind": "synthetic",
+        "dark": false,
+        "sha256": "4f43aaa9a5ced0ae0fc6df7f130b4aa4000823c4d3fc24868bdfd3c559aef33d"
+      },
+      {
+        "name": "synthetic-38-dark:0",
+        "file": "lines-034.png",
+        "size": [
+          414,
+          51
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "04392ee19587212455e7fed7cc290297998a1c39b63db8993129544eeb2b74c9"
+      },
+      {
+        "name": "synthetic-38-dark:1",
+        "file": "lines-035.png",
+        "size": [
+          476,
+          48
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "1efaaf2a0c9a6d0a73ee02bdc1de5b98c34c97b4a1892e7a995414c518ed49af"
+      },
+      {
+        "name": "synthetic-38-dark:2",
+        "file": "lines-036.png",
+        "size": [
+          478,
+          53
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "ef52a1e7b589fbb13b5d99d4e0ef4fd864427c5e1732393496e219e00cf0a776"
+      },
+      {
+        "name": "synthetic-38-dark:3",
+        "file": "lines-037.png",
+        "size": [
+          534,
+          53
+        ],
+        "kind": "synthetic",
+        "dark": true,
+        "sha256": "224542992ea8ac722d86da01f2340e2fcfe273b7f194b6c941c4db30856a4a4d"
+      }
+    ],
+    "stress": [
+      {
+        "name": "stress-0",
+        "file": "stress-000.png",
+        "size": [
+          193,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "d03f4b6418fe4455319d2e2399f0bf2ddd30caef2f067af02ceaaa6b6981cd49"
+      },
+      {
+        "name": "stress-1",
+        "file": "stress-001.png",
+        "size": [
+          225,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "a9925f9f5c8a6ebc4602140eeaa20be4cc50fccacebf875d72e3b46929ec52e2"
+      },
+      {
+        "name": "stress-2",
+        "file": "stress-002.png",
+        "size": [
+          241,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "ed96c1a08232a1cc8cc32b586140657c4cbed0546f9ab637252158260aa0413b"
+      },
+      {
+        "name": "stress-3",
+        "file": "stress-003.png",
+        "size": [
+          257,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "4158d7d495a967f592526bddd3ae6682a61135b25e459d08ef356da78f7c9ee8"
+      },
+      {
+        "name": "stress-4",
+        "file": "stress-004.png",
+        "size": [
+          193,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "efc03d443c226d8428b3900dab24f16d37e78d8003e4c041d05ec5bba7f9cbde"
+      },
+      {
+        "name": "stress-5",
+        "file": "stress-005.png",
+        "size": [
+          225,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "f45f5005c9ea11890b0954a8806b411292c1e0eb4d803ea81232cdc9d139eb4b"
+      },
+      {
+        "name": "stress-6",
+        "file": "stress-006.png",
+        "size": [
+          241,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "955655aa61655be6f82eb297188b8482640aa458d52b0f6bdad3dcfbea992166"
+      },
+      {
+        "name": "stress-7",
+        "file": "stress-007.png",
+        "size": [
+          257,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "b8226c0be3357f7dec54d86f3e98740a0d3572f97a136f8ad0bb74897b47f2e7"
+      },
+      {
+        "name": "stress-8",
+        "file": "stress-008.png",
+        "size": [
+          303,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "b72150f8e83b5cab8441be0e41678303b3efe94f143531ef913d75eab3ec6afc"
+      },
+      {
+        "name": "stress-9",
+        "file": "stress-009.png",
+        "size": [
+          355,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "f58b44597f8e8b18d317b4c66356e8fd7958bb8778ef9b87cc9a5b76b3e966ea"
+      },
+      {
+        "name": "stress-10",
+        "file": "stress-010.png",
+        "size": [
+          381,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "7f7afc8d4ddf66166f01a60776baca82cc6626c1e9c20d116764b225509bfafc"
+      },
+      {
+        "name": "stress-11",
+        "file": "stress-011.png",
+        "size": [
+          407,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "77f15286fc6a0108ba8ab069c121ab698d69c68452f538677266c792f72754d8"
+      },
+      {
+        "name": "stress-12",
+        "file": "stress-012.png",
+        "size": [
+          303,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "d2740965dd2ec6c07ab621f64cbc7f15941e817b80fef269f183429dbeafd256"
+      },
+      {
+        "name": "stress-13",
+        "file": "stress-013.png",
+        "size": [
+          355,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "1eeb947042de2eca967daffcf7c21797fd0ad22dbc88fec1aa838640968541c1"
+      },
+      {
+        "name": "stress-14",
+        "file": "stress-014.png",
+        "size": [
+          381,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "62a4efba5104b583111915d82abf05a6675eca555d8d76f7bb9173c638f94306"
+      },
+      {
+        "name": "stress-15",
+        "file": "stress-015.png",
+        "size": [
+          407,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "9f9e4fd79642d62f2cb61baabe2d39efca80948f2394892425b6510e2e8e061a"
+      },
+      {
+        "name": "stress-16",
+        "file": "stress-016.png",
+        "size": [
+          457,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "aedfaba167fbb9097ba6c0221aa659094c72610dcfe98f062debb3301ab0de0f"
+      },
+      {
+        "name": "stress-17",
+        "file": "stress-017.png",
+        "size": [
+          537,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "05abd030235533e983e5914b30a828694db69df521c1a0557a8a4d1ac9263cf0"
+      },
+      {
+        "name": "stress-18",
+        "file": "stress-018.png",
+        "size": [
+          577,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "c4fd4633688dd016175afc5f9cadbe96f2023cac9ec90775ff31a6365f4c4b71"
+      },
+      {
+        "name": "stress-19",
+        "file": "stress-019.png",
+        "size": [
+          617,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "308e0bd82b6fa8f91bc6568eb436eb13a793c01091972aa633032832a16bd5d8"
+      },
+      {
+        "name": "stress-20",
+        "file": "stress-020.png",
+        "size": [
+          457,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "62a10932992f7b05ffe213b48483c2eac6be519dce69fb624b498a4896c53238"
+      },
+      {
+        "name": "stress-21",
+        "file": "stress-021.png",
+        "size": [
+          537,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "f33b24a79b741d585e1e463ee9a5ed32f81f2519994dbebe7a6f6bb36814c280"
+      },
+      {
+        "name": "stress-22",
+        "file": "stress-022.png",
+        "size": [
+          577,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "da8cae84b19e87c2c00a72ff0ae472551ef87432c14fe08395965da24addbd8f"
+      },
+      {
+        "name": "stress-23",
+        "file": "stress-023.png",
+        "size": [
+          617,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "31d840101f697220614fc635f8627aa247baaedba8617b908728e5b423f5034a"
+      },
+      {
+        "name": "stress-24",
+        "file": "stress-024.png",
+        "size": [
+          193,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "d560297d995323429e94e3c54cd0ad53fd4ad75d4bfed0e1acc1c36ffe8d6b6c"
+      },
+      {
+        "name": "stress-25",
+        "file": "stress-025.png",
+        "size": [
+          225,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "48ab86be755f3a7cfc6fc75b2a786142ed3c55bf755b80d30a9d4a7429b643f2"
+      },
+      {
+        "name": "stress-26",
+        "file": "stress-026.png",
+        "size": [
+          241,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "8ed1685cbbf8fd723a268c29e54d4d27dc8805c62e586ed78a6e621e33d15b1d"
+      },
+      {
+        "name": "stress-27",
+        "file": "stress-027.png",
+        "size": [
+          257,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "95f1e7204d09cd6e157c1d209990cac66b35f01f8cf322d5aa1b4b48b406caa9"
+      },
+      {
+        "name": "stress-28",
+        "file": "stress-028.png",
+        "size": [
+          193,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "5413639bee3a8f4ce3c4b3432ab45b20c76c79066cbf01edfd35f9b45c774613"
+      },
+      {
+        "name": "stress-29",
+        "file": "stress-029.png",
+        "size": [
+          225,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "5286fe23378d1d0c2b0d59311b3f89dc23e94b2800956130a94d76d55b6c6595"
+      },
+      {
+        "name": "stress-30",
+        "file": "stress-030.png",
+        "size": [
+          241,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "cbf0142bad749134ffdef5bdbf9a3b1abb23f7575c82d511c5b829df249be2b7"
+      },
+      {
+        "name": "stress-31",
+        "file": "stress-031.png",
+        "size": [
+          257,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "69ee3168400f8079ecea2f3534c5abd3e4a3c295dc035b4957653aeda0a5e7f5"
+      },
+      {
+        "name": "stress-32",
+        "file": "stress-032.png",
+        "size": [
+          303,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "038547f553cb4eb80eba222ddd9a4e033ea71f63806bcd7d4a1ba50f6802dd61"
+      },
+      {
+        "name": "stress-33",
+        "file": "stress-033.png",
+        "size": [
+          355,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "7d7063df35dec35d27b3723e18cb245076257e3348b5848749051f815aa04554"
+      },
+      {
+        "name": "stress-34",
+        "file": "stress-034.png",
+        "size": [
+          381,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "17e10bd29f4573b647d829dc0ea1ac06394c45eb8f5edc7d6065ce934047f989"
+      },
+      {
+        "name": "stress-35",
+        "file": "stress-035.png",
+        "size": [
+          407,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "1565576d937cda5c9fe8096f227a63a1a5287a334606710a743f01f2127c7404"
+      },
+      {
+        "name": "stress-36",
+        "file": "stress-036.png",
+        "size": [
+          303,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "961a14c67d3025a78cb6511c908b561006d2e1165c9eff61d66daf6e9746992b"
+      },
+      {
+        "name": "stress-37",
+        "file": "stress-037.png",
+        "size": [
+          355,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "48ae23d1e80d8be1866643c29d07c0689b2806c2676061321ed5c64339955051"
+      },
+      {
+        "name": "stress-38",
+        "file": "stress-038.png",
+        "size": [
+          381,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "308cbee0015e21107604b7ba0cb3570f7db4babb3efb8c0c1b06d6382479096a"
+      },
+      {
+        "name": "stress-39",
+        "file": "stress-039.png",
+        "size": [
+          407,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "a17ff5770e9ad76b143a977850c9aeae75cef901d0b6a53dfb13891c721ad333"
+      },
+      {
+        "name": "stress-40",
+        "file": "stress-040.png",
+        "size": [
+          457,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "843fbced2c737e4620f25a4adf6733e7cfec674e4998fe0aff3c109a5ed4f4b6"
+      },
+      {
+        "name": "stress-41",
+        "file": "stress-041.png",
+        "size": [
+          537,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "4a66e9916ed11a40b1503c7b6acbe7063cc96b800ab466d3fd6310c7d2e39798"
+      },
+      {
+        "name": "stress-42",
+        "file": "stress-042.png",
+        "size": [
+          577,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "411639c5df16df46b8a3daac4ff8a104432ab0c73e30d634b453d79231c929a4"
+      },
+      {
+        "name": "stress-43",
+        "file": "stress-043.png",
+        "size": [
+          617,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "f7868663064adec4e7cdefab2d454c00b6f422a227e4dfe6281288db769248f9"
+      },
+      {
+        "name": "stress-44",
+        "file": "stress-044.png",
+        "size": [
+          457,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "d1a8f26d6c1151165d8de49e8a45fa38e4ed35a7b074b13b7e3cb52075f36993"
+      },
+      {
+        "name": "stress-45",
+        "file": "stress-045.png",
+        "size": [
+          537,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "f8934a1d3f2dbebbeb64ee248f023e21374f6d2e79061ab35d2ac36c727eeae6"
+      },
+      {
+        "name": "stress-46",
+        "file": "stress-046.png",
+        "size": [
+          577,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "3697da07d9dc16ddc9e6bb3dcf6bed4e152800354f3b3f2295af3046bb5117ca"
+      },
+      {
+        "name": "stress-47",
+        "file": "stress-047.png",
+        "size": [
+          617,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "d2bea561301eb6a100ac9dd82ac7fdf7189e039195dbcf7d8b1205b597582386"
+      },
+      {
+        "name": "stress-48",
+        "file": "stress-048.png",
+        "size": [
+          193,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "91fa5bee54e490cfe19abf8ae425edcee03bab725868ed635e5222443609b9e5"
+      },
+      {
+        "name": "stress-49",
+        "file": "stress-049.png",
+        "size": [
+          225,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "da99e6bad58eaecc5dedcddcbdf75b0662731694e5f2b00195cd8c4e17140483"
+      },
+      {
+        "name": "stress-50",
+        "file": "stress-050.png",
+        "size": [
+          241,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "62f81a4fb6fd28456f696ee41fe7880bd1df5c24782d5c337323c23f16aa5fa9"
+      },
+      {
+        "name": "stress-51",
+        "file": "stress-051.png",
+        "size": [
+          257,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "3a42ee316b22eafd270711165d2d08cdb7eb56ff73efb6a5e5c2f1889685d3a6"
+      },
+      {
+        "name": "stress-52",
+        "file": "stress-052.png",
+        "size": [
+          193,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "9520bd4dc93ad0fac2f95024f340be3dbb5eb19f5d05403b43cb6395d7f891c5"
+      },
+      {
+        "name": "stress-53",
+        "file": "stress-053.png",
+        "size": [
+          225,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "33cac5eff013e0e030979af828fd49ff39ab7e8000a5b0f72d79a5f3ecaebb21"
+      },
+      {
+        "name": "stress-54",
+        "file": "stress-054.png",
+        "size": [
+          241,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "307ac8b1f34e744c87d6d6109f1fc22d1ee35f372a0489d4080b238e15a5c0d6"
+      },
+      {
+        "name": "stress-55",
+        "file": "stress-055.png",
+        "size": [
+          257,
+          32
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "9d56a23ef47505ca9f67f88a8d64665d376cc35006b57da77e0370e5e8385f96"
+      },
+      {
+        "name": "stress-56",
+        "file": "stress-056.png",
+        "size": [
+          303,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "a17ddcce76b72db60ba51ec3c2da10e2a9b62479487b8a6bb8e37569986b3ea4"
+      },
+      {
+        "name": "stress-57",
+        "file": "stress-057.png",
+        "size": [
+          355,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "f326d6652b39465978a05f78aaaf652568395878acd356b5f335135279aea578"
+      },
+      {
+        "name": "stress-58",
+        "file": "stress-058.png",
+        "size": [
+          381,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "4cd8ca8b2dec2af66f53332dd1b36ba6275f442db37e04e00ee19ccd6a5e7172"
+      },
+      {
+        "name": "stress-59",
+        "file": "stress-059.png",
+        "size": [
+          407,
+          42
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "acbc2fd6e67cef44fc9dab97011c310c44cd260154f003914389fc59a726090d"
+      },
+      {
+        "name": "stress-60",
+        "file": "stress-060.png",
+        "size": [
+          303,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "4378a1ce5992f38f8eecfaac26a4369ccdc3f4483f71f8365f13d1a0c2ed6820"
+      },
+      {
+        "name": "stress-61",
+        "file": "stress-061.png",
+        "size": [
+          355,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "23235e23f59bac46fd46cc96344c4d857b0f331267b322a2e0620d1ad80d74ed"
+      },
+      {
+        "name": "stress-62",
+        "file": "stress-062.png",
+        "size": [
+          381,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "d0a4bda5add42c232c03d5a68a9d22e7b2499d63e68b813e2b6005956bc7d5a5"
+      },
+      {
+        "name": "stress-63",
+        "file": "stress-063.png",
+        "size": [
+          407,
+          42
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "402e58810982ba2800680f171b552a51ad083ea72636ea77cfa6f614ccdf01af"
+      },
+      {
+        "name": "stress-64",
+        "file": "stress-064.png",
+        "size": [
+          457,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "abc8362b00872194cf67aed85cc01245bcdd841352fdeccdab7c56e5ca5111e5"
+      },
+      {
+        "name": "stress-65",
+        "file": "stress-065.png",
+        "size": [
+          537,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "b178277b9d088751e58fe670f075ade85c00ba602086ffda60930eda4f63bd73"
+      },
+      {
+        "name": "stress-66",
+        "file": "stress-066.png",
+        "size": [
+          577,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "e9551e2ab7bcee562f2a3d470415d10efd0df287f826e089d5415581781c6465"
+      },
+      {
+        "name": "stress-67",
+        "file": "stress-067.png",
+        "size": [
+          617,
+          56
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "b12bcedbcbd433de9fc340dea4216bb482ae14b5fa486427800a831628f65cee"
+      },
+      {
+        "name": "stress-68",
+        "file": "stress-068.png",
+        "size": [
+          457,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "d677da0513b3a88fad62345965fbc40eabacd8fc3dff865877c8470232b8ec6e"
+      },
+      {
+        "name": "stress-69",
+        "file": "stress-069.png",
+        "size": [
+          537,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "7ee6928fe83705141166c6dde5e327762d16ad77a65cff358164edbe7cc7f6c5"
+      },
+      {
+        "name": "stress-70",
+        "file": "stress-070.png",
+        "size": [
+          577,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "7d7b7bfd1610222728e3dc25229ea5eaa715c9aed90cfe6a83fb6ebfdc959b7c"
+      },
+      {
+        "name": "stress-71",
+        "file": "stress-071.png",
+        "size": [
+          617,
+          56
+        ],
+        "kind": "stress",
+        "dark": true,
+        "sha256": "72f3abcccadfd5e7e8e29ec83d9ce79daa28f8012f469f25a70847ab14a1f694"
+      },
+      {
+        "name": "stress-72",
+        "file": "stress-072.png",
+        "size": [
+          1,
+          1
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "a70d4eec8625c67c7d6354aa56b8f3ae93a4263b7ca3c23cd3684f8756c43f72"
+      },
+      {
+        "name": "stress-73",
+        "file": "stress-073.png",
+        "size": [
+          7,
+          33
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "b324d471109c76fb22a25d029054024d53981f573b0aa26db8a937eb436adf35"
+      },
+      {
+        "name": "stress-74",
+        "file": "stress-074.png",
+        "size": [
+          641,
+          31
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "757ab764d11b25bb60bc972cc74499fbc3762bede921866ef3bb4db93911ec0a"
+      },
+      {
+        "name": "stress-75",
+        "file": "stress-075.png",
+        "size": [
+          1027,
+          32
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "18b37148faf6b8f1786b7732466c235c5e564b97620bc6009fa3194e93881f71"
+      },
+      {
+        "name": "stress-76",
+        "file": "stress-076.png",
+        "size": [
+          2049,
+          19
+        ],
+        "kind": "stress",
+        "dark": false,
+        "sha256": "c330db7bbcd4181ad200aa8ae84655845ab51fd8b6d29a56629b6cf2370a326e"
+      }
+    ]
+  },
+  "results": {
+    "large": {
+      "fork-avx2": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 14.934666666666667,
+            "mean_ms_range": [
+              13.77875,
+              15.363383333333333
+            ],
+            "call_p50_ms": 4.6467,
+            "call_p95_ms": 44.35241999999999,
+            "cpu_ms_per_item_median": 14.322916666666666,
+            "active_core_percent_median": 97.87167891142208,
+            "host_percent_at_5_scans_per_second": 0.4475911458333333,
+            "real_mean_ms": 37.676500000000004,
+            "empty_mean_ms": 5.7512,
+            "synthetic_mean_ms": 2.6642333333333332
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 4.764015789473684,
+            "mean_ms_range": [
+              4.505923684210527,
+              4.967052631578947
+            ],
+            "call_p50_ms": 4.54265,
+            "call_p95_ms": 9.783055,
+            "cpu_ms_per_item_median": 4.5230263157894735,
+            "active_core_percent_median": 100.35816551988304,
+            "host_percent_at_5_scans_per_second": 0.14134457236842105,
+            "real_mean_ms": 4.326957142857143,
+            "synthetic_mean_ms": 4.8187625
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 35.61980833333333,
+            "mean_ms_range": [
+              34.47825833333333,
+              39.21991666666667
+            ],
+            "call_p50_ms": 27.8679,
+            "call_p95_ms": 76.295295,
+            "cpu_ms_per_item_median": 35.15625,
+            "active_core_percent_median": 98.69111313282497,
+            "host_percent_at_5_scans_per_second": 1.0986328125,
+            "real_mean_ms": 64.35735,
+            "empty_mean_ms": 8.1165,
+            "synthetic_mean_ms": 25.675633333333334
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.9921875,
+            "vms": 83.16015625,
+            "peak_wset": 96.9921875,
+            "private": 83.16015625
+          },
+          "loaded": {
+            "rss": 103.6875,
+            "vms": 87.359375,
+            "peak_wset": 106.05078125,
+            "private": 87.359375
+          },
+          "warm": {
+            "rss": 106.4375,
+            "vms": 89.86328125,
+            "peak_wset": 137.15625,
+            "private": 89.86328125
+          },
+          "warm_increment_rss": 9.203125,
+          "warm_increment_private": 6.703125
+        },
+        "load_ms": 86.8663,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "fork-scalar": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 31.770908333333335,
+            "mean_ms_range": [
+              30.894041666666666,
+              40.29170833333333
+            ],
+            "call_p50_ms": 22.83015,
+            "call_p95_ms": 73.48173499999997,
+            "cpu_ms_per_item_median": 31.25,
+            "active_core_percent_median": 98.79127484827417,
+            "host_percent_at_5_scans_per_second": 0.9765625,
+            "real_mean_ms": 61.991975000000004,
+            "empty_mean_ms": 30.57445,
+            "synthetic_mean_ms": 12.83195
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 40.258747368421055,
+            "mean_ms_range": [
+              35.865394736842106,
+              47.04362368421052
+            ],
+            "call_p50_ms": 40.1727,
+            "call_p95_ms": 75.11827999999996,
+            "cpu_ms_per_item_median": 39.473684210526315,
+            "active_core_percent_median": 98.42187150154984,
+            "host_percent_at_5_scans_per_second": 1.2335526315789473,
+            "real_mean_ms": 38.34703571428572,
+            "synthetic_mean_ms": 42.14156666666667
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 164.934,
+            "mean_ms_range": [
+              153.423225,
+              169.89089166666668
+            ],
+            "call_p50_ms": 180.97910000000002,
+            "call_p95_ms": 264.77050499999996,
+            "cpu_ms_per_item_median": 162.76041666666666,
+            "active_core_percent_median": 99.29482141760172,
+            "host_percent_at_5_scans_per_second": 5.086263020833333,
+            "real_mean_ms": 207.887825,
+            "empty_mean_ms": 34.78805,
+            "synthetic_mean_ms": 180.05091666666667
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.75,
+            "vms": 83.05859375,
+            "peak_wset": 96.75,
+            "private": 83.05859375
+          },
+          "loaded": {
+            "rss": 103.1484375,
+            "vms": 86.984375,
+            "peak_wset": 105.51171875,
+            "private": 86.984375
+          },
+          "warm": {
+            "rss": 104.2890625,
+            "vms": 87.89453125,
+            "peak_wset": 136.79296875,
+            "private": 87.89453125
+          },
+          "warm_increment_rss": 7.3828125,
+          "warm_increment_private": 4.6875
+        },
+        "load_ms": 94.6786,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "onnx-faithful": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 22.591083333333334,
+            "mean_ms_range": [
+              22.13041666666667,
+              24.318849999999998
+            ],
+            "call_p50_ms": 12.9884,
+            "call_p95_ms": 56.049685,
+            "cpu_ms_per_item_median": 22.135416666666668,
+            "active_core_percent_median": 99.39890609957632,
+            "host_percent_at_5_scans_per_second": 0.6917317708333334,
+            "real_mean_ms": 48.938024999999996,
+            "empty_mean_ms": 17.071350000000002,
+            "synthetic_mean_ms": 7.20035
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 9.902542105263159,
+            "mean_ms_range": [
+              9.474478947368421,
+              10.91845
+            ],
+            "call_p50_ms": 9.690100000000001,
+            "call_p95_ms": 17.627679999999998,
+            "cpu_ms_per_item_median": 9.868421052631579,
+            "active_core_percent_median": 99.80326779851558,
+            "host_percent_at_5_scans_per_second": 0.30838815789473684,
+            "real_mean_ms": 9.369035714285715,
+            "synthetic_mean_ms": 10.2595625
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 60.84385,
+            "mean_ms_range": [
+              55.666916666666665,
+              64.517875
+            ],
+            "call_p50_ms": 54.168400000000005,
+            "call_p95_ms": 109.86969,
+            "cpu_ms_per_item_median": 61.197916666666664,
+            "active_core_percent_median": 99.83410715103808,
+            "host_percent_at_5_scans_per_second": 1.9124348958333333,
+            "real_mean_ms": 93.41465,
+            "empty_mean_ms": 19.740000000000002,
+            "synthetic_mean_ms": 52.07315
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 97.40625,
+            "vms": 83.53515625,
+            "peak_wset": 97.40625,
+            "private": 83.53515625
+          },
+          "loaded": {
+            "rss": 145.3828125,
+            "vms": 121.30078125,
+            "peak_wset": 148.79296875,
+            "private": 121.30078125
+          },
+          "warm": {
+            "rss": 177.375,
+            "vms": 155.1875,
+            "peak_wset": 200.80859375,
+            "private": 155.1875
+          },
+          "warm_increment_rss": 79.95703125,
+          "warm_increment_private": 71.9140625
+        },
+        "load_ms": 344.6595,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "onnx-fast": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 22.468583333333335,
+            "mean_ms_range": [
+              21.773808333333335,
+              23.670983333333332
+            ],
+            "call_p50_ms": 12.865200000000002,
+            "call_p95_ms": 54.286085,
+            "cpu_ms_per_item_median": 22.135416666666668,
+            "active_core_percent_median": 97.79456459190628,
+            "host_percent_at_5_scans_per_second": 0.6917317708333334,
+            "real_mean_ms": 47.9379,
+            "empty_mean_ms": 16.6334,
+            "synthetic_mean_ms": 7.32845
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 3.7408,
+            "mean_ms_range": [
+              3.3935,
+              3.8099684210526314
+            ],
+            "call_p50_ms": 3.52475,
+            "call_p95_ms": 6.897109999999998,
+            "cpu_ms_per_item_median": 3.700657894736842,
+            "active_core_percent_median": 98.89845581269739,
+            "host_percent_at_5_scans_per_second": 0.1156455592105263,
+            "real_mean_ms": 3.503628571428571,
+            "synthetic_mean_ms": 3.778125
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 37.53358333333333,
+            "mean_ms_range": [
+              36.011358333333334,
+              41.16919166666667
+            ],
+            "call_p50_ms": 26.36835,
+            "call_p95_ms": 81.493225,
+            "cpu_ms_per_item_median": 37.760416666666664,
+            "active_core_percent_median": 98.82342524024821,
+            "host_percent_at_5_scans_per_second": 1.1800130208333333,
+            "real_mean_ms": 68.881225,
+            "empty_mean_ms": 20.34685,
+            "synthetic_mean_ms": 24.34725
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.96484375,
+            "vms": 82.9140625,
+            "peak_wset": 96.96484375,
+            "private": 82.9140625
+          },
+          "loaded": {
+            "rss": 141.9921875,
+            "vms": 117.578125,
+            "peak_wset": 143.640625,
+            "private": 117.578125
+          },
+          "warm": {
+            "rss": 171.7421875,
+            "vms": 152.8203125,
+            "peak_wset": 195.25,
+            "private": 152.8203125
+          },
+          "warm_increment_rss": 74.7578125,
+          "warm_increment_private": 69.8515625
+        },
+        "load_ms": 230.224,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "shipped-c": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 40.74235,
+            "mean_ms_range": [
+              37.42928333333333,
+              44.942433333333334
+            ],
+            "call_p50_ms": 27.802300000000002,
+            "call_p95_ms": 84.88919,
+            "cpu_ms_per_item_median": 39.0625,
+            "active_core_percent_median": 97.90991827994362,
+            "host_percent_at_5_scans_per_second": 1.220703125,
+            "real_mean_ms": 74.59465,
+            "empty_mean_ms": 43.41405,
+            "synthetic_mean_ms": 17.44315
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 42.23487631578947,
+            "mean_ms_range": [
+              36.81271052631579,
+              44.19833947368421
+            ],
+            "call_p50_ms": 39.92285,
+            "call_p95_ms": 81.13959999999983,
+            "cpu_ms_per_item_median": 41.94078947368421,
+            "active_core_percent_median": 98.72833780077632,
+            "host_percent_at_5_scans_per_second": 1.3106496710526316,
+            "real_mean_ms": 39.25072142857143,
+            "synthetic_mean_ms": 43.609883333333336
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 170.79376666666667,
+            "mean_ms_range": [
+              151.14006666666666,
+              185.74150833333334
+            ],
+            "call_p50_ms": 182.2579,
+            "call_p95_ms": 277.41406,
+            "cpu_ms_per_item_median": 166.66666666666666,
+            "active_core_percent_median": 99.07174837355547,
+            "host_percent_at_5_scans_per_second": 5.208333333333333,
+            "real_mean_ms": 215.800575,
+            "empty_mean_ms": 44.20485,
+            "synthetic_mean_ms": 182.9051
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.85546875,
+            "vms": 83.12890625,
+            "peak_wset": 96.85546875,
+            "private": 83.12890625
+          },
+          "loaded": {
+            "rss": 103.375,
+            "vms": 87.0625,
+            "peak_wset": 105.73828125,
+            "private": 87.0625
+          },
+          "warm": {
+            "rss": 104.35546875,
+            "vms": 87.7109375,
+            "peak_wset": 136.48828125,
+            "private": 87.7109375
+          },
+          "warm_increment_rss": 7.1640625,
+          "warm_increment_private": 4.57421875
+        },
+        "load_ms": 99.6871,
+        "idle_core_percent_max": 1.5616095702230588,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      }
+    },
+    "normal": {
+      "fork-avx2": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 15.227708333333332,
+            "mean_ms_range": [
+              14.511466666666667,
+              15.82715
+            ],
+            "call_p50_ms": 4.48785,
+            "call_p95_ms": 44.19121499999999,
+            "cpu_ms_per_item_median": 14.322916666666666,
+            "active_core_percent_median": 96.81249609229562,
+            "host_percent_at_5_scans_per_second": 0.4475911458333333,
+            "real_mean_ms": 38.4111,
+            "empty_mean_ms": 6.0192,
+            "synthetic_mean_ms": 2.596916666666667
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 2.3181105263157895,
+            "mean_ms_range": [
+              2.120857894736842,
+              2.4242947368421053
+            ],
+            "call_p50_ms": 2.20255,
+            "call_p95_ms": 4.873945,
+            "cpu_ms_per_item_median": 2.4671052631578947,
+            "active_core_percent_median": 101.73972211761871,
+            "host_percent_at_5_scans_per_second": 0.07709703947368421,
+            "real_mean_ms": 2.2342714285714287,
+            "synthetic_mean_ms": 2.3670166666666668
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 28.80285,
+            "mean_ms_range": [
+              24.328025,
+              30.654425
+            ],
+            "call_p50_ms": 16.5751,
+            "call_p95_ms": 70.20461999999999,
+            "cpu_ms_per_item_median": 28.645833333333332,
+            "active_core_percent_median": 99.7740100531567,
+            "host_percent_at_5_scans_per_second": 0.8951822916666666,
+            "real_mean_ms": 57.86535,
+            "empty_mean_ms": 9.41,
+            "synthetic_mean_ms": 14.360433333333333
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.68359375,
+            "vms": 82.75,
+            "peak_wset": 96.68359375,
+            "private": 82.75
+          },
+          "loaded": {
+            "rss": 102.703125,
+            "vms": 86.25390625,
+            "peak_wset": 103.83984375,
+            "private": 86.25390625
+          },
+          "warm": {
+            "rss": 103.10546875,
+            "vms": 86.39453125,
+            "peak_wset": 135.703125,
+            "private": 86.39453125
+          },
+          "warm_increment_rss": 6.08984375,
+          "warm_increment_private": 3.3046875
+        },
+        "load_ms": 81.3163,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "fork-scalar": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 31.54765,
+            "mean_ms_range": [
+              30.87425,
+              33.573858333333334
+            ],
+            "call_p50_ms": 22.36075,
+            "call_p95_ms": 67.96469499999999,
+            "cpu_ms_per_item_median": 29.947916666666668,
+            "active_core_percent_median": 94.92140441682005,
+            "host_percent_at_5_scans_per_second": 0.9358723958333334,
+            "real_mean_ms": 62.342349999999996,
+            "empty_mean_ms": 28.73335,
+            "synthetic_mean_ms": 12.150716666666668
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 14.6144,
+            "mean_ms_range": [
+              13.576023684210526,
+              16.449834210526316
+            ],
+            "call_p50_ms": 14.29475,
+            "call_p95_ms": 30.941619999999944,
+            "cpu_ms_per_item_median": 14.391447368421053,
+            "active_core_percent_median": 99.93753237976048,
+            "host_percent_at_5_scans_per_second": 0.44973273026315785,
+            "real_mean_ms": 14.221314285714286,
+            "synthetic_mean_ms": 14.8205
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 80.79958333333333,
+            "mean_ms_range": [
+              78.97743333333334,
+              89.80822500000001
+            ],
+            "call_p50_ms": 77.1408,
+            "call_p95_ms": 144.88131499999997,
+            "cpu_ms_per_item_median": 80.72916666666667,
+            "active_core_percent_median": 99.03968008871462,
+            "host_percent_at_5_scans_per_second": 2.5227864583333335,
+            "real_mean_ms": 121.2281,
+            "empty_mean_ms": 32.4173,
+            "synthetic_mean_ms": 72.17441666666667
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.7734375,
+            "vms": 82.96875,
+            "peak_wset": 96.7734375,
+            "private": 82.96875
+          },
+          "loaded": {
+            "rss": 102.0078125,
+            "vms": 85.6015625,
+            "peak_wset": 103.14453125,
+            "private": 85.6015625
+          },
+          "warm": {
+            "rss": 102.74609375,
+            "vms": 86.32421875,
+            "peak_wset": 135.3125,
+            "private": 86.32421875
+          },
+          "warm_increment_rss": 5.97265625,
+          "warm_increment_private": 3.453125
+        },
+        "load_ms": 75.9353,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "onnx-faithful": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 22.717299999999998,
+            "mean_ms_range": [
+              22.320091666666666,
+              25.97265833333333
+            ],
+            "call_p50_ms": 12.76395,
+            "call_p95_ms": 54.488245,
+            "cpu_ms_per_item_median": 22.135416666666668,
+            "active_core_percent_median": 95.24419086631067,
+            "host_percent_at_5_scans_per_second": 0.6917317708333334,
+            "real_mean_ms": 48.616025,
+            "empty_mean_ms": 16.58295,
+            "synthetic_mean_ms": 7.303966666666667
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 6.2059263157894735,
+            "mean_ms_range": [
+              5.87238947368421,
+              7.167784210526316
+            ],
+            "call_p50_ms": 5.927099999999999,
+            "call_p95_ms": 11.499324999999994,
+            "cpu_ms_per_item_median": 6.167763157894737,
+            "active_core_percent_median": 98.0073701542356,
+            "host_percent_at_5_scans_per_second": 0.19274259868421054,
+            "real_mean_ms": 6.2186071428571426,
+            "synthetic_mean_ms": 6.221920833333334
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 45.8583,
+            "mean_ms_range": [
+              43.87388333333333,
+              50.34630833333333
+            ],
+            "call_p50_ms": 37.28375,
+            "call_p95_ms": 91.41005499999997,
+            "cpu_ms_per_item_median": 45.572916666666664,
+            "active_core_percent_median": 99.28073096033854,
+            "host_percent_at_5_scans_per_second": 1.4241536458333333,
+            "real_mean_ms": 75.10455,
+            "empty_mean_ms": 19.23975,
+            "synthetic_mean_ms": 35.87036666666667
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.796875,
+            "vms": 82.9921875,
+            "peak_wset": 96.796875,
+            "private": 82.9921875
+          },
+          "loaded": {
+            "rss": 133.97265625,
+            "vms": 109.82421875,
+            "peak_wset": 137.41015625,
+            "private": 109.82421875
+          },
+          "warm": {
+            "rss": 167.48046875,
+            "vms": 145.11328125,
+            "peak_wset": 189.953125,
+            "private": 145.11328125
+          },
+          "warm_increment_rss": 70.68359375,
+          "warm_increment_private": 62.0546875
+        },
+        "load_ms": 376.1493,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "onnx-fast": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 22.686175,
+            "mean_ms_range": [
+              21.832825,
+              24.622983333333334
+            ],
+            "call_p50_ms": 13.10525,
+            "call_p95_ms": 54.69854,
+            "cpu_ms_per_item_median": 22.135416666666668,
+            "active_core_percent_median": 97.56363628349854,
+            "host_percent_at_5_scans_per_second": 0.6917317708333334,
+            "real_mean_ms": 49.79015,
+            "empty_mean_ms": 16.4407,
+            "synthetic_mean_ms": 7.168
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 2.5304157894736843,
+            "mean_ms_range": [
+              2.05095,
+              3.084397368421053
+            ],
+            "call_p50_ms": 2.3911499999999997,
+            "call_p95_ms": 5.002464999999999,
+            "cpu_ms_per_item_median": 2.4671052631578947,
+            "active_core_percent_median": 97.46001020861121,
+            "host_percent_at_5_scans_per_second": 0.07709703947368421,
+            "real_mean_ms": 2.8572214285714286,
+            "synthetic_mean_ms": 2.4574416666666665
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 35.45328333333333,
+            "mean_ms_range": [
+              32.43363333333333,
+              40.232425
+            ],
+            "call_p50_ms": 22.418750000000003,
+            "call_p95_ms": 76.227585,
+            "cpu_ms_per_item_median": 35.15625,
+            "active_core_percent_median": 99.15731267993746,
+            "host_percent_at_5_scans_per_second": 1.0986328125,
+            "real_mean_ms": 65.37185,
+            "empty_mean_ms": 20.821350000000002,
+            "synthetic_mean_ms": 19.8787
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.8125,
+            "vms": 83.06640625,
+            "peak_wset": 96.8125,
+            "private": 83.06640625
+          },
+          "loaded": {
+            "rss": 132.82421875,
+            "vms": 108.703125,
+            "peak_wset": 133.2265625,
+            "private": 108.703125
+          },
+          "warm": {
+            "rss": 162.93359375,
+            "vms": 144.09375,
+            "peak_wset": 187.18359375,
+            "private": 144.09375
+          },
+          "warm_increment_rss": 65.7890625,
+          "warm_increment_private": 60.73046875
+        },
+        "load_ms": 231.091,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "shipped-c": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 39.7726,
+            "mean_ms_range": [
+              38.06364166666667,
+              43.67829166666667
+            ],
+            "call_p50_ms": 27.714599999999997,
+            "call_p95_ms": 82.84794,
+            "cpu_ms_per_item_median": 37.760416666666664,
+            "active_core_percent_median": 96.51025108724588,
+            "host_percent_at_5_scans_per_second": 1.1800130208333333,
+            "real_mean_ms": 74.002375,
+            "empty_mean_ms": 40.7025,
+            "synthetic_mean_ms": 16.820366666666665
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 15.0706,
+            "mean_ms_range": [
+              12.835255263157896,
+              18.323081578947367
+            ],
+            "call_p50_ms": 13.9275,
+            "call_p95_ms": 29.347209999999997,
+            "cpu_ms_per_item_median": 14.802631578947368,
+            "active_core_percent_median": 99.53658798131913,
+            "host_percent_at_5_scans_per_second": 0.4625822368421052,
+            "real_mean_ms": 14.471292857142858,
+            "synthetic_mean_ms": 15.420195833333333
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 94.99376666666667,
+            "mean_ms_range": [
+              89.7879,
+              100.24066666666667
+            ],
+            "call_p50_ms": 86.00435,
+            "call_p95_ms": 168.06460999999996,
+            "cpu_ms_per_item_median": 93.75,
+            "active_core_percent_median": 98.68746548131764,
+            "host_percent_at_5_scans_per_second": 2.9296875,
+            "real_mean_ms": 138.386025,
+            "empty_mean_ms": 43.99435,
+            "synthetic_mean_ms": 84.21141666666666
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 97.0,
+            "vms": 83.078125,
+            "peak_wset": 97.0,
+            "private": 83.078125
+          },
+          "loaded": {
+            "rss": 102.6484375,
+            "vms": 86.07421875,
+            "peak_wset": 103.78515625,
+            "private": 86.07421875
+          },
+          "warm": {
+            "rss": 103.32421875,
+            "vms": 86.671875,
+            "peak_wset": 135.77734375,
+            "private": 86.671875
+          },
+          "warm_increment_rss": 6.32421875,
+          "warm_increment_private": 3.74609375
+        },
+        "load_ms": 75.2991,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      }
+    },
+    "small": {
+      "fork-avx2": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 15.518466666666667,
+            "mean_ms_range": [
+              15.306883333333333,
+              15.952608333333334
+            ],
+            "call_p50_ms": 4.9907,
+            "call_p95_ms": 44.97826,
+            "cpu_ms_per_item_median": 15.625,
+            "active_core_percent_median": 100.67800596335965,
+            "host_percent_at_5_scans_per_second": 0.48828125,
+            "real_mean_ms": 39.516075,
+            "empty_mean_ms": 6.3324,
+            "synthetic_mean_ms": 2.7516666666666665
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 2.133194736842105,
+            "mean_ms_range": [
+              1.9572526315789474,
+              2.1904684210526315
+            ],
+            "call_p50_ms": 1.98605,
+            "call_p95_ms": 4.292964999999997,
+            "cpu_ms_per_item_median": 2.0559210526315788,
+            "active_core_percent_median": 94.66185875299585,
+            "host_percent_at_5_scans_per_second": 0.06424753289473684,
+            "real_mean_ms": 2.0288142857142857,
+            "synthetic_mean_ms": 2.150529166666667
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 26.977075,
+            "mean_ms_range": [
+              24.099341666666668,
+              28.176308333333335
+            ],
+            "call_p50_ms": 15.5184,
+            "call_p95_ms": 65.235175,
+            "cpu_ms_per_item_median": 27.34375,
+            "active_core_percent_median": 99.6516255097228,
+            "host_percent_at_5_scans_per_second": 0.8544921875,
+            "real_mean_ms": 54.270925000000005,
+            "empty_mean_ms": 8.58425,
+            "synthetic_mean_ms": 13.483716666666666
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 97.03125,
+            "vms": 83.14453125,
+            "peak_wset": 97.03125,
+            "private": 83.14453125
+          },
+          "loaded": {
+            "rss": 102.64453125,
+            "vms": 86.02734375,
+            "peak_wset": 102.64453125,
+            "private": 86.02734375
+          },
+          "warm": {
+            "rss": 104.04296875,
+            "vms": 87.5625,
+            "peak_wset": 134.62109375,
+            "private": 87.5625
+          },
+          "warm_increment_rss": 7.234375,
+          "warm_increment_private": 4.55859375
+        },
+        "load_ms": 79.8043,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "fork-scalar": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 32.67710833333334,
+            "mean_ms_range": [
+              30.878025,
+              37.845083333333335
+            ],
+            "call_p50_ms": 22.6413,
+            "call_p95_ms": 70.80073999999999,
+            "cpu_ms_per_item_median": 32.552083333333336,
+            "active_core_percent_median": 98.35107576249307,
+            "host_percent_at_5_scans_per_second": 1.0172526041666667,
+            "real_mean_ms": 63.498725,
+            "empty_mean_ms": 30.11835,
+            "synthetic_mean_ms": 12.316916666666666
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 13.75738947368421,
+            "mean_ms_range": [
+              13.470636842105263,
+              15.05092105263158
+            ],
+            "call_p50_ms": 13.6949,
+            "call_p95_ms": 26.345494999999985,
+            "cpu_ms_per_item_median": 13.980263157894736,
+            "active_core_percent_median": 98.97238256006949,
+            "host_percent_at_5_scans_per_second": 0.4368832236842105,
+            "real_mean_ms": 12.608164285714285,
+            "synthetic_mean_ms": 14.656633333333334
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 82.35923333333334,
+            "mean_ms_range": [
+              80.82958333333333,
+              85.91386666666666
+            ],
+            "call_p50_ms": 77.2419,
+            "call_p95_ms": 149.00122,
+            "cpu_ms_per_item_median": 80.72916666666667,
+            "active_core_percent_median": 98.5088822640268,
+            "host_percent_at_5_scans_per_second": 2.5227864583333335,
+            "real_mean_ms": 120.220025,
+            "empty_mean_ms": 34.70565,
+            "synthetic_mean_ms": 73.43615
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.71484375,
+            "vms": 82.9609375,
+            "peak_wset": 96.71484375,
+            "private": 82.9609375
+          },
+          "loaded": {
+            "rss": 102.60546875,
+            "vms": 86.1015625,
+            "peak_wset": 102.60546875,
+            "private": 86.1015625
+          },
+          "warm": {
+            "rss": 104.11328125,
+            "vms": 87.421875,
+            "peak_wset": 134.828125,
+            "private": 87.421875
+          },
+          "warm_increment_rss": 7.09765625,
+          "warm_increment_private": 4.15625
+        },
+        "load_ms": 79.3761,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "onnx-faithful": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 24.220558333333333,
+            "mean_ms_range": [
+              22.347233333333335,
+              24.820191666666666
+            ],
+            "call_p50_ms": 12.5825,
+            "call_p95_ms": 56.6677,
+            "cpu_ms_per_item_median": 22.135416666666668,
+            "active_core_percent_median": 96.75824612476772,
+            "host_percent_at_5_scans_per_second": 0.6917317708333334,
+            "real_mean_ms": 50.34895,
+            "empty_mean_ms": 17.26865,
+            "synthetic_mean_ms": 7.502283333333333
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 4.682626315789474,
+            "mean_ms_range": [
+              3.4912026315789473,
+              5.849936842105263
+            ],
+            "call_p50_ms": 4.1983,
+            "call_p95_ms": 8.349849999999998,
+            "cpu_ms_per_item_median": 4.934210526315789,
+            "active_core_percent_median": 99.5704398464438,
+            "host_percent_at_5_scans_per_second": 0.15419407894736842,
+            "real_mean_ms": 4.69325,
+            "synthetic_mean_ms": 4.663633333333333
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 41.58635,
+            "mean_ms_range": [
+              34.058416666666666,
+              44.78109166666667
+            ],
+            "call_p50_ms": 27.972099999999998,
+            "call_p95_ms": 85.456285,
+            "cpu_ms_per_item_median": 41.666666666666664,
+            "active_core_percent_median": 99.31042691590399,
+            "host_percent_at_5_scans_per_second": 1.3020833333333333,
+            "real_mean_ms": 73.515575,
+            "empty_mean_ms": 19.60355,
+            "synthetic_mean_ms": 27.003916666666665
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.61328125,
+            "vms": 82.83203125,
+            "peak_wset": 96.61328125,
+            "private": 82.83203125
+          },
+          "loaded": {
+            "rss": 130.5546875,
+            "vms": 106.3671875,
+            "peak_wset": 132.8046875,
+            "private": 106.3671875
+          },
+          "warm": {
+            "rss": 163.30859375,
+            "vms": 142.15234375,
+            "peak_wset": 186.4765625,
+            "private": 142.15234375
+          },
+          "warm_increment_rss": 66.6953125,
+          "warm_increment_private": 59.3203125
+        },
+        "load_ms": 300.4692,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "onnx-fast": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 22.733075,
+            "mean_ms_range": [
+              21.580608333333334,
+              25.403291666666668
+            ],
+            "call_p50_ms": 14.0207,
+            "call_p95_ms": 55.00758499999999,
+            "cpu_ms_per_item_median": 22.135416666666668,
+            "active_core_percent_median": 98.1697644886561,
+            "host_percent_at_5_scans_per_second": 0.6917317708333334,
+            "real_mean_ms": 48.32875,
+            "empty_mean_ms": 17.04415,
+            "synthetic_mean_ms": 7.7297
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 1.3635078947368422,
+            "mean_ms_range": [
+              1.2438,
+              1.5120684210526316
+            ],
+            "call_p50_ms": 1.246,
+            "call_p95_ms": 2.6335849999999996,
+            "cpu_ms_per_item_median": 1.2335526315789473,
+            "active_core_percent_median": 95.23974001328784,
+            "host_percent_at_5_scans_per_second": 0.038548519736842105,
+            "real_mean_ms": 1.3590714285714285,
+            "synthetic_mean_ms": 1.3140625
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 29.352666666666664,
+            "mean_ms_range": [
+              28.730108333333334,
+              31.974425
+            ],
+            "call_p50_ms": 17.8693,
+            "call_p95_ms": 64.57478,
+            "cpu_ms_per_item_median": 28.645833333333332,
+            "active_core_percent_median": 99.29461108286732,
+            "host_percent_at_5_scans_per_second": 0.8951822916666666,
+            "real_mean_ms": 57.374275,
+            "empty_mean_ms": 17.9651,
+            "synthetic_mean_ms": 14.504383333333333
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 96.81640625,
+            "vms": 83.15234375,
+            "peak_wset": 96.81640625,
+            "private": 83.15234375
+          },
+          "loaded": {
+            "rss": 128.703125,
+            "vms": 104.5859375,
+            "peak_wset": 128.703125,
+            "private": 104.5859375
+          },
+          "warm": {
+            "rss": 149.91015625,
+            "vms": 127.19921875,
+            "peak_wset": 173.65234375,
+            "private": 127.19921875
+          },
+          "warm_increment_rss": 53.05078125,
+          "warm_increment_private": 44.046875
+        },
+        "load_ms": 152.7958,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      },
+      "shipped-c": {
+        "processes": 3,
+        "timings": {
+          "detection": {
+            "passes": 9,
+            "mean_ms_median": 38.361025,
+            "mean_ms_range": [
+              37.776225,
+              40.67585
+            ],
+            "call_p50_ms": 28.03005,
+            "call_p95_ms": 79.188015,
+            "cpu_ms_per_item_median": 37.760416666666664,
+            "active_core_percent_median": 96.50333669936973,
+            "host_percent_at_5_scans_per_second": 1.1800130208333333,
+            "real_mean_ms": 71.703925,
+            "empty_mean_ms": 39.28815,
+            "synthetic_mean_ms": 16.452
+          },
+          "recognition": {
+            "passes": 9,
+            "mean_ms_median": 12.397847368421052,
+            "mean_ms_range": [
+              11.166826315789473,
+              14.516860526315789
+            ],
+            "call_p50_ms": 12.24025,
+            "call_p95_ms": 24.663729999999987,
+            "cpu_ms_per_item_median": 12.335526315789474,
+            "active_core_percent_median": 98.62026307152415,
+            "host_percent_at_5_scans_per_second": 0.3854851973684211,
+            "real_mean_ms": 12.091628571428572,
+            "synthetic_mean_ms": 12.909929166666666
+          },
+          "whole_image": {
+            "passes": 9,
+            "mean_ms_median": 85.440225,
+            "mean_ms_range": [
+              77.87911666666666,
+              86.73804166666667
+            ],
+            "call_p50_ms": 74.84270000000001,
+            "call_p95_ms": 147.57302499999997,
+            "cpu_ms_per_item_median": 85.9375,
+            "active_core_percent_median": 99.36453908198824,
+            "host_percent_at_5_scans_per_second": 2.685546875,
+            "real_mean_ms": 123.302925,
+            "empty_mean_ms": 41.540549999999996,
+            "synthetic_mean_ms": 70.35523333333333
+          }
+        },
+        "memory_mib": {
+          "before": {
+            "rss": 97.4453125,
+            "vms": 83.57421875,
+            "peak_wset": 97.4453125,
+            "private": 83.57421875
+          },
+          "loaded": {
+            "rss": 103.10546875,
+            "vms": 86.453125,
+            "peak_wset": 103.10546875,
+            "private": 86.453125
+          },
+          "warm": {
+            "rss": 104.25,
+            "vms": 87.6953125,
+            "peak_wset": 135.30078125,
+            "private": 87.6953125
+          },
+          "warm_increment_rss": 7.30078125,
+          "warm_increment_private": 4.47265625
+        },
+        "load_ms": 72.2752,
+        "idle_core_percent_max": 0.0,
+        "agreement": {
+          "reference": "shipped-c",
+          "repeat_output_changes": 0,
+          "detector_images": 12,
+          "whole_images": 12,
+          "line_cases": 115,
+          "detector_map_values": 675280,
+          "detection_changed": 0,
+          "recognition_changed": 0,
+          "whole_image_changed": 0,
+          "maps_changed": 0,
+          "line_text_changed": 0,
+          "line_characters_changed": 0,
+          "line_frames_changed": 0
+        }
+      }
+    }
+  },
+  "provenance": {
+    "gsm_baseline_commit": "00063070",
+    "model_abi_revision": "205f47ec4e56ca87c00e7dba0a61c9aaec726707",
+    "model_release": "v0.5.0",
+    "fork_revision": "b02e81205fa4bba87726a34f9c7a8cd1469a06ce",
+    "fork_repository": "https://github.com/Mansive/vita-vn-ocr",
+    "compiler": "MSVC 19.51.36256.0",
+    "native_flags": [
+      "/O2",
+      "/fp:strict",
+      "/arch:AVX2",
+      "static CRT"
+    ],
+    "artifacts": {
+      "shipped-c": {
+        "gsm_vita_ocr.dll": {
+          "sha256": "e4d4f7d7a4f6a4c9addb0eaec9ba18d2f84e78fe82823256dcd5415328f38e95",
+          "bytes": 194560
+        },
+        "gsm_vocr_spotter.dll": {
+          "sha256": "581c81dd56716c22ef17060584a25a3d4d60cd752ba6f48d84d11252b5671653",
+          "bytes": 177664
+        }
+      },
+      "fork-scalar": {
+        "gsm_vita_ocr.dll": {
+          "sha256": "5f11220ba699a9edb004ac31961f03a5033f1b96aef3bea7baca465094911e33",
+          "bytes": 196096
+        },
+        "gsm_vocr_spotter.dll": {
+          "sha256": "975d1a91b67c81a5f46ee98c18e052955bfd18381551dc27e4d0c3ceac46bf8c",
+          "bytes": 180736
+        }
+      },
+      "fork-avx2": {
+        "gsm_vita_ocr.dll": {
+          "sha256": "f2e122abc80e1da193a6ae4ba989d6248d90c1684781d5aedfdf1160d2b09a95",
+          "bytes": 198656
+        },
+        "gsm_vocr_spotter.dll": {
+          "sha256": "6e2df3c2f287eab98814be1a69576426c6e743b47f4085bcd7894c3f58c60e0c",
+          "bytes": 185344
+        }
+      },
+      "packaged-avx2": {
+        "gsm_vita_ocr.dll": {
+          "sha256": "25c71cad44f278e54396ce7c62f99dfba7dad98c24198b786daeddd466e89d14",
+          "bytes": 198656
+        },
+        "gsm_vocr_spotter.dll": {
+          "sha256": "161c2e80b54ed6301a4ea3035ca1313c1106a0fc1ae9750a447067a11058c623",
+          "bytes": 185344
+        }
+      }
+    }
+  },
+  "map_validation_correction": {
+    "original_sha256": "b45b075a40aeb3dafd22970b87434563d3e4c628710f865e4b560d9ae65109bc",
+    "reason": "Original hashes compared native int8 storage with ONNX int64 storage. Reran all 17 map cases; numpy.assert_array_equal passed for every value. Canonical signed-int8 hashes below replace only ONNX map-hash fields. Timings unchanged.",
+    "cases": 17,
+    "values": 675280
+  }
+}

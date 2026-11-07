@@ -848,6 +848,7 @@ class Anki:
     auto_accept_timer: int = 10
     confirmation_always_on_top: bool = True
     confirmation_focus_on_show: bool = True
+    confirmation_restore_focus: bool = True
     confirmation_audio_step: float = 0.25
     confirmation_gamepad_enabled: bool = False
     confirmation_gamepad_focus_up: str = "12"
@@ -1280,9 +1281,13 @@ class VAD:
     whisper_model: str = WHISPER_BASE
     do_vad_postprocessing: bool = True
     # vosk_url: str = VOSK_BASE
-    selected_vad_model: str = SILERO
+    selected_vad_model: str = FIRERED
     selected_vad_model_v2: str = FIRERED
     backup_vad_model: str = OFF
+    # Retained for compatibility with profiles written during the Silero-default release.
+    silero_default_migrated: bool = True
+    # New profiles and later explicit model choices have adopted the current default.
+    firered_default_migrated: bool = True
     trim_beginning: bool = False
     beginning_offset: float = -0.25
     adaptive_preroll: bool = False
@@ -1570,6 +1575,8 @@ class OverlayEngine(str, Enum):
     ONEOCR = "oneocr"
     MEIKIOCR = "meikiocr"
     SCREENAI = "screenai"
+    VITAOCR = "vitaocr"
+    VOCR_LENS = "vocr_lens"
 
 
 class OverlayManualBackgroundMode(str, Enum):
@@ -2116,9 +2123,25 @@ class Config:
                 )
             cls._migrate_process_pausing_data(profile_data)
             cls._migrate_anki_profile_data(profile_data)
+            cls._migrate_vad_profile_data(profile_data)
             cls._migrate_single_port_fields(profile_data)
             cls._migrate_websocket_sources(profile_data)
         return data
+
+    @staticmethod
+    def _migrate_vad_profile_data(profile_data: dict[str, Any]) -> None:
+        if not isinstance(profile_data, dict):
+            return
+        vad = profile_data.get("vad")
+        if not isinstance(vad, dict) or vad.get("firered_default_migrated"):
+            return
+
+        # Move profiles using Silero or no VAD to the FireRed default once.
+        # Fall back to the legacy setting when the v2 setting is absent.
+        selected_model = vad.get("selected_vad_model_v2", vad.get("selected_vad_model", OFF))
+        if selected_model in (SILERO, OFF, None):
+            vad["selected_vad_model_v2"] = FIRERED
+        vad["firered_default_migrated"] = True
 
     @staticmethod
     def _migrate_process_pausing_data(profile_data: Dict[str, Any]) -> None:
@@ -2364,6 +2387,7 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "auto_accept_timer")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_restore_focus")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_audio_step")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_enabled")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_focus_up")
@@ -2516,64 +2540,15 @@ def get_gpu_support_path():
 
 
 def add_gpu_dlls_to_path():
-    try:
-        if is_windows():
-            # toolkit_path = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin"
-            # if os.path.exists(toolkit_path):
-            #     os.environ["PATH"] = toolkit_path + os.pathsep + os.environ["PATH"]
-            #     logger.info(f"Added CUDA Toolkit DLLs to PATH from {toolkit_path}")
-            # extra_dll_path = r"C:\Program Files\NVIDIA\CUDNN\v9.17\bin\12.9"
-            # if os.path.exists(extra_dll_path):
-            #     os.environ["PATH"] = extra_dll_path + os.pathsep + os.environ["PATH"]
-            #     logger.info(f"Added extra cuDNN DLLs to PATH from {extra_dll_path}")
-            packages_added = False
-            for pkg in ["nvidia.cublas", "nvidia.cudnn"]:
-                spec = importlib.util.find_spec(pkg)
-                if spec and spec.submodule_search_locations:
-                    # Go up one level to get the nvidia parent directory
-                    nvidia_root = os.path.dirname(spec.submodule_search_locations[0])
-                    # Add all nvidia package bin directories to PATH
-                    for item in os.listdir(nvidia_root):
-                        item_path = os.path.join(nvidia_root, item)
-                        if os.path.isdir(item_path):
-                            bin_path = os.path.join(item_path, "bin")
-                            if os.path.exists(bin_path):
-                                os.environ["PATH"] = bin_path + os.pathsep + os.environ["PATH"]
-                                packages_added = True
-                    break  # Only need to find one package to get the nvidia root
-            if packages_added:
-                logger.background(f"Added NVIDIA GPU Support DLLs to PATH from {nvidia_root}")
-    except Exception:
-        pass
-    # gpu_path = get_gpu_support_path()
-    # if os.path.exists(gpu_path):
-    #     os.environ['PATH'] = gpu_path + os.pathsep + os.environ.get('PATH', '')
-    #     logger.info(f"Added GPU Support DLLs to PATH from {gpu_path}")
-    # else:
-    #     logger.warning(f"GPU Support path does not exist: {gpu_path}")
+    from GameSentenceMiner.util.gpu_runtime import prepare_gpu_paths
+
+    prepare_gpu_paths()
 
 
 def is_cuda_available():
-    try:
-        if is_windows():
-            cuda_found = False
-            cudnn_found = False
-            for pkg in ["nvidia.cublas", "nvidia.cudnn"]:
-                spec = importlib.util.find_spec(pkg)
-                if spec and spec.submodule_search_locations:
-                    if pkg == "nvidia.cublas":
-                        cuda_found = True
-                    elif pkg == "nvidia.cudnn":
-                        cudnn_found = True
+    from GameSentenceMiner.util.gpu_runtime import availability_reason
 
-            if cuda_found and cudnn_found:
-                return True
-        # Linux/macOS run faster-whisper on CPU (CTranslate2); torch is no longer a dependency,
-        # so there is no GPU path to probe here. GPU support on Linux can be added later via the
-        # `gpu` extra + Linux nvidia-* libs, mirroring the Windows nvidia.cublas/cudnn check above.
-    except Exception:
-        pass
-    return False
+    return availability_reason("whisper") == "ready"
 
 
 # Logging is now handled by GameSentenceMiner.util.logging_config
@@ -2682,6 +2657,7 @@ def load_config():
                     config_file = _remove_legacy_hotkeys(config_file)
                     config_file = _remove_deprecated_config_settings(config_file)
                     Config._migrate_anki_profile_data(config_file)
+                    Config._migrate_vad_profile_data(config_file)
 
                     config = ProfileConfig.from_dict(config_file)
                     new_config = Config(configs={DEFAULT_CONFIG: config}, current_profile=DEFAULT_CONFIG)

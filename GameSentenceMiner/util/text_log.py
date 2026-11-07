@@ -35,6 +35,7 @@ class TextSource:
     SCREEN_CROPPER = "screen_cropper"
     HOTKEY = "hotkey"
     OVERLAY = "overlay"  # overlay periodic/mouse-move scan, no text event; audio timing is best-guess
+    SKIP_RECOVERY = "skip_recovery"
 
     # How much padding in seconds to add when capturing text from different sources
     _PADDING_SECONDS = {
@@ -194,7 +195,7 @@ class GameText:
                     existing.first_seen_time = first_seen
                     existing.finalized_time = finalized
                     existing.source_instance = record.source_instance
-                    existing.excluded_from_stats = record.excluded_from_stats
+                    existing.excluded_from_stats = record.excluded_from_stats or record.stats_status == "skipped"
                 return existing
 
             previous = self.values[-1] if self.values else None
@@ -215,7 +216,7 @@ class GameText:
                 first_seen_time=first_seen,
                 finalized_time=finalized,
                 source_instance=record.source_instance,
-                excluded_from_stats=record.excluded_from_stats,
+                excluded_from_stats=record.excluded_from_stats or record.stats_status == "skipped",
             )
             self.values_dict[line.id] = line
             self.values.append(line)

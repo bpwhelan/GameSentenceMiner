@@ -3525,10 +3525,14 @@ def engine_change_handler(user_input="s", is_combo=True):
 
 
 def engine_change_handler_name(engine, switch=True):
+    """Load and return the named engine, optionally making it the active OCR1."""
     global engine_index
-    old_engine_index = engine_index
+    engine = _normalize_engine_name(engine)
+    engine_instance = next(
+        (instance for instance in engine_instances if _normalize_engine_name(instance.name) == engine), None
+    )
 
-    if engine not in get_engine_names():
+    if engine_instance is None:
         for _, engine_class in sorted(
             inspect.getmembers(
                 sys.modules[__name__],
@@ -3540,30 +3544,41 @@ def engine_change_handler_name(engine, switch=True):
                 ),
             )
         ):
-            if not hasattr(engine_class, "name") and not hasattr(engine_class, "key"):
+            if not hasattr(engine_class, "name") or not hasattr(engine_class, "key"):
                 continue
 
             if engine_class.name == engine:
-                if config.get_engine(engine_class.name) == None:
-                    engine_instance = engine_class()
+                if config.get_engine(engine_class.name) is None:
+                    candidate = engine_class()
                 else:
-                    engine_instance = engine_class(config.get_engine(engine_class.name), lang=get_ocr_language())
+                    candidate = engine_class(config.get_engine(engine_class.name), lang=get_ocr_language())
 
-                if engine_instance.available:
+                if candidate.available:
+                    engine_instance = candidate
                     engine_instances.append(engine_instance)
                     engine_keys.append(engine_class.key)
-
-    if switch:
-        for i, instance in enumerate(engine_instances):
-            if instance.name.lower() in engine.lower():
-                engine_index = i
                 break
+
+    if switch and engine_instance is not None:
+        old_engine_index = engine_index
+        engine_index = engine_instances.index(engine_instance)
 
         if engine_index != old_engine_index:
             new_engine_name = engine_instances[engine_index].readable_name
             notifier.send(title="owocr", message=f"Switched to {new_engine_name}")
             engine_color = config.get_general("engine_color")
             logger.opt(ansi=True).info(f"Switched to <{engine_color}>{new_engine_name}</{engine_color}>!")
+
+    return engine_instance
+
+
+def _require_engine_instance(engine):
+    # A config reload can expose a new OCR2 before it has been initialized.
+    # Resolve it on demand without changing the active automatic OCR engine.
+    instance = engine_change_handler_name(engine, switch=False)
+    if instance is None:
+        raise RuntimeError(f"OCR engine '{engine}' is not available. Check its installation and configuration.")
+    return instance
 
 
 def set_ocr_engines(ocr1, ocr2):
@@ -4163,13 +4178,10 @@ def process_and_write_results(
     if auto_pause_handler:
         auto_pause_handler.stop()
     if engine:
-        for i, instance in enumerate(engine_instances):
-            if instance.name.lower() in engine.lower():
-                engine_instance = instance
-                break
+        engine_instance = _require_engine_instance(engine)
     else:
         engine_instance = engine_instances[engine_index]
-        engine = engine_instance.name
+    engine = engine_instance.name
 
     engine_color = config.get_general("engine_color")
 
@@ -4226,12 +4238,9 @@ def process_and_write_results(
         logger.opt(ansi=True).info(
             f"<{engine_color}>{engine_instance.readable_name}</{engine_color}> failed with message: {text}, trying <{engine_color}>{ocr_1}</{engine_color}>"
         )
-        for i, instance in enumerate(engine_instances):
-            if instance.name.lower() in ocr_1.lower():
-                engine_instance = instance
-                if last_result:
-                    last_result = []
-                break
+        engine_instance = _require_engine_instance(ocr_1)
+        if last_result:
+            last_result = []
         start_time = time.time()
         result = engine_instance(img_or_path, furigana_filter_sensitivity)
         res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None] * 6)[:6]
@@ -4332,6 +4341,8 @@ def process_and_write_results(
                 "line_count": 0,
             }
             detection_payload["pipeline"] = pipeline_metadata
+            if isinstance(raw_response_dict, dict) and raw_response_dict.get("gsm_finder"):
+                pipeline_metadata["finder"] = dict(raw_response_dict["gsm_finder"])
 
             if write_to == "callback":
                 logger.opt(ansi=True).info(
@@ -4502,6 +4513,9 @@ def process_and_write_results(
             "line_count": len(coords) if isinstance(coords, list) else 0,
         }
         engine_key = str(getattr(engine_instance, "name", engine) or "").strip().lower()
+        if engine_key == "vitaocr" and isinstance(raw_response_dict, dict) and raw_response_dict.get("gsm_model"):
+            pipeline_metadata["model"] = dict(raw_response_dict["gsm_model"])
+            pipeline_metadata["finder"] = dict(raw_response_dict.get("gsm_finder") or {})
         if engine_key == "glens" and google_lens_response_is_formula_only(raw_response_dict):
             pipeline_metadata["ocr"]["google_lens_formula_only"] = True
 
@@ -5128,7 +5142,7 @@ def run(
 
     while not terminated:
         ocr_start_time = datetime.now()
-        start_time = time.time()
+        start_time = time.monotonic()
         img = None
         filter_img = False
         image_metadata = None
@@ -5162,13 +5176,15 @@ def run(
                         screenshot_thread.screencapture_window_active and screenshot_thread.screencapture_window_visible
                     )
                 )
-                and (time.time() - last_screenshot_time) > adjusted_scan_rate
+                and (time.monotonic() - last_screenshot_time) >= adjusted_scan_rate
             ):
+                # Schedule from the capture request, so capture/recognition work
+                # counts toward the interval rather than adding another delay.
+                last_screenshot_time = time.monotonic()
                 screenshot_event.set()
                 periodic_item = periodic_screenshot_queue.get()
                 img, filter_img, image_metadata = _normalize_queue_item(periodic_item, default_filter=True)
                 notify = False
-                last_screenshot_time = time.time()
                 ocr_start_time = datetime.now()
                 if adjusted_scan_rate > base_scan_rate:
                     ocr_start_time = ocr_start_time - timedelta(seconds=adjusted_scan_rate - base_scan_rate)
@@ -5253,7 +5269,14 @@ def run(
                 )
                 if stability_gate_enabled:
                     visual_stability_gate.update_reference(img, ocr_payload)
-                if not text:
+                # Detectors intentionally return no transcription. Nonempty
+                # detection payloads are activity, not an idle/blank frame.
+                has_detected_text = (
+                    isinstance(ocr_payload, dict)
+                    and ocr_payload.get("schema") == TEXT_DETECTION_RESULT_SCHEMA
+                    and bool(ocr_payload.get("boxes"))
+                )
+                if not text and not has_detected_text:
                     emit_ocr_debug(
                         get_ocr_advanced_debug_logging(),
                         "ocr1.no_text",
@@ -5296,9 +5319,22 @@ def run(
                 if delete_images:
                     Path.unlink(img)
 
-        elapsed_time = time.time() - start_time
-        if (not terminated) and elapsed_time < 0.1:
-            time.sleep(0.1 - elapsed_time)
+        elapsed_time = time.monotonic() - start_time
+        sleep_time = 0.1 - elapsed_time
+        if (
+            process_screenshots
+            and not paused
+            and (
+                not screenshot_thread
+                or (screenshot_thread.screencapture_window_active and screenshot_thread.screencapture_window_visible)
+            )
+        ):
+            # Wake for the next capture deadline, even when it falls between
+            # the regular input/config polling ticks.
+            until_capture = last_screenshot_time + get_adjusted_scan_rate() - time.monotonic()
+            sleep_time = min(sleep_time, max(0.0, until_capture))
+        if not terminated and sleep_time > 0:
+            time.sleep(sleep_time)
 
     if websocket_server_thread:
         websocket_server_thread.stop_server()

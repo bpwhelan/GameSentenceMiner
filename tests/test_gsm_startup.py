@@ -198,7 +198,7 @@ def test_connect_obs_when_available_uses_single_connection(monkeypatch):
     assert connect_calls[0]["connections"] == 2
     assert connect_calls[0]["check_output"] is True
     assert connect_calls[0]["start_manager"] is True
-    assert connect_calls[0]["initial_connect_delay"] == pytest.approx(2.0)
+    assert connect_calls[0].get("initial_connect_delay", 0) == 0
     assert previous_line_refreshes == [True]
 
 
@@ -217,7 +217,8 @@ def test_launch_obs_early_skips_python_launch_under_electron(monkeypatch):
     assert calls == []
 
 
-def test_run_prepares_hidden_config_window_before_backend_ready(monkeypatch):
+@pytest.mark.parametrize("open_config", [False, True])
+def test_run_only_builds_settings_when_requested(monkeypatch, open_config):
     calls = []
 
     class _FakeFuture:
@@ -298,7 +299,7 @@ def test_run_prepares_hidden_config_window_before_backend_ready(monkeypatch):
         lambda: SimpleNamespace(set_transport_runtime=lambda _runtime: calls.append("websocket-transport")),
     )
     monkeypatch.setattr(
-        gsm_module, "get_config", lambda: SimpleNamespace(general=SimpleNamespace(open_config_on_startup=False))
+        gsm_module, "get_config", lambda: SimpleNamespace(general=SimpleNamespace(open_config_on_startup=open_config))
     )
     monkeypatch.setattr(gsm_module, "send_message", lambda *_args, **_kwargs: calls.append("send-initialized"))
     monkeypatch.setattr(gsm_module, "_emit_install_stage", lambda *_args, **_kwargs: calls.append("emit-finalize"))
@@ -306,14 +307,20 @@ def test_run_prepares_hidden_config_window_before_backend_ready(monkeypatch):
     monkeypatch.setattr(gsm_module, "is_windows", lambda: False)
     monkeypatch.setattr(gsm_module.signal, "signal", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(gsm_module.gsm_status, "clear_words_being_processed", lambda: calls.append("clear-words"))
+    monkeypatch.setattr(gsm_module.gsm_state, "config_app", None)
+    monkeypatch.setattr(gsm_module.gsm_state, "config_app_factory", None)
 
     app.run()
 
-    assert calls.count("config-window") == 1
-    assert calls.index("qt-app") < calls.index("config-window")
-    assert calls.index("config-window") < calls.index("send-initialized")
-    assert app.state.settings_window is fake_settings_window
-    assert gsm_module.gsm_state.config_app is fake_settings_window
+    assert calls.count("config-window") == int(open_config)
+    if open_config:
+        assert calls.index("qt-app") < calls.index("config-window")
+        assert app.state.settings_window is fake_settings_window
+        assert gsm_module.gsm_state.config_app is fake_settings_window
+    else:
+        assert app.state.settings_window is None
+        assert gsm_module.gsm_state.config_app is None
+        assert gsm_module.gsm_state.config_app_factory() is fake_settings_window
     assert calls.index("send-initialized") < calls.index("qt-loop")
 
 

@@ -1,3 +1,4 @@
+import { markStartup } from './services/startup_timing.js';
 import electron from 'electron';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -6,6 +7,7 @@ import { configureLinuxDesktopIdentity } from './linux_desktop_identity.js';
 import { USE_IN_PROCESS_OVERLAY } from './overlay_runtime_config.js';
 import { getBaseDir } from './data_dir.js';
 import { captureRendererDiagnostics, initializeDesktopLogging } from './services/logging.js';
+import { CHANGELOG_PROTOCOL_SCHEME } from './services/changelog_protocol.js';
 
 const { app, dialog } = electron;
 const OVERLAY_CHILD_ARG = '--gsm-overlay-child';
@@ -81,9 +83,12 @@ function failOverlayBootstrap(message: string, error?: unknown): never {
     throw new Error(detail);
 }
 
-if (!isOverlayChildProcess() && !process.argv.includes(AGENT_HOST_ARG) && USE_IN_PROCESS_OVERLAY) {
+if (!isOverlayChildProcess() && !process.argv.includes(AGENT_HOST_ARG)) {
+    // Register every desktop scheme together before asynchronous preparation can
+    // let Electron become ready. main.ts may be imported after that point.
     electron.protocol.registerSchemesAsPrivileged([
-        {
+        CHANGELOG_PROTOCOL_SCHEME,
+        ...(USE_IN_PROCESS_OVERLAY ? [{
             scheme: 'chrome-extension',
             privileges: {
                 standard: true,
@@ -92,7 +97,7 @@ if (!isOverlayChildProcess() && !process.argv.includes(AGENT_HOST_ARG) && USE_IN
                 corsEnabled: true,
                 bypassCSP: true,
             },
-        },
+        }] : []),
     ]);
 }
 
@@ -125,16 +130,34 @@ if (process.argv.includes(AGENT_HOST_ARG)) {
         failOverlayBootstrap(`Failed to boot overlay app from ${overlayAppAsarPath}`, error);
     }
 } else {
+    void startMainApp().catch((error) => {
+        console.error('GSM startup failed:', error);
+        dialog.showErrorBox('GSM Startup Failed', error instanceof Error ? error.message : String(error));
+        app.exit(1);
+    });
+}
+
+async function startMainApp(): Promise<void> {
+    // Also cover direct `electron .` launches and restarts from an older dev
+    // instance. Switch before taking the single-instance lock or starting helpers.
+    if (process.platform === 'win32' && !app.isPackaged) {
+        const { ensureDevElectron } = createRequire(import.meta.url)(
+            path.join(app.getAppPath(), 'scripts', 'electron-dev-runtime.cjs'),
+        ) as { ensureDevElectron: () => Promise<string> };
+        const executable = await ensureDevElectron();
+        if (path.resolve(process.execPath).toLowerCase() !== path.resolve(executable).toLowerCase()) {
+            app.relaunch({ execPath: executable, args: process.argv.slice(1) });
+            app.exit(0);
+            return;
+        }
+    }
     initializeDesktopLogging(getBaseDir(), {
         appVersion: app.getVersion(),
         packaged: app.isPackaged,
         appPath: app.getAppPath(),
     });
+    markStartup('desktop bootstrap');
     app.on('web-contents-created', (_event, contents) => captureRendererDiagnostics(contents));
     traceOverlayBootstrap('main app mode detected');
-    void import('./main.js').catch((error) => {
-        console.error('GSM startup failed:', error);
-        dialog.showErrorBox('GSM Startup Failed', error instanceof Error ? error.message : String(error));
-        app.exit(1);
-    });
+    await import('./main.js');
 }

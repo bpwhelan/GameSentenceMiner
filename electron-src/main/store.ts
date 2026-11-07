@@ -62,6 +62,7 @@ interface OCRConfig {
     useOnlineOcr?: boolean;
     ocr1: string;
     ocr2: string;
+    menuAreaOcrEngine?: "main" | "glens" | "bing";
     scanRate: number;
     language: string;
     ocr_screenshots: boolean;
@@ -179,6 +180,7 @@ interface StoreConfig {
     startConsoleMinimized: boolean;
     autoUpdateElectron: boolean;
     autoUpdateGSMApp: boolean;
+    autoUpdateOBS: boolean;
     autoUpdateTexthook: boolean;
     customPythonPackage: string;
     pythonExtras: string[];
@@ -202,6 +204,7 @@ interface StoreConfig {
     databaseBackupRetentionCount: number;
     locale: string; // UI language code (e.g. "en", "ukr")
     theme: string; // Renderer UI theme id (daisyUI theme name)
+    seasonalEffectsDisabled: boolean; // Blanket opt out for seasonal icons, themes, and decorations
     pythonPath: string;
     electronAppVersion: string;
     desktopChangelogSeenVersions: string[];
@@ -245,6 +248,7 @@ export const store = new Store<StoreConfig>({
         startConsoleMinimized: false,
         autoUpdateElectron: false,
         autoUpdateGSMApp: false,
+        autoUpdateOBS: false,
         autoUpdateTexthook: true,
         VN: {
             vns: [],
@@ -274,6 +278,7 @@ export const store = new Store<StoreConfig>({
             useOnlineOcr: false,
             ocr1: DEFAULT_STABILITY_OCR,
             ocr2: DEFAULT_STABILITY_OCR,
+            menuAreaOcrEngine: "main",
             language: "ja",
             ocr_screenshots: false,
             furigana_filter_sensitivity: 0,
@@ -350,6 +355,7 @@ export const store = new Store<StoreConfig>({
         databaseBackupRetentionCount: 2,
         locale: 'en', // UI language code
         theme: 'gsm-dark', // Default renderer UI theme
+        seasonalEffectsDisabled: false,
         hasCompletedSetup: false,
         consoleMode: 'simple', // 'simple' = need-to-know only, 'advanced' = full log
         setupWizardVersion: 0,
@@ -1108,6 +1114,20 @@ export function setLocale(locale: string): void {
 
 export function getTheme(): string {
     return store.get("theme") || "gsm-dark";
+}
+
+export function getSeasonalEffectsDisabled(): boolean {
+    return store.get('seasonalEffectsDisabled') === true;
+}
+
+export function setSeasonalEffectsDisabled(disabled: boolean): void {
+    if (getSeasonalEffectsDisabled() === disabled) return;
+    store.set('seasonalEffectsDisabled', disabled);
+    for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+            window.webContents.send('settings.seasonalEffectsChanged', disabled);
+        }
+    }
 }
 
 export function setTheme(theme: string): void {

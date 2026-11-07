@@ -51,10 +51,10 @@ def test_overlay_filters_using_target_language(monkeypatch, target_config, langu
     assert [line["text"] for line in result] == [text]
 
 
-@pytest.mark.parametrize("engine_name", ["ONEOCR", "MEIKIOCR", "SCREENAI", "LENS"])
+@pytest.mark.parametrize("engine_name", ["ONEOCR", "MEIKIOCR", "SCREENAI", "VITAOCR", "LENS"])
 def test_overlay_loads_engines_with_target_language(monkeypatch, target_config, engine_name):
     factories = {}
-    for class_name in ("OneOCR", "MeikiOCR", "ScreenAIOCR", "GoogleLens"):
+    for class_name in ("OneOCR", "MeikiOCR", "ScreenAIOCR", "VitaOCR", "GoogleLens"):
         factories[class_name] = Mock()
         monkeypatch.setattr(get_overlay_coords, class_name, factories[class_name])
     monkeypatch.setattr(get_overlay_coords, "is_windows", lambda: True)
@@ -119,6 +119,7 @@ def test_local_engine_scan_honors_explicit_language(monkeypatch, target_config, 
         ]
     )
     monkeypatch.setattr(ocr, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(ocr.SharedMeikiOCRModel, "get_model", lambda **kwargs: engine.model)
 
     result = engine(Image.new("RGB", (1000, 1000)), return_coords=True, language="ko")
 

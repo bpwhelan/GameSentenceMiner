@@ -1,13 +1,14 @@
 import os
 import time
-from types import SimpleNamespace
 import wave
+from contextlib import nullcontext
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from GameSentenceMiner import vad
-from GameSentenceMiner.util.config.configuration import FIRERED, WHISPER, VAD
+from GameSentenceMiner.util.config.configuration import FIRERED, SILERO, VAD, WHISPER
 
 
 def _write_pcm16_wav(path, samples, sample_rate=16000, channels=1):
@@ -19,8 +20,9 @@ def _write_pcm16_wav(path, samples, sample_rate=16000, channels=1):
         wav_file.writeframes(samples.tobytes())
 
 
-def test_vad_system_uses_forced_v2_model_instead_of_legacy_selection(monkeypatch):
-    vad_config = VAD(selected_vad_model=WHISPER)
+@pytest.mark.parametrize("primary", [SILERO, FIRERED])
+def test_vad_system_uses_current_model_instead_of_legacy_selection(monkeypatch, primary):
+    vad_config = VAD(selected_vad_model=WHISPER, selected_vad_model_v2=primary)
     system = vad.VADSystem()
     selected_models = []
 
@@ -34,7 +36,7 @@ def test_vad_system_uses_forced_v2_model_instead_of_legacy_selection(monkeypatch
 
     system.trim_audio_with_vad("input.wav", "output.wav", None, "text")
 
-    assert selected_models == [FIRERED]
+    assert selected_models == [primary]
 
 
 def test_adaptive_preroll_config_defaults_off_and_round_trips():
@@ -236,7 +238,7 @@ def test_silero_vad_converts_sample_indices_to_seconds(monkeypatch):
     assert result.segments[0].end == 1.5
 
 
-def test_firered_vad_always_loads_with_cpu_provider(monkeypatch):
+def test_firered_vad_defaults_to_cpu_without_gpu_probe(monkeypatch):
     import onnxruntime as ort
 
     requested_providers = []
@@ -267,9 +269,85 @@ def test_firered_vad_always_loads_with_cpu_provider(monkeypatch):
     assert requested_providers == [["CPUExecutionProvider"]]
 
 
+def test_whisper_retries_lazy_cuda_failure_on_cpu(monkeypatch):
+    import faster_whisper
+
+    def fail_lazily():
+        raise RuntimeError("cuDNN could not load")
+        yield
+
+    processor = vad.WhisperVADProcessor()
+    processor.vad_model = SimpleNamespace(transcribe=lambda *a, **k: (fail_lazily(), None))
+    processor._active_device = "cuda"
+    config = SimpleNamespace(
+        general=SimpleNamespace(target_language="ja"),
+        vad=SimpleNamespace(whisper_model="base", use_vad_filter_for_whisper=False),
+    )
+    monkeypatch.setattr(vad, "get_config", lambda: config)
+    calls = []
+
+    def cpu_model(model, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(transcribe=lambda *a, **k: (iter(["result"]), None))
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", cpu_model)
+    recorded = []
+    monkeypatch.setattr(vad, "record_runtime", lambda *a, **k: recorded.append((a, k)))
+    assert processor._transcribe_audio([]) == ["result"]
+    assert calls == [{"device": "cpu", "compute_type": "int8"}]
+    assert processor._active_device == "cpu"
+    assert recorded[0][0] == ("whisper", "cpu")
+    assert "cuDNN" in recorded[0][1]["error"]
+
+
+def test_firered_applies_gpu_preference_on_next_operation(monkeypatch):
+    preference = [False]
+    calls = []
+    monkeypatch.setattr(vad, "gpu_enabled", lambda engine: preference[0])
+
+    def create(path, engine, **kwargs):
+        calls.append(preference[0])
+        return SimpleNamespace(
+            get_providers=lambda: ["CUDAExecutionProvider" if preference[0] else "CPUExecutionProvider"]
+        )
+
+    monkeypatch.setattr(vad, "create_onnx_session", create)
+    monkeypatch.setattr(vad, "FireRedFeatureExtractor", lambda path: object())
+    processor = vad.FireRedVADProcessor()
+    processor._ensure_model()
+    processor._ensure_model()
+    preference[0] = True
+    processor._ensure_model()
+    assert calls == [False, True]
+
+
+def test_whisper_applies_gpu_preference_on_next_operation(monkeypatch):
+    import faster_whisper
+
+    preference = [False]
+    calls = []
+    monkeypatch.setattr(vad, "gpu_enabled", lambda engine: preference[0])
+    monkeypatch.setattr(vad, "should_use_gpu", lambda engine: preference[0])
+    monkeypatch.setattr(vad, "record_runtime", lambda *a, **k: None)
+    monkeypatch.setattr(vad, "get_config", lambda: SimpleNamespace(vad=SimpleNamespace(whisper_model="base")))
+
+    def create(model, **kwargs):
+        calls.append(kwargs["device"])
+        return object()
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", create)
+    processor = vad.WhisperVADProcessor()
+    processor._ensure_model()
+    processor._ensure_model()
+    preference[0] = True
+    processor._ensure_model()
+    assert calls == ["cpu", "cuda"]
+
+
 def test_firered_vad_converts_onnx_probabilities_to_segments(monkeypatch):
     class FakeTempWav:
-        def __init__(self, input_audio):
+        def __init__(self, input_audio, *, use_filters=True):
+            assert use_filters is False
             self.input_audio = input_audio
 
         def __enter__(self):
@@ -328,54 +406,15 @@ def test_firered_vad_removes_confirmed_trailing_silence_from_segment():
     assert decisions == [1, 1, 0, 0, 0, 0]
 
 
-def test_firered_vad_corroborates_suspicious_clip_boundary_with_silero(monkeypatch):
-    processor = vad.FireRedVADProcessor()
-    processor._postprocessor = vad.FireRedVADPostprocessor(
-        smooth_window_size=1,
-        speech_threshold=0.4,
-        min_speech_frame=20,
-        max_speech_frame=2000,
-        min_silence_frame=20,
-        merge_silence_frame=0,
-        extend_speech_frame=0,
-    )
-    firered_segments = [
-        vad.Segment(start=0.2, end=2.0),
-        vad.Segment(start=3.1, end=4.1),
-        vad.Segment(start=4.36, end=7.4),
-    ]
-    probabilities = np.full(740, 0.6, dtype=np.float32)
+@pytest.mark.parametrize("trailing_probability", [0.6, 0.99])
+def test_firered_vad_uses_only_firered_even_when_speech_reaches_clip_end(monkeypatch, tmp_path, trailing_probability):
+    wav_path = tmp_path / "boundary.wav"
+    _write_pcm16_wav(wav_path, np.zeros(740 * 160, dtype=np.int16))
+    probabilities = np.full(740, trailing_probability, dtype=np.float32)
     probabilities[20:200] = 0.99
-    probabilities[310:410] = 0.99
-    probabilities[436:495] = 0.99
-    decoded_audio = np.zeros(740 * 160, dtype=np.float32)
-
-    monkeypatch.setattr(
-        vad,
-        "_detect_silero_segments_from_audio",
-        lambda audio: [
-            vad.Segment(start=0.2, end=2.0),
-            vad.Segment(start=3.1, end=4.1),
-            vad.Segment(start=4.4, end=5.0),
-        ],
-    )
-
-    segments = processor._corroborate_trailing_boundary(
-        firered_segments,
-        probabilities,
-        wav_duration=7.4,
-        decoded_audio=decoded_audio,
-    )
-
-    assert segments == [
-        vad.Segment(start=0.2, end=2.0),
-        vad.Segment(start=3.1, end=4.1),
-        vad.Segment(start=4.36, end=5.0),
-    ]
-
-
-def test_firered_vad_keeps_boundary_when_it_has_later_high_confidence_speech(monkeypatch):
     processor = vad.FireRedVADProcessor()
+    processor.vad_model = SimpleNamespace(run=lambda *_args: [probabilities])
+    processor._feature_extractor = SimpleNamespace(extract=lambda _path: (np.zeros((740, 80), dtype=np.float32), 7.4))
     processor._postprocessor = vad.FireRedVADPostprocessor(
         smooth_window_size=1,
         speech_threshold=0.4,
@@ -385,24 +424,23 @@ def test_firered_vad_keeps_boundary_when_it_has_later_high_confidence_speech(mon
         merge_silence_frame=0,
         extend_speech_frame=0,
     )
-    firered_segments = [vad.Segment(start=0.2, end=2.0), vad.Segment(start=4.0, end=7.4)]
-    probabilities = np.full(740, 0.6, dtype=np.float32)
-    probabilities[600:625] = 0.99
-
+    monkeypatch.setattr(processor, "_ensure_model", lambda: None)
+    monkeypatch.setattr(vad, "get_config", lambda: SimpleNamespace(vad=VAD(selected_vad_model_v2=FIRERED)))
+    monkeypatch.setattr(vad, "TempWav", lambda _path, **_kwargs: nullcontext(str(wav_path)))
     monkeypatch.setattr(
         vad,
         "_detect_silero_segments_from_audio",
-        lambda audio: [vad.Segment(start=0.2, end=2.0), vad.Segment(start=4.0, end=5.0)],
+        lambda _audio: pytest.fail("FireRed must not invoke Silero, including at the clip boundary"),
+    )
+    monkeypatch.setattr(
+        vad.WhisperVADProcessor,
+        "_detect_voice_activity",
+        lambda *_args: pytest.fail("FireRed must not invoke Whisper"),
     )
 
-    segments = processor._corroborate_trailing_boundary(
-        firered_segments,
-        probabilities,
-        wav_duration=7.4,
-        decoded_audio=np.zeros(740 * 160, dtype=np.float32),
-    )
+    result = processor._detect_voice_activity("input.opus", "")
 
-    assert segments == firered_segments
+    assert result.segments == [vad.Segment(start=0.0, end=7.4)]
 
 
 def test_firered_cmvn_parser_reads_bundled_stats():

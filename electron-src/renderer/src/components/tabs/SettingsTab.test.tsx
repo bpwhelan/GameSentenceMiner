@@ -100,6 +100,63 @@ describe("SettingsTab data folder controls", () => {
     }));
   });
 
+  it("saves and restores the blanket seasonal opt out while keeping the chosen theme", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === "settings.getSettings") return { seasonalEffectsDisabled: true, theme: "solarized-light" };
+      if (channel === "settings.saveSettings") return { success: true, settings: payload };
+      return fallback(channel);
+    });
+    await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+    const toggle = container.querySelector<HTMLInputElement>("#disable-seasonal-effects")!;
+    expect(toggle.checked).toBe(true);
+    await act(async () => toggle.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", expect.objectContaining({
+      seasonalEffectsDisabled: false, theme: "solarized-light",
+    }));
+    expect(toggle.checked).toBe(false);
+  });
+
+  it("opens GPU controls in their own settings section", async () => {
+    await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+    await act(async () => container.querySelector<HTMLButtonElement>("#settings-nav-gpu")!.click());
+    expect(container.querySelector<HTMLElement>("#settings-view-gpu")!.hidden).toBe(false);
+    expect(invokeMock).toHaveBeenCalledWith("settings.gpu", { refresh: true });
+  });
+
+  it("moves Python tools into Settings without probing Python before the section opens", async () => {
+    const openLogs = vi.fn();
+    await act(async () => root.render(<I18nProvider><SettingsTab active onRequestConsole={openLogs} /></I18nProvider>));
+    expect(invokeMock).not.toHaveBeenCalledWith("python.getPythonInfo");
+    await act(async () => container.querySelector<HTMLButtonElement>("#settings-nav-python")!.click());
+    expect(container.querySelector<HTMLElement>("#settings-view-python")!.hidden).toBe(false);
+    expect(invokeMock).toHaveBeenCalledWith("python.getPythonInfo");
+    await act(async () => Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Open logs")!.click());
+    expect(openLogs).toHaveBeenCalledOnce();
+    expect(container.querySelector("#visible-tabs-selector")!.textContent).not.toContain("Python");
+  });
+
+  it("finds dependency recovery in search and ignores the retired Python tab preference", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "settings.getSettings") return { visibleTabs: ["python", "speech", "console"] };
+      return fallback(channel);
+    });
+    await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+    await act(async () => container.querySelector<HTMLInputElement>("#start-console-minimized")!.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", expect.objectContaining({ visibleTabs: ["speech", "console"] }));
+    const search = container.querySelector<HTMLInputElement>("#settings-hub-search")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "reset dependencies");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const result = Array.from(container.querySelectorAll(".settings-directory-item")).find(item => item.querySelector("strong")?.textContent === "Python & debug")!;
+    await act(async () => result.querySelector<HTMLButtonElement>("button")!.click());
+    expect(search.value).toBe("");
+    expect(container.querySelector<HTMLElement>("#settings-view-python")!.hidden).toBe(false);
+    expect(document.activeElement?.id).toBe("settings-view-python");
+  });
+
   it("preserves Windows Speech visibility when another desktop preference is saved", async () => {
     const fallback = invokeMock.getMockImplementation()!;
     invokeMock.mockImplementation(async (channel: string) => {

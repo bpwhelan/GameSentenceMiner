@@ -39,7 +39,9 @@ function loadShutdown() {
         isQuitting: false,
         quitCleanupComplete: false,
         quitPromise: null,
+        waitForObsRuntimeUpdate: vi.fn(async () => {}),
         agentControl: { dispose: vi.fn(), fail: vi.fn() },
+        stopGamePrivilegeChecks: vi.fn(),
         autoLauncher: { stopPolling: vi.fn() },
         shutdownWindowSceneSwitcher: vi.fn(),
         hideUserFacingShutdownSurfaces: vi.fn(() => { context.isQuitting = true; }),
@@ -64,6 +66,24 @@ function loadShutdown() {
 }
 
 describe('application shutdown', () => {
+    it.each(['quit', 'stopAllChildrenForRelocation'])('waits for an OBS update before %s releases capture clients', async (action) => {
+        const { context } = loadShutdown();
+        const updating = deferred();
+        context.pyProc = { killed: false };
+        context.waitForObsRuntimeUpdate.mockReturnValue(updating.promise);
+
+        const result = context[action]();
+        expect(context.waitForObsRuntimeUpdate).toHaveBeenCalledOnce();
+        expect(context.closeGSM).not.toHaveBeenCalled();
+        expect(context.stopOCR).not.toHaveBeenCalled();
+        expect(context.closeOBSFromElectron).not.toHaveBeenCalled();
+
+        updating.resolve();
+        await result;
+        expect(context.closeGSM).toHaveBeenCalledOnce();
+        expect(context.closeOBSFromElectron).toHaveBeenCalledOnce();
+    });
+
     it('relaunches only after all app-owned processes and the bus have stopped', async () => {
         const { context, app } = loadShutdown();
         const stopping = deferred();
@@ -75,6 +95,7 @@ describe('application shutdown', () => {
         stopping.resolve();
         await result;
         expect(context.stopBus.mock.invocationCallOrder[0]).toBeLessThan(app.relaunch.mock.invocationCallOrder[0]);
+        expect(context.stopGamePrivilegeChecks).toHaveBeenCalledOnce();
         expect(app.relaunch).toHaveBeenCalledExactlyOnceWith({ args: ['.', '--gsm-agent-restarted=test-request'] });
         expect(app.quit).toHaveBeenCalledOnce();
     });

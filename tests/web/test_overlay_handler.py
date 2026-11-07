@@ -1,6 +1,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from GameSentenceMiner.util.config.configuration import Overlay
 from GameSentenceMiner.web import overlay_handler as overlay_handler_module
@@ -56,6 +57,36 @@ def test_missing_monitor_returns_a_failed_focus_acknowledgement(monkeypatch):
     monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
     asyncio.run(overlay_handler_module.OverlayRequestHandler().handle_restore_focus_request({"request_id": "gone"}))
     assert sent == [{"type": "restore-focus-result", "request_id": "gone", "success": False}]
+
+
+def test_failed_focus_restore_does_not_require_windows_monitor_attributes(monkeypatch):
+    sent, refreshed = [], []
+
+    async def activate():
+        return False
+
+    async def send(_id, payload):
+        sent.append(payload)
+
+    monitor = SimpleNamespace(
+        target_hwnd=None,
+        find_target_hwnd=lambda: None,
+        activate_target_window=activate,
+        request_refresh=lambda: refreshed.append(True),
+    )
+    monkeypatch.setattr(
+        overlay_handler_module, "get_overlay_processor", lambda: SimpleNamespace(window_monitor=monitor)
+    )
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", send)
+    logger = Mock()
+    monkeypatch.setattr(overlay_handler_module, "logger", logger)
+
+    asyncio.run(overlay_handler_module.OverlayRequestHandler().handle_restore_focus_request({"request_id": "linux"}))
+
+    logger.warning.assert_called_once_with("Focus restore failed (target_hwnd=None, last_known=None).")
+    logger.exception.assert_not_called()
+    assert refreshed == [True]
+    assert sent == [{"type": "restore-focus-result", "request_id": "linux", "success": False}]
 
 
 def test_new_overlay_interaction_cancels_backend_focus_retries(monkeypatch):

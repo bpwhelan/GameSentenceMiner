@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from PyQt6.QtCore import QEvent, QSignalBlocker, Qt
 from PyQt6.QtGui import QKeyEvent, QKeySequence
-from PyQt6.QtWidgets import QApplication, QCheckBox, QMessageBox
+from PyQt6.QtWidgets import QApplication, QCheckBox, QGroupBox, QMessageBox
 
 from GameSentenceMiner.ui.config_gui_qt import ClearableKeySequenceEdit, ConfigWindow
 from GameSentenceMiner.util.config.configuration import Anki, Locale
@@ -139,6 +139,45 @@ class _FakeDeleteButton:
 
 def test_anki_confirmation_gamepad_support_is_opt_in() -> None:
     assert Anki().confirmation_gamepad_enabled is False
+
+
+def test_confirmation_focus_behavior_group_can_save_and_reload_restore_focus(monkeypatch) -> None:
+    from GameSentenceMiner.util.config import configuration
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", lambda: "test-version")
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_schedule_runtime_reload", lambda self: None)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.write_overlay_scene_settings", lambda settings: None)
+    window = ConfigWindow()
+    try:
+        checkbox = window.anki_confirmation_restore_focus_check
+        group = checkbox.parentWidget()
+        assert isinstance(group, QGroupBox)
+        assert group.title() == "Focus Behavior"
+        for control in (
+            window.anki_confirmation_always_on_top_check,
+            window.anki_confirmation_focus_on_show_check,
+            checkbox,
+        ):
+            assert control.parentWidget() is group
+            assert group.layout().labelForField(control) is not None
+        for enabled in (False, True):
+            checkbox.setChecked(enabled)
+            assert window.save_settings(show_indicator=False)
+            assert configuration.Config.load().get_config().anki.confirmation_restore_focus is enabled
+            window._auto_save_timer.stop()
+            with QSignalBlocker(checkbox):
+                checkbox.setChecked(not enabled)
+            window.reload_settings(force_refresh=True)
+            assert checkbox.isChecked() is enabled
+    finally:
+        window._auto_save_timer.stop()
+        window.close()
+        app.processEvents()
 
 
 def test_confirmation_audio_step_presets_can_be_saved_and_reloaded(monkeypatch) -> None:

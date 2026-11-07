@@ -5,12 +5,13 @@ import {
     BASE_DIR,
     execFileAsync,
     getAssetsDir,
+    getGSMBaseDir,
     isLinux,
     isMacOS,
     isWindows,
     isWindows10OrHigher,
 } from '../util.js';
-import { isQuitting } from '../main.js';
+import { isQuitting, isPythonLaunchBlockedByUpdate, suspendObsClientsForUpdate } from '../main.js';
 import { splitWindowsCommandLine } from '../windows_command_line.js';
 import { spawn, type ChildProcess } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
@@ -21,7 +22,7 @@ import { homedir } from 'node:os';
 import { inflateSync } from 'node:zlib';
 import { sendStartOBS } from '../main.js';
 import axios from 'axios';
-import extract from '../services/zip_extract.js';
+import { ObsRuntimeManager, findWindowsObsProcess, pruneObsRuntime, readObsPinnedVersion } from '../services/obs_runtime.js';
 import { installSessionManager } from '../services/install_session_state.js';
 import { syncProcessPausingTargetForScene } from '../services/process_pausing_target.js';
 import { closeWindowsOBSGracefully } from '../runtime/windows_obs_shutdown.js';
@@ -32,7 +33,6 @@ import type {
     InstallStageStatus,
 } from '../../shared/install_session.js';
 import {
-    OBS_BROWSER_CEF_FILES,
     OBS_DEFAULT_SCENE_JSON,
     buildObsGlobalIni,
     buildObsReplayBufferProfileIni,
@@ -1007,21 +1007,7 @@ function writeElectronOBSWebSocketConfig(config: ElectronOBSStartupConfig): void
 // "OBS is ready" handshake with the Python backend. The Python downloader
 // remains as a fallback for standalone (non-Electron) runs.
 
-const OBS_LATEST_RELEASE_API =
-    'https://api.github.com/repos/obsproject/obs-studio/releases/latest';
-const OBS_DOWNLOAD_ARCHIVE_PATH = path.join(BASE_DIR, 'downloads', 'OBS.zip');
-
 type ObsEnsureStatus = 'already-installed' | 'installed' | 'unsupported' | 'failed';
-
-interface ObsGithubAsset {
-    name?: string;
-    browser_download_url?: string;
-}
-
-interface ObsGithubRelease {
-    tag_name?: string;
-    assets?: ObsGithubAsset[];
-}
 
 let obsEnsurePromise: Promise<ObsEnsureStatus> | null = null;
 
@@ -1052,82 +1038,6 @@ function reportObsInstallStage(
 
 function isObsInstalled(): boolean {
     return fs.existsSync(getDefaultOBSExecutablePath());
-}
-
-async function fetchLatestObsRelease(): Promise<ObsGithubRelease | null> {
-    try {
-        const response = await axios.get<ObsGithubRelease>(OBS_LATEST_RELEASE_API, {
-            headers: {
-                Accept: 'application/vnd.github+json',
-                'User-Agent': 'GameSentenceMiner',
-            },
-            timeout: 20000,
-        });
-        return response.data ?? null;
-    } catch (error) {
-        console.warn('Failed to fetch latest OBS release info:', error);
-        return null;
-    }
-}
-
-function pickWindowsObsAssetUrl(release: ObsGithubRelease): string | null {
-    const suffix = process.arch === 'arm64' ? 'Windows-arm64.zip' : 'Windows-x64.zip';
-    const match = (release.assets ?? []).find((asset) =>
-        asset.name?.endsWith(suffix)
-    );
-    return match?.browser_download_url ?? null;
-}
-
-async function downloadObsArchive(url: string, destPath: string): Promise<void> {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    }
-
-    fs.mkdirSync(path.dirname(destPath), { recursive: true });
-    const tempPath = `${destPath}.download`;
-    if (fs.existsSync(tempPath)) {
-        fs.rmSync(tempPath, { force: true });
-    }
-
-    const totalHeader = response.headers.get('content-length');
-    const totalBytes = totalHeader ? Number.parseInt(totalHeader, 10) : null;
-    const body = response.body as ReadableStream<Uint8Array> | null;
-
-    if (body && typeof body.getReader === 'function') {
-        const reader = body.getReader();
-        const chunks: Buffer[] = [];
-        let downloaded = 0;
-        let lastReportMs = 0;
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) {
-                break;
-            }
-            const chunk = Buffer.from(value);
-            chunks.push(chunk);
-            downloaded += chunk.length;
-            const now = Date.now();
-            if (now - lastReportMs > 250) {
-                lastReportMs = now;
-                reportObsInstallStage(
-                    'running',
-                    'bytes',
-                    totalBytes ? downloaded / totalBytes : null,
-                    'Downloading OBS Studio...',
-                    { downloadedBytes: downloaded, totalBytes }
-                );
-            }
-        }
-        fs.writeFileSync(tempPath, Buffer.concat(chunks));
-    } else {
-        fs.writeFileSync(tempPath, Buffer.from(await response.arrayBuffer()));
-    }
-
-    if (fs.existsSync(destPath)) {
-        fs.rmSync(destPath, { force: true });
-    }
-    fs.renameSync(tempPath, destPath);
 }
 
 /**
@@ -1205,169 +1115,141 @@ async function snapshotOBSSettings(reason: string): Promise<void> {
     }
 }
 
-/**
- * Trim a downloaded OBS install down to what GSM uses: drop all *.pdb debug
- * symbols and the obs-browser CEF runtime (~275MB). Mirrors prune_obs_directory
- * in download_tools.py.
- */
-function pruneObsDirectory(): void {
-    let removedBytes = 0;
+let obsRuntime: ObsRuntimeManager | null = null;
+let obsRuntimePromise: Promise<ObsRuntimeManager> | null = null;
+let obsAutomaticUpdateChecked = false;
+let obsRuntimeInstallReporting = false;
+let obsRuntimeResumeReplay = false;
+let obsRuntimeDisconnecting = false;
 
-    const rmFile = (target: string): void => {
-        try {
-            removedBytes += fs.statSync(target).size;
-            fs.rmSync(target, { force: true });
-        } catch {
-            // Best-effort cleanup only.
-        }
-    };
+export function isObsRuntimeUpdateInProgress(): boolean { return obsRuntime?.busy ?? false; }
+export async function waitForObsRuntimeUpdate(): Promise<void> { await obsRuntime?.waitForIdle(); }
 
-    const rmTree = (target: string): void => {
-        try {
-            if (!fs.statSync(target).isDirectory()) {
-                return;
-            }
-        } catch {
-            return;
-        }
-        fs.rmSync(target, { recursive: true, force: true });
-    };
-
-    const walkFiles = (dir: string, onFile: (file: string) => void): void => {
-        let entries: fs.Dirent[];
-        try {
-            entries = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
-            return;
-        }
-        for (const entry of entries) {
-            const full = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-                walkFiles(full, onFile);
-            } else {
-                onFile(full);
-            }
-        }
-    };
-
-    // Debug symbols, everywhere.
-    walkFiles(OBS_CONFIG_PATH, (file) => {
-        if (file.toLowerCase().endsWith('.pdb')) {
-            rmFile(file);
-        }
-    });
-
-    // obs-browser plugin + its CEF runtime.
-    const plugins64bit = path.join(OBS_CONFIG_PATH, 'obs-plugins', '64bit');
-    try {
-        for (const name of fs.readdirSync(plugins64bit)) {
-            if (OBS_BROWSER_CEF_FILES.has(name.toLowerCase())) {
-                rmFile(path.join(plugins64bit, name));
-            }
-        }
-    } catch {
-        // No plugins dir; nothing to prune.
-    }
-    rmTree(path.join(plugins64bit, 'locales'));
-    rmTree(path.join(OBS_CONFIG_PATH, 'data', 'obs-plugins', 'obs-browser'));
-
-    if (removedBytes > 0) {
-        console.log(
-            `Pruned OBS install, freed ${Math.round(removedBytes / (1024 * 1024))} MB.`
-        );
-    }
+export async function getObsRuntimeManager(): Promise<ObsRuntimeManager> {
+    if (obsRuntimePromise) return obsRuntimePromise;
+    obsRuntimePromise = (async () => {
+        const { store } = await import('../store.js');
+        const pinnedVersion = await readObsPinnedVersion(path.resolve(getGSMBaseDir(), 'GameSentenceMiner/assets/obs-release-policy.json'));
+        obsRuntime = new ObsRuntimeManager({
+            baseDir: BASE_DIR, platform: process.platform, arch: process.arch,
+            getOptions: () => {
+                const configPath = path.join(BASE_DIR, 'config.json');
+                const profile = fs.existsSync(configPath) ? getCurrentProfileConfig(JSON.parse(fs.readFileSync(configPath, 'utf8'))) : {};
+                const host = profile.obs?.host || 'localhost';
+                return {
+                    managed: path.resolve(getElectronOBSStartupConfig().obsPath).toLowerCase() === path.resolve(getDefaultOBSExecutablePath()).toLowerCase() &&
+                        ['localhost', '127.0.0.1', '::1'].includes(host),
+                    automatic: store.get('autoUpdateOBS') === true,
+                    pinnedVersion,
+                };
+            },
+            assertIdle: async () => {
+                const pid = await findWindowsObsProcess(getDefaultOBSExecutablePath());
+                if (!pid) return;
+                fs.writeFileSync(OBS_PID_FILE, String(pid), 'utf8');
+                await getOBSConnection();
+                const [record, stream] = await Promise.all([callOBS('GetRecordStatus'), callOBS('GetStreamStatus')]);
+                if (typeof record?.outputActive !== 'boolean' || typeof stream?.outputActive !== 'boolean') throw new Error('Could not confirm OBS is idle.');
+                if (record.outputActive || stream.outputActive) throw new Error('Stop recording or streaming before updating OBS.');
+            },
+            suspendClients: async () => {
+                if (!(await findWindowsObsProcess(getDefaultOBSExecutablePath()))) return async () => {};
+                try { obsRuntimeResumeReplay ||= (await callOBS('GetReplayBufferStatus'))?.outputActive === true; }
+                catch (error) { if ((error as { code?: number })?.code !== 604) throw error; }
+                const resume = await suspendObsClientsForUpdate();
+                obsRuntimeDisconnecting = true;
+                try { await resetOBSClient('release clients before OBS update'); clearReconnectTimer(); }
+                catch (error) { obsRuntimeDisconnecting = false; await resume(); throw error; }
+                return async () => { obsRuntimeDisconnecting = false; await resume(); };
+            },
+            stop: async () => {
+                const pid = await findWindowsObsProcess(getDefaultOBSExecutablePath());
+                if (!pid) return false;
+                fs.writeFileSync(OBS_PID_FILE, String(pid), 'utf8');
+                refreshObsConfig();
+                const client = new OBSWebSocket();
+                try {
+                    await withTimeout('OBS update preflight', 5000, () => client.connect(`ws://${obsConfig.host}:${obsConfig.port}`, obsConfig.password));
+                    const [record, stream] = await Promise.all([client.call('GetRecordStatus'), client.call('GetStreamStatus')]);
+                    if (record?.outputActive !== false || stream?.outputActive !== false) throw new Error('Stop recording or streaming before updating OBS.');
+                } finally { await client.disconnect().catch(() => {}); }
+                const result = await closeOBSFromElectron({ ignoreCloseConfig: true, reason: 'managed OBS update' });
+                if (result.status === 'failed') throw new Error(result.error ?? 'Could not close OBS.');
+                await resetOBSClient('managed OBS update');
+                return true;
+            },
+            validate: async (version, restart) => {
+                if (!restart) return;
+                obsRuntimeDisconnecting = false;
+                const result = await launchOBSFromElectronInternal({ ignoreOpenConfig: true, reason: 'managed OBS update validation' });
+                if (!['launched', 'already-running'].includes(result.status)) throw new Error(result.error ?? 'Could not start updated OBS.');
+                await waitForOBSFrontend();
+                const actual = await callOBS('GetVersion');
+                if (actual?.obsVersion !== version) throw new Error('Updated OBS did not report the expected version through WebSocket.');
+                await callOBS('GetSceneList');
+                try {
+                    let replay = await callOBS('GetReplayBufferStatus');
+                    if (obsRuntimeResumeReplay && !replay?.outputActive) {
+                        await callOBS('StartReplayBuffer');
+                        const deadline = Date.now() + 10_000;
+                        do {
+                            replay = await callOBS('GetReplayBufferStatus');
+                            if (replay?.outputActive) break;
+                            await wait(250);
+                        } while (Date.now() < deadline);
+                        if (!replay?.outputActive) throw new Error('Updated OBS could not resume the replay buffer.');
+                    }
+                } catch (error) {
+                    if ((error as { code?: number })?.code !== 604 || obsRuntimeResumeReplay) throw error;
+                }
+                obsRuntimeResumeReplay = false;
+            },
+            onChange: status => {
+                for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send('obs.runtime.progress', status);
+                if (obsRuntimeInstallReporting && status.phase !== 'idle') reportObsInstallStage(
+                    status.phase === 'error' ? 'failed' : 'running', status.progress === null ? 'indeterminate' : 'estimated',
+                    status.progress, 'Preparing OBS Studio...', { error: status.error },
+                );
+            },
+        });
+        return obsRuntime;
+    })().catch(error => { obsRuntimePromise = null; throw error; });
+    return obsRuntimePromise;
 }
 
 async function ensureObsInstalledInternal(): Promise<ObsEnsureStatus> {
-    // Electron-managed OBS download is Windows-only; macOS/Linux use system OBS.
-    if (!isWindows()) {
-        return 'unsupported';
-    }
-
-    if (isObsInstalled()) {
-        // Existing install: keep configs seeded and trim dead weight, but never
-        // re-download.
-        try {
-            await snapshotOBSSettings('before OBS startup');
-            writeObsSeedConfigs(packObsVersion(null));
-            pruneObsDirectory();
-        } catch (error) {
-            console.warn('Failed to refresh existing OBS install:', error);
-        }
-        return 'already-installed';
-    }
-
-    reportObsInstallStage(
-        'running',
-        'indeterminate',
-        0.05,
-        'Checking OBS runtime files...'
-    );
-
-    const release = await fetchLatestObsRelease();
-    const downloadUrl = release ? pickWindowsObsAssetUrl(release) : null;
-    if (!downloadUrl) {
-        const message = 'Could not find an OBS download for this platform.';
-        reportObsInstallStage('failed', 'indeterminate', null, message, {
-            error: message,
-        });
-        console.warn(message);
-        return 'failed';
-    }
-
+    if (!isWindows()) return 'unsupported';
     try {
-        reportObsInstallStage('running', 'bytes', 0, 'Downloading OBS Studio...');
-        await downloadObsArchive(downloadUrl, OBS_DOWNLOAD_ARCHIVE_PATH);
-
-        reportObsInstallStage(
-            'running',
-            'estimated',
-            0.9,
-            'Extracting OBS Studio...'
-        );
-        fs.mkdirSync(OBS_CONFIG_PATH, { recursive: true });
-        await extract(OBS_DOWNLOAD_ARCHIVE_PATH, {
-            dir: path.resolve(OBS_CONFIG_PATH),
-        });
-
-        // portable_mode marker so OBS uses the bundled config dir.
-        fs.writeFileSync(path.join(OBS_CONFIG_PATH, 'portable_mode'), '', 'utf-8');
-
-        reportObsInstallStage('running', 'estimated', 0.96, 'Configuring OBS...');
-        writeObsSeedConfigs(packObsVersion(release?.tag_name));
-        pruneObsDirectory();
-
-        reportObsInstallStage(
-            'completed',
-            'estimated',
-            1,
-            'OBS runtime is ready.'
-        );
-        console.log('Electron installed OBS Studio.');
-        return 'installed';
+        const runtime = await getObsRuntimeManager();
+        await runtime.recover();
+        const existing = isObsInstalled();
+        if (!existing) {
+            obsRuntimeInstallReporting = true;
+            await runtime.update();
+        } else if (!obsAutomaticUpdateChecked) {
+            obsAutomaticUpdateChecked = true;
+            const status = await runtime.status();
+            if (status.automatic && status.managed) {
+                // Automatic checks are once per app launch, with failures confined to logs/settings.
+                await runtime.update().catch(error => console.warn('OBS automatic update deferred:', error));
+            }
+        }
+        await snapshotOBSSettings('before OBS startup');
+        const installed = await runtime.status();
+        writeObsSeedConfigs(packObsVersion(installed.installedVersion));
+        await pruneObsRuntime(OBS_CONFIG_PATH);
+        if (!existing) reportObsInstallStage('completed', 'estimated', 1, 'OBS runtime is ready.');
+        return existing ? 'already-installed' : 'installed';
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        reportObsInstallStage('failed', 'estimated', null, 'Failed to install OBS.', {
-            error: message,
-        });
-        console.warn('Failed to download/extract OBS:', error);
+        reportObsInstallStage('failed', 'indeterminate', null, 'Failed to prepare OBS.', { error: message });
+        console.warn('Failed to prepare OBS:', error);
         return 'failed';
     } finally {
-        try {
-            if (fs.existsSync(OBS_DOWNLOAD_ARCHIVE_PATH)) {
-                fs.rmSync(OBS_DOWNLOAD_ARCHIVE_PATH, { force: true });
-            }
-        } catch {
-            // Best-effort cleanup only.
-        }
+        obsRuntimeInstallReporting = false;
     }
 }
 
-/**
- * Ensure the bundled portable OBS is downloaded + configured. Deduplicated so
- * concurrent callers share one download. Idempotent: a no-op (beyond config
- * refresh) when OBS is already installed.
- */
 export function ensureObsInstalled(): Promise<ObsEnsureStatus> {
     if (obsEnsurePromise) {
         return obsEnsurePromise;
@@ -1652,6 +1534,7 @@ export function shouldRetryElectronManagedOBSLaunch(): boolean {
 export function launchOBSFromElectron(
     options: ElectronOBSProcessOptions = {}
 ): Promise<ElectronOBSProcessResult> {
+    if (obsRuntime?.busy) return Promise.resolve({ status: 'skipped' });
     if (electronOBSLaunchPromise && !options.forceRestart) {
         return electronOBSLaunchPromise;
     }
@@ -2449,6 +2332,7 @@ async function connectOBSWebSocket(
 }
 
 export async function getOBSConnection(): Promise<void> {
+    if (obsRuntimeDisconnecting) return;
     registerOBSLifecycleHandlers();
 
     if (connectionPromise) {
@@ -2491,6 +2375,21 @@ export async function getOBSConnection(): Promise<void> {
         });
 
     return connectionPromise;
+}
+
+/** WebSocket can accept clients before OBS has finished loading its frontend. */
+export async function waitForOBSFrontend(): Promise<void> {
+    const deadline = Date.now() + 30_000;
+    while (true) {
+        try {
+            await getOBSConnection();
+            await callOBS('GetSceneList');
+            return;
+        } catch (error) {
+            if (!isOBSInitializingError(error) || Date.now() >= deadline) throw error;
+            await wait(250);
+        }
+    }
 }
 
 export function isOBSConnected(): boolean {
@@ -2570,6 +2469,25 @@ export async function registerOBSIPC() {
         return;
     }
     obsIPCRegistered = true;
+
+    ipcMain.handle('obs.runtime.status', async () => (await getObsRuntimeManager()).status());
+    ipcMain.handle('obs.runtime.check', async () => (await getObsRuntimeManager()).check());
+    ipcMain.handle('obs.runtime.update', async () => {
+        if (isQuitting || isPythonLaunchBlockedByUpdate()) throw new Error('Wait for GSM to finish its current operation before updating OBS.');
+        return (await getObsRuntimeManager()).update();
+    });
+    ipcMain.handle('obs.runtime.rollback', async () => {
+        if (isQuitting || isPythonLaunchBlockedByUpdate()) throw new Error('Wait for GSM to finish its current operation before restoring OBS.');
+        const { store } = await import('../store.js');
+        store.set('autoUpdateOBS', false);
+        return (await getObsRuntimeManager()).rollback();
+    });
+    ipcMain.handle('obs.runtime.setAutomatic', async (_event, value: unknown) => {
+        if (typeof value !== 'boolean') throw new Error('OBS automatic updates must be true or false.');
+        const { store } = await import('../store.js');
+        store.set('autoUpdateOBS', value);
+        return (await getObsRuntimeManager()).status();
+    });
 
     ipcMain.handle('obs.launch', async () => {
         return await launchOBSFromElectron({

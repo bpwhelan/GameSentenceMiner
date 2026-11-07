@@ -70,6 +70,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "useOnlineOcr": False,
         "ocr1": DEFAULT_STABILITY_OCR,
         "ocr2": DEFAULT_STABILITY_OCR,
+        "menuAreaOcrEngine": "main",
         "scanRate": 0.5,
         "language": "ja",
         "ocr_screenshots": False,
@@ -427,6 +428,12 @@ def get_ocr_ocr2() -> str:
     if not _is_advanced_mode():
         return _resolve_ocr_engine(_get_basic_ocr2_engine(ocr_config))
     return _resolve_ocr_engine(ocr_config.get("ocr2", DEFAULT_STABILITY_OCR))
+
+
+def get_ocr_menu_area_engine() -> str:
+    """Allow only online overrides; local OCR must use the main engine."""
+    engine = _get_ocr_value("menuAreaOcrEngine", "main")
+    return engine if engine in ("glens", "bing") else "main"
 
 
 def get_ocr_window_name() -> str:

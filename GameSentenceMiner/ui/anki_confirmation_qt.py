@@ -16,7 +16,10 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QPushButton,
     QCheckBox,
+    QBoxLayout,
     QGridLayout,
+    QFrame,
+    QLayout,
     QMessageBox,
     QWidget,
     QSizePolicy,
@@ -25,6 +28,8 @@ from urllib.parse import quote
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
+from GameSentenceMiner.ui.anki_confirmation_history import ReviewHistory, review_edit
+from GameSentenceMiner.ui.qt_theme import apply_compact_theme, get_theme_palette, set_status_style
 from GameSentenceMiner.ui.window_activation import activate_window, get_foreground_window_handle
 from GameSentenceMiner.replay_handler import request_dialogue_replay_refresh
 from GameSentenceMiner.util.config.configuration import (
@@ -218,6 +223,14 @@ class AspectRatioLabel(QLabel):
             self._hover_preview.hide()
 
 
+class DialogueTimelineLabel(QLabel):
+    resized = pyqtSignal()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resized.emit()
+
+
 _anki_confirmation_dialog_instance = None
 
 AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS = 0.05
@@ -342,6 +355,10 @@ class AnkiConfirmationDialog(QDialog):
         self.playback_timer = QTimer(self)
         self.playback_timer.timeout.connect(self._update_playback_cursor)
         self.playback_timer.setInterval(20)  # Update every 20ms for better precision
+        self._autoplay_request = None
+        self._autoplay_request_timer = QTimer(self)
+        self._autoplay_request_timer.setSingleShot(True)
+        self._autoplay_request_timer.timeout.connect(self._run_queued_autoplay)
 
         # Autoplay debounce timer for trim updates
         self._trim_autoplay_timer = QTimer(self)
@@ -365,140 +382,160 @@ class AnkiConfirmationDialog(QDialog):
         self.setWindowTitle("Confirm Anki Card Details")
         self._apply_window_behavior_preferences()
         self.setModal(True)
-        self.setMinimumSize(500, 600)
+        self.resize(760, 680)
 
         self._init_ui()
+        apply_compact_theme(self)
+        self._review_history = ReviewHistory(self)
 
     def _init_ui(self):
         # Top-level layout
         dialog_layout = QVBoxLayout(self)
-        dialog_layout.setContentsMargins(8, 8, 8, 8)
-        dialog_layout.setSpacing(4)
+        dialog_layout.setContentsMargins(10, 8, 10, 8)
+        dialog_layout.setSpacing(6)
+        # Keep the whole review visible and prevent resizing below its contents.
+        dialog_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+
+        review_layout = QVBoxLayout()
+        self._review_layout = review_layout
+        review_layout.setSpacing(6)
+        dialog_layout.addLayout(review_layout, 1)
 
         self.overlay_source_warning_label = QLabel(
-            "<b>Warning: this card was created without a conventional text source.</b><br>"
-            "GSM is using overlay text with best-guess audio and screenshot timing. "
-            "GSM strongly recommends receiving text separately through text hooking or an OCR tab "
-            "for overlay speed and consistency, accurate statistics, reliable voice and screenshot timing, "
-            "and other features."
+            "<b>Warning: no matching line was found within the replay buffer.</b><br>"
+            "The original line may have expired, or GSM may not have received it through text hooking or OCR. "
+            "GSM is using overlay text with estimated audio and screenshot timing; review both before saving. "
+            "For expired lines, mine sooner or increase the replay buffer length."
         )
         self.overlay_source_warning_label.setWordWrap(True)
         self.overlay_source_warning_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.overlay_source_warning_label.setTextFormat(Qt.TextFormat.RichText)
-        self.overlay_source_warning_label.setStyleSheet(
-            "color: #664d03; background-color: #fff3cd; border: 1px solid #ffca2c; border-radius: 4px; padding: 8px;"
-        )
+        set_status_style(self.overlay_source_warning_label, "warning", boxed=True)
         self.overlay_source_warning_label.setVisible(False)
-        dialog_layout.addWidget(self.overlay_source_warning_label)
+        review_layout.addWidget(self.overlay_source_warning_label)
 
         self.auto_accept_label = QLabel()
-        self.auto_accept_label.setStyleSheet("color: #007bff; font-weight: bold; font-size: 14px;")
+        set_status_style(self.auto_accept_label, "accent")
         self.auto_accept_label.setVisible(False)
-        dialog_layout.addWidget(self.auto_accept_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        review_layout.addWidget(self.auto_accept_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.grid_layout = QGridLayout()
-        self.grid_layout.setSpacing(4)
-        # Allow rows to shrink/grow
+        text_panel = QFrame()
+        self._text_panel = text_panel
+        text_panel.setObjectName("ConfirmationTextPanel")
+        text_panel.setProperty("role", "panel")
+        text_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.grid_layout = QGridLayout(text_panel)
+        self.grid_layout.setContentsMargins(6, 2, 6, 2)
+        self.grid_layout.setVerticalSpacing(4)
         self.grid_layout.setColumnStretch(1, 1)
+        review_layout.addWidget(text_panel)
         row = 0
 
         # 1. Expression
         self.expr_label_title = QLabel(f"{get_config().anki.word_field}:")
-        self.expr_label_title.setStyleSheet("font-weight: bold;")
-        self.grid_layout.addWidget(
-            self.expr_label_title,
-            row,
-            0,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
-        )
+        self.expr_label_title.setObjectName("ConfirmationExpressionTitle")
+        self.expr_label_title.setProperty("role", "muted")
+        expression_row = QHBoxLayout()
+        self._expression_row = expression_row
+        expression_row.setSpacing(10)
+        expression_row.addWidget(self.expr_label_title)
 
         self.expr_value_label = QLabel()
+        self.expr_value_label.setProperty("role", "expression")
         self.expr_value_label.setWordWrap(True)
-        # Removed fixed max width to allow resizing
-        self.grid_layout.addWidget(self.expr_value_label, row, 1)
+        expression_row.addWidget(self.expr_value_label, 1)
+        self.grid_layout.addLayout(expression_row, row, 0, 1, 2)
         row += 1
 
         # 2. Sentence
         self.sentence_label_title = QLabel(f"{get_config().anki.sentence_field}:")
-        self.sentence_label_title.setStyleSheet("font-weight: bold;")
+        self.sentence_label_title.setProperty("role", "muted")
+        self.sentence_label_title.setWordWrap(True)
+        self.sentence_label_title.setMaximumWidth(110)
         self.grid_layout.addWidget(
             self.sentence_label_title,
             row,
             0,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
+            Qt.AlignmentFlag.AlignTop,
         )
 
         self.sentence_text = QTextEdit()
-        # Keep the edit compact and avoid scrollbars
-        self.sentence_text.setFixedHeight(64)
+        self.sentence_text.setFixedHeight(48)
         self.sentence_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.sentence_text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.sentence_text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.sentence_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.sentence_text.setTabChangesFocus(True)
         self.sentence_text.textChanged.connect(self._cancel_auto_accept)
         self.grid_layout.addWidget(self.sentence_text, row, 1)
         row += 1
 
-        self.dialogue_timeline = QLabel()
+        self.dialogue_timeline = DialogueTimelineLabel()
         self.dialogue_timeline.setWordWrap(True)
         self.dialogue_timeline.setTextFormat(Qt.TextFormat.RichText)
-        self.dialogue_timeline.setStyleSheet(
-            "background: palette(alternate-base); border: 1px solid palette(mid); border-radius: 6px; padding: 6px;"
-        )
-        self.grid_layout.addWidget(self.dialogue_timeline, row, 1, 1, 2)
+        self.dialogue_timeline.setProperty("role", "timeline")
+        self.dialogue_timeline.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.dialogue_timeline.setFixedHeight(76)
+        self.dialogue_timeline.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.dialogue_timeline.resized.connect(self._refresh_dialogue_timeline)
+        self.grid_layout.addWidget(self.dialogue_timeline, row, 1)
         row += 1
 
         self.dialogue_tools_title = QLabel("Dialogue:")
-        self.dialogue_tools_title.setStyleSheet("font-weight: bold; color: #ff8c00;")
+        self.dialogue_tools_title.setProperty("role", "muted")
         self.grid_layout.addWidget(
             self.dialogue_tools_title,
             row,
             0,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
         )
 
-        dialogue_tools_container = QWidget()
-        dialogue_tools_layout = QHBoxLayout(dialogue_tools_container)
+        self.dialogue_tools_container = QWidget()
+        self.dialogue_tools_container.setObjectName("ConfirmationDialogueTools")
+        dialogue_tools_layout = QGridLayout(self.dialogue_tools_container)
+        self._dialogue_tools_layout = dialogue_tools_layout
         dialogue_tools_layout.setContentsMargins(0, 0, 0, 0)
-        dialogue_tools_layout.setSpacing(6)
+        dialogue_tools_layout.setHorizontalSpacing(6)
+        dialogue_tools_layout.setVerticalSpacing(3)
 
         self.add_prev_line_button = QPushButton("Add Prev Line")
         self.add_prev_line_button.clicked.connect(self._cancel_auto_accept)
         self.add_prev_line_button.clicked.connect(self._add_previous_dialogue_line)
-        dialogue_tools_layout.addWidget(self.add_prev_line_button)
+        dialogue_tools_layout.addWidget(self.add_prev_line_button, 0, 0)
 
         self.add_next_line_button = QPushButton("Add Next Line")
         self.add_next_line_button.clicked.connect(self._cancel_auto_accept)
         self.add_next_line_button.clicked.connect(self._add_next_dialogue_line)
-        dialogue_tools_layout.addWidget(self.add_next_line_button)
+        dialogue_tools_layout.addWidget(self.add_next_line_button, 0, 1)
 
         self.regen_translation_checkbox = QCheckBox("Regenerate SentenceMeaning")
         self.regen_translation_checkbox.setChecked(True)
         self.regen_translation_checkbox.stateChanged.connect(self._cancel_auto_accept)
-        dialogue_tools_layout.addWidget(self.regen_translation_checkbox)
+        dialogue_tools_layout.addWidget(self.regen_translation_checkbox, 0, 2)
 
         self.dialogue_tools_status = QLabel("")
-        self.dialogue_tools_status.setStyleSheet("color: #666; font-style: italic;")
-        dialogue_tools_layout.addWidget(self.dialogue_tools_status)
-        dialogue_tools_layout.addStretch()
+        self.dialogue_tools_status.setProperty("role", "muted")
+        self.dialogue_tools_status.setWordWrap(True)
+        dialogue_tools_layout.addWidget(self.dialogue_tools_status, 1, 0, 1, 3)
+        dialogue_tools_layout.setColumnStretch(2, 1)
 
-        self.grid_layout.addWidget(dialogue_tools_container, row, 1, 1, 2)
+        self.grid_layout.addWidget(self.dialogue_tools_container, row, 1)
         row += 1
 
         # 3. Translation
         self.translation_label_title = QLabel(f"{get_config().ai.anki_field}:")
-        self.translation_label_title.setStyleSheet("font-weight: bold;")
+        self.translation_label_title.setProperty("role", "muted")
+        self.translation_label_title.setWordWrap(True)
+        self.translation_label_title.setMaximumWidth(110)
         self.grid_layout.addWidget(
             self.translation_label_title,
             row,
             0,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
+            Qt.AlignmentFlag.AlignTop,
         )
 
         self.translation_text = QTextEdit()
-        self.translation_text.setFixedHeight(64)
+        self.translation_text.setFixedHeight(48)
         self.translation_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.translation_text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.translation_text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.translation_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.translation_text.setTabChangesFocus(True)
         self.translation_text.textChanged.connect(self._cancel_auto_accept)
@@ -507,79 +544,103 @@ class AnkiConfirmationDialog(QDialog):
         row += 1
 
         # 4. Screenshot
+        self._screenshot_section = QWidget()
+        self._screenshot_section.setObjectName("ConfirmationMediaPanel")
+        screenshots = QHBoxLayout(self._screenshot_section)
+        screenshots.setContentsMargins(0, 0, 0, 0)
+        self._screenshots_layout = screenshots
+        screenshots.setSpacing(8)
+        self.screenshot_card = QFrame()
+        self.screenshot_card.setObjectName("ConfirmationScreenshotCard")
+        self.screenshot_card.setProperty("role", "panel")
+        self.screenshot_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        screenshot_layout = QGridLayout(self.screenshot_card)
+        self._screenshot_layout = screenshot_layout
+        screenshot_layout.setContentsMargins(6, 4, 6, 4)
+        screenshot_layout.setSpacing(4)
+        screenshot_layout.setColumnStretch(1, 1)
+        screenshots.addWidget(self.screenshot_card, 1)
+        review_layout.addWidget(self._screenshot_section)
         self.screenshot_label_title = QLabel(f"{get_config().anki.picture_field}:")
-        self.screenshot_label_title.setStyleSheet("font-weight: bold;")
-        self.grid_layout.addWidget(
-            self.screenshot_label_title,
-            row,
-            0,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
-        )
+        self.screenshot_label_title.setProperty("role", "muted")
+        screenshot_layout.addWidget(self.screenshot_label_title, 0, 0, 1, 2)
 
         self.image_label = AspectRatioLabel()
+        self.image_label.setObjectName("ConfirmationScreenshot")
         self.image_label.setMinimumSize(QSize(140, 80))
-        self.image_label.setMaximumSize(QSize(360, 200))
-        self.grid_layout.addWidget(self.image_label, row, 1)
+        self.image_label.setMaximumSize(QSize(280, 100))
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setWordWrap(True)
+        screenshot_layout.addWidget(self.image_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self.screenshot_button = QPushButton("Select New Screenshot")
+        self.screenshot_button = QPushButton("Change screenshot")
         self.screenshot_button.clicked.connect(self._cancel_auto_accept)
         self.screenshot_button.clicked.connect(lambda: self._select_screenshot(previous=False))
-        self.grid_layout.addWidget(self.screenshot_button, row, 2, Qt.AlignmentFlag.AlignLeft)
-        row += 1
+        screenshot_layout.addWidget(self.screenshot_button, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
         self.animated_audio_notice_label = QLabel(
             "Heads up: adding audio padding regenerates the AVIF; trimming shorter reuses the background render."
         )
-        self.animated_audio_notice_label.setStyleSheet("color: #856404; font-size: 11px;")
+        set_status_style(self.animated_audio_notice_label, "warning")
         self.animated_audio_notice_label.setWordWrap(True)
         self.animated_audio_notice_label.setVisible(False)
-        self.grid_layout.addWidget(self.animated_audio_notice_label, row, 1, 1, 2)
-        row += 1
+        review_layout.addWidget(self.animated_audio_notice_label)
 
         # 5. Previous Screenshot
+        self.previous_screenshot_card = QFrame()
+        self.previous_screenshot_card.setObjectName("ConfirmationPreviousScreenshotCard")
+        self.previous_screenshot_card.setProperty("role", "panel")
+        self.previous_screenshot_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        previous_screenshot_layout = QGridLayout(self.previous_screenshot_card)
+        self._previous_screenshot_layout = previous_screenshot_layout
+        previous_screenshot_layout.setContentsMargins(6, 4, 6, 4)
+        previous_screenshot_layout.setSpacing(4)
+        previous_screenshot_layout.setColumnStretch(1, 1)
+        screenshots.addWidget(self.previous_screenshot_card, 1)
         self.prev_screenshot_label_title = QLabel(f"{get_config().anki.previous_image_field}:")
-        self.prev_screenshot_label_title.setStyleSheet("font-weight: bold;")
-        self.grid_layout.addWidget(
-            self.prev_screenshot_label_title,
-            row,
-            0,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
-        )
+        self.prev_screenshot_label_title.setProperty("role", "muted")
+        previous_screenshot_layout.addWidget(self.prev_screenshot_label_title, 0, 0, 1, 2)
 
         self.prev_image_label = AspectRatioLabel()
+        self.prev_image_label.setObjectName("ConfirmationPreviousScreenshot")
         self.prev_image_label.setMinimumSize(QSize(140, 80))
-        self.prev_image_label.setMaximumSize(QSize(360, 200))
-        self.grid_layout.addWidget(self.prev_image_label, row, 1)
+        self.prev_image_label.setMaximumSize(QSize(280, 100))
+        self.prev_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.prev_image_label.setWordWrap(True)
+        previous_screenshot_layout.addWidget(self.prev_image_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self.prev_screenshot_button = QPushButton("Select New Previous Screenshot")
+        self.prev_screenshot_button = QPushButton("Change screenshot")
         self.prev_screenshot_button.clicked.connect(self._cancel_auto_accept)
         self.prev_screenshot_button.clicked.connect(lambda: self._select_screenshot(previous=True))
-        self.grid_layout.addWidget(self.prev_screenshot_button, row, 2, Qt.AlignmentFlag.AlignLeft)
-        row += 1
+        previous_screenshot_layout.addWidget(self.prev_screenshot_button, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
         # 6. Audio
         self.audio_label_title = QLabel("Audio:")
-        self.audio_label_title.setStyleSheet("font-weight: bold;")
-        self.grid_layout.addWidget(
-            self.audio_label_title,
-            row,
-            0,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
-        )
+        self.audio_label_title.setObjectName("ConfirmationAudioTitle")
+        self.audio_label_title.setProperty("role", "muted")
 
         # Container for audio controls
-        audio_container = QWidget()
+        audio_container = QFrame()
+        self._audio_panel = audio_container
+        audio_container.setObjectName("ConfirmationAudioPanel")
+        audio_container.setProperty("role", "panel")
+        audio_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         audio_layout = QVBoxLayout(audio_container)
-        audio_layout.setContentsMargins(0, 0, 0, 0)
+        self._audio_layout = audio_layout
+        audio_layout.setContentsMargins(6, 4, 6, 4)
+        audio_layout.setSpacing(4)
+        audio_heading = QHBoxLayout()
+        audio_heading.addWidget(self.audio_label_title)
+        audio_layout.addLayout(audio_heading)
+        review_layout.addWidget(audio_container)
 
         self.audio_status_label = QLabel()
-        audio_layout.addWidget(self.audio_status_label)
+        self.audio_status_label.setWordWrap(True)
+        audio_heading.addWidget(self.audio_status_label, 1)
 
         # Codec compatibility info label
         self.codec_info_label = QLabel()
-        self.codec_info_label.setStyleSheet(
-            "color: #856404; background-color: #fff3cd; padding: 5px; border-radius: 3px; font-weight: bold;"
-        )
+        set_status_style(self.codec_info_label, "warning", boxed=True)
         self.codec_info_label.setWordWrap(True)
         self.codec_info_label.setVisible(False)
         audio_layout.addWidget(self.codec_info_label)
@@ -587,7 +648,7 @@ class AnkiConfirmationDialog(QDialog):
         self.waveform_widget = AudioWaveformWidget()
         self.waveform_widget.set_expand_step(get_config().anki.confirmation_audio_step)
         self.waveform_widget.setMinimumHeight(54)
-        self.waveform_widget.setMaximumHeight(92)
+        self.waveform_widget.setMaximumHeight(64)
         self.waveform_widget.set_dark_mode()
         # Connect range change to cancel auto accept
         self.waveform_widget.range_changed.connect(lambda _s, _e: self._cancel_auto_accept())
@@ -639,12 +700,9 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout.addLayout(audio_controls)
 
         self.cut_status_label = QLabel()
-        self.cut_status_label.setStyleSheet("color: #ffb3ad;")
+        set_status_style(self.cut_status_label, "danger")
         self.cut_status_label.setVisible(False)
         audio_layout.addWidget(self.cut_status_label)
-
-        self.grid_layout.addWidget(audio_container, row, 1, 1, 2)
-        row += 1
 
         # 7. TTS
         self.tts_container = QWidget()
@@ -652,13 +710,12 @@ class AnkiConfirmationDialog(QDialog):
         self.tts_button.clicked.connect(self._cancel_auto_accept)
         self.tts_button.clicked.connect(self._generate_tts_audio)
         self.tts_button.setMaximumWidth(180)
-        self.grid_layout.addWidget(self.tts_button, row, 1, Qt.AlignmentFlag.AlignLeft)
+        audio_layout.addWidget(self.tts_button, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.tts_status_label = QLabel("")
-        self.grid_layout.addWidget(self.tts_status_label, row, 2, Qt.AlignmentFlag.AlignLeft)
-        row += 1
-
-        dialog_layout.addLayout(self.grid_layout)
+        self.tts_status_label.setWordWrap(True)
+        audio_layout.addWidget(self.tts_status_label)
+        review_layout.addStretch(1)
 
         # NSFW Tag
         checkbox_layout = QHBoxLayout()
@@ -676,43 +733,152 @@ class AnkiConfirmationDialog(QDialog):
         checkbox_layout.addWidget(self.disable_session_checkbox)
 
         checkbox_layout.addStretch()
-        checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         dialog_layout.addLayout(checkbox_layout)
-        # dialog_layout.addStretch() # Don't add stretch, let widgets expand/contract
 
         # Action Buttons
         button_container = QWidget()
+        button_container.setProperty("role", "footer")
         button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(16, 8, 16, 12)
+        self._action_layout = button_layout
+        button_layout.setContentsMargins(0, 10, 0, 0)
         button_layout.setSpacing(8)
+        button_layout.addStretch(1)
 
         self.voice_button = QPushButton("Keep Audio")
         self.voice_button.clicked.connect(self._on_voice)
         self.voice_button.clicked.connect(self._cancel_auto_accept)
-        self.voice_button.setStyleSheet("background-color: #28a745; color: white; padding: 8px 20px;")
-        button_layout.addWidget(self.voice_button)
+        self.voice_button.setProperty("role", "primary")
 
         self.no_voice_button = QPushButton("No Audio")
         self.no_voice_button.clicked.connect(self._on_no_voice)
         self.no_voice_button.clicked.connect(self._cancel_auto_accept)
-        self.no_voice_button.setStyleSheet("background-color: #dc3545; color: white; padding: 8px 20px;")
+        self.no_voice_button.setStyleSheet("padding: 7px 20px;")
         button_layout.addWidget(self.no_voice_button)
+        button_layout.addWidget(self.voice_button)
 
         self.confirm_button = QPushButton("Confirm")
         self.confirm_button.clicked.connect(self._on_no_voice)
         self.confirm_button.clicked.connect(self._cancel_auto_accept)
-        self.confirm_button.setStyleSheet("background-color: #007bff; color: white; padding: 8px 20px;")
+        self.confirm_button.setProperty("role", "primary")
         button_layout.addWidget(self.confirm_button)
-
-        # NOTE: You commented this out, so it doesn't exist!
-        # self.disable_dialog_checkbox = QCheckBox("Disable this dialogue")
-        # self.disable_dialog_checkbox.stateChanged.connect(self._cancel_auto_accept)
-        # button_layout.addWidget(self.disable_dialog_checkbox, alignment=Qt.AlignmentFlag.AlignLeft)
 
         dialog_layout.addWidget(button_container)
 
         self.setLayout(dialog_layout)
+        self._arrange_review()
+
+    def _arrange_review(self):
+        self.setProperty("reviewLayout", "split")
+        self._review_header = QFrame()
+        self._review_header.setObjectName("ConfirmationHeader")
+        self._review_header_layout = QHBoxLayout(self._review_header)
+        self._review_header_layout.setContentsMargins(0, 0, 0, 6)
+        self._header_expression = QVBoxLayout()
+        self._header_expression.setSpacing(2)
+        self._review_header_layout.addLayout(self._header_expression, 1)
+        self._split_body = QWidget()
+        self._split_body.setObjectName("ConfirmationSplitBody")
+        self._split_body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._split_body_layout = QHBoxLayout(self._split_body)
+        self._split_body_layout.setContentsMargins(0, 0, 0, 0)
+        self._split_body_layout.setSpacing(12)
+        self._dialogue_caption = QHBoxLayout()
+        self._dialogue_caption.setSpacing(8)
+        for layout in (
+            self._review_layout,
+            self.grid_layout,
+            self._dialogue_tools_layout,
+            self._screenshot_layout,
+            self._previous_screenshot_layout,
+        ):
+            while layout.count():
+                layout.takeAt(0)
+        self._review_layout.addWidget(self.overlay_source_warning_label)
+        settings = get_config()
+        self.layout().setContentsMargins(14, 12, 14, 10)
+        self._review_layout.setSpacing(8)
+        self._header_expression.addWidget(self.expr_label_title)
+        self._header_expression.addWidget(self.expr_value_label)
+        self._review_header_layout.addWidget(
+            self.auto_accept_label, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop
+        )
+        self._review_layout.addWidget(self._review_header)
+        self._split_body_layout.addWidget(self._text_panel, 3, Qt.AlignmentFlag.AlignTop)
+        self._split_body_layout.addWidget(self._screenshot_section, 2, Qt.AlignmentFlag.AlignTop)
+        self._review_layout.addWidget(self._split_body)
+        self._screenshot_section.setMinimumWidth(260)
+        self._screenshot_section.setMaximumWidth(320)
+        self._screenshots_layout.setDirection(QBoxLayout.Direction.TopToBottom)
+        self._screenshots_layout.setContentsMargins(12, 8, 12, 8)
+        self._screenshots_layout.setSpacing(8)
+        self._screenshots_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.grid_layout.setContentsMargins(12, 8, 12, 8)
+        self.grid_layout.setVerticalSpacing(4)
+        self.grid_layout.setColumnStretch(0, 1)
+        self.grid_layout.setColumnStretch(1, 0)
+        self.grid_layout.addWidget(self.sentence_label_title, 0, 0)
+        self.grid_layout.addWidget(self.sentence_text, 1, 0)
+        self.grid_layout.addWidget(self.translation_label_title, 2, 0)
+        self.grid_layout.addWidget(self.translation_text, 3, 0)
+        self._dialogue_caption.addWidget(self.dialogue_tools_title)
+        self._dialogue_caption.addWidget(self.dialogue_tools_status, 1)
+        self.grid_layout.addLayout(self._dialogue_caption, 4, 0)
+        self.grid_layout.addWidget(self.dialogue_timeline, 5, 0)
+        self.grid_layout.addWidget(self.dialogue_tools_container, 6, 0)
+        self._dialogue_tools_layout.addWidget(self.add_prev_line_button, 0, 0)
+        self._dialogue_tools_layout.addWidget(self.add_next_line_button, 0, 1)
+        self._dialogue_tools_layout.addWidget(self.regen_translation_checkbox, 0, 2)
+        self.sentence_text.setFixedHeight(60)
+        self.translation_text.setFixedHeight(48)
+        self.dialogue_timeline.setFixedHeight(64)
+        self._audio_layout.setContentsMargins(12, 6, 12, 8)
+        self.waveform_widget.setMinimumHeight(64)
+        self.waveform_widget.setMaximumHeight(70)
+        self.sentence_label_title.setText("Sentence")
+        self.expr_label_title.setText(settings.anki.word_field or "Expression")
+        self.translation_label_title.setText("Translation")
+        self.dialogue_tools_title.setText("Context")
+        self.screenshot_label_title.setText("Screenshot")
+        self.prev_screenshot_label_title.setText("Previous screenshot")
+        self.audio_label_title.setText("Audio")
+        self.add_prev_line_button.setText("Add previous")
+        self.add_next_line_button.setText("Add next")
+        self.regen_translation_checkbox.setText("Refresh translation")
+        self.resize(820, 640)
+        for label in (self.sentence_label_title, self.translation_label_title):
+            label.setMaximumWidth(16777215)
+            label.setProperty("role", "sectionHeading")
+        self.sentence_label_title.setToolTip(f"Anki field: {settings.anki.sentence_field}")
+        self.translation_label_title.setToolTip(f"Anki field: {settings.ai.anki_field}")
+        for grid, title, image, button, previous in (
+            (self._screenshot_layout, self.screenshot_label_title, self.image_label, self.screenshot_button, False),
+            (
+                self._previous_screenshot_layout,
+                self.prev_screenshot_label_title,
+                self.prev_image_label,
+                self.prev_screenshot_button,
+                True,
+            ),
+        ):
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 0)
+            grid.addWidget(title, 0, 0)
+            grid.addWidget(button, 0, 1)
+            grid.addWidget(image, 1, 0, 1, 2)
+            image.setMinimumSize(140, 78 if previous else 90)
+            image.setMaximumSize(320, 78 if previous else 160)
+        self._review_layout.addWidget(self.animated_audio_notice_label)
+        self._review_layout.addWidget(self._audio_panel)
+        self._review_layout.addStretch(1)
+        self._text_panel.show()
+        self._screenshot_section.show()
+        self.expr_label_title.show()
+        self.expr_value_label.show()
+
+    def _geometry_window_id(self):
+        return WindowId.ANKI_CONFIRMATION_SPLIT
 
     def populate_ui(
         self,
@@ -730,6 +896,7 @@ class AnkiConfirmationDialog(QDialog):
         reusing_screenshot=False,
         overlay_only=False,
     ):
+        self._review_history.suspend()
         self._populate_start_perf = time.perf_counter()
         self._dialog_shown_logged = False
         self._apply_window_behavior_preferences()
@@ -830,27 +997,31 @@ class AnkiConfirmationDialog(QDialog):
         if self.reusing_screenshot:
             self.image_label.setPixmap(QPixmap())
             self.image_label.setText("Reusing screenshot from the previous mining operation.")
-            self.image_label.setStyleSheet("color: green; font-weight: bold;")
+            set_status_style(self.image_label, "success")
         else:
             self._load_image_to_label(self.screenshot_path, self.image_label)
 
         # Show animated screenshot status if pending
         if self.reusing_screenshot:
             self.screenshot_button.setText("Change reused screenshot")
-            self.screenshot_button.setStyleSheet("color: green; font-weight: bold;")
+            self.screenshot_button.setToolTip("Change reused screenshot")
+            set_status_style(self.screenshot_button, "success")
             self.screenshot_button.setEnabled(True)
         elif pending_animated:
-            self.screenshot_button.setText("Replace animation with screenshot(s)")
-            self.screenshot_button.setStyleSheet("color: #ff8c00; font-weight: bold;")
+            self.screenshot_button.setText("Replace animation")
+            self.screenshot_button.setToolTip("Replace animation with screenshot(s)")
+            set_status_style(self.screenshot_button, "warning")
             self.screenshot_button.setEnabled(True)
         else:
-            self.screenshot_button.setText("Select New Screenshot")
-            self.screenshot_button.setStyleSheet("")
+            self.screenshot_button.setText("Change screenshot")
+            self.screenshot_button.setToolTip("")
+            set_status_style(self.screenshot_button, "")
             self.screenshot_button.setEnabled(True)
         animated_extension = getattr(get_config().screenshot.animated_settings, "extension", "").lower()
         self.animated_audio_notice_label.setVisible(bool(pending_animated and animated_extension == "avif"))
 
         use_prev_image = bool(self.previous_screenshot_path and get_config().anki.previous_image_field)
+        self.previous_screenshot_card.setVisible(use_prev_image)
         self.prev_screenshot_label_title.setVisible(use_prev_image)
         self.prev_image_label.setVisible(use_prev_image)
         self.prev_screenshot_button.setVisible(use_prev_image)
@@ -860,6 +1031,9 @@ class AnkiConfirmationDialog(QDialog):
         self._update_dialogue_line_controls(has_translation=has_translation)
 
         self._configure_tab_order()
+        self.layout().invalidate()
+        self.layout().activate()
+        self._review_history.reset()
         log_anki_card_timing(
             getattr(self._replay_context, "timing_context", None),
             "anki.confirmation_dialog.populated",
@@ -877,6 +1051,7 @@ class AnkiConfirmationDialog(QDialog):
                 populate_to_show_ms=elapsed_ms(self._populate_start_perf) if self._populate_start_perf else None,
             )
 
+    @review_edit("Generate translation")
     def _poll_translation_future(self):
         future = self._translation_future
         if not self._translation_pending or future is None:
@@ -911,7 +1086,7 @@ class AnkiConfirmationDialog(QDialog):
 
         if isinstance(path, ScreenshotSelectionResult):
             path = path.items[0].path
-        label_widget.setStyleSheet("")
+        set_status_style(label_widget, "")
         if not path or not os.path.exists(path):
             label_widget.setPixmap(QPixmap())
             label_widget.setText("Image not found")
@@ -941,7 +1116,7 @@ class AnkiConfirmationDialog(QDialog):
         except Exception as e:
             label_widget.setPixmap(QPixmap())
             label_widget.setText(f"Could not load image:\n{e}")
-            label_widget.setStyleSheet("color: red;")
+            set_status_style(label_widget, "danger")
 
     def _apply_window_behavior_preferences(self):
         anki_config = get_config().anki
@@ -963,7 +1138,7 @@ class AnkiConfirmationDialog(QDialog):
 
     def showEvent(self, event):
         if self.first_launch:
-            restored = window_state_manager.restore_geometry(self, WindowId.ANKI_CONFIRMATION)
+            restored = window_state_manager.restore_geometry(self, AnkiConfirmationDialog._geometry_window_id(self))
             if not restored:
                 self._center_on_screen()
             self.first_launch = False
@@ -1001,7 +1176,7 @@ class AnkiConfirmationDialog(QDialog):
 
         if get_config().anki.autoplay_audio and self.audio_path and os.path.exists(self.audio_path):
             # Use QTimer to delay slightly to ensure window is ready/rendered
-            QTimer.singleShot(100, self._play_range)
+            self._queue_autoplay(require_enabled=True)
 
     def hideEvent(self, event):
         self._focus_on_show_timer.stop()
@@ -1202,16 +1377,39 @@ class AnkiConfirmationDialog(QDialog):
         else:
             self._on_no_voice()
 
+    def _queue_autoplay(self, *, require_enabled=False):
+        history = getattr(self, "_review_history", None)
+        self._autoplay_request = (self.audio_path, getattr(history, "generation", 0), require_enabled)
+        self._autoplay_request_timer.start(100)
+
+    def _run_queued_autoplay(self):
+        request, self._autoplay_request = self._autoplay_request, None
+        if request is None:
+            return
+        path, generation, require_enabled = request
+        history = getattr(self, "_review_history", None)
+        if (
+            self.isVisible()
+            and path
+            and path == self.audio_path
+            and generation == getattr(history, "generation", 0)
+            and (not require_enabled or self.autoplay_checkbox.isChecked())
+        ):
+            self._play_range()
+
+    @review_edit("Change autoplay")
     def _on_autoplay_toggled(self, checked):
         config = get_config()
-        config.anki.autoplay_audio = checked
+        config.anki.autoplay_audio = bool(checked)
         save_current_config(config)
         if checked:
-            QTimer.singleShot(100, self._play_range)
+            self._queue_autoplay(require_enabled=True)
 
+    @review_edit("Change confirmation preference")
     def _on_disable_session_toggled(self, state):
         gsm_state.disable_anki_confirmation_session = state == Qt.CheckState.Checked.value
 
+    @review_edit("Trim audio")
     def _on_handle_moved(self, which, start, end):
         self._sync_audio_edit_selection_to_current_clip(start, end)
         self._update_audio_expand_buttons()
@@ -1230,10 +1428,12 @@ class AnkiConfirmationDialog(QDialog):
             if self.autoplay_checkbox.isChecked():
                 pass  # Explicitly ignore autoplay for end trim changes to avoid restarts
 
+    @review_edit("Change cut tool")
     def _toggle_cut_mode(self, enabled):
         self.waveform_widget.set_cut_mode(enabled)
         self._update_cut_controls()
 
+    @review_edit("Edit audio cuts")
     def _on_cut_ranges_changed(self, _cut_ranges):
         self._cancel_auto_accept()
         was_playing = self.audio_player.is_playing
@@ -1342,13 +1542,17 @@ class AnkiConfirmationDialog(QDialog):
         )
         if not selected:
             return
+        self._apply_screenshot_selection(selected, previous)
+
+    @review_edit("Change screenshots")
+    def _apply_screenshot_selection(self, selected, previous=False):
         target_attr = "previous_screenshot_path" if previous else "screenshot_path"
         label_widget = self.prev_image_label if previous else self.image_label
         setattr(self, target_attr, selected)
         self._load_image_to_label(selected, label_widget)
         if not previous:
             self.screenshot_button.setText("Change selected screenshot(s)")
-            self.screenshot_button.setStyleSheet("color: green; font-weight: bold;")
+            set_status_style(self.screenshot_button, "success")
             self.animated_audio_notice_label.setVisible(False)
         if len(selected.items) > 1:
             label_widget.setToolTip(f"{len(selected.items)} screenshots selected in order")
@@ -1426,31 +1630,41 @@ class AnkiConfirmationDialog(QDialog):
         if not feature_enabled:
             return
 
-        rows = []
+        theme = self.property("gsmTheme") if isinstance(self, QWidget) else None
+        colors = get_theme_palette(theme or "gsm-dark")
         previous_line = self._previous_dialogue_line()
         next_line = self._next_dialogue_line()
+        entries = []
         if previous_line:
-            rows.append(
-                '<div style="color:#888"><span style="color:#777">● Previous</span> '
-                f"{self._timeline_line_text(previous_line)}</div>"
-            )
-
-        mined_line_id = getattr(getattr(self, "_replay_context", None), "mined_line", None)
-        mined_line_id = getattr(mined_line_id, "id", None)
-        for line in self._dialog_selected_lines:
-            label = "Mined" if getattr(line, "id", None) == mined_line_id else "Selected"
-            rows.append(
-                '<div style="margin:2px 0;color:palette(text)"><span style="color:#ff8c00">● '
-                f"{label}</span> {self._timeline_line_text(line)}</div>"
-            )
-
+            entries.append(("Previous", str(previous_line.text or ""), colors["text-muted"]))
+        if self._dialog_selected_lines:
+            count = len(self._dialog_selected_lines)
+            mined_line = getattr(getattr(self, "_replay_context", None), "mined_line", None)
+            if count == 1:
+                label = "Mined" if self._dialog_selected_lines[0].id == getattr(mined_line, "id", None) else "Selected"
+            else:
+                label = f"Selected ({count} lines)"
+            selected_text = " ".join(str(line.text or "") for line in self._dialog_selected_lines)
+            entries.append((label, selected_text, colors["accent-text"]))
         if next_line:
-            rows.append(
-                '<div style="color:#777"><span style="color:#4f8cff">● Next</span> '
-                f"{self._timeline_line_text(next_line)}</div>"
-            )
+            entries.append(("Next", str(next_line.text or ""), colors["text-muted"]))
         else:
-            rows.append('<div style="color:#999"><span>○ Next</span> Waiting for the next line…</div>')
+            entries.append(("Next", "Waiting for the next line…", colors["text-muted"]))
+
+        # Context is a three-line preview. Full dialogue stays available in the
+        # sentence editor and tooltip without stretching the review off screen.
+        self.dialogue_timeline.setToolTip("\n".join(f"{label}: {text}" for label, text, _color in entries))
+        rows = []
+        for label, text, color in entries:
+            display_text = " ".join(text.split()) or "(empty line)"
+            if isinstance(self.dialogue_timeline, QLabel):
+                metrics = self.dialogue_timeline.fontMetrics()
+                width = max(80, self.dialogue_timeline.width() - metrics.horizontalAdvance(f"● {label} ") - 20)
+                display_text = metrics.elidedText(display_text, Qt.TextElideMode.ElideRight, width)
+            rows.append(
+                f'<div style="white-space:nowrap;color:{colors["text-secondary"]}">'
+                f'<span style="color:{color}">● {escape(label)}</span> {escape(display_text)}</div>'
+            )
         self.dialogue_timeline.setText("".join(rows))
 
     def _poll_dialogue_line_neighbors(self):
@@ -1480,6 +1694,7 @@ class AnkiConfirmationDialog(QDialog):
         replay_pending = self._dialogue_replay_future is not None
 
         self.dialogue_tools_title.setVisible(visible)
+        self.dialogue_tools_container.setVisible(visible)
         self.add_prev_line_button.setVisible(bool(visible and prev_line))
         self.add_next_line_button.setVisible(visible)
         self.add_next_line_button.setEnabled(bool(visible and next_line and not replay_pending))
@@ -1497,7 +1712,7 @@ class AnkiConfirmationDialog(QDialog):
         if replay_pending:
             status_text = "Saving a fresh replay and recalculating audio…"
         else:
-            status_text = f"Experimental. {line_count} line{'s' if line_count != 1 else ''} selected."
+            status_text = f"{line_count} line{'s' if line_count != 1 else ''} selected."
         if self._dialog_line_selection_changed:
             status_text += " Card fields will use the expanded dialogue."
         self.dialogue_tools_status.setText(status_text)
@@ -1521,7 +1736,7 @@ class AnkiConfirmationDialog(QDialog):
     def _refresh_audio_controls(self, sentence_text):
         if not self.audio_player.audio_available:
             self.audio_status_label.setText("⚠ No audio player available on this platform.")
-            self.audio_status_label.setStyleSheet("color: #856404; font-weight: bold;")
+            set_status_style(self.audio_status_label, "muted")
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
             self.audio_button.setVisible(False)
@@ -1538,7 +1753,7 @@ class AnkiConfirmationDialog(QDialog):
 
         if self.reusing_audio:
             self.audio_status_label.setText("Reusing audio from the previous mining operation.")
-            self.audio_status_label.setStyleSheet("color: green; font-weight: bold;")
+            set_status_style(self.audio_status_label, "success")
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
             self.audio_button.setVisible(False)
@@ -1556,31 +1771,37 @@ class AnkiConfirmationDialog(QDialog):
         has_audio_file = bool(self.audio_path and os.path.isfile(self.audio_path))
 
         vad_ran = self.vad_result is not None and hasattr(self.vad_result, "success")
-        vad_detected_voice = vad_ran and bool(self.vad_result.success)
+        vad_detected_voice = vad_ran and bool(getattr(self.vad_result, "voice_detected", self.vad_result.success))
 
         status_text = "No audio"
-        status_style = ""
+        status_tone = ""
+        status_boxed = False
 
         if has_audio_file:
-            if vad_ran:
+            if (self._audio_edit_context or {}).get("timing_fallback"):
+                status_text = (
+                    "⚠️ The estimated audio range was empty. Showing nearby replay audio; "
+                    "listen and adjust it before keeping."
+                )
+                status_tone = "warning"
+                status_boxed = True
+            elif vad_ran:
                 if vad_detected_voice:
                     status_text = "✔ Voice audio detected"
-                    status_style = "color: green;"
+                    status_tone = "success"
                 elif getattr(self.vad_result, "tts_used", False):
                     status_text = "✔ TTS audio generated"
-                    status_style = "color: green;"
+                    status_tone = "success"
                 else:
                     status_text = "⚠️ VAD ran and found no voice.\n Keep audio by choosing 'Keep Audio'."
-                    status_style = (
-                        "color: #ff6b00; font-weight: bold; background-color: #fff3cd; "
-                        "padding: 5px; border-radius: 3px;"
-                    )
+                    status_tone = "warning"
+                    status_boxed = True
             elif not get_config().vad.do_vad_postprocessing:
                 status_text = "✔ Audio file available (VAD disabled)"
-                status_style = "color: green;"
+                status_tone = "success"
 
         self.audio_status_label.setText(status_text)
-        self.audio_status_label.setStyleSheet(status_style)
+        set_status_style(self.audio_status_label, status_tone, boxed=status_boxed)
 
         is_unsupported, codec_name = self._is_unsupported_audio_codec(self.audio_path)
 
@@ -1599,17 +1820,22 @@ class AnkiConfirmationDialog(QDialog):
                 self._update_audio_expand_buttons(allow_buttons=False)
             else:
                 self.codec_info_label.setVisible(False)
-                self.waveform_widget.load_audio(self.audio_path)
-                self.waveform_widget.setVisible(True)
+                waveform_loaded = self.waveform_widget.load_audio(self.audio_path)
+                self.waveform_widget.setVisible(waveform_loaded)
                 self._playback_resume_position = None
                 self._playing_full_audio = False
-                self.audio_button.setVisible(True)
-                self.play_original_button.setVisible(True)
-                self.reset_audio_button.setVisible(True)
-                AnkiConfirmationDialog._set_audio_cut_controls_visible(self, True)
+                self.audio_button.setVisible(waveform_loaded)
+                self.play_original_button.setVisible(waveform_loaded)
+                self.reset_audio_button.setVisible(waveform_loaded)
+                AnkiConfirmationDialog._set_audio_cut_controls_visible(self, waveform_loaded)
                 self.audio_button.setText("▶ Play Range")
-                self.audio_button.setStyleSheet("")
-                self._update_audio_expand_buttons(allow_buttons=True)
+                set_status_style(self.audio_button, "")
+                self._update_audio_expand_buttons(allow_buttons=waveform_loaded)
+                if not waveform_loaded:
+                    self.audio_status_label.setText(
+                        "⚠️ Could not load this audio for trimming; it may not play. Choose Keep Audio or No Audio."
+                    )
+                    set_status_style(self.audio_status_label, "warning", boxed=True)
         else:
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
@@ -1759,6 +1985,7 @@ class AnkiConfirmationDialog(QDialog):
             ):
                 self._add_next_dialogue_line(auto_trigger=True)
 
+    @review_edit("Change dialogue")
     def _apply_dialogue_line_change(self, selected_lines, audio_result_override=None):
         if not self._dialogue_line_expansion_enabled() or not selected_lines:
             return
@@ -1833,6 +2060,7 @@ class AnkiConfirmationDialog(QDialog):
         self._dialogue_replay_poll_timer.start()
         self._update_dialogue_line_controls()
 
+    @review_edit("Refresh dialogue replay")
     def _poll_dialogue_replay_refresh(self):
         future = self._dialogue_replay_future
         if future is None or not future.done():
@@ -1975,6 +2203,9 @@ class AnkiConfirmationDialog(QDialog):
                 AnkiConfirmationDialog._audio_edit_context_value(context, "rebase_on_selection_trim", False)
             ),
             "timeline": AnkiConfirmationDialog._audio_edit_context_value(context, "timeline"),
+            "timing_fallback": bool(
+                AnkiConfirmationDialog._audio_edit_context_value(context, "timing_fallback", False)
+            ),
         }
 
     def _load_audio_edit_context(self, context):
@@ -2039,6 +2270,7 @@ class AnkiConfirmationDialog(QDialog):
         selection_end = max(selection_start, min(float(selection_end), clip_duration))
         return selection_start, selection_end, clip_duration
 
+    @review_edit("Change audio selection")
     def _apply_audio_selection(self, selection_start, selection_end):
         selection_start, selection_end, clip_duration = (
             max(0.0, float(selection_start)),
@@ -2083,6 +2315,7 @@ class AnkiConfirmationDialog(QDialog):
             range_text=f"{start_time:.2f}s -> {end_time:.2f}s",
         )
 
+    @review_edit("Expand audio")
     def _render_audio_edit_range(self, start_time, end_time, selection_start=0.0, selection_end=None):
         if not self._audio_edit_source_path:
             return
@@ -2159,6 +2392,7 @@ class AnkiConfirmationDialog(QDialog):
     def _expand_audio_end(self, seconds):
         self._expand_audio_window(expand_end=seconds)
 
+    @review_edit("Expand audio")
     def _expand_audio_window(self, expand_start=0.0, expand_end=0.0):
         if not self._audio_edit_range or not self._audio_edit_source_path or not self._audio_edit_source_window:
             return
@@ -2256,6 +2490,15 @@ class AnkiConfirmationDialog(QDialog):
                     subprocess.run(["xdg-open", audio_path])
             else:
                 success = self.audio_player.play_audio_file(audio_path)
+                if (
+                    not success
+                    and audio_path == self.audio_path
+                    and self.waveform_widget.audio_data is not None
+                    and self.waveform_widget.samplerate > 0
+                ):
+                    success = self.audio_player.play_audio_data(
+                        self.waveform_widget.audio_data, self.waveform_widget.samplerate
+                    )
                 if success:
                     self.waveform_widget.set_playback_position(self._playback_start_offset)
                     self._update_audio_buttons()
@@ -2388,6 +2631,7 @@ class AnkiConfirmationDialog(QDialog):
                 self.waveform_widget.set_playback_position(self._playback_resume_position)
             self._update_audio_buttons()
 
+    @review_edit("Reset audio edits")
     def _reset_audio_trim(self):
         if self.waveform_widget.audio_data is not None:
             self.audio_player.stop_audio()
@@ -2452,7 +2696,7 @@ class AnkiConfirmationDialog(QDialog):
             return new_path
         except Exception as e:
             logger.error(f"Failed to save trimmed audio: {e}")
-            return self.audio_path
+            raise
 
     def _audio_finished(self):
         self.playback_timer.stop()
@@ -2468,19 +2712,20 @@ class AnkiConfirmationDialog(QDialog):
         if self.audio_button:
             if is_playing:
                 self.audio_button.setText("⏹ Stop")
-                self.audio_button.setStyleSheet("background-color: #ffc107; color: black;")
+                set_status_style(self.audio_button, "warning", boxed=True)
             else:
                 self.audio_button.setText("▶ Play Range")
-                self.audio_button.setStyleSheet("")
+                set_status_style(self.audio_button, "")
 
         if self.play_original_button:
             if is_playing:
                 self.play_original_button.setText("⏹ Stop")
-                self.play_original_button.setStyleSheet("background-color: #ffc107; color: black;")
+                set_status_style(self.play_original_button, "warning", boxed=True)
             else:
                 self.play_original_button.setText("▶ Play Full")
-                self.play_original_button.setStyleSheet("")
+                set_status_style(self.play_original_button, "")
 
+    @review_edit("Generate TTS audio")
     def _generate_tts_audio(self):
         try:
             sentence_text = self.sentence_text.toPlainText().strip()
@@ -2527,16 +2772,16 @@ class AnkiConfirmationDialog(QDialog):
             self._update_audio_expand_buttons(allow_buttons=False)
 
             self.audio_status_label.setText("✔ TTS audio generated")
-            self.audio_status_label.setStyleSheet("color: green;")
+            set_status_style(self.audio_status_label, "success")
             self.audio_button.setVisible(True)
             self.voice_button.setVisible(True)
             self.no_voice_button.setVisible(True)
             self.confirm_button.setVisible(False)
             self.tts_status_label.setText("✓ TTS Audio Generated")
-            self.tts_status_label.setStyleSheet("color: green;")
+            set_status_style(self.tts_status_label, "success")
             self.tts_button.setText("🔊 Regenerate TTS Audio")
             if getattr(get_config().anki, "replay_audio_on_tts_generation", True):
-                QTimer.singleShot(100, self._play_range)
+                self._queue_autoplay()
         except Exception as e:
             logger.error(f"TTS Error: {e}")
             QMessageBox.critical(self, "TTS Error", str(e))
@@ -2568,10 +2813,13 @@ class AnkiConfirmationDialog(QDialog):
         }
 
     def _on_voice(self):
+        try:
+            final_audio_path = self._save_trimmed_audio()
+        except Exception as e:  # noqa: BLE001 - Keep the dialog open for any encoder failure.
+            QMessageBox.critical(self, "Audio Trim Error", f"Could not save the audio edits: {e}")
+            return
         self._stop_dialogue_watchers()
         self._cleanup_audio()
-
-        final_audio_path = self._save_trimmed_audio()
 
         # UPDATE 3: Comment out access to missing checkbox
         # if self.disable_dialog_checkbox.isChecked():
@@ -2665,7 +2913,7 @@ class AnkiConfirmationDialog(QDialog):
         self._auto_line_expand_timer.stop()
         self._stop_dialogue_watchers()
         self._cleanup_audio()
-        window_state_manager.save_geometry(self, WindowId.ANKI_CONFIRMATION)
+        window_state_manager.save_geometry(self, AnkiConfirmationDialog._geometry_window_id(self))
         self._rejected_cleanup_done = True
 
     def reject(self):
@@ -2683,7 +2931,7 @@ class AnkiConfirmationDialog(QDialog):
 
     def _exec_with_activation(self):
         super().exec()
-        window_state_manager.save_geometry(self, WindowId.ANKI_CONFIRMATION)
+        window_state_manager.save_geometry(self, AnkiConfirmationDialog._geometry_window_id(self))
         return self.result
 
     def _exec_without_activation(self):
@@ -2701,7 +2949,7 @@ class AnkiConfirmationDialog(QDialog):
                 self.finished.disconnect(_finish)
             except TypeError:
                 pass
-            window_state_manager.save_geometry(self, WindowId.ANKI_CONFIRMATION)
+            window_state_manager.save_geometry(self, AnkiConfirmationDialog._geometry_window_id(self))
         return self.result
 
     def exec(self):
@@ -2716,7 +2964,8 @@ class AnkiConfirmationDialog(QDialog):
         finally:
             if pause_requested:
                 request_anki_confirmation_process_pause(False)
-        _request_game_focus_restore(previous_foreground_hwnd)
+        if getattr(get_config().anki, "confirmation_restore_focus", True):
+            _request_game_focus_restore(previous_foreground_hwnd)
         return result
 
 

@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import soundfile as sf
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QPointF
@@ -292,7 +294,25 @@ class AudioWaveformWidget(QWidget):
         Loads audio from a file.
         """
         try:
-            data, samplerate = sf.read(file_path)
+            try:
+                data, samplerate = sf.read(file_path)
+            except (OSError, RuntimeError, ValueError):
+                # Some valid FFmpeg-encoded files cannot be read by libsndfile.
+                # Decode a temporary WAV without the voice-detection filters so
+                # waveform preview and editing still use the original audio.
+                from GameSentenceMiner.util.media.ffmpeg import convert_audio_to_wav_lossless
+
+                wav_path = convert_audio_to_wav_lossless(file_path)
+                try:
+                    data, samplerate = sf.read(wav_path)
+                finally:
+                    if wav_path and os.path.abspath(wav_path) != os.path.abspath(file_path):
+                        try:
+                            os.unlink(wav_path)
+                        except OSError:
+                            pass
+            if not samplerate or len(data) == 0:
+                raise ValueError("Audio contains no samples")
             self.samplerate = samplerate
 
             # Handle multi-channel: mix down to mono for visualization
@@ -317,10 +337,18 @@ class AudioWaveformWidget(QWidget):
             self._generate_waveform_polygon()
             self._position_overlay_controls()
             self.update()
+            return True
 
         except Exception as e:
             print(f"Error loading audio for waveform: {e}")
             self.audio_data = None
+            self.samplerate = 0
+            self.duration = 0
+            self.channels = 0
+            self.start_time = self.end_time = 0.0
+            self._waveform_polygon = None
+            self.update()
+            return False
 
     def set_playback_position(self, position):
         """

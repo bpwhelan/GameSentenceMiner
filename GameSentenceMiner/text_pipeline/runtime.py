@@ -10,14 +10,22 @@ from GameSentenceMiner.util.concurrency.actor import (
     MailboxPolicy,
     RuntimeSupervisor,
 )
+from GameSentenceMiner.util.concurrency.resource_qos import ExecutionClass, enable_responsive_gil
 from GameSentenceMiner.util.concurrency.scheduler import (
     SchedulerActor,
     acquire_runtime_scheduler,
     release_runtime_scheduler,
 )
-from GameSentenceMiner.util.concurrency.resource_qos import ExecutionClass, enable_responsive_gil
 
-from .coordinator import FreezeCommand, IngestCommand, SnapshotCommand, TextCoordinatorActor, TextCoordinatorState
+from .coordinator import (
+    FinishStatsCommand,
+    FreezeCommand,
+    IngestCommand,
+    RecoverLandingCommand,
+    SnapshotCommand,
+    TextCoordinatorActor,
+    TextCoordinatorState,
+)
 from .models import (
     IngressAck,
     IngressResult,
@@ -68,7 +76,7 @@ class AuthoritativeTextRuntime:
         self.projection = self.supervisor.register(
             TextProjectionActor(projector, idle_callback=projection_idle_callback)
         )
-        state = TextCoordinatorState()
+        state = TextCoordinatorState(skip_detection=True)
         self.coordinator = self.supervisor.register(
             TextCoordinatorActor(
                 state=state,
@@ -120,6 +128,9 @@ class AuthoritativeTextRuntime:
     def wait_projected(self, timeout: float = 1.0) -> bool:
         return self.projection.wait_idle(timeout)
 
+    def recover_skip_landing(self, text: str, scene: str) -> None:
+        self.coordinator.ref.tell(RecoverLandingCommand(text, scene), timeout=0.25)
+
     def stop(self) -> bool:
         if not self._started:
             return True
@@ -128,6 +139,8 @@ class AuthoritativeTextRuntime:
             if snapshot.records and snapshot.records[-1].state.value == "provisional":
                 self.freeze(snapshot.records[-1].line_id, timeout=1.0)
                 self.wait_projected(timeout=1.0)
+            self.coordinator.ref.ask(FinishStatsCommand(), timeout=1.0)
+            self.wait_projected(timeout=1.0)
         except Exception:
             pass
         scheduler = self.scheduler

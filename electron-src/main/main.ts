@@ -1,4 +1,7 @@
 import { activeGame } from './active_game.js';
+import { gamePrivilegeMonitor } from './services/game_privileges.js';
+import { refreshGamePrivilegeCapture, startGamePrivilegeChecks, stopGamePrivilegeChecks } from './services/game_privileges_runtime.js';
+import { getActiveCapture } from './ui/texthook.js';
 import { startGameBackgroundHooks, stopGameBackgroundHooks } from './services/game_background_runtime.js';
 import {
     app,
@@ -14,6 +17,7 @@ import {
 import {
     sendAgentRestartNotification,
     sendGSMReadyNotification,
+    sendGamePrivilegeWarningNotification,
     sendGSMStillRunningInTrayNotification,
     sendNotificationFromPython,
 } from './notifications.js';
@@ -48,6 +52,7 @@ import {
     writeDataDirRegistry,
 } from './data_dir.js';
 import { performDataMove, validateTargetDir, type RelocateProgress } from './services/data_relocate.js';
+import { getWindowsAppDetails, getWindowsAppId } from './windows_app_identity.js';
 import { fileURLToPath } from 'node:url';
 
 import log from 'electron-log/main.js';
@@ -68,6 +73,7 @@ import {
     setElectronAppVersion,
     setHasCompletedSetup,
     getIconStyle,
+    getSeasonalEffectsDisabled,
     setIconStyle,
     setPendingDesktopChangelog,
     clearPendingDesktopChangelog,
@@ -77,10 +83,11 @@ import {
     setPullPreReleases,
     setPreReleaseMetadataAutoEnableApplied,
 } from './store.js';
+import { getSeasonalEvent, resolveSeasonalIconStyle } from '../shared/seasonal.js';
 import { launchSteamGameID } from './ui/steam.js';
 import { bus, getBroker, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
 import { AGENT_RESTART_ARG, agentRelaunchArgs, startAgentControl } from './services/agent_control.js';
-import { stopManagedProcesses } from './runtime/process_supervisor.js';
+import { getProcessManager, setLaunchBlockedCheck, stopManagedProcesses } from './runtime/process_supervisor.js';
 import { terminateProcessTree, waitForProcessExit } from './runtime/process_tree.js';
 import { getWindowsSystemExecutable } from './runtime/windows_tools.js';
 import { submitTextObservation } from './runtime/text_ingress.js';
@@ -91,6 +98,8 @@ import {
 import {
     closeOBSFromElectron,
     ensureObsInstalledAndLaunch,
+    isObsRuntimeUpdateInProgress,
+    waitForObsRuntimeUpdate,
     getCurrentOBSSceneCollectionName,
     getCurrentScene,
     getOBSScenesForSceneSwitcher,
@@ -117,7 +126,7 @@ import {
     stopWindowTransparencyTool,
     window_transparency_process,
 } from './ui/settings.js';
-import { startOCR, stopOCR } from './ui/ocr.js';
+import { startOCR, startManualOCR, stopOCR, getOCRRuntimeState } from './ui/ocr.js';
 import * as fs from 'node:fs';
 import {
     runOverlay,
@@ -132,19 +141,19 @@ import { installSessionManager } from './services/install_session_state.js';
 import { recordLatestTextProcessingInput } from './services/latest_text.js';
 import { UpdateManager } from './services/update_manager.js';
 import { syncStartupBackend } from './services/startup_backend_update.js';
+import { markStartup } from './services/startup_timing.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { APP_UPDATE_STATUS_CHANNEL } from '../shared/app_update.js';
 import { DevUpdatePreview } from './services/dev_update_preview.js';
+import { DevOcrBenchmark } from './services/ocr_benchmark.js';
+import { DevVadDebug } from './services/vad_debug.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
 import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
 import {
     DesktopChangelogManager,
     getDesktopUpdateChangelogTarget,
 } from './services/desktop_changelog.js';
-import {
-    registerChangelogProtocolHandler,
-    registerChangelogProtocolScheme,
-} from './services/changelog_protocol.js';
+import { registerChangelogProtocolHandler } from './services/changelog_protocol.js';
 import { startInputServer, stopInputServer } from './services/input_server.js';
 import { getConfiguredSinglePort } from './gsm_config.js';
 import {
@@ -170,6 +179,7 @@ import {
     resolveRequestedExtras,
     syncLockedEnvironment,
 } from './services/python_ops.js';
+import { BackendProcessError } from './services/managed_python_repair.js';
 import {
     getDevPyprojectSyncState,
     type DevPyprojectSyncState,
@@ -181,8 +191,6 @@ import type {
 } from '../shared/install_session.js';
 import { INSTALL_STAGE_IDS } from '../shared/install_session.js';
 import { requiresBackendStartupPreparation } from './services/backend_version.js';
-
-registerChangelogProtocolScheme();
 
 export class FeatureFlags {
     /**
@@ -202,7 +210,6 @@ export class FeatureFlags {
     static DISABLE_GPU_INSTALLS = false;
 }
 
-const APP_USER_MODEL_ID = 'com.beangate.gamesentenceminer';
 const YOUTUBE_EMBED_REFERER = 'https://github.com/bpwhelan/GameSentenceMiner/';
 let cachedPreReleaseBranch: string | null | undefined = undefined;
 
@@ -797,6 +804,7 @@ const updateManager = new UpdateManager({
     getPythonPath: () => pythonPath,
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
     closeAllForAppUpdate: async () => {
+        await waitForObsRuntimeUpdate();
         await closeAllPythonProcesses();
         const { shutdownTextHookForUpdate } = await import('./ui/texthook.js');
         await shutdownTextHookForUpdate();
@@ -816,10 +824,11 @@ updateManager.setAppUpdateStatusListener((status) => {
 });
 
 export function isPythonLaunchBlockedByUpdate(): boolean {
-    return updateManager.anyUpdateInProgress;
+    return updateManager.anyUpdateInProgress || isObsRuntimeUpdateInProgress();
 }
 
 export async function waitForPythonLaunchReadiness(context: string): Promise<void> {
+    if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
     if (!updateManager.anyUpdateInProgress) {
         return;
     }
@@ -834,6 +843,7 @@ async function runUpdateChecks(
     force: boolean = false,
     forceDev: boolean = false
 ): Promise<void> {
+    if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
     await updateManager.runUpdateChecks(
         shouldRestart,
         force,
@@ -845,6 +855,7 @@ async function updateGSM(
     shouldRestart: boolean = false,
     force: boolean = false
 ): Promise<void> {
+    if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
     await updateManager.updateGSM(shouldRestart, force);
 }
 
@@ -857,6 +868,7 @@ async function checkForAvailableUpdates(): Promise<UpdateStatusSnapshot> {
 }
 
 async function updateAvailableTargets(): Promise<UpdateStatusSnapshot> {
+    if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
     return await updateManager.updateAvailableTargets(true);
 }
 
@@ -917,23 +929,39 @@ function getResolvedIconStyle(configuredIconStyle: string = getIconStyle()): str
 
 refreshResolvedRandomIconStyle();
 
+function getActiveSeasonalEvent() {
+    return getSeasonalEvent(getSeasonalEffectsDisabled());
+}
+
+let lastSeasonalEvent = getActiveSeasonalEvent();
+
+function refreshSeasonalPresentation(): void {
+    const nextEvent = getActiveSeasonalEvent();
+    if (nextEvent === lastSeasonalEvent) return;
+    lastSeasonalEvent = nextEvent;
+    refreshIconPresentation();
+}
+
 export function getIconPath(forTray: boolean = false): string {
     const configuredIconStyle = getIconStyle();
     let style = getResolvedIconStyle(configuredIconStyle);
     const extension: 'ico' | 'png' = isWindows() ? 'ico' : 'png';
+    const seasonalEvent = getActiveSeasonalEvent();
     if (forTray) {
         return getTrayBaseIconPath({
             assetsDir: getAssetsDir(),
             configuredIconStyle,
             resolvedRandomStyle: iconStyle,
             extension,
+            seasonalEvent,
         });
     }
-    if (useRareIcon) {
+    style = style.replace(/\[.*\]/, ''); // Remove any [.*] suffix if present
+    const seasonalStyle = resolveSeasonalIconStyle(style, seasonalEvent);
+    if (useRareIcon && seasonalStyle === style) {
         return path.join(getAssetsDir(), isWindows() ? 'gsm_rare.ico' : 'gsm_rare.png');
     }
-    style = style.replace(/\[.*\]/, ''); // Remove any [.*] suffix if present
-    let filename = `${style}.${extension}`;
+    const filename = `${seasonalStyle}.${extension}`;
     return path.join(getAssetsDir(), filename);
 }
 
@@ -943,11 +971,28 @@ export function applyIconStyle(nextIconStyle?: string): void {
     }
 
     refreshResolvedRandomIconStyle();
+    refreshIconPresentation();
+}
+
+function applyMainWindowAppDetails(): void {
+    if (!isWindows() || !mainWindow || mainWindow.isDestroyed()) return;
+    // Windows taskbar groups/pinned entries also need shell metadata; setIcon
+    // alone only changes the native window icon.
+    mainWindow.setAppDetails(getWindowsAppDetails({
+        isPackaged: app.isPackaged,
+        executable: process.execPath,
+        appPath: app.getAppPath(),
+        iconPath: getIconPath(),
+    }));
+}
+
+function refreshIconPresentation(): void {
     const windowIconPath = getIconPath();
 
     if (mainWindow && !mainWindow.isDestroyed()) {
         try {
             mainWindow.setIcon(windowIconPath);
+            applyMainWindowAppDetails();
         } catch (error) {
             console.warn('Failed to update main window icon:', error);
         }
@@ -1046,6 +1091,7 @@ function getHardcodedStatusTrayIconPath(state: Exclude<TrayVisualState, 'normal'
         assetsDir: getAssetsDir(),
         state,
         extension: isWindows() ? 'ico' : 'png',
+        seasonalEvent: getActiveSeasonalEvent(),
     });
 }
 
@@ -1089,6 +1135,7 @@ async function pollBackendStatusOnce(): Promise<void> {
             return;
         }
         backendStatusReady = true;
+        markStartup('backend HTTP available');
         clearBackendStatusPollTimer();
         maybeActivateReadyTrayIndicator();
         refreshTrayPresentation();
@@ -1123,6 +1170,7 @@ function markPythonIPCConnected(): void {
         return;
     }
     pythonIpcConnected = true;
+    markStartup('backend IPC connected');
     maybeActivateReadyTrayIndicator();
     refreshTrayPresentation();
 }
@@ -1349,6 +1397,38 @@ function sendBackendCommand(fn: string, data?: Record<string, unknown>): boolean
 
 let ocrHookRedundantDialogShown = false;
 
+const devOcrBenchmark = new DevOcrBenchmark({
+    isDev,
+    bus,
+    openFolder: async () => {
+        const directory = path.join(BASE_DIR, 'ocr-benchmarks');
+        await fs.promises.mkdir(directory, { recursive: true });
+        const error = await shell.openPath(directory);
+        if (error) throw new Error(error);
+    },
+    onStatus: (status) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('dev-ocr-benchmark');
+        if (item) item.checked = status.enabled;
+    },
+    onError: (message) => dialog.showErrorBox('OCR benchmark', message),
+});
+
+const devVadDebug = new DevVadDebug({
+    isDev,
+    bus,
+    openFolder: async () => {
+        const directory = path.join(BASE_DIR, 'vad-debug');
+        await fs.promises.mkdir(directory, { recursive: true });
+        const error = await shell.openPath(directory);
+        if (error) throw new Error(error);
+    },
+    onStatus: (status) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('dev-vad-debug');
+        if (item) item.checked = status.enabled;
+    },
+    onError: (message) => dialog.showErrorBox('VAD debug', message),
+});
+
 /** Warn once that running auto OCR alongside a text hook is usually redundant,
  *  and offer to stop OCR. The backend only emits this after several OCR lines
  *  are dropped as echoes of hook lines. */
@@ -1408,6 +1488,7 @@ function handleBackendMessage(msg: BackendMessage): void {
             } else {
                 handleForegroundWindowSnapshot(snapshot as ForegroundWindowSnapshot);
                 autoLauncher.handleForegroundWindowChanged(snapshot as ForegroundWindowSnapshot);
+                gamePrivilegeMonitor.handleForeground(snapshot as ForegroundWindowSnapshot);
             }
         }
     }
@@ -1434,6 +1515,14 @@ function handleBackendMessage(msg: BackendMessage): void {
     if (msg.function === 'ocr_hook_redundant') {
         void showOcrHookRedundantDialog();
     }
+    if (isDev && msg.function === 'ocr_benchmark_error') {
+        dialog.showErrorBox('OCR benchmark recording failed',
+            `${String(msg.data?.error ?? 'Could not write the benchmark CSV.')}\n\nAutomatic OCR remains suppressed until you stop recording from the Development menu.`);
+    }
+    if (isDev && msg.function === 'vad_debug_error') {
+        void devVadDebug.refresh().catch((error) => console.warn('Could not refresh VAD debug state:', error));
+        dialog.showErrorBox('VAD debug recording stopped', String(msg.data?.error ?? 'Could not save VAD debug audio.'));
+    }
     if (msg.function === 'text_intake_state') {
         setTextIntakePausedState(Boolean(msg.data?.paused));
     }
@@ -1458,6 +1547,9 @@ function handleBackendMessage(msg: BackendMessage): void {
         });
     }
     if (msg.function === 'initialized') {
+        void devOcrBenchmark.refresh().catch((error) => console.warn('Could not refresh OCR benchmark state:', error));
+        void devVadDebug.refresh().catch((error) => console.warn('Could not refresh VAD debug state:', error));
+        markStartup('backend initialized');
         backendInitialized = true;
         markPythonIPCConnected();
         maybeNotifyAgentRestartReady();
@@ -1550,7 +1642,7 @@ function initializeAgentControl(): void {
             getBlockedReason: () => {
                 if (isQuitting) return 'GSM is shutting down.';
                 if (restartingGSM) return 'The Python backend is already restarting.';
-                if (isPythonLaunchBlockedByUpdate() || installSessionManager.getActiveSnapshot()?.status === 'running') {
+                if (isPythonLaunchBlockedByUpdate() || isObsRuntimeUpdateInProgress() || installSessionManager.getActiveSnapshot()?.status === 'running') {
                     return 'An update or installation is in progress.';
                 }
                 if (process.env.VITE_DEV_SERVER_URL) {
@@ -1607,15 +1699,21 @@ function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<
 
         // Backend stdout/stderr are pure logs now — control travels over the bus.
         attachBackendLogForwarding(proc);
-        proc.once('spawn', () => onSpawn?.());
+        proc.once('spawn', () => {
+            markStartup('backend process spawned');
+            onSpawn?.();
+        });
 
         proc.on('exit', async (code) => {
+            // resetStartupTrayState clears this flag; preserve it before any
+            // cleanup so slow initialization failures remain eligible for repair.
+            const beforeInitialization = !backendInitialized;
             try {
                 // A worker holding an inherited stdout/stderr pipe can prevent
                 // 'close' forever. Reap the owned tree as soon as the parent exits.
                 await terminateProcessTree(proc);
             } catch (error) {
-                reject(error);
+                reject(new BackendProcessError('Failed to clean up the exited backend.', beforeInitialization, { cause: error }));
                 return;
             }
             const intentionallyStopped = intentionalBackendStops.has(proc);
@@ -1646,7 +1744,7 @@ function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<
                     }, 0);
                 }
             } else {
-                reject(new Error(`Command failed with exit code ${formatBackendExitCode(code)}`));
+                reject(new BackendProcessError(`Command failed with exit code ${formatBackendExitCode(code)}`, beforeInitialization));
             }
         });
 
@@ -1656,7 +1754,7 @@ function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<
                 resetStartupTrayState();
                 setTextIntakePausedState(false);
             }
-            reject(err);
+            reject(new BackendProcessError(err.message, true, { cause: err }));
         });
     });
 }
@@ -1687,6 +1785,7 @@ async function createWindow() {
         }),
         title: windowTitle,
     });
+    applyMainWindowAppDetails();
     configureYouTubeEmbedHeaders(mainWindow);
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -1730,12 +1829,23 @@ async function createWindow() {
         restoreForegroundWindow: (hwnd) => {
             sendBackendCommand('restore_foreground_window', { hwnd });
         },
-        onSceneChanged: () => autoLauncher.handleOBSSceneChanged(),
+        onSceneChanged: () => {
+            autoLauncher.handleOBSSceneChanged();
+            refreshGamePrivilegeCapture();
+        },
+    });
+
+    startGamePrivilegeChecks({
+        getMainWindow: () => mainWindow,
+        getCapture: async () => isOBSConnected() ? getActiveCapture() : null,
+        restartAsAdmin: async () => { await restartAsAdmin(); },
+        notifyWarning: (warning, onClick) => sendGamePrivilegeWarningNotification(warning.exeName, onClick),
     });
 
     registerMainIPC({
         getMainWindow: () => mainWindow,
         applyIconStyle,
+        refreshSeasonalEffects: refreshSeasonalPresentation,
         getUpdateStatus: async () => await getUpdateStatus(),
         checkForUpdates: async () => await checkForAvailableUpdates(),
         updateNow: async () => await updateAvailableTargets(),
@@ -1752,10 +1862,11 @@ async function createWindow() {
                 { includePrereleases: status.channel === 'beta' }
             );
         },
-        installAppUpdate: (version) => {
+        installAppUpdate: async (version) => {
             if (devUpdatePreview.getChangelog()) {
                 throw new Error('Installation is disabled for the development update preview.');
             }
+            if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
             return updateManager.installAppUpdate(version);
         },
         showUpdateChangelogPreview,
@@ -1771,6 +1882,7 @@ async function createWindow() {
 
     // Reveal window only after renderer signals it's ready
     mainWindow.once('ready-to-show', () => {
+        markStartup('desktop window ready');
         if (!getStartConsoleMinimized() && mainWindow) {
             mainWindow.show();
         }
@@ -1795,8 +1907,7 @@ async function createWindow() {
                     ? [{
                         label: 'Restart as Admin',
                         click: async () => {
-                            await closeAllPythonProcesses();
-                            restartAsAdmin();
+                            await restartAsAdmin();
                         },
                     } satisfies Electron.MenuItemConstructorOptions,
                     { type: 'separator' as const }]
@@ -1853,7 +1964,7 @@ async function createWindow() {
                 { role: 'hideOthers' },
                 { role: 'unhide' },
                 { type: 'separator' },
-                { label: 'Quit', click: async () => await quit() },
+                { label: 'Quit', accelerator: 'Command+Q', click: async () => await quit() },
             ],
         });
     }
@@ -1870,6 +1981,10 @@ async function createWindow() {
                     label: 'Clear Update Preview',
                     click: () => devUpdatePreview.clear(),
                 },
+                { type: 'separator' },
+                ...devOcrBenchmark.menuItems(),
+                { type: 'separator' },
+                ...devVadDebug.menuItems(),
                 { type: 'separator' },
                 { label: 'Reload UI', role: 'reload' },
                 { label: 'Toggle Developer Tools', role: 'toggleDevTools' },
@@ -2182,8 +2297,7 @@ function buildTrayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
         template.push({
             label: 'Restart as Admin',
             click: async () => {
-                await closeAllPythonProcesses();
-                restartAsAdmin();
+                await restartAsAdmin();
             },
         });
     }
@@ -2551,10 +2665,12 @@ async function ensureAndRunGSM(
         console.log(`[Startup] Failed to start GameSentenceMiner: ${formatConsoleArg(err)}`);
         const backendRuntimeMs = Date.now() - backendLaunchStartedAt;
         const failedSoonAfterLaunch = backendRuntimeMs <= STARTUP_REPAIR_WINDOW_MS;
-        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, pythonPath=${runtimePythonPath}`;
+        const failedBeforeInitialization = err instanceof BackendProcessError && err.beforeInitialization;
+        const eligibleForRepair = failedBeforeInitialization || failedSoonAfterLaunch;
+        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, beforeInitialization=${failedBeforeInitialization}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, pythonPath=${runtimePythonPath}`;
         console.error(startupFailureDetails);
         console.log(startupFailureDetails);
-        if (retry > 0 && failedSoonAfterLaunch) {
+        if (retry > 0 && eligibleForRepair) {
             const repairStartedAt = Date.now();
             const repairSpecifier = getBundledBackendSpecifier();
             console.log(
@@ -2599,7 +2715,7 @@ async function ensureAndRunGSM(
                         event.progress,
                         event.message
                     );
-                }, { deferValidation: true });
+                }, { deferValidation: true, reinstall: true });
                 updateInstallStage(
                     'lock_sync',
                     'completed',
@@ -2654,7 +2770,13 @@ async function ensureAndRunGSM(
                         error: repairError instanceof Error ? repairError.message : String(repairError),
                     }
                 );
-                throw repairError;
+                const failure = new BackendProcessError(
+                    `Backend repair failed: ${repairError instanceof Error ? repairError.message : String(repairError)}`,
+                    true,
+                    { cause: repairError }
+                );
+                finishInstallSession('failed', 'Backend repair failed.', failure.message);
+                throw failure;
             }
 
             const repairDurationMs = Date.now() - repairStartedAt;
@@ -2664,7 +2786,7 @@ async function ensureAndRunGSM(
             );
             return await ensureAndRunGSM(runtimePythonPath, retry - 1, options);
         }
-        if (retry > 0 && !failedSoonAfterLaunch) {
+        if (retry > 0 && !eligibleForRepair) {
             console.warn(
                 `Skipping automatic repair because backend failed after ${backendRuntimeMs}ms (threshold ${STARTUP_REPAIR_WINDOW_MS}ms).`
             );
@@ -2685,8 +2807,22 @@ async function ensureAndRunGSM(
             'Failed to start the GSM backend process.',
             err instanceof Error ? err.message : String(err)
         );
-        throw err instanceof Error ? err : new Error(String(err));
+        throw err instanceof BackendProcessError
+            ? err
+            : new BackendProcessError(err instanceof Error ? err.message : String(err), true, { cause: err });
     }
+}
+
+async function handleBackendStartupFailure(error: unknown): Promise<void> {
+    if (error instanceof BackendProcessError) {
+        // ensureAndRunGSM has already handled the bounded startup repair.
+        // A forced update here would start it all over again.
+        console.error('GSM backend process failed:', error);
+        finishInstallSession('failed', 'Failed to start the GSM backend process.', error.message);
+        return;
+    }
+    console.log('Failed to run GSM, attempting repair of python package...', error);
+    await updateGSM(true, true);
 }
 
 async function processArgsAndStartSettings() {
@@ -2710,34 +2846,48 @@ async function processArgsAndStartSettings() {
         }
     }
 
+    if (getRunOverlayOnStartup()) {
+        void runOverlayWithSource('startup').catch((error) => console.warn('Failed to start overlay:', error));
+    }
+
+    if (getRunWindowTransparencyToolOnStartup()) {
+        runWindowTransparencyTool();
+    }
+
     if (gameName) {
         await launchSteamGameID(gameName);
     }
     if (runOCR) {
         await startOCR();
     }
-
-    if (getRunOverlayOnStartup()) {
-        runOverlayWithSource('startup');
-    }
-
-    if (getRunWindowTransparencyToolOnStartup()) {
-        runWindowTransparencyTool();
-    }
 }
 
+async function startDesktopDependencies(): Promise<void> {
+    // Neither service depends on the other. Children must still wait for both
+    // so they inherit the bound input endpoint and the authenticated bus.
+    await Promise.all([
+        startInputServer().then((ready) => markStartup(ready ? 'input service ready' : 'input service unavailable')),
+        startBus().then(() => {
+            markStartup('message bus ready');
+            wireBackendBus();
+            setLaunchBlockedCheck(() => isQuitting || isPythonLaunchBlockedByUpdate());
+            initializeAgentControl();
+        }).catch((error) => console.error('Failed to start message bus broker:', error)),
+    ]);
+}
+
+app.setName(APP_NAME);
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 // Expose the resolved data dir to every spawned child (overlay binary, python) via inherited env.
 process.env.GSM_DATA_DIR = BASE_DIR;
 // Keep the legacy registry mirror current for Windows integrations and diagnostics.
 writeDataDirRegistry(BASE_DIR);
 if (isWindows()) {
-    app.setAppUserModelId(APP_USER_MODEL_ID);
+    app.setAppUserModelId(getWindowsAppId(app.isPackaged));
 }
 
-// Fix for name and icon on macOS
+// macOS uses a separate dock icon.
 if (process.platform === 'darwin') {
-    app.setName(APP_NAME);
     app.dock?.setIcon(getIconPath());
 }
 
@@ -2759,21 +2909,12 @@ if (!app.requestSingleInstanceLock()) {
             return;
         }
         try {
+            markStartup('Electron ready');
+            // Recheck the local date across midnight, timezone changes, and sleep.
+            setInterval(refreshSeasonalPresentation, 60_000).unref();
+            app.on('browser-window-focus', refreshSeasonalPresentation);
             bootstrapPreReleaseSettingsFromMetadata();
             registerChangelogProtocolHandler(getAssetsDir());
-            // The Rust input service belongs to the desktop application, not to
-            // the optional overlay. Starting it first makes gamepad hotkeys
-            // available to every child process from the beginning of startup.
-            await startInputServer();
-            try {
-                await startBus();
-                wireBackendBus();
-                const { setLaunchBlockedCheck } = await import('./runtime/process_supervisor.js');
-                setLaunchBlockedCheck(() => isQuitting || isPythonLaunchBlockedByUpdate());
-                initializeAgentControl();
-            } catch (busErr) {
-                console.error('Failed to start message bus broker:', busErr);
-            }
             let trackStartupInstallSession = shouldTrackStartupInstallSession();
             if (trackStartupInstallSession) {
                 startStartupInstallSession();
@@ -2782,9 +2923,13 @@ if (!app.requestSingleInstanceLock()) {
             // download is needed) renders in the install-progress UI. Electron
             // owns the OBS download here, then launches it directly — no
             // dependency on a backend "OBS is ready" signal.
-            void ensureObsInstalledAndLaunch({ reason: 'startup' }).catch((error) => {
+            void ensureObsInstalledAndLaunch({ reason: 'startup' }).then(() => {
+                markStartup('OBS launch checked');
+            }).catch((error) => {
                 console.warn('Electron-managed OBS startup ensure/launch failed:', error);
             });
+            await startDesktopDependencies();
+            if (isQuitting) return;
             createWindow().then(async () => {
                 createTray();
                 autoLauncher.startPolling();
@@ -2797,6 +2942,7 @@ if (!app.requestSingleInstanceLock()) {
             });
 
             const pyPath = await getOrInstallPython();
+            markStartup('Python runtime ready');
             pythonPath = pyPath;
             setPythonPath(pythonPath);
             if (!trackStartupInstallSession) {
@@ -2881,6 +3027,7 @@ if (!app.requestSingleInstanceLock()) {
                 hasPendingDesktopUpdate: changelogTarget !== null,
                 forceUpdate: isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV,
             }, updateManager);
+            markStartup('backend update check complete');
             if (backendSyncSucceeded && storedVersion !== currentVersion) {
                 setElectronAppVersion(currentVersion);
             }
@@ -2890,10 +3037,7 @@ if (!app.requestSingleInstanceLock()) {
                 knownInstalledVersion: updateManager.checkedBackendVersion,
                 origin: 'startup',
                 trackInstallSession: trackStartupInstallSession,
-            }).catch(async (err) => {
-                console.log('Failed to run GSM, attempting repair of python package...', err);
-                await updateGSM(true, true);
-            });
+            }).catch(handleBackendStartupFailure);
         } catch (error) {
             console.error('Failed to initialize Python runtime on startup:', error);
             finishInstallSession(
@@ -3043,6 +3187,36 @@ async function waitForChildProcessExit(
     });
 }
 
+/** Release capture clients before OBS unloads its WebSocket server. */
+export async function suspendObsClientsForUpdate(): Promise<() => Promise<void>> {
+    const backendWasRunning = isChildProcessActive(pyProc);
+    const ocr = getOCRRuntimeState();
+    const resume = async () => {
+        if (isQuitting) return;
+        if (backendWasRunning) {
+            await new Promise<void>((resolve, reject) => {
+                void ensureAndRunGSM(pythonPath, 1, { onSpawn: resolve }).catch(reject);
+            });
+        }
+        if (ocr.isRunning) {
+            const options = { source: ocr.source ?? 'user' as const, restartReason: 'OBS updated' };
+            if (ocr.mode === 'manual') startManualOCR(options);
+            else await startOCR({ ...options, promptForAreaSelection: false });
+        }
+    };
+    try {
+        if (ocr.isRunning) {
+            stopOCR({ reason: 'managed-obs-update' });
+            await getProcessManager().stop('ocr');
+        }
+        if (backendWasRunning) await closeGSM();
+        return resume;
+    } catch (error) {
+        await resume();
+        throw error;
+    }
+}
+
 async function closeGSM(): Promise<void> {
     if (gsmStopPromise) {
         return gsmStopPromise;
@@ -3134,7 +3308,9 @@ export async function stopScripts(): Promise<void> {
 }
 
 async function runQuit(relaunchArgs?: string[]): Promise<void> {
+    await waitForObsRuntimeUpdate();
     hideUserFacingShutdownSurfaces();
+    stopGamePrivilegeChecks();
     autoLauncher.stopPolling();
     shutdownWindowSceneSwitcher();
 
@@ -3189,6 +3365,7 @@ export async function quit(relaunchArgs?: string[]): Promise<void> {
 // Stop everything that holds handles in the data dir, without quitting the app (used before a
 // data-folder relocation). Mirrors quit() minus app.quit().
 async function stopAllChildrenForRelocation(): Promise<void> {
+    await waitForObsRuntimeUpdate();
     await stopGameBackgroundHooks();
     autoLauncher.stopPolling();
     shutdownWindowSceneSwitcher();

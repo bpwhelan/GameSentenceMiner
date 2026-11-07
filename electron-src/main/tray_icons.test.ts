@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as path from 'node:path';
 
 import {
     getStatusTrayIconPath,
@@ -47,6 +48,22 @@ describe('tray icon helpers', () => {
                 extension: 'png',
             })
         ).toBe('C:\\repo\\assets\\gsm-ready.png');
+    });
+
+    it('uses the Halloween icon and keeps status badges when seasonal effects are active', () => {
+        expect(getTrayBaseIconPath({
+            assetsDir: 'assets', configuredIconStyle: 'gsm', resolvedRandomStyle: '',
+            extension: 'ico', seasonalEvent: 'halloween',
+        })).toBe(path.join('assets', 'gsm-halloween.ico'));
+        expect(getTrayBaseIconPath({
+            assetsDir: 'assets', configuredIconStyle: 'gsm_cute[tray]', resolvedRandomStyle: '',
+            extension: 'png', seasonalEvent: 'halloween',
+        })).toBe(path.join('assets', 'gsm_cute.png'));
+        for (const state of ['loading', 'ready', 'paused'] as const) {
+            expect(getStatusTrayIconPath({
+                assetsDir: 'assets', state, extension: 'ico', seasonalEvent: 'halloween',
+            })).toBe(path.join('assets', `gsm-halloween-${state}.ico`));
+        }
     });
 
     it('prefers loading until python ipc and backend status are both ready', () => {

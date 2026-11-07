@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/bee-san/vita-vn-ocr",
+  "revision": "205f47ec4e56ca87c00e7dba0a61c9aaec726707",
+  "files": {
+    "runtime/vocr.c": "8ff76d83651447ecca9ea77f6e71d56ed941b6cfff920dd2b3d25857ce121d51",
+    "runtime/vocr.h": "0b43a90131acd955326c879d8f71e011607ab94d704be93dc8df1951ee44d371",
+    "runtime/vocr_lines.c": "90c30a1c1e1707b818c2bd919243ee589700ff44ceac8b8d7a842b9d55d8d9ca",
+    "runtime/vocr_lines.h": "4f768c9a7aaa1f9e3b8f16990be23c3b098b675cf6316df7eb20dc6198b9f37d",
+    "runtime/vocr_lines_rows.h": "60967239238df1ecca767e95c9c752f4c0b9efba097a59034ae2326717ad3465",
+    "runtime/vocr_lines_fix.c": "242a0a9eacaf38dc901eb35c54639f69c94cc0419eeb36467dfc74ab79c70fb4",
+    "runtime/vocr_lines_fix.h": "d28af14903e1604006edbb75dc5d939ac845651220fa661c0e7fc7a1cec9efe4",
+    "runtime/vocr_charbox.c": "0e338f516a59529507ce9451198b692acd26a26267105e9efba2d58a18750018",
+    "runtime/vocr_charbox.h": "da5209e372dbdf4efff3e5da3c05a424becbb860b23ebe64bab984af534ff5c9",
+    "LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "runtime/vocr_lines_rows.c": "3207edb85d1cd7c79899390bb2ee028839dd120ca5d2278a28edd5fa9ca2ee6e",
+    "runtime/vocr_textspot.h": "a25ef000164af61610a6f5201fb9e345f8a67cf6525d2f16bae44afca712dd57",
+    "runtime/vocr_textspot6.h": "526d6d19796c3aa314d3ec14655129c5ef2dbab75125d2b31225c7e78620b512",
+    "runtime/vocr_textspot6.c": "678e88b60a8347b2019c054f74eb9c741b0bf871b97505f70c682a8e34bb018c"
+  }
+}

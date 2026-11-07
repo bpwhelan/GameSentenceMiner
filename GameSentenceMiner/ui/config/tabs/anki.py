@@ -318,7 +318,12 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         _create_auto_accept_timer_row(window),
     )
-    layout.addRow(
+    focus_group = window._create_group_box(
+        tabs_i18n.get("anki", {}).get("confirmation_focus_behavior", {}).get("label", "Focus Behavior")
+    )
+    focus_layout = QFormLayout(focus_group)
+    focus_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    focus_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
@@ -327,7 +332,7 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.anki_confirmation_always_on_top_check,
     )
-    layout.addRow(
+    focus_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
@@ -336,6 +341,15 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.anki_confirmation_focus_on_show_check,
     )
+    restore_focus_label = window._create_labeled_widget(
+        tabs_i18n,
+        "anki",
+        "confirmation_restore_focus",
+        "Return focus to the target window or the previously focused window after the confirmation dialog closes.",
+    )
+    window.anki_confirmation_restore_focus_check.setToolTip(restore_focus_label.toolTip())
+    focus_layout.addRow(restore_focus_label, window.anki_confirmation_restore_focus_check)
+    layout.addRow(focus_group)
     layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,

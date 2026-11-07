@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time
 from dataclasses import replace
 from datetime import datetime, timedelta
 from types import ModuleType, SimpleNamespace
@@ -25,7 +26,9 @@ def text_pipeline(monkeypatch):
     )
     state = SimpleNamespace(text_input_paused=False, current_game="Paused Game", replay_buffer_length=300)
     history = text_log.GameText()
-    outputs = SimpleNamespace(events=[], overlay=[], stats=[], discord=[], database=[], subtitles=[])
+    outputs = SimpleNamespace(
+        events=[], overlay=[], stats=[], discord=[], database=[], subtitles=[], controls=[], breaks=[]
+    )
     text_feed = ModuleType("GameSentenceMiner.web.texthooking_page")
     text_feed.project_text_domain_event = lambda event, line: outputs.events.append(event)
     monkeypatch.setitem(sys.modules, text_feed.__name__, text_feed)
@@ -36,15 +39,25 @@ def text_pipeline(monkeypatch):
     monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(last_line_received=""))
     monkeypatch.setattr(gametext, "current_line", "")
     monkeypatch.setattr(gametext, "current_line_time", datetime.now().astimezone().replace(tzinfo=None))
-    monkeypatch.setattr(gametext, "is_message_rate_limited", lambda _source: False)
     monkeypatch.setattr(gametext, "apply_text_processing", lambda text, _config: text)
     monkeypatch.setattr(gametext, "_send_text_received_preview_event", lambda *_args: None)
     monkeypatch.setattr(gametext, "_expire_live_stats_session", lambda: None)
-    monkeypatch.setattr(gametext, "_get_overlay_dispatcher", lambda: SimpleNamespace(submit=outputs.overlay.append))
+    monkeypatch.setattr(gametext, "_skip_break_recorded", False)
+    monkeypatch.setattr(
+        gametext,
+        "_get_overlay_dispatcher",
+        lambda: SimpleNamespace(
+            submit=outputs.overlay.append,
+            set_skipping=lambda active, **kwargs: outputs.controls.append(active),
+        ),
+    )
     monkeypatch.setattr(
         gametext,
         "live_stats_tracker",
-        SimpleNamespace(add_line=lambda text, *_args, **_kwargs: outputs.stats.append(text)),
+        SimpleNamespace(
+            add_line=lambda text, *_args, **_kwargs: outputs.stats.append(text),
+            mark_reading_break=outputs.breaks.append,
+        ),
     )
     monkeypatch.setattr(gametext, "_notify_discord_activity", outputs.discord.append)
     monkeypatch.setattr(gametext, "_persist_game_line_async", outputs.database.append)
@@ -117,7 +130,13 @@ def test_stats_pause_controls_stats_discord_and_database_only(text_pipeline, pau
     assert [command.line.excluded_from_stats for command in outputs.overlay] == [paused, paused]
     assert len(outputs.subtitles) == 1
     assert outputs.subtitles[0].text == "そんな音を聞きながら、わたしは眠りに落ちていく。"
-    assert len(outputs.stats) == (0 if paused else 2)
+    assert outputs.stats == []
+    if not paused:
+        deadline = time.monotonic() + 3
+        while not outputs.database and time.monotonic() < deadline:
+            time.sleep(0.025)
+        assert outputs.events[-1].kind is TextEventKind.STATS_READY
+    assert len(outputs.stats) == (0 if paused else 1)
     assert len(outputs.discord) == (0 if paused else 2)
     assert len(outputs.database) == (0 if paused else 1)
 
@@ -128,6 +147,9 @@ def test_resuming_intake_does_not_reclassify_paused_history(text_pipeline):
     text_pipeline.state.text_input_paused = False
     resumed = gametext._ingest_line_sync("今日からは離れないようにしよう。", source="texthook")
     gametext.freeze_authoritative_text_line(resumed.line_id)
+    deadline = time.monotonic() + 3
+    while not text_pipeline.outputs.database and time.monotonic() < deadline:
+        time.sleep(0.025)
 
     assert paused.line_id != resumed.line_id
     assert text_pipeline.history.get_by_id(paused.line_id).excluded_from_stats is True
@@ -135,6 +157,39 @@ def test_resuming_intake_does_not_reclassify_paused_history(text_pipeline):
     assert len(text_pipeline.outputs.stats) == 1
     assert len(text_pipeline.outputs.discord) == 1
     assert [line.id for line in text_pipeline.outputs.database] == [resumed.line_id]
+
+
+def test_burst_never_reaches_live_or_saved_stats_and_recovers_without_input(text_pipeline, monkeypatch):
+    monkeypatch.setattr(gametext.gsm_db, "run_transaction", lambda *args, **kwargs: None)
+    for i in range(4):
+        gametext._ingest_line_sync(chr(0x3041 + i) * 250, source="texthook")
+        time.sleep(0.2)
+    outputs = text_pipeline.outputs
+    assert outputs.stats == []
+    assert outputs.database == []
+    deadline = time.monotonic() + 4
+    while outputs.controls != [True, False] and time.monotonic() < deadline:
+        time.sleep(0.025)
+    assert outputs.controls == [True, False]
+    assert outputs.stats == []
+    assert outputs.database == []
+    assert len(outputs.breaks) == 1
+    assert all(line.excluded_from_stats for line in text_pipeline.history)
+
+
+def test_disabled_stats_do_not_persist_skip_breaks(text_pipeline, monkeypatch):
+    gametext.get_config().advanced.dont_collect_stats = True
+    monkeypatch.setattr(gametext.gsm_db, "run_transaction", lambda *args, **kwargs: pytest.fail("stats disabled"))
+    ack = gametext._ingest_line_sync("テスト用の文章", source="texthook")
+    record = next(r for r in gametext.get_text_stream_snapshot().records if r.line_id == ack.line_id)
+    gametext._project_text_domain_event(
+        TextDomainEvent(
+            TextEventKind.STATS_EXCLUDED,
+            replace(record, stats_status="skipped", excluded_from_stats=True),
+        )
+    )
+    assert text_pipeline.outputs.breaks == []
+    assert text_pipeline.outputs.stats == []
 
 
 def test_explicit_pause_is_excluded_from_live_and_saved_reading_time(text_pipeline, monkeypatch, tmp_path):

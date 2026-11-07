@@ -86,6 +86,10 @@ class TextEventKind(Enum):
     FROZEN = "freeze"
     EXPIRED = "expire"
     RESET = "reset"
+    STATS_READY = "stats_ready"
+    STATS_EXCLUDED = "stats_excluded"
+    SKIP_STARTED = "skip_started"
+    SKIP_ENDED = "skip_ended"
 
 
 class IngressStatus(Enum):
@@ -143,6 +147,7 @@ class TextRecordSnapshot:
     first_seen_at_utc: datetime
     first_seen_monotonic_ns: int
     finalized_at_utc: datetime | None = None
+    stats_status: str = "accepted"
     scene: str = ""
     copy_to_clipboard: bool = False
     excluded_from_stats: bool = False
@@ -170,7 +175,9 @@ class TextRecordSnapshot:
             "first_seen_at": self.first_seen_at_utc.isoformat(),
             "finalized_at": self.finalized_at_utc.isoformat() if self.finalized_at_utc else None,
             "scene": self.scene,
-            "excluded_from_stats": self.excluded_from_stats,
+            # Pending spam checks do not mean the line has been excluded.
+            "excluded_from_stats": self.excluded_from_stats or self.stats_status == "skipped",
+            "stats_status": self.stats_status,
             "relay_only": self.relay_only,
         }
 
@@ -181,7 +188,12 @@ class TextDomainEvent:
     record: TextRecordSnapshot
 
     def to_wire(self) -> dict[str, Any]:
-        return {"event": f"text_v2_{self.kind.value}", "data": self.record.to_serializable()}
+        kind = (
+            TextEventKind.UPDATED
+            if self.kind in (TextEventKind.STATS_READY, TextEventKind.STATS_EXCLUDED)
+            else self.kind
+        )
+        return {"event": f"text_v2_{kind.value}", "data": self.record.to_serializable()}
 
 
 @dataclass(frozen=True)

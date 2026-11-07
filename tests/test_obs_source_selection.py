@@ -1088,6 +1088,59 @@ def test_wait_for_obs_ready_disconnects_probe_client(monkeypatch):
     assert disconnected == [True]
 
 
+def test_obs_readiness_probe_does_not_block_other_startup_tasks(monkeypatch):
+    import threading
+    import obsws_python as obsws
+
+    released = threading.Event()
+    disconnected = []
+
+    class SlowClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_version(self):
+            assert released.wait(timeout=0.5), "OBS probe blocked the event loop"
+
+        def get_scene_list(self):
+            return SimpleNamespace(scenes=[])
+
+        def disconnect(self):
+            disconnected.append(True)
+
+    monkeypatch.setattr(obs_launch_module, "is_obs_websocket_reachable", lambda **kwargs: True)
+    monkeypatch.setattr(obsws, "ReqClient", SlowClient)
+    monkeypatch.setattr(obs_launch_module.gsm_state, "keep_running", True)
+
+    async def run():
+        asyncio.get_running_loop().call_later(0.01, released.set)
+        assert await obs_launch_module.wait_for_obs_ready(timeout=0.2, interval=0)
+
+    asyncio.run(run())
+    assert disconnected == [True]
+
+
+@pytest.mark.parametrize("explicit_port", [None, 12345])
+def test_obs_readiness_refreshes_the_port_chosen_during_parallel_startup(monkeypatch, explicit_port):
+    config = SimpleNamespace(obs=SimpleNamespace(host="localhost", port=7274, password="test"))
+    observed_ports = []
+    monkeypatch.setattr(obs_launch_module, "get_config", lambda: config)
+    monkeypatch.setattr(obs_launch_module.configuration, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        obs_launch_module, "get_obs_websocket_config_values", lambda: setattr(config.obs, "port", config.obs.port + 1)
+    )
+    monkeypatch.setattr(
+        obs_launch_module,
+        "is_obs_websocket_reachable",
+        lambda **kwargs: observed_ports.append(kwargs["port"]) or False,
+    )
+
+    assert obs_launch_module._probe_obs_ready(port=explicit_port) is False
+    assert obs_launch_module._probe_obs_ready(port=explicit_port) is False
+
+    assert observed_ports == ([12345, 12345] if explicit_port else [7275, 7276])
+
+
 @pytest.mark.parametrize("asynchronous", [False, True])
 def test_connect_to_obs_configures_outputs_before_starting_manager(monkeypatch, asynchronous):
     calls = []

@@ -1,12 +1,12 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2026.10.1",
+  "version": "2026.10.3",
   "description": "GameSentenceMiner",
   "main": "dist/main/bootstrap.js",
   "desktopName": "com.beangate.gamesentenceminer.desktop",
   "scripts": {
-    "start": "npm run build && electron .",
+    "start": "npm run build && node scripts/electron-start.cjs",
     "agent:restart": "node scripts/restart-gsm.mjs",
     "agent:status": "node scripts/restart-gsm.mjs --status",
     "build": "npm run sync:version && npm run sync:theme && npm run sync:legacy && npm run build:main && npm run build:renderer",
@@ -33,6 +33,7 @@
     "changelog:export": "node scripts/export-changelog-release-asset.mjs",
     "stage:overlay": "node scripts/stage-overlay-build.mjs",
     "verify:overlay-package": "node scripts/verify-overlay-package.mjs",
+    "verify:vocr-package": "node scripts/verify-vocr-package.mjs",
     "verify:python-deps": "python scripts/verify_python_dependency_policy.py",
     "app:dist": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=never",
     "app:deploy": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=always"
@@ -44,6 +45,7 @@
   "tsc": {},
   "build": {
     "asar": true,
+    "afterPack": "scripts/verify-vocr-package.mjs",
     "appId": "com.beangate.gamesentenceminer",
     "files": [
       "dist/main/**/*",

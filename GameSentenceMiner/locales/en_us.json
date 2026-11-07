@@ -2,6 +2,7 @@
   "python": {
     "config": {
       "app": {
+        "settings_heading": "Settings",
         "title": "GameSentenceMiner Configuration",
         "title_with_profile": "GameSentenceMiner Configuration - {profile_name}"
       },
@@ -212,6 +213,21 @@
           "skip_confirmation_for_unvoiced": {
             "label": "Skip Confirmation for Unvoiced Lines:",
             "tooltip": "Warning: Skip confirmation when VAD detects no voice. The confirmation window was originally intended to let you double-check VAD results on unvoiced lines. Skipping it can leave missed speech unnoticed and create cards without voice audio."
+          },
+          "confirmation_focus_behavior": {
+            "label": "Focus Behavior"
+          },
+          "confirmation_always_on_top": {
+            "label": "Always on Top:",
+            "tooltip": "Keep the Anki confirmation dialog above other windows while open."
+          },
+          "confirmation_focus_on_show": {
+            "label": "Focus When Opened:",
+            "tooltip": "Attempt to focus the Anki confirmation dialog when it opens."
+          },
+          "confirmation_restore_focus": {
+            "label": "Return Focus After Closing:",
+            "tooltip": "Return focus to the target window or the previously focused window after the confirmation dialog closes. Disable to leave focus unchanged."
           },
           "confirmation_audio_step": {
             "label": "Audio Expansion Step:",

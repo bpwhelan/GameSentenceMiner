@@ -65,6 +65,15 @@ startup settings; this command does not promise to restore an unsaved UI session
 An independently launched overlay or other tool is outside the main app's managed
 processes and must be restarted separately when its code changes.
 
+On Windows, development launches use a cached GSM-branded Electron runtime in
+`node_modules/electron/gsm-dev-runtime`. The launcher prepares it automatically,
+and direct `electron .` launches switch to it before GSM starts. It preserves
+`electron.exe` as the filename so Electron still reports development mode, while
+Windows uses the embedded GameSentenceMiner description and icon. Task Manager's
+Processes tab uses that friendly name; its Details tab still lists `electron.exe`.
+The main window also sets its taskbar icon and relaunch command explicitly, with
+a separate development app ID so installed GSM shortcuts do not supply its icon.
+
 The backend stops first so its replay-buffer manager cannot restart OBS outputs.
 GSM then stops active recording and replay buffering through OBS WebSocket and
 waits for both outputs to become inactive. Recording has up to 30 seconds to

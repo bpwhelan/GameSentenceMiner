@@ -19,6 +19,24 @@ function setup(t) {
   return window;
 }
 
+test('debug outlines follow lookup hitboxes without changing block indicators or layout', t => {
+  const window = setup(t);
+  const payload = { data: [line('日本語', 0.1, 0.4, 0.15, 0.04, false, true)] };
+  window.renderFixture(payload);
+  const boxes = [...window.document.querySelectorAll('.text-box')].filter(box => box.textContent.trim());
+  const originalPositions = boxes.map(box => box.style.cssText);
+  assert.equal(boxes.length, 3);
+  assert.equal(window.getComputedStyle(boxes[0]).outline, '');
+  window.document.body.classList.add('show-text-hitboxes');
+  assert.match(window.getComputedStyle(boxes[0]).outline, /1px solid/);
+  assert.deepEqual(boxes.map(box => box.style.cssText), originalPositions);
+  assert.equal(window.document.querySelectorAll('.line-box').length, 1);
+  window.renderFixture(payload);
+  assert.match(window.getComputedStyle(window.document.querySelector('.text-box')).outline, /1px solid/);
+  window.document.body.classList.remove('show-text-hitboxes');
+  assert.equal(window.getComputedStyle(boxes[0]).outline, '');
+});
+
 test('one OCR line spanning a nameplate and dialogue renders two tight blocks without losing glyphs', t => {
   const window = setup(t);
   const name = line('ファイ', 0.12, 0.69, 0.075, 0.04, false, true);

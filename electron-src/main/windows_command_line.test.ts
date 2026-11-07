@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildWindowsElevationCommand,
+    buildWindowsAdminRelaunchCommand,
     quoteWindowsArgument,
     splitWindowsCommandLine,
 } from './windows_command_line.js';
@@ -38,5 +39,21 @@ describe('Windows command lines', () => {
         )).toBe(
             String.raw`Start-Process -FilePath 'C:\Users\O''Brien $env:TEMP\GSM.exe' -ArgumentList '"C:\Users\Sam %TEMP% & 日本語\app" "--name=a\"b" "C:\trailing space\\" ""' -Verb RunAs`,
         );
+    });
+
+    it('elevates a hidden helper that waits for cleanup before relaunching GSM', () => {
+        const command = buildWindowsAdminRelaunchCommand(
+            "C:\\O'Brien $env:TEMP\\GSM.exe", ['C:\\space name\\app', '--name=a"b'], 123,
+            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', "C:\\O'Brien\\GSM",
+        );
+        expect(command).toContain('-WindowStyle Hidden -Verb RunAs -ErrorAction Stop');
+        const encoded = command.match(/-EncodedCommand ([A-Za-z0-9+/=]+)/)![1];
+        const helper = Buffer.from(encoded, 'base64').toString('utf16le');
+        expect(helper).toContain('Get-Process -Id 123');
+        expect(helper.indexOf('WaitForExit(60000)')).toBeLessThan(helper.indexOf('Start-Process'));
+        expect(helper).toContain("-FilePath 'C:\\O''Brien $env:TEMP\\GSM.exe'");
+        expect(helper).toContain(String.raw`-ArgumentList '"C:\space name\app" "--name=a\"b"'`);
+        expect(helper).toContain("-WorkingDirectory 'C:\\O''Brien\\GSM'");
+        expect(() => buildWindowsAdminRelaunchCommand('app.exe', [], NaN, 'powershell.exe', 'C:\\')).toThrow('Invalid relaunch process ID');
     });
 });
