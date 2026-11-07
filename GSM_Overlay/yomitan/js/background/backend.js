@@ -2927,10 +2927,12 @@ export class Backend {
      * @returns {import('translation').FindTermsOptions} An options object.
      */
     _getTranslatorFindTermsOptions(mode, details, options) {
-        let {matchType, deinflect, primaryReading} = details;
+        const gsmDetails = /** @type {import('api').FindTermsDetails & {preferredHeadword?: string}} */ (details);
+        let {matchType, deinflect, primaryReading, preferredHeadword} = gsmDetails;
         if (typeof matchType !== 'string') { matchType = /** @type {import('translation').FindTermsMatchType} */ ('exact'); }
         if (typeof deinflect !== 'boolean') { deinflect = true; }
         if (typeof primaryReading !== 'string') { primaryReading = ''; }
+        preferredHeadword = typeof preferredHeadword === 'string' ? preferredHeadword.normalize('NFKC').trim().slice(0, 128) : '';
         const enabledDictionaryMap = this._getTranslatorEnabledDictionaryMap(options);
         const {
             general: {mainDictionary, sortFrequencyDictionary, sortFrequencyDictionaryOrder, language},
@@ -2957,6 +2959,7 @@ export class Backend {
             matchType,
             deinflect,
             primaryReading,
+            preferredHeadword,
             mainDictionary,
             sortFrequencyDictionary,
             sortFrequencyDictionaryOrder,

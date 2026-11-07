@@ -1005,8 +1005,51 @@ async function gsmRequestDotnetJitenTokens(text) {
     const timer = setTimeout(() => { // GSM_JITEN_COLD_START_TIMEOUT_FIX_V1
       gsmStopDotnetTokenizer("Jiten tokenizer request timed out after 120000 ms; worker restarted.");
     }, 120000);
-    const requestLine = JSON.stringify({ text }).replace(/[^\x00-\x7F]/g, ch => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0")); // GSM_JITEN_ASCII_JSON_STDIN_FIX_V1
-    gsmDotnetTokenizerPending.set(id, { resolve, reject, timer, requestLine });
+    // GSM_DOTNET_JITEN_ELLIPSIS_TEMP_PATCH_V1:
+    // Temporarily remove U+2026 before parsing, then restore original offsets.
+    const originalText = typeof text === "string" ? text : String(text ?? "");
+    const tokenizerChars = [];
+    const tokenizerToOriginalOffsets = [];
+
+    for (let index = 0; index < originalText.length; index++) {
+      if (originalText[index] === "\u2026") continue;
+      tokenizerChars.push(originalText[index]);
+      tokenizerToOriginalOffsets.push(index);
+    }
+
+    const tokenizerText = tokenizerChars.join("");
+
+    const restoreOriginalOffsets = response => {
+      if (tokenizerText === originalText || !response || !Array.isArray(response.tokens)) {
+        return response;
+      }
+
+      return {
+        ...response,
+        tokens: response.tokens.map(token => {
+          const start = Number.isInteger(token?.start) ? token.start : -1;
+          const end = Number.isInteger(token?.end) ? token.end : -1;
+
+          if (start < 0 || end <= start || end > tokenizerToOriginalOffsets.length) {
+            return token;
+          }
+
+          return {
+            ...token,
+            start: tokenizerToOriginalOffsets[start],
+            end: tokenizerToOriginalOffsets[end - 1] + 1,
+          };
+        }),
+      };
+    };
+
+    const requestLine = JSON.stringify({ text: tokenizerText }).replace(/[^\x00-\x7F]/g, ch => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0")); // GSM_JITEN_ASCII_JSON_STDIN_FIX_V1
+    gsmDotnetTokenizerPending.set(id, {
+      resolve: response => resolve(restoreOriginalOffsets(response)),
+      reject,
+      timer,
+      requestLine,
+    });
     child.stdin.write(requestLine + "\n", error => {
       if (!error) return;
       gsmStopDotnetTokenizer("Could not write to Jiten tokenizer: " + String(error.message || error));
@@ -1050,13 +1093,16 @@ const localVocabulary = new LocalVocabulary({
 });
 try { fs.unlinkSync(path.join(dataPath, 'unvoiced-tag-cache.json')); } catch { /* GSM_TAGRULES: obsolete cache, may not exist */ }
 // GSM_ANKISTATES_FIXED_V2: Jiten supplies boundaries; Anki supplies study states.
-jitenParseCache.stateOverride = (spelling, reading) => userSettings.wordStateMode === 'jiten' ? null : localVocabulary.ankiOverride(spelling, reading);
+jitenParseCache.stateOverride = spelling => userSettings.wordStateMode === 'jiten' ? null : localVocabulary.ankiOverride(spelling);
 jitenParseCache.ankiMatch = spelling => userSettings.wordStateMode !== 'jiten' && localVocabulary.hasAnkiSpelling(spelling);
 // ---- GSM_TAGRULES: user-defined Anki tag styles + display-state disk cache ----------------------
 const GSM_TAG_RULES_PATH = path.join(dataPath, 'anki-tag-styles.json');
 const GSM_DISPLAY_CACHE_PATH = path.join(dataPath, 'anki-display-states-cache.json');
 const GSM_TAG_LINE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
 const GSM_TAG_POSITIONS = ['underline', 'overline', 'background'];
+const GSM_DAILY_REVIEW_MARKER_DEFAULT = {
+  color: '#d6a13a', style: 'dotted', thickness: 2, position: 'overline', opacity: 0.3, enabled: true,
+};
 const GSM_TAG_DEFAULT_FILE = {
   _help: [
     'Each rule styles every word whose Anki note has the given tag. Save this file and the overlay reloads it within ~2 seconds.',
@@ -1065,12 +1111,15 @@ const GSM_TAG_DEFAULT_FILE = {
     'position: underline | overline | background.   opacity: 0.05-1, used only by position "background".',
     'enabled: true/false.   If two rules use the same position on one word, the rule listed FIRST wins.',
     'Rules with different positions combine (e.g. one underline + one overline + one background).',
+    'dailyReviewMarker uses the same color/style/thickness/position/opacity/enabled options for the young-card not-reviewed-today marker.',
   ],
+  dailyReviewMarker: { ...GSM_DAILY_REVIEW_MARKER_DEFAULT },
   rules: [
     { tag: 'unvoiced', color: '#1e90ff', style: 'dashed', thickness: 3, position: 'underline', enabled: true },
   ],
 };
 let gsmTagRules = [];
+let gsmDailyReviewMarker = { ...GSM_DAILY_REVIEW_MARKER_DEFAULT };
 let gsmTagRuleErrors = [];
 let gsmTagRulesRevision = 0;
 let gsmTagRulesSignature = '';
@@ -1086,6 +1135,22 @@ function gsmNormalizeHexColor(value) {
   const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(text);
   if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase();
   return /^#[0-9a-f]{6}$/i.test(text) ? text.toLowerCase() : null;
+}
+function gsmValidateDailyReviewMarker(raw) {
+  const item = raw && typeof raw === 'object' ? raw : GSM_DAILY_REVIEW_MARKER_DEFAULT;
+  const color = gsmNormalizeHexColor(item.color) || GSM_DAILY_REVIEW_MARKER_DEFAULT.color;
+  const style = GSM_TAG_LINE_STYLES.includes(String(item.style ?? '').toLowerCase())
+    ? String(item.style).toLowerCase() : GSM_DAILY_REVIEW_MARKER_DEFAULT.style;
+  const position = GSM_TAG_POSITIONS.includes(String(item.position ?? '').toLowerCase())
+    ? String(item.position).toLowerCase() : GSM_DAILY_REVIEW_MARKER_DEFAULT.position;
+  const thicknessNumber = Number(item.thickness ?? GSM_DAILY_REVIEW_MARKER_DEFAULT.thickness);
+  const opacityNumber = Number(item.opacity ?? GSM_DAILY_REVIEW_MARKER_DEFAULT.opacity);
+  return {
+    color, style, position,
+    thickness: Number.isFinite(thicknessNumber) ? Math.min(8, Math.max(1, Math.round(thicknessNumber))) : GSM_DAILY_REVIEW_MARKER_DEFAULT.thickness,
+    opacity: Number.isFinite(opacityNumber) ? Math.min(1, Math.max(0.05, Math.round(opacityNumber * 100) / 100)) : GSM_DAILY_REVIEW_MARKER_DEFAULT.opacity,
+    enabled: item.enabled !== false,
+  };
 }
 function gsmValidateTagRules(raw) {
   const rules = [];
@@ -1120,18 +1185,30 @@ function gsmLoadTagRules({ initial = false } = {}) {
       fs.writeFileSync(GSM_TAG_RULES_PATH, JSON.stringify(GSM_TAG_DEFAULT_FILE, null, 2) + '\n', 'utf8');
     }
     raw = JSON.parse(fs.readFileSync(GSM_TAG_RULES_PATH, 'utf8'));
+    // Upgrade existing tag-style files in place without disturbing their rules.
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)
+        && !Object.prototype.hasOwnProperty.call(raw, 'dailyReviewMarker')) {
+      raw.dailyReviewMarker = { ...GSM_DAILY_REVIEW_MARKER_DEFAULT };
+      if (Array.isArray(raw._help) && !raw._help.includes(GSM_TAG_DEFAULT_FILE._help.at(-1))) {
+        raw._help.push(GSM_TAG_DEFAULT_FILE._help.at(-1));
+      }
+      try { fs.writeFileSync(GSM_TAG_RULES_PATH, JSON.stringify(raw, null, 2) + '\n', 'utf8'); }
+      catch { /* The in-memory default still applies if the config is read-only. */ }
+    }
   } catch (error) {
     // Keep the previous good rules (e.g. the file was saved half-edited).
     gsmTagRuleErrors = [`could not read the file: ${String(error?.message || error).slice(0, 120)}`];
     return false;
   }
   const { rules, errors } = gsmValidateTagRules(raw);
+  const dailyReviewMarker = gsmValidateDailyReviewMarker(raw?.dailyReviewMarker);
   gsmTagRuleErrors = errors;
-  const signature = JSON.stringify(rules);
+  const signature = JSON.stringify({ rules, dailyReviewMarker });
   if (signature === gsmTagRulesSignature) return false;
   const previousTags = localVocabulary.activeTags().join('\n');
   gsmTagRulesSignature = signature;
   gsmTagRules = rules;
+  gsmDailyReviewMarker = dailyReviewMarker;
   gsmTagRulesRevision++;
   localVocabulary.setTagRules(rules);
   if (!initial && localVocabulary.activeTags().join('\n') !== previousTags) gsmScheduleTagRefresh();
@@ -1169,6 +1246,7 @@ function gsmOpenTagRulesFile() {
   gsmLoadTagRules();
   void electron.shell.openPath(GSM_TAG_RULES_PATH);
 }
+
 gsmLoadTagRules({ initial: true });
 fs.watchFile(GSM_TAG_RULES_PATH, { interval: 2000 }, () => { gsmLoadTagRules(); }).unref?.();
 
@@ -1250,7 +1328,8 @@ function localVocabularyConfig() {
   return { enabled: userSettings.localVocabularyEnabled === true,
     source: ['jiten', 'anki', 'both'].includes(userSettings.localVocabularySource) ? userSettings.localVocabularySource : 'jiten',
     apiKey: userSettings.gamepadJitenApiKey,
-    ankiUrl: profile.anki?.url, profile: getCurrentGSMProfileName(),
+    ankiUrl: profile.anki?.url, ankiApiKey: profile.anki?.apiKey || profile.anki?.api_key || '',
+    profile: getCurrentGSMProfileName(),
     ankiQuery: userSettings.localVocabularyAnkiQuery,
     wordField: userSettings.localVocabularyAnkiWordField || profile.anki?.word?.name || profile.anki?.word_field || 'Expression',
     readingField: userSettings.localVocabularyAnkiReadingField,
@@ -1311,215 +1390,181 @@ ipcMain.handle('gsm-local-vocabulary-parse', async (_event, { texts } = {}) => {
   try { localVocabulary.markUnvoiced(texts, result); } catch { /* GSM_UNVOICED: never break parsing */ }
   return result;
 });
-// GSM_ANKI_RENDERER_STATES: expose Anki states for Jiten's existing token spans.
-// Jiten owns token boundaries and visible text. Yomitan's local termEntries API
-// supplies deinflected dictionary headwords only when an exact Anki spelling misses.
-const GSM_YOMITAN_DECONJ_CACHE_PATH = path.join(dataPath, 'jiten-yomitan-deconjugation-cache.json');
-const GSM_YOMITAN_DECONJ_CACHE_LIMIT = 20000;
-const gsmYomitanDeconjCache = new Map();
-const gsmYomitanDeconjInflight = new Map();
-let gsmYomitanDeconjCacheWritePending = false;
-let gsmYomitanDeconjLastWarningAt = 0;
-// Cheap eligibility filter for Yomitan's own deinflection engine.
-// Japanese inflected forms normally end in hiragana, but their endings can be
-// arbitrarily composed (including contractions and stacked auxiliaries), so a
-// hand-maintained suffix list will inevitably miss valid forms. Only submit
-// unknown, uncached multi-character tokens ending in hiragana. Yomitan remains
-// the authority on whether a real deinflection exists; non-inflected results
-// are cached too, so each spelling is only looked up once.
-const GSM_HIRAGANA_FINAL_RE = /[\u3041-\u3096\u309D-\u309F]$/u;
-const GSM_HIRAGANA_INFLECTED_FINAL_RE = /(?:なかった|なくて|なければ|ませんでした|ません|ましょう|ました|ます|ている|でいる|ていた|でいた|てる|でる|ちゃう|じゃう|たら|だら|たり|だり|ない|たい|たく|れば|った|いた|いだ|んだ|して|した|って|んで|いて|いで|れて|れた|れてる|くて|かった|くない|て|で|た|だ)$/u;
-function gsmLooksInflectedForLookup(word) {
-  // All-hiragana text is often a lexical match rather than an inflection (でも,
-  // したい, から). Allow longer forms with a recognizable inflection ending;
-  // the candidate extractor still requires Yomitan to report a changed form.
-  const hasDictionaryScript = /[\u30A1-\u30FA\u4E00-\u9FFF\u3005]/u.test(word || '');
-  const isLongHiraganaInflection = typeof word === 'string'
-    && word.length >= 5
-    && !hasDictionaryScript
-    && GSM_HIRAGANA_INFLECTED_FINAL_RE.test(word);
-  return typeof word === 'string'
-    && word.length >= 2
-    && GSM_HIRAGANA_FINAL_RE.test(word)
-    && /[\u3041-\u3096\u309D-\u309F]/u.test(word)
-    && (hasDictionaryScript || isLongHiraganaInflection);
-}
-try {
-  const saved = JSON.parse(fs.readFileSync(GSM_YOMITAN_DECONJ_CACHE_PATH, 'utf8'));
-  if (saved && saved.version === 6 && saved.entries && typeof saved.entries === 'object') { // GSM_DECONJGUARD: older files are rebuilt
-    for (const [word, candidates] of Object.entries(saved.entries)) {
-      // GSM_SURUPREFIX: version-1 files hold "no candidates" answers made before suru prefixes were accepted.
-      if (typeof word === 'string' && Array.isArray(candidates) && candidates.length > 0) {
-        gsmYomitanDeconjCache.set(word, [...new Set(candidates.filter(x => typeof x === 'string' && x))].slice(0, 100));
-      }
+// GSM_ANKI_JITEN_HEADWORD_ONLY_V2:
+// Jiten remains the authority for tokenization and lexical resolution. Kana-only
+// surfaces use Jiten's reading; other surfaces use Jiten's dictionary headword.
+// A narrowly gated Yomitan orthographic-form fallback may supply one additional
+// Anki spelling only when Yomitan confirms the exact Jiten form and same reading.
+const GSM_JITEN_KANA_ONLY_RE = /^(?=[\p{Script=Hiragana}\p{Script=Katakana}\u30FC\u30FB\p{P}]*[\p{Script=Hiragana}\p{Script=Katakana}])[\p{Script=Hiragana}\p{Script=Katakana}\u30FC\u30FB\p{P}]+$/u;
+const GSM_JITEN_HIRAGANA_RE = /\p{Script=Hiragana}/u;
+const GSM_JITEN_KATAKANA_RE = /\p{Script=Katakana}/u;
+
+function gsmKatakanaToHiragana(value) {
+  return Array.from(value, character => {
+    const codePoint = character.codePointAt(0);
+    if (codePoint >= 0x30A1 && codePoint <= 0x30F6) {
+      return String.fromCodePoint(codePoint - 0x60);
     }
+    if (codePoint === 0x30FD) return 'ゝ';
+    if (codePoint === 0x30FE) return 'ゞ';
+    if (codePoint === 0x30F7) return 'わ\u3099';
+    if (codePoint === 0x30F8) return 'ゐ\u3099';
+    if (codePoint === 0x30F9) return 'ゑ\u3099';
+    if (codePoint === 0x30FA) return 'を\u3099';
+    return character;
+  }).join('');
+}
+
+function gsmHiraganaToKatakana(value) {
+  return Array.from(value, character => {
+    const codePoint = character.codePointAt(0);
+    if (codePoint >= 0x3041 && codePoint <= 0x3096) {
+      return String.fromCodePoint(codePoint + 0x60);
+    }
+    if (codePoint === 0x309D) return 'ヽ';
+    if (codePoint === 0x309E) return 'ヾ';
+    return character;
+  }).join('');
+}
+
+function gsmReadingInSurfaceScript(spelling, reading) {
+  const hasHiragana = GSM_JITEN_HIRAGANA_RE.test(spelling);
+  const hasKatakana = GSM_JITEN_KATAKANA_RE.test(spelling);
+  if (hasHiragana && !hasKatakana) return gsmKatakanaToHiragana(reading);
+  if (hasKatakana && !hasHiragana) return gsmHiraganaToKatakana(reading);
+  return reading;
+}
+
+// GSM_JITEN_KANJI_GATED_YOMITAN_V2:
+// A Yomitan form is only accepted after the renderer has verified that it is
+// in the same dictionary entry as Jiten's exact headword and has the same reading.
+function gsmNormalizeJitenReadingForMatch(value) {
+  return gsmKatakanaToHiragana(String(value || '').normalize('NFKC').trim());
+}
+
+function gsmNormalizeJitenLookupToken(raw) {
+  const spelling = String(raw?.spelling || '').normalize('NFKC').trim();
+  const headword = String(raw?.headword || '').normalize('NFKC').trim();
+  const reading = String(raw?.reading || '').normalize('NFKC').trim();
+  const yomitanHeadword = String(raw?.yomitanHeadword || '').normalize('NFKC').trim();
+  const yomitanReading = String(raw?.yomitanReading || '').normalize('NFKC').trim();
+  const kanaOnlySurface = !!spelling && GSM_JITEN_KANA_ONLY_RE.test(spelling);
+  const hasKanjiSurface = /\p{Script=Han}/u.test(spelling);
+  const getKanjiSequence = value => Array.from(String(value || '').normalize('NFKC'))
+    .filter(character => /\p{Script=Han}/u.test(character));
+  const surfaceKanji = getKanjiSequence(spelling);
+  const headwordKanji = getKanjiSequence(headword);
+  const sameLengthDifferentKanji = surfaceKanji.length > 0
+    && surfaceKanji.length === headwordKanji.length
+    && !surfaceKanji.every((character, index) => character === headwordKanji[index]);
+  const yomitanKanji = getKanjiSequence(yomitanHeadword);
+  const yomitanMatchesSurfaceKanji = surfaceKanji.length > 0
+    && yomitanKanji.length === surfaceKanji.length
+    && surfaceKanji.every((character, index) => character === yomitanKanji[index]);
+  const jitenLookupKey = kanaOnlySurface && reading
+    ? gsmReadingInSurfaceScript(spelling, reading)
+    : headword;
+  const sameReading = !!reading && !!yomitanReading
+    && gsmNormalizeJitenReadingForMatch(reading) === gsmNormalizeJitenReadingForMatch(yomitanReading);
+
+  // Kana-only surface tokens may use Yomitan's verified kana fallback
+  // (for example テメェ -> てめぇ). For kanji surfaces, only accept a
+  // Yomitan form whose kanji sequence exactly matches the visible spelling.
+  const useYomitanForm = !!yomitanHeadword && sameReading
+    && (!hasKanjiSurface || (
+      !GSM_JITEN_KANA_ONLY_RE.test(yomitanHeadword) && yomitanMatchesSurfaceKanji
+    ));
+  const candidateLookupKey = useYomitanForm ? yomitanHeadword : jitenLookupKey;
+  // If Jiten and the visible surface use different kanji in a one-to-one
+  // orthographic variant, do not silently fall back to Jiten's different kanji.
+  // Also prevent kana-only matches for kanji-containing surfaces.
+  const lookupKey = (sameLengthDifferentKanji && !useYomitanForm)
+    ? ''
+    : (hasKanjiSurface && GSM_JITEN_KANA_ONLY_RE.test(candidateLookupKey)
+      ? ''
+      : candidateLookupKey);
+  const lookupSource = !lookupKey
+    ? (sameLengthDifferentKanji ? 'unresolved-kanji-variant' : 'no-kanji-form')
+    : (useYomitanForm ? 'yomitan' : (kanaOnlySurface && reading ? 'reading' : 'headword'));
+  return {
+    spelling, headword, reading, jitenLookupKey, lookupKey, lookupSource,
+    yomitanHeadword, yomitanReading, useYomitanForm,
+  };
+}
+
+// There is exactly one canonical key per token. In particular, never fall back
+// to Jiten's original headword after a Yomitan form has been selected.
+function gsmLookupKeysForJitenToken(token) {
+  return token.lookupKey ? [token.lookupKey] : [];
+}
+
+const gsmJitenAnkiResolutionDebugKeys = new Set();
+function gsmLogJitenAnkiResolution(token, state) {
+  const key = `${token.spelling}\n${token.lookupKey}\n${token.lookupSource}`;
+  const popupFlag = gsmPopupFlagForJitenLookupKeys(gsmLookupKeysForJitenToken(token));
+  const blacklistedByPopup = popupFlag?.flag === 'blacklist';
+  if (gsmJitenAnkiResolutionDebugKeys.has(key)) return;
+  if (gsmJitenAnkiResolutionDebugKeys.size >= 200) {
+    gsmJitenAnkiResolutionDebugKeys.delete(gsmJitenAnkiResolutionDebugKeys.values().next().value);
   }
-} catch { /* First launch or an unreadable cache: start empty. */ }
-
-function gsmScheduleYomitanDeconjCacheWrite() {
-  if (gsmYomitanDeconjCacheWritePending) return;
-  gsmYomitanDeconjCacheWritePending = true;
-  setTimeout(() => {
-    gsmYomitanDeconjCacheWritePending = false;
-    try {
-      while (gsmYomitanDeconjCache.size > GSM_YOMITAN_DECONJ_CACHE_LIMIT) {
-        gsmYomitanDeconjCache.delete(gsmYomitanDeconjCache.keys().next().value);
-      }
-      const entries = Object.create(null);
-      for (const [word, candidates] of gsmYomitanDeconjCache) entries[word] = candidates;
-      fs.writeFile(GSM_YOMITAN_DECONJ_CACHE_PATH, JSON.stringify({ version: 6, entries }), 'utf8', () => {});
-    } catch (error) {
-      console.warn('[AnkiStates] Could not save Yomitan deconjugation cache:', error?.message || error);
-    }
-  }, 250);
+  gsmJitenAnkiResolutionDebugKeys.add(key);
+  console.log(`[AnkiStates] Jiten Anki lookup selected: ${JSON.stringify({
+    spelling: token.spelling,
+    headword: token.headword,
+    reading: token.reading,
+    jitenLookupKey: token.jitenLookupKey,
+    yomitanHeadword: token.yomitanHeadword || null,
+    useYomitanForm: token.useYomitanForm,
+    lookupKey: token.lookupKey,
+    lookupSource: token.lookupSource,
+    popupFlag: popupFlag?.flag || null,
+    ankiLookupSkippedForBlacklist: blacklistedByPopup,
+    // Avoid even probing the local Anki/tag indexes for a popup-blacklisted word.
+    ankiExpressionExists: blacklistedByPopup ? null : localVocabulary.hasAnkiSpelling(token.lookupKey),
+    state,
+  })}`);
 }
 
-// GSM_SURUPREFIX: Yomitan matches "反省" inside "反省し" as a prefix, with no inflection chain.
-const GSM_SURU_REMAINDER_RE = /^(し|して|した|しない|しなかった|しなくて|しなく|します|しました|しません|しましょう|しよう|しろ|しなさい|しながら|したい|したら|しては|してる|している|していた|しており|しつつ|しちゃ|しちゃう|する|すれば|すると|せず|せよ|され|される|された|させ|させる|させた|できる|できた|できない)$/u;
-const GSM_NON_HIRAGANA_FINAL_RE = /[^\u3041-\u3096\u309D-\u309F]$/u;
-// Jiten sometimes keeps an attached sentence particle inside the word span
-// (e.g. 俺さ). Yomitan returns the underlying dictionary entry as a prefix,
-// but correctly reports no conjugation chain for this kind of lookup.
-const GSM_YOMITAN_PARTICLE_REMAINDER_RE = /^(さ|は|も|が|を|に|と|で|へ|の|ね|よ|ぞ|ぜ|って|だけ|まで|から|より|こそ|しか|でも|ってば|なんて)$/u;
-function gsmYomitanParticlePrefixMatch(requested, headword, sources) {
-  const term = String(headword?.term || '').normalize('NFKC');
-  if (!term || term === requested) return false;
-  return sources.some(source => {
-    if (!source || typeof source !== 'object') return false;
-    const original = String(source.originalText || '').normalize('NFKC');
-    return original === term && requested.startsWith(original)
-      && GSM_YOMITAN_PARTICLE_REMAINDER_RE.test(requested.slice(original.length));
-  });
-}
-function gsmIsSuruPrefixMatch(requested, original) {
-  return original.length >= 2 && requested.length > original.length && requested.startsWith(original)
-    && GSM_NON_HIRAGANA_FINAL_RE.test(original) && GSM_SURU_REMAINDER_RE.test(requested.slice(original.length));
-}
-function gsmSuruPrefixHeadword(requested, headword, sources) {
-  const classes = Array.isArray(headword?.wordClasses) ? headword.wordClasses : [];
-  if (classes.length && !classes.some(name => String(name).startsWith('vs'))) return false;
-  return sources.some(source => source && typeof source === 'object'
-    && gsmIsSuruPrefixMatch(requested, String(source.originalText || '').normalize('NFKC')));
-}
-let gsmYomitanMissLogCount = 0;
-function gsmDescribeYomitanMiss(response) {
-  const items = Array.isArray(response) ? response : [response];
-  const parts = [];
-  for (const item of items) {
-    for (const entry of (Array.isArray(item?.dictionaryEntries) ? item.dictionaryEntries : []).slice(0, 3)) {
-      for (const headword of (Array.isArray(entry?.headwords) ? entry.headwords : []).slice(0, 2)) {
-        const source = Array.isArray(headword?.sources) ? headword.sources[0] : null;
-        const chain = Array.isArray(entry?.inflectionRuleChainCandidates) ? entry.inflectionRuleChainCandidates.length : 0;
-        parts.push(`${headword?.term}[from "${source?.originalText}", classes ${JSON.stringify(headword?.wordClasses ?? null)}, inflection chains ${chain}]`);
-      }
-    }
+function gsmPopupFlagForJitenLookupKeys(lookupKeys) {
+  for (const key of lookupKeys) {
+    const popupFlag = localVocabulary.popupGradingFlag(key);
+    if (popupFlag) return popupFlag;
   }
-  return parts.slice(0, 4).join('; ') || 'no dictionary entries';
+  return null;
 }
 
-let gsmYomitanHitLogCount = 0; // GSM_MATCHTRACE
-function gsmExtractYomitanHeadwords(response, requestedWords) {
-  const responseItems = Array.isArray(response) ? response : [response];
-  const result = new Map();
-  for (let i = 0; i < requestedWords.length; i++) result.set(requestedWords[i], []);
-  for (const item of responseItems) {
-    if (!item || typeof item !== 'object') continue;
-    const index = Number.isInteger(item.index) ? item.index : (responseItems.length === 1 ? 0 : -1);
-    const requested = requestedWords[index];
-    if (!requested) continue;
-    const candidates = result.get(requested) || [];
-    // GSM_EXACTWORD: prevent a shorter prefix from deconjugating a word that exists as-is.
-    const hasExactEntry = (Array.isArray(item.dictionaryEntries) ? item.dictionaryEntries : []).some(entry =>
-      entry && entry.type === 'term' && (Array.isArray(entry.headwords) ? entry.headwords : []).some(headword =>
-        String(headword?.term || '').normalize('NFKC').trim() === requested
-        && (Array.isArray(headword.sources) ? headword.sources : []).some(source => source && typeof source === 'object'
-          && String(source.originalText || '').normalize('NFKC') === requested)));
-    for (const entry of (Array.isArray(item.dictionaryEntries) ? item.dictionaryEntries : [])) {
-      if (!entry || entry.type !== 'term') continue;
-      const headwords = Array.isArray(entry.headwords) ? entry.headwords : [];
-      for (const headword of headwords) {
-        const term = String(headword?.term || '').normalize('NFKC').trim();
-        if (!term || term === requested || candidates.includes(term)) continue;
-        // Require the lookup result to have an actual inflection path. This avoids
-        // treating unrelated fuzzy/reading matches as deconjugation candidates.
-        const sources = Array.isArray(headword.sources) ? headword.sources : [];
-        const coversRequested = sources.some(source => source && typeof source === 'object'
-          && String(source.originalText || '').normalize('NFKC') === requested);
-        const isDeinflected = sources.some(source => {
-          if (!source || typeof source !== 'object') return false;
-          const original = String(source.originalText || '').normalize('NFKC');
-          const deinflected = String(source.deinflectedText || '').normalize('NFKC');
-          // GSM_DECONJGUARD: the text must have been changed by deinflection; an unchanged match is a
-          // reading/orthography match (したい -> 死体), not a deconjugation.
-          return original === requested && deinflected.length > 0 && deinflected !== original;
-        }) || (Array.isArray(entry.inflectionRuleChainCandidates) && entry.inflectionRuleChainCandidates.some(chain =>
-          Array.isArray(chain?.inflectionRules) && chain.inflectionRules.length > 0)
-          && (coversRequested || !hasExactEntry));
-        if (isDeinflected || gsmSuruPrefixHeadword(requested, headword, sources)
-            || gsmYomitanParticlePrefixMatch(requested, headword, sources)) candidates.push(term); // GSM_SURUPREFIX
-      }
-    }
-    result.set(requested, candidates.slice(0, 100));
-  }
-  return result;
+function gsmAnkiStateForJitenLookupKey(lookupKey) {
+  if (!lookupKey) return null;
+
+  // Explicit popup flags take priority over card states. A blacklist is a hard
+  // stop: do not inspect this word's Anki state or Anki tag indexes afterwards.
+  const popupFlag = localVocabulary.popupGradingFlag(lookupKey);
+  if (popupFlag) return popupFlag.flag === 'blacklist' ? [3] : [5];
+
+  if (userSettings.wordStateMode === 'jiten') return null;
+  if (!localVocabulary.hasAnkiSpelling(lookupKey)) return null;
+  const state = localVocabulary.ankiOverride(lookupKey);
+  return Array.isArray(state) && state.length ? state.slice() : null;
 }
-
-// Yomitan is embedded in GSM Overlay. The renderer calls its existing
-// window.gsmYomitanBridge.termEntries() bridge; main.js only persists results
-// and matches the returned dictionary candidates against Anki.
-ipcMain.handle('gsm-anki-deconj-needed', (_event, { spellings } = {}) => {
-  if (userSettings.wordStateMode === 'jiten' || !Array.isArray(spellings)) return [];
-  return [...new Set(spellings.slice(0, 5000)
-    .map(raw => String(raw || '').normalize('NFKC').trim()).filter(Boolean))]
-    .filter(spelling => !localVocabulary.hasAnkiSpelling(spelling)
-      && gsmLooksInflectedForLookup(spelling)
-      && !gsmYomitanDeconjCache.has(spelling));
-});
-
-ipcMain.handle('gsm-anki-cache-yomitan-responses', (_event, { responses } = {}) => {
-  if (!Array.isArray(responses)) return { saved: 0 };
-  let saved = 0;
-  for (const item of responses.slice(0, 100)) {
-    const word = String(item?.word || '').normalize('NFKC').trim();
-    if (!word || !Object.prototype.hasOwnProperty.call(item || {}, 'response')) continue;
-    const extracted = gsmExtractYomitanHeadwords(item.response, [word]);
-    if (!extracted.has(word)) continue;
-    if (!(extracted.get(word) || []).length && gsmYomitanMissLogCount < 15) { // GSM_SURUPREFIX
-      gsmYomitanMissLogCount++;
-      console.log(`[AnkiStates] no deconjugation candidate for ${word}: ${gsmDescribeYomitanMiss(item.response)}`);
-    }
-    if ((extracted.get(word) || []).length && gsmYomitanHitLogCount < 30) { // GSM_MATCHTRACE
-      gsmYomitanHitLogCount++;
-      console.log(`[AnkiStates] Yomitan candidates for ${word}: ${JSON.stringify(extracted.get(word).slice(0, 8))}`);
-    }
-    gsmYomitanDeconjCache.set(word, extracted.get(word) || []);
-    saved++;
-  }
-  if (saved) gsmScheduleYomitanDeconjCacheWrite();
-  return { saved };
-});
 
 // GSM_TAGRULES: renderer fetches the style rules and the per-word tag matches.
-ipcMain.handle('gsm-anki-tag-styles', () => ({ revision: gsmTagRulesRevision, rules: gsmTagRules }));
-ipcMain.handle('gsm-anki-tag-matches', (_event, { spellings } = {}) => {
+ipcMain.handle('gsm-anki-tag-styles', () => ({
+  revision: gsmTagRulesRevision,
+  rules: gsmTagRules,
+  dailyReviewMarker: { ...gsmDailyReviewMarker },
+}));
+ipcMain.handle('gsm-anki-tag-matches', (_event, { tokens } = {}) => {
   gsmEnsureDisplayCache(localVocabularyConfig());
-  const result = Object.create(null);
-  if (userSettings.wordStateMode === 'jiten' || !Array.isArray(spellings) || !gsmTagRules.length) return result;
-  for (const raw of spellings.slice(0, 5000)) {
-    const spelling = String(raw || '').normalize('NFKC').trim();
-    if (!spelling) continue;
-    let matches = localVocabulary.tagRuleIndexes(spelling);
-    if (!matches.length && !localVocabulary.hasAnkiSpelling(spelling) && gsmLooksInflectedForLookup(spelling)) {
-      // Same rule as display states: the first Yomitan candidate that exists in Anki decides.
-      for (const candidate of (gsmYomitanDeconjCache.get(spelling) || [])) {
-        if (!localVocabulary.hasAnkiSpelling(candidate)) continue;
-        matches = localVocabulary.tagRuleIndexes(candidate);
-        break;
-      }
-    }
-    if (matches.length) result[spelling] = matches;
-  }
-  return result;
+  if (!Array.isArray(tokens)) return [];
+  return tokens.slice(0, 5000).map(raw => {
+    const token = gsmNormalizeJitenLookupToken(raw);
+    const lookupKey = token.lookupKey;
+    if (!lookupKey || userSettings.wordStateMode === 'jiten' || !gsmTagRules.length) return [];
+    // A popup blacklist is a hard exclusion from all per-word Anki tag lookups.
+    if (localVocabulary.popupGradingFlag(lookupKey)?.flag === 'blacklist') return [];
+    const matches = localVocabulary.tagRuleIndexes(lookupKey);
+    return matches?.length ? matches : [];
+  });
 });
 ipcMain.handle('gsm-anki-tag-open-config', () => { gsmOpenTagRulesFile(); return GSM_TAG_RULES_PATH; });
 
@@ -1528,6 +1573,7 @@ function gsmTagRulesPayload() {
   return {
     rules: gsmTagRules.map(rule => ({ ...rule, words: localVocabulary.tagSets.get(rule.tag)?.size ?? null,
       error: localVocabulary.tagStatus.get(rule.tag)?.error || '' })),
+    dailyReviewMarker: { ...gsmDailyReviewMarker },
     errors: gsmTagRuleErrors,
     path: GSM_TAG_RULES_PATH,
     states: localVocabulary.ankiStateMap instanceof Map ? localVocabulary.ankiStateMap.size : 0,
@@ -1536,15 +1582,17 @@ function gsmTagRulesPayload() {
   };
 }
 ipcMain.handle('gsm-anki-tag-rules-get', () => { gsmLoadTagRules(); return gsmTagRulesPayload(); });
-ipcMain.handle('gsm-anki-tag-rules-save', (_event, { rules } = {}) => {
+ipcMain.handle('gsm-anki-tag-rules-save', (_event, { rules, dailyReviewMarker } = {}) => {
   if (!Array.isArray(rules)) return { ok: false, errors: ['rules must be a list'] };
   const { rules: valid, errors } = gsmValidateTagRules({ rules });
   if (errors.length) return { ok: false, errors };
+  const marker = dailyReviewMarker === undefined
+    ? { ...gsmDailyReviewMarker } : gsmValidateDailyReviewMarker(dailyReviewMarker);
   try {
     const clean = valid.map(({ tag, color, style, thickness, position, opacity, enabled }) =>
       ({ tag, color, style, thickness, position, opacity, enabled }));
     const temp = `${GSM_TAG_RULES_PATH}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify({ _help: GSM_TAG_DEFAULT_FILE._help, rules: clean }, null, 2) + '\n', 'utf8');
+    fs.writeFileSync(temp, JSON.stringify({ _help: GSM_TAG_DEFAULT_FILE._help, dailyReviewMarker: marker, rules: clean }, null, 2) + '\n', 'utf8');
     fs.renameSync(temp, GSM_TAG_RULES_PATH);
   } catch (error) {
     return { ok: false, errors: [`could not write the rules file: ${String(error?.message || error).slice(0, 120)}`] };
@@ -1553,33 +1601,29 @@ ipcMain.handle('gsm-anki-tag-rules-save', (_event, { rules } = {}) => {
   return { ok: true, ...gsmTagRulesPayload() };
 });
 
-ipcMain.handle('gsm-anki-display-states', async (_event, { spellings } = {}) => {
+ipcMain.handle('gsm-anki-display-states', async (_event, { tokens, debugText } = {}) => {
   gsmEnsureDisplayCache(localVocabularyConfig());
-  if (userSettings.wordStateMode === 'jiten' || !Array.isArray(spellings)) return {};
-  const result = Object.create(null);
-  const normalized = [...new Set(spellings.slice(0, 5000).map(raw => String(raw || '').normalize('NFKC').trim()).filter(Boolean))];
-  for (const spelling of normalized) {
-    // Exact visible spelling always wins over a deconjugated candidate.
-    if (localVocabulary.hasAnkiSpelling(spelling)) {
-      const exactState = localVocabulary.ankiOverride(spelling, '');
-      if (Array.isArray(exactState) && exactState.length) result[spelling] = exactState;
-      continue;
-    }
-    if (!gsmLooksInflectedForLookup(spelling)) continue;
-    const matchingCandidates = [];
-    for (const candidate of (gsmYomitanDeconjCache.get(spelling) || [])) {
-      if (!localVocabulary.hasAnkiSpelling(candidate)) continue;
-      const state = localVocabulary.ankiOverride(candidate, '');
-      if (Array.isArray(state) && state.length) matchingCandidates.push({ candidate, state });
-    }
-    // Yomitan orders its deinflected candidates by lookup relevance. Prefer the
-    // first candidate that exists in Anki instead of rejecting a valid match
-    // merely because a broader dictionary form (e.g. 話す) also exists.
-    if (matchingCandidates.length) {
-      result[spelling] = matchingCandidates[0].state;
-    }
+  if (!Array.isArray(tokens)) return [];
+
+  const lookupTokens = tokens.slice(0, 5000).map(gsmNormalizeJitenLookupToken);
+  if (typeof debugText === 'string' && debugText.includes('徐々に')) {
+    console.log('[AnkiStates] Jiten headword input for 徐々に:', JSON.stringify({
+      textContext: debugText.slice(Math.max(0, debugText.indexOf('徐々に') - 20), debugText.indexOf('徐々に') + 28),
+      tokens: lookupTokens.filter((token, index) => token.spelling.includes('徐々')
+        || lookupTokens[index - 1]?.spelling.includes('徐々')
+        || lookupTokens[index + 1]?.spelling.includes('徐々')),
+    }));
   }
-  return result;
+
+  // The result is indexed by token position rather than surface spelling. This
+  // preserves the parser's contextual headword if the same visible form occurs
+  // more than once in a sentence with different grammatical roles.
+  return lookupTokens.map(token => {
+    if (!token.lookupKey) return null;
+    const state = gsmAnkiStateForJitenLookupKey(token.lookupKey);
+    gsmLogJitenAnkiResolution(token, state);
+    return state;
+  });
 });
 
 ipcMain.handle('gsm-local-vocabulary-status', () => {
@@ -1633,7 +1677,10 @@ ipcMain.on('gsm-jiten-grade-stage', (event, stage) => {
   if (gradingDiagnosticStages.has(stage)) recordOverlayDiagnostic(`grade-${stage}`);
   event.returnValue = true;
 });
-
+ipcMain.on('gsm-renderer-debug', (_event, message) => {
+  if (typeof message !== 'string') return;
+  console.log(`[GSM RendererDebug] ${message.slice(0, 4000)}`);
+});
 // GSM_ANKI_POPUP_GRADING_V1: Yomitan popup grading is routed to the active GSM Anki profile.
 // GSM_ANKI_POPUP_TARGETED_REFRESH_V1: update one spelling in the display-state cache.
 // Targeted updates are serialized, and collection-wide refreshes wait for them so
@@ -1651,7 +1698,11 @@ function refreshOneAnkiPopupEntry(args = {}) {
       localVocabulary.ankiStatesError = '';
       localVocabulary.ankiStatesSource = 'anki-targeted';
       gsmTagRulesRevision++;
-      notifyAnkiPopupGradingStateChanged();
+      notifyAnkiPopupGradingStateChanged({
+        popupGradingRefresh: true,
+        term: result.term,
+        reading: result.reading,
+      });
       return { ok: true, ...result };
     } catch (error) {
       const message = String(error?.message || error).slice(0, 200);
@@ -1664,11 +1715,19 @@ function refreshOneAnkiPopupEntry(args = {}) {
   return task;
 }
 
-function notifyAnkiPopupGradingStateChanged() {
+function notifyAnkiPopupGradingStateChanged(options = {}) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('gsm-anki-popup-state-changed');
+    mainWindow.webContents.send('gsm-anki-popup-state-changed', options);
   }
 }
+
+ipcMain.handle('gsm-anki-popup-grade-status', async (_event, args = {}) => {
+  try {
+    return await localVocabulary.popupGradeStatus(localVocabularyConfig(), args || {});
+  } catch (error) {
+    return { eligible: false, reason: 'error', message: String(error?.message || error).slice(0, 220) };
+  }
+});
 
 ipcMain.handle('gsm-anki-popup-grade', async (_event, args = {}) => {
   const result = await localVocabulary.gradePopupWord(localVocabularyConfig(), args || {});
@@ -1712,7 +1771,10 @@ ipcMain.handle('gsm-anki-popup-set-flag', (_event, args = {}) => {
     args?.term, args?.reading, args?.flag, args?.action || 'add'
   );
   gsmTagRulesRevision++;
-  notifyAnkiPopupGradingStateChanged();
+  // Reparse the current Jiten text after a local flag change. A state-only
+  // redraw can leave a stale local blacklist class behind when the previous
+  // override had no underlying Anki state for the same lookup key.
+  notifyAnkiPopupGradingStateChanged({ reparse: true });
   return { ok: true, ...result };
 });
 
@@ -7722,10 +7784,6 @@ function updateTrayMenu() {
       label: 'Jiten Reader Settings',
       click: () => openJitenReaderSettings()
     },
-    {
-      label: 'Anki Tag Styles (opens file)', // GSM_TAGRULES
-      click: () => gsmOpenTagRulesFile()
-    },
     ...(isDev ? [
       {
         label: 'Open DevTools',
@@ -8587,6 +8645,7 @@ async function startOverlayAppImpl() {
     // received during page load cannot be undone by Electron's initial show.
     show: false,
   });
+
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     recordOverlayDiagnostic('renderer-gone', { reason: details.reason, exitCode: details.exitCode });
@@ -8699,7 +8758,6 @@ async function startOverlayAppImpl() {
   ipcMain.on('magpie-pointer-hit', (event, reply) => {
     if (event.sender === mainWindow?.webContents) magpieSession?.handleHit(reply);
   });
-
   ipcMain.on('text-hover-ignore', (event, ignore, clickThroughText = true) => {
     if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
     if (event.sender !== mainWindow?.webContents || typeof ignore !== 'boolean') return;

@@ -38,6 +38,9 @@
   }
   
   html {
+    /* Tiny nontransparent pixel coverage prevents Windows from passing mouse
+       input through transparent parts of this frameless Electron window. */
+    background-color: rgba(0, 0, 0, 0.005) !important;
     --gsm-furigana-scale: 0.55;
     --gsm-furigana-offset-y: -2px;
     --gsm-furigana-color: #ffffff;
@@ -1917,9 +1920,27 @@ background: rgba(202, 12, 12, 0.692);
     window.GsmJitenHighlight?.refresh();
     applyJitenHighlightingForLines(lastJitenHighlightLines, lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
   });
-  ipcRenderer.on('gsm-anki-popup-state-changed', () => {
+  ipcRenderer.on('gsm-anki-popup-state-changed', (_event, options = {}) => {
+    // A successful rating refreshes the Anki cache asynchronously. Notify the
+    // open Yomitan popup only after that refresh is complete, so its buttons
+    // are recalculated from the new scheduling state rather than a stale timer.
+    if (options?.popupGradingRefresh === true) {
+      const message = { type: 'gsm-jiten-grading-state-changed' };
+      for (const frame of getYomitanGradingTargetFrames()) {
+        try { frame.contentWindow?.postMessage(message, '*'); } catch (_) { /* ignore */ }
+      }
+    }
     if (!jitenHighlightingEnabled) return;
     const highlighter = window.GsmJitenHighlight;
+    // Local flag changes can uncover the original Jiten/Anki card state. A full
+    // parse rebuilds the base token classes before the Anki override is reapplied,
+    // avoiding a stale blacklist/never-forget underline when the new lookup key
+    // has no cached Anki state of its own.
+    if (options?.reparse === true && Array.isArray(lastJitenHighlightLines)
+        && lastJitenHighlightLines.length > 0 && typeof highlighter?.refresh === 'function') {
+      highlighter.refresh(lastJitenHighlightLines);
+      return;
+    }
     if (typeof highlighter?.refreshVisibleStates === 'function') {
       void highlighter.refreshVisibleStates().catch((error) => {
         console.warn('[AnkiStates] Could not redraw current word states:', error?.message || error);
@@ -2412,6 +2433,73 @@ background: rgba(202, 12, 12, 0.692);
   // Grading no longer reads any settings from Jiten Reader.
   function requestJitenReaderGradingSettings() {}
 
+  // Keep the SRS state of the actual Jiten-underlined token alongside the
+  // Yomitan popup. The popup's dictionary headword can sometimes resolve to an
+  // Anki card even when the source token's underline is explicitly `new`; in
+  // that case the underline must win for popup status and grading.
+  document.addEventListener('pointerover', (event) => {
+    const box = event.target?.closest?.('[data-gsm-jiten-headword]');
+    if (box) window.__gsmLastHoveredJitenWordBox = box;
+  }, true);
+
+  function gsmNormalizeJitenPopupMatch(value, isReading = false) {
+    let text = String(value || '').normalize('NFKC').trim();
+    if (!isReading) text = text.replace(/\p{White_Space}+/gu, '');
+    if (isReading) {
+      text = Array.from(text, character => {
+        const codePoint = character.codePointAt(0);
+        return codePoint >= 0x30A1 && codePoint <= 0x30F6
+          ? String.fromCodePoint(codePoint - 0x60) : character;
+      }).join('');
+    }
+    return text;
+  }
+
+  function gsmIsNewJitenUnderlineForPopup(term, reading) {
+    const wantedTerm = gsmNormalizeJitenPopupMatch(term);
+    const wantedReading = gsmNormalizeJitenPopupMatch(reading, true);
+    if (!wantedTerm) return false;
+    const matches = box => {
+      if (!box || box.isConnected === false) return false;
+      if (gsmNormalizeJitenPopupMatch(box.getAttribute('data-gsm-jiten-headword')) !== wantedTerm) return false;
+      const boxReading = gsmNormalizeJitenPopupMatch(box.getAttribute('data-gsm-jiten-reading'), true);
+      return !wantedReading || !boxReading || boxReading === wantedReading;
+    };
+
+    // The most recently hovered source token is the strongest context signal.
+    // It remains available after the pointer moves from the text into Yomitan's
+    // iframe, where pointer events no longer bubble to this parent document.
+    const lastHovered = window.__gsmLastHoveredJitenWordBox;
+    if (matches(lastHovered)) return lastHovered.getAttribute('data-gsm-jiten-new') === '1';
+
+    // If no source token was recorded (for example, a keyboard-triggered lookup),
+    // only infer `new` when every exact term/reading occurrence has a new underline.
+    const alternatives = Array.from(document.querySelectorAll('[data-gsm-jiten-headword]')).filter(matches);
+    return alternatives.length > 0 && alternatives.every(box => box.getAttribute('data-gsm-jiten-new') === '1');
+  }
+
+  async function handleJitenGradeStatusRequest(data, source) {
+    const requestId = typeof data?.requestId === 'string' ? data.requestId : '';
+    if (!requestId || !source || typeof source.postMessage !== 'function') return;
+    const reply = payload => {
+      try { source.postMessage(Object.assign({ type: 'gsm-jiten-grade-status-result', requestId }, payload), '*'); }
+      catch (_) { /* ignore */ }
+    };
+    try {
+      const term = String(data?.term || '').trim();
+      const reading = String(data?.reading || '').trim();
+      if (!term) { reply({ eligible: false, reason: 'no-headword', message: 'No dictionary headword is selected.' }); return; }
+      if (gsmIsNewJitenUnderlineForPopup(term, reading)) {
+        reply({ eligible: false, reason: 'new', matchedCards: 0, message: 'new', lookupSource: 'jiten-underline' });
+        return;
+      }
+      const result = await ipcRenderer.invoke('gsm-anki-popup-grade-status', { term, reading });
+      reply(result && typeof result === 'object' ? result : { eligible: false, reason: 'invalid-response', message: 'Anki returned an invalid grading status.' });
+    } catch (error) {
+      reply({ eligible: false, reason: 'error', message: String((error && error.message) || error).slice(0, 220) });
+    }
+  }
+
   async function handleJitenGradeRequest(data, source) {
     const trace = (stage) => {
       try { ipcRenderer.sendSync('gsm-jiten-grade-stage', stage); } catch (_) { /* optional diagnostic bridge */ }
@@ -2432,8 +2520,13 @@ background: rgba(202, 12, 12, 0.692);
 
       trace('writing');
       if (data.kind === 'review') {
+        if (gsmIsNewJitenUnderlineForPopup(term, reading)) {
+          reply({ ok: false, error: 'This word is marked new by its Jiten underline. Nothing was rated.' });
+          return;
+        }
         const ease = Number(data.rating);
-        const result = await ipcRenderer.invoke('gsm-anki-popup-grade', { term, reading, ease });
+        const elapsedMs = Number.isSafeInteger(data.elapsedMs) && data.elapsedMs > 0 ? Math.min(data.elapsedMs, 600000) : 0;
+        const result = await ipcRenderer.invoke('gsm-anki-popup-grade', { term, reading, ease, elapsedMs });
         trace('written');
         reply({ ok: true, ...result });
       } else if (data.kind === 'state') {
@@ -2464,6 +2557,10 @@ background: rgba(202, 12, 12, 0.692);
     if (!isAllowedGradingMessageSource(event.source)) return;
     if (data.type === 'gsm-jiten-grading-config-request') {
       pushJitenGradingConfig(event.source);
+      return;
+    }
+    if (data.type === 'gsm-jiten-grade-status') {
+      void handleJitenGradeStatusRequest(data, event.source);
       return;
     }
     if (data.type === 'gsm-jiten-grade') {

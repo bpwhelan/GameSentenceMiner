@@ -29,6 +29,15 @@ function initializeAnkiTagStylesCard() {
     #ankiTagStylesGroup .atr-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
     #ankiTagStylesGroup .atr-status { font-size:11.5px; color:var(--gsm-text-muted); }
     #ankiTagStylesGroup .atr-empty { font-size:12px; color:var(--gsm-text-muted); padding:6px 2px; }
+    #ankiTagStylesGroup .atr-marker { margin:14px 0 8px; padding:10px; border:1px solid var(--gsm-border-subtle); border-radius:8px; background:var(--gsm-surface-1); }
+    #ankiTagStylesGroup .atr-marker-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+    #ankiTagStylesGroup .atr-marker-controls { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; }
+    #ankiTagStylesGroup .atr-marker-control { display:flex; flex-direction:column; gap:3px; font-size:11px; color:var(--gsm-text-muted); }
+    #ankiTagStylesGroup .atr-marker-control input[type="range"] { width:110px; min-width:90px; }
+    #ankiTagStylesGroup .atr-marker-control input[type="color"] { width:42px; height:30px; padding:2px; }
+    #ankiTagStylesGroup .atr-marker-control select { min-width:100px; }
+    #ankiTagStylesGroup .atr-marker-preview { display:inline-flex; align-items:center; justify-content:center; min-width:70px; min-height:30px; padding:2px 10px; border-radius:4px; color:var(--gsm-text-primary); font-size:14px; }
+    #ankiTagStylesGroup .atr-marker-status { font-size:11px; color:var(--gsm-text-muted); }
   `;
   document.head.appendChild(css);
 
@@ -47,8 +56,25 @@ function initializeAnkiTagStylesCard() {
     <div class="atr-list" id="ankiTagRuleList"></div>
     <div class="atr-actions">
       <button type="button" class="guide-button" id="ankiTagAddRule">Add tag rule</button>
-      <button type="button" class="guide-button" id="ankiTagOpenFile">Open rules file</button>
+      <button type="button" class="guide-button" id="ankiTagOpenFile">Open advanced JSON</button>
       <span class="atr-status" id="ankiTagStatus"></span>
+    </div>
+    <div class="atr-marker" id="ankiDailyReviewMarker">
+      <div class="atr-marker-head">
+        <strong>Not reviewed today marker</strong>
+        <label><input id="ankiDailyMarkerEnabled" type="checkbox"> Enabled</label>
+      </div>
+      <div class="hotkey-info">Style the marker shown on young review cards that have not been reviewed today. Due, mature and relearning cards are excluded.</div>
+      <div class="atr-marker-controls">
+        <label class="atr-marker-control">Color<input id="ankiDailyMarkerColor" type="color"></label>
+        <label class="atr-marker-control">Position<select id="ankiDailyMarkerPosition"><option value="overline">Overline</option><option value="underline">Underline</option><option value="background">Background tint</option></select></label>
+        <label class="atr-marker-control" id="ankiDailyMarkerStyleWrap">Line style<select id="ankiDailyMarkerStyle"><option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option><option value="double">Double</option></select></label>
+        <label class="atr-marker-control" id="ankiDailyMarkerThicknessWrap">Thickness <output id="ankiDailyMarkerThicknessValue">2 px</output><input id="ankiDailyMarkerThickness" type="range" min="1" max="8" step="1"></label>
+        <label class="atr-marker-control" id="ankiDailyMarkerOpacityWrap">Background opacity <output id="ankiDailyMarkerOpacityValue">30%</output><input id="ankiDailyMarkerOpacity" type="range" min="0.05" max="1" step="0.05"></label>
+        <span class="atr-marker-preview" id="ankiDailyMarkerPreview">日本語</span>
+        <button type="button" class="guide-button" id="ankiDailyMarkerReset">Reset</button>
+      </div>
+      <div class="atr-marker-status" id="ankiDailyMarkerStatus" aria-live="polite"></div>
     </div>
     <div class="hotkey-info" id="ankiTagMeta"></div>`;
   page.appendChild(group);
@@ -56,6 +82,24 @@ function initializeAnkiTagStylesCard() {
   const listEl = group.querySelector('#ankiTagRuleList');
   const statusEl = group.querySelector('#ankiTagStatus');
   const metaEl = group.querySelector('#ankiTagMeta');
+
+  const MARKER_DEFAULT = { enabled: true, color: '#d6a13a', style: 'dotted', thickness: 2, position: 'overline', opacity: 0.3 };
+  const marker = { ...MARKER_DEFAULT };
+  const markerControls = {
+    enabled: group.querySelector('#ankiDailyMarkerEnabled'),
+    color: group.querySelector('#ankiDailyMarkerColor'),
+    position: group.querySelector('#ankiDailyMarkerPosition'),
+    style: group.querySelector('#ankiDailyMarkerStyle'),
+    thickness: group.querySelector('#ankiDailyMarkerThickness'),
+    opacity: group.querySelector('#ankiDailyMarkerOpacity'),
+  };
+  const markerStyleWrap = group.querySelector('#ankiDailyMarkerStyleWrap');
+  const markerThicknessWrap = group.querySelector('#ankiDailyMarkerThicknessWrap');
+  const markerOpacityWrap = group.querySelector('#ankiDailyMarkerOpacityWrap');
+  const markerThicknessValue = group.querySelector('#ankiDailyMarkerThicknessValue');
+  const markerOpacityValue = group.querySelector('#ankiDailyMarkerOpacityValue');
+  const markerPreview = group.querySelector('#ankiDailyMarkerPreview');
+  const markerStatus = group.querySelector('#ankiDailyMarkerStatus');
 
   let model = [];
   let lastServerSig = '';
@@ -68,6 +112,9 @@ function initializeAnkiTagStylesCard() {
   const strip = (r) => ({ tag: r.tag, color: r.color, style: r.style, thickness: r.thickness,
     position: r.position, opacity: r.opacity, enabled: r.enabled });
   const sigOf = (rules) => JSON.stringify((rules || []).map(strip));
+  const stripMarker = (value) => ({ enabled: value.enabled !== false, color: value.color, style: value.style,
+    thickness: value.thickness, position: value.position, opacity: value.opacity });
+  const sigPayload = (payload) => JSON.stringify({ rules: sigOf(payload.rules), marker: stripMarker(payload.dailyReviewMarker || MARKER_DEFAULT) });
   const clamp = (value, lo, hi, fallback) => {
     const n = Number(value);
     return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
@@ -94,6 +141,56 @@ function initializeAnkiTagStylesCard() {
     }
   }
 
+  function colorWithAlpha(hex, alpha) {
+    const value = hex.slice(1);
+    const r = Number.parseInt(value.slice(0, 2), 16);
+    const g = Number.parseInt(value.slice(2, 4), 16);
+    const b = Number.parseInt(value.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function applyMarkerControls() {
+    markerControls.enabled.checked = marker.enabled !== false;
+    markerControls.color.value = /^#[0-9a-f]{6}$/i.test(marker.color) ? marker.color : MARKER_DEFAULT.color;
+    markerControls.position.value = ['underline', 'overline', 'background'].includes(marker.position) ? marker.position : MARKER_DEFAULT.position;
+    markerControls.style.value = ['solid', 'dashed', 'dotted', 'double'].includes(marker.style) ? marker.style : MARKER_DEFAULT.style;
+    markerControls.thickness.value = String(clamp(marker.thickness, 1, 8, MARKER_DEFAULT.thickness));
+    markerControls.opacity.value = String(clamp(marker.opacity, 0.05, 1, MARKER_DEFAULT.opacity));
+    updateMarkerPreview();
+  }
+
+  function updateMarkerPreview() {
+    const background = marker.position === 'background';
+    markerStyleWrap.style.display = background ? 'none' : '';
+    markerThicknessWrap.style.display = background ? 'none' : '';
+    markerOpacityWrap.style.display = background ? '' : 'none';
+    markerThicknessValue.textContent = `${marker.thickness} px`;
+    markerOpacityValue.textContent = `${Math.round(marker.opacity * 100)}%`;
+    markerPreview.style.borderTop = '0';
+    markerPreview.style.borderBottom = '0';
+    markerPreview.style.backgroundColor = '#303134';
+    if (marker.enabled) {
+      if (background) markerPreview.style.backgroundColor = colorWithAlpha(marker.color, marker.opacity);
+      else {
+        const line = `${marker.thickness}px ${marker.style} ${marker.color}`;
+        if (marker.position === 'overline') markerPreview.style.borderTop = line;
+        else markerPreview.style.borderBottom = line;
+      }
+    }
+    markerPreview.style.opacity = marker.enabled ? '1' : '0.45';
+    markerStatus.textContent = marker.enabled ? 'Applied to young cards not reviewed today.' : 'Marker disabled.';
+  }
+
+  function readMarkerControls() {
+    marker.enabled = markerControls.enabled.checked;
+    marker.color = markerControls.color.value.toLowerCase();
+    marker.position = markerControls.position.value;
+    marker.style = markerControls.style.value;
+    marker.thickness = Math.round(clamp(markerControls.thickness.value, 1, 8, MARKER_DEFAULT.thickness));
+    marker.opacity = Math.round(clamp(markerControls.opacity.value, 0.05, 1, MARKER_DEFAULT.opacity) * 100) / 100;
+    updateMarkerPreview();
+  }
+
   function scheduleSave() {
     dirty = true;
     editVersion++;
@@ -111,7 +208,7 @@ function initializeAnkiTagStylesCard() {
     saving = true;
     let result;
     try {
-      result = await ipcRenderer.invoke('gsm-anki-tag-rules-save', { rules: model.map(strip) });
+      result = await ipcRenderer.invoke('gsm-anki-tag-rules-save', { rules: model.map(strip), dailyReviewMarker: stripMarker(marker) });
     } catch (error) {
       result = { ok: false, errors: ['could not reach the overlay: ' + String((error && error.message) || error).slice(0, 100)] };
     }
@@ -121,7 +218,7 @@ function initializeAnkiTagStylesCard() {
       return;
     }
     if (version === editVersion) dirty = false;
-    lastServerSig = sigOf(result.rules);
+    lastServerSig = sigPayload(result);
     setStatus('Saved', false, true);
     updateMeta(result);
   }
@@ -263,11 +360,13 @@ function initializeAnkiTagStylesCard() {
       return;
     }
     if (!payload || !Array.isArray(payload.rules)) return;
-    const sig = sigOf(payload.rules);
+    const sig = sigPayload(payload);
     if (force || sig !== lastServerSig) {
       model = payload.rules.map((r) => ({ ...NEW_RULE(), ...strip(r) }));
+      Object.assign(marker, MARKER_DEFAULT, payload.dailyReviewMarker || {});
       lastServerSig = sig;
       render();
+      applyMarkerControls();
     }
     updateMeta(payload);
   }
@@ -282,6 +381,16 @@ function initializeAnkiTagStylesCard() {
     dirty = true;
   });
   group.querySelector('#ankiTagOpenFile').addEventListener('click', () => { void ipcRenderer.invoke('gsm-anki-tag-open-config'); });
+
+  for (const control of Object.values(markerControls)) {
+    control.addEventListener('input', () => { readMarkerControls(); scheduleSave(); });
+    control.addEventListener('change', () => { readMarkerControls(); scheduleSave(); });
+  }
+  group.querySelector('#ankiDailyMarkerReset').addEventListener('click', () => {
+    Object.assign(marker, MARKER_DEFAULT);
+    applyMarkerControls();
+    scheduleSave();
+  });
 
   window.addEventListener('focus', () => { void load(false); });
   setInterval(() => { if (!document.hidden && group.offsetParent) void load(false); }, 5000);
@@ -324,15 +433,24 @@ function initializeAnkiPopupFlagsCard() {
   if (!page || document.getElementById('ankiPopupFlagsGroup')) return;
   const style = document.createElement('style');
   style.textContent = `
+    #ankiPopupFlagsGroup .apf-add { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0; }
+    #ankiPopupFlagsGroup .apf-add input { flex:1 1 150px; min-width:130px; }
+    #ankiPopupFlagsGroup .apf-add select { flex:0 1 150px; min-width:135px; }
     #ankiPopupFlagsGroup .apf-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0; }
     #ankiPopupFlagsGroup .apf-controls input { flex:1 1 180px; min-width:140px; }
-    #ankiPopupFlagsGroup .apf-list { display:flex; flex-direction:column; gap:6px; margin:10px 0; }
-    #ankiPopupFlagsGroup .apf-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 10px;
+    #ankiPopupFlagsGroup .apf-list {
+      display:flex; flex-direction:column; gap:6px; margin:10px 0;
+      min-height:88px; max-height:360px; max-height:min(360px, 48vh);
+      overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable;
+      padding:7px; border:1px solid var(--gsm-border-subtle); border-radius:8px;
+      background:var(--gsm-surface-1);
+    }
+    #ankiPopupFlagsGroup .apf-row { display:flex; flex:0 0 auto; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 10px;
       border:1px solid var(--gsm-border-subtle); border-radius:8px; background:var(--gsm-surface-1); }
     #ankiPopupFlagsGroup .apf-word { flex:1 1 150px; min-width:120px; font-weight:600; overflow-wrap:anywhere; }
     #ankiPopupFlagsGroup .apf-meta, #ankiPopupFlagsGroup .apf-status { font-size:11.5px; color:var(--gsm-text-muted); }
     #ankiPopupFlagsGroup .apf-status.apf-bad { color:var(--gsm-danger, #e5484d); }
-    #ankiPopupFlagsGroup .apf-empty { font-size:12px; color:var(--gsm-text-muted); padding:6px 2px; }
+    #ankiPopupFlagsGroup .apf-empty { flex:0 0 auto; font-size:12px; color:var(--gsm-text-muted); padding:6px 2px; }
   `;
   document.head.appendChild(style);
   const group = document.createElement('div');
@@ -341,19 +459,37 @@ function initializeAnkiPopupFlagsCard() {
   group.id = 'ankiPopupFlagsGroup';
   group.innerHTML = `
     <h4>Anki Popup Flags</h4>
-    <div class="hotkey-info setting-callout">Words marked Blacklisted or Never Forget in the Jiten popup are saved locally by GSM. Review the list here and remove flags when they are no longer needed. These flags do not change Anki notes or tags.</div>
+    <div class="hotkey-info setting-callout">Words marked Blacklisted or Never Forget in the Jiten popup are saved locally by GSM. Add words here or remove existing flags. These flags do not change Anki notes or tags. Each spelling can have one flag; adding it again updates its flag and reading.</div>
+    <form class="apf-add" id="ankiPopupFlagsAddForm">
+      <input id="ankiPopupFlagsWord" type="text" maxlength="256" required autocomplete="off" spellcheck="false" placeholder="Word / spelling" aria-label="Word or spelling to flag">
+      <input id="ankiPopupFlagsReading" type="text" maxlength="256" autocomplete="off" spellcheck="false" placeholder="Reading (optional)" aria-label="Reading, optional">
+      <select id="ankiPopupFlagsType" aria-label="Flag type">
+        <option value="blacklist">Blacklisted</option>
+        <option value="neverForget">Never Forget</option>
+      </select>
+      <button type="submit" class="guide-button" id="ankiPopupFlagsAdd">Add word</button>
+    </form>
     <div class="apf-controls">
       <input id="ankiPopupFlagsSearch" type="search" placeholder="Filter by word or reading" aria-label="Filter popup flags">
       <button type="button" class="guide-button" id="ankiPopupFlagsReload">Refresh list</button>
       <span class="apf-status" id="ankiPopupFlagsStatus" aria-live="polite"></span>
     </div>
-    <div class="apf-list" id="ankiPopupFlagsList"></div>`;
+    <div class="apf-list" id="ankiPopupFlagsList" role="list" aria-label="Saved Anki popup flags"></div>`;
   page.appendChild(group);
   const list = group.querySelector('#ankiPopupFlagsList');
   const search = group.querySelector('#ankiPopupFlagsSearch');
   const status = group.querySelector('#ankiPopupFlagsStatus');
+  const addForm = group.querySelector('#ankiPopupFlagsAddForm');
+  const wordInput = group.querySelector('#ankiPopupFlagsWord');
+  const readingInput = group.querySelector('#ankiPopupFlagsReading');
+  const flagInput = group.querySelector('#ankiPopupFlagsType');
+  const addButton = group.querySelector('#ankiPopupFlagsAdd');
   let flags = [];
   const label = (flag) => flag === 'blacklist' ? 'Blacklisted' : 'Never Forget';
+  function setStatus(message, bad = false) {
+    status.textContent = message || '';
+    status.classList.toggle('apf-bad', !!bad);
+  }
   function render() {
     const query = search.value.normalize('NFKC').trim().toLocaleLowerCase();
     const matches = flags.filter((item) => !query || item.spelling.toLocaleLowerCase().includes(query)
@@ -365,10 +501,12 @@ function initializeAnkiPopupFlagsCard() {
       empty.textContent = query ? 'No flags match this filter.' : 'No popup flags saved yet.';
       list.append(empty);
     }
-    const shown = matches.slice(0, 300);
-    for (const item of shown) {
+    // Render the entire filtered result. The list container, not the settings page,
+    // owns scrolling so every saved word remains accessible without a row-count cap.
+    for (const item of matches) {
       const row = document.createElement('div');
       row.className = 'apf-row';
+      row.setAttribute('role', 'listitem');
       const word = document.createElement('span');
       word.className = 'apf-word';
       word.textContent = item.spelling;
@@ -386,40 +524,60 @@ function initializeAnkiPopupFlagsCard() {
           await ipcRenderer.invoke('gsm-anki-popup-set-flag', {
             term: item.spelling, reading: item.reading, flag: item.flag, action: 'remove',
           });
-          flags = flags.filter((candidate) => !(candidate.spelling === item.spelling && candidate.flag === item.flag));
+          flags = flags.filter((candidate) => candidate.spelling !== item.spelling);
           render();
-          status.textContent = 'Flag removed';
-          status.classList.remove('apf-bad');
+          setStatus('Flag removed');
         } catch (error) {
           remove.disabled = false;
-          status.textContent = 'Could not remove flag: ' + String((error && error.message) || error).slice(0, 120);
-          status.classList.add('apf-bad');
+          setStatus('Could not remove flag: ' + String((error && error.message) || error).slice(0, 120), true);
         }
       });
       row.append(word, meta, remove);
       list.append(row);
     }
     status.dataset.count = String(matches.length);
-    if (matches.length > 300) {
-      const note = document.createElement('div');
-      note.className = 'apf-empty';
-      note.textContent = 'Showing 300 of ' + matches.length + ' flags. Filter the list to find more.';
-      list.append(note);
-    }
   }
   async function load() {
-    status.textContent = 'Loading…';
-    status.classList.remove('apf-bad');
+    setStatus('Loading…');
     try {
       const payload = await ipcRenderer.invoke('gsm-anki-popup-flags-list');
       flags = Array.isArray(payload?.flags) ? payload.flags : [];
       render();
-      status.textContent = flags.length + (flags.length === 1 ? ' flag' : ' flags');
+      setStatus(flags.length + (flags.length === 1 ? ' flag' : ' flags'));
     } catch (error) {
-      status.textContent = 'Could not load flags: ' + String((error && error.message) || error).slice(0, 120);
-      status.classList.add('apf-bad');
+      setStatus('Could not load flags: ' + String((error && error.message) || error).slice(0, 120), true);
     }
   }
+  addForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const term = wordInput.value.normalize('NFKC').trim();
+    if (!term) {
+      setStatus('Enter a word or spelling first.', true);
+      wordInput.focus();
+      return;
+    }
+    addButton.disabled = true;
+    setStatus('Saving…');
+    try {
+      const flag = flagInput.value;
+      await ipcRenderer.invoke('gsm-anki-popup-set-flag', {
+        term,
+        reading: readingInput.value.trim(),
+        flag,
+        action: 'add',
+      });
+      wordInput.value = '';
+      readingInput.value = '';
+      search.value = '';
+      await load();
+      setStatus('Saved ' + term + ' as ' + label(flag));
+      wordInput.focus();
+    } catch (error) {
+      setStatus('Could not save flag: ' + String((error && error.message) || error).slice(0, 120), true);
+    } finally {
+      addButton.disabled = false;
+    }
+  });
   search.addEventListener('input', render);
   group.querySelector('#ankiPopupFlagsReload').addEventListener('click', () => { void load(); });
   window.addEventListener('focus', () => { void load(); });

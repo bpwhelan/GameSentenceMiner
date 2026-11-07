@@ -601,6 +601,55 @@ export class TextScanner extends EventDispatcher {
         return element && typeof element.closest === 'function' ? element.closest('.text-box') : null;
     }
 
+    // Read Jiten's preferred dictionary headword from the OCR glyph under the
+    // scan start. This deliberately does not require word-boundary metadata, so
+    // it also works when overlay highlighting is disabled.
+    _gsmGetPreferredHeadword(textSource) {
+        try {
+            const range = /** @type {?Range} */ (textSource?.range);
+            const startNode = range?.startContainer;
+            const box = startNode ? this._gsmBoxOf(startNode) : null;
+            const value = box?.getAttribute('data-gsm-jiten-headword');
+            return typeof value === 'string' ? value.normalize('NFKC').trim().slice(0, 128) : '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    _gsmGetPreferredReading(textSource) {
+        try {
+            const range = /** @type {?Range} */ (textSource?.range);
+            const startNode = range?.startContainer;
+            const box = startNode ? this._gsmBoxOf(startNode) : null;
+            const value = box?.getAttribute('data-gsm-jiten-reading');
+            return typeof value === 'string' ? value.normalize('NFKC').trim().slice(0, 128) : '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    _gsmNormalizePreferredReading(value) {
+        return Array.from(String(value || '').normalize('NFKC').replace(/\p{White_Space}+/gu, ''), (character) => {
+            const codePoint = character.codePointAt(0);
+            return codePoint >= 0x30a1 && codePoint <= 0x30f6
+                ? String.fromCodePoint(codePoint - 0x60)
+                : character;
+        }).join('');
+    }
+
+    _gsmGetExactPreferredEntries(dictionaryEntries, preferredHeadword, preferredReading) {
+        const normalizedHeadword = String(preferredHeadword || '').normalize('NFKC').replace(/\p{White_Space}+/gu, '').trim();
+        const normalizedReading = this._gsmNormalizePreferredReading(preferredReading);
+        if (!normalizedHeadword || !Array.isArray(dictionaryEntries)) { return []; }
+
+        return dictionaryEntries.filter((entry) => Array.isArray(entry?.headwords) && entry.headwords.some((headword) => {
+            const term = String(headword?.term || '').normalize('NFKC').replace(/\p{White_Space}+/gu, '').trim();
+            if (term !== normalizedHeadword) { return false; }
+            if (!normalizedReading) { return true; }
+            return this._gsmNormalizePreferredReading(headword?.reading) === normalizedReading;
+        }));
+    }
+
     _gsmJitenContext(textSource) {
         if (textSource instanceof TextSourceElement) { return null; }
         const range = /** @type {?Range} */ (textSource.range);
@@ -888,6 +937,8 @@ export class TextScanner extends EventDispatcher {
     _onMouseOut() {
         this._scanTimerClear();
         this.clearMousePosition();
+        // GSM: discard queued mouse movement when the pointer leaves the source.
+        this._gsmPendingMouseMove = null;
     }
 
     /**
@@ -1138,6 +1189,11 @@ export class TextScanner extends EventDispatcher {
             return;
         }
         this._lastMouseMove = e;
+        // GSM: retain the latest mouse move during an active lookup.
+        if (this._pendingLookup) {
+            this._gsmPendingMouseMove = e;
+            return;
+        }
 
         const inputInfo = this._getMatchingInputGroupFromEvent('mouse', 'mouseMove', e);
         if (inputInfo === null) { return; }
@@ -1500,14 +1556,52 @@ export class TextScanner extends EventDispatcher {
         const sentenceForwardQuoteMap = this._sentenceForwardQuoteMap;
         const sentenceBackwardQuoteMap = this._sentenceBackwardQuoteMap;
         const layoutAwareScan = this._layoutAwareScan;
+        const preferredHeadword = this._gsmGetPreferredHeadword(textSource);
+        const preferredReading = this._gsmGetPreferredReading(textSource);
         let searchText = this.getTextSourceContent(textSource, scanLength, layoutAwareScan, optionsContext.pointerType);
         if (searchText.length === 0) { return null; }
         searchText = this._gsmClipToJitenWord(textSource, searchText); // GSM_JITENBOUNDS
 
-        /** @type {import('api').FindTermsDetails} */
+        /** @type {import('api').FindTermsDetails & {preferredHeadword?: string}} */
         const details = {};
-        const {dictionaryEntries, originalTextLength} = await this._api.termsFind(searchText, details, optionsContext);
-        if (dictionaryEntries.length === 0) { return null; }
+        if (preferredHeadword) { details.preferredHeadword = preferredHeadword; }
+        const {dictionaryEntries: initialDictionaryEntries, originalTextLength} = await this._api.termsFind(searchText, details, optionsContext);
+        if (initialDictionaryEntries.length === 0) { return null; }
+
+        let dictionaryEntries = initialDictionaryEntries;
+        const normalizedPreferredHeadword = preferredHeadword.normalize('NFKC').replace(/\p{White_Space}+/gu, '').trim();
+        if (normalizedPreferredHeadword && this._gsmGetExactPreferredEntries(dictionaryEntries, normalizedPreferredHeadword, preferredReading).length === 0) {
+            const sourceKanji = Array.from(searchText.normalize('NFKC')).filter((character) => /\p{Script=Han}/u.test(character));
+            const preferredKanji = Array.from(normalizedPreferredHeadword).filter((character) => /\p{Script=Han}/u.test(character));
+            const sameLengthDifferentKanji = sourceKanji.length > 0
+                && sourceKanji.length === preferredKanji.length
+                && sourceKanji.some((character, index) => character !== preferredKanji[index]);
+
+            // Do not let a Jiten fallback lemma replace the kanji actually shown
+            // in the OCR text (e.g. 悦んでいる must not trigger a 喜ぶ lookup).
+            // A verified GSM/Yomitan spelling such as 悦ぶ still passes this check.
+            if (!sameLengthDifferentKanji && normalizedPreferredHeadword !== searchText.normalize('NFKC').replace(/\p{White_Space}+/gu, '').trim()) {
+                try {
+                    /** @type {import('api').FindTermsDetails & {preferredHeadword?: string}} */
+                    const preferredDetails = {
+                        matchType: 'exact',
+                        deinflect: false,
+                        preferredHeadword: normalizedPreferredHeadword,
+                    };
+                    const preferredResult = await this._api.termsFind(normalizedPreferredHeadword, preferredDetails, optionsContext);
+                    const exactPreferredEntries = this._gsmGetExactPreferredEntries(
+                        preferredResult.dictionaryEntries, normalizedPreferredHeadword, preferredReading,
+                    );
+                    if (exactPreferredEntries.length > 0) {
+                        // Keep the original scan results after the exact Jiten match,
+                        // so normal Yomitan alternatives remain available below it.
+                        dictionaryEntries = [...exactPreferredEntries, ...dictionaryEntries];
+                    }
+                } catch (e) {
+                    // A failed preference lookup must never break the normal popup.
+                }
+            }
+        }
 
         textSource.setEndOffset(originalTextLength, false, layoutAwareScan);
         const sentence = this._textSourceGenerator.extractSentence(
@@ -1603,6 +1697,12 @@ export class TextScanner extends EventDispatcher {
             log.error(e);
         } finally {
             this._pendingLookup = false;
+            // GSM: replay the latest pointer position after the active lookup completes.
+            const gsmPendingMouseMove = this._gsmPendingMouseMove;
+            this._gsmPendingMouseMove = null;
+            if (gsmPendingMouseMove && gsmPendingMouseMove === this._lastMouseMove) {
+                this._onMousePointerMove(gsmPendingMouseMove);
+            }
         }
     }
 

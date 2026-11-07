@@ -6,6 +6,34 @@ const { deriveJitenApiBase, DEFAULT_JITEN_PARSE_URL } = require('./jiten_cache')
 
 // GSM_UNVOICED: tag whose notes get the blue dashed underline.
 const UNVOICED_TAG = 'unvoiced';
+const YOMITAN_PREFIX_REMAINDER_RE = /^(さ|は|も|が|を|に|と|で|へ|の|ね|よ|ぞ|ぜ|な|ぅ|って|だけ|まで|から|より|こそ|しか|でも|ってば|なんて)$/u;
+
+function yomitanParticlePrefixMatch(requested, headword, sources) {
+  const term = String(headword?.term || '').normalize('NFKC');
+  if (!term || term === requested) return false;
+  return sources.some(source => {
+    if (!source || typeof source !== 'object') return false;
+    const original = String(source.originalText || '').normalize('NFKC');
+    return original === term && requested.startsWith(original)
+      && YOMITAN_PREFIX_REMAINDER_RE.test(requested.slice(original.length));
+  });
+}
+
+function yomitanMatchedPrefixCandidate(requested, headword, sources) {
+  const term = String(headword?.term || '').normalize('NFKC').trim();
+  if (!term || term === requested || !requested.startsWith(term)) return false;
+  return sources.some(source => source && typeof source === 'object'
+    && String(source.originalText || '').normalize('NFKC') === requested);
+}
+
+function yomitanInflectedPrefixCandidate(requested, headword, sources, entry) {
+  const term = String(headword?.term || '').normalize('NFKC').trim();
+  if (!term || term === requested || !requested.startsWith(term)) return false;
+  const hasInflection = Array.isArray(entry?.inflectionRuleChainCandidates)
+    && entry.inflectionRuleChainCandidates.length > 0;
+  return hasInflection && sources.some(source => source && typeof source === 'object'
+    && String(source.originalText || '').normalize('NFKC') === term);
+}
 
 function sourceId(kind, values) {
   return `${kind}:${createHash('sha256').update(JSON.stringify(values)).digest('hex')}`;
@@ -57,7 +85,7 @@ function plainReading(reading) {
     .replace(/[\s\[\]]/g, '').normalize('NFKC');
 }
 
-function ankiWords(cards, { wordField, readingField }, dueIds) {
+function ankiWords(cards, { wordField, readingField }, dueIds, reviewedTodayIds = new Set()) {
   const words = new Map();
   let fieldsFound = 0;
   for (const card of cards) {
@@ -75,13 +103,28 @@ function ankiWords(cards, { wordField, readingField }, dueIds) {
     const knownState = [tier];
     if (card.queue === -1) knownState.push(7);
     else if (dueIds.has(card.cardId) && tier !== 0) knownState.push(4);
+    // This is kept outside knownState: the Rust vocabulary store deliberately
+    // limits its SRS state IDs to 0..7. The marker is applied only by an Anki
+    // display override in the main process.
+    // The daily marker is only for young review cards, not mature reviews or relearning.
+    const notReviewedToday = card.type === 2 && card.queue === 2 && card.interval < 21
+      && !dueIds.has(card.cardId) && !reviewedTodayIds.has(card.cardId);
     const key = JSON.stringify([spelling, reading]);
     const previous = words.get(key);
-    if (!previous || tier > previous.knownState[0]
-        || (tier === previous.knownState[0] && previous.knownState.includes(7) && !knownState.includes(7))) {
-      words.set(key, { spelling, reading, knownState });
-    } else if (tier === previous.knownState[0] && knownState.includes(4) && !previous.knownState.includes(7)
-        && !previous.knownState.includes(4)) previous.knownState.push(4);
+    const replace = !previous || tier > previous.knownState[0]
+      || (tier === previous.knownState[0] && previous.knownState.includes(7) && !knownState.includes(7));
+    if (replace) {
+      words.set(key, {
+        spelling,
+        reading,
+        knownState: knownState.slice(),
+        notReviewedToday: tier === 1 && notReviewedToday,
+      });
+    } else {
+      if (previous.knownState[0] === 1 && tier === 1 && notReviewedToday) previous.notReviewedToday = true;
+      if (tier === previous.knownState[0] && knownState.includes(4)
+          && !previous.knownState.includes(7) && !previous.knownState.includes(4)) previous.knownState.push(4);
+    }
   }
   if (cards.length && !fieldsFound) throw new Error(`Anki word field "${wordField}" was not found in the selected cards`);
   return [...words.values()];
@@ -119,13 +162,25 @@ function ankiFieldContainsQuery(fieldName, value) {
   return /\s/u.test(expression) ? `"${expression}"` : expression;
 }
 
+// Apply the configured collection/deck filter to every independent Anki search.
+// Anki combines adjacent search terms with AND, so the scope and feature query
+// remain separate parenthesized expressions.
+function ankiScopedQuery(scope, query) {
+  const normalizedScope = String(scope || '').trim();
+  const normalizedQuery = String(query || '').trim();
+  if (!normalizedScope) return normalizedQuery;
+  if (!normalizedQuery) return `(${normalizedScope})`;
+  return `(${normalizedScope}) ${normalizedQuery}`;
+}
+
 function settings(config) {
   const base = deriveJitenApiBase(config.endpoint || DEFAULT_JITEN_PARSE_URL);
   const anki = { url: config.ankiUrl || 'http://127.0.0.1:8765', query: config.ankiQuery || '',
+    apiKey: String(config.ankiApiKey || '').trim(),
     wordField: config.wordField || 'Expression', readingField: config.readingField || '' };
   return { base, anki,
     jitenSource: sourceId('jiten', [base, String(config.apiKey || '').trim()]),
-    ankiSource: sourceId('anki', [anki.url, config.profile || '', anki.query, anki.wordField, anki.readingField]),
+    ankiSource: sourceId('anki', [anki.url, config.profile || '', anki.query, anki.wordField, anki.readingField, anki.apiKey]),
   };
 }
 
@@ -143,10 +198,15 @@ class LocalVocabulary {
     this.tagRules = [];          // validated rules, same order as the config file
     this.tagSets = new Map();    // tag -> Set(spelling)
     this.tagStatus = new Map();  // tag -> { notes, words, missingField, error, at }
-    this.cardIndex = new Map();  // cardId -> { note, spelling, reading } (light index; no card payloads kept)
+    this.cardIndex = new Map();  // cardId -> { note, spelling, reading } (light index used by tag refreshes).
     this.cardIndexConfigKey = ''; // Active Anki search/field scope used to build cardIndex.
-    this.ankiPopupStateOverrides = new Map(); // spelling -> { state, revision }; targeted mutations outrank older snapshots.
+    this.ankiPopupCardSnapshot = new Map(); // Temporary full-sync snapshot: spelling -> compact popup card records.
+    this.ankiPopupCardSnapshotConfigKey = '';
+    this.ankiPopupCardCacheComplete = false; // True only after a complete Anki collection snapshot is cached.
+    this.ankiPopupCardCacheConfigKey = '';
+    this.ankiPopupStateOverrides = new Map(); // spelling -> { state, cards, revision, notReviewedToday }.
     this.ankiPopupStateRevision = 0;
+    this.ankiNotReviewedTodayWords = new Set(); // display-only daily marker; never persisted as an SRS state ID.
     // GSM_ANKI_POPUP_GRADING_V1: local-only Blacklist / Never Forget flags.
     this.popupGradingFlagsPath = '';
     this.popupGradingFlags = new Map(); // normalized spelling -> { spelling, reading, flag, updatedAt }
@@ -211,28 +271,47 @@ class LocalVocabulary {
       config.readingField || '',
     ]);
   }
-  indexCards(cards, wordField, readingField, configKey) {
+  indexCards(cards, wordField, readingField, configKey, dueIds = new Set(), reviewedTodayIds = new Set()) {
     const index = new Map();
+    const popupCards = new Map();
     for (const card of cards) {
       if (!Number.isSafeInteger(card?.cardId)) continue;
       const field = card?.fields?.[wordField];
-      const reading = readingField ? card?.fields?.[readingField] : null;
-      index.set(card.cardId, {
-        note: Number.isSafeInteger(card.note) ? card.note : card.cardId,
-        spelling: field ? normalizePopupSpelling(field.value) : '',
-        reading: reading ? normalizePopupReading(reading.value) : '',
+      const readingFieldValue = readingField ? card?.fields?.[readingField] : null;
+      const spelling = field ? normalizePopupSpelling(field.value) : '';
+      const reading = readingFieldValue ? normalizePopupReading(readingFieldValue.value) : '';
+      const note = Number.isSafeInteger(card.note) ? card.note : card.cardId;
+      index.set(card.cardId, { note, spelling, reading });
+      if (!spelling || !Number.isInteger(card.type) || !Number.isInteger(card.queue)
+          || !Number.isFinite(card.interval)) continue;
+      const entries = popupCards.get(spelling) || [];
+      entries.push({
+        cardId: card.cardId,
+        note,
+        reading,
+        type: card.type,
+        queue: card.queue,
+        interval: card.interval,
+        due: dueIds instanceof Set && dueIds.has(card.cardId),
+        reviewedToday: reviewedTodayIds instanceof Set && reviewedTodayIds.has(card.cardId),
       });
+      popupCards.set(spelling, entries);
     }
     this.cardIndex = index;
     this.cardIndexConfigKey = configKey || '';
+    this.ankiPopupCardSnapshot = popupCards;
+    this.ankiPopupCardSnapshotConfigKey = configKey || '';
   }
-  ankiInvoker(url, signal) {
+  ankiInvoker(url, signal, apiKey = '') {
     return async (action, params = {}) => {
       let lastError;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
+          const headers = { 'Content-Type': 'application/json', 'Connection': 'close' };
+          const token = String(apiKey || '').trim();
+          if (token) headers.Authorization = `Bearer ${token}`;
           const response = await this.json(url, { signal, method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Connection': 'close' },
+            headers,
             body: JSON.stringify({ action, version: 6, params }) });
           if (!response || response.error || !Object.hasOwn(response, 'result')) {
             const apiError = new Error(`Anki ${action} failed: ${response?.error ? String(response.error).slice(0, 140) : 'invalid response'}`);
@@ -250,18 +329,247 @@ class LocalVocabulary {
       throw new Error(`Anki ${action}: ${String(lastError?.message || lastError)}`.slice(0, 200));
     };
   }
-  // One findCards per active tag; card IDs are resolved through the light card index.
-  // Only cards missing from the index (outside the display query, or added since the
-  // last full pass) are fetched. A tag keeps its previous set if its refresh fails.
+
+  // V1 is used only for native scheduling preview/answering. Legacy v6 remains
+  // responsible for card lookup and the rest of GSM's existing Anki integration.
+  ankiV1Invoker(anki, signal) {
+    const base = String(anki?.url || 'http://127.0.0.1:8765').replace(/\/+$/, '');
+    const endpoint = /\/api\/v1$/i.test(base) ? base : `${base}/api/v1`;
+    let sequence = 0;
+    return async (method, params = {}) => {
+      const id = `gsm-${Date.now()}-${++sequence}`;
+      const headers = { 'Content-Type': 'application/json', 'Connection': 'close' };
+      const apiKey = String(anki?.apiKey || anki?.api_key || '').trim();
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+      const payload = await this.json(endpoint, {
+        signal, method: 'POST', headers,
+        body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+      });
+      if (payload?.error) {
+        const detail = payload.error.message || payload.error.code || 'unknown API error';
+        throw new Error(`AnkiConnect V1 ${method}: ${String(detail).slice(0, 180)}`);
+      }
+      if (!payload || payload.jsonrpc !== '2.0' || payload.id !== id || !Object.hasOwn(payload, 'result')) {
+        throw new Error(`AnkiConnect V1 ${method} returned an invalid JSON-RPC response`);
+      }
+      return payload.result;
+    };
+  }
+
+  // Use the persisted collection snapshot for popup display. The actual grade
+  // still performs a live lookup immediately before writing so a duplicate added
+  // outside GSM since the last sync cannot be silently rated.
+  findCachedPopupAnkiCards(config, { term, reading } = {}) {
+    const spelling = normalizePopupSpelling(term);
+    const expectedReading = normalizePopupReading(reading);
+    if (!spelling || spelling.length > 256) return null;
+    const anki = settings(config || {}).anki;
+    const wordField = String(anki.wordField || 'Expression').trim();
+    const readingField = String(anki.readingField || '').trim();
+    if (!wordField || !this.ankiPopupCardCacheComplete
+        || this.ankiPopupCardCacheConfigKey !== this.ankiCardIndexKey(anki)) return null;
+    const entry = this.ankiStateMap instanceof Map ? this.ankiStateMap.get(spelling) : null;
+    // A complete snapshot can represent a missing word as an empty result.
+    const cards = Array.isArray(entry?.cards) ? entry.cards : [];
+    const matchedCards = cards.filter(card => !readingField || !expectedReading || card.reading === expectedReading);
+    return { anki, spelling, expectedReading, matchedCards, wordField, readingField, fromCache: true };
+  }
+
+  async findPopupAnkiCards(config, { term, reading } = {}, signal) {
+    const spelling = normalizePopupSpelling(term);
+    const expectedReading = normalizePopupReading(reading);
+    if (!spelling) throw new Error('The selected Yomitan entry has no headword');
+    if (spelling.length > 256) throw new Error('The selected headword is too long');
+    const anki = settings(config || {}).anki;
+    const wordField = String(anki.wordField || 'Expression').trim();
+    const readingField = String(anki.readingField || '').trim();
+    if (!wordField) throw new Error('The Anki word field is not configured');
+    const invoke = this.ankiInvoker(anki.url || 'http://127.0.0.1:8765', signal, anki.apiKey);
+    const query = ankiScopedQuery(anki.query, ankiFieldContainsQuery(wordField, spelling));
+    const ids = await invoke('findCards', { query });
+    if (!Array.isArray(ids) || ids.length > 20_000 || ids.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+      throw new Error('Anki returned an invalid or excessively large matching-card list');
+    }
+    const cards = [];
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      const batch = ids.slice(offset, offset + 100);
+      const result = await invoke('cardsInfo', { cards: batch });
+      if (!Array.isArray(result) || result.length !== batch.length
+          || new Set(result.map(card => card?.cardId)).size !== batch.length
+          || result.some(card => !batch.includes(card?.cardId))) {
+        throw new Error('Anki returned incomplete card details while matching the selected word');
+      }
+      cards.push(...result);
+    }
+    const matchedCards = cards.filter(card => {
+      const value = card?.fields?.[wordField];
+      if (!value || normalizePopupSpelling(value.value) !== spelling) return false;
+      if (readingField && expectedReading) {
+        const readingValue = card?.fields?.[readingField];
+        if (!readingValue || normalizePopupReading(readingValue.value) !== expectedReading) return false;
+      }
+      return true;
+    });
+    return { anki, spelling, expectedReading, matchedCards, wordField, readingField };
+  }
+
+  popupCardEligibility(card, dueNow = card?.due === true, reviewedToday = card?.reviewedToday === true) {
+    if (card?.queue === -1) return { eligible: false, reason: 'suspended', message: 'suspended' };
+    if (card?.queue === -2 || card?.queue === -3) return { eligible: false, reason: 'buried', message: 'buried' };
+    if (card?.queue === 4) return { eligible: false, reason: 'preview', message: 'filtered preview' };
+    if (card?.type === 2 && card?.queue === 2) {
+      if (!Number.isFinite(card.interval)) return { eligible: false, reason: 'unknown-state', message: 'review state unavailable' };
+      // Mature cards are normally hidden from the grader, but an overdue mature
+      // card is actionable and must be allowed to be reviewed. Due takes priority.
+      if (card.interval >= 21 && dueNow !== true) return { eligible: false, reason: 'mature', message: 'mature' };
+      // Young reviews can be graded early while being read, but only once per
+      // Anki scheduler day. A completed review removes both the daily marker and
+      // the popup rating controls until the next scheduler day.
+      if (card.interval < 21 && dueNow !== true && reviewedToday === true) {
+        return { eligible: false, reason: 'reviewed-today', message: 'reviewed today' };
+      }
+      return { eligible: true, kind: 'review' };
+    }
+    // A review that was answered Again becomes a relearning card. Keep those
+    // eligible so the same word can be rated again when it appears in another sentence.
+    if (card?.type === 3 && (card?.queue === 1 || card?.queue === 3)) {
+      return { eligible: true, kind: 'relearning' };
+    }
+    if (card?.type === 0 || card?.queue === 0) return { eligible: false, reason: 'new', message: 'new' };
+    if (card?.type === 1) return { eligible: false, reason: 'learning', message: 'learning' };
+    return { eligible: false, reason: 'ineligible', message: 'not eligible' };
+  }
+
+  async popupGradeStatus(config, args = {}) {
+    const controller = new AbortController();
+    try {
+      const localFlag = this.popupGradingFlag(args?.term);
+      if (localFlag) {
+        const reason = localFlag.flag === 'blacklist' ? 'blacklist' : 'never-forget';
+        return { eligible: false, reason, matchedCards: 0,
+          localFlag: { flag: localFlag.flag, spelling: localFlag.spelling },
+          message: reason === 'blacklist' ? 'blacklisted' : 'never forget' };
+      }
+
+      // Mirror the exact fallback used by ankiOverride(): when the loaded Anki
+      // display-state map has no entry for any spelling/reading candidate, the
+      // renderer marks the word as `new` ([0]). Trust that existing visual-state
+      // decision and return it immediately; do not resolve cards or ask the V1
+      // scheduler for a preview. This also covers words absent from the Anki
+      // collection, which have no explicit map entry at all.
+      const cachedSpelling = normalizePopupSpelling(args?.term);
+      const displayCandidates = this.ankiKeyCandidates(cachedSpelling);
+      const plain = plainReading(args?.reading);
+      const stateForDisplayKey = candidate => {
+        const override = this.ankiPopupStateOverrides instanceof Map
+          ? this.ankiPopupStateOverrides.get(candidate) : null;
+        const overrideState = Array.isArray(override?.state) ? override.state
+          : (Array.isArray(override) ? override : null);
+        if (overrideState) return overrideState;
+        const cached = this.ankiStateMap instanceof Map ? this.ankiStateMap.get(candidate) : null;
+        return Array.isArray(cached) ? cached : cached?.state;
+      };
+      let displayState = null;
+      for (const candidate of displayCandidates) {
+        const candidateState = stateForDisplayKey(candidate);
+        if (Array.isArray(candidateState)) { displayState = candidateState; break; }
+      }
+      if (!displayState && plain) {
+        const readingState = stateForDisplayKey(plain);
+        if (Array.isArray(readingState)) displayState = readingState;
+      }
+      const hasDisplayStateCache = this.ankiStateMap instanceof Map;
+      const cachedNew = (Array.isArray(displayState) && displayState[0] === 0)
+        || (hasDisplayStateCache && !displayState);
+      if (cachedNew) {
+        return { eligible: false, reason: 'new', matchedCards: 0, message: 'new', lookupSource: 'display-cache' };
+      }
+
+      const resolved = this.findCachedPopupAnkiCards(config, args)
+        || await this.findPopupAnkiCards(config, args, controller.signal);
+      const count = resolved.matchedCards.length;
+      if (count === 0) {
+        return { eligible: false, reason: 'no-match', matchedCards: 0,
+          message: `No exact Anki card matches \"${resolved.spelling}\" in the configured search scope.` };
+      }
+      if (count > 1) {
+        return { eligible: false, reason: 'multiple', matchedCards: count,
+          message: `${count} Anki cards match \"${resolved.spelling}\". Grading is disabled because the popup must identify exactly one card. Narrow the Anki search or set a reading field.` };
+      }
+      const card = resolved.matchedCards[0];
+      const invoke = resolved.fromCache ? null : this.ankiInvoker(
+        resolved.anki.url || 'http://127.0.0.1:8765', controller.signal, resolved.anki.apiKey,
+      );
+      // Cached cards carry both the due and reviewed-today bits. For a live
+      // fallback, resolve both before deciding eligibility so a young card that
+      // was already reviewed today never receives another rating preview.
+      let dueNow = resolved.fromCache ? card.due === true : null;
+      let reviewedToday = resolved.fromCache ? card.reviewedToday === true : false;
+      if (!resolved.fromCache && card.type === 2 && card.queue === 2
+          && Number.isFinite(card.interval)) {
+        const [dueIds, reviewedTodayIds] = await Promise.all([
+          invoke('findCards', {
+            query: ankiScopedQuery(resolved.anki.query, `cid:${card.cardId} is:due`),
+          }),
+          card.interval < 21
+            ? invoke('findCards', {
+              query: ankiScopedQuery(resolved.anki.query, `cid:${card.cardId} prop:rated=0`),
+            })
+            : Promise.resolve([]),
+        ]);
+        dueNow = Array.isArray(dueIds) && dueIds.includes(card.cardId);
+        reviewedToday = Array.isArray(reviewedTodayIds) && reviewedTodayIds.includes(card.cardId);
+      }
+      const eligibility = this.popupCardEligibility(card, dueNow === true, reviewedToday);
+      if (!eligibility.eligible) {
+        return { eligible: false, reason: eligibility.reason, matchedCards: 1, message: eligibility.message };
+      }
+      const v1 = this.ankiV1Invoker(resolved.anki, controller.signal);
+      // All legacy card searches and cardsInfo calls are avoided on the cached path.
+      const prediction = await v1('scheduling.predict', { cardId: String(card.cardId) });
+      if (typeof prediction?.stateToken !== 'string' || !Array.isArray(prediction.answers)) {
+        throw new Error('AnkiConnect V1 did not return scheduling predictions for this card');
+      }
+      const intervals = {};
+      const ratings = ['again', 'hard', 'good', 'easy'];
+      for (const rating of ratings) {
+        const answer = prediction.answers.find(item => item?.rating === rating);
+        if (answer && typeof answer.label === 'string') intervals[rating] = answer.label;
+      }
+      if (!ratings.every(rating => intervals[rating])) {
+        throw new Error('AnkiConnect V1 returned incomplete Again/Hard/Good/Easy scheduling predictions');
+      }
+      const intervalDays = Number.isFinite(card.interval) ? card.interval : 0;
+      const young = eligibility.kind === 'review' && intervalDays < 21;
+      return {
+        eligible: true,
+        reason: '',
+        matchedCards: 1,
+        cardKind: eligibility.kind,
+        dueNow,
+        reviewedToday,
+        notReviewedToday: young && !dueNow && !reviewedToday,
+        young,
+        intervals,
+        lookupSource: resolved.fromCache ? 'display-cache' : 'live',
+        statusLabel: eligibility.kind === 'relearning' ? 'relearning' : (dueNow ? 'due' : 'young'),
+      };
+    } finally {
+      controller.abort();
+    }
+  }
+  // One findCards per active tag, intersected with the configured Anki query.
+  // Only cards missing from the scoped display index (for example, recently added
+  // cards) need cardsInfo. A tag keeps its previous set if its refresh fails.
   async refreshTagSets(config, invokeArg) {
     const tags = this.activeTags();
     if (!tags.length) return;
     const wordField = config.wordField || 'Expression';
-    const invoke = invokeArg || this.ankiInvoker(config.url || 'http://127.0.0.1:8765', this.controller.signal);
+    const invoke = invokeArg || this.ankiInvoker(config.url || 'http://127.0.0.1:8765', this.controller.signal, config.apiKey);
     for (const tag of tags) {
       const status = { notes: 0, words: 0, missingField: 0, error: '', at: Date.now() };
       try {
-        const ids = await invoke('findCards', { query: `tag:${tag}` });
+        const ids = await invoke('findCards', { query: ankiScopedQuery(config.query, `tag:${tag}`) });
         if (!Array.isArray(ids) || ids.length > 250_000 || ids.some(id => !Number.isSafeInteger(id))) {
           throw new Error('Anki returned an invalid card list');
         }
@@ -311,22 +619,70 @@ class LocalVocabulary {
     this.displayCache.path = cachePath;
     try {
       const saved = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-      if (saved?.version !== 1 || saved.key !== this.displayCacheKey(config)) return false;
+      if (![1, 2].includes(saved?.version) || saved.key !== this.displayCacheKey(config)) return false;
       if (!Array.isArray(saved.states) || saved.states.length > 250_000) return false;
       const map = new Map();
       for (const entry of saved.states) {
-        if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !entry[0] || !Array.isArray(entry[1])) continue;
-        const state = entry[1].filter(n => Number.isInteger(n) && n >= 0 && n <= 7);
-        if (state.length) map.set(entry[0], state);
+        if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !entry[0]) continue;
+        const raw = entry[1];
+        const rawState = Array.isArray(raw) ? raw : raw?.state;
+        if (!Array.isArray(rawState)) continue;
+        const state = rawState.filter(n => Number.isInteger(n) && n >= 0 && n <= 7);
+        if (!state.length) continue;
+        if (saved.version === 1 || Array.isArray(raw)) {
+          // Migrate the old visual-only cache in memory. A popup card lookup
+          // falls back to Anki until the next full collection snapshot.
+          map.set(entry[0], state);
+          continue;
+        }
+        const cards = Array.isArray(raw.cards) ? raw.cards.filter(card => (
+          Number.isSafeInteger(card?.cardId) && card.cardId > 0
+          && Number.isInteger(card.type) && Number.isInteger(card.queue)
+          && Number.isFinite(card.interval)
+          && typeof card.reading === 'string'
+          && typeof card.due === 'boolean'
+          && typeof card.reviewedToday === 'boolean'
+        )).map(card => ({
+          cardId: card.cardId,
+          note: Number.isSafeInteger(card.note) ? card.note : card.cardId,
+          reading: normalizePopupReading(card.reading),
+          type: card.type,
+          queue: card.queue,
+          interval: card.interval,
+          due: card.due,
+          reviewedToday: card.reviewedToday,
+        })) : [];
+        const hasUnreviewedYoungNonDueCard = cards.length === 0 || cards.some(card => (
+          card.type === 2 && card.queue === 2 && card.interval < 21
+          && !card.due && !card.reviewedToday
+        ));
+        map.set(entry[0], {
+          state, cards,
+          notReviewedToday: raw.notReviewedToday === true && state[0] === 1 && hasUnreviewedYoungNonDueCard,
+        });
       }
       if (!map.size) return false;
       this.ankiStateMap = map;
+      this.ankiNotReviewedTodayWords = new Set([...map].filter(([, value]) => (
+        value?.state?.[0] === 1 && value.notReviewedToday === true
+      )).map(([word]) => word));
+      this.ankiPopupCardCacheComplete = saved.version === 2 && saved.popupCardsComplete === true;
+      this.ankiPopupCardCacheConfigKey = this.ankiPopupCardCacheComplete
+        ? this.ankiCardIndexKey(settings(config).anki) : '';
       this.ankiStatesAt = Number.isFinite(saved.at) ? saved.at : 0;
       this.tagSets = new Map();
       for (const [tag, words] of Object.entries(saved.tags && typeof saved.tags === 'object' ? saved.tags : {})) {
         if (!Array.isArray(words)) continue;
         this.tagSets.set(tag, new Set(words.filter(word => typeof word === 'string' && word)));
       }
+      // Rebuild the lightweight lookup from the richer per-word records.
+      this.cardIndex = new Map();
+      for (const [spelling, value] of map) {
+        for (const card of Array.isArray(value?.cards) ? value.cards : []) {
+          this.cardIndex.set(card.cardId, { note: card.note, spelling, reading: card.reading });
+        }
+      }
+      this.cardIndexConfigKey = this.ankiCardIndexKey(settings(config).anki);
       this.displayCache.loadedAt = Date.now();
       return true;
     } catch { return false; }
@@ -334,8 +690,10 @@ class LocalVocabulary {
   saveDisplayCache(config) {
     const target = this.displayCache.path;
     if (!target || !(this.ankiStateMap instanceof Map) || !this.ankiStateMap.size) return;
-    const payload = JSON.stringify({ version: 1, key: this.displayCacheKey(config), at: Date.now(),
+    const payload = JSON.stringify({ version: 2, key: this.displayCacheKey(config), at: Date.now(),
+      popupCardsComplete: this.ankiPopupCardCacheComplete === true,
       states: [...this.ankiStateMap],
+      notReviewedToday: [...(this.ankiNotReviewedTodayWords instanceof Set ? this.ankiNotReviewedTodayWords : [])],
       tags: Object.fromEntries([...this.tagSets].map(([tag, set]) => [tag, [...set]])) });
     const temp = `${target}.tmp`;
     fs.mkdir(path.dirname(target), { recursive: true }, (mkdirError) => {
@@ -391,7 +749,10 @@ class LocalVocabulary {
         // requests. Retry only transport resets; never replay an API-level error.
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
-            response = await this.json(url, { signal, method: 'POST', headers: { 'Content-Type': 'application/json', 'Connection': 'close' /* GSM_ANKICLOSE */ },
+            const headers = { 'Content-Type': 'application/json', 'Connection': 'close' /* GSM_ANKICLOSE */ };
+            const apiKey = String(config.ankiApiKey || '').trim();
+            if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+            response = await this.json(url, { signal, method: 'POST', headers,
               body: JSON.stringify({ action, version: 6, params }) });
             lastError = null;
             break;
@@ -418,8 +779,9 @@ class LocalVocabulary {
       // to finding cards and resolving their unique note IDs through cardsInfo.
       let ids = null;
       let findNotesError = '';
+      const unvoicedQuery = ankiScopedQuery(config.ankiQuery, `tag:${UNVOICED_TAG}`);
       try {
-        ids = await invoke('findNotes', { query: `tag:${UNVOICED_TAG}` });
+        ids = await invoke('findNotes', { query: unvoicedQuery });
         if (!Array.isArray(ids) || ids.length > 100_000 || ids.some(id => !Number.isSafeInteger(id))) {
           throw new Error('Anki returned an invalid note list');
         }
@@ -428,7 +790,7 @@ class LocalVocabulary {
         ids = null;
       }
       if (!ids || ids.length === 0) {
-        const cardIds = await invoke('findCards', { query: `tag:${UNVOICED_TAG}` });
+        const cardIds = await invoke('findCards', { query: unvoicedQuery });
         if (!Array.isArray(cardIds) || cardIds.length > 250_000 || cardIds.some(id => !Number.isSafeInteger(id))) {
           throw new Error(`findNotes returned no notes${findNotesError ? ` (${findNotesError})` : ''}; findCards returned an invalid card list`);
         }
@@ -560,7 +922,10 @@ class LocalVocabulary {
   }
   async readAnki(config, signal) {
     const invokeOnce = async (action, params = {}) => { // GSM_ANKIRETRY
-      const response = await this.json(config.url, { signal, method: 'POST', headers: { 'Content-Type': 'application/json', 'Connection': 'close' /* GSM_ANKICLOSE */ },
+      const headers = { 'Content-Type': 'application/json', 'Connection': 'close' /* GSM_ANKICLOSE */ };
+      const token = String(config.apiKey || '').trim();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await this.json(config.url, { signal, method: 'POST', headers,
         body: JSON.stringify({ action, version: 6, params }) });
       if (!response || response.error || !Object.hasOwn(response, 'result')) throw new Error(`Anki ${action} failed`);
       return response.result;
@@ -580,12 +945,13 @@ class LocalVocabulary {
       throw new Error(`Anki ${action}${where}: ${String(lastError?.message || lastError)}`.slice(0, 200));
     };
     // The collection search and due search are independent AnkiConnect calls.
-    const [ids, due] = await Promise.all([
-      invoke('findCards', { query: config.query }),
-      invoke('findCards', { query: `${config.query ? `(${config.query}) ` : ''}is:due` }),
+    const [ids, due, reviewedToday] = await Promise.all([
+      invoke('findCards', { query: ankiScopedQuery(config.query, '') }),
+      invoke('findCards', { query: ankiScopedQuery(config.query, 'is:due') }),
+      invoke('findCards', { query: ankiScopedQuery(config.query, 'prop:rated=0') }),
     ]);
-    if (!Array.isArray(ids) || !Array.isArray(due) || ids.length > 250_000
-        || [...ids, ...due].some(id => !Number.isSafeInteger(id))) throw new Error('Anki returned an invalid card list');
+    if (!Array.isArray(ids) || !Array.isArray(due) || !Array.isArray(reviewedToday) || ids.length > 250_000
+        || [...ids, ...due, ...reviewedToday].some(id => !Number.isSafeInteger(id))) throw new Error('Anki returned an invalid card list');
     // Keep cardsInfo payloads modest: AnkiConnect may reset the connection on
     // large responses. A small bounded worker pool still reduces total latency.
     const cardBatchSize = 100;
@@ -612,23 +978,29 @@ class LocalVocabulary {
     const cards = cardResults.flat();
     // GSM_TAGRULES: keep a light cardId -> {note, spelling} index; every configured tag is
     // resolved from it with one findCards request each (no second cardsInfo pass).
-    this.indexCards(cards, config.wordField || 'Expression', config.readingField || '', this.ankiCardIndexKey(config));
+    this.indexCards(cards, config.wordField || 'Expression', config.readingField || '', this.ankiCardIndexKey(config), new Set(due), new Set(reviewedToday));
     try { await this.refreshTagSets(config, invoke); } catch { /* per-tag errors are recorded; states still load */ }
-    return ankiWords(cards, config, new Set(due));
+    return ankiWords(cards, config, new Set(due), new Set(reviewedToday));
   }
   // GSM_ANKISTATES_FIXED_V2: read Anki directly for display states, without enabling Sudachi parsing.
   async syncAnkiStates(config) {
     const targetedRevisionAtStart = this.ankiPopupStateRevision || 0;
-    const words = await this.readAnki(settings(config).anki, this.controller.signal);
+    const anki = settings(config).anki;
+    const words = await this.readAnki(anki, this.controller.signal);
     const map = new Map();
     for (const word of words) {
       const spelling = String(word.spelling || '').normalize('NFKC').trim();
       if (!spelling) continue;
+      const state = Array.isArray(word.knownState) && word.knownState.length ? word.knownState : [0];
+      const daily = state[0] === 1 && word.notReviewedToday === true;
       const previous = map.get(spelling);
-      const state = word.knownState || [0];
-      if (!previous || state[0] > previous[0]
-          || (state[0] === previous[0] && previous.includes(7) && !state.includes(7))) map.set(spelling, state.slice());
-      else if (state[0] === previous[0] && state.includes(4) && !previous.includes(7) && !previous.includes(4)) previous.push(4);
+      if (!previous || state[0] > previous.state[0]
+          || (state[0] === previous.state[0] && previous.state.includes(7) && !state.includes(7))) {
+        map.set(spelling, { state: state.slice(), notReviewedToday: daily });
+      } else if (state[0] === previous.state[0]) {
+        previous.notReviewedToday = previous.notReviewedToday || daily;
+        if (state.includes(4) && !previous.state.includes(7) && !previous.state.includes(4)) previous.state.push(4);
+      }
     }
     // Do not let a collection snapshot that began before a popup review overwrite
     // the newer targeted result. A snapshot started after the mutation is allowed
@@ -638,14 +1010,33 @@ class LocalVocabulary {
       const revision = Number.isSafeInteger(override?.revision) ? override.revision : 0;
       const state = Array.isArray(override?.state) ? override.state : (Array.isArray(override) ? override : null);
       if (revision > targetedRevisionAtStart && state) {
-        map.set(spelling, state.slice());
+        map.set(spelling, {
+          state: state.slice(),
+          cards: Array.isArray(override.cards) ? override.cards : [],
+          notReviewedToday: state[0] === 1 && override.notReviewedToday === true,
+        });
       } else {
         this.ankiPopupStateOverrides.delete(spelling);
       }
     }
+    const currentConfigKey = this.ankiCardIndexKey(anki);
+    const snapshotMatchesConfig = this.ankiPopupCardSnapshotConfigKey === currentConfigKey;
+    const notReviewedToday = new Set();
+    for (const [spelling, value] of map) {
+      const state = Array.isArray(value) ? value : value?.state;
+      if (!Array.isArray(state) || !state.length) { map.delete(spelling); continue; }
+      const snapshotCards = snapshotMatchesConfig ? this.ankiPopupCardSnapshot.get(spelling) : null;
+      const cards = Array.isArray(value?.cards) ? value.cards : (snapshotCards || []);
+      const daily = state[0] === 1 && value?.notReviewedToday === true;
+      if (daily) notReviewedToday.add(spelling);
+      map.set(spelling, { state: state.slice(), cards, notReviewedToday: daily });
+    }
     this.ankiStateMap = map;
+    this.ankiPopupCardCacheComplete = snapshotMatchesConfig;
+    this.ankiPopupCardCacheConfigKey = snapshotMatchesConfig ? currentConfigKey : '';
+    this.ankiNotReviewedTodayWords = notReviewedToday;
     this.ankiStatesError = '';
-    this.saveDisplayCache(config); // GSM_TAGRULES
+    this.saveDisplayCache(config); // GSM_TAGRULES / young-only daily marker / popup card metadata.
     return map.size;
   }
   // GSM_ANKI_POPUP_GRADING_V1: these flags are stored in GSM's data directory,
@@ -683,8 +1074,15 @@ class LocalVocabulary {
     fs.writeFileSync(temp, payload, 'utf8');
     fs.renameSync(temp, this.popupGradingFlagsPath);
   }
-  popupGradingFlag(spelling) {
-    for (const candidate of this.ankiKeyCandidates(normalizePopupSpelling(spelling))) {
+  popupGradingFlag(spelling, resolutionCandidates = []) {
+    // Keep the saved spelling untouched; callers may supply headwords from
+    // Yomitan's existing resolution pipeline when checking a surface form.
+    const candidates = [
+      ...this.ankiKeyCandidates(normalizePopupSpelling(spelling)),
+      ...(Array.isArray(resolutionCandidates) ? resolutionCandidates.flatMap(value =>
+        this.ankiKeyCandidates(normalizePopupSpelling(value))) : []),
+    ];
+    for (const candidate of candidates) {
       const flag = this.popupGradingFlags.get(candidate);
       if (flag) return flag;
     }
@@ -697,7 +1095,13 @@ class LocalVocabulary {
     if (!['blacklist', 'neverForget'].includes(flag)) throw new Error('Unknown local flag');
     if (!['add', 'remove'].includes(action)) throw new Error('Unknown local flag action');
     if (action === 'remove') {
-      this.popupGradingFlags.delete(normalized);
+      // The saved key may be an Anki lemma candidate (for example the stem of
+      // a Yomitan する-verb), so remove the matching active flag from every
+      // normalized candidate rather than only the literal popup spelling.
+      for (const candidate of this.ankiKeyCandidates(normalized)) {
+        const existing = this.popupGradingFlags.get(candidate);
+        if (existing?.flag === flag) this.popupGradingFlags.delete(candidate);
+      }
     } else {
       this.popupGradingFlags.set(normalized, {
         spelling: normalized,
@@ -709,98 +1113,91 @@ class LocalVocabulary {
     this.savePopupGradingFlags();
     return { spelling: normalized, reading: normalizePopupReading(reading), flag, action };
   }
-  async gradePopupWord(config, { term, reading, ease } = {}) {
-    const spelling = normalizePopupSpelling(term);
+  async gradePopupWord(config, { term, reading, ease, elapsedMs = 0 } = {}) {
     const rating = Number(ease);
-    if (!spelling) throw new Error('The selected Yomitan entry has no headword');
-    if (spelling.length > 256) throw new Error('The selected headword is too long');
     if (!Number.isInteger(rating) || rating < 1 || rating > 4) throw new Error('Invalid Anki rating');
-
-    const anki = settings(config || {}).anki;
-    const wordField = String(anki.wordField || 'Expression').trim();
-    const readingField = String(anki.readingField || '').trim();
-    if (!wordField) throw new Error('The Anki word field is not configured');
-
-    const expectedReading = normalizePopupReading(reading);
-    let matches = [];
-    let usedCardIndex = false;
-
-    // The regular Anki snapshot already contains the exact card IDs and field
-    // values for the active search scope. Use it first so a popup grade can go
-    // straight to answerCards instead of repeating findCards + cardsInfo.
-    if (this.cardIndex instanceof Map
-        && this.cardIndex.size > 0
-        && this.cardIndexConfigKey === this.ankiCardIndexKey(anki)) {
-      for (const [cardId, entry] of this.cardIndex) {
-        if (entry?.spelling !== spelling) continue;
-        if (readingField && expectedReading && entry.reading !== expectedReading) continue;
-        matches.push(cardId);
-      }
-      usedCardIndex = matches.length > 0;
-    }
-
     const controller = new AbortController();
-    const invoke = this.ankiInvoker(anki.url || 'http://127.0.0.1:8765', controller.signal);
     try {
-      // If the cache is cold, stale, or the word was just added, fall back to
-      // Anki's live search and validate the configured fields exactly as before.
-      if (!matches.length) {
-        const searchParts = [];
-        const scope = String(anki.query || '').trim();
-        if (scope) searchParts.push(`(${scope})`);
-        searchParts.push(ankiFieldContainsQuery(wordField, spelling));
-        const query = searchParts.join(' ');
-        const ids = await invoke('findCards', { query });
-        if (!Array.isArray(ids) || ids.length > 20_000 || ids.some(id => !Number.isSafeInteger(id))) {
-          throw new Error('Anki returned an invalid or excessively large matching-card list');
-        }
-        if (!ids.length) {
-          throw new Error(`No Anki cards were found for "${spelling}" in field "${wordField}". Check the active Anki search and word-field settings.`);
-        }
+      const localFlag = this.popupGradingFlag(term);
+      if (localFlag) throw new Error(`${localFlag.flag === 'blacklist' ? 'Blacklisted' : 'Never Forget'} words cannot be rated here. Nothing was rated.`);
+      const resolved = await this.findPopupAnkiCards(config, { term, reading }, controller.signal);
+      if (resolved.matchedCards.length === 0) {
+        throw new Error(`No exact Anki card match for \"${resolved.spelling}\".`);
+      }
+      if (resolved.matchedCards.length > 1) {
+        throw new Error(`${resolved.matchedCards.length} Anki cards match \"${resolved.spelling}\". Nothing was rated; popup grading requires exactly one matching card. Narrow the Anki search or set a reading field.`);
+      }
+      const card = resolved.matchedCards[0];
+      // Recheck due/reviewed-today state immediately before writing. This
+      // closes the race where an old popup button survives after the card was
+      // reviewed elsewhere or the background cache refresh has not completed.
+      let dueNow = false;
+      let reviewedToday = false;
+      if (card.type === 2 && card.queue === 2
+          && Number.isFinite(card.interval)) {
+        const invoke = this.ankiInvoker(
+          resolved.anki.url || 'http://127.0.0.1:8765', controller.signal, resolved.anki.apiKey,
+        );
+        const [dueIds, reviewedTodayIds] = await Promise.all([
+          invoke('findCards', {
+            query: ankiScopedQuery(resolved.anki.query, `cid:${card.cardId} is:due`),
+          }),
+          card.interval < 21
+            ? invoke('findCards', {
+              query: ankiScopedQuery(resolved.anki.query, `cid:${card.cardId} prop:rated=0`),
+            })
+            : Promise.resolve([]),
+        ]);
+        dueNow = Array.isArray(dueIds) && dueIds.includes(card.cardId);
+        reviewedToday = Array.isArray(reviewedTodayIds) && reviewedTodayIds.includes(card.cardId);
+      }
+      const eligibility = this.popupCardEligibility(card, dueNow, reviewedToday);
+      if (!eligibility.eligible) throw new Error(`${eligibility.message} Nothing was rated.`);
 
-        matches = [];
-        for (let offset = 0; offset < ids.length; offset += 100) {
-          const batch = ids.slice(offset, offset + 100);
-          const cards = await invoke('cardsInfo', { cards: batch });
-          if (!Array.isArray(cards) || cards.length !== batch.length
-              || new Set(cards.map(card => card?.cardId)).size !== batch.length
-              || cards.some(card => !batch.includes(card?.cardId))) {
-            throw new Error('Anki returned incomplete card details while matching the selected word');
-          }
-          for (const card of cards) {
-            const cardSpelling = card?.fields?.[wordField]
-              ? normalizePopupSpelling(card.fields[wordField].value) : '';
-            if (cardSpelling !== spelling) continue;
-            if (readingField && expectedReading) {
-              const cardReading = card?.fields?.[readingField]
-                ? normalizePopupReading(card.fields[readingField].value) : '';
-              if (cardReading !== expectedReading) continue;
-            }
-            matches.push(card.cardId);
-          }
-        }
+      // Recalculate immediately before writing so the token cannot be stale from
+      // the preview shown while the popup was open.
+      const v1 = this.ankiV1Invoker(resolved.anki, controller.signal);
+      const prediction = await v1('scheduling.predict', { cardId: String(card.cardId) });
+      if (typeof prediction?.stateToken !== 'string') throw new Error('AnkiConnect V1 did not return a fresh scheduling token');
+      const ratingName = ['', 'again', 'hard', 'good', 'easy'][rating];
+      const predictedAnswer = prediction.answers?.find(item => item?.rating === ratingName);
+      if (!predictedAnswer || typeof predictedAnswer.label !== 'string') {
+        throw new Error(`AnkiConnect V1 did not provide a ${ratingName} scheduling state`);
       }
-
-      if (!matches.length) {
-        const readingHint = readingField && expectedReading ? ` and reading "${reading}" in field "${readingField}"` : '';
-        throw new Error(`No exact Anki card match for "${spelling}"${readingHint}.`);
+      const elapsed = Number.isSafeInteger(elapsedMs) && elapsedMs > 0 ? Math.min(elapsedMs, 600_000) : 0;
+      // A write is never retried: a lost response may occur after Anki committed it.
+      const result = await v1('scheduling.answer', {
+        cardId: String(card.cardId),
+        rating: ratingName,
+        stateToken: prediction.stateToken,
+        elapsedMs: elapsed,
+      });
+      if (!result || String(result.cardId) !== String(card.cardId)) {
+        throw new Error('AnkiConnect V1 returned an unexpected answer result. Check the card in Anki before clicking again.');
       }
-      if (matches.length > 100) {
-        throw new Error(`This headword matches ${matches.length} Anki cards. Narrow the GSM Anki search before grading it (maximum 100 cards per click).`);
-      }
-
-      const answers = matches.map(cardId => ({ cardId, ease: rating }));
-      const result = await invoke('answerCards', { answers });
-      if (!Array.isArray(result) || result.length !== answers.length || result.some(value => value !== true)) {
-        throw new Error('Anki did not confirm that every matching card was graded');
-      }
+      if (!(this.cardIndex instanceof Map)) this.cardIndex = new Map();
+      this.cardIndex.set(card.cardId, {
+        note: Number.isSafeInteger(card.note) ? card.note : card.cardId,
+        spelling: resolved.spelling,
+        reading: resolved.readingField && card.fields?.[resolved.readingField]?.value
+          ? normalizePopupReading(card.fields[resolved.readingField].value) : '',
+      });
+      this.cardIndexConfigKey = this.ankiCardIndexKey(resolved.anki);
       return {
-        term: spelling,
-        reading: expectedReading,
+        term: resolved.spelling,
+        reading: resolved.expectedReading,
         ease: rating,
-        matchedCards: matches.length,
-        matchedCardIds: matches.slice(),
-        usedCardIndex,
+        matchedCards: 1,
+        eligibleCards: 1,
+        gradedCards: 1,
+        skippedCards: 0,
+        schedulingMethod: 'anki-connect-v1-native',
+        nextInterval: predictedAnswer.label,
+        elapsedMs: elapsed,
+        reviewId: result.reviewId || null,
+        matchedCardIds: [card.cardId],
+        gradedCardIds: [card.cardId],
+        usedCardIndex: false,
       };
     } finally {
       controller.abort();
@@ -819,14 +1216,10 @@ class LocalVocabulary {
     const readingField = String(anki.readingField || '').trim();
     if (!wordField) throw new Error('The Anki word field is not configured');
 
-    const searchParts = [];
-    const scope = String(anki.query || '').trim();
-    if (scope) searchParts.push(`(${scope})`);
-    searchParts.push(ankiFieldContainsQuery(wordField, spelling));
-    const query = searchParts.join(' ');
+    const query = ankiScopedQuery(anki.query, ankiFieldContainsQuery(wordField, spelling));
 
     const controller = new AbortController();
-    const invoke = this.ankiInvoker(anki.url || 'http://127.0.0.1:8765', controller.signal);
+    const invoke = this.ankiInvoker(anki.url || 'http://127.0.0.1:8765', controller.signal, anki.apiKey);
     try {
       // A review has already resolved the exact card IDs. Widen them from the
       // current in-memory index to include other readings of the same spelling,
@@ -840,6 +1233,10 @@ class LocalVocabulary {
           for (const [id, entry] of this.cardIndex) {
             if (entry?.spelling === spelling) unique.add(id);
           }
+        }
+        const cachedWord = this.ankiStateMap instanceof Map ? this.ankiStateMap.get(spelling) : null;
+        for (const cachedCard of Array.isArray(cachedWord?.cards) ? cachedWord.cards : []) {
+          if (Number.isSafeInteger(cachedCard?.cardId) && cachedCard.cardId > 0) unique.add(cachedCard.cardId);
         }
         knownIds = [...unique];
         if (knownIds.length > 20_000) throw new Error('Too many cards share this spelling for a targeted refresh');
@@ -864,18 +1261,32 @@ class LocalVocabulary {
       };
       const cardIdSearch = ids => `cid:${ids.join(',')}`;
 
+      // Caller-supplied IDs may come from outside the active deck/search scope.
+      // Intersect them with that scope before reading or refreshing their state.
+      if (knownIds.length > 0 && String(anki.query || '').trim()) {
+        const scopedIds = await invoke('findCards', {
+          query: ankiScopedQuery(anki.query, cardIdSearch(knownIds)),
+        });
+        if (!Array.isArray(scopedIds) || scopedIds.length > 20_000
+            || scopedIds.some(id => !Number.isSafeInteger(id))) {
+          throw new Error('Anki returned an invalid scoped card-ID list');
+        }
+        knownIds = scopedIds;
+      }
+
       if (knownIds.length > 0) {
-        // Just two local AnkiConnect requests, made concurrently. No headword
-        // search is needed after answerCards has already identified the cards.
-        const [cards, due] = await Promise.all([
+        // Fetch details and due status for the already-scoped IDs concurrently.
+        const [cards, due, reviewedToday] = await Promise.all([
           getCardDetails(knownIds),
-          invoke('findCards', { query: `${cardIdSearch(knownIds)} is:due` }),
+          invoke('findCards', { query: ankiScopedQuery(anki.query, `${cardIdSearch(knownIds)} is:due`) }),
+          invoke('findCards', { query: ankiScopedQuery(anki.query, `${cardIdSearch(knownIds)} prop:rated=0`) }),
         ]);
         exactCards = cards.filter(card => (
           card?.fields?.[wordField]
           && normalizePopupSpelling(card.fields[wordField].value) === spelling
         ));
         dueIds = new Set(Array.isArray(due) ? due : []);
+        var reviewedTodayIds = new Set(Array.isArray(reviewedToday) ? reviewedToday : []);
       } else {
         // New mined words do not have cached card IDs, so resolve their scoped
         // Anki search once, then use cid:... for the due check instead of
@@ -888,15 +1299,17 @@ class LocalVocabulary {
           if (!ids.length) {
             exactCards = [];
           } else {
-            const [cards, due] = await Promise.all([
+            const [cards, due, reviewedToday] = await Promise.all([
               getCardDetails(ids),
-              invoke('findCards', { query: `${cardIdSearch(ids)} is:due` }),
+              invoke('findCards', { query: ankiScopedQuery(anki.query, `${cardIdSearch(ids)} is:due`) }),
+              invoke('findCards', { query: ankiScopedQuery(anki.query, `${cardIdSearch(ids)} prop:rated=0`) }),
             ]);
             exactCards = cards.filter(card => (
               card?.fields?.[wordField]
               && normalizePopupSpelling(card.fields[wordField].value) === spelling
             ));
             dueIds = new Set(Array.isArray(due) ? due : []);
+            var reviewedTodayIds = new Set(Array.isArray(reviewedToday) ? reviewedToday : []);
           }
           if (exactCards.length > 0) break;
           if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 150 * (attempt + 1)));
@@ -914,6 +1327,8 @@ class LocalVocabulary {
       }
 
       let mergedState = null;
+      let notReviewedToday = false;
+      const popupCardRecords = [];
       for (const card of exactCards) {
         if (!Number.isSafeInteger(card?.cardId) || !Number.isInteger(card.type)
             || !Number.isInteger(card.queue) || !Number.isFinite(card.interval)) {
@@ -923,21 +1338,36 @@ class LocalVocabulary {
         const state = [tier];
         if (card.queue === -1) state.push(7);
         else if (dueIds.has(card.cardId) && tier !== 0) state.push(4);
+        const cardNotReviewedToday = tier === 1 && card.type === 2 && card.queue === 2
+          && card.interval < 21 && !dueIds.has(card.cardId)
+          && !(reviewedTodayIds instanceof Set && reviewedTodayIds.has(card.cardId));
 
         if (!mergedState || tier > mergedState[0]
             || (tier === mergedState[0] && mergedState.includes(7) && !state.includes(7))) {
-          mergedState = state;
-        } else if (tier === mergedState[0] && state.includes(4)
-            && !mergedState.includes(7) && !mergedState.includes(4)) {
-          mergedState.push(4);
+          mergedState = state.slice();
+          notReviewedToday = cardNotReviewedToday;
+        } else if (tier === mergedState[0]) {
+          notReviewedToday = notReviewedToday || cardNotReviewedToday;
+          if (state.includes(4) && !mergedState.includes(7) && !mergedState.includes(4)) mergedState.push(4);
         }
 
         if (!(this.cardIndex instanceof Map)) this.cardIndex = new Map();
         const readingValue = readingField ? card?.fields?.[readingField]?.value : '';
+        const normalizedCardReading = readingValue ? normalizePopupReading(readingValue) : '';
         this.cardIndex.set(card.cardId, {
           note: Number.isSafeInteger(card.note) ? card.note : card.cardId,
           spelling,
-          reading: readingValue ? normalizePopupReading(readingValue) : '',
+          reading: normalizedCardReading,
+        });
+        popupCardRecords.push({
+          cardId: card.cardId,
+          note: Number.isSafeInteger(card.note) ? card.note : card.cardId,
+          reading: normalizedCardReading,
+          type: card.type,
+          queue: card.queue,
+          interval: card.interval,
+          due: dueIds.has(card.cardId),
+          reviewedToday: reviewedTodayIds instanceof Set && reviewedTodayIds.has(card.cardId),
         });
       }
       this.cardIndexConfigKey = this.ankiCardIndexKey(anki);
@@ -946,8 +1376,18 @@ class LocalVocabulary {
       if (!(this.ankiPopupStateOverrides instanceof Map)) this.ankiPopupStateOverrides = new Map();
       const revision = (this.ankiPopupStateRevision || 0) + 1;
       this.ankiPopupStateRevision = revision;
-      this.ankiPopupStateOverrides.set(spelling, { state: targetedState.slice(), revision });
-      if (this.ankiStateMap instanceof Map) this.ankiStateMap.set(spelling, targetedState.slice());
+      this.ankiPopupStateOverrides.set(spelling, {
+        state: targetedState.slice(),
+        cards: popupCardRecords,
+        revision,
+        notReviewedToday,
+      });
+      if (this.ankiStateMap instanceof Map) {
+        this.ankiStateMap.set(spelling, { state: targetedState.slice(), cards: popupCardRecords, notReviewedToday });
+      }
+      if (!(this.ankiNotReviewedTodayWords instanceof Set)) this.ankiNotReviewedTodayWords = new Set();
+      if (notReviewedToday) this.ankiNotReviewedTodayWords.add(spelling);
+      else this.ankiNotReviewedTodayWords.delete(spelling);
       this.ankiStatesAt = Date.now();
       this.ankiStatesError = '';
       this.ankiStatesSource = 'anki-targeted';
@@ -972,30 +1412,52 @@ class LocalVocabulary {
       || (this.ankiPopupStateOverrides instanceof Map && this.ankiKeyCandidates(key).some(k => this.ankiPopupStateOverrides.has(k)))
       || !!this.popupGradingFlag(key) || this.hasTaggedSpelling(key); // GSM_TAGRULES / GSM_ANKI_POPUP_GRADING_V1
   }
+  // Resolution candidates arrive in Yomitan/Jiten relevance order. Select the
+  // first usable Anki entry so a secondary dictionary form cannot override the
+  // preferred lookup result.
+  firstAnkiResolutionMatch(candidates) {
+    if (!Array.isArray(candidates)) return null;
+    for (const candidate of candidates) {
+      if (this.hasAnkiSpelling(candidate)) return candidate;
+    }
+    return null;
+  }
   ankiOverride(spelling, reading) {
     const popupFlag = this.popupGradingFlag(spelling);
     if (popupFlag) return popupFlag.flag === 'blacklist' ? [3] : [5];
     const key = String(spelling || '').normalize('NFKC').trim();
+    const decorate = (state, matchedKey = key) => {
+      const result = Array.isArray(state) ? state.slice() : [0];
+      // State 8 exists only in this renderer-facing array. It is never stored in
+      // knownState or sent to Rust, whose persisted state IDs are restricted 0..7.
+      if (result[0] === 1 && this.ankiNotReviewedTodayWords instanceof Set
+          && this.ankiNotReviewedTodayWords.has(matchedKey) && !result.includes(8)) result.push(8);
+      return result;
+    };
     // A targeted mutation can arrive before the initial collection snapshot. Apply
     // that one word's Anki state while leaving all other words on their Jiten state.
     if (this.ankiPopupStateOverrides instanceof Map) {
       for (const candidate of this.ankiKeyCandidates(key)) {
         const targeted = this.ankiPopupStateOverrides.get(candidate);
         const targetedState = Array.isArray(targeted?.state) ? targeted.state : targeted;
-        if (Array.isArray(targetedState) && targetedState.length) return targetedState.slice();
+        if (Array.isArray(targetedState) && targetedState.length) return decorate(targetedState, candidate);
       }
     }
     if (!(this.ankiStateMap instanceof Map)) return null; // Keep Jiten states until Anki loaded successfully.
     let state = null;
+    let matchedKey = key;
+    const stateFromEntry = entry => Array.isArray(entry) ? entry
+      : (Array.isArray(entry?.state) ? entry.state : null);
     for (const candidate of this.ankiKeyCandidates(key)) {
-      state = candidate ? this.ankiStateMap.get(candidate) : null;
-      if (state) break;
+      state = candidate ? stateFromEntry(this.ankiStateMap.get(candidate)) : null;
+      if (state) { matchedKey = candidate; break; }
     }
     const plain = plainReading(reading);
-    if (!state && plain) state = this.ankiStateMap.get(plain);
-    // GSM_TAGRULES: tag styling is delivered separately (gsm-anki-tag-matches) and never encoded in the state.
-    return state ? state.slice() : [0];
+    if (!state && plain) { state = stateFromEntry(this.ankiStateMap.get(plain)); if (state) matchedKey = plain; }
+    // GSM_TAGRULES: tag styling is delivered separately (gsm-anki-tag-matches).
+    return state ? decorate(state, matchedKey) : [0];
   }
+
   async updateJitenStates(args, words) {
     const source = settings(args).jitenSource;
     this.revisions.set(source, (this.revisions.get(source) || 0) + 1);
@@ -1075,4 +1537,5 @@ class VocabularyConnection {
   close() { this.generation++; this.socket?.close(); this.socket = null; this.ready = false; }
 }
 
-module.exports = { LocalVocabulary, VocabularyConnection, jitenWords, ankiWords, sourceId };
+module.exports = { LocalVocabulary, VocabularyConnection, jitenWords, ankiWords, sourceId,
+  yomitanParticlePrefixMatch, yomitanMatchedPrefixCandidate, yomitanInflectedPrefixCandidate };
