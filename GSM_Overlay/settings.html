@@ -307,6 +307,17 @@
                     Overlay Integration
                     <span class="setting-badge badge-experimental">Experimental</span>
                   </h4>
+                  <label>
+                    <span class="label-text">
+                      Word state mode
+                      <div class="hotkey-info">Choose Jiten word states, add Anki states and tags, or use the local vocabulary parser.</div>
+                    </span>
+                    <select id="wordStateMode">
+                      <option value="jiten">Jiten only</option>
+                      <option value="jiten-anki">Local Jiten Tokenizer + Anki Support</option>
+                      <option value="local">Local vocabulary</option>
+                    </select>
+                  </label>
                   <div class="hotkey-info setting-callout">
                     To avoid unnecessary API calls, some operations are intentionally throttled to respect Jiten's API rate limits.
                   </div>
@@ -335,6 +346,13 @@
                       </div>
                     </span>
                     <input type="checkbox" id="showJitenGradingButtons" />
+                  </label>
+                  <label class="sub-option">
+                    <span class="label-text">
+                      Place Jiten Grader Buttons at Bottom
+                      <div class="hotkey-info">Move the grader buttons below the dictionary entries.</div>
+                    </span>
+                    <input type="checkbox" id="jitenGradingButtonsAtBottom" />
                   </label>
                 </div>
               </section>

@@ -84,8 +84,11 @@ function buildResolvedUserSettings(userSettings = {}) {
     pomodoroAutoStart: userSettings.pomodoroAutoStart === true,
     manualModeInactiveBehavior: normalizeManualModeInactiveBehaviorValue(userSettings.manualModeInactiveBehavior),
     enableJitenReader: userSettings.enableJitenReader !== false,
+    wordStateMode: ['jiten', 'local'].includes(String(userSettings.wordStateMode || ''))
+      ? String(userSettings.wordStateMode) : 'jiten-anki',
     jitenHighlightingEnabled: userSettings.jitenHighlightingEnabled === true,
     showJitenGradingButtons: userSettings.showJitenGradingButtons !== false,
+    jitenGradingButtonsAtBottom: userSettings.jitenGradingButtonsAtBottom === true,
     gamepadEnabled: userSettings.gamepadEnabled !== false,
     gamepadTokenMode: userSettings.gamepadTokenMode !== false,
     gamepadAutoConfirmSelection: userSettings.gamepadAutoConfirmSelection !== false,
